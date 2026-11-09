@@ -125,7 +125,7 @@ has no other way to change anything.
 are no files of its own choosing, no network, no other programs, and the
 libraries can't be replaced. What it reaches outside the module, the
 user hands it: a file or a folder they choose for it to read, and a hak
-or that folder if they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory.
+or that folder if they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory, and Moonglow holds up to 512 MB more for it (its tables, pictures, edits and files to write: [Limits](17-plugin-api.md#limits)).
 **Cancel** stops it between any two steps, even in a loop that never
 ends; `pcall` does not catch that.
 
@@ -1088,7 +1088,8 @@ return rules
   declares. It is a good first step in a plugin's own tests. Given an
   archive (`mg plugin check hello.zip`), it checks what the installer
   would, and the code as it is in the archive: do that before you send
-  one to anybody.
+  one to anybody. The code has 5 seconds to load: past them the check
+  fails, saying it ran out of time.
 - **`mg plugin run MODULE DIR COMMAND --dry-run`** prints the edits a
   command would make, as an edit file
   ([Command-line tools](11-command-line.md)), and changes nothing: run it

@@ -34,14 +34,15 @@ pub(crate) const NAMES: [&str; 11] = [
     "image:pixel",
 ];
 
-/// The most files of a folder that are listed.
+/// The most files of a folder that are listed: a folder with more is
+/// not listed at all.
 const MAX_LISTED: usize = 20_000;
 /// The most pixels a picture may have (a small file can unpack to a
 /// great many).
 const MAX_PIXELS: u64 = 1 << 26;
 
 /// A file's bytes, if it is not too large for a plugin.
-fn read(path: &Path) -> mlua::Result<Vec<u8>> {
+pub(crate) fn read(path: &Path) -> mlua::Result<Vec<u8>> {
     let shown = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let size = std::fs::metadata(path).or_else(|e| fail(format!("{shown}: {e}")))?.len();
     if size > MAX_FILE {
@@ -59,18 +60,30 @@ fn name_of(path: &Path) -> String {
 }
 
 /// The files in `dir` and the folders in it, by their paths from `dir`
-/// with `/`, sorted. Links are not followed out of it.
-fn listing(dir: &Path) -> Vec<String> {
+/// with `/`, sorted. Links are not followed out of it. A folder of more
+/// than `most` files is an error, told as soon as it is known (a part of
+/// them, whichever the system gave first, would be taken for them all),
+/// and the walk ends between two folders when `stopped` says so.
+fn listing(dir: &Path, most: usize, stopped: &dyn Fn() -> bool) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     let mut todo = vec![PathBuf::new()];
     while let Some(sub) = todo.pop() {
+        if stopped() {
+            return Err("canceled".into());
+        }
         let Ok(entries) = std::fs::read_dir(dir.join(&sub)) else { continue };
         for e in entries.flatten() {
             let Ok(kind) = e.file_type() else { continue };
             let path = sub.join(e.file_name());
             if kind.is_dir() {
                 todo.push(path);
-            } else if kind.is_file() && out.len() < MAX_LISTED {
+            } else if kind.is_file() {
+                if out.len() == most {
+                    return Err(format!(
+                        "the folder {} has more than {most} files: choose a folder within it",
+                        name_of(dir)
+                    ));
+                }
                 let parts: Vec<String> = path
                     .components()
                     .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -80,7 +93,7 @@ fn listing(dir: &Path) -> Vec<String> {
         }
     }
     out.sort();
-    out
+    Ok(out)
 }
 
 /// The file `name` (a path with `/`) of folder `dir`, and nothing outside
@@ -162,8 +175,13 @@ pub(crate) fn folder_table(lua: &Lua, s: &Rc<Shared>, dir: PathBuf) -> mlua::Res
     {
         let folder = lua.create_table()?;
         folder.set("name", name_of(&dir))?;
-        let d = dir.clone();
-        folder.set("files", lua.create_function(move |_, _: This| Ok(listing(&d)))?)?;
+        let (d, sh) = (dir.clone(), s.clone());
+        folder.set(
+            "files",
+            lua.create_function(move |_, _: This| {
+                listing(&d, MAX_LISTED, &|| sh.stopped()).or_else(fail)
+            })?,
+        )?;
         let d = dir.clone();
         folder.set(
             "bytes",
@@ -240,10 +258,14 @@ fn write(s: &Shared, dir: &Path, name: &str, bytes: Vec<u8>) -> mlua::Result<()>
             .borrow_mut()
             .push(crate::FolderWrite { dir: dir.to_path_buf(), files: Vec::new() });
     }
+    s.budget_held.keep(bytes.len())?;
     let mut folders = s.folders.borrow_mut();
     let files = &mut folders.iter_mut().find(|f| f.dir == dir).expect("added").files;
     match files.iter_mut().find(|(n, _)| n == name) {
-        Some(old) => old.1 = bytes,
+        Some(old) => {
+            s.budget_held.give_back(old.1.len());
+            old.1 = bytes;
+        }
         None => files.push((name.to_string(), bytes)),
     }
     Ok(())
@@ -346,10 +368,11 @@ pub(crate) fn hak(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     Ok(t)
 }
 
-/// A picture's pixels, rows from the top.
-fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), String> {
+/// What kind of picture bytes are: the kind given, else by how they
+/// begin.
+fn kind_of(bytes: &[u8], kind: Option<&str>) -> Result<&'static str, String> {
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
-    let kind = match kind.map(str::to_ascii_lowercase).as_deref() {
+    Ok(match kind.map(str::to_ascii_lowercase).as_deref() {
         Some("png") => "png",
         Some("tga") => "tga",
         Some("dds") => "dds",
@@ -357,7 +380,39 @@ fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), Strin
         None if bytes.starts_with(PNG) => "png",
         None if bytes.starts_with(b"DDS ") => "dds",
         None => "tga",
+    })
+}
+
+/// The width and height a picture's header declares, read before any of
+/// it is decoded (a few bytes can declare a great many pixels): refused
+/// past [`MAX_PIXELS`]. A header cut short is `(0, 0)`: decoding it says
+/// what is wrong with it.
+fn size_of(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32), String> {
+    let le16 =
+        |at: usize| bytes.get(at..at + 2).map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])));
+    let four = |at: usize| bytes.get(at..at + 4).map(|b| [b[0], b[1], b[2], b[3]]);
+    let le32 = |at: usize| four(at).map(u32::from_le_bytes);
+    let be32 = |at: usize| four(at).map(u32::from_be_bytes);
+    let size = match kind_of(bytes, kind)? {
+        // (After its signature: the IHDR chunk's length and name.)
+        "png" => (be32(16), be32(20)),
+        // (The standard header has its height first; BioWare's own, its
+        // width.)
+        "dds" if bytes.starts_with(b"DDS ") => (le32(16), le32(12)),
+        "dds" => (le32(0), le32(4)),
+        _ => (le16(12), le16(14)),
     };
+    let (Some(width), Some(height)) = size else { return Ok((0, 0)) };
+    if u64::from(width) * u64::from(height) > MAX_PIXELS {
+        return Err("the picture is too large".into());
+    }
+    Ok((width, height))
+}
+
+/// A picture's pixels, rows from the top.
+fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), String> {
+    size_of(bytes, kind)?;
+    let kind = kind_of(bytes, kind)?;
     if kind != "png" {
         let rgba = match kind {
             "dds" => mg_image::read(ResType::DDS, bytes).map(|t| t.to_rgba().top_down()),
@@ -380,8 +435,13 @@ fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), Strin
 /// `mg.image(bytes, kind?)`: a PNG, TGA or DDS picture decoded.
 pub(crate) fn image(
     lua: &Lua,
+    held: &Rc<crate::runtime::Budget>,
     (bytes, kind): (mlua::LuaString, Option<String>),
 ) -> mlua::Result<Table> {
+    let (width, height) =
+        size_of(&bytes.as_bytes(), kind.as_deref()).or_else(|e| fail(format!("mg.image: {e}")))?;
+    // (Its pixels are the host's for as long as the plugin has it.)
+    let charge = held.hold(width as usize * height as usize * 4)?;
     let (width, height, data) =
         decode(&bytes.as_bytes(), kind.as_deref()).or_else(|e| fail(format!("mg.image: {e}")))?;
     let t = lua.create_table()?;
@@ -390,7 +450,10 @@ pub(crate) fn image(
     t.set(
         "pixel",
         lua.create_function(move |_, (_, x, y): (This, f64, f64)| {
-            if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
+            let _held = &charge;
+            // (Said so that what is not a number is outside it too.)
+            let inside = x >= 0.0 && y >= 0.0 && x < f64::from(width) && y < f64::from(height);
+            if !inside {
                 return fail(format!("the picture has no pixel ({x}, {y})"));
             }
             let i = (y as usize * width as usize + x as usize) * 4;
@@ -413,7 +476,12 @@ mod tests {
         std::fs::write(dir.join("in/sub/b.txt"), "b").unwrap();
         std::fs::write(dir.join("secret.txt"), "s").unwrap();
         let root = dir.join("in");
-        assert_eq!(listing(&root), ["a.txt", "sub/b.txt"]);
+        assert_eq!(listing(&root, 2, &|| false).unwrap(), ["a.txt", "sub/b.txt"]);
+        // One file more than are listed: an error, not a list of some.
+        let e = listing(&root, 1, &|| false).unwrap_err();
+        assert_eq!(e, "the folder in has more than 1 files: choose a folder within it");
+        // And a job called off stops walking.
+        assert_eq!(listing(&root, 2, &|| true).unwrap_err(), "canceled");
         assert!(inside(&root, "a.txt").is_ok());
         assert!(inside(&root, "sub/b.txt").is_ok());
         for out in ["../secret.txt", "/etc/passwd", "sub/../../secret.txt", "", "sub", "none.txt"] {
@@ -457,5 +525,39 @@ mod tests {
         assert_eq!(again, data);
         assert!(decode(b"not a picture", None).is_err());
         assert!(decode(&png_bytes, Some("bmp")).is_err());
+    }
+
+    /// A header that declares more pixels than a plugin's picture may have
+    /// is refused by the header, before anything is decoded: a
+    /// run-length TGA of a few megabytes would otherwise be a gigabyte of
+    /// pixels before it was found too large.
+    #[test]
+    fn a_picture_too_large_is_refused_by_its_header() {
+        // A run-length true-color TGA of 16,384 × 16,384 with one packet.
+        let mut tga = vec![0u8; 18];
+        tga[2] = 10;
+        tga[12..14].copy_from_slice(&16_384u16.to_le_bytes());
+        tga[14..16].copy_from_slice(&16_384u16.to_le_bytes());
+        tga[16] = 32;
+        tga.extend_from_slice(&[0xff, 1, 2, 3, 4]);
+        assert_eq!(decode(&tga, None).unwrap_err(), "the picture is too large");
+        assert_eq!(decode(&tga, Some("tga")).unwrap_err(), "the picture is too large");
+        // Both headers of a DDS.
+        let mut bioware = Vec::new();
+        for n in [16_384u32, 16_384, 4, 0, 0] {
+            bioware.extend_from_slice(&n.to_le_bytes());
+        }
+        assert_eq!(decode(&bioware, Some("dds")).unwrap_err(), "the picture is too large");
+        let mut standard = b"DDS ".to_vec();
+        for n in [124u32, 0, 16_384, 16_384] {
+            standard.extend_from_slice(&n.to_le_bytes());
+        }
+        assert_eq!(decode(&standard, None).unwrap_err(), "the picture is too large");
+        // One within the limit, cut short, is told as cut short.
+        tga[12..14].copy_from_slice(&64u16.to_le_bytes());
+        tga[14..16].copy_from_slice(&64u16.to_le_bytes());
+        assert_ne!(decode(&tga, None).unwrap_err(), "the picture is too large");
+        assert_eq!(size_of(&tga, None), Ok((64, 64)));
+        assert_eq!(size_of(&tga[..10], None), Ok((0, 0)));
     }
 }

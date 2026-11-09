@@ -548,7 +548,7 @@ to the module as one undoable step.
 | `ctx.edit:remove(name, field)` | Removes a field. |
 | `ctx.edit:insert(name, list, item, index?)` | Adds an item to the list at path `list`: a struct as `raw` writes one (`{ __struct_id = 2, Class = mg.int(4) }`), at `index` (0 is first), or at the end. Returns the index it is at. |
 | `ctx.edit:remove_item(name, item)` | Removes a list's item, by its path (`"/ClassList[0]"`). |
-| `ctx.edit:write(name, text)` | Writes a resource as text (new, or in place of what was there), converted to the module's codepage. |
+| `ctx.edit:write(name, text)` | Writes a resource as text (new, or in place of what was there), converted to the module's codepage. A new resource's name is one a file can have (no `/`, `\` or `:`), here and in the two below. |
 | `ctx.edit:write_bytes(name, bytes)` | Writes a resource as the bytes given. |
 | `ctx.edit:write_gff(name, document)` | Writes a GFF resource from its `raw` form (with `__data_type`). |
 | `ctx.edit:delete(name)` | Removes a resource from the module. |
@@ -681,11 +681,11 @@ fails. A file of more than 64 MB is not read.
 | `file.name` | The file's name, without its folder. |
 | `file.bytes` | What is in it, a string of bytes. |
 | `folder.name` | The folder's name. |
-| `folder:files()` | The names of its files and of those in its folders, sorted. |
+| `folder:files()` | The names of its files and of those in its folders, sorted. A folder of more than 20,000 files is not listed: the call fails. |
 | `folder:bytes(name)` | A file's bytes. |
 | `folder:text(name)` | A file as text: UTF-8 if it is, else from the module's codepage (Windows-1252, unless a hak of the module has an `encoding.2da`). |
 | `folder:write(name, bytes)` | Writes a file into the folder, when the handler has returned: as `name` (a name alone, not a path; not one that begins with a dot), in place of a file of that name there. The first time a job writes into a folder the user is asked whether to allow it, and a refusal ends the job. Undo does not take it back, and a check can't write. |
-| `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. |
+| `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. It may be larger than a plugin reads (`ctx.game:has` then says it is there, and `ctx.game:bytes` fails as `folder:bytes` does). |
 
 An `image`, from `mg.image`:
 
@@ -756,10 +756,18 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 ## Limits
 
 - A job has 256 MB of memory; past that it fails.
+- What Moonglow holds for a job besides (the tables and talk tables it
+  makes, the pictures it has decoded, the edits it makes and the files
+  it wants written) may be 512 MB more: a call that would go past that
+  fails, and so does the job unless it catches the error. What the
+  plugin no longer has (a table it let go of) does not count.
+- A picture of more than 64 million pixels is not decoded (`mg.image`).
 - The handlers of an event that runs at once, within what the user
   does (a save, a paste, a wizard's Finish), have 5 seconds (Manage
   Plugins sets another); past that
   they are stopped ([`ctx.event`](#ctxevent)).
+- Where a plugin is only checked (`mg plugin check`, `mg plugin pack`,
+  an archive about to be installed), its code has 5 seconds to load.
 - A job is stopped when the user cancels; no `pcall` catches that.
 - Nothing is kept between jobs but the plugin's settings
   (`ctx.settings:set`). A plugin runs when its command is chosen, when

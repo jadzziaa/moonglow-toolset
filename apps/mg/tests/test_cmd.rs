@@ -224,3 +224,60 @@ fn a_module_s_own_driver_runs_its_tests() {
     assert_eq!(cases.len(), 2, "{r}");
     assert_eq!((&cases[1]["name"], &cases[1]["detail"]), (&"its other".into(), &"not so".into()));
 }
+
+/// Every file under a folder, with what it holds.
+fn listing(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut all = Vec::new();
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap().flatten() {
+            let path = entry.path();
+            match path.is_dir() {
+                true => {
+                    all.push((path.clone(), Vec::new()));
+                    folders.push(path);
+                }
+                false => all.push((path.clone(), std::fs::read(&path).unwrap())),
+            }
+        }
+    }
+    all.sort();
+    all
+}
+
+/// `--dir` naming the player's own NWN folder is refused before anything
+/// is made, written or taken away there: a module of the same name and
+/// its backup are as they were. (The player's folder here is a scratch
+/// one, given as `--user-dir`.)
+#[test]
+fn the_player_s_own_folder_is_refused_before_anything_is_written() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-test-own-folder");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("modules")).unwrap();
+    std::fs::create_dir_all(user.join("development")).unwrap();
+    std::fs::write(user.join("modules/chess.mod"), b"the player's module").unwrap();
+    std::fs::write(user.join("modules/chess.mod.bak"), b"and its backup").unwrap();
+    std::fs::write(user.join("development/.mg-watch"), b"theirs.ncs\n").unwrap();
+    std::fs::write(user.join("development/theirs.ncs"), b"a script").unwrap();
+    let before = listing(&user);
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let (c, u) = (chess.to_str().unwrap(), user.to_str().unwrap());
+
+    let (ok, r) = mg(&root, &user, &[c, "--dir", u]);
+    let why = r["error"].as_str().unwrap_or_default();
+    assert!(!ok && why.contains("is your own NWN folder"), "{r}");
+    // (`mg test` has no option that allows it.)
+    assert!(!why.contains("--real-user-dir"), "{r}");
+    assert_eq!(listing(&user), before, "after mg test");
+
+    let project = dir.join("chess");
+    let p = project.to_str().unwrap();
+    assert!(crate::mg_on(&root, None).args(["unpack", c, p]).status().unwrap().success());
+    let watch = ["--json", "watch", p, "--serve", "--dir", u];
+    let out = crate::mg_on(&root, Some(&user)).args(watch).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(!out.status.success() && text.contains("is your own NWN folder"), "{text}");
+    assert_eq!(listing(&user), before, "after mg watch");
+}

@@ -468,8 +468,28 @@ pub fn pack(plugin: &Plugin) -> Result<Vec<u8>, PluginError> {
 /// author's: `mg plugin test` runs them from the folder); within the
 /// limits of an archive.
 pub(crate) fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, PluginError> {
+    files_read(dir, &mut |path, most| {
+        // (No more than it had when it was measured.)
+        let mut data = Vec::new();
+        std::fs::File::open(path)?.take(most).read_to_end(&mut data)?;
+        Ok(data)
+    })
+}
+
+/// [`files_of`], its files read by `read` (a file, and the most bytes to
+/// read of it). Nothing is read before the folder is known to be within
+/// the limits by its files' number and sizes: a project's `plugins/`
+/// folder comes with its checkout, and is read before anybody allowed it.
+fn files_read(
+    dir: &Path,
+    read: &mut dyn FnMut(&Path, u64) -> std::io::Result<Vec<u8>>,
+) -> Result<Vec<(String, Vec<u8>)>, PluginError> {
     fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
         for entry in std::fs::read_dir(dir)? {
+            // (Past the limit, the rest is not gone through.)
+            if out.len() > MAX_FILES {
+                return Ok(());
+            }
             let entry = entry?;
             let (path, kind) = (entry.path(), entry.file_type()?);
             if entry.file_name().to_string_lossy().starts_with('.') || kind.is_symlink() {
@@ -498,16 +518,89 @@ pub(crate) fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, PluginError
     if files.len() > MAX_FILES {
         return fault(format!("the plugin has over {MAX_FILES} files"));
     }
+    let over = || fault(format!("the plugin is over {} MB", MAX_BYTES >> 20));
+    let mut sizes: u64 = 0;
+    for (name, path) in &files {
+        parts(name).map_err(PluginError::Package)?;
+        let size = std::fs::metadata(path).map_err(|e| io(path, e))?.len();
+        sizes = sizes.saturating_add(size);
+        if sizes > MAX_BYTES {
+            return over();
+        }
+    }
     let mut out = Vec::new();
     let mut total = 0;
     for (name, path) in files {
-        parts(&name).map_err(PluginError::Package)?;
-        let data = std::fs::read(&path).map_err(|e| io(&path, e))?;
+        // (One byte more than is left tells a file that grew since.)
+        let data = read(&path, MAX_BYTES - total + 1).map_err(|e| io(&path, e))?;
         total += data.len() as u64;
         if total > MAX_BYTES {
-            return fault(format!("the plugin is over {} MB", MAX_BYTES >> 20));
+            return over();
         }
         out.push((name, data));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A plugin's folder past the limits is refused by its files' sizes
+    /// and number, with none of them read: a file of gigabytes left in a
+    /// project's `plugins/` was read whole to say the plugin is over 16
+    /// MB, at every command on the project.
+    #[test]
+    fn a_folder_past_the_limits_is_refused_before_it_is_read() {
+        let dir = std::env::temp_dir().join(format!("mg-plugin-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        std::fs::write(dir.join("main.luau"), "-- code").unwrap();
+        std::fs::write(dir.join("data/small.txt"), "small").unwrap();
+        let mut reads = 0;
+        let mut read = |path: &Path, most: u64| {
+            reads += 1;
+            let mut data = Vec::new();
+            std::fs::File::open(path)?.take(most).read_to_end(&mut data)?;
+            Ok(data)
+        };
+        let files = files_read(&dir, &mut read).unwrap();
+        let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["data/small.txt", "main.luau"]);
+        assert_eq!(files[0].1, b"small");
+        // A file of 16 MB and a byte, of which nothing is on the disk.
+        let big = std::fs::File::create(dir.join("data/export.bin")).unwrap();
+        big.set_len(MAX_BYTES + 1).unwrap();
+        drop(big);
+        let mut reads = 0;
+        let e = files_read(&dir, &mut |_, _| {
+            reads += 1;
+            Ok(Vec::new())
+        });
+        assert_eq!(e.unwrap_err().to_string(), files_of(&dir).unwrap_err().to_string());
+        assert!(files_of(&dir).unwrap_err().to_string().contains("the plugin is over 16 MB"));
+        assert_eq!(reads, 0, "nothing was read");
+        // A file that grew after it was measured is not read past the
+        // limit.
+        std::fs::remove_file(dir.join("data/export.bin")).unwrap();
+        let mut asked = Vec::new();
+        let e = files_read(&dir, &mut |_, most| {
+            asked.push(most);
+            Ok(vec![0; most as usize])
+        });
+        assert!(e.unwrap_err().to_string().contains("the plugin is over 16 MB"));
+        assert_eq!(asked, [MAX_BYTES + 1]);
+        // More files than a plugin has: told, and not gone through.
+        for n in 0..=MAX_FILES {
+            std::fs::write(dir.join(format!("data/{n}.txt")), "x").unwrap();
+        }
+        let mut reads = 0;
+        let e = files_read(&dir, &mut |_, _| {
+            reads += 1;
+            Ok(Vec::new())
+        });
+        assert!(e.unwrap_err().to_string().contains("the plugin has over 500 files"));
+        assert_eq!(reads, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -49,9 +49,88 @@ impl Default for ScriptStyle {
     }
 }
 
+/// A variant's name, read as a name (RON's bare identifier, JSON's
+/// string), and a struct's field's.
+struct Name(String);
+
+impl<'de> Deserialize<'de> for Name {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Name, D::Error> {
+        struct Text;
+        impl serde::de::Visitor<'_> for Text {
+            type Value = Name;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a name")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Name, E> {
+                Ok(Name(v.to_string()))
+            }
+        }
+        d.deserialize_identifier(Text)
+    }
+}
+
+/// A setting that is one of a few names (a plain enum), read so that a
+/// name this version doesn't know (a newer one's settings, read by an
+/// older Moonglow kept beside it) is its default, rather than every
+/// setting lost with it: the derived reading fails the whole file on one.
+trait Named: Copy + Default + 'static {
+    /// The type's name, as it is saved under.
+    const TYPE: &'static str;
+    /// Each one by the name it is saved as.
+    const NAMES: &'static [(&'static str, Self)];
+}
+
+/// Reads a [`Named`] setting: the one of that name, else the default.
+fn named<'de, D: serde::Deserializer<'de>, T: Named>(d: D) -> Result<T, D::Error> {
+    use serde::de::{EnumAccess, VariantAccess};
+    struct Of<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Named> serde::de::Visitor<'de> for Of<T> {
+        type Value = T;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "a {}", T::TYPE)
+        }
+        fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<T, A::Error> {
+            let (Name(name), variant) = data.variant()?;
+            variant.unit_variant()?;
+            Ok(T::NAMES.iter().find(|(n, _)| *n == name).map_or_else(T::default, |(_, v)| *v))
+        }
+    }
+    d.deserialize_enum(T::TYPE, &[], Of(std::marker::PhantomData))
+}
+
+/// Makes a plain enum of the settings [`Named`], and read as one: every
+/// variant is named here (one left out does not compile).
+macro_rules! named {
+    ($type:ident: $($variant:ident),+) => {
+        impl Named for $type {
+            const TYPE: &'static str = stringify!($type);
+            const NAMES: &'static [(&'static str, $type)] =
+                &[$((stringify!($variant), $type::$variant)),+];
+        }
+
+        impl<'de> Deserialize<'de> for $type {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<$type, D::Error> {
+                // (Each variant has its name above.)
+                let _ = |v: $type| match v {
+                    $($type::$variant => {})+
+                };
+                named(d)
+            }
+        }
+    };
+}
+
+named!(ExistingArchive: Ask, Append, Overwrite);
+named!(ModuleFolders: Ask, Folder, Module);
+named!(TalkReuse: Ask, Use, Add, File);
+named!(FilesThere: Ask, Replace, Skip);
+named!(MissingFeats: Ask, Add, Refuse);
+named!(ShadowQuality: Fast, High);
+named!(GraphicsBackend: Automatic, Vulkan, Direct3d12, Metal);
+
 /// What File › Export… does with an archive that is there already
 /// (Options › General): asks, appends to it or overwrites it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum ExistingArchive {
     #[default]
     Ask,
@@ -62,7 +141,7 @@ pub enum ExistingArchive {
 /// What opening a `.mod` with a folder of its name beside it opens
 /// (Options › General): Aurora asks, or with its Always open module
 /// directories opens the folder.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum ModuleFolders {
     #[default]
     Ask,
@@ -70,14 +149,10 @@ pub enum ModuleFolders {
     Module,
 }
 
-/// Options › Area › Shadows quality (and the area view's Shadows menu):
-/// how the area view draws the game's shadows. Fast, a shadow map (its
-/// edges as fine as the map's texels: blocky up close), cheap in every
-/// area; High, stencil shadow volumes as the game casts them (edges as
 /// Options › Language › When the talk table has the text: what a text
 /// typed into a field does where the module's talk table has a line with
 /// that text already (`talk_typed`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum TalkReuse {
     /// Asks: use that line, add another, or keep the text in the file.
     #[default]
@@ -93,7 +168,7 @@ pub enum TalkReuse {
 /// What to do with files that are there already where Moonglow writes
 /// (Options › General › Questions): a hak's added files, a model's Export
 /// Files, conversations or minimaps exported, NUI windows imported.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum FilesThere {
     /// Asks: replace them, skip them, or cancel.
     #[default]
@@ -104,7 +179,7 @@ pub enum FilesThere {
 
 /// What equipping a creature with an item it lacks the feats for does
 /// (Options › General › Questions; Aurora asks, Yes adding the feats).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum MissingFeats {
     #[default]
     Ask,
@@ -114,9 +189,13 @@ pub enum MissingFeats {
     Refuse,
 }
 
+/// Options › Area › Shadows quality (and the area view's Shadows menu):
+/// how the area view draws the game's shadows. Fast, a shadow map (its
+/// edges as fine as the map's texels: blocky up close), cheap in every
+/// area; High, stencil shadow volumes as the game casts them (edges as
 /// sharp as the picture's, anti-aliased with it), dearer in the largest
 /// areas.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum ShadowQuality {
     #[default]
     Fast,
@@ -126,7 +205,9 @@ pub enum ShadowQuality {
 /// Options › General › Graphics backend: what Moonglow draws with, read
 /// at its start (`apps/moonglow`, before the window has a device;
 /// [`mg_render::backend::pick_adapter`]). Automatic is wgpu's choice, but
-/// an AMD GPU on Windows through Direct3D 12 rather than Vulkan.
+/// an AMD GPU on Windows through Direct3D 12 rather than Vulkan. (A name
+/// this version doesn't know, a newer one's or OpenGL's of old, is
+/// Automatic.)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub enum GraphicsBackend {
     #[default]
@@ -136,57 +217,7 @@ pub enum GraphicsBackend {
     Metal,
 }
 
-/// A name this version doesn't know (a newer one's settings) is
-/// Automatic, rather than every setting lost with it.
-impl<'de> Deserialize<'de> for GraphicsBackend {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GraphicsBackend, D::Error> {
-        use serde::de::{EnumAccess, VariantAccess};
-        /// The variant's name, read as a name (RON's bare identifier,
-        /// JSON's string).
-        struct Name(String);
-        impl<'de> Deserialize<'de> for Name {
-            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Name, D::Error> {
-                struct Text;
-                impl serde::de::Visitor<'_> for Text {
-                    type Value = Name;
-                    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                        f.write_str("a name")
-                    }
-                    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Name, E> {
-                        Ok(Name(v.to_string()))
-                    }
-                }
-                d.deserialize_identifier(Text)
-            }
-        }
-        struct Named;
-        impl<'de> serde::de::Visitor<'de> for Named {
-            type Value = GraphicsBackend;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a graphics backend")
-            }
-            fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<GraphicsBackend, A::Error> {
-                let (Name(name), variant) = data.variant()?;
-                variant.unit_variant()?;
-                Ok(GraphicsBackend::NAMES
-                    .iter()
-                    .find(|(n, _)| *n == name)
-                    .map_or(GraphicsBackend::Automatic, |(_, b)| *b))
-            }
-        }
-        d.deserialize_enum("GraphicsBackend", &[], Named)
-    }
-}
-
 impl GraphicsBackend {
-    /// Each one by the name it is saved as.
-    const NAMES: [(&str, GraphicsBackend); 4] = [
-        ("Automatic", GraphicsBackend::Automatic),
-        ("Vulkan", GraphicsBackend::Vulkan),
-        ("Direct3d12", GraphicsBackend::Direct3d12),
-        ("Metal", GraphicsBackend::Metal),
-    ];
-
     /// The backend chosen (`None`: Automatic).
     pub fn backend(self) -> Option<wgpu::Backend> {
         match self {
@@ -348,6 +379,109 @@ impl Default for PaintSettings {
             by_size: false,
         }
     }
+}
+
+/// The fields of settings saved as RON text, each by its name with its
+/// value's text as written; `None` where the text is no struct.
+fn fields_of(text: &str) -> Option<Vec<(String, String)>> {
+    use ron::value::RawValue;
+    struct Fields(Vec<(String, String)>);
+    impl<'de> Deserialize<'de> for Fields {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Fields, D::Error> {
+            struct Each;
+            impl<'de> serde::de::Visitor<'de> for Each {
+                type Value = Fields;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("the settings")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Fields, A::Error> {
+                    let mut fields = Vec::new();
+                    while let Some(Name(name)) = map.next_key()? {
+                        let value: Box<RawValue> = map.next_value()?;
+                        fields.push((name, value.get_ron().trim().to_string()));
+                    }
+                    Ok(Fields(fields))
+                }
+            }
+            d.deserialize_struct("Settings", &[], Each)
+        }
+    }
+    ron::from_str::<Fields>(text).ok().map(|f| f.0)
+}
+
+/// What reading the saved settings came to ([`Settings::read_eframe`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SettingsRead {
+    pub settings: Settings,
+    /// The settings this version could not read, now at their defaults:
+    /// each one's name, and why.
+    pub unread: Vec<String>,
+    /// Why none of the file could be read (the settings are the defaults).
+    pub unreadable: Option<String>,
+    /// The file as it was, kept beside it, where anything did not read.
+    pub kept: Option<PathBuf>,
+}
+
+impl SettingsRead {
+    /// What to say in the log, where anything did not read.
+    pub fn problem(&self) -> Option<String> {
+        let what = match (&self.unreadable, self.unread.as_slice()) {
+            (Some(why), _) => format!(
+                "The saved settings could not be read ({why}): every setting is at its default"
+            ),
+            (None, []) => return None,
+            (None, unread) => format!(
+                "{} of the saved settings could not be read by this version of Moonglow and \
+                 {} at the default: {}",
+                unread.len(),
+                if unread.len() == 1 { "is" } else { "are" },
+                unread.join(", ")
+            ),
+        };
+        Some(match &self.kept {
+            Some(kept) => format!("{what}. The file as it was is kept as {}", kept.display()),
+            None => format!("{what}. A copy of the file as it was could not be kept"),
+        })
+    }
+}
+
+/// Keeps a copy of the file at `path` beside it, as
+/// `<name>.unreadable-<time>` (Unix seconds): where it is. One that is
+/// there with the same bytes already is that copy (a Moonglow that can't
+/// read the file and is never closed in order makes one copy, not one a
+/// start).
+fn keep_aside(path: &Path) -> Option<PathBuf> {
+    let bytes = std::fs::read(path).ok()?;
+    let name = format!("{}.unreadable-", path.file_name()?.to_string_lossy());
+    let dir = path.parent()?;
+    let kept = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
+        let is_copy = p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&name));
+        is_copy && std::fs::read(p).is_ok_and(|had| had == bytes)
+    });
+    if kept.is_some() {
+        return kept;
+    }
+    // (Never over another copy: a second one within the second is
+    // numbered.)
+    let now = mg_core::time::unix_now();
+    for n in 1..100 {
+        let to = match n {
+            1 => dir.join(format!("{name}{now}")),
+            n => dir.join(format!("{name}{now}-{n}")),
+        };
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&to) {
+            Ok(mut file) => {
+                use std::io::Write;
+                return file.write_all(&bytes).ok().map(|()| to);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -881,12 +1015,127 @@ impl Settings {
     /// The settings kept under `key` in eframe's settings file (`app.ron`:
     /// a RON map of keys to RON text), read before eframe opens it, or
     /// `None` without the file or the key, or where they can't be read.
-    /// (The desktop app reads the graphics backend so: the window's device
-    /// is made before the app is given eframe's storage.)
+    /// ([`Settings::read_eframe`] is what the desktop app starts with:
+    /// this is its strict reading, all or nothing.)
     pub fn read_eframe_file(path: &Path, key: &str) -> Option<Settings> {
         let text = std::fs::read_to_string(path).ok()?;
         let kv: std::collections::HashMap<String, String> = ron::from_str(&text).ok()?;
         ron::from_str(kv.get(key)?).ok()
+    }
+
+    /// The settings from their saved text (RON): as they are, or, where
+    /// the whole does not read (a field of another type, a value this
+    /// version can't hold: a newer Moonglow's, or a file changed by
+    /// hand), each field that reads by itself, with the names of those
+    /// that do not (and why), which are at their defaults. An error where
+    /// the text is no settings at all (cut short, not RON).
+    pub fn read_fields(text: &str) -> Result<(Settings, Vec<String>), String> {
+        let whole = match ron::from_str::<Settings>(text) {
+            Ok(settings) => return Ok((settings, Vec::new())),
+            Err(e) => e,
+        };
+        // (Why the whole did not read says more than why its fields can't
+        // be told apart.)
+        let Some(fields) = fields_of(text) else { return Err(whole.to_string()) };
+        let (mut read, mut unread) = (Vec::new(), Vec::new());
+        for (name, value) in fields {
+            let one = format!("{name}:{value}");
+            match ron::from_str::<Settings>(&format!("({one})")) {
+                Ok(_) => read.push(one),
+                Err(e) => unread.push(format!("{name} ({})", e.code)),
+            }
+        }
+        match ron::from_str::<Settings>(&format!("({})", read.join(","))) {
+            Ok(settings) => Ok((settings, unread)),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    /// The settings as they are saved: RON text.
+    pub fn saved_text(&self) -> String {
+        ron::to_string(self).unwrap_or_default()
+    }
+
+    /// The settings' text as it is kept under `key` in eframe's settings
+    /// file now, if it is there.
+    pub fn text_in_eframe_file(path: &Path, key: &str) -> Option<String> {
+        let text = std::fs::read_to_string(path).ok()?;
+        ron::from_str::<std::collections::HashMap<String, String>>(&text).ok()?.remove(key)
+    }
+
+    /// These settings as this window saves them over what is in the file
+    /// now (`saved`, another Moonglow's since this one last read or wrote
+    /// it): each setting this window changed since `was` (its own, when
+    /// it last read or saved them) is this window's, every other is as it
+    /// was saved. Two Moonglows share one settings file, each writing it
+    /// whole every half minute: without this, an option changed in one
+    /// window is put back by the other's next save. Where `saved` does not
+    /// read, these settings as they are.
+    pub fn saved_over(&self, was: &Settings, saved: &str) -> String {
+        let mine = self.saved_text();
+        let by_name = |text: &str| -> Option<std::collections::HashMap<String, String>> {
+            Some(fields_of(text)?.into_iter().collect())
+        };
+        let (Some(now), Some(was), Some(theirs)) =
+            (fields_of(&mine), by_name(&was.saved_text()), by_name(saved))
+        else {
+            return mine;
+        };
+        let merged: Vec<String> = now
+            .into_iter()
+            .map(|(name, value)| {
+                let changed = was.get(&name) != Some(&value);
+                let kept = match theirs.get(&name) {
+                    Some(theirs) if !changed => theirs,
+                    _ => &value,
+                };
+                format!("{name}:{kept}")
+            })
+            .collect();
+        // (What this version reads of it: a setting of theirs it can't
+        // read is this window's own.)
+        match Settings::read_fields(&format!("({})", merged.join(","))) {
+            Ok((settings, unread)) if unread.is_empty() => settings.saved_text(),
+            _ => mine,
+        }
+    }
+
+    /// The settings the desktop app starts with: those kept under `key`
+    /// in eframe's settings file (`app.ron`: a RON map of keys to RON
+    /// text), read before eframe opens it (the graphics backend is needed
+    /// before the window has a device). Without the file or the key, the
+    /// defaults. Where the file is there and does not read, or some of
+    /// its settings do not ([`Settings::read_fields`]), the file as it is
+    /// is kept beside it first (`app.ron.unreadable-<time>`): eframe saves
+    /// over it half a minute on, and what could not be read would be gone.
+    pub fn read_eframe(path: &Path, key: &str) -> SettingsRead {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return SettingsRead::default(),
+            Err(e) => {
+                let (unreadable, kept) = (Some(e.to_string()), keep_aside(path));
+                return SettingsRead { unreadable, kept, ..Default::default() };
+            }
+        };
+        let saved = match ron::from_str::<std::collections::HashMap<String, String>>(&text) {
+            Ok(mut kv) => kv.remove(key),
+            Err(e) => {
+                let (unreadable, kept) = (Some(e.to_string()), keep_aside(path));
+                return SettingsRead { unreadable, kept, ..Default::default() };
+            }
+        };
+        let Some(saved) = saved else { return SettingsRead::default() };
+        match Settings::read_fields(&saved) {
+            Ok((settings, unread)) if unread.is_empty() => {
+                SettingsRead { settings, ..Default::default() }
+            }
+            Ok((settings, unread)) => {
+                SettingsRead { settings, unread, unreadable: None, kept: keep_aside(path) }
+            }
+            Err(e) => {
+                SettingsRead { unreadable: Some(e), kept: keep_aside(path), ..Default::default() }
+            }
+        }
     }
 
     /// The backends recorded as failing ([`Settings::graphics_failures`]),
@@ -1226,6 +1475,168 @@ mod tests {
         assert_eq!(Settings::read_eframe_file(&path, key), None);
         std::fs::write(&path, "not ron").unwrap();
         assert_eq!(Settings::read_eframe_file(&path, key), None);
+    }
+
+    /// A plain enum's name this version doesn't know (a newer Moonglow's
+    /// settings read by an older one) is that setting's default, and every
+    /// other setting is kept: the derived reading lost them all.
+    #[test]
+    fn a_name_this_version_does_not_know_is_the_default() {
+        let read = |text: &str| ron::from_str::<Settings>(text).unwrap();
+        let s = read("(shadow_quality:Ultra,light_theme:true)");
+        assert_eq!((s.shadow_quality, s.light_theme), (ShadowQuality::Fast, true));
+        let newer = "(export_existing:Merge,module_folders:Newest,talk_reuse:Guess,\
+                     files_there:Rename,missing_feats:Wait,light_theme:true)";
+        assert_eq!(read(newer), Settings { light_theme: true, ..Default::default() });
+        // Each name it does know reads as before, and as it is written.
+        let all = Settings {
+            export_existing: ExistingArchive::Overwrite,
+            module_folders: ModuleFolders::Module,
+            talk_reuse: TalkReuse::File,
+            files_there: FilesThere::Skip,
+            missing_feats: MissingFeats::Refuse,
+            shadow_quality: ShadowQuality::High,
+            graphics_backend: GraphicsBackend::Metal,
+            ..Default::default()
+        };
+        let text = ron::to_string(&all).unwrap();
+        assert!(text.contains("shadow_quality:High") && text.contains("talk_reuse:File"), "{text}");
+        assert_eq!(read(&text), all);
+        let json = serde_json::to_string(&all).unwrap();
+        assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), all);
+        for (name, _) in ShadowQuality::NAMES.iter().chain(&[("Ultra", ShadowQuality::Fast)]) {
+            let read: ShadowQuality = ron::from_str(name).unwrap();
+            let known = ShadowQuality::NAMES.iter().find(|(n, _)| n == name);
+            assert_eq!(read, known.map_or(ShadowQuality::Fast, |(_, v)| *v), "{name}");
+        }
+    }
+
+    /// Settings of which one does not read (a number where this version
+    /// keeps a switch, a list of another shape) are read field by field:
+    /// the others are as saved, and the one is named. Text that is no
+    /// settings at all is an error.
+    #[test]
+    fn settings_are_read_field_by_field_where_the_whole_does_not_read() {
+        let saved = Settings {
+            light_theme: true,
+            recent: vec![PathBuf::from("/modules/a (1).mod"), PathBuf::from("b,c\"d.mod")],
+            shadow_quality: ShadowQuality::High,
+            script_style: ScriptStyle { font_size: 17, ..Default::default() },
+            ..Default::default()
+        };
+        let text = ron::to_string(&saved).unwrap();
+        assert_eq!(Settings::read_fields(&text), Ok((saved.clone(), Vec::new())));
+        // One field of another type, one of another shape, one unknown.
+        let odd = text
+            .replacen("no_shadows:false", "no_shadows:3", 1)
+            .replacen("last_areas:[]", "last_areas:[(1,2,3)]", 1)
+            .replacen("(recent:", "(a_newer_setting:Some((1,\"x\")),recent:", 1);
+        assert_ne!(odd, text);
+        assert!(ron::from_str::<Settings>(&odd).is_err());
+        let (read, unread) = Settings::read_fields(&odd).unwrap();
+        assert_eq!(read, saved);
+        assert_eq!(unread.len(), 2, "{unread:?}");
+        assert!(unread[0].starts_with("last_areas (") || unread[1].starts_with("last_areas ("));
+        assert!(unread.iter().any(|u| u.starts_with("no_shadows (")), "{unread:?}");
+        // Cut short, or no RON.
+        assert!(Settings::read_fields(&text[..text.len() / 2]).is_err());
+        assert!(Settings::read_fields("not ron").is_err());
+    }
+
+    /// Where the saved settings do not read, the file as it was is kept
+    /// beside it before eframe saves over it, once, and the log is told;
+    /// settings that read (and no file at all) keep nothing aside.
+    #[test]
+    fn a_settings_file_that_does_not_read_is_kept_aside() {
+        let dir = mg_testkit::scratch_dir("settings-kept-aside");
+        let path = dir.join("app.ron");
+        let key = "moonglow-settings";
+        let write = |settings: &str| {
+            let kv = std::collections::HashMap::from([
+                ("egui".to_string(), "(options:())".to_string()),
+                (key.to_string(), settings.to_string()),
+            ]);
+            std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+        };
+        let copies = || {
+            let mut all: Vec<PathBuf> = (std::fs::read_dir(&dir).unwrap().flatten())
+                .map(|e| e.path())
+                .filter(|p| p != &path)
+                .collect();
+            all.sort();
+            all
+        };
+        // No file, and a file without the settings: the defaults, quietly.
+        assert_eq!(Settings::read_eframe(&path, key), SettingsRead::default());
+        write("(light_theme:true)");
+        assert_eq!(Settings::read_eframe(&path, "another-key"), SettingsRead::default());
+        // Settings that read; a newer version's name among them too.
+        write("(light_theme:true,shadow_quality:Ultra)");
+        let read = Settings::read_eframe(&path, key);
+        assert!(read.settings.light_theme && read.problem().is_none(), "{read:?}");
+        assert!(copies().is_empty());
+        // One that does not read: the rest, a copy, and a line for the log.
+        write("(light_theme:true,no_shadows:3)");
+        let as_it_was = std::fs::read(&path).unwrap();
+        let read = Settings::read_eframe(&path, key);
+        assert!(read.settings.light_theme && !read.settings.no_shadows);
+        let kept = read.kept.clone().expect("kept aside");
+        assert_eq!(copies(), std::slice::from_ref(&kept));
+        assert!(kept.file_name().unwrap().to_string_lossy().starts_with("app.ron.unreadable-"));
+        assert_eq!(std::fs::read(&kept).unwrap(), as_it_was);
+        let said = read.problem().unwrap();
+        assert!(said.starts_with("1 of the saved settings could not be read"), "{said}");
+        assert!(said.contains("no_shadows (") && said.contains("app.ron.unreadable-"), "{said}");
+        // Started again before anything was saved: the same copy.
+        assert_eq!(Settings::read_eframe(&path, key).kept, Some(kept.clone()));
+        assert_eq!(copies().len(), 1);
+        // A file cut short: the defaults, and the file kept.
+        std::fs::write(&path, &as_it_was[..as_it_was.len() / 2]).unwrap();
+        let read = Settings::read_eframe(&path, key);
+        assert_eq!(read.settings, Settings::default());
+        let said = read.problem().unwrap();
+        assert!(said.starts_with("The saved settings could not be read ("), "{said}");
+        assert_eq!(copies().len(), 2);
+        assert_eq!(std::fs::read(read.kept.unwrap()).unwrap(), as_it_was[..as_it_was.len() / 2]);
+    }
+
+    /// Two Moonglows share one settings file: a window saves the settings
+    /// it changed since it last read or saved them, and leaves the others
+    /// as the other window saved them (it wrote its own, older ones back
+    /// over them all).
+    #[test]
+    fn a_window_saves_its_own_changes_over_another_window_s() {
+        let started = Settings { light_theme: false, no_grass: false, ..Default::default() };
+        // The other window: the theme, and a module opened.
+        let mut theirs = started.clone();
+        theirs.light_theme = true;
+        theirs.recent = vec![PathBuf::from("/modules/theirs.mod")];
+        let saved = theirs.saved_text();
+        // This one: the grass, since it started.
+        let mut mine = started.clone();
+        mine.no_grass = true;
+        let merged: Settings = ron::from_str(&mine.saved_over(&started, &saved)).unwrap();
+        assert!(merged.light_theme && merged.no_grass, "both windows' changes");
+        assert_eq!(merged.recent, theirs.recent);
+        // The same setting changed in both: this window's, as it saves.
+        mine.light_theme = false;
+        let mut was = started.clone();
+        was.light_theme = true;
+        let merged: Settings = ron::from_str(&mine.saved_over(&was, &saved)).unwrap();
+        assert!(!merged.light_theme);
+        // Nothing changed here: the file as the other window left it. And
+        // nothing changed there: this window's own.
+        assert_eq!(started.saved_over(&started, &saved), saved);
+        assert_eq!(mine.saved_over(&started, &started.saved_text()), mine.saved_text());
+        // What is there does not read: this window's own.
+        assert_eq!(mine.saved_over(&started, "(light_theme:tr"), mine.saved_text());
+        // And the file's text is read from where eframe keeps it.
+        let dir = mg_testkit::scratch_dir("settings-saved-over");
+        let path = dir.join("app.ron");
+        let kv = std::collections::HashMap::from([("k".to_string(), saved.clone())]);
+        std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+        assert_eq!(Settings::text_in_eframe_file(&path, "k"), Some(saved));
+        assert_eq!(Settings::text_in_eframe_file(&path, "other"), None);
     }
 
     /// A backend's failure is kept by GPU, driver and backend (one in place

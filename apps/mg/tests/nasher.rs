@@ -156,3 +156,45 @@ fn verify_takes_a_project_s_sources_that_compile() {
     std::fs::write(project.join(format!("src/{named}.nss")), "void main() { nonsense }\n").unwrap();
     assert_eq!(uncompiled(&verify()), [named.to_string()]);
 }
+
+/// A build that fails says its notes too, with `--json` or without: a hak
+/// the machine lacks is often why the scripts that include from it do not
+/// compile, and the one line that said so was dropped.
+#[test]
+fn a_build_that_fails_says_its_notes() {
+    use mg_module::ModuleLocation;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-build-fails");
+    let mut m = Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &["tdod_core".into()]));
+    m.set_info(&info).unwrap();
+    let source = b"#include \"core_inc\"\nvoid main() { Core(); }\n".to_vec();
+    m.set(ResKey::parse("uses_core", ResType::NSS).unwrap(), source);
+    let project = dir.join("project");
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    let built = dir.join("built.mod");
+    let build = |json: &[&str]| {
+        let user = dir.join("user");
+        std::fs::create_dir_all(&user).unwrap();
+        crate::mg_on(&root, Some(&user))
+            .args(json)
+            .args(["build", project.to_str().unwrap(), "-o", built.to_str().unwrap()])
+            .env("MOONGLOW_DATA_DIR", dir.join("data"))
+            .output()
+            .unwrap()
+    };
+    let out = build(&[]);
+    let (printed, said) =
+        (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(!out.status.success() && !built.exists(), "{printed}{said}");
+    assert!(printed.contains("uses_core"), "the compiler's message: {printed}");
+    assert!(said.contains("warning: hak tdod_core not found"), "{said}");
+    assert!(said.trim_end().ends_with("mg: 1 of 1 scripts failed to compile"), "{said}");
+    let out = build(&["--json"]);
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(!out.status.success() && json["packed"].is_null(), "{json}");
+    assert_eq!(json["compiled"]["failed"], 1, "{json}");
+    assert!(json["notes"].to_string().contains("hak tdod_core not found"), "{json}");
+}

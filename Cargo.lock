@@ -2588,6 +2588,7 @@ dependencies = [
  "mg-edit",
  "mg-erf",
  "mg-gff",
+ "mg-key",
  "mg-mdl",
  "mg-module",
  "mg-nui",

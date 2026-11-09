@@ -20,8 +20,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use mg_core::ResType;
+use mg_module::Module;
 use mg_module::watch::Watch;
-use mg_module::{Module, ModuleLocation};
 use mg_resman::{ResKey, ResMan};
 use serde_json::{Value, json};
 
@@ -265,10 +265,7 @@ impl Watcher {
         }
         // (A copy is saved: the project stays where the module is read.)
         let mut copy = self.module.clone();
-        copy.save_as(&ModuleLocation::Archive(to.clone()))
-            .with_context(|| to.display().to_string())?;
-        let _ = std::fs::remove_file(to.with_extension("mod.bak"));
-        Ok(())
+        crate::serve::save_copy(&mut copy, &to)
     }
 
     /// The module as last read.
@@ -501,6 +498,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use mg_module::ModuleLocation;
 
     /// The project's own talk table (its JSON, not one of the module's
     /// resources) changes: the watch sees it, as a change the server has

@@ -230,6 +230,19 @@ fn place(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::hard_link(from, to).or_else(|_| std::fs::copy(from, to).map(|_| ()))
 }
 
+/// Saves a module's copy for a server as an archive at `to`, keeping no
+/// backup of the copy it takes the place of. (A `.bak` there that this
+/// save did not make is somebody's, and stays.)
+pub(crate) fn save_copy(m: &mut mg_module::Module, to: &Path) -> Result<()> {
+    let replaced = to.is_file();
+    m.save_as(&ModuleLocation::Archive(to.to_path_buf()))
+        .with_context(|| to.display().to_string())?;
+    if replaced {
+        let _ = std::fs::remove_file(to.with_extension("mod.bak"));
+    }
+    Ok(())
+}
+
 /// The user directory made ready: the module as an archive in `modules`,
 /// its haks in `hak` and its talk table in `tlk` (from the player's
 /// folders and the game's, which are only read). Returns the module's
@@ -296,8 +309,7 @@ pub(crate) fn prepare(
             }
         }
         // (The server loads an archive only.)
-        m.save_as(&ModuleLocation::Archive(target.clone()))?;
-        let _ = std::fs::remove_file(target.with_extension("mod.bak"));
+        save_copy(&mut m, &target)?;
     }
     for hak in &haks {
         // (A name with a folder in it is placed nowhere: `../x` would be
@@ -377,6 +389,46 @@ fn lines(reader: impl std::io::Read + Send + 'static) -> Receiver<String> {
 /// How long after a command the server has its answer ready to print.
 const NUDGE: Duration = Duration::from_millis(400);
 
+/// Refuses a server's user directory that is the player's own NWN folder
+/// (unless `real_user_dir` allows it) or lies in the game's: asked before
+/// anything is made or written under it, by every command that takes
+/// `--dir`.
+///
+/// `real_user_dir`: what `--real-user-dir` said, `None` for a command that
+/// has no such option.
+pub(crate) fn refuse_dir(gi: &GameInstall, dir: &Path, real_user_dir: Option<bool>) -> Result<()> {
+    let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let players =
+        (gi.user_dir.iter().cloned()).chain(mg_resman::default_user_dir()).find(|p| same(p, &dir));
+    if let Some(theirs) = players
+        && real_user_dir != Some(true)
+    {
+        let anyway = match real_user_dir {
+            Some(_) => " (pass --real-user-dir to serve from it anyway)",
+            None => "",
+        };
+        bail!(
+            "{} is your own NWN folder: a server there writes its vault, database and settings \
+             into it{anyway}",
+            theirs.display()
+        );
+    }
+    // (A folder not made yet is told by the nearest one above it that is.)
+    let mut there = Some(dir.as_path());
+    let real = loop {
+        let Some(at) = there else { break None };
+        match std::fs::canonicalize(at) {
+            Ok(real) => break Some(real),
+            Err(_) => there = at.parent(),
+        }
+    };
+    let root = std::fs::canonicalize(&gi.root).unwrap_or_else(|_| gi.root.clone());
+    if real.is_some_and(|d| d.starts_with(&root) || d.starts_with(&gi.root)) {
+        bail!("{} is in the game's own folder", dir.display());
+    }
+    Ok(())
+}
+
 /// Serves the module until `each` says to stop or the server ends.
 pub(crate) fn serve(
     gi: &GameInstall,
@@ -395,20 +447,7 @@ pub(crate) fn serve(
     };
     let dir = std::path::absolute(&dir).unwrap_or(dir);
     let caught = catch_interrupt();
-    let players =
-        (gi.user_dir.iter().cloned()).chain(mg_resman::default_user_dir()).find(|p| same(p, &dir));
-    if let Some(theirs) = players
-        && !c.real_user_dir
-    {
-        bail!(
-            "{} is your own NWN folder: a server there writes its vault, database and settings \
-             into it (pass --real-user-dir to serve from it anyway)",
-            theirs.display()
-        );
-    }
-    if std::fs::canonicalize(&dir).is_ok_and(|d| d.starts_with(&gi.root)) {
-        bail!("{} is in the game's own folder", dir.display());
-    }
+    refuse_dir(gi, &dir, Some(c.real_user_dir))?;
     let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> = Vec::new();
     for file in &c.env {
         let text = std::fs::read_to_string(file).with_context(|| file.display().to_string())?;

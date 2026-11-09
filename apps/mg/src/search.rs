@@ -342,7 +342,7 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
         haks_and_game: a.haks_and_game,
     };
     q.check().map_err(anyhow::Error::msg)?;
-    let cp = crate::module_codepage(cli, &m);
+    let cp = crate::codepage_with(cli, &m, game.as_ref());
     let hits = search::search(&m, &q, game.as_ref(), cp);
     out.json = json!({
         "found": hits.iter().map(|h| json!({

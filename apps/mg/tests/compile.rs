@@ -192,3 +192,43 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
     }
     out
 }
+
+/// A script that does not compile fails the command: what compiled is
+/// saved and the JSON says which did not and why, but the exit is a
+/// failure, so that a pipeline does not go on with the module.
+#[test]
+fn a_script_that_does_not_compile_fails_the_command() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-compile-fails");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let path = dir.join("broken.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let script = |name: &str| ResKey::parse(name, ResType::NSS).unwrap();
+    m.set(script("good"), b"void main() { }".to_vec());
+    m.set(script("bad"), b"void main() { int n = ; }".to_vec());
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    for more in [&[][..], &["--uncompiled"][..]] {
+        let out = crate::mg_on(&root, Some(&dir.join("user")))
+            .args(["--json", "compile"])
+            .arg(&path)
+            .args(more)
+            .env("MOONGLOW_DATA_DIR", dir.join("data"))
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(!out.status.success(), "{more:?}: {text}");
+        let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(json["failed"], 1, "{json}");
+        assert!(json["errors"][0].to_string().contains("bad"), "{json}");
+        // What compiled is in the module all the same.
+        let m = mg_module::Module::open(&path).unwrap();
+        assert!(m.contains(&ResKey::parse("good", ResType::NCS).unwrap()));
+        assert!(!m.contains(&ResKey::parse("bad", ResType::NCS).unwrap()));
+    }
+    // Without the one that fails: a success.
+    let mut m = mg_module::Module::open(&path).unwrap();
+    m.remove(&script("bad"));
+    m.save().unwrap();
+    assert_eq!(compile(&root, &dir, &path, &["--all"])["failed"], 0);
+}

@@ -11,7 +11,7 @@ use mg_module::doctor::ColumnKind;
 use mg_tlk::{Tlk, TlkEntry};
 use mlua::{Lua, ObjectLike, Table, Value as LuaValue};
 
-use crate::runtime::{codepage, fail};
+use crate::runtime::{Budget, codepage, fail};
 
 type This = LuaValue;
 
@@ -44,12 +44,40 @@ fn cell(value: &LuaValue) -> mlua::Result<Option<String>> {
     })
 }
 
+/// Roughly the bytes an empty cell of a table takes.
+const CELL: usize = 24;
+
 /// A 2DA as plugins have it: what `ctx.game:table` and `mg.twoda` give.
 /// It is the plugin's own: changing it changes nothing else (a table of
 /// the game's is copied when first changed). `file`: the file it was read
 /// from, which `write` keeps the layout of (as it is, where the table is
 /// unchanged).
-pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua::Result<Table> {
+///
+/// What the host holds of it counts to the job's `held`: the file's copy
+/// from the start, the table from when it is the plugin's own (made by
+/// it, or first changed), and what is added to it since.
+pub(crate) fn twoda(
+    lua: &Lua,
+    held: &Rc<Budget>,
+    table: Arc<TwoDa>,
+    file: Option<Vec<u8>>,
+) -> mlua::Result<Table> {
+    // (Roughly what a table takes in memory.)
+    let size = match &file {
+        Some(file) => 2 * file.len(),
+        None => 0,
+    };
+    let own = Arc::strong_count(&table) == 1;
+    let charge = held.hold(file.as_ref().map_or(0, Vec::len) + if own { size } else { 0 })?;
+    let charge = Rc::new((charge, std::cell::Cell::new(own)));
+    // Before a change: the game's table becomes a copy of the plugin's.
+    let owned = move |c: &(crate::runtime::Charge, std::cell::Cell<bool>)| -> mlua::Result<()> {
+        if !c.1.get() {
+            c.0.more(size)?;
+            c.1.set(true);
+        }
+        Ok(())
+    };
     let out = lua.create_table()?;
     out.set("rows", table.len())?;
     out.set("columns", table.columns().to_vec())?;
@@ -61,10 +89,11 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua
             Ok(t.borrow().get(row, &column).map(str::to_string))
         })?,
     )?;
-    let t = shared.clone();
+    let (t, c) = (shared.clone(), charge.clone());
     out.set(
         "set",
         lua.create_function(move |_, (_, row, column, value): (This, usize, String, LuaValue)| {
+            owned(&c)?;
             let mut t = t.borrow_mut();
             let t = Arc::make_mut(&mut t);
             let Some(at) = t.column(&column) else {
@@ -73,13 +102,16 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua
             if row >= t.len() {
                 return fail(format!("the table has no row {row} (add_row adds one)"));
             }
-            t.set(row, at, cell(&value)?).or_else(|_| fail("a cell can't hold a double quote"))
+            let value = cell(&value)?;
+            c.0.more(value.as_ref().map_or(0, String::len))?;
+            t.set(row, at, value).or_else(|_| fail("a cell can't hold a double quote"))
         })?,
     )?;
-    let t = shared.clone();
+    let (t, c) = (shared.clone(), charge.clone());
     out.set(
         "add_row",
         lua.create_function(move |_, (this, cells): (Table, Option<Table>)| {
+            owned(&c)?;
             let mut t = t.borrow_mut();
             let t = Arc::make_mut(&mut t);
             // (All of the row or none: a cell refused leaves the table
@@ -96,6 +128,8 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua
                 }
                 row.push((at, value));
             }
+            let texts: usize = row.iter().map(|(_, v)| v.as_ref().map_or(0, String::len)).sum();
+            c.0.more(CELL * t.columns().len() + texts)?;
             let at = t.add_row();
             for (column, value) in row {
                 t.set(at, column, value).or_else(|_| fail("a cell can't hold a double quote"))?;
@@ -104,15 +138,17 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua
             Ok(at)
         })?,
     )?;
-    let t = shared.clone();
+    let (t, c) = (shared.clone(), charge);
     out.set(
         "add_column",
         lua.create_function(move |_, (this, name): (Table, String)| {
+            owned(&c)?;
             let mut t = t.borrow_mut();
             let t = Arc::make_mut(&mut t);
             if t.column(&name).is_some() {
                 return fail(format!("the table has a column {name}"));
             }
+            c.0.more(name.len() + CELL * t.len())?;
             t.add_column(&name).or_else(fail)?;
             this.set("columns", t.columns().to_vec())
         })?,
@@ -134,19 +170,25 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua
 
 /// `mg.twoda`: tables made and read; `game`, the job's game data, by
 /// which `kinds` knows a table by the column that names it too.
-pub(crate) fn twoda_api(lua: &Lua, game: Option<Arc<mg_rules::GameData>>) -> mlua::Result<Table> {
+pub(crate) fn twoda_api(
+    lua: &Lua,
+    held: &Rc<Budget>,
+    game: Option<Arc<mg_rules::GameData>>,
+) -> mlua::Result<Table> {
     let api = lua.create_table()?;
+    let h = held.clone();
     api.set(
         "parse",
-        lua.create_function(|lua, bytes: mlua::LuaString| {
+        lua.create_function(move |lua, bytes: mlua::LuaString| {
             let table = TwoDa::parse(&bytes.as_bytes(), codepage()).or_else(fail)?;
-            twoda(lua, Arc::new(table), Some(bytes.as_bytes().to_vec()))
+            twoda(lua, &h, Arc::new(table), Some(bytes.as_bytes().to_vec()))
         })?,
     )?;
+    let h = held.clone();
     api.set(
         "new",
-        lua.create_function(|lua, columns: Vec<String>| {
-            twoda(lua, Arc::new(TwoDa::new(columns).or_else(fail)?), None)
+        lua.create_function(move |lua, columns: Vec<String>| {
+            twoda(lua, &h, Arc::new(TwoDa::new(columns).or_else(fail)?), None)
         })?,
     )?;
     api.set(
@@ -310,9 +352,16 @@ fn entry(value: &LuaValue, cp: mg_core::Codepage) -> mlua::Result<TlkEntry> {
     })
 }
 
+/// The bytes a line of a talk table takes, without its text.
+const LINE: usize = std::mem::size_of::<TlkEntry>();
+
 /// A talk table as plugins have it. Lines count from 0, as in the file (a
 /// custom table's line 0 is the game's string 16777216).
-fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
+///
+/// What the host holds of it counts to the job's `held`.
+fn tlk(lua: &Lua, held: &Rc<Budget>, table: Tlk) -> mlua::Result<Table> {
+    let texts: usize = table.entries.iter().map(|e| e.text.len()).sum();
+    let charge = Rc::new(held.hold(LINE * table.entries.len() + texts)?);
     let out = lua.create_table()?;
     out.set("lines", table.entries.len())?;
     out.set("language", table.language.short_code())?;
@@ -336,7 +385,7 @@ fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
             }
         })?,
     )?;
-    let t = shared.clone();
+    let (t, c) = (shared.clone(), charge.clone());
     out.set(
         "set",
         lua.create_function(move |_, (this, line, value): (Table, usize, LuaValue)| {
@@ -345,6 +394,10 @@ fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
             }
             let mut t = t.borrow_mut();
             let e = entry(&value, codepage_of(&t))?;
+            // (The lines up to it are made too: before they are, they
+            // must fit what the job may hold.)
+            let lines = (line + 1).saturating_sub(t.entries.len());
+            c.more(LINE * lines + e.text.len())?;
             if t.entries.len() <= line {
                 t.entries.resize(line + 1, TlkEntry::default());
             }
@@ -352,12 +405,13 @@ fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
             this.set("lines", t.entries.len())
         })?,
     )?;
-    let t = shared.clone();
+    let (t, c) = (shared.clone(), charge);
     out.set(
         "add",
         lua.create_function(move |_, (this, value): (Table, LuaValue)| {
             let mut t = t.borrow_mut();
             let e = entry(&value, codepage_of(&t))?;
+            c.more(LINE + e.text.len())?;
             t.entries.push(e);
             this.set("lines", t.entries.len())?;
             Ok(t.entries.len() - 1)
@@ -374,19 +428,21 @@ fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
 }
 
 /// `mg.tlk`: talk tables made and read.
-pub(crate) fn tlk_api(lua: &Lua) -> mlua::Result<Table> {
+pub(crate) fn tlk_api(lua: &Lua, held: &Rc<Budget>) -> mlua::Result<Table> {
     let api = lua.create_table()?;
+    let h = held.clone();
     api.set(
         "parse",
-        lua.create_function(|lua, bytes: mlua::LuaString| {
-            tlk(lua, Tlk::read(&bytes.as_bytes()).or_else(fail)?)
+        lua.create_function(move |lua, bytes: mlua::LuaString| {
+            tlk(lua, &h, Tlk::read(&bytes.as_bytes()).or_else(fail)?)
         })?,
     )?;
+    let h = held.clone();
     api.set(
         "new",
-        lua.create_function(|lua, code: Option<String>| {
+        lua.create_function(move |lua, code: Option<String>| {
             let l = code.as_deref().map_or(Ok(mg_core::Language::ENGLISH), language)?;
-            tlk(lua, Tlk::new(l))
+            tlk(lua, &h, Tlk::new(l))
         })?,
     )?;
     Ok(api)

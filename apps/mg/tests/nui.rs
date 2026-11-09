@@ -566,7 +566,7 @@ fn schema_prints_the_settings_form_and_the_controls() {
 
 /// The town crier's window (`crates/mg-nui/tests/data`), as files in a
 /// scratch folder of its own: `crier.jui` and `crier.txt`.
-fn crier_files(test: &str) -> PathBuf {
+pub(crate) fn crier_files(test: &str) -> PathBuf {
     window_files(test, "crier")
 }
 

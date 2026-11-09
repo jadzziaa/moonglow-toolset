@@ -252,3 +252,74 @@ fn find_and_info() {
     assert_eq!(white.len(), 6, "{white:?}");
     assert!(find(&["--tag", "no_such_tag"]).is_empty());
 }
+
+/// `mg --json gff` prints the GFF's JSON and nothing else: what there is
+/// to say of the module it was read with (here, that the `.mod` has its
+/// module folder beside it) goes to standard error, not among the GFF's
+/// fields as `"notes"`, and what was printed reads back as the GFF.
+#[test]
+fn a_gff_s_json_has_no_notes_among_its_fields() {
+    use mg_gff::{Gff, Value as Field};
+    let dir = mg_testkit::scratch_dir("mg-gff-notes");
+    let mut m = mg_module::Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let castle = dir.join("castle.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(castle.clone())).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(dir.join("castle"))).unwrap();
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", Field::String(b"guard".to_vec()));
+    let file = dir.join("guard.utc");
+    std::fs::write(&file, guard.to_bytes().unwrap()).unwrap();
+    let (f, c) = (file.to_str().unwrap(), castle.to_str().unwrap());
+
+    for json in [&["--json"][..], &[][..]] {
+        let out = crate::mg_alone().args(json).args(["gff", f, "--module", c]).output().unwrap();
+        assert!(out.status.success(), "{json:?}");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains("has its module folder beside it"), "{json:?}: {said}");
+        let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(printed.get("notes").is_none(), "{json:?}: {printed}");
+        // It reads back, with `mg gff` and as the GFF it was.
+        let written = dir.join("guard.json");
+        std::fs::write(&written, &out.stdout).unwrap();
+        let back = dir.join("back.utc");
+        let args = ["gff", written.to_str().unwrap(), "-o", back.to_str().unwrap()];
+        let made = crate::mg_alone().args(args).output().unwrap();
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+        assert_eq!(Gff::read(&std::fs::read(&back).unwrap()).unwrap(), guard);
+    }
+    // A report still carries them.
+    let (ok, info) = crate::json_out(crate::mg_alone().args(["--json", "info", c]));
+    assert!(ok && info["notes"][0].as_str().unwrap().contains("module folder beside it"), "{info}");
+}
+
+/// `mg tlk-import --json` says `saved` when the table was written, not
+/// whenever it was not a dry run: a table's own export changes no line,
+/// and a pipeline that commits or signs what was saved has nothing to.
+#[test]
+fn tlk_import_says_whether_the_table_was_written() {
+    let dir = mg_testkit::scratch_dir("mg-tlk-import-saved");
+    let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+    let (table, lines) = (at("words.tlk"), at("words.json"));
+    let mut tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+    tlk.entries.push(mg_tlk::TlkEntry::text("Hello"));
+    std::fs::write(&table, tlk.to_bytes().unwrap()).unwrap();
+    let mg = |args: &[&str]| crate::quiet_json_out(crate::mg_alone().arg("--json").args(args));
+    assert!(mg(&["tlk-export", &table, &lines]).0);
+    let written = || std::fs::metadata(&table).unwrap().modified().unwrap();
+    let before = (std::fs::read(&table).unwrap(), written());
+    let (ok, r) = mg(&["tlk-import", &table, &lines]);
+    assert!(ok && r["changed"] == 0 && r["added"] == 0, "{r}");
+    assert_eq!(r["saved"], false, "{r}");
+    assert_eq!((std::fs::read(&table).unwrap(), written()), before, "not written again");
+    // A line changed: saved, but for a dry run.
+    let changed = std::fs::read_to_string(&lines).unwrap().replace("Hello", "Hello there");
+    std::fs::write(&lines, changed).unwrap();
+    let (ok, r) = mg(&["tlk-import", &table, &lines, "--dry-run"]);
+    assert!(ok && r["changed"] == 1 && r["saved"] == false, "{r}");
+    let (ok, r) = mg(&["tlk-import", &table, &lines]);
+    assert!(ok && r["changed"] == 1 && r["saved"] == true, "{r}");
+    // A table the import makes is saved, lines or none.
+    let (ok, r) = mg(&["tlk-import", &at("new.tlk"), &lines]);
+    assert!(ok && r["saved"] == true && dir.join("new.tlk").is_file(), "{r}");
+}

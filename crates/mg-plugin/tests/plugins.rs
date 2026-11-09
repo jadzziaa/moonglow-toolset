@@ -247,6 +247,68 @@ fn a_check_s_fixes_are_recorded_apart() {
     assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
+/// A check that gives every finding a fix makes one copy of the module
+/// for them all, not one a fix: 2,000 fixes on a module of 20,000
+/// resources take a moment (four seconds and more, with a copy each), each
+/// still from the module as it is, whatever the order their edits are
+/// made in.
+#[test]
+fn many_fixes_share_one_copy_of_the_module() {
+    let dir = mg_testkit::scratch_dir("plugin-many-fixes");
+    let manifest = "[plugin]\nid = \"test.many\"\nname = \"Many\"\nversion = \"1.0.0\"\napi = \"0.4\"\nlicense = \"MIT\"\ndescription = \"d\"\n\n[check]\nid = \"tags\"\ntitle = \"Tags\"\n";
+    std::fs::write(dir.join("plugin.cfg"), manifest).unwrap();
+    let code = r#"
+        local mg = require("@moonglow")
+        mg.check("tags", function(ctx)
+            local found, fixes = {}, {}
+            for i = 1, 2000 do
+                local name = `c{i}.utc`
+                local fix = ctx.fix("Upper-case this tag")
+                fix:set(name, "Tag", `TAG{i}`)
+                fixes[i] = fix
+                table.insert(found, { resource = name, message = "lower case", fix = fix })
+            end
+            -- Back to earlier ones, turn about: each has its own edits
+            -- only (the list it adds to has its own item, not the other's).
+            for round = 1, 2 do
+                for _, i in { 1, 2 } do
+                    local at = fixes[i]:insert("c1.utc", "/ClassList", { __struct_id = 2 })
+                    assert(at == round - 1, `fix {i}, round {round}: at {at}`)
+                end
+            end
+            assert(ctx.module:gff("c1.utc").Tag == "tag")
+            return found
+        end)
+    "#;
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    let p = Plugin::load(&dir).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let mut g = Gff::new(*b"UTC ");
+    g.root.set("Tag", Value::String(b"tag".to_vec()));
+    let bytes = g.to_bytes().unwrap();
+    for i in 1..=20_000 {
+        m.set(key(&format!("c{i}.utc")), bytes.clone());
+    }
+    let host = Rc::new(TestHost::default());
+    let started = std::time::Instant::now();
+    let found = run_check(&p, "tags", Input::new(m.clone(), None), host).unwrap();
+    let took = started.elapsed();
+    assert_eq!(found.len(), 2000);
+    let edits = |n: usize| found[n].fix.as_ref().unwrap().edits.clone();
+    assert_eq!((edits(0).len(), edits(1).len(), edits(2).len()), (3, 3, 1));
+    assert!(matches!(&edits(1)[0], Edit::SetField { key: k, .. } if *k == key("c2.utc")));
+    assert!(
+        matches!(&edits(1)[2], Edit::InsertItem { key: k, index: 1, .. } if *k == key("c1.utc"))
+    );
+    // Each applies to the module as it is.
+    for n in [0, 1, 1999] {
+        let mut ws = Workspace::new(m.clone());
+        ws.apply(found[n].fix.as_ref().unwrap().command()).unwrap();
+    }
+    assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+}
+
 /// A plugin's test holds what the job writes outside the module (the
 /// haks it puts resources into, the files it writes into a folder),
 /// writing none of it.
@@ -365,6 +427,70 @@ fn memory_has_a_limit() {
     let host = Rc::new(TestHost::default());
     let e = run(&plugin("hostile"), "hoard", &host).unwrap_err().to_string();
     assert!(e.contains("ran out of the 256 MB"), "{e}");
+}
+
+/// What a job makes the host hold for it (a talk table's lines, the edits
+/// it makes) has a limit of its own, which Luau's does not see: a call
+/// that would go past it fails before the memory is taken, and what the
+/// plugin let go of does not count.
+#[test]
+fn what_the_host_holds_for_a_job_has_a_limit() {
+    use mg_plugin::run_console;
+    let run = |code: &str| {
+        let host = Rc::new(TestHost::default());
+        run_console(code, Input::new(module(), None), host).map(|_| ()).map_err(|e| e.to_string())
+    };
+    // One call: a gigabyte of empty lines.
+    let started = std::time::Instant::now();
+    let e = run("mg.tlk.new():set(16777215, \"x\")").unwrap_err();
+    assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    // A table within it is made, and tables let go of are given back:
+    // these are 768 MB one after another, never two at once.
+    run("local t = mg.tlk.new() t:set(100000, 'x') assert(t.lines == 100001)").unwrap();
+    run("for i = 1, 12 do local t = mg.tlk.new() t:set(999999, 'x') end").unwrap();
+    // Edits are kept until the job is done: each of these is held twice.
+    let e = run("local big = string.rep('x', 100 * 1024 * 1024)\n\
+                 for i = 1, 5 do ctx.edit:write_bytes(`big{i}.txt`, big) end")
+    .unwrap_err();
+    assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
+    // And what it caught the error of is still refused.
+    let e = run("local t = mg.tlk.new()\n\
+                 pcall(function() t:set(16777215, 'x') end)\n\
+                 assert(t.lines == 0)\n\
+                 t:set(16777215, 'x')")
+    .unwrap_err();
+    assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
+}
+
+/// A new resource's name is one a file can have: `a/b.nss` could be
+/// written into an archive, and a module kept as files then could not be
+/// saved at all. A resource an archive already has under such a name is
+/// still read and written.
+#[test]
+fn a_new_resource_has_a_name_a_file_can_have() {
+    use mg_plugin::run_console;
+    let run = |module: Module, code: &str| {
+        let host = Rc::new(TestHost::default());
+        run_console(code, Input::new(module, None), host).map_err(|e| e.to_string())
+    };
+    for write in [
+        "ctx.edit:write('a/b.nss', 'void main() {}')",
+        "ctx.edit:write_bytes('a\\\\b.nss', 'x')",
+        "ctx.edit:write_bytes('c:b.nss', 'x')",
+        "ctx.edit:write_gff('../b.utc', { __data_type = 'UTC ' })",
+    ] {
+        let e = run(module(), write).unwrap_err();
+        assert!(e.contains("can't be a new resource's name"), "{write}: {e}");
+    }
+    let made = run(module(), "ctx.edit:write('fine.nss', 'void main() {}')").unwrap();
+    assert_eq!(made.edits.len(), 1);
+    // One the module has: an archive's, oddly named.
+    let mut odd = module();
+    odd.set(key("a/b.nss"), b"void main() { }".to_vec());
+    let code = "ctx.edit:write('a/b.nss', ctx.module:text('a/b.nss') .. '// read')";
+    let made = run(odd, code).unwrap();
+    assert!(matches!(&made.edits[0], Edit::SetResource { key: k, .. } if *k == key("a/b.nss")));
 }
 
 #[test]

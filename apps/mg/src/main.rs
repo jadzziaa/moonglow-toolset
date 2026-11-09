@@ -23,7 +23,7 @@ mod watch;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use mg_core::{Codepage, ResType, StrRef};
-use mg_erf::{Erf, ErfWriter};
+use mg_erf::Erf;
 use mg_gff::Gff;
 use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, ResKey, ResMan};
@@ -1803,6 +1803,10 @@ struct Output {
     failed: bool,
     /// Written already (cat's bytes, the language server).
     done: bool,
+    /// The JSON is a document (a GFF's, which `mg gff` reads back), not a
+    /// report: the notes go to standard error with `--json` too, and not
+    /// among its fields.
+    document: bool,
 }
 
 impl Output {
@@ -1833,7 +1837,9 @@ impl Output {
         }
         let mut out = io::stdout().lock();
         if json {
-            if let serde_json::Value::Object(o) = &mut self.json
+            if self.document {
+                self.notes.iter().for_each(|n| eprintln!("{n}"));
+            } else if let serde_json::Value::Object(o) = &mut self.json
                 && !self.notes.is_empty()
             {
                 o.insert("notes".into(), self.notes.into());
@@ -2158,6 +2164,42 @@ fn path_text(p: &Path) -> String {
     p.display().to_string()
 }
 
+/// Writes a file whole or not at all: `fill` writes it into a file beside
+/// `path` (`<name>.moonglow-tmp`), which is flushed to the disk and then
+/// put in `path`'s place. A failure on the way (a full disk, a file that
+/// can't be read, the command stopped) leaves what was at `path` as it
+/// was, never a part of the new. (As `mg_module`'s `write_replacing`,
+/// for a file that is streamed.)
+pub(crate) fn write_whole(
+    path: &Path,
+    fill: impl FnOnce(&mut io::BufWriter<std::fs::File>) -> Result<()>,
+) -> Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).with_context(|| path_text(parent))?;
+    }
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".moonglow-tmp");
+    let tmp = path.with_file_name(name);
+    let written = (|| -> Result<()> {
+        let mut file = io::BufWriter::new(std::fs::File::create(&tmp)?);
+        fill(&mut file)?;
+        let file = file.into_inner().map_err(io::IntoInnerError::into_error)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written.with_context(|| path_text(path))
+}
+
+/// [`write_whole`] for a file's bytes at hand.
+pub(crate) fn write_bytes_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_whole(path, |file| Ok(file.write_all(bytes)?))
+}
+
 /// Compile results: errors as lines and as JSON; warnings as notes, each
 /// once (an include's is every includer's) with how many scripts it was
 /// met in, and as JSON.
@@ -2211,7 +2253,9 @@ fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
         Cmd::Ls { archive } => {
-            let data = std::fs::read(archive).with_context(|| path_text(archive))?;
+            // (Mapped, not read: a hak is gigabytes, and its names are in
+            // its first pages.)
+            let data = mg_key::map_file(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
             let mut out = Output::new(json!({
                 "archive": path_text(archive),
@@ -2224,7 +2268,8 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Unpack { archive, out: dir } => {
-            let data = std::fs::read(archive).with_context(|| path_text(archive))?;
+            // (Mapped: each resource is read as it is written out.)
+            let data = mg_key::map_file(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
             std::fs::create_dir_all(dir)?;
             for e in &erf.entries {
@@ -2241,7 +2286,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 archive.extension().and_then(|e| e.to_str()).unwrap_or("erf").to_ascii_uppercase();
             let mut file_type = [b' '; 4];
             file_type[..ext.len().min(4)].copy_from_slice(&ext.as_bytes()[..ext.len().min(4)]);
-            let mut w = ErfWriter::new(file_type);
+            let header = mg_erf::Header { file_type, ..Default::default() };
             let mut paths: Vec<PathBuf> =
                 std::fs::read_dir(dir)?.flatten().map(|e| e.path()).collect();
             paths.sort();
@@ -2289,23 +2334,37 @@ fn run(cli: &Cli) -> Result<Output> {
                     );
                 }
             }
+            // Each file by its size, read when its turn comes to be
+            // written (a hak can be gigabytes: none of it is held), into a
+            // file beside the archive that takes its place when it is
+            // whole (a failure half way leaves the archive that was).
+            let mut entries = Vec::new();
+            let mut sources: Vec<Result<Vec<u8>, &Path>> = Vec::new();
             for p in paths.iter().filter(|p| p.is_file()) {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
                 let key = resource_key(name)?;
-                let data = match compiled.remove(&key) {
-                    Some(binary) => binary,
-                    None => std::fs::read(p)?,
+                let source = match compiled.remove(&key) {
+                    Some(binary) => Ok(binary),
+                    None => Err(p.as_path()),
                 };
-                w.add(key.resref, key.restype, data)?;
+                let size = match &source {
+                    Ok(binary) => binary.len() as u64,
+                    Err(p) => std::fs::metadata(p).with_context(|| path_text(p))?.len(),
+                };
+                entries.push((key.resref, key.restype, size));
+                sources.push(source);
             }
-            // Streamed: a hak can be gigabytes.
-            let mut file = io::BufWriter::new(std::fs::File::create(archive)?);
-            w.write_to(&mut file)?;
-            file.flush()?;
-            let past = w.past_read_limit();
+            write_whole(archive, |file| {
+                mg_erf::write_streamed(file, &header, &entries, |i| match &sources[i] {
+                    Ok(binary) => Ok(std::borrow::Cow::Borrowed(&binary[..])),
+                    Err(p) => std::fs::read(p).map(std::borrow::Cow::Owned),
+                })?;
+                Ok(())
+            })?;
+            let past = mg_erf::past_read_limit(&header, &entries);
             let mut out = Output::new(json!({
                 "archive": path_text(archive),
-                "files": w.len(),
+                "files": entries.len(),
                 "past_read_limit": past.iter().map(|(r, t)| format!("{r}.{t}")).collect::<Vec<_>>(),
                 "models_compiled": made,
                 "models_left_as_text": left
@@ -2314,7 +2373,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     .collect::<Vec<_>>(),
                 "model_notes": said,
             }));
-            out.note(format!("packed {} files", w.len()));
+            out.note(format!("packed {} files", entries.len()));
             if *compile_models {
                 out.note(format!("compiled {} models kept as text", made.len()));
             }
@@ -2755,6 +2814,8 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Compile { module, uncompiled, all, ndb } => {
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let mut out = Output::default();
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
@@ -2780,9 +2841,12 @@ fn run(cli: &Cli) -> Result<Output> {
             });
             let pass = build::compile_changed(&mut m, &rm, None, &known, only, *ndb);
             out.json = compiled(&mut out, &pass.results);
-            m.save()?;
+            save_asked(cli, &was, &mut m, &mut out)?;
             remember(&mut out, module, &pass.now);
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
+            // (What compiled is saved, and the exit says that not all did:
+            // a pipeline goes no further with a module of old scripts.)
+            out.failed = failed > 0;
             if *uncompiled {
                 out.note(format!(
                     "compiled {} scripts, {failed} failed",
@@ -3026,6 +3090,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 let dir = dir.expect("one or the other");
                 std::path::absolute(&dir).unwrap_or(dir)
             });
+            // (Before anything is made in it: not the player's own folder.)
+            if let Some(dir) = &server_dir {
+                serve::refuse_dir(&gi, dir, None)?;
+            }
             let dev_dir = match (dev_dir, &server_dir) {
                 (Some(dir), _) => dir.clone(),
                 (None, Some(server)) => server.join("development"),
@@ -3438,7 +3506,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 _ => anyhow::bail!("the file must end .json or .csv"),
             }
             .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
-            if !dry_run && (changed > 0 || added > 0 || !table.is_file()) {
+            // (A table no line of which changed is not written again.)
+            let saved = !dry_run && (changed > 0 || added > 0 || !table.is_file());
+            if saved {
                 t.save().map_err(|e| anyhow::anyhow!("{e}"))?;
             }
             let mut out = Output::new(json!({
@@ -3446,11 +3516,11 @@ fn run(cli: &Cli) -> Result<Output> {
                 "changed": changed,
                 "added": added,
                 "lines": t.len(),
-                "saved": !dry_run,
+                "saved": saved,
             }));
             out.line(format!(
                 "{changed} lines changed, {added} added{}",
-                if *dry_run { " (nothing written)" } else { "" }
+                if saved { "" } else { " (nothing written)" }
             ));
             out
         }
@@ -3486,8 +3556,9 @@ fn run(cli: &Cli) -> Result<Output> {
             } else {
                 bail!("{}: not a .twee, .ink or .csv file", file.display())
             };
+            let was = m.clone();
             m.set_gff(key, &g)?;
-            m.save()?;
+            save_asked(cli, &was, &mut m, &mut out)?;
             let lines = mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Entry).len()
                 + mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Reply).len();
             out.json =
@@ -3728,7 +3799,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     Some(_) => {}
                 }
             }
-            let cp = module_codepage(cli, &m);
+            let cp = codepage_with(cli, &m, game.as_ref());
             let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
             let shown = |n: &mg_core::LocString| mg_rules::shown(game.as_ref(), n, language, cp);
             let listed = areas::list_named(&m, &shown);
@@ -3787,7 +3858,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 bail!("name areas or give a filter, or pass --all to change every area");
             }
             let resrefs: Vec<mg_core::ResRef> = chosen.iter().map(|a| a.resref).collect();
-            let codepage = module_codepage(cli, &m);
+            let codepage = cp;
             // What Make Placeables Static leaves dynamic, and why (read
             // before the change, by the project's rules).
             let mut left_dynamic = Vec::new();
@@ -3963,6 +4034,9 @@ fn run(cli: &Cli) -> Result<Output> {
                     bail!("{k} is not in the module");
                 }
             }
+            // (Asked for each placed object and each item held: a set, not
+            // the list gone through for each.)
+            let is_wanted: std::collections::HashSet<ResKey> = wanted.iter().copied().collect();
             let mut out = Output::default();
             let game = game_data_in(&gi, &m, &mut out)?;
             let only = area
@@ -3983,7 +4057,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     mg_module::instances::with_placing(&game, Some(&m), |placing, read| {
                         let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
                             let k = ResKey::new(r, t);
-                            if wanted.contains(&k) { read(k) } else { None }
+                            if is_wanted.contains(&k) { read(k) } else { None }
                         };
                         // The items the area's objects hold (in chests, creatures'
                         // packs and hands, stores, bags) first, then the objects.
@@ -4056,16 +4130,15 @@ fn run(cli: &Cli) -> Result<Output> {
             remember(&mut out, project, &pass.now);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
             if failed > 0 && !keep_going {
-                // The compiler's messages, then the failure.
-                if cli.json {
-                    out.json = json!({ "compiled": compile, "packed": null });
-                    out.failed = true;
-                    return Ok(out);
+                // The compiler's messages, the notes (a hak not found is
+                // often why), then the failure.
+                if !cli.json {
+                    let all = results.len();
+                    out.note(format!("mg: {failed} of {all} scripts failed to compile"));
                 }
-                for l in &out.text {
-                    println!("{l}");
-                }
-                bail!("{failed} of {} scripts failed to compile", results.len());
+                out.json = json!({ "compiled": compile, "packed": null });
+                out.failed = true;
+                return Ok(out);
             }
             // (The models kept as text compiled on the way in, where the
             // project file's `[pack] compile_models` asks: each against its
@@ -4075,10 +4148,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let (path, bytes, models) =
                 m.target_archive_with(&lookup)?.context("not a nasher project")?;
             let path = output.clone().unwrap_or(path);
-            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-                std::fs::create_dir_all(dir)?;
-            }
-            std::fs::write(&path, bytes)?;
+            // (Whole or not at all: a build interrupted leaves the last
+            // good module, not half of this one.)
+            write_bytes_whole(&path, &bytes)?;
             let left = match compile["unchanged"].as_u64().unwrap_or(0) {
                 0 => String::new(),
                 n => format!(" ({n} as they were when last compiled)"),
@@ -4257,8 +4329,10 @@ fn run(cli: &Cli) -> Result<Output> {
                     differ.join(", ")
                 );
             }
-            let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
+            // (The module first: one that can't be opened, or has no
+            // module.ifo that reads, leaves the user folder as it is.)
             let mut m = crate::open_module(module)?;
+            let was = m.clone();
             let mut info = m.info()?;
             let haks: Vec<String> =
                 placed.iter().filter(|p| !p.is_tlk).map(|p| p.name.clone()).collect();
@@ -4271,9 +4345,19 @@ fn run(cli: &Cli) -> Result<Output> {
                 info.root.set("Mod_CustomTlk", mg_gff::Value::String(name));
             }
             m.set_info(&info)?;
+            // (The project's plugins asked, then the files copied, last,
+            // just before the save: a refusal copies nothing.)
+            let mut out = Output::default();
+            let guard = save_guard(cli, &m, &[], &mut out)?;
+            if let Some(g) = &guard {
+                g.before(&was, &m, &mut out)?;
+            }
+            let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
             m.save()?;
-            let mut out =
-                Output::new(json!({ "copied": copied, "haks": m.haks()?, "custom_tlk": tlk }));
+            if let Some(g) = &guard {
+                g.after(&was, &m, &mut out);
+            }
+            out.json = json!({ "copied": copied, "haks": m.haks()?, "custom_tlk": tlk });
             out.note(format!(
                 "copied {copied} file(s); the module has {} hak(s) attached",
                 m.haks()?.len()
@@ -4285,7 +4369,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
-            let codepage = module_codepage(cli, &m);
+            let codepage = mg_rules::text_codepage(&rm, game_language(&gi));
             use mg_core::ResRef;
             let draw = |area: ResRef| -> Result<(mg_module::minimap::Drawn, Vec<u8>)> {
                 let key = ResKey::new(area, ResType::ARE);
@@ -4431,9 +4515,9 @@ fn run(cli: &Cli) -> Result<Output> {
             // (Names are matched and shown in the module's own letters, as
             // the module tree shows them: the talk table's where a name has
             // none of its own, another language's where it has no English.)
-            let cp = module_codepage(cli, &m);
             let mut notes = Output::default();
             let game = game_data_if_any(cli, &m, &mut notes);
+            let cp = codepage_with(cli, &m, game.as_ref());
             let q = mg_module::query::Query {
                 types,
                 tag: tag.clone(),
@@ -4806,13 +4890,49 @@ fn run(cli: &Cli) -> Result<Output> {
 /// The codepage of a module's text ([`mg_rules::text_codepage`]):
 /// Windows-1252, or the table of an `encoding.2da` in its haks (which
 /// takes the game install to find them: without one, Windows-1252).
+///
+/// Found once a run for a list of haks: it takes the game's resource
+/// manager and every hak's index for one table, and a command asks more
+/// than once. (A command that has the game's data or a resource manager
+/// for the module reads it from that: [`codepage_with`].)
 fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
-    let own = Codepage::WINDOWS_1252;
     let haks = m.haks().unwrap_or_default();
+    let mut found = CODEPAGES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, codepage)) = found.iter().find(|(of, _)| *of == haks) {
+        return *codepage;
+    }
+    let codepage = read_codepage(cli, &haks);
+    found.push((haks, codepage));
+    codepage
+}
+
+/// The codepages [`module_codepage`] found in this run, by the haks they
+/// were read from (the install is one a run).
+static CODEPAGES: std::sync::Mutex<Vec<(Vec<String>, Codepage)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// How often this run built a resource manager to find a codepage.
+#[cfg(test)]
+static CODEPAGES_READ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn read_codepage(cli: &Cli, haks: &[String]) -> Codepage {
+    #[cfg(test)]
+    CODEPAGES_READ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let own = Codepage::WINDOWS_1252;
     let Ok(gi) = install(cli) else { return own };
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
-    let _ = rm.add_haks(&gi, &haks);
+    let _ = rm.add_haks(&gi, haks);
     mg_rules::text_codepage(&rm, game_language(&gi))
+}
+
+/// [`module_codepage`] for a command that may have the game's data for
+/// the module already (the same table, read from what is open: the game
+/// and the haks are not opened again for it).
+pub(crate) fn codepage_with(cli: &Cli, m: &Module, game: Option<&mg_rules::GameData>) -> Codepage {
+    match game {
+        Some(game) => game.text_codepage(),
+        None => module_codepage(cli, m),
+    }
 }
 
 /// The install's language (English where its code is none the game has).
@@ -4841,7 +4961,12 @@ fn save_guard(
 /// Saves a module a command changed, as `mg set` saves: the project's own
 /// plugins (as the builder allowed them) are asked first (`resource-saving`:
 /// a refusal stops it, nothing written) and told after (`resource-saved`),
-/// of what differs from `was`.
+/// of what differs from `was`. Every command that changes a module's
+/// resources saves through this, [`save_workspace_asked`] or a guard of
+/// its own ([`save_guard`]: `mg set`, `mg apply`, `mg attach`, `mg
+/// bake-walkmesh`, `mg plugin run`, `mg verify --fix`): one that saved
+/// with `m.save()` wrote what the project's plugin refuses of another
+/// (the manual lists them, in Plugins).
 fn save_asked(cli: &Cli, was: &Module, m: &mut Module, out: &mut Output) -> Result<()> {
     let guard = save_guard(cli, m, &[], out)?;
     if let Some(g) = &guard {
@@ -4851,6 +4976,25 @@ fn save_asked(cli: &Cli, was: &Module, m: &mut Module, out: &mut Output) -> Resu
     if let Some(g) = &guard {
         g.after(was, m, out);
     }
+    Ok(())
+}
+
+/// [`save_asked`] for a command that edits through a workspace: what
+/// differs is told from the module as it was opened.
+pub(crate) fn save_workspace_asked(
+    cli: &Cli,
+    ws: &mut mg_edit::Workspace,
+    out: &mut Output,
+) -> Result<()> {
+    ws.flush()?;
+    let Some(guard) = save_guard(cli, &ws.module, &[], out)? else {
+        ws.save()?;
+        return Ok(());
+    };
+    let was = ws.saved().clone();
+    guard.before(&was, &ws.module, out)?;
+    ws.save()?;
+    guard.after(&was, &ws.module, out);
     Ok(())
 }
 
@@ -5291,7 +5435,7 @@ fn verify(
     skip.leave_out(&mut missing, &mut findings);
     // Each finding with its fix, if it has one.
     let found = mg_edit::fix::attach(&m, findings, &theirs);
-    let codepage = mg_rules::text_codepage(&rm, game_language(gi));
+    let codepage = game_codepage;
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())
     } else {
@@ -5770,11 +5914,77 @@ fn gff(
             Ok(Output::new(serde_json::json!({ "written": path_text(o) })))
         }
         // The GFF as JSON is the output, with --json or without.
-        None if json => Ok(Output::new(value)),
+        None if json => Ok(Output { json: value, document: true, ..Default::default() }),
         None => {
             let mut out = Output::default();
             out.line(serde_json::to_string_pretty(&value)?);
             Ok(out)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file is written whole or not at all: one that fails half way
+    /// leaves what was there, and nothing beside it.
+    #[test]
+    fn a_file_is_written_whole_or_not_at_all() {
+        let dir = mg_testkit::scratch_dir("mg-write-whole");
+        let path = dir.join("out/built.mod");
+        write_bytes_whole(&path, b"the last good build").unwrap();
+        let failed = write_whole(&path, |file| {
+            file.write_all(b"half of the ne")?;
+            bail!("the disk is full")
+        });
+        let why = format!("{:#}", failed.unwrap_err());
+        assert!(why.contains("built.mod") && why.contains("the disk is full"), "{why}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"the last good build");
+        let beside = |dir: &Path| std::fs::read_dir(dir).unwrap().count();
+        assert_eq!(beside(&dir.join("out")), 1, "no temporary file left");
+        write_whole(&path, |file| Ok(file.write_all(b"the new build")?)).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"the new build");
+        assert_eq!(beside(&dir.join("out")), 1);
+    }
+
+    /// A module's codepage is found once a run for its haks, however
+    /// often a command asks, and is what reading it afresh gives; a
+    /// command with the game's data open reads it from that.
+    #[test]
+    fn a_module_s_codepage_is_found_once_a_run() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let root = mg_testkit::corpus!();
+        let root = root.to_str().unwrap();
+        let cli = <Cli as clap::Parser>::parse_from([
+            "mg",
+            "--root",
+            root,
+            "--no-user-dir",
+            "ls",
+            "x.hak",
+        ]);
+        let mut m = Module::new();
+        let mut info = Gff::new(*b"IFO ");
+        let haks = ["mg_codepage_test_hak".to_string()];
+        info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &haks));
+        m.set_info(&info).unwrap();
+        assert_eq!(m.haks().unwrap(), haks);
+        let before = CODEPAGES_READ.load(SeqCst);
+        let first = module_codepage(&cli, &m);
+        assert_eq!(CODEPAGES_READ.load(SeqCst), before + 1);
+        for _ in 0..3 {
+            assert_eq!(module_codepage(&cli, &m), first);
+        }
+        assert_eq!(CODEPAGES_READ.load(SeqCst), before + 1, "read once");
+        assert_eq!(first, read_codepage(&cli, &haks));
+        // With the game's data open, nothing more is built for it.
+        let gi = install(&cli).unwrap();
+        let game = game_data_in(&gi, &m, &mut Output::default()).unwrap();
+        let read = CODEPAGES_READ.load(SeqCst);
+        assert_eq!(codepage_with(&cli, &m, Some(&game)), first);
+        assert_eq!(CODEPAGES_READ.load(SeqCst), read);
+        assert_eq!(codepage_with(&cli, &m, None), first);
+        assert_eq!(CODEPAGES_READ.load(SeqCst), read);
     }
 }

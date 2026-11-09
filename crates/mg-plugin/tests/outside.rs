@@ -160,6 +160,37 @@ fn a_hak_takes_resources_with_the_user_s_leave() {
 /// again: a hak that was there comes back as it was, one the job made
 /// goes; one changed since is left as it is. The copies go with the
 /// record.
+/// A file put into a hak with `folder:to_hak` is not read to say the
+/// game would load it, and `ctx.game:bytes` holds it to what a plugin
+/// reads of a file: one of 65 MB (nothing of it on the disk) is there,
+/// and too large to read.
+#[test]
+fn a_file_put_into_a_hak_is_not_read_to_say_it_is_there() {
+    let dir = scratch("hak-large");
+    let big = std::fs::File::create(dir.join("big.tga")).unwrap();
+    big.set_len(65 << 20).unwrap();
+    drop(big);
+    std::fs::write(dir.join("small.tga"), "pixels").unwrap();
+    let code = r#"
+        local folder = ctx.ui:open_folder()
+        folder:to_hak("my_tiles", "big.tga")
+        folder:to_hak("my_tiles", "small.tga")
+        local read, why = pcall(function() return ctx.game:bytes("big.tga") end)
+        return ctx.game:has("big.tga"), read, tostring(why), ctx.game:bytes("small.tga")
+    "#;
+    let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
+    let started = std::time::Instant::now();
+    console(code, &h).unwrap();
+    let log = h.log.borrow();
+    assert_eq!(
+        (log[0].as_str(), log[1].as_str(), log[3].as_str()),
+        ("true", "false", "\"pixels\"")
+    );
+    assert!(log[2].contains("big.tga has 65 MB; a plugin reads files of up to 64"), "{}", log[2]);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_hak_written_is_taken_back_and_written_again() {
     let dir = scratch("hak-undo");
@@ -642,5 +673,38 @@ fn an_event_s_handler_gets_what_happened() {
         written("bad-event", "[event]\nid = \"x\"\non = \"midnight\"\n", "")
     });
     assert!(bad.is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A folder's files are written whole, each in the place of the one of
+/// its name: nothing is left beside them, and a link of that name (to a
+/// file of the folder) is replaced, not written through.
+#[test]
+fn a_folder_s_files_are_written_whole() {
+    let dir = scratch("folder-whole");
+    std::fs::write(dir.join("a.txt"), "old").unwrap();
+    let files = vec![("a.txt".to_string(), b"new".to_vec()), ("b.txt".to_string(), b"b".to_vec())];
+    let write = mg_plugin::FolderWrite { dir: dir.clone(), files };
+    assert_eq!(write.write().unwrap(), (1, 1));
+    assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"new");
+    let names = || {
+        let mut names: Vec<String> = (std::fs::read_dir(&dir).unwrap().flatten())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(names(), ["a.txt", "b.txt"]);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(dir.join("a.txt"), dir.join("link.txt")).unwrap();
+        let files = vec![("link.txt".to_string(), b"mine".to_vec())];
+        let write = mg_plugin::FolderWrite { dir: dir.clone(), files };
+        assert_eq!(write.write().unwrap(), (0, 1));
+        assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"new", "written through the link");
+        assert!(!dir.join("link.txt").symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(dir.join("link.txt")).unwrap(), b"mine");
+        assert_eq!(names(), ["a.txt", "b.txt", "link.txt"]);
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

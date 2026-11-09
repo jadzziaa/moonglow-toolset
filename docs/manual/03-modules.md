@@ -1297,7 +1297,9 @@ whose each is; `mg claims PROJECT claim AREA…`, `release AREA…` and
 `hand AREA… --to CODE` do what the menus and the window do (`--force`
 takes, releases or hands on another's claim, for the one who keeps the
 table), and `merged AREA…` marks areas merged, with their Tags as the
-module has them ([Command-line tools](11-command-line.md)).
+module has them ([Command-line tools](11-command-line.md)). Several
+areas named are changed all or none: one that is another builder's, or
+is no area of the module, leaves the table as it was.
 
 ### Protected areas
 

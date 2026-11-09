@@ -7,8 +7,8 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use mg_core::ResType;
+use mg_module::Module;
 use mg_module::testing::{self, Report};
-use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, ResKey, ResMan};
 use serde_json::json;
 
@@ -123,6 +123,10 @@ pub(crate) fn run_on(
 ) -> Result<Run> {
     let started = Instant::now();
     let mut notes = Vec::new();
+    // (Before anything is made in it: not the player's own folder.)
+    if let Some(dir) = &c.serve.dir {
+        serve::refuse_dir(gi, dir, None)?;
+    }
     // (The module as the builder has it, before the tests go in.)
     let as_read = m.clone();
     let mut added = Vec::new();
@@ -244,8 +248,7 @@ pub(crate) fn run_on(
     let dir = std::path::absolute(&dir).unwrap_or(dir);
     std::fs::create_dir_all(dir.join("modules"))?;
     let copy = dir.join("modules").join(format!("{name}.mod"));
-    m.save_as(&ModuleLocation::Archive(copy.clone()))?;
-    let _ = std::fs::remove_file(copy.with_extension("mod.bak"));
+    serve::save_copy(&mut m, &copy)?;
 
     // (A project's own talk table is made for the server from the
     // project, not the copy.)
