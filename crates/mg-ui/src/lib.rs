@@ -3299,6 +3299,11 @@ impl Moonglow {
         // found, may come from it.)
         self.palette.kept = Default::default();
         self.search_kept = Default::default();
+        // (And the names the tree and the tabs list areas and blueprints
+        // by: kept by the resource's bytes alone, they showed the talk
+        // table's old lines until the module was opened again.)
+        self.area_names = Default::default();
+        self.area_contents.clear();
         let Some(name) = name else {
             game.set_custom_tlk(None);
             return;
@@ -5207,6 +5212,8 @@ impl Moonglow {
         self.palettes = Default::default();
         self.palette.forget_game_data();
         self.search_kept = Default::default();
+        self.area_names = Default::default();
+        self.area_contents.clear();
         self.let_go_of_view_targets();
         self.model_views.clear();
         for view in self.area_views.values_mut() {
