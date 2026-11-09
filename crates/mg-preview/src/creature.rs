@@ -393,13 +393,8 @@ pub(crate) fn plt_fallbacks(
 ) -> std::collections::BTreeMap<String, String> {
     // A part's name, and its fallbacks.
     let named = |name: &str| -> Vec<String> {
-        let Some((prefix, rest)) = name.split_once('_') else { return Vec::new() };
-        let mut chars = prefix.chars();
-        let (Some('p'), Some(g), Some(r), Some(_), None) =
-            (chars.next(), chars.next(), chars.next(), chars.next(), chars.next())
-        else {
-            return Vec::new();
-        };
+        let Some(part) = models::part_name(name) else { return Vec::new() };
+        let (g, r, rest) = (part.gender, part.race, part.part);
         vec![
             name.to_string(),
             format!("p{g}{r}0_{rest}"),

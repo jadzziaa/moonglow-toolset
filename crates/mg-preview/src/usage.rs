@@ -1029,15 +1029,15 @@ impl<'a> Walk<'a> {
         // this once it is picked up and worn: its cloakmodel.2da texture.)
         let lies_as_another = || {
             (std::iter::once(&p.base).chain(&p.parts))
-                .any(|part| armor_part(&part.model.to_ascii_lowercase()).is_some())
+                .any(|part| mg_rules::models::part_name(&part.model).is_some())
         };
         if !placed || lies_as_another() {
             self.gather.preview(&p);
         }
         for part in std::iter::once(&p.base).chain(&p.parts) {
             let name = part.model.to_ascii_lowercase();
-            match armor_part(&name) {
-                Some((_, _, _, rest)) => self.worn(rest),
+            match mg_rules::models::part_name(&name) {
+                Some(worn) => self.worn(worn.part),
                 None if self.parts.insert(name.clone()) => {
                     self.gather.add_texture(&format!("i{name}"))
                 }
@@ -1140,19 +1140,6 @@ impl<'a> Walk<'a> {
         }
         self.wearers = Some((races, phenotypes));
     }
-}
-
-/// An armor part's model name, `p` + gender + race + phenotype + `_` +
-/// the part and its number (`pmh0_chest001`), in its pieces.
-fn armor_part(name: &str) -> Option<(char, char, &str, &str)> {
-    let rest = name.strip_prefix('p')?;
-    let mut chars = rest.chars();
-    let g = chars.next().filter(|c| matches!(c, 'm' | 'f'))?;
-    let r = chars.next().filter(char::is_ascii_lowercase)?;
-    let tail = &rest[2..];
-    let (ph, part) = tail.split_once('_')?;
-    (!ph.is_empty() && ph.bytes().all(|b| b.is_ascii_digit()) && !part.is_empty())
-        .then_some((g, r, ph, part))
 }
 
 /// The game a player has, with the module's haks and the module
@@ -1443,8 +1430,6 @@ mod tests {
         let base = |k: &ResKey| *k == key("mg_unused.mdl");
         let u = attribute(&game.resman, &walk.from, "mg_content", &layer("hak:mg_content"), &base);
         assert_eq!(u.unused.len(), 1);
-        assert_eq!(armor_part("pmh0_chest001"), Some(('m', 'h', "0", "chest001")));
-        assert_eq!(armor_part("plc_a01"), None);
     }
 
     /// A walk of a module of `resources` (each in the module's layer)
@@ -1559,7 +1544,13 @@ mod tests {
         );
         stock
             .insert(key("cloakmodel.2da"), table(" LABEL MODEL TEXTURE\n0 none 1 1\n1 Mine 3 7\n"));
+        // (A server's own phenotype of two digits, 15.)
+        let phenotypes: String = (0..16).map(|row| format!("{row} P{row} 0\n")).collect();
+        stock
+            .insert(key("phenotype.2da"), table(&format!(" Label DefaultPhenoType\n{phenotypes}")));
         let mut content = MemContainer::new();
+        content.insert(key("pmh15_chest009.mdl"), model("pmh15_chest009", "NULL"));
+        content.insert(key("pmh15_chest009.plt"), &b"plt"[..]);
         content.insert(key("pmh0_head123.mdl"), model("pmh0_head123", "NULL"));
         content.insert(key("pme0_chest009.mdl"), model("pme0_chest009", "pmh0_chest009"));
         content.insert(key("pmh0_cloak_003.mdl"), model("pmh0_cloak_003", "cloak_001"));
@@ -1594,6 +1585,12 @@ mod tests {
         assert_eq!(reached("pmh0_head123.mdl").as_deref(), Some("racialtypes.2da"));
         assert_eq!(reached("pmh0_head123.plt").as_deref(), Some("racialtypes.2da"));
         for n in ["pme0_chest009.mdl", "pme0_chest009.plt", "pmh0_chest009.plt"] {
+            assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
+        }
+        // A part of a phenotype of two digits is a part like any other
+        // (its name was read as no part's, and it got no texture: the
+        // review's M10).
+        for n in ["pmh15_chest009.mdl", "pmh15_chest009.plt"] {
             assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
         }
         for n in ["pmh0_cloak_003.mdl", "cloak_007.plt"] {

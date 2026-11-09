@@ -95,12 +95,19 @@ pub fn bound_elsewhere(model: &Model, skin: &crate::Skin) -> bool {
 }
 
 /// The skeleton a body part is worn on, by the part's name: `pmh0` for
-/// `pmh0_neck001` (`p<gender><race><phenotype>_<part><number>`).
+/// `pmh0_neck001` (`p<gender><race><phenotype>_<part><number>`, the
+/// phenotype of as many digits as it has: `pmh15`), read by characters (a
+/// compiled model's name may hold any bytes). As `mg_rules::models::part_name`
+/// reads the name: mg-rules is above this crate, and its test holds the
+/// two to one table of names.
 pub fn skeleton_of(part: &str) -> Option<&str> {
     let (skeleton, rest) = part.split_once('_')?;
-    let is = skeleton.len() == 4
-        && skeleton.starts_with(['p', 'P'])
-        && skeleton[3..].bytes().all(|b| b.is_ascii_digit())
+    let mut chars = skeleton.chars();
+    let is = chars.next().is_some_and(|c| matches!(c, 'p' | 'P'))
+        && chars.next().is_some_and(|c| matches!(c, 'm' | 'f' | 'M' | 'F'))
+        && chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && !chars.as_str().is_empty()
+        && chars.as_str().bytes().all(|b| b.is_ascii_digit())
         && !rest.is_empty();
     is.then_some(skeleton)
 }
@@ -1081,6 +1088,11 @@ endmodelgeom m\ndonemodel m\n";
         assert_eq!(skeleton_of("PFE2_robe003"), Some("PFE2"));
         assert_eq!(skeleton_of("plc_a01"), None);
         assert_eq!(skeleton_of("pmh0"), None);
+        // A phenotype of two digits; and a name that is not ASCII, which
+        // was cut inside a character (a panic).
+        assert_eq!(skeleton_of("pmh15_neck001"), Some("pmh15"));
+        assert_eq!(skeleton_of("pa\u{e9}_x"), None);
+        assert_eq!(skeleton_of("pm\u{e9}0_x"), None);
     }
 
     #[test]
