@@ -637,6 +637,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let rows = doc.rows();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let mut rename_done = None;
+    let mut remove = None;
     // The resource being viewed takes the lower part of the tab.
     let list_height = match doc.viewing {
         Some(_) => (ui.available_height() * 0.45).max(120.0),
@@ -702,8 +703,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                         todo = Some(Do::Extract(vec![item.key]));
                     }
                     if ui.button("Remove").clicked() {
-                        doc.hak.remove(&[item.key]);
-                        changed = true;
+                        // (After the list is drawn: its rows are places in
+                        // the hak's items as they were.)
+                        remove = Some(item.key);
                     }
                 });
                 ui.add_sized([90.0, row_height], egui::Label::new(size(item.size)));
@@ -719,6 +721,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     // (Drawn below, with the window's state: a table's columns, the model
     // viewer, the speakers.)
     let shown = doc.viewing.take();
+    if let Some(key) = remove {
+        doc.hak.remove(&[key]);
+        changed = true;
+    }
     if let Some(done) = rename_done {
         if let Some((key, name)) = done.filter(|(k, n)| *n != k.resref.to_string()) {
             match doc.hak.rename(key, name.trim()) {

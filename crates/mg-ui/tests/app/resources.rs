@@ -1195,6 +1195,46 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), now), ("mg_two.2da".to_string(), two)]);
 }
 
+/// A row's right-click Remove took the item out while the list was still
+/// being drawn from places worked out before: with a later row in sight
+/// the next turn read past the hak's end, a panic (the review of November
+/// 2026, D1). It goes once the list is drawn, and Undo brings it back.
+#[test]
+fn a_hak_row_s_remove_takes_that_row_alone() {
+    let dir = mg_testkit::scratch_dir("ui-hak-row-remove");
+    let files: Vec<_> = ["mg_a", "mg_b", "mg_c"]
+        .iter()
+        .map(|n| {
+            let file = dir.join(format!("{n}.2da"));
+            std::fs::write(&file, "2DA V2.0\n\n   Label\n0  x\n").unwrap();
+            file
+        })
+        .collect();
+    let dialogs = NoDialogs { open_many: vec![files], ..Default::default() };
+    let app = Moonglow::new(None, Box::new(dialogs));
+    let mut h = harness(app, 1100.0, 760.0);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run();
+    h.get_by_label("Add Files…").click();
+    h.run();
+    let names = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let mut names: Vec<String> =
+            h.state().haks[0].hak.items().iter().map(|i| i.key.to_string()).collect();
+        names.sort();
+        names
+    };
+    assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
+    h.get_by_label("mg_a.2da").click_secondary();
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    assert_eq!(names(&h), ["mg_b.2da", "mg_c.2da"]);
+    assert!(h.query_by_label("mg_a.2da").is_none(), "the row is gone from the list");
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
+}
+
 /// The side editors (a hak's, a 2DA's, a tileset's) ask of unsaved changes
 /// as the module does (Save, Don't Save, Cancel), and of each tab closed
 /// in turn: Close All with two changed haks asks of both, not only the
