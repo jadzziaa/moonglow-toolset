@@ -15,7 +15,7 @@ pub(crate) mod glob;
 mod project;
 mod tlk;
 
-pub use cfg::{Package, Section, Settings, Target, sections};
+pub use cfg::{Covers, Package, Section, Settings, Target, sections};
 pub(crate) use project::scan;
 pub use project::{Outside, Project, Resources, SaveReport};
 pub use tlk::{

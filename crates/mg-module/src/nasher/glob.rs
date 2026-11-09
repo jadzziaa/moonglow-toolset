@@ -122,28 +122,54 @@ pub(crate) fn matches(name: &str, pattern: &str) -> bool {
 }
 
 /// Whether `pattern` finds the file `path`, as [`walk`] would (whether it
-/// is there or not: a file about to be written).
+/// is there or not: a file about to be written). For many files, a
+/// [`Cover`] made once.
+#[cfg(test)]
 pub(crate) fn covers(root: &Path, pattern: &str, path: &Path) -> bool {
-    let pattern = pattern.replace('\\', "/");
-    let rel =
-        |base: &Path| path.strip_prefix(base).ok().map(|r| r.to_string_lossy().replace('\\', "/"));
-    if !has_magic(&pattern) {
-        let p = root.join(&pattern);
-        return path == p || path.starts_with(&p);
-    }
-    let (base, magic) = match pattern.find(|c| ['*', '?', '[', '{'].contains(&c)) {
-        Some(first) => match pattern[..first].rfind('/') {
-            Some(slash) => (&pattern[..slash], &pattern[slash + 1..]),
+    Cover::new(root, pattern).covers(path)
+}
+
+/// A pattern under a root, made ready to be asked of many files whether
+/// it finds them ([`covers`]): its regular expression is compiled once,
+/// not for each file (a project of 30,000 sources compiled 90,000 at
+/// every open).
+#[derive(Debug, Clone)]
+pub(crate) struct Cover {
+    /// The folder the pattern's wildcards begin in; for a pattern without
+    /// any, the file or folder it names.
+    base: PathBuf,
+    /// The wildcards' expression, for the path from `base` (none: a
+    /// pattern without wildcards; `Some(None)`: one that is no pattern,
+    /// which finds nothing).
+    rest: Option<Option<Regex>>,
+}
+
+impl Cover {
+    pub(crate) fn new(root: &Path, pattern: &str) -> Cover {
+        let pattern = pattern.replace('\\', "/");
+        if !has_magic(&pattern) {
+            return Cover { base: root.join(&pattern), rest: None };
+        }
+        let (base, magic) = match pattern.find(|c| ['*', '?', '[', '{'].contains(&c)) {
+            Some(first) => match pattern[..first].rfind('/') {
+                Some(slash) => (&pattern[..slash], &pattern[slash + 1..]),
+                None => ("", &pattern[..]),
+            },
             None => ("", &pattern[..]),
-        },
-        None => ("", &pattern[..]),
-    };
-    let dir = if base.is_empty() { root.to_path_buf() } else { root.join(base) };
-    let Some(rel) = rel(&dir) else { return false };
-    to_regex(magic, true)
-        .ok()
-        .and_then(|rx| Regex::new(&rx).ok())
-        .is_some_and(|rx| rx.is_match(&rel))
+        };
+        let base = if base.is_empty() { root.to_path_buf() } else { root.join(base) };
+        let rest = to_regex(magic, true).ok().and_then(|rx| Regex::new(&rx).ok());
+        Cover { base, rest: Some(rest) }
+    }
+
+    pub(crate) fn covers(&self, path: &Path) -> bool {
+        let Some(rest) = &self.rest else {
+            return path == self.base || path.starts_with(&self.base);
+        };
+        let Ok(rel) = path.strip_prefix(&self.base) else { return false };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        rest.as_ref().is_some_and(|rx| rx.is_match(&rel))
+    }
 }
 
 /// The files a pattern finds, relative to `root` unless absolute, as
@@ -202,6 +228,59 @@ pub(crate) fn walk(root: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pattern made ready once finds the files the walk finds, and no
+    /// others; asked again and again, the same.
+    #[test]
+    fn a_cover_finds_what_the_walk_finds() {
+        let root = mg_testkit::scratch_dir("mg-glob-cover");
+        let files = [
+            "src/a.nss",
+            "src/b.json",
+            "src/areas/c.are.json",
+            "src/areas/deep/d.git.json",
+            "src/win.jui",
+            "src/old/e.nss",
+            "other/f.nss",
+            "g.nss",
+        ];
+        for f in files {
+            let path = root.join(f);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"").unwrap();
+        }
+        for pattern in [
+            "src/**/*.{nss,json}",
+            "src/*.nss",
+            "src/**/*",
+            "src\\areas\\**\\*.json",
+            "src/old/**",
+            "**/*.nss",
+            "*.nss",
+            "src/win.jui",
+            "src/areas",
+            "src/[ab].*",
+            "src/{a,win}.{nss,jui}",
+            "src/[",
+            "nothing/**/*",
+        ] {
+            let cover = Cover::new(&root, pattern);
+            let mut walked = walk(&root, pattern).unwrap_or_default();
+            walked.sort();
+            let mut covered: Vec<PathBuf> =
+                files.iter().map(|f| root.join(f)).filter(|p| cover.covers(p)).collect();
+            covered.sort();
+            assert_eq!(covered, walked, "{pattern}");
+            assert!(
+                files
+                    .iter()
+                    .all(|f| cover.covers(&root.join(f)) == covers(&root, pattern, &root.join(f)))
+            );
+        }
+        // A file not there yet, about to be written.
+        assert!(Cover::new(&root, "src/**/*.jui").covers(&root.join("src/new/x.jui")));
+        assert!(!Cover::new(&root, "src/**/*.jui").covers(&root.join("elsewhere/x.jui")));
+    }
 
     #[test]
     fn globs_translate_as_the_glob_package_does() {

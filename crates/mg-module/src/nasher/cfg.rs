@@ -471,8 +471,16 @@ impl Target {
     /// Whether the target's sources take in the file `path` (there or not):
     /// an include finds it and no exclude does.
     pub fn covers(&self, root: &Path, path: &Path) -> bool {
-        self.includes.iter().any(|p| super::glob::covers(root, p, path))
-            && !self.excludes.iter().any(|p| super::glob::covers(root, p, path))
+        self.covers_under(root).covers(path)
+    }
+
+    /// The target's sources under `root`, made ready to be asked of many
+    /// files ([`Target::covers`] of each compiles every pattern again).
+    pub fn covers_under(&self, root: &Path) -> Covers {
+        let made = |patterns: &[String]| -> Vec<glob::Cover> {
+            patterns.iter().map(|p| glob::Cover::new(root, p)).collect()
+        };
+        Covers { includes: made(&self.includes), excludes: made(&self.excludes) }
     }
 
     pub fn source_files(&self, root: &Path) -> Result<Vec<PathBuf>, String> {
@@ -511,6 +519,26 @@ impl Target {
     /// Whether a script is left uncompiled.
     pub fn skips_compiling(&self, file_name: &str) -> bool {
         self.skip_compile.iter().any(|p| glob::matches(file_name, p))
+    }
+}
+
+/// A target's sources under a root ([`Target::covers_under`]).
+#[derive(Debug, Clone)]
+pub struct Covers {
+    includes: Vec<glob::Cover>,
+    excludes: Vec<glob::Cover>,
+}
+
+impl Covers {
+    /// Whether the sources take in the file `path` (there or not): an
+    /// include finds it and no exclude does.
+    pub fn covers(&self, path: &Path) -> bool {
+        self.includes.iter().any(|p| p.covers(path)) && !self.excluded(path)
+    }
+
+    /// Whether an exclude finds `path`: left out on purpose.
+    pub fn excluded(&self, path: &Path) -> bool {
+        self.excludes.iter().any(|p| p.covers(path))
     }
 }
 

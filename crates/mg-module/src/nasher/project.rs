@@ -441,11 +441,12 @@ impl Project {
     /// project whose include names only scripts and JSON are the usual.
     pub fn uncovered(&self, keys: &[ResKey]) -> Vec<PathBuf> {
         let root = self.root();
+        let covers = self.target().covers_under(root);
         let mut out: Vec<PathBuf> = keys
             .iter()
             .filter(|k| !self.sources.contains_key(*k) && k.restype != ResType::NCS)
             .filter_map(|k| self.new_file(k))
-            .filter(|p| !self.target().covers(root, p))
+            .filter(|p| !covers.covers(p))
             .collect();
         out.sort();
         out.dedup();
@@ -982,6 +983,8 @@ impl Project {
         let mut uncovered: Vec<PathBuf> = Vec::new();
         // New resources whose names are no files': not written.
         let mut unnamed: Vec<String> = Vec::new();
+        // (The target's sources, made ready once a new file asks.)
+        let mut covers = None;
         for (key, bytes) in resources {
             match self.sources.get(key) {
                 // (A compiled script kept without its source has one now:
@@ -1011,7 +1014,8 @@ impl Project {
                         continue;
                     };
                     let form = self.new_form(key);
-                    if !self.target().covers(&root, &path) {
+                    let covers = covers.get_or_insert_with(|| self.target().covers_under(&root));
+                    if !covers.covers(&path) {
                         uncovered.push(path.clone());
                     }
                     let text = self.source_bytes(key, form, bytes, None)?;
@@ -1296,8 +1300,9 @@ pub(crate) fn scan(
     // walked.)
     let sources = match only {
         Some(only) => {
+            let covers = target.covers_under(root);
             let mut paths: Vec<PathBuf> =
-                only.iter().filter(|p| p.is_file() && target.covers(root, p)).cloned().collect();
+                only.iter().filter(|p| p.is_file() && covers.covers(p)).cloned().collect();
             paths.sort();
             paths
         }
@@ -1367,15 +1372,14 @@ fn left_out_of(root: &Path, target: &Target) -> Vec<PathBuf> {
     bases.sort();
     bases.dedup();
     let mut out = Vec::new();
+    // (Each pattern compiled once, not for every file of the walk.)
+    let covers = target.covers_under(root);
     for base in bases {
         for path in super::glob::walk(root, &format!("{base}/**/*")).unwrap_or_default() {
             if crate::left_writing(&path) {
                 continue;
             }
-            if out.contains(&path)
-                || target.covers(root, &path)
-                || target.excludes.iter().any(|p| super::glob::covers(root, p, &path))
-            {
+            if out.contains(&path) || covers.covers(&path) || covers.excluded(&path) {
                 continue;
             }
             let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
