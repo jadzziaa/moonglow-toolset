@@ -466,8 +466,6 @@ impl Target {
         Ok(())
     }
 
-    /// The target's source files: what its `include` globs find under
-    /// `root`, less what its `exclude` globs find, without repeats.
     /// Whether the target's sources take in the file `path` (there or not):
     /// an include finds it and no exclude does.
     pub fn covers(&self, root: &Path, path: &Path) -> bool {
@@ -483,6 +481,8 @@ impl Target {
         Covers { includes: made(&self.includes), excludes: made(&self.excludes) }
     }
 
+    /// The target's source files: what its `include` globs find under
+    /// `root`, less what its `exclude` globs find, without repeats.
     pub fn source_files(&self, root: &Path) -> Result<Vec<PathBuf>, String> {
         let mut excluded = std::collections::HashSet::new();
         for p in &self.excludes {

@@ -516,9 +516,6 @@ impl Table {
         )
     }
 
-    /// Puts entries at a row: `None` removes the row (the last one), and
-    /// the feminine table is padded with copies of the table's lines to
-    /// reach it.
     /// Puts entries at a row: `None` removes the row where it is the last
     /// (one before the last is emptied: the lines after keep their
     /// numbers), a row past the end is reached with empty lines, and the
@@ -938,11 +935,9 @@ impl Table {
     }
 
     /// Sets the lines given by their places in the table as one undoable
-    /// step, adding lines (empty ones between) for those past its end:
-    /// all, or none if one is not a line the table can hold. Returns how
-    /// many changed and how many were added.
-    /// Sets the lines given, by row (the table grows to hold them): all
-    /// or nothing, one undo; the lines changed and added are returned.
+    /// step, the table growing to hold those past its end (the lines
+    /// between empty): all, or none if one is not a line the table can
+    /// hold. Returns how many changed and how many were added.
     pub fn import(
         &mut self,
         lines: std::collections::BTreeMap<usize, Line>,

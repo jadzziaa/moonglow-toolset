@@ -215,8 +215,6 @@ fn source_name(key: &ResKey, form: Form) -> String {
     }
 }
 
-/// The resource a source file name stands for, and the form the file keeps
-/// it in; `None` if it isn't a resource.
 /// The folder an include looks in, relative to the project (the part
 /// before its first wildcard): `src/**/*.nss` looks in `src`. `None` for one
 /// that looks outside the project's folder, or in all of it.
@@ -252,6 +250,8 @@ fn left_out_kinds(files: &[PathBuf]) -> Vec<String> {
     kinds
 }
 
+/// The resource a source file name stands for, and the form the file keeps
+/// it in; `None` if it isn't a resource.
 fn resource_of(file_name: &str) -> Option<(ResKey, Form)> {
     let (name, form) = Form::of(file_name);
     crate::folder_key(name).map(|k| (k, form))
