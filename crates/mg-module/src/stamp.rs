@@ -186,8 +186,17 @@ fn module_dir(module: &Module) -> Option<PathBuf> {
 /// credentials, or on a hung network folder, never ends).
 const GIT_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// A folder of hooks that holds none, on every system git runs on.
+const NO_HOOKS: &str = if cfg!(windows) { "NUL" } else { "/dev/null" };
+
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let mut command = Command::new("git");
+    // The folder's own configuration is not to run anything: a module
+    // downloaded as an archive may carry a `.git` whose `core.fsmonitor`
+    // names a program, which `git status` runs (as the project file may
+    // not allow its own commands). Nor does a look take the index's lock.
+    command.args(["--no-optional-locks", "-c", "core.fsmonitor=false"]);
+    command.args(["-c", &format!("core.hooksPath={}", NO_HOOKS)]);
     command.arg("-C").arg(dir).args(args);
     let out = crate::process::output_within(&mut command, GIT_TIME_LIMIT).ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -283,6 +292,47 @@ mod tests {
 
     fn run(dir: &Path, args: &[&str]) -> bool {
         Command::new("git").arg("-C").arg(dir).args(args).output().is_ok_and(|o| o.status.success())
+    }
+
+    /// A module's folder that came with a `.git` of its own (downloaded as
+    /// an archive) may name a program in its configuration
+    /// (`core.fsmonitor`) that `git status` runs: Moonglow's git does not
+    /// run it. The repository is a scratch one, and its configuration is
+    /// written into its own file by hand (never by a `git config` that
+    /// could reach the repository the tests run in).
+    #[cfg(unix)]
+    #[test]
+    fn git_does_not_run_what_the_folder_s_configuration_names() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = mg_testkit::scratch_dir("stamp-git-fsmonitor");
+        if !run(&dir, &["init", "-q"]) {
+            eprintln!("skipped: no git");
+            return;
+        }
+        let config = dir.join(".git/config");
+        assert!(config.is_file(), "the scratch folder is a repository of its own");
+        let own = "[user]\n\temail = t@example.com\n\tname = T\n";
+        std::fs::write(&config, format!("{}{own}", std::fs::read_to_string(&config).unwrap()))
+            .unwrap();
+        std::fs::write(dir.join("a.txt"), "one").unwrap();
+        assert!(run(&dir, &["add", "."]) && run(&dir, &["commit", "-qm", "one"]));
+        // The program: it leaves a file where it ran.
+        let (hook, ran) = (dir.join("monitor.sh"), dir.join("ran"));
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", ran.display())).unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let named =
+            format!("[core]\n\tfsmonitor = {}\n\thooksPath = {}\n", hook.display(), dir.display());
+        std::fs::write(&config, format!("{}{named}", std::fs::read_to_string(&config).unwrap()))
+            .unwrap();
+        let commit = commit_at(&dir).expect("a commit");
+        assert!(commit.dirty, "the program's own file is not committed");
+        assert!(!ran.exists(), "git ran the program the folder's configuration names");
+        // (That it would have: git itself, asked plainly, runs it. Where
+        // this git does not, the test above shows nothing.)
+        let _ = run(&dir, &["status", "--porcelain"]);
+        if !ran.exists() {
+            eprintln!("this git does not run core.fsmonitor's program for status");
+        }
     }
 
     /// In a git checkout the stamp names its commit and whether files
