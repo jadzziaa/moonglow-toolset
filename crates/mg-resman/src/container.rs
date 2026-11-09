@@ -212,6 +212,32 @@ impl ErfContainer {
     pub fn index(&self) -> &[(ResKey, u64)] {
         &self.order
     }
+
+    /// A resource's bytes wherever in the file it lies: past
+    /// [`ERF_READ_LIMIT`] too, where the game stops reading and
+    /// [`Container::read`] with it (an offset is 32 bits: all of the file
+    /// they reach can be read). For an editor of the archive itself, which
+    /// must read such a resource to move it into another; a load order
+    /// reads as the game does.
+    pub fn read_anywhere(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError> {
+        let e = self.entries.get(key).ok_or(ResError::NotFound(*key))?;
+        self.read_entry(e)
+    }
+
+    fn read_entry(&self, e: &Entry) -> Result<Cow<'_, [u8]>, ResError> {
+        let mut raw = vec![0; e.disk_size as usize];
+        read_exact_at(&self.file, &mut raw, u64::from(e.offset))
+            .map_err(|err| ResError::io(&self.path, err))?;
+        // The stored bytes alone, decompressed if they are (as read, if
+        // not: no second copy).
+        if e.compression == mg_erf::Compression::None {
+            return Ok(Cow::Owned(raw));
+        }
+        let stored = Entry { offset: 0, ..e.clone() };
+        mg_erf::entry_data(&raw, &stored).map(|d| Cow::Owned(d.into_owned())).map_err(|err| {
+            ResError::Container { path: self.path.clone(), message: err.to_string() }
+        })
+    }
 }
 
 impl Container for ErfContainer {
@@ -227,18 +253,7 @@ impl Container for ErfContainer {
                 message: format!("{key} starts past 2 GiB, where the game stops reading"),
             });
         }
-        let mut raw = vec![0; e.disk_size as usize];
-        read_exact_at(&self.file, &mut raw, u64::from(e.offset))
-            .map_err(|err| ResError::io(&self.path, err))?;
-        // The stored bytes alone, decompressed if they are (as read, if
-        // not: no second copy).
-        if e.compression == mg_erf::Compression::None {
-            return Ok(Cow::Owned(raw));
-        }
-        let stored = Entry { offset: 0, ..e.clone() };
-        mg_erf::entry_data(&raw, &stored).map(|d| Cow::Owned(d.into_owned())).map_err(|err| {
-            ResError::Container { path: self.path.clone(), message: err.to_string() }
-        })
+        self.read_entry(e)
     }
 
     fn read_start(&self, key: &ResKey, n: usize) -> Result<Cow<'_, [u8]>, ResError> {

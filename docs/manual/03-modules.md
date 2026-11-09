@@ -1850,8 +1850,10 @@ folder's files, subfolders included, to look over and save.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. It warns when
-  resources would start past 2 GiB, which the game can't read. Saving the
-  module saves open haks too.
+  resources would start past 2 GiB, which the game can't read. The hak
+  editor itself reads all of such a hak: extract the resources past the
+  mark, or remove the others and use **Save As…**, to split it in two.
+  Saving the module saves open haks too.
 - **Reloading:** saving a hak the module uses reads it again.
 - **The game's own haks** (in its `data/hk`) aren't written: **Save As…**
   keeps your changes in a copy.
