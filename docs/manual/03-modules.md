@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:58:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T13:00:21Z }
 ---
 
 # Modules
@@ -1493,6 +1493,15 @@ lower case.
   Up and Down choose the row above or below (with Shift, more), Home and
   End the first and the last.
 - Each move or removal is one step to undo.
+- **Add hak…** lists the haks in your hak folders the module doesn't
+  use; a click on one adds it at the bottom. Once it is opened with the
+  keys (Down, after a click on its box), Up and Down move along it and
+  Enter adds the hak there. A list of more than 30 has a **Filter**
+  field above it: open it with a click and type, and only the haks
+  whose names hold every word typed stay (case aside). Enter adds the
+  first of them, Down goes to the list itself (letters typed there
+  still go to the field), and Escape clears the field, then closes the
+  list.
 
 **Add Haks and Talk Table…** (Custom Content) attaches downloaded content
 in one step. Choose the haks and a talk table wherever they are, or the

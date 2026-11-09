@@ -3743,12 +3743,19 @@ pub(crate) struct Dropdown {
     /// Its id salt as an id: where [`Dropdown::show_menu`] keeps its keys.
     salt: egui::Id,
     stays_open: bool,
+    /// [`Dropdown::show_menu`]'s list has a Filter field above its rows.
+    filtered: bool,
 }
 
 /// A [`Dropdown`] with the id `id_salt`.
 pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
     let salt = egui::Id::new(&id_salt);
-    Dropdown { combo: egui::ComboBox::from_id_salt(id_salt), salt, stays_open: false }
+    Dropdown {
+        combo: egui::ComboBox::from_id_salt(id_salt),
+        salt,
+        stays_open: false,
+        filtered: false,
+    }
 }
 
 /// A [`Dropdown`] with `label` after its box (and naming it).
@@ -3757,7 +3764,12 @@ pub(crate) fn dropdown_labelled(
     label: impl Into<egui::WidgetText>,
 ) -> Dropdown {
     let salt = egui::Id::new(&id_salt);
-    Dropdown { combo: egui::ComboBox::new(id_salt, label), salt, stays_open: false }
+    Dropdown {
+        combo: egui::ComboBox::new(id_salt, label),
+        salt,
+        stays_open: false,
+        filtered: false,
+    }
 }
 
 impl Dropdown {
@@ -3783,6 +3795,21 @@ impl Dropdown {
     pub(crate) fn stays_open(mut self) -> Self {
         self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
         self.stays_open = true;
+        self
+    }
+
+    /// A Filter field above [`show_menu`](Self::show_menu)'s rows when
+    /// `long` (a builder's ask: Add hak… over a hak folder of hundreds),
+    /// the rows scrolling under it. Opened by a click, the field has the
+    /// keys: letters typed narrow the list ([`MenuKeys::shows`]), Down
+    /// goes to its first row, Enter does what the row there does, Escape
+    /// clears the field, then closes the list. Letters typed while the
+    /// arrow keys are on the rows go to the field.
+    pub(crate) fn filtered(mut self, long: bool) -> Self {
+        if long {
+            self.filtered = true;
+            self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        }
         self
     }
 
@@ -3897,10 +3924,110 @@ impl Dropdown {
                 pressed = state.cursor;
             }
         }
-        let mut keys = MenuKeys { cursor: state.cursor, pressed, reveal: state.reveal, rows: 0 };
-        let r = self.combo.show_ui(ui, |ui| contents(ui, &mut keys)).response;
+        let filter_id = state_id.with("filter");
+        let field_id = filter_id.with("field");
+        let mut filter: String = match open {
+            true => ui.data(|d| d.get_temp(filter_id)).unwrap_or_default(),
+            false => String::new(),
+        };
+        // (Letters typed while the rows have the arrow keys: the field's.)
+        if self.filtered && focused && open {
+            let typed: String = ui.input_mut(|i| {
+                let mut typed = String::new();
+                i.events.retain(|e| match e {
+                    egui::Event::Text(t) if !t.chars().any(char::is_control) => {
+                        typed.push_str(t);
+                        false
+                    }
+                    _ => true,
+                });
+                typed
+            });
+            if !typed.is_empty() {
+                filter.push_str(&typed);
+                state.cursor = None;
+                ui.memory_mut(|m| m.request_focus(field_id));
+                // (Its cursor after them, where the next are typed.)
+                let mut field =
+                    egui::text_edit::TextEditState::load(ui.ctx(), field_id).unwrap_or_default();
+                let end = egui::text::CCursor::new(filter.chars().count());
+                field.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                field.store(ui.ctx(), field_id);
+            }
+        }
+        let mut keys = MenuKeys {
+            cursor: state.cursor,
+            pressed,
+            reveal: state.reveal,
+            rows: 0,
+            filter: mg_core::text::Needle::new(&filter),
+            clicked: false,
+        };
+        let (filtered, button) = (self.filtered, state.button);
+        let width_id = filter_id.with("width");
+        let mut combo = self.combo;
+        if filtered {
+            // (Room for the Filter field over the rows' own scroll area.)
+            let line = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().interact_size.y;
+            combo = combo.height(ROWS_HEIGHT + 2.0 * line);
+        }
+        let r = combo
+            .show_ui(ui, |ui| {
+                if !filtered {
+                    return contents(ui, &mut keys);
+                }
+                // (As wide as when it opened, whatever the filter leaves.)
+                if let Some(w) = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| open) {
+                    ui.set_min_width(w);
+                }
+                // Opened by a click (not by the keys): the field has the keys.
+                if !open && keys.cursor.is_none() {
+                    ui.memory_mut(|m| m.request_focus(field_id));
+                }
+                let before = filter.clone();
+                let searched =
+                    SearchField::new(field_id, &mut filter).hint("Filter").down().show(ui);
+                let entered =
+                    searched.response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                match searched.left {
+                    Some(FilterLeft::Escape) => ui.close(),
+                    Some(FilterLeft::Down) => {
+                        if let Some(b) = button {
+                            ui.memory_mut(|m| m.request_focus(b));
+                        }
+                        keys.cursor = Some(0);
+                        keys.reveal = true;
+                    }
+                    None if entered => keys.pressed = Some(keys.cursor.unwrap_or(0)),
+                    None => {}
+                }
+                if filter != before {
+                    keys.cursor = None;
+                    keys.filter = mg_core::text::Needle::new(&filter);
+                }
+                egui::ScrollArea::vertical().max_height(ROWS_HEIGHT).show(ui, |ui| {
+                    contents(ui, &mut keys);
+                    if keys.rows == 0 {
+                        ui.weak("Nothing matches the filter");
+                    }
+                });
+                if filter.is_empty() && !ui.is_sizing_pass() {
+                    let w = ui.min_rect().width();
+                    ui.data_mut(|d| d.insert_temp(width_id, w));
+                }
+            })
+            .response;
+        if self.filtered {
+            ui.data_mut(|d| d.insert_temp(filter_id, filter));
+            // (Where the field's keys put the cursor: at the first row, or
+            // none once the rows changed.)
+            state.cursor = keys.cursor;
+        }
         hold_arrows(ui, &r);
         let still_open = egui::ComboBox::is_open(ui.ctx(), r.id);
+        // (A click on a row closes a filtered list too, which a click
+        // inside it leaves open for its field.)
+        let pressed = keys.pressed.or((keys.clicked && self.filtered).then_some(0));
         if pressed.is_some() && !self.stays_open {
             egui::Popup::close_id(ui.ctx(), r.id.with("popup"));
         }
@@ -4011,15 +4138,27 @@ pub(crate) struct MenuKeys {
     pressed: Option<usize>,
     reveal: bool,
     rows: usize,
+    /// What a [`Dropdown::filtered`] list's Filter field holds.
+    filter: mg_core::text::Needle,
+    /// A row was clicked.
+    clicked: bool,
 }
 
 impl MenuKeys {
+    /// Whether the row named `text` is shown: found by what the Filter
+    /// field holds ([`Dropdown::filtered`]; case and accents aside), or
+    /// every row without one. A row not shown is not drawn.
+    pub(crate) fn shows(&self, text: &str) -> bool {
+        self.filter.finds(text)
+    }
+
     /// A row of the list, `r` its response: shown as under the pointer
     /// where the cursor is; true when Enter or Space was pressed there (do
     /// what its click does).
     pub(crate) fn row(&mut self, r: &egui::Response) -> bool {
         let at = self.rows;
         self.rows += 1;
+        self.clicked |= r.clicked();
         if self.cursor == Some(at) {
             r.clone().highlight();
             if self.reveal {

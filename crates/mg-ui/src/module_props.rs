@@ -523,10 +523,15 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     // what is done with the rows chosen.
     ui.horizontal(|ui| {
         // (Commands, not a choice: the arrows move along them, Enter adds.)
-        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").show_menu(
+        // (A Filter field over a long list: a builder's hundreds of haks.)
+        let long = available.len() > crate::widgets::FILTERED_CHOICES;
+        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").filtered(long).show_menu(
             ui,
             |ui, keys| {
                 for h in &available {
+                    if !keys.shows(h) {
+                        continue;
+                    }
                     let r = ui.selectable_label(false, h.as_str());
                     if keys.row(&r) || r.clicked() {
                         let mut item = ifo::MOD_HAK_LIST.new_item();

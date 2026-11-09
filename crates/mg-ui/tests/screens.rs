@@ -461,6 +461,66 @@ fn side_editor_undo_in_the_edit_menu() {
     eprintln!("{}", dir.join("edit-menu-over-a-hak.png").display());
 }
 
+/// Add hak… over a long hak folder (`target/test-output/screens-add-hak/`):
+/// opened by a click, its Filter field above the rows; then narrowed by
+/// letters typed; then with nothing found.
+#[test]
+#[ignore]
+fn add_hak_filtered() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-add-hak");
+    let user = dir.join("haks-user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut names: Vec<String> = (1..=40).map(|n| format!("cep2_custom_{n:02}")).collect();
+    names.extend(["tdod_tiles", "tdod_top", "tdod_creatures_and_monsters"].map(String::from));
+    for name in &names {
+        let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
+    }
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let path = dir.join("add-hak.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Add hak…"))
+        .map(|n| n.rect().center())
+        .expect("Add hak…");
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    shoot(&mut h, &dir, "opened");
+    h.event(egui::Event::Text("tdod".into()));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "narrowed");
+    h.event(egui::Event::Text(" xyz".into()));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "nothing-found");
+    eprintln!("{}", dir.display());
+}
+
 /// The widgets of the deferred sprint's first fix package, each where a
 /// builder meets it (`target/test-output/screens-widgets/`): Add hak…
 /// opened by the keys, its cursor on the second hak; the Command

@@ -943,6 +943,110 @@ fn add_hak_takes_the_arrow_keys() {
     assert!(h.query_by_label("charlie").is_none(), "the list closed");
 }
 
+/// Add hak… over many haks has a Filter field (a builder's ask: a hak
+/// folder of hundreds), which has the keys once the list is opened by a
+/// click: letters narrow it, Enter adds the first found, Down goes to
+/// the rows (where letters still go to the field), a click on a row adds
+/// it, Escape clears the field and then closes the list.
+#[test]
+fn add_hak_filters_a_long_list() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-add-hak-filter");
+    let user = user_folder(&dir, &["hak"]);
+    let mut names: Vec<String> = (1..=40).map(|n| format!("cep_{n:02}")).collect();
+    names.extend(["tdod_tiles", "tdod_top", "zz_music"].map(String::from));
+    for name in &names {
+        let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
+    }
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let add = |h: &Harness<'_, Moonglow>| {
+        h.query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().as_deref() == Some("Add hak…"))
+            .map(|n| n.rect().center())
+            .expect("Add hak…")
+    };
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        let at = add(h);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&info).unwrap().root.clone();
+        (root.items(&ifo::MOD_HAK_LIST).iter())
+            .map(|i| String::from_utf8_lossy(i.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()).into())
+            .collect()
+    };
+    let shown = |h: &Harness<'_, Moonglow>, name: &str| h.query_by_label(name).is_some();
+
+    // Letters narrow the list; Enter adds the first found and closes it.
+    open(&mut h);
+    assert!(shown(&h, "cep_01") && shown(&h, "zz_music"), "open, every hak");
+    h.event(egui::Event::Text("TDOD".into()));
+    h.run_steps(3);
+    assert!(shown(&h, "tdod_tiles") && shown(&h, "tdod_top") && !shown(&h, "cep_01"));
+    h.event(egui::Event::Text("_to".into()));
+    h.run_steps(3);
+    assert!(shown(&h, "tdod_top") && !shown(&h, "tdod_tiles"), "tdod_to");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(haks(&mut h), ["tdod_top"]);
+    assert!(!shown(&h, "tdod_tiles"), "the list closed");
+
+    // Opened again, the field is empty. Down goes to the rows, the next
+    // Down along them, Enter adds the one there.
+    open(&mut h);
+    assert!(shown(&h, "cep_01"), "the whole list again");
+    h.event(egui::Event::Text("cep_1".into()));
+    h.run_steps(3);
+    assert!(shown(&h, "cep_10") && shown(&h, "cep_19") && !shown(&h, "cep_20"));
+    for _ in 0..2 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(2);
+    }
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(haks(&mut h), ["tdod_top", "cep_11"], "the second found");
+
+    // Letters typed on the rows go to the field; a click on a row adds it.
+    open(&mut h);
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    h.event(egui::Event::Text("music".into()));
+    h.run_steps(3);
+    assert!(shown(&h, "zz_music") && !shown(&h, "cep_01"), "narrowed from the rows");
+    h.get_by_label("zz_music").click();
+    h.run_steps(3);
+    assert_eq!(haks(&mut h), ["tdod_top", "cep_11", "zz_music"]);
+    assert!(!shown(&h, "tdod_tiles"), "the list closed");
+
+    // Nothing found says so; Escape clears the field, then closes the list.
+    open(&mut h);
+    h.event(egui::Event::Text("nothing".into()));
+    h.run_steps(3);
+    assert!(shown(&h, "Nothing matches the filter"));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(shown(&h, "cep_01"), "cleared, still open");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!shown(&h, "cep_01"), "closed");
+    assert_eq!(haks(&mut h).len(), 3, "nothing added");
+}
+
 /// A hak dragged to the bottom edge of a list longer than its frame
 /// scrolls the list (GitHub issue 17), and is let go among the rows that
 /// came into sight.
