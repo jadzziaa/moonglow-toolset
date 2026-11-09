@@ -2672,3 +2672,32 @@ fn the_variables_window_follows_its_object_through_the_list() {
     h.run();
     assert_eq!(held(&h), (None, Some(at(2))));
 }
+
+/// Windows that hold a place in the module stayed open when it was
+/// closed, and their OK was applied to the next module opened, where it
+/// has a resource of that name (the review of November 2026, B7 and S3).
+#[test]
+fn closing_a_module_closes_the_windows_that_held_its_places() {
+    use mg_edit::GffPath;
+    use mg_ui::widgets::{FieldTarget, LocStringEdit, VarTableEdit};
+    let dir = mg_testkit::scratch_dir("ui-close-windows");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.run();
+    let info = Module::info_key();
+    h.state_mut().var_edit =
+        Some(VarTableEdit::new(FieldTarget::new(info, GffPath::root(), "VarTable"), &[]));
+    h.state_mut().loc_edit = Some(LocStringEdit::new(
+        FieldTarget::new(info, GffPath::root(), "Mod_Name"),
+        "Name",
+        &LocString::default(),
+    ));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let app = h.state();
+    assert!(app.ws.is_none());
+    assert!(app.var_edit.is_none() && app.loc_edit.is_none());
+}

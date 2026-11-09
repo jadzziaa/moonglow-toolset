@@ -3509,6 +3509,45 @@ impl Moonglow {
         self.tree_seen_selection = None;
         self.area_select = None;
         self.area_adjust = None;
+        // (Windows that hold a place in the module, or a command made of
+        // it: left open, their OK was applied to the next module, where
+        // it has a resource of that name.)
+        self.var_edit = None;
+        self.loc_edit = None;
+        self.var_pages.clear();
+        self.picker = None;
+        self.picked.clear();
+        self.levelup = None;
+        self.store_wizard = None;
+        self.popup_text = None;
+        self.creature_wizard = None;
+        self.blueprint_wizard = None;
+        self.script_wizard = None;
+        self.placeable_gallery = None;
+        self.palette_categories = None;
+        self.tag_clash = None;
+        self.import = None;
+        self.export = None;
+        self.export_ask = None;
+        self.dialog_export_ask = None;
+        self.prefab_save = None;
+        // (New Module's own window is on its way to the next module.)
+        if !matches!(self.wizard, Some(Wizard::NewModule { .. })) {
+            self.wizard = None;
+        }
+        // (What was found in it, and what was copied from it by place.)
+        self.advanced_search.hits.clear();
+        self.advanced_search.ticked.clear();
+        self.advanced_search.searched = None;
+        self.dialog_clip = None;
+        self.dialog_backed_up.clear();
+        // (What was read by name from its haks: another module's haks may
+        // have another picture of the name, or have one where these had
+        // none; and the names its areas and blueprints were listed by.)
+        self.pictures = Default::default();
+        self.palettes = Default::default();
+        self.model_views.clear();
+        self.area_names = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
