@@ -837,6 +837,23 @@ fn a_project_s_plugin_settings_are_tidied() {
 }
 
 /// The House rules example (a resource's own events, API 0.4).
+/// A plugin that refuses every save, written into `dir`.
+pub(crate) fn refuser(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.refuser\"\nname = \"Refuser\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"MIT\"\n\n[event]\nid = \"no\"\non = \"resource-saving\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        "local mg = require(\"@moonglow\")\n\
+         mg.on(\"no\", function(ctx) ctx.event:refuse(\"not today\") end)\n",
+    )
+    .unwrap();
+}
+
 fn house_rules() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/house-rules")
 }
@@ -960,6 +977,79 @@ fn a_plugin_refuses_or_warns_of_what_mg_saves() {
     assert!(!ok, "{out}");
     assert!(out["error"].as_str().unwrap().contains("not saved: a plugin refuses it"), "{out}");
     assert_eq!(area_tag(&dir), "TAVERN", "nothing written");
+}
+
+/// Every command of `mg` that changes a module's resources asks the
+/// project's plugins before it saves, as `mg set` does: with a plugin of
+/// the project's that refuses every save, each fails saying so and the
+/// module's files are as they were (`mg compile`, `mg dialog-import`, `mg
+/// attach`, `mg nui new`, `generate` and `import` and `mg rename` of a
+/// window saved without asking; `mg attach` copies nothing either).
+#[test]
+fn every_saving_command_asks_the_project_s_plugins() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
+    let root = mg_testkit::corpus!();
+    let scratch = mg_testkit::scratch_dir("mg-plugin-save-asked");
+    let (dir, home, user) = (scratch.join("keep"), scratch.join("home"), scratch.join("user"));
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.set(key("hello.nss"), b"void main() { }".to_vec());
+    let mut greet = new_dialog();
+    let hello = add_node(&mut greet, Parent::Root, "Hello.");
+    add_node(&mut greet, Parent::Node(Kind::Entry, hello), "Bye.");
+    m.set_gff(key("greet.dlg"), &greet).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let p = dir.to_str().unwrap();
+    let mg = |args: &[&str]| -> (bool, Json) {
+        let mut c = crate::mg_on(&root, Some(&user));
+        c.env("MOONGLOW_DATA_DIR", home.join("data/moonglow")).arg("--json").args(args);
+        crate::json_out(&mut c)
+    };
+    // What the commands work on, made while nothing refuses: a window, a
+    // conversation's lines to read back, a hak to attach, a window's files.
+    let (ok, made) = mg(&["nui", "new", p, "shop"]);
+    assert!(ok, "{made}");
+    let csv = scratch.join("greet.csv");
+    let (ok, made) = mg(&["dialog-export", p, "greet.dlg", csv.to_str().unwrap()]);
+    assert!(ok, "{made}");
+    let lines = std::fs::read_to_string(&csv).unwrap().replace("Hello.", "Hello there.");
+    std::fs::write(&csv, lines).unwrap();
+    let hak = scratch.join("mg_asked.hak");
+    std::fs::write(&hak, mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap()).unwrap();
+    let crier = crate::nui::crier_files("mg-plugin-save-asked-crier");
+
+    refuser(&dir.join("plugins/refuser"));
+    let (ok, allowed) = mg(&["plugin", "allow", p]);
+    assert!(ok, "{allowed}");
+    let files = || {
+        let mut all: Vec<(PathBuf, Vec<u8>)> = (std::fs::read_dir(&dir).unwrap().flatten())
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+            .map(|e| (e.path(), std::fs::read(e.path()).unwrap()))
+            .collect();
+        all.sort();
+        all
+    };
+    let before = files();
+    let (c, h, j) = (csv.to_str().unwrap(), hak.to_str().unwrap(), crier.to_str().unwrap());
+    let commands: [&[&str]; 8] = [
+        &["compile", p],
+        &["dialog-import", p, c],
+        &["attach", p, h],
+        &["nui", "new", p, "crier2"],
+        &["nui", "generate", p, "shop"],
+        &["nui", "import", p, j],
+        &["rename", p, "shop.jui", "store"],
+        &["set", p, "greet.dlg", "EndConversation=mg_other"],
+    ];
+    for command in commands {
+        let (ok, out) = mg(command);
+        let why = out["error"].as_str().unwrap_or_default();
+        assert!(!ok && why.contains("not saved: a plugin refuses it"), "{command:?}: {out}");
+        assert!(why.contains("Refuser: ") && why.contains("not today"), "{command:?}: {out}");
+        assert!(files() == before, "{command:?} wrote to the module");
+    }
+    assert_eq!(std::fs::read_dir(user.join("hak")).unwrap().count(), 0, "mg attach copied");
 }
 
 /// `mg plugin run --event` runs the new events' handlers by hand: a save's

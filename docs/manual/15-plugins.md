@@ -421,9 +421,16 @@ edits as given (an item's cost is not recomputed).
 `mg verify` makes a finding's fix only when `--fix` names its check, and
 `mg plugin test` runs a plugin's own tests
 ([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)). `mg
-set` and `mg apply` ask the plugins `--plugins` names, and the
-project's as you allowed them, before they save: a refusal is an error
-and nothing is written, a warning is said and the save goes on. `mg`
+set`, `mg apply` and `mg bake-walkmesh` ask the plugins `--plugins`
+names, and the project's as you allowed them, before they save: a
+refusal is an error and nothing is written (by `mg bake-walkmesh`, no
+hak and no rows file either), a warning is said and the save goes on.
+Every other command that changes a module's resources asks the
+project's plugins the same way before it saves: `mg rename`, `mg
+replace`, `mg areas`, `mg update-instances`, `mg import`, `mg
+compile`, `mg dialog-import`, `mg attach` (which copies nothing into
+the user folder where they refuse), `mg nui new`, `mg nui generate`,
+`mg nui import`, `mg verify --fix` and `mg plugin run`. `mg`
 has no wizards and no paste, so a plugin's handler of those runs only
 by hand (`mg plugin run --event`). A plugin's exporters and importers
 run with `mg plugin export` and `mg plugin import`, and its wizards with

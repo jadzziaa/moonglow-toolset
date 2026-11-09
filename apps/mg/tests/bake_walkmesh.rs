@@ -188,3 +188,29 @@ fn without_bake_rules_nothing_is_baked() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// A save a plugin refuses writes nothing outside the module either: the
+/// baked model went into the hak and its row into the rows file before
+/// the plugins were asked, and stayed there with the placeables at their
+/// old rows.
+#[test]
+fn a_refused_bake_writes_no_hak_and_no_rows() {
+    let root = mg_testkit::corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let scratch = mg_testkit::scratch_dir("mg-bake-refused");
+    let (dir, user, plugin) = (scratch.join("bake"), scratch.join("user"), scratch.join("refuser"));
+    std::fs::create_dir_all(&user).unwrap();
+    crate::plugins::refuser(&plugin);
+    let area = module(&dir, &game, Some(RULES));
+    let before = appearances(&dir, area);
+    let mut mg = crate::mg_on(&root, Some(&user));
+    mg.arg("--json").arg("bake-walkmesh").arg(&dir).args(["--area", &area.to_string()]);
+    mg.args(["--object", "0"]).arg("--plugins").arg(&plugin);
+    let (ok, json) = crate::json_out(&mut mg);
+    let why = json["error"].as_str().unwrap_or_default();
+    assert!(!ok && why.contains("not saved: a plugin refuses it"), "{json}");
+    assert!(why.contains("not today"), "{json}");
+    assert!(!user.join("hak/mybaked.hak").exists(), "the hak was written");
+    assert!(!dir.join("baked_rows.toml").exists(), "the rows file was written");
+    assert_eq!(appearances(&dir, area), before);
+}

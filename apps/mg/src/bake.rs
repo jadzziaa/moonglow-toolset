@@ -129,6 +129,15 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
         .ok_or_else(|| anyhow!("no user folder to keep the hak in (--user-dir)"))?
         .join(format!("{}.hak", plan.hak));
     let mut lines: Vec<String> = plan.describe().lines().map(str::to_string).collect();
+    let cmd = Command::new("Bake Walkmesh to Transform", edits);
+    // The edits are tried and the plugins asked before anything is
+    // written: a save they refuse (or edits that do not apply) would leave
+    // the baked model in the hak and its row in the rows file, with the
+    // placeables still at their old rows.
+    if !a.dry_run {
+        let tried = Workspace::new(m.clone());
+        crate::edits::run(tried, cmd.clone(), true, None, false, codepage, guard.as_ref(), None)?;
+    }
     if !a.dry_run {
         if !plan.files.is_empty() {
             let files = (plan.files.iter())
@@ -145,7 +154,6 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
             lines.push(format!("Written {}", rows_path.display()));
         }
     }
-    let cmd = Command::new("Bake Walkmesh to Transform", edits);
     let mut out = crate::edits::run(
         Workspace::new(m),
         cmd,

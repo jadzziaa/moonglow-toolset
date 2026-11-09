@@ -149,7 +149,7 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             let ws = Workspace::new(crate::open_module(module)?);
             let made =
                 mg_nui::create(&ws.module, name).with_context(|| window_text(module, name))?;
-            write(ws, made, module, name, *dry_run, Output::default())
+            write(cli, ws, made, module, name, *dry_run, Output::default())
         }
         NuiCmd::Generate { module, name, dry_run, ndb } => {
             let ws = Workspace::new(crate::open_module(module)?);
@@ -182,7 +182,7 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
                     }
                 ));
             }
-            let mut out = write(ws, made.command, module, name, *dry_run, out)?;
+            let mut out = write(cli, ws, made.command, module, name, *dry_run, out)?;
             out.json["failed"] = failed["failed"].clone();
             out.json["errors"] = failed["errors"].clone();
             out.json["returns"] = serde_json::to_value(&made.refits)?;
@@ -200,7 +200,7 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             preview::render(cli, module, name.as_deref(), out.as_deref(), &drawn.options()?)
         }
         NuiCmd::Import { module, sources, replace, dry_run } => {
-            import(module, sources, *replace, *dry_run)
+            import(cli, module, sources, *replace, *dry_run)
         }
         NuiCmd::Schema { layout, jui } => {
             let schema = match (layout, jui) {
@@ -261,7 +261,7 @@ pub(crate) fn rename(
     }
     let changed: Vec<String> = made.command.edits.iter().map(|e| e.key().to_string()).collect();
     ws.apply(made.command).with_context(|| window_text(module, from))?;
-    ws.save()?;
+    crate::save_workspace_asked(cli, &mut ws, &mut out)?;
     if let (Some(now), Some(dir)) = (&remembered, build::compiled_dir())
         && let Err(e) = now.write(&build::Remembered::file(&dir, module))
     {
@@ -307,6 +307,7 @@ fn window_text(module: &Path, name: &str) -> String {
 /// Applies what `new` or `generate` made (all of it or none) and saves,
 /// or with `dry_run` only checks that it applies.
 fn write(
+    cli: &Cli,
     mut ws: Workspace,
     made: Command,
     module: &Path,
@@ -325,7 +326,7 @@ fn write(
     ws.apply(made).with_context(|| window_text(module, name))?;
     let saved = !dry_run && !resources.is_empty();
     if saved {
-        ws.save()?;
+        crate::save_workspace_asked(cli, &mut ws, &mut out)?;
     }
     out.json = json!({
         "module": path_text(module),

@@ -2761,6 +2761,8 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Compile { module, uncompiled, all, ndb } => {
             let mut m = crate::open_module(module)?;
+            // (What the save writes, for the project's plugins to see.)
+            let was = m.clone();
             let mut out = Output::default();
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
@@ -2786,7 +2788,7 @@ fn run(cli: &Cli) -> Result<Output> {
             });
             let pass = build::compile_changed(&mut m, &rm, None, &known, only, *ndb);
             out.json = compiled(&mut out, &pass.results);
-            m.save()?;
+            save_asked(cli, &was, &mut m, &mut out)?;
             remember(&mut out, module, &pass.now);
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
             // (What compiled is saved, and the exit says that not all did:
@@ -3499,8 +3501,9 @@ fn run(cli: &Cli) -> Result<Output> {
             } else {
                 bail!("{}: not a .twee, .ink or .csv file", file.display())
             };
+            let was = m.clone();
             m.set_gff(key, &g)?;
-            m.save()?;
+            save_asked(cli, &was, &mut m, &mut out)?;
             let lines = mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Entry).len()
                 + mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Reply).len();
             out.json =
@@ -4272,6 +4275,7 @@ fn run(cli: &Cli) -> Result<Output> {
             // (The module first: one that can't be opened, or has no
             // module.ifo that reads, leaves the user folder as it is.)
             let mut m = crate::open_module(module)?;
+            let was = m.clone();
             let mut info = m.info()?;
             let haks: Vec<String> =
                 placed.iter().filter(|p| !p.is_tlk).map(|p| p.name.clone()).collect();
@@ -4284,11 +4288,19 @@ fn run(cli: &Cli) -> Result<Output> {
                 info.root.set("Mod_CustomTlk", mg_gff::Value::String(name));
             }
             m.set_info(&info)?;
-            // (Copied last, just before the save.)
+            // (The project's plugins asked, then the files copied, last,
+            // just before the save: a refusal copies nothing.)
+            let mut out = Output::default();
+            let guard = save_guard(cli, &m, &[], &mut out)?;
+            if let Some(g) = &guard {
+                g.before(&was, &m, &mut out)?;
+            }
             let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
             m.save()?;
-            let mut out =
-                Output::new(json!({ "copied": copied, "haks": m.haks()?, "custom_tlk": tlk }));
+            if let Some(g) = &guard {
+                g.after(&was, &m, &mut out);
+            }
+            out.json = json!({ "copied": copied, "haks": m.haks()?, "custom_tlk": tlk });
             out.note(format!(
                 "copied {copied} file(s); the module has {} hak(s) attached",
                 m.haks()?.len()
@@ -4892,7 +4904,12 @@ fn save_guard(
 /// Saves a module a command changed, as `mg set` saves: the project's own
 /// plugins (as the builder allowed them) are asked first (`resource-saving`:
 /// a refusal stops it, nothing written) and told after (`resource-saved`),
-/// of what differs from `was`.
+/// of what differs from `was`. Every command that changes a module's
+/// resources saves through this, [`save_workspace_asked`] or a guard of
+/// its own ([`save_guard`]: `mg set`, `mg apply`, `mg attach`, `mg
+/// bake-walkmesh`, `mg plugin run`, `mg verify --fix`): one that saved
+/// with `m.save()` wrote what the project's plugin refuses of another
+/// (the manual lists them, in Plugins).
 fn save_asked(cli: &Cli, was: &Module, m: &mut Module, out: &mut Output) -> Result<()> {
     let guard = save_guard(cli, m, &[], out)?;
     if let Some(g) = &guard {
@@ -4902,6 +4919,25 @@ fn save_asked(cli: &Cli, was: &Module, m: &mut Module, out: &mut Output) -> Resu
     if let Some(g) = &guard {
         g.after(was, m, out);
     }
+    Ok(())
+}
+
+/// [`save_asked`] for a command that edits through a workspace: what
+/// differs is told from the module as it was opened.
+pub(crate) fn save_workspace_asked(
+    cli: &Cli,
+    ws: &mut mg_edit::Workspace,
+    out: &mut Output,
+) -> Result<()> {
+    ws.flush()?;
+    let Some(guard) = save_guard(cli, &ws.module, &[], out)? else {
+        ws.save()?;
+        return Ok(());
+    };
+    let was = ws.saved().clone();
+    guard.before(&was, &ws.module, out)?;
+    ws.save()?;
+    guard.after(&was, &ws.module, out);
     Ok(())
 }
 

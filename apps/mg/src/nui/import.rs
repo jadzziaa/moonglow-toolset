@@ -15,6 +15,7 @@ use crate::{Output, path_text};
 
 /// `mg nui import`.
 pub(crate) fn import(
+    cli: &crate::Cli,
     module: &Path,
     sources: &[std::path::PathBuf],
     replace: bool,
@@ -59,7 +60,7 @@ pub(crate) fn import(
         ws.apply(made)?;
     }
     if saved {
-        ws.save()?;
+        crate::save_workspace_asked(cli, &mut ws, &mut out)?;
     }
     out.json = json!({
         "module": path_text(module),
