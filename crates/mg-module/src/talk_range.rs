@@ -226,10 +226,22 @@ pub fn free_lines(
     }
     if past <= within.to {
         let tail = Lines { from: past, to: within.to };
-        let taken: u32 = (but.iter())
+        // (The others' parts within the tail, each line once: parts that
+        // overlap one another are a warning, not refused, and counted
+        // twice they came to more than the tail.)
+        let mut parts: Vec<(u32, u32)> = (but.iter())
             .filter(|b| b.overlaps(&tail))
-            .map(|b| b.to.min(tail.to) - b.from.max(tail.from) + 1)
-            .sum();
+            .map(|b| (b.from.max(tail.from), b.to.min(tail.to)))
+            .collect();
+        parts.sort_unstable();
+        let (mut taken, mut counted_to) = (0, None);
+        for (from, to) in parts {
+            let from = counted_to.map_or(from, |c: u32| from.max(c.saturating_add(1)));
+            if from <= to {
+                taken += to - from + 1;
+                counted_to = Some(to);
+            }
+        }
         let n = tail.len() - taken;
         let held = reserved.range(tail.from..=tail.to).filter(|l| allowed.contains(**l)).count();
         total += n;
@@ -343,6 +355,21 @@ mod tests {
         let wide = Allowed::Range { within: lines("0-16777215"), but: vec![lines("100-199")] };
         let map = std::collections::BTreeSet::from([500]);
         assert_eq!(free_lines(&wide, 10, |_| false, &map), Some((16_777_116 - 11, 16_777_116)));
+        // Builders' parts that overlap (a warning of the rules) are
+        // counted once: all of the range taken is none free of none, not
+        // a number wrapped around.
+        let mut rules = TalkRules { lines: Some(lines("100000-149999")), ..Default::default() };
+        rules.builders.insert("ab".into(), lines("100000-129999"));
+        rules.builders.insert("cd".into(), lines("120000-149999"));
+        assert_eq!(free_lines(&rules.allowed(None), 0, |_| true, &none), Some((0, 0)));
+        rules.builders.insert("cd".into(), lines("120000-139999"));
+        rules.builders.insert("ef".into(), lines("125000-126000"));
+        assert_eq!(free_lines(&rules.allowed(None), 0, |_| true, &none), Some((10_000, 10_000)));
+        // (The table reaching into the range: the same count line by line.)
+        assert_eq!(
+            free_lines(&rules.allowed(None), 145_000, |_| true, &none),
+            Some((10_000, 10_000))
+        );
     }
 
     #[test]
