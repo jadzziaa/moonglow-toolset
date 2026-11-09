@@ -4419,7 +4419,7 @@ impl Moonglow {
         // the table hasn't.)
         if !talk_view::save(self) && self.talk.as_ref().is_some_and(|t| t.has_typed_unsaved()) {
             self.log.error(
-                "The module was not saved: its talk table, which has lines typed for its fields,                  could not be (see above)",
+                "The module was not saved: its talk table, which has lines typed for its fields, could not be (see above)",
             );
             return;
         }
@@ -4941,7 +4941,7 @@ impl Moonglow {
         let others = test_module::other_games();
         if let Some(game) = others.iter().find(|g| g.plays(name) == Some(true)) {
             self.log.warn(format!(
-                "A game is running on {name} (process {}), not started by Moonglow: close it, then                  test again (the test would write the module under it)",
+                "A game is running on {name} (process {}), not started by Moonglow: close it, then test again (the test would write the module under it)",
                 game.pid
             ));
             return false;
@@ -4949,7 +4949,7 @@ impl Moonglow {
         if !others.is_empty() {
             let pids: Vec<String> = others.iter().map(|g| g.pid.to_string()).collect();
             self.log.warn(format!(
-                "A game is running that Moonglow did not start (process {}): if it has {name}                  open, close it and test again, for the module is written under it",
+                "A game is running that Moonglow did not start (process {}): if it has {name} open, close it and test again, for the module is written under it",
                 pids.join(", ")
             ));
         }
