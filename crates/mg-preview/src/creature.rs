@@ -183,16 +183,13 @@ pub(crate) fn dressed(
 
     if model_type.starts_with('P') {
         let genders = game.table("gender")?;
-        let g = cell(&genders, number(utc, "Gender").max(0) as usize, "GENDER")
-            .map(|v| v.to_ascii_lowercase())
-            .filter(|v| v == "m" || v == "f")
-            .unwrap_or_else(|| "m".into());
-        let pheno = number(utc, "Phenotype").max(0);
         let phenotypes = game.table("phenotype")?;
-        let default_pheno = cell_int(&phenotypes, pheno as usize, "DefaultPhenoType").unwrap_or(0);
-        let letter = race.to_ascii_lowercase();
-        let skeleton = models::skeleton(&g, &letter, pheno);
-        let fallback = models::skeleton(&g, &letter, default_pheno);
+        // Its phenotype's skeleton, then the phenotype's default's: by the
+        // one rule Verify and the blueprint's lists go by.
+        let [skeleton, fallback] =
+            models::skeletons(utc, &appearance, Some(&genders), Some(&phenotypes))
+                .ok_or(PreviewError::NoRow { table: "appearance", row })?;
+        let female = skeleton.chars().nth(1) == Some('f');
         let skel = if lk.has_model(&skeleton) { skeleton.clone() } else { fallback.clone() };
         preview.base = Part::new(&skel);
         let part_model = |name: &str, n: i64| -> Option<String> {
@@ -312,7 +309,7 @@ pub(crate) fn dressed(
                 if let Some(model) = model {
                     let mut p = Part::new(model);
                     p.attach = Some("head_g".into());
-                    let scale_col = if g == "f" { "HELMET_SCALE_F" } else { "HELMET_SCALE_M" };
+                    let scale_col = if female { "HELMET_SCALE_F" } else { "HELMET_SCALE_M" };
                     p.scale = cell_f32(&appearance, r, scale_col).unwrap_or(1.0);
                     p.colors = Some(item_colors(h, colors));
                     p.env_map = Some("chrome1".into());

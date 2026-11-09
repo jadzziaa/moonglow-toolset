@@ -265,6 +265,63 @@ fn a_part_based_appearance_brings_a_body() {
     assert_eq!(c.integer("BodyPart_Torso"), None);
 }
 
+/// A creature of a phenotype with no parts of its own (the game's row 1,
+/// whose `DefaultPhenoType` is 0: a server's own phenotype on the normal
+/// body) wears its default's, as the preview draws it: its Body Parts
+/// lists offer the default's numbers. They went by the phenotype's own
+/// skeleton alone (`pmh1_chest`) and were empty (the review's M7).
+#[test]
+fn body_parts_lists_offer_the_default_phenotype_s_parts() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_pheno", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    let mut g = Gff::new(*b"UTC ");
+    g.root = field(&mut h, &key);
+    g.root.set("Appearance_Type", mg_gff::Value::Word(6));
+    g.root.set("Phenotype", mg_gff::Value::Int(1));
+    g.root.set("Equip_ItemList", mg_gff::Value::List(Vec::new()));
+    g.root.set("BodyPart_Torso", mg_gff::Value::Byte(1));
+    {
+        let game = h.state().game.as_deref().unwrap();
+        let has = |name: &str| mg_rules::models::has_model(&game.resman, name);
+        assert!(!has("pmh1_chest001") && has("pmh0_chest002"), "the game's parts");
+    }
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "phenotype",
+        vec![mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    // (The page's tab: the Basic page has a field of the name below it.)
+    let tab = h.get_all_by_label("Appearance").map(|n| n.rect().center());
+    let tab = tab.min_by(|a, b| a.y.total_cmp(&b.y)).unwrap();
+    h.hover_at(tab);
+    press(&h, tab, true, egui::Modifiers::NONE);
+    press(&h, tab, false, egui::Modifiers::NONE);
+    h.run();
+    // The torso's list: beside its label, on its row. The wheel over it
+    // steps to the next part it offers.
+    let label = (h.get_all_by_label("Torso"))
+        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
+        .unwrap()
+        .rect();
+    let list = h
+        .get_all_by_role(egui::accesskit::Role::ComboBox)
+        .map(|n| n.rect())
+        .find(|r| r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0)
+        .expect("the torso's list");
+    h.hover_at(list.center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -50.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(2);
+    let torso = field(&mut h, &key).integer("BodyPart_Torso");
+    assert!(torso.is_some_and(|n| n > 1), "the next of pmh0's chests: {torso:?}");
+}
+
 /// An item property's sub-properties are a long list like any other: Cast
 /// Spell's hundreds of spells open at the one chosen, with a Filter field
 /// to narrow them by name.

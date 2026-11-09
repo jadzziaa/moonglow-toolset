@@ -425,22 +425,14 @@ pub(crate) fn with_a_body(app: &mut Moonglow, edits: &mut Vec<Edit>) {
     edits.extend(more);
 }
 
-/// The model prefix of a part-based creature's body (`pmh0`), if it is one.
-fn body_prefix(f: &Form<'_>, game: &GameData) -> Option<String> {
+/// The model prefixes of a part-based creature's body, if it is one: its
+/// phenotype's skeleton (`pmh7`), then the phenotype's `DefaultPhenoType`'s
+/// (`pmh0`), where the game and the preview look for a part the first
+/// lacks ([`mg_rules::models::skeletons`]).
+fn body_prefix(f: &Form<'_>, game: &GameData) -> Option<[String; 2]> {
     let appearance = game.table("appearance").ok()?;
-    let row = f.int("Appearance_Type").max(0) as usize;
-    if !appearance.get(row, "MODELTYPE")?.to_ascii_uppercase().starts_with('P') {
-        return None;
-    }
-    let race = appearance.get(row, "RACE")?.to_ascii_lowercase();
-    let gender = game
-        .table("gender")
-        .ok()?
-        .get(f.int("Gender").max(0) as usize, "GENDER")
-        .map(|g| g.to_ascii_lowercase())
-        .filter(|g| g == "m" || g == "f")
-        .unwrap_or_else(|| "m".into());
-    Some(format!("p{gender}{race}{}", f.int("Phenotype").max(0)))
+    let (gender, phenotype) = (game.table("gender").ok(), game.table("phenotype").ok());
+    mg_rules::models::skeletons(&f.root, &appearance, gender.as_deref(), phenotype.as_deref())
 }
 
 /// The Appearance page: the creature as it looks now, as large as the
@@ -480,14 +472,14 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
                 egui::ScrollArea::vertical()
                     .id_salt(("utc-appearance-side", f.key))
                     .auto_shrink([false, false])
-                    .show(ui, |ui| appearance_fields(f, ui, &game, prefix.as_deref()));
+                    .show(ui, |ui| appearance_fields(f, ui, &game, prefix.as_ref()));
             });
         });
     } else {
         situated::inline_preview(f, ui, egui::vec2(room.x, APPEARANCE_PREVIEW.y));
         note(ui);
         ui.add_space(crate::widgets::SECTION_GAP);
-        appearance_fields(f, ui, &game, prefix.as_deref());
+        appearance_fields(f, ui, &game, prefix.as_ref());
     }
 }
 
@@ -497,8 +489,9 @@ const APPEARANCE_PREVIEW: egui::Vec2 = egui::vec2(340.0, 300.0);
 const APPEARANCE_SIDE: f32 = 350.0;
 
 /// The Appearance page's fields: wings, tail and colors, then the body
-/// parts of an appearance that has them (`prefix`: its parts' models).
-fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Option<&str>) {
+/// parts of an appearance that has them (`prefix`: its parts' models',
+/// [`body_prefix`]).
+fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Option<&[String; 2]>) {
     let wings = f.choices("wingmodel", None, Some("LABEL"));
     let tails = f.choices("tailmodel", None, Some("LABEL"));
     egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -524,7 +517,15 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
     crate::widgets::section_heading(ui, "Body Parts");
     egui::Grid::new(("utc-parts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for (text, label, part) in BODY_PARTS {
-            let numbers = super::item::model_numbers(ui, game, &format!("{prefix}_{part}"));
+            // The numbers either skeleton has a model of: a phenotype with
+            // few parts of its own (or none) wears its default's.
+            let mut numbers: Vec<u16> = Vec::new();
+            for skeleton in prefix.iter().take(if prefix[0] == prefix[1] { 1 } else { 2 }) {
+                let models = format!("{skeleton}_{part}");
+                numbers.extend(super::item::model_numbers(ui, game, &models).iter());
+            }
+            numbers.sort_unstable();
+            numbers.dedup();
             let current = part_number(&f.root, label).unwrap_or(0);
             let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
