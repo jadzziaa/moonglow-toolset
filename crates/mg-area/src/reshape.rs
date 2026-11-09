@@ -31,42 +31,12 @@ pub struct Reshaped {
     pub deleted: usize,
 }
 
-/// The placed groups in a grid: the group (index in the tileset) and the
-/// cells of its tiles.
-pub fn groups_in(index: &TileIndex, set: &Tileset, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
-    let (w, h) = (grid.lattice.width() as i64, grid.lattice.height() as i64);
-    let mut out: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
-    for y in 0..h {
-        for x in 0..w {
-            let p = grid.tile(x as u32, y as u32);
-            if !index.is_grouped(p.tile) {
-                continue;
-            }
-            'groups: for (g, group) in set.groups.iter().enumerate() {
-                if group.tiles.first().copied().flatten() != Some(p.tile) {
-                    continue;
-                }
-                let mut cells = Vec::new();
-                for (k, tile) in group.tiles.iter().enumerate() {
-                    let (c, r) = mg_tiles::group_slot(k, group.columns, p.orientation);
-                    let (cx, cy) = (x + c, y + r);
-                    let Some(t) = tile else { continue };
-                    if cx < 0 || cy < 0 || cx >= w || cy >= h {
-                        continue 'groups;
-                    }
-                    let here = grid.tile(cx as u32, cy as u32);
-                    if here.tile != *t || here.orientation != p.orientation {
-                        continue 'groups;
-                    }
-                    cells.push((cx as u32, cy as u32));
-                }
-                if !out.iter().any(|(_, c)| *c == cells) {
-                    out.push((g, cells));
-                }
-            }
-        }
-    }
-    out
+/// The placed groups in a grid: the group (index in the tileset `set`) and
+/// the cells of its tiles, by the painting grid's own rule for which group
+/// stands in a cell ([`Grid::groups`], `TileIndex::group_at`: from any of
+/// its tiles, turned and raised as one).
+pub fn groups_in(index: &TileIndex, _set: &Tileset, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
+    grid.groups(index)
 }
 
 /// A new tile's struct, as the area wizard writes one.
@@ -94,7 +64,8 @@ fn position(kind: ObjectKind, s: &Struct) -> (f32, f32) {
 
 /// Resizing the area (its ARE `are`, GIT `git`) to `width` by `height`
 /// tiles; `lights` gives each new tile's lights. `None` when the size is
-/// outside Aurora's 2 to 32 or the area's tiles are not the tileset's.
+/// outside Aurora's 2 to 32, the area's tiles are not the tileset's, or it
+/// has none (a width or height of 0).
 #[allow(clippy::too_many_arguments)]
 pub fn resize(
     are_key: ResKey,
@@ -113,6 +84,10 @@ pub fn resize(
     }
     let old = crate::terrain::grid(are, index)?;
     let (ow, oh) = (old.lattice.width(), old.lattice.height());
+    // (An area of no tiles has no edge to continue.)
+    if ow == 0 || oh == 0 {
+        return None;
+    }
     // The terrain, continued past the old edges.
     let fill = old.lattice.corner(0, 0);
     let mut lattice = Lattice::new(width, height, fill);
@@ -381,6 +356,93 @@ fn rotate_once(are: &mut Struct, git: &mut Struct) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One terrain; tile 0 is open ground, tiles 1 to 3 a group of 2 by 2
+    /// whose first slot (the south-west one) is empty.
+    const SET: &str = "[GENERAL]\nName=TST01\nInterior=0\nTransition=5\nDisplayName=-1\n\
+Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
+[CROSSER TYPES]\nCount=0\n[PRIMARY RULES]\nCount=0\n[SECONDARY RULES]\nCount=0\n\
+[TILES]\nCount=4\n\
+[TILE0]\nModel=t0\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE2]\nModel=t2\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE3]\nModel=t3\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[GROUPS]\nCount=1\n[GROUP0]\nName=L\nRows=2\nColumns=2\nTile0=-1\nTile1=1\nTile2=2\nTile3=3\n";
+
+    /// An area `width` by `height` of the tiles `tile` gives each cell.
+    fn area(width: u32, height: u32, tile: impl Fn(u32, u32) -> i32) -> Struct {
+        let mut are = Struct::new(0);
+        are.set("Width", Value::Int(width as i32));
+        are.set("Height", Value::Int(height as i32));
+        let cells = (0..height).flat_map(|y| (0..width).map(move |x| (x, y)));
+        let tiles = cells.map(|(x, y)| {
+            let mut t = Struct::new(1);
+            t.set("Tile_ID", Value::Int(tile(x, y)));
+            t.set("Tile_Orientation", Value::Int(0));
+            t.set("Tile_Height", Value::Int(0));
+            t
+        });
+        are.set("Tile_List", Value::List(tiles.collect()));
+        are
+    }
+
+    fn resized(are: &Struct, width: u32, height: u32) -> Option<Reshaped> {
+        let set = Tileset::parse(SET.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let index = TileIndex::new(&set);
+        let key = |t| ResKey::parse("a", t).unwrap();
+        let (are_key, git_key) = (key(mg_core::ResType::ARE), key(mg_core::ResType::GIT));
+        let mut rng = fastrand::Rng::with_seed(1);
+        let git = Struct::new(0);
+        let lights = &mut || [0; 3];
+        resize(are_key, git_key, are, &git, &set, &index, width, height, &mut rng, lights)
+    }
+
+    /// A group whose first slot is empty is a group all the same: one the
+    /// new edge cuts leaves terrain tiles, not a part of itself (the copy
+    /// of "which group stands here" this file had looked for a group's
+    /// first tile alone).
+    #[test]
+    fn a_group_with_an_empty_first_slot_is_cut_whole() {
+        // The group's tiles at (3, 1), (2, 2) and (3, 2) of a 4 by 4 area.
+        let group = |x, y| match (x, y) {
+            (3, 1) => 1,
+            (2, 2) => 2,
+            (3, 2) => 3,
+            _ => 0,
+        };
+        let are = area(4, 4, group);
+        let set = Tileset::parse(SET.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let index = TileIndex::new(&set);
+        let grid = crate::terrain::grid(&are, &index).unwrap();
+        assert_eq!(groups_in(&index, &set, &grid), [(0, vec![(3, 1), (2, 2), (3, 2)])]);
+        // Three wide: the column with two of its tiles goes, and the one
+        // that stays, at (2, 2), is open ground.
+        let r = resized(&are, 3, 4).unwrap();
+        let Some(Edit::SetField { value: Some(Value::List(tiles)), .. }) = r
+            .edits
+            .iter()
+            .find(|e| matches!(e, Edit::SetField { label, .. } if label == "Tile_List"))
+        else {
+            panic!("no tile list: {:?}", r.edits)
+        };
+        let ids: Vec<_> = tiles.iter().map(|t| t.integer("Tile_ID").unwrap()).collect();
+        assert_eq!(ids, [0; 12]);
+        // Left whole, it stays.
+        let r = resized(&are, 5, 4).unwrap();
+        let Some(Edit::SetField { value: Some(Value::List(tiles)), .. }) = r.edits.get(2) else {
+            panic!("no tile list: {:?}", r.edits)
+        };
+        assert_eq!(tiles[2 * 5 + 2].integer("Tile_ID"), Some(2));
+    }
+
+    /// An ARE a tool wrote with no tiles has nothing to continue: no
+    /// resize, and no panic (`0 - 1` in the old edge's place).
+    #[test]
+    fn an_area_of_no_tiles_is_not_resized() {
+        assert_eq!(resized(&area(0, 0, |_, _| 0), 4, 4), None);
+        assert_eq!(resized(&area(0, 3, |_, _| 0), 4, 4), None);
+        assert_eq!(resized(&area(3, 0, |_, _| 0), 4, 4), None);
+    }
 
     #[test]
     fn rotating_four_times_is_the_identity() {

@@ -255,6 +255,17 @@ impl TileIndex {
         x: u32,
         y: u32,
     ) -> Option<Vec<(u32, u32)>> {
+        self.group_found_at(tile, x, y).map(|(_, cells)| cells)
+    }
+
+    /// [`TileIndex::group_at`], with which of the tileset's groups it is
+    /// (its index): the one rule for "which group stands here".
+    pub fn group_found_at(
+        &self,
+        tile: &dyn Fn(i64, i64) -> Option<Placement>,
+        x: u32,
+        y: u32,
+    ) -> Option<(usize, Vec<(u32, u32)>)> {
         let here = tile(i64::from(x), i64::from(y))?;
         if !self.is_grouped(here.tile) {
             return None;
@@ -263,7 +274,7 @@ impl TileIndex {
         // Where slot `k` of a group of `columns` goes from its first cell,
         // turned as the group was (as `Grid::place_group` turns it).
         let offset = |k: usize, columns: u32| group_slot(k, columns, turns);
-        for (columns, tiles) in &self.groups {
+        for (group, (columns, tiles)) in self.groups.iter().enumerate() {
             for (k, _) in tiles.iter().enumerate().filter(|(_, t)| **t == Some(here.tile)) {
                 let (c, r) = offset(k, *columns);
                 let origin = (i64::from(x) - c, i64::from(y) - r);
@@ -281,7 +292,7 @@ impl TileIndex {
                     same
                 });
                 if whole {
-                    return Some(cells);
+                    return Some((group, cells));
                 }
             }
         }

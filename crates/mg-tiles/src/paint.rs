@@ -339,11 +339,44 @@ impl Grid {
     /// The cells of the group that has a tile at (x, y), where it is
     /// whole ([`TileIndex::group_at`]).
     pub fn group_cells(&self, index: &TileIndex, x: u32, y: u32) -> Option<Vec<(u32, u32)>> {
+        self.group_found(index, x, y).map(|(_, cells)| cells)
+    }
+
+    /// [`Grid::group_cells`], with which of the tileset's groups it is.
+    pub fn group_found(
+        &self,
+        index: &TileIndex,
+        x: u32,
+        y: u32,
+    ) -> Option<(usize, Vec<(u32, u32)>)> {
         let (w, h) = (i64::from(self.lattice.width()), i64::from(self.lattice.height()));
         let tile = |cx: i64, cy: i64| {
             (cx >= 0 && cy >= 0 && cx < w && cy < h).then(|| self.tile(cx as u32, cy as u32))
         };
-        index.group_at(&tile, x, y)
+        index.group_found_at(&tile, x, y)
+    }
+
+    /// The groups placed in the grid, each once, where it is whole: the
+    /// group (its index in the tileset) and its cells.
+    pub fn groups(&self, index: &TileIndex) -> Vec<(usize, Vec<(u32, u32)>)> {
+        let (w, h) = (self.lattice.width(), self.lattice.height());
+        let mut seen = vec![false; self.tiles.len()];
+        let mut out = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                if self.slot(x, y).is_some_and(|i| seen.get(i) == Some(&false))
+                    && let Some((group, cells)) = self.group_found(index, x, y)
+                {
+                    for &(cx, cy) in &cells {
+                        if let Some(slot) = self.slot(cx, cy).and_then(|i| seen.get_mut(i)) {
+                            *slot = true;
+                        }
+                    }
+                    out.push((group, cells));
+                }
+            }
+        }
+        out
     }
 
     /// [`Grid::erase`] taking from cell (x, y) only crosser `only` (a road,
