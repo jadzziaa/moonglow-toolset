@@ -1903,22 +1903,37 @@ fn with_value_in(
     let mut out = text.to_string();
     let entries = in_order(table.get_ref());
     let builder = entries.iter().find(|(k, _)| k.get_ref() == section);
-    match builder.map(|(k, v)| (k, v.get_ref())) {
-        Some((header, DeValue::Table(t))) => {
+    match builder.map(|(_, v)| (v.span(), v.get_ref())) {
+        Some((whole, DeValue::Table(t))) => {
+            // (Written in one line, `talk = { … }`: its keys are parts of
+            // that line, not lines.)
+            let inline = text[whole.clone()].starts_with('{').then_some(whole);
             let entry = in_order(t).into_iter().find(|(k, _)| k.get_ref() == key);
             match (entry, code) {
                 (Some((_, v)), Some(code)) => out.replace_range(v.span(), code),
+                (Some((k, v)), None) if inline.is_some() => {
+                    // (With the comma after it, else the one before.)
+                    let (mut from, mut to) = (k.span().start, v.span().end);
+                    let after = text[to..].trim_start();
+                    if after.starts_with(',') {
+                        to = text.len() - after.len() + 1;
+                    } else if let Some(before) = text[..from].trim_end().strip_suffix(',') {
+                        from = before.len();
+                    }
+                    out.replace_range(from..to, "");
+                }
                 (Some((k, v)), None) => {
                     out.replace_range(line_start(k.span().start)..line_end(v.span().end), "")
                 }
                 (None, Some(code)) => {
-                    // (The line after its header.)
-                    let mut at = line_end(header.span().start);
-                    if at == out.len() && !out.ends_with('\n') {
-                        out.push('\n');
-                        at = out.len();
-                    }
-                    out.insert_str(at, &format!("{key} = {code}\n"));
+                    let first = in_order(t).first().map(|(k, _)| line_end(k.span().start));
+                    out =
+                        with_new_key(text, section, key, code, inline, first).ok_or_else(|| {
+                            format!(
+                                "{name}: {key} cannot be added to \"{section}\" as it is \
+                                 written there (add it by hand)"
+                            )
+                        })?;
                 }
                 (None, None) => {}
             }
@@ -1937,6 +1952,89 @@ fn with_value_in(
         }
     }
     Ok(out)
+}
+
+/// `text` (TOML that has a table `section` without `key`) with `key =
+/// value` added to that table, the rest as written: on the line after the
+/// table's own header, `[section]`; else, for a table written in one line
+/// (`inline`, its place), in it; else, for one made of dotted keys
+/// (`section.other = …`; `after_first`, the end of its first key's line),
+/// as another such line; else under a header of its own at the end,
+/// which TOML takes after a sub-table's (`[section.sub]`, the only header
+/// that names the section in a team's file with `[talk.builders]` alone:
+/// the key was put under that one, into the sub-table). Each is kept
+/// only if the text then reads with the key in the section; `None` where
+/// none does.
+fn with_new_key(
+    text: &str,
+    section: &str,
+    key: &str,
+    value: &str,
+    inline: Option<std::ops::Range<usize>>,
+    after_first: Option<usize>,
+) -> Option<String> {
+    let reads = |candidate: &str| {
+        DeTable::parse(candidate).ok().is_some_and(|table| {
+            in_order(table.get_ref()).iter().any(|(k, v)| match v.get_ref() {
+                DeValue::Table(t) => {
+                    k.get_ref() == section && in_order(t).iter().any(|(k, _)| k.get_ref() == key)
+                }
+                _ => false,
+            })
+        })
+    };
+    // (A line put in at `at`, a line's start or the text's end.)
+    let line_at = |at: usize, line: &str| {
+        let mut out = text.to_string();
+        let mut at = at;
+        if at == out.len() && !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+            at = out.len();
+        }
+        out.insert_str(at, &format!("{line}\n"));
+        out
+    };
+    let header = |line: &str| {
+        let Some(rest) = line.trim().strip_prefix('[').filter(|r| !r.starts_with('[')) else {
+            return false;
+        };
+        let Some((name, after)) = rest.split_once(']') else { return false };
+        let name = name.trim();
+        let bare = name
+            .strip_prefix('"')
+            .and_then(|n| n.strip_suffix('"'))
+            .or_else(|| name.strip_prefix('\'').and_then(|n| n.strip_suffix('\'')))
+            .unwrap_or(name);
+        bare == section && (after.trim().is_empty() || after.trim_start().starts_with('#'))
+    };
+    let mut candidates = Vec::new();
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        at += line.len();
+        if header(line) {
+            candidates.push(line_at(at, &format!("{key} = {value}")));
+        }
+    }
+    if let Some(inline) = inline {
+        let empty = text[inline.clone()].trim_matches(['{', '}']).trim().is_empty();
+        let mut out = text.to_string();
+        let added = if empty { format!(" {key} = {value} ") } else { format!(" {key} = {value},") };
+        out.insert_str(inline.start + 1, &added);
+        candidates.push(out);
+    }
+    if let Some(at) = after_first {
+        candidates.push(line_at(at, &format!("{section}.{key} = {value}")));
+    }
+    let mut own = text.to_string();
+    if !own.is_empty() && !own.ends_with('\n') {
+        own.push('\n');
+    }
+    if !own.is_empty() {
+        own.push('\n');
+    }
+    own.push_str(&format!("[{section}]\n{key} = {value}\n"));
+    candidates.push(own);
+    candidates.into_iter().find(|c| reads(c))
 }
 
 /// What is wrong with a store tag's pattern: a `{…}` that is neither
@@ -2328,6 +2426,44 @@ keeper_variable = "tdod_store"
             ]
         );
         assert_eq!(p.naming(), Naming::default());
+    }
+
+    /// A new key goes under its section's own header: a file with a
+    /// sub-table's header alone (`[talk.builders]`), a dotted key or an
+    /// inline table has no `[talk]` line to put it after, and the key was
+    /// put into the sub-table (a builder named `lines`).
+    #[test]
+    fn a_new_key_goes_into_its_section_not_a_sub_table() {
+        let read = |text: &str| {
+            let mut p = ProjectFile::default();
+            p.apply(FILE_NAME, text, false);
+            assert!(p.warnings.is_empty() && p.errors.is_empty(), "{text}\n{:?}", p.warnings);
+            let lines = p.talk.lines.map(|l| l.to_string());
+            (lines, p.talk.builders.keys().cloned().collect::<Vec<_>>(), p.talk.typed)
+        };
+        let set = |text: &str| with_value_in("f", text, "talk", "lines", Some("\"1-9\"")).unwrap();
+        let lines = Some("1-9".to_string());
+        // A sub-table's header alone.
+        let out = set("[talk.builders]\nab = \"1-2\"\n");
+        assert_eq!(read(&out), (lines.clone(), vec!["ab".to_string()], None), "{out}");
+        assert!(out.starts_with("[talk.builders]\nab = \"1-2\"\n"), "{out}");
+        // The section's own header after its sub-table's.
+        let out = set("[talk.builders]\nab = \"1-2\"\n\n[talk]\ntyped = true\n");
+        assert_eq!(read(&out), (lines.clone(), vec!["ab".to_string()], Some(true)), "{out}");
+        // The header written with spaces, and a comment after it.
+        let out = set("[ talk ]  # typed text\ntyped = true\n[talk.builders]\nab = \"1-2\"\n");
+        assert_eq!(read(&out), (lines.clone(), vec!["ab".to_string()], Some(true)), "{out}");
+        assert!(out.starts_with("[ talk ]  # typed text\nlines = \"1-9\"\n"), "{out}");
+        // A dotted key, and an inline table: no header to go under.
+        let out = set("talk.typed = true\n\n[tags]\nunique = [\"A_*\"]\n");
+        assert_eq!(read(&out), (lines.clone(), Vec::new(), Some(true)), "{out}");
+        let out = set("talk = { typed = true }\n");
+        assert_eq!(read(&out), (lines, Vec::new(), Some(true)), "{out}");
+        // Taken out again, wherever it was put.
+        for text in ["[talk.builders]\nab = \"1-2\"\n", "talk.typed = true\n"] {
+            let out = with_value_in("f", &set(text), "talk", "lines", None).unwrap();
+            assert_eq!(read(&out).0, None, "{out}");
+        }
     }
 
     #[test]
