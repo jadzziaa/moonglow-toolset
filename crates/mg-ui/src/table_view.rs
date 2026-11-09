@@ -818,7 +818,7 @@ fn read_description(
             .map(str::to_string)
             .ok_or_else(|| "no description".to_string()),
     };
-    let read = text.and_then(|text| Description::parse(&text, &script)).map(Arc::new);
+    let read = text.and_then(|text| Description::read(&text, &script)).map(Arc::new);
     let doc = &mut app.tables[at];
     doc.described = Some(Described { path, modified, read, files, tables: Default::default() });
     doc.changed();

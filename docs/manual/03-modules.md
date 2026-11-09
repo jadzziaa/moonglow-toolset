@@ -2151,7 +2151,13 @@ In the 2DA editor, a described table says so under its buttons, and:
   hexadecimal or decimal) or chosen from the other table's rows by name;
 - **Find** looks through the names shown as well as the values;
 - the file is read again when it changes, so the description and the
-  table can be written side by side.
+  table can be written side by side;
+- a column or a rule the description gets wrong (a `kind` mistyped, a
+  list without values) is said under the buttons by its line (`line 12:
+  column Damage: "flag" is no kind…`) and left out, and the other
+  columns are described all the same. Verify Module, `mg 2da-check` and
+  a plugin take no such description: they say the first mistake, by its
+  line, and check nothing by it until it is mended.
 
 Where the description is looked for:
 
