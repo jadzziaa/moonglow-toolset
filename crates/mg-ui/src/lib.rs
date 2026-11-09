@@ -136,6 +136,11 @@ pub use wizards::{AreaWizard, Wizard};
 pub fn graphics_setup(mut setup: egui_wgpu::WgpuSetup) -> egui_wgpu::WgpuSetup {
     if let egui_wgpu::WgpuSetup::CreateNew(new) = &mut setup {
         new.instance_descriptor.backend_options = mg_render::dx12::backend_options();
+        // (`WGPU_BACKEND` set but empty or naming no backend is as not
+        // set: wgpu's own reading leaves no backend then, and no window.)
+        new.instance_descriptor.backends = mg_render::backend::backends_from_env()
+            .0
+            .unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
     }
     setup
 }
@@ -1485,6 +1490,13 @@ impl Moonglow {
                 "The GPU refused part of what is drawn and it is left out ({refused}). The \
                  module is unharmed (Help › User Manual, Troubleshooting)"
             ));
+        }
+        // The device lost (the driver reset, the GPU removed): the work
+        // kept now, and the builder told; nothing more is drawn.
+        if self.viewport.is_some()
+            && let Some(why) = mg_render::guard::take_device_loss()
+        {
+            renderer_check::device_lost(self, why);
         }
         // The Shaders switch, for every 3D view (they share one renderer),
         // and the game's programs that couldn't be drawn, said once each.

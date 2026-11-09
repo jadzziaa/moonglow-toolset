@@ -6293,6 +6293,7 @@ fn the_startup_check_passes_and_fails_where_nothing_is_drawn() {
     let _ = writeln!(std::io::stdout(), "startup check (again): {again}");
     assert!(first.passed(), "{first}");
     assert!(again.passed(), "{again}");
+    assert!(!first.blames_backend);
     let blanked = {
         let _unblank = Unblank;
         mg_render::guard::blank_draws(true);
@@ -6300,6 +6301,8 @@ fn the_startup_check_passes_and_fails_where_nothing_is_drawn() {
     };
     let _ = writeln!(std::io::stdout(), "startup check (draws blanked): {blanked}");
     assert!(!blanked.passed(), "{blanked}");
+    // (A picture compared and found wrong: the backend's doing, recorded.)
+    assert!(blanked.blames_backend);
     let why = blanked.outcome.clone().unwrap_err();
     assert!(why.contains("the solid mesh is") && why.contains("the skinned mesh"), "{why}");
     assert!(!why.contains("the background"), "the background is drawn right: {why}");
@@ -6541,6 +6544,49 @@ fn the_lit_check_draws_a_lit_mesh_both_ways() {
     let _ = writeln!(std::io::stdout(), "lit check (draws blanked): {blanked}");
     assert!(blanked.own.as_ref().is_err_and(|e| e.contains("not red")), "{blanked}");
     assert!(!blanked.game_fails(), "Moonglow's own fails too: not the game's to blame");
+    assert!(!blanked.panicked && !lit.panicked);
+    mg_render::guard::blank_draws(false);
+    // The game's draw panicking, after Moonglow's own drew right: the
+    // game's part fails (it was put on Moonglow's own shader, the notice
+    // said that drew the mesh in the wrong colors, and the game's shaders
+    // stayed on for the area view to panic in).
+    struct Panicking(TestAssets);
+    impl mg_render::Assets for Panicking {
+        fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+            self.0.texture(name)
+        }
+        fn game_shader(&self, _: &str) -> Option<String> {
+            assert!(mg_render::guard::checking(), "a check's panic, told apart from a crash");
+            panic!("made to panic")
+        }
+    }
+    let mut pair = TestAssets::default();
+    authored_lit_pair(&mut pair);
+    let panicked = mg_render::probe::probe_lit(&gpu, &Panicking(pair), None);
+    let _ = writeln!(std::io::stdout(), "lit check (the game's draw panicking): {panicked}");
+    assert_eq!(panicked.own, Ok(()), "{panicked}");
+    assert!(panicked.game_fails() && panicked.panicked, "{panicked}");
+    assert_eq!(panicked.game, Some(Err("it panicked: made to panic".into())));
+    assert!(!mg_render::guard::checking());
+}
+
+/// A device lost (the driver reset or updated, the GPU removed) is told:
+/// wgpu takes every call after in silence, and tells no error handler.
+/// Here the device is closed, which loses it as the driver would.
+#[test]
+fn a_lost_device_is_told_once() {
+    // (The loss is the process's to take: no other test's device is the
+    // application's meanwhile.)
+    mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
+    mg_render::guard::note_gpu_errors(&gpu.device);
+    assert_eq!(mg_render::guard::take_device_loss(), None);
+    gpu.device.destroy();
+    let _ = gpu.device.poll(wgpu::PollType::Poll);
+    let lost = mg_render::guard::take_device_loss();
+    assert_eq!(lost.as_deref(), Some("it was closed"));
+    let _ = gpu.device.poll(wgpu::PollType::Poll);
+    assert_eq!(mg_render::guard::take_device_loss(), None, "told once");
 }
 
 /// A texture read with derivatives (`textureSample`) in a loop whose count

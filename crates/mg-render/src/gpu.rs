@@ -57,14 +57,9 @@ impl Gpu {
     /// a usable adapter: on [`headless_adapter`].
     pub fn headless() -> Option<Gpu> {
         let adapter = headless_adapter()?;
-        let features = adapter.features() & OPTIONAL_FEATURES;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("moonglow"),
-            required_features: features,
-            required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
-            ..Default::default()
-        }))
-        .ok()?;
+        let limits = wgpu::Limits::default().using_resolution(adapter.limits());
+        let descriptor = crate::backend::device_descriptor("moonglow", adapter.features(), limits);
+        let (device, queue) = pollster::block_on(adapter.request_device(&descriptor)).ok()?;
         Some(Gpu::new(device, queue))
     }
 
@@ -134,7 +129,12 @@ impl Gpu {
 /// names if it is set; `None` without one. Direct3D 12 compiles with the
 /// compiler [`crate::dx12`] chose.
 pub fn headless_adapter() -> Option<wgpu::Adapter> {
-    let from_environment = wgpu::Backends::from_env();
+    // (Set but naming no backend: as not set, and said.)
+    let (from_environment, unknown) = crate::backend::backends_from_env();
+    if let Some(said) = crate::backend::unknown_backends_said(&unknown, from_environment.is_some())
+    {
+        eprintln!("{said}");
+    }
     let backends = from_environment.unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
