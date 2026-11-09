@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T12:36:40Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-09T22:57:01Z }
 ---
 
 # Options
@@ -629,10 +629,12 @@ whichever key Save has.
 
 Keys match exactly: Shift+Q is not Q. Text editing, Escape and Enter,
 Copy, Cut and Paste, Delete in the area view, and the script editor's
-numbered bookmarks (Ctrl and a digit) keep their keys. A letter or digit
-given to a command of the whole window (alone or with Shift) stays a
-character while a text field has the keyboard; with Ctrl or Alt, and
-function keys, work there too.
+numbered bookmarks (Ctrl and a digit) keep their keys. A key given to a
+command of the whole window alone or with Shift (a letter, a digit,
+Space, Delete, an arrow) stays the text field's while one has the
+keyboard; keys with Ctrl or Alt, the function keys and Escape work there
+too. On a Mac, Option with a key that types is the field's as well: there
+it is a letter of its own.
 
 ## Updates
 

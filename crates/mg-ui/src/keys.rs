@@ -564,6 +564,25 @@ pub struct Taken {
     pub letters: bool,
 }
 
+/// Whether a text field with the keyboard uses the key itself: any key
+/// alone or with Shift but a function key and Escape (a letter, a digit
+/// or a sign types; Space, Enter, Backspace, Delete, the arrows, Home and
+/// End edit: a command given one of them fired in the field, which never
+/// saw the key), and on a Mac (`mac`) Option with a key that types, which
+/// there is a letter of its own (Option + X is `≈`, on a Polish layout
+/// `ź`: it typed, and ran Alt + X's command).
+pub(crate) fn field_s_key(s: &KeyboardShortcut, mac: bool) -> bool {
+    let m = s.modifiers;
+    let name = s.logical_key.name();
+    let function =
+        name.len() > 1 && name.starts_with('F') && name[1..].bytes().all(|b| b.is_ascii_digit());
+    let command = m.command || m.ctrl || m.mac_cmd;
+    if m.alt {
+        return mac && !command && name.chars().count() == 1;
+    }
+    !command && !function && s.logical_key != Key::Escape
+}
+
 impl Keymap {
     /// The keys with the settings' choices (by command id; an empty list
     /// takes a command's keys away). Keys that don't read are left out; an
@@ -698,15 +717,11 @@ impl Keymap {
     }
 
     /// [`Keymap::consume_of`] for a command of the whole window: while a
-    /// text field has the keyboard (`typing`), a key that types a
-    /// character (a letter or digit, alone or with Shift) is the field's.
+    /// text field has the keyboard (`typing`), a key the field uses is
+    /// the field's ([`field_s_key`]).
     pub fn consume_outside_text(&self, i: &mut InputState, id: &str, typing: bool) -> bool {
         let Some(keys) = self.keys.get(id) else { return false };
-        let types = |s: &KeyboardShortcut| {
-            let m = s.modifiers;
-            s.logical_key.name().chars().count() == 1
-                && !(m.command || m.ctrl || m.alt || m.mac_cmd)
-        };
+        let types = |s: &KeyboardShortcut| field_s_key(s, cfg!(target_os = "macos"));
         let mut hit = false;
         i.events.retain(|e| {
             let this = !hit && keys.iter().any(|s| is(e, s) && !(typing && types(s)));
@@ -862,11 +877,25 @@ mod tests {
         map.set_of("b", vec![KeyboardShortcut::new(SHIFT, Key::B)]);
         map.set_of("c", vec![KeyboardShortcut::new(CTRL, Key::B)]);
         map.set_of("d", vec![KeyboardShortcut::new(NONE, Key::F8)]);
+        map.set_of("e", vec![KeyboardShortcut::new(NONE, Key::Delete)]);
+        map.set_of("f", vec![KeyboardShortcut::new(NONE, Key::Space)]);
+        map.set_of("g", vec![KeyboardShortcut::new(SHIFT, Key::ArrowDown)]);
+        map.set_of("h", vec![KeyboardShortcut::new(CTRL, Key::Delete)]);
+        // (Option and a letter types on a Mac; Alt and a letter is a
+        // command's elsewhere, Escape and the function keys everywhere.)
+        let alt_x = KeyboardShortcut::new(Modifiers::ALT, Key::X);
+        assert!(field_s_key(&alt_x, true) && !field_s_key(&alt_x, false));
+        assert!(!field_s_key(&KeyboardShortcut::new(NONE, Key::Escape), true));
+        assert!(!field_s_key(&KeyboardShortcut::new(NONE, Key::F12), false));
         for (id, key, modifiers, when_typing) in [
             ("a", Key::B, NONE, false),
             ("b", Key::B, SHIFT, false),
             ("c", Key::B, CTRL, true),
             ("d", Key::F8, NONE, true),
+            ("e", Key::Delete, NONE, false),
+            ("f", Key::Space, NONE, false),
+            ("g", Key::ArrowDown, SHIFT, false),
+            ("h", Key::Delete, CTRL, true),
         ] {
             assert!(map.consume_outside_text(&mut press(key, modifiers), id, false), "{id}");
             let mut typing = press(key, modifiers);
