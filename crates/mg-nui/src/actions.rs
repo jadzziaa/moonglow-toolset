@@ -500,33 +500,63 @@ pub fn merge_events(
 /// bind's `{"bind":"from"}`). Any other string that happens to spell the
 /// name (a message, a tag, a variable's name) is the builder's own and
 /// stays.
+///
+/// The new name is written as [`string_expr`] writes one (a quote, a
+/// backslash or a letter outside ASCII never goes into a literal as it
+/// is), and inside a string as JSON spells it; the old name is found in
+/// either spelling, so a name changed and changed back gives the script
+/// back. An empty `from` names nothing, and changes nothing.
 pub fn rename_in_code(script: &str, from: &str, to: &str) -> String {
     use mg_script::lex::{TokenKind, tokenize};
+    if from.is_empty() || from == to {
+        return script.to_string();
+    }
     let src = script.as_bytes();
     let tokens: Vec<_> = tokenize(src).into_iter().filter(|t| t.kind.is_significant()).collect();
     let text = |i: usize| tokens.get(i).and_then(|t| script.get(t.span.clone())).unwrap_or("");
-    let (quoted, inner) = (format!("\"{from}\""), format!("\\\"{from}\\\""));
-    let inner_to = format!("\\\"{to}\\\"");
+    // A name as JSON spells it, quoted, inside an NWScript literal.
+    let inner = |name: &str| {
+        let literal = script::literal(&script::ascii_json(&json!(name)));
+        literal[1..literal.len() - 1].to_string()
+    };
+    let (inner_from, inner_to) = (inner(from), inner(to));
+    // The old name as `string_expr` writes one a literal cannot hold.
+    let spelled_out = ["(", "JsonParse", "(", &format!("\"{inner_from}\""), ")", ")"];
+    let compared = |j: Option<usize>| j.is_some_and(|j| matches!(text(j), "==" | "!="));
     // The function each open parenthesis is the call of ("" for none).
     let mut calls: Vec<&str> = Vec::new();
-    let (mut out, mut at) = (String::with_capacity(script.len()), 0);
+    let (mut out, mut at, mut skip) = (String::with_capacity(script.len()), 0, 0);
     for (i, token) in tokens.iter().enumerate() {
+        if i < skip {
+            continue;
+        }
         let spelled = text(i);
+        // Whether the expression of tokens `i..=last` is where a name is.
+        let names = |last: usize| {
+            calls.last().is_some_and(|c| c.starts_with("Nui"))
+                || compared(i.checked_sub(1))
+                || compared(Some(last + 1))
+        };
         match token.kind {
+            TokenKind::Ident
+                if spelled == "JsonGetString"
+                    && (0..6).all(|k| text(i + 1 + k) == spelled_out[k])
+                    && names(i + 6) =>
+            {
+                out.push_str(&script[at..token.span.start]);
+                out.push_str(&string_expr(to));
+                (at, skip) = (tokens[i + 6].span.end, i + 7);
+            }
             TokenKind::Punct if spelled == "(" => {
                 let callee = i.checked_sub(1).filter(|p| tokens[*p].kind == TokenKind::Ident);
                 calls.push(callee.map_or("", text));
             }
             TokenKind::Punct if spelled == ")" => _ = calls.pop(),
             TokenKind::String { terminated: true } => {
-                let compared = |j: Option<usize>| j.is_some_and(|j| matches!(text(j), "==" | "!="));
-                let named = spelled == quoted
-                    && (calls.last().is_some_and(|c| c.starts_with("Nui"))
-                        || compared(i.checked_sub(1))
-                        || compared(Some(i + 1)));
+                let named = unquoted(spelled).as_deref() == Some(from) && names(i);
                 let now = match named {
-                    true => format!("\"{to}\""),
-                    false => spelled.replace(&inner, &inner_to),
+                    true => string_expr(to),
+                    false => spelled.replace(&inner_from, &inner_to),
                 };
                 out.push_str(&script[at..token.span.start]);
                 out.push_str(&now);
@@ -537,6 +567,27 @@ pub fn rename_in_code(script: &str, from: &str, to: &str) -> String {
     }
     out.push_str(&script[at..]);
     out
+}
+
+/// What an NWScript string literal holds (`\"`, `\\` and `\n` read as the
+/// compiler reads them); `None` for text that is no literal, or one with
+/// another escape.
+fn unquoted(literal: &str) -> Option<String> {
+    let inside = literal.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::with_capacity(inside.len());
+    let mut chars = inside.chars();
+    while let Some(c) = chars.next() {
+        out.push(match c {
+            '\\' => match chars.next()? {
+                'n' => '\n',
+                c @ ('"' | '\\') => c,
+                _ => return None,
+            },
+            '"' => return None,
+            c => c,
+        });
+    }
+    Some(out)
 }
 
 /// Whether anything outside the sections of the window `name`'s event
@@ -721,6 +772,53 @@ mod tests {
         for text in ["\"ok", ")))(\"ok\"", "\u{17b}\"ok\" == ("] {
             rename_in_code(text, "ok", "confirm");
         }
+    }
+
+    /// A name with a quote or a backslash in it, or letters a literal's
+    /// codepage may not have, never goes into the code as it is (each
+    /// keystroke in the Creator's ID field is a rename: `"` typed into
+    /// `ok` made `"ok""`, and deleting it did not bring `"ok"` back).
+    #[test]
+    fn a_name_a_literal_cannot_hold_is_renamed_to_and_back() {
+        let code = concat!(
+            "NuiSetBind(oPlayer, nToken, \"ok\", JsonBool(TRUE));\n",
+            "if (sElement == \"ok\" || \"ok\" != sType) {}\n",
+            "json j = JsonParse(\"{\\\"bind\\\":\\\"ok\\\"}\");\n",
+            "SendMessageToPC(oPlayer, \"ok\");\n",
+            "string s = \"\"; if (s == \"\") NuiSetBind(oPlayer, nToken, \"\", JsonParse(\"\\\"\\\"\"));\n",
+        );
+        for odd in ["o\"k", "ok\"", "o\\k", "\u{17c}\u{f3}\u{142}\u{107}", "o\nk"] {
+            let renamed = rename_in_code(code, "ok", odd);
+            let name = string_expr(odd);
+            assert!(name.starts_with("JsonGetString(JsonParse(\""), "{name}");
+            assert!(renamed.is_ascii(), "{renamed}");
+            assert!(renamed.contains(&format!("NuiSetBind(oPlayer, nToken, {name}, JsonBool")));
+            assert!(renamed.contains(&format!("sElement == {name} || {name} != sType")));
+            assert!(renamed.contains("SendMessageToPC(oPlayer, \"ok\");"));
+            // Every string still ends where it did: the code still lexes
+            // to as many strings, all terminated.
+            let strings = |text: &str| {
+                let tokens = mg_script::lex::tokenize(text.as_bytes());
+                let of = |t: bool| {
+                    let kind = mg_script::lex::TokenKind::String { terminated: t };
+                    tokens.iter().filter(|k| k.kind == kind).count()
+                };
+                (of(true), of(false))
+            };
+            assert_eq!(strings(&renamed), strings(code), "{renamed}");
+            assert_eq!(rename_in_code(&renamed, odd, "ok"), code, "{odd:?}");
+        }
+        // The JSON inside a string holds the name as JSON spells it.
+        let renamed = rename_in_code(code, "ok", "o\"k");
+        assert!(renamed.contains(r#"JsonParse("{\"bind\":\"o\\\"k\"}")"#), "{renamed}");
+        // A name the builder wrote with an escape is found too.
+        let by_hand = "NuiSetBind(oPlayer, nToken, \"o\\\"k\", JsonBool(TRUE));";
+        assert_eq!(
+            rename_in_code(by_hand, "o\"k", "ok"),
+            "NuiSetBind(oPlayer, nToken, \"ok\", JsonBool(TRUE));"
+        );
+        // An empty name names nothing: no empty string becomes the new one.
+        assert_eq!(rename_in_code(code, "", "ok"), code);
     }
 
     #[test]
