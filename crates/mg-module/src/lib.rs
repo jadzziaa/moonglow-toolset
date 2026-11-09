@@ -482,6 +482,7 @@ impl Module {
                     .project
                     .as_ref()
                     .is_some_and(|p| p.root() == root.as_path() && &p.target == target);
+                let mut made = None;
                 if !same {
                     let file = format!("{}.mod", self.project_file_stem(root));
                     // (The kinds of file it keeps other than scripts and
@@ -517,12 +518,21 @@ impl Module {
                             orphans.join(", ")
                         ));
                     }
-                    self.project = Some(Box::new(project));
+                    made = Some(Box::new(project));
                 }
-                let project = self.project.as_mut().expect("just made");
+                // A project made here is the module's only once the save
+                // into it succeeded: after one that failed the module is
+                // where it was, and its next Save goes there.
+                let project = match made.as_mut() {
+                    Some(made) => made,
+                    None => self.project.as_mut().expect("the module's own project"),
+                };
                 project.save(&self.resources)?;
                 let location =
                     ModuleLocation::Project { root: root.clone(), target: project.target.clone() };
+                if made.is_some() {
+                    self.project = made;
+                }
                 self.location = Some(location);
                 self.archive = None;
                 self.dirty = false;
@@ -1197,6 +1207,39 @@ mod tests {
         m.save().unwrap();
         assert_eq!(script(&path).as_deref(), Some(&b"again"[..]));
         assert_eq!(script(&dir.join("test.mod.bak")).as_deref(), Some(&b"changed"[..]));
+    }
+
+    /// A Save As into a project that fails leaves the module where it was:
+    /// its next Save writes the project it was opened from (it held the
+    /// new, empty project, and every Save after said "the project already
+    /// has a module").
+    #[test]
+    fn a_failed_save_as_into_a_project_leaves_the_module_where_it_was() {
+        let dir = mg_testkit::scratch_dir("mg-module-failed-save-as");
+        let project =
+            |name: &str| ModuleLocation::Project { root: dir.join(name), target: "default".into() };
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        m.set(key("script", ResType::NSS), &b"void main() {}"[..]);
+        m.save_as(&project("a")).unwrap();
+        let mut m = Module::open(&dir.join("a")).unwrap();
+        let opened = m.location.clone();
+        // (The other project's `src` is a file: nothing can be written in it.)
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        std::fs::write(dir.join("b/src"), b"").unwrap();
+        m.set(key("script", ResType::NSS), &b"changed"[..]);
+        assert!(m.save_as(&project("b")).is_err());
+        assert_eq!(m.location, opened);
+        assert_eq!(m.project.as_ref().map(|p| p.root().to_path_buf()), Some(dir.join("a")));
+        m.save().unwrap();
+        assert_eq!(std::fs::read(dir.join("a/src/script.nss")).unwrap(), b"changed");
+        // From a folder, too: the module does not pass for a project.
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&ModuleLocation::Folder(dir.join("folder"))).unwrap();
+        assert!(m.save_as(&project("b")).is_err());
+        assert!(m.project.is_none());
+        m.save().unwrap();
     }
 
     /// A file half written when Moonglow stopped (`.moonglow-tmp`), beside
