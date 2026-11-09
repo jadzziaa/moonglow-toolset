@@ -33,6 +33,8 @@ pub enum TwoDaError {
     Unquotable,
     #[error("a cell value contains a line break, which 2DA cannot express")]
     LineBreak,
+    #[error("{place}: the character {character:?} is not in the codepage the table is written in")]
+    Unencodable { place: String, character: char },
     #[error(
         "the table's short rows would be padded with more than {0} empty cells (a header of \
          many columns over many short lines)"
@@ -481,7 +483,36 @@ impl TwoDa {
         for (label, r) in labels.iter().zip(&rows) {
             out += &line(label, r);
         }
-        codepage.encode(&out).map(|b| b.into_owned()).ok_or(TwoDaError::Unquotable)
+        match codepage.encode(&out) {
+            Some(bytes) => Ok(bytes.into_owned()),
+            None => Err(self.unencodable(codepage)),
+        }
+    }
+
+    /// The first of the table's texts with a character `codepage` lacks
+    /// (looked for once the whole table failed to encode): where it is
+    /// and the character, for the builder to find it.
+    fn unencodable(&self, codepage: Codepage) -> TwoDaError {
+        let lacking = |text: &str| {
+            let mut buf = [0u8; 4];
+            text.chars().find(|c| codepage.encode(c.encode_utf8(&mut buf)).is_none())
+        };
+        let columns = self.columns.iter().map(|c| (format!("the column name {c}"), c.as_str()));
+        let default = self.default.iter().map(|d| ("the DEFAULT: value".to_string(), d.as_str()));
+        let cells = self.rows.iter().enumerate().flat_map(|(r, row)| {
+            row.iter().enumerate().filter_map(move |(c, cell)| {
+                let column = self.columns.get(c).map_or("?", String::as_str);
+                Some((format!("row {r}, column {column}"), cell.as_deref()?))
+            })
+        });
+        columns
+            .chain(default)
+            .chain(cells)
+            .find_map(|(place, text)| {
+                lacking(text).map(|character| TwoDaError::Unencodable { place, character })
+            })
+            // (Nothing of the table's: not reached, the rest being ASCII.)
+            .unwrap_or(TwoDaError::Unencodable { place: "the table".into(), character: '?' })
     }
 }
 
@@ -771,6 +802,19 @@ mod tests {
         t.set(0, 0, Some("****".into())).unwrap();
         assert_eq!((t.get(1, "Cost"), t.get(0, "Label")), (Some("5"), None));
         assert_eq!(t.set(0, 0, Some("a \"b\"".into())), Err(TwoDaError::Unquotable));
+        // A character the codepage lacks is named with its cell, not
+        // called a double quote.
+        let mut wide = t.clone();
+        wide.set(1, 0, Some("z\u{142}oty".into())).unwrap();
+        let e = wide.to_bytes(Codepage::WINDOWS_1252).unwrap_err();
+        let place = format!("row 1, column {}", wide.columns()[0]);
+        assert_eq!(e, TwoDaError::Unencodable { place, character: '\u{142}' });
+        assert!(e.to_string().contains("row 1, column") && e.to_string().contains("'\u{142}'"));
+        assert!(wide.to_bytes(Codepage::WINDOWS_1250).is_ok());
+        let mut named = t.clone();
+        named.rename_column(0, "A\u{2192}B").unwrap();
+        let e = named.to_bytes(Codepage::WINDOWS_1252).unwrap_err();
+        assert!(e.to_string().starts_with("the column name A\u{2192}B: "), "{e}");
         // A line break would be the next row's beginning.
         for broken in ["a\nb", "a\r\nb", "a\r"] {
             assert_eq!(t.set(0, 0, Some(broken.into())), Err(TwoDaError::LineBreak), "{broken:?}");
