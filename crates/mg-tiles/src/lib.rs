@@ -101,6 +101,13 @@ pub struct TileIndex {
     max_height: i32,
 }
 
+/// The most height steps a corner is read as being up or down: a tileset's
+/// corner heights and an area's `Tile_Height` are whatever their files
+/// say, and work that goes a step at a time (a tile fitted at each height,
+/// Change Tileset raising a corner level by level) is bounded by it. (The
+/// area view holds `Tile_Height` to as much.)
+pub const MAX_HEIGHT: i32 = 1024;
+
 /// Tile corners are listed TopLeft, TopRight, BottomLeft, BottomRight
 /// (`mg_set::CORNERS`); these are their positions counter-clockwise from SW.
 const SET_CORNERS: [usize; 4] = [2, 3, 1, 0];
@@ -136,7 +143,8 @@ impl TileIndex {
             .map(|t| {
                 let mut corner = |i: usize| {
                     let (name, height) = &t.corners[SET_CORNERS[i]];
-                    Corner { terrain: Terrain(intern(&mut terrains, name)), height: *height }
+                    let height = (*height).clamp(-MAX_HEIGHT, MAX_HEIGHT);
+                    Corner { terrain: Terrain(intern(&mut terrains, name)), height }
                 };
                 let corners = [corner(0), corner(1), corner(2), corner(3)];
                 let edges = SET_EDGES.map(|i| {
@@ -211,7 +219,7 @@ impl TileIndex {
     pub fn cell(&self, p: Placement) -> Option<Cell> {
         let mut cell = self.cells.get(p.tile as usize)?.turned(p.orientation);
         for c in &mut cell.corners {
-            c.height += p.height;
+            c.height = c.height.saturating_add(p.height);
         }
         Some(cell)
     }
@@ -304,10 +312,13 @@ impl TileIndex {
     pub fn fits(&self, cell: &Cell) -> Vec<Placement> {
         let low = cell.corners.iter().map(|c| c.height).min().unwrap_or(0);
         let mut out = Vec::new();
-        for raise in (low - self.max_height).max(0)..=low.max(0) {
+        // (A tile raised: from where its highest corner reaches the
+        // cell's lowest, up to the cell's lowest; as many tries as the
+        // tileset's tiles are high, at most.)
+        for raise in low.saturating_sub(self.max_height).max(0)..=low.max(0) {
             let mut lowered = *cell;
             for c in &mut lowered.corners {
-                c.height -= raise;
+                c.height = c.height.saturating_sub(raise);
             }
             if let Some(fits) = self.fits.get(&lowered) {
                 out.extend(fits.iter().map(|p| Placement { height: raise, ..*p }));
@@ -678,6 +689,38 @@ mod tests {
         // An area of no tiles is still one, and a list may run on.
         assert!(Lattice::from_tiles(&index, 0, 0, &[]).is_some());
         assert!(Lattice::from_tiles(&index, 1, 1, &[one, one]).is_some());
+    }
+
+    /// Heights are numbers files give: a tileset's corner 2 billion up is
+    /// read as [`MAX_HEIGHT`], a cell that high is fitted in as many tries
+    /// as the tileset is high, and a tile raised past what an `i32` holds
+    /// neither wraps nor panics.
+    #[test]
+    fn heights_from_files_are_bounded() {
+        let high = SET.replace(
+            "[TILE1]\nModel=t1\nTopLeft=A",
+            "[TILE1]\nModel=t1\nTopLeftHeight=2000000000\nBottomRightHeight=-2000000000\nTopLeft=A",
+        );
+        assert_ne!(high, SET);
+        let set = Tileset::parse(high.as_bytes(), Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(set.tiles[1].corners[0].1, 2_000_000_000);
+        let index = TileIndex::new(&set);
+        let cell = index.cell(Placement { tile: 1, orientation: 0, height: 0 }).unwrap();
+        let heights = cell.corners.map(|c| c.height);
+        assert_eq!(heights.iter().max(), Some(&MAX_HEIGHT));
+        assert_eq!(heights.iter().min(), Some(&-MAX_HEIGHT));
+        let up = index.cell(Placement { tile: 1, orientation: 0, height: i32::MAX }).unwrap();
+        assert_eq!(up.corners.map(|c| c.height).iter().max(), Some(&i32::MAX));
+        // A cell every corner of which is as high as an `i32` goes, and
+        // one as low: looked up in a moment, not once a step.
+        let a = index.terrain("A").unwrap();
+        let started = std::time::Instant::now();
+        for height in [i32::MAX, i32::MIN, 2_000_000_000] {
+            let cell = Cell { corners: [Corner { terrain: a, height }; 4], edges: [None; 4] };
+            let fits = index.fits(&cell);
+            assert_eq!(fits.len(), if height > 0 { 4 } else { 0 }, "{height}: {fits:?}");
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     /// Corners run to the width and height, cells to one less: past them
