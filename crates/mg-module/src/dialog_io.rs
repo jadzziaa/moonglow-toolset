@@ -651,9 +651,13 @@ pub fn play_outline(g: &Gff, limit: usize) -> Option<Vec<String>> {
 // ---------------------------------------------------------------- text
 
 /// The conversation as readable text: NPC lines and the numbered replies
-/// under them, conditions and actions in brackets, links named.
+/// under them, conditions and actions in brackets, links named. A line
+/// that more than one line owns (another tool's file; such lines may own
+/// each other in a loop) is written out under the first and named under
+/// the others, as a link is.
 pub fn to_text(g: &Gff) -> String {
-    fn walk(g: &Gff, parent: Parent, depth: usize, out: &mut String) {
+    type Seen = std::collections::HashSet<(Kind, u32)>;
+    fn walk(g: &Gff, parent: Parent, depth: usize, seen: &mut Seen, out: &mut String) {
         let kind = parent.child_kind();
         for (pos, l) in links(g, parent).iter().enumerate() {
             let i = link_index(l);
@@ -677,18 +681,21 @@ pub fn to_text(g: &Gff) -> String {
             if !notes.is_empty() {
                 let _ = write!(line, "   [{}]", notes.join("; "));
             }
+            let first = !is_link(l) && seen.insert((kind, i));
             if is_link(l) {
                 let _ = write!(line, "   (goes to {} above)", passage(kind, i));
+            } else if !first {
+                let _ = write!(line, "   ({}, shown above)", passage(kind, i));
             }
             out.push_str(&line);
             out.push('\n');
-            if !is_link(l) {
-                walk(g, Parent::Node(kind, i), depth + 1, out);
+            if first {
+                walk(g, Parent::Node(kind, i), depth + 1, seen, out);
             }
         }
     }
     let mut out = String::new();
-    walk(g, Parent::Root, 0, &mut out);
+    walk(g, Parent::Root, 0, &mut Seen::new(), &mut out);
     out
 }
 
@@ -1583,6 +1590,52 @@ mod tests {
         add_node(&mut g, Parent::Node(Kind::Entry, again), "Yes.");
         crate::dialog::recount(&mut g);
         g
+    }
+
+    /// An owning link (`IsChild` 0) from `parent` to a line that is there.
+    fn own(g: &mut Gff, parent: Parent, index: u32) {
+        let link = crate::dialog::new_link(index, parent, false);
+        crate::dialog::links_mut(g, parent).unwrap().push(link);
+    }
+
+    /// Another tool's conversation whose lines own each other is written
+    /// out and ends, and a line two lines own is written out once (the
+    /// review's V2: the walk had no guard, and overflowed the stack or grew
+    /// as two to the depth).
+    #[test]
+    fn plain_text_ends_where_lines_own_each_other() {
+        let mut g = new_dialog();
+        let e = add_node(&mut g, Parent::Root, "Round");
+        let r = add_node(&mut g, Parent::Node(Kind::Entry, e), "and round");
+        own(&mut g, Parent::Node(Kind::Reply, r), e);
+        let text = to_text(&g);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert_eq!(lines[2].trim(), "NPC Round   (E0, shown above)");
+        assert_eq!(crate::dialog::outline(&g).len(), 3);
+
+        // Thirty levels, each line owned by both lines of the level above.
+        let mut g = new_dialog();
+        let mut above = vec![add_node(&mut g, Parent::Root, "Top")];
+        let mut kind = Kind::Entry;
+        for level in 0..30 {
+            let first = Parent::Node(kind, above[0]);
+            let below = [
+                add_node(&mut g, first, &format!("a{level}")),
+                add_node(&mut g, first, &format!("b{level}")),
+            ];
+            if let Some(second) = above.get(1) {
+                own(&mut g, Parent::Node(kind, *second), below[0]);
+                own(&mut g, Parent::Node(kind, *second), below[1]);
+            }
+            above = below.to_vec();
+            kind = kind.child();
+        }
+        let text = to_text(&g);
+        let whole = |l: &&str| l.contains("a29") && !l.contains("shown above");
+        assert_eq!(text.lines().filter(whole).count(), 1, "written out once");
+        assert_eq!(text.lines().count(), 1 + 30 * 2 + 29 * 2);
+        assert_eq!(crate::dialog::outline(&g).len(), 1 + 30 * 2 + 29 * 2);
     }
 
     /// What a format says it reads is what it reads.

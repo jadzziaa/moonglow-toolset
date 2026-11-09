@@ -758,7 +758,8 @@ pub fn text(n: &Struct) -> String {
 /// The conversation as an indented outline, starting links first:
 /// `kind|text|link?|condition|params` per line, links not followed. Two
 /// conversations with the same outline behave the same, whatever the order
-/// of their node lists.
+/// of their node lists. A line more than one line owns is followed under
+/// the first alone (such lines may own each other in a loop).
 pub fn outline(g: &Gff) -> Vec<String> {
     fn params(s: &Struct, label: &str) -> String {
         s.list(label)
@@ -772,7 +773,8 @@ pub fn outline(g: &Gff) -> Vec<String> {
             .collect::<Vec<_>>()
             .join(",")
     }
-    fn walk(g: &Gff, parent: Parent, depth: usize, out: &mut Vec<String>) {
+    type Seen = HashSet<(Kind, u32)>;
+    fn walk(g: &Gff, parent: Parent, depth: usize, seen: &mut Seen, out: &mut Vec<String>) {
         let kind = parent.child_kind();
         for l in links(g, parent) {
             let i = link_index(l);
@@ -791,13 +793,13 @@ pub fn outline(g: &Gff) -> Vec<String> {
                 n.dword("Animation").unwrap_or(0),
                 String::from_utf8_lossy(n.string("Comment").unwrap_or_default()),
             ));
-            if !is_link(l) {
-                walk(g, Parent::Node(kind, i), depth + 1, out);
+            if !is_link(l) && seen.insert((kind, i)) {
+                walk(g, Parent::Node(kind, i), depth + 1, seen, out);
             }
         }
     }
     let mut out = Vec::new();
-    walk(g, Parent::Root, 0, &mut out);
+    walk(g, Parent::Root, 0, &mut Seen::new(), &mut out);
     out
 }
 
