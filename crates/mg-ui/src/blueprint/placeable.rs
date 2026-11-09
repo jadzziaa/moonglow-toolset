@@ -152,17 +152,10 @@ fn illumination(f: &mut Form<'_>, ui: &mut Ui) {
     let r = ui.checkbox(&mut on, "Illuminated");
     let r = if lit {
         r.on_hover_text(
-            "Whether the placeable's light (placeables.2da LightColor) is on when the game \
-             loads it (GetPlaceableIllumination; scripts turn it on and off with \
-             SetPlaceableIllumination). The model's own light nodes stay on either way. \
-             Aurora doesn't show this field.",
+            "Whether the placeable's light (placeables.2da LightColor) is on when the game loads it",
         )
     } else {
-        r.on_hover_text(
-            "Its appearance has no light (placeables.2da LightColor), so the game doesn't \
-             light it; this is kept for when the appearance's row gains one. On unless \
-             unticked. Aurora doesn't show this field.",
-        )
+        r.on_hover_text("Its appearance has no light, so this is kept for when its row gains one")
     };
     if r.changed() {
         f.set_int("Illumination", LIGHT_STATE, i64::from(on), FieldType::Byte);

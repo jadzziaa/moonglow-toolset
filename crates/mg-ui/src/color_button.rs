@@ -98,7 +98,7 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
         .unwrap_or_else(|| Hsva::from(*srgba));
     let mut button = show_color_button(ui, *srgba, open);
     if ui.style().explanation_tooltips {
-        button = button.on_hover_text("Click to edit color; Ctrl+V pastes one");
+        button = button.on_hover_text("Click to edit the color. Ctrl+V pastes one.");
     }
     let mut pasted = if open || button.hovered() { take_paste(ui) } else { None };
     // (Its own id: egui's for a context menu is the picker's, which kept
@@ -163,8 +163,7 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
                 if ui
                     .button("Paste Color")
                     .on_hover_text(
-                        "A color from the clipboard: 158, 151, 211 (what 📋 copies), #9e97d3 \
-                         or rgb(158, 151, 211); Ctrl+V does it too",
+                        "Paste a color copied as 158, 151, 211, #9e97d3 or rgb(158, 151, 211)",
                     )
                     .clicked()
                 {

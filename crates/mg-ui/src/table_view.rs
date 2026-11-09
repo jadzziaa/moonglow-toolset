@@ -1333,10 +1333,7 @@ fn header(
         let add = if count == 1 { "Add Row".to_string() } else { format!("Add {count} Rows") };
         if ui
             .button(add)
-            .on_hover_text(
-                "Empty rows at the end, as many as the number beside says (a row's number is \
-                 what names it: none is put between others)",
-            )
+            .on_hover_text("Add empty rows at the end, as many as the number beside says")
             .clicked()
         {
             doc.commit();
@@ -1348,15 +1345,12 @@ fn header(
         }
         let mut n = count;
         ui.add(egui::DragValue::new(&mut n).range(1..=10_000).speed(0.2))
-            .on_hover_text("How many rows Add Row adds (padding, to begin at a row of your own)");
+            .on_hover_text("How many rows Add Row adds");
         doc.add_count = n;
         let row = doc.selected.map(|s| s.0);
         if ui
             .add_enabled(row.is_some(), egui::Button::new("Empty Row"))
-            .on_hover_text(
-                "Every cell of the selected row emptied (****). The row stays, so that the \
-                 rows after it keep their numbers",
-            )
+            .on_hover_text("Empty every cell of the selected row. Later rows keep their numbers.")
             .clicked()
             && let Some(row) = row
         {
@@ -1367,10 +1361,7 @@ fn header(
         if ui
             .add_enabled(row.is_some(), egui::Button::new("Delete Row"))
             .on_hover_text(
-                "The selected row taken away. Every row after it is then one number lower, \
-                 and what names those rows by number (other tables, blueprints, scripts) is \
-                 not changed to follow: Find References to Row shows the tables, blueprints, \
-                 areas and scripts that do. To keep the numbers, Empty Row",
+                "Delete the selected row. Later rows renumber, and what names them doesn't follow.",
             )
             .clicked()
             && let Some(row) = row
@@ -1391,29 +1382,20 @@ fn header(
         ui.separator();
         if ui
             .add_enabled(has_copies, egui::Button::new("Take Rows…"))
-            .on_hover_text(
-                "Rows another copy of this table has (a hak below this one, the game's) and \
-                 this one lacks or has differently",
-            )
+            .on_hover_text("Take rows from another copy of this table, such as the game's")
             .clicked()
         {
             doc.commit();
             doc.taking = Some(Taking::default());
         }
         let was = doc.compact;
-        ui.checkbox(&mut doc.compact, "Compact").on_hover_text(
-            "How the table is saved: ticked, with one space between cells (a smaller file, \
-             with less for the game to pass over as it reads); not, with the columns in \
-             line, as the game's own tables are (easier to read and to copy from). It begins \
-             as the file was",
-        );
+        ui.checkbox(&mut doc.compact, "Compact")
+            .on_hover_text("Save with one space between cells. Off, with the columns aligned.");
         if doc.compact != was {
             doc.edit.mark_unsaved();
         }
-        ui.checkbox(&mut doc.strref_text, "Strings as text").on_hover_text(
-            "Columns that hold a talk-table string's number show the string; the number is \
-             what is edited",
-        );
+        ui.checkbox(&mut doc.strref_text, "Strings as text")
+            .on_hover_text("Show the string in talk-table columns. The number is what is edited.");
         if !doc.hidden.is_empty() {
             let names: Vec<String> = (doc.edit.table().columns().iter())
                 .filter(|c| doc.hidden.contains(&c.to_lowercase()))
@@ -1429,8 +1411,7 @@ fn header(
         }
         if doc.description().is_some() {
             ui.checkbox(&mut doc.value_names, "Values as names").on_hover_text(
-                "Columns the table's description says are a list or flags show each value's \
-                 name; the value is what the table holds",
+                "Show the names of list and flag values. The value is what is saved.",
             );
         }
     });
@@ -1450,12 +1431,12 @@ fn header(
                 let said = ui.weak(format!("Described by {file}: {columns} columns"));
                 said.on_hover_text(match &d.path {
                     Some(path) => format!(
-                        "{}\nWhat each column holds, and the lists to choose from. It is read \
-                         again when the file changes.",
+                        "{}\nWhat each column holds, and its lists. Read again when the file \
+                         changes.",
                         path.display()
                     ),
-                    None => "What each column of the game's table holds, as Moonglow knows it: \
-                             a description of yours beside the table comes before it"
+                    None => "What each column of the game's table holds. A description of yours \
+                             comes first."
                         .to_string(),
                 });
                 if let Some(table) = &description.rows {
@@ -1506,9 +1487,7 @@ fn header(
             .color(ui.visuals().warn_fg_color);
             if ui
                 .button(text)
-                .on_hover_text(
-                    "Goes to the next of them. They are what Verify Module would say of this table",
-                )
+                .on_hover_text("Go to the next of what Verify Module would say of this table")
                 .clicked()
             {
                 *act = None;
@@ -2019,8 +1998,7 @@ pub(crate) fn grid_in(
                             if ui
                                 .button("Hide Column")
                                 .on_hover_text(
-                                    "Out of sight while the table is open (its cells are kept \
-                                     and saved); Show Hidden Columns brings it back",
+                                    "Hide it while the table is open. Its cells are kept and saved.",
                                 )
                                 .clicked()
                             {
@@ -2079,14 +2057,13 @@ pub(crate) fn grid_in(
                         r.on_hover_text(match read_only {
                             true => {
                                 about
-                                    + "\nDrag its right edge: its width (double click there: \
-                                       as wide as its widest cell). Right-click: hide it"
+                                    + "\nDrag its right edge to resize, double-click there to fit. \
+                                       Right-click to hide it."
                             }
                             false => {
                                 about
-                                    + "\nDrag: move the column. Drag its right edge: its \
-                                       width (double click there: as wide as its widest \
-                                       cell). Right-click: rename, move or remove it"
+                                    + "\nDrag to move the column, its right edge to resize. \
+                                       Right-click for more."
                             }
                         });
                         // (On top of the name: its right end is the edge's.)
@@ -2358,7 +2335,7 @@ pub(crate) fn grid_in(
                                 }
                                 if let Some((by, below, value)) = &was {
                                     let value = value.as_deref().unwrap_or("****");
-                                    tip.push(format!("Set by {by}; {value} in {below}"));
+                                    tip.push(format!("Set by {by} ({value} in {below})"));
                                 }
                                 let cell = match tip.is_empty() {
                                     true => cell,
@@ -2697,13 +2674,7 @@ fn inspector(
     ui.horizontal_wrapped(|ui| {
         if ui
             .button(format!("Find References to Row {row}"))
-            .on_hover_text(
-                "The cells of other tables (and this one) that name this row, in the columns \
-                 known to name a row of this table; and the module's blueprints, areas and \
-                 placed objects whose fields hold it, and its scripts that name it (a \
-                 constant of nwscript's that stands for it, a Get2DAString of this table at \
-                 it)",
-            )
+            .on_hover_text("Where other tables, blueprints, areas and scripts name this row")
             .clicked()
         {
             find_references = true;
@@ -2877,11 +2848,8 @@ fn string_choice(
     }
     let new = ui
         .add_enabled(addable, egui::Button::selectable(adding, "New Line…"))
-        .on_hover_text("Adds a line to the module's talk table and puts its number in the cell")
-        .on_disabled_hover_text(
-            "Needs the module's own talk table, open for editing (Module Properties › Custom \
-             Content names it)",
-        );
+        .on_hover_text("Add a line to the module's talk table, its number in the cell")
+        .on_disabled_hover_text("Needs the module's own talk table, open for editing");
     if new.clicked() {
         adding = !adding;
         choosing = false;
@@ -2948,9 +2916,10 @@ fn string_choice(
             crate::widgets::autofocus(ui, &field);
             let typed = !text.trim().is_empty();
             ui.horizontal(|ui| {
-                let add = ui
-                    .add_enabled(typed, egui::Button::new("Add to Talk Table"))
-                    .on_hover_text("A new line at the talk table's end; the cell takes its number");
+                let add =
+                    ui.add_enabled(typed, egui::Button::new("Add to Talk Table")).on_hover_text(
+                        "A new line at the talk table's end. The cell takes its number.",
+                    );
                 if add.clicked() {
                     *new_line = Some(text.trim().to_string());
                     text.clear();
@@ -3246,8 +3215,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                     (
                         Offered::Changed,
                         "Differ",
-                        "The rows the other copy has differently, which this table did not \
-                         change itself (where that can be told)",
+                        "Rows the other copy has differently, which this table didn't change \
+                         itself",
                     ),
                 ];
                 for (kind, label, hint) in kinds {
@@ -3401,8 +3370,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 if ui
                     .add_enabled(n + m > 0, egui::Button::new(label))
                     .on_hover_text(
-                        "Each row ticked whole, and each cell chosen alone, as that copy has \
-                         them; one step to undo",
+                        "Take each row ticked whole, and each cell chosen alone. One step to undo.",
                     )
                     .clicked()
                 {

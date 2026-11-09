@@ -2559,7 +2559,7 @@ fn fields_that_differ_among_blueprints_edited_together_are_marked() {
     // The mark says what it means.
     h.get_all_by_value("≠").next().unwrap().hover();
     h.run();
-    assert!(h.query_by_label_contains("The objects edited together differ here").is_some());
+    assert!(h.query_by_label_contains("The objects differ here").is_some());
     assert_eq!(marks(&mut h, "Advanced"), 3, "the conversation, No Interrupt, the variables");
     assert_eq!(marks(&mut h, "Comments"), 1);
     assert_eq!(marks(&mut h, "Visuals"), 1, "the mouse cursor");

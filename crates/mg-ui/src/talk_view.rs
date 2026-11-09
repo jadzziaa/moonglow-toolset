@@ -400,10 +400,7 @@ pub(crate) fn undo(app: &mut Moonglow, redo: bool) -> bool {
 fn files(actions: &mut Vec<Action>, ui: &mut Ui) {
     if ui
         .button("Open File…")
-        .on_hover_text(
-            "Edit a .tlk file anywhere (its feminine table too, if a file named with an f \
-             after its name is beside it)",
-        )
+        .on_hover_text("Edit a .tlk file anywhere, with its feminine table if one is beside it")
         .clicked()
     {
         actions.push(Action::TalkFile(false));
@@ -678,8 +675,8 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
                     .selected_text(named(&open))
                     .show(ui, &mut chosen, &paths, named)
                     .on_hover_text(
-                        "The project keeps this table in more than one language, a file each \
-                         (save or undo the changes to choose another)",
+                        "The project keeps this table in several languages. Save or undo changes \
+                         to switch.",
                     );
             });
             language = (chosen != open).then_some(chosen);
@@ -787,8 +784,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
                     .hint_text("StrRef or line"),
             )
             .on_hover_text(
-                "A StrRef (16777216 and up) or a line's number, then Enter: the list goes \
-                 to that line and it is chosen",
+                "A StrRef (16777216 and up) or a line's number, then Enter, to go to it",
             );
         if field.changed() {
             v.go_to_problem = None;
@@ -841,17 +837,13 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         }
         if ui
             .checkbox(&mut v.only_text, "Only lines with text")
-            .on_hover_text(
-                "Leave the empty lines out of the list (reserved ranges). The selected line \
-                 stays selected and in view when this is switched off again.",
-            )
+            .on_hover_text("Leave empty lines out of the list (reserved ranges)")
             .changed()
         {
             v.reveal = true;
         }
         let import = ui.add_enabled(editable, egui::Button::new("Import CSV…")).on_hover_text(
-            "Lines from a spreadsheet saved as CSV (as Export CSV writes it): each row sets the \
-             line of its StrRef; rows past the end add lines",
+            "Read lines from a CSV, as Export CSV writes it. Rows past the end add lines.",
         );
         if import.clicked() {
             actions.push(Action::TalkCsv(true));
@@ -863,10 +855,9 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         {
             actions.push(Action::TalkCsv(false));
         }
-        let import = ui.add_enabled(editable, egui::Button::new("Import JSON…")).on_hover_text(
-            "Lines from a talk table kept as JSON (nwn_tlk's, as a nasher repository has it): \
-             each entry sets the line of its id; lines the file leaves out stay",
-        );
+        let import = ui
+            .add_enabled(editable, egui::Button::new("Import JSON…"))
+            .on_hover_text("Read lines from nwn_tlk's JSON, as a nasher repository keeps it");
         if import.clicked() {
             actions.push(Action::TalkJson(true));
         }

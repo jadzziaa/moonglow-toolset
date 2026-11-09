@@ -2023,17 +2023,12 @@ fn script_with_params(
             }
         })
         .response
-        .on_hover_text(
-            "Add a saved set's parameters (same names take its values), and its script if it \
-             names one",
-        );
+        .on_hover_text("Add a saved set's parameters and script. Same names take its values.");
         let naming = view.param_set_name.as_ref().is_some_and(|(p, _)| *p == place);
         if !naming
             && ui
                 .add_enabled(dir.is_some() && something, egui::Button::new("Save Set…"))
-                .on_hover_text(
-                    "Keep the script and these parameters under a name, to add to other lines",
-                )
+                .on_hover_text("Keep the script and these parameters under a name, for other lines")
                 .clicked()
         {
             view.param_set_name = Some((place.clone(), String::new()));
@@ -2041,8 +2036,7 @@ fn script_with_params(
         if ui
             .add_enabled(something, egui::Button::new("Copy Set"))
             .on_hover_text(
-                "Copy the script and these parameters to the clipboard, as a set file's text: \
-                 Paste Set adds them to another line, in any conversation or module",
+                "Copy the script and these parameters, for Paste Set in any conversation",
             )
             .clicked()
         {
@@ -2050,20 +2044,14 @@ fn script_with_params(
         }
         if ui
             .button("Paste Set")
-            .on_hover_text(
-                "Add the set copied to the clipboard (Copy Set, or a set file's text) as Add Set \
-                 adds a saved one: same names take its values, and its script if it names one",
-            )
+            .on_hover_text("Add the set on the clipboard. Same names take its values.")
             .clicked()
         {
             crate::widgets::ask_paste(ui.ctx(), paste_id);
         }
         to_file = ui
             .add_enabled(something, egui::Button::new("Save to File…"))
-            .on_hover_text(
-                "Save the script and these parameters as a set file (.params.json) where you \
-                 choose: to share, or to keep with a module",
-            )
+            .on_hover_text("Save the script and these parameters as a .params.json file, to share")
             .clicked();
     });
     // Save Set's name, typed in place (that of another tab or line is
@@ -2587,7 +2575,7 @@ fn condition_toggle(ui: &mut Ui, c: &str, assume: &mut std::collections::BTreeMa
     let text = format!("if {c}: {}", if on { "TRUE" } else { "FALSE" });
     if ui
         .small_button(text)
-        .on_hover_text("What this condition is taken to return; click to switch")
+        .on_hover_text("What this condition is taken to return. Click to switch.")
         .clicked()
     {
         assume.insert(c.to_string(), !on);

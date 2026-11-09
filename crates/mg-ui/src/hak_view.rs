@@ -515,8 +515,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         if ui
             .button("Compile Models")
             .on_hover_text(
-                "Compiles the hak's models kept as text (ASCII), each against its supermodel \
-                 from this hak, the module's haks or the game; one that can't be stays as text",
+                "Compile the hak's ASCII models against their supermodels. One that fails stays \
+                 text.",
             )
             .clicked()
         {
@@ -690,10 +690,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     if item.key.restype == mg_core::ResType::TWODA
                         && ui
                             .button("Edit Table")
-                            .on_hover_text(
-                                "In the 2DA editor: saved into this hak, and written with the \
-                                 hak's own Save",
-                            )
+                            .on_hover_text("Edit it in the 2DA editor. The hak's Save writes it.")
                             .clicked()
                     {
                         todo = Some(Do::EditTable(item.key));

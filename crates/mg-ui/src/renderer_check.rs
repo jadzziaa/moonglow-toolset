@@ -327,8 +327,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                     if ui
                         .button(format!("Restart with {name}"))
                         .on_hover_text(format!(
-                            "Closes Moonglow, asking about unsaved work first, and starts it \
-                             again with the same module, drawing through {name} {after}"
+                            "Restart Moonglow with the same module, drawing through {name} {after}"
                         ))
                         .clicked()
                     {
@@ -346,10 +345,8 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                 && ui
                     .button("Don't Show Again")
                     .on_hover_text(
-                        "Closes this notice and doesn't show it again on this GPU, driver and \
-                         backend: Moonglow draws with its own shaders there each time without \
-                         saying so here (the log still says it). A driver update shows it \
-                         again, and so does Options › General",
+                        "Hide this notice on this GPU, driver and backend. Options › General shows \
+                         it again.",
                     )
                     .clicked()
             {

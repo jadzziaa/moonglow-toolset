@@ -548,7 +548,7 @@ pub(crate) fn context_menu(
     if view.tile_mode
         && ui
             .button("Delete")
-            .on_hover_text("Delete: crossers go, and a group or a feature goes whole")
+            .on_hover_text("Remove crossers, and a group or a feature whole")
             .clicked()
     {
         delete(app, view);
@@ -590,8 +590,7 @@ pub(crate) fn tile_items(
     let items = [
         (
             "Next Tile Appearance",
-            "Another tile of the same kind here (its terrain and crossers), turned as this one \
-             where it fits so",
+            "Another tile of the same kind here, turned as this one where it fits",
             TileStep::Appearance { back: false },
         ),
         (
@@ -601,8 +600,7 @@ pub(crate) fn tile_items(
         ),
         (
             "Rotate Tile",
-            "A quarter turn counter-clockwise, where the tile still fits its neighbors (a half \
-             turn where only that does); its lights stay",
+            "A quarter turn counter-clockwise, where the tile still fits its neighbors",
             TileStep::Rotate { back: false },
         ),
     ];
@@ -1106,8 +1104,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
                 // (Its Cancel takes back what changed; Escape, as its X
                 // does, asks first: `may_close`.)
-                let undo = "Take back the changes: the tiles as they were when the window opened \
-                            (a tile put in from the pictures stays: Undo takes it out)";
+                let undo = "Set the tiles back as they were when the window opened";
                 if ui.button("Cancel").on_hover_text(undo).clicked() {
                     cancel = true;
                 }
@@ -1146,15 +1143,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 let all = ui
                     .add_enabled(free, egui::Checkbox::new(&mut props.all_tiles, ALL_TILES))
                     .on_hover_text(
-                        "Every tile of the tileset, as pictures: click one to put it in the tiles \
-                         chosen as it is, turned as chosen beside and at their height, whether \
-                         it fits its neighbors or not. No neighbor changes. Off: only the tiles \
-                         that fit are offered",
+                        "Offer every tile of the tileset, whether it fits its neighbors or not",
                     );
                 if !free {
                     all.on_disabled_hover_text(
-                        "A tile of a group or a feature: it changes only with its group \
-                         (Options › Area › Allow editing tiles of groups and features)",
+                        "A tile of a group or a feature changes only with its group",
                     );
                 }
                 if props.all_tiles && free {
@@ -1162,9 +1155,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     crate::widgets::field_label(ui, "Turn");
                     for (k, name) in ["0°", "↺90°", "↺180°", "↺270°"].iter().enumerate() {
                         let r = ui.selectable_value(&mut props.turn, k as u8, *name).on_hover_text(
-                            "Quarter turns counter-clockwise: the tiles chosen turn so at once, \
-                             each as it is (no neighbor changes), and a tile clicked below goes \
-                             in so",
+                            "Quarter turns counter-clockwise, for the tiles chosen and a tile \
+                             clicked below",
                         );
                         if r.changed() {
                             pick = Some(Pick::Turn(k as u8));
@@ -1190,8 +1182,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         n => format!("All tiles ({n} of {all})"),
                     };
                     ui.label(count).on_hover_text(
-                        "Every tile of the tileset, in its order, turned as chosen. Click one to \
-                         put it here as it is",
+                        "Every tile of the tileset, turned as chosen. Click one to put it here.",
                     );
                     size_slider(app, ui, side);
                 });
@@ -1219,8 +1210,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 let side = variant_side(app);
                 ui.horizontal(|ui| {
                     ui.label(format!("Variant ({} fit here)", variants.len())).on_hover_text(
-                        "The tiles that fit here, each turn of each, in the order Shift + right \
-                         click steps through them. Click one to put it here",
+                        "The tiles that fit here, each turn of each. Click one to put it here.",
                     );
                     size_slider(app, ui, side);
                 });
@@ -1413,9 +1403,7 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
         ui.add_enabled_ui(!locked, |ui| {
             let mut v = props.height.unwrap_or(props.first_height);
             let mut set = None;
-            let down = ui.button("-").on_hover_text(
-                "A height step down, these tiles alone: their neighbors stay as they are",
-            );
+            let down = ui.button("-").on_hover_text("A height step down for these tiles alone");
             named(&down, "Lower Height", !locked);
             if down.clicked() {
                 set = Some(v - 1);
@@ -1427,17 +1415,12 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
                 value = value.custom_formatter(|_, _| "Mixed".into());
             }
             let r = ui.add(value).on_hover_text(
-                "The tiles' height, in the tileset's height steps (Tile_Height): type or drag \
-                 any number of steps, below 0 too. Nothing around them changes, so a tile \
-                 raised alone stands above its neighbors, with gaps between; what stands on \
-                 it rises with it",
+                "The tiles' height in the tileset's height steps. Their neighbors don't change.",
             );
             if r.changed() {
                 set = Some(v);
             }
-            let up = ui.button("+").on_hover_text(
-                "A height step up, these tiles alone: their neighbors stay as they are",
-            );
+            let up = ui.button("+").on_hover_text("A height step up for these tiles alone");
             named(&up, "Raise Height", !locked);
             if up.clicked() {
                 set = Some(v + 1);
@@ -1452,11 +1435,8 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
             ui.weak(format!("steps of {} m: {at}", props.step));
         });
         if locked {
-            ui.weak("(a group's tile, without the rest of its group)").on_hover_text(
-                "A tile of a group or a feature changes only with it whole: select all of its \
-                 tiles to raise or lower it (or Options › Area › Allow editing tiles of groups \
-                 and features)",
-            );
+            ui.weak("(a group's tile, without the rest of its group)")
+                .on_hover_text("Select all of a group's or feature's tiles to raise or lower it");
         }
     });
 }
@@ -1483,9 +1463,7 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
     let enabled = props.has_replace;
     ui.horizontal(|ui| {
         ui.add_enabled(enabled, egui::Label::new("Replacement Texture")).on_hover_text(
-            "What a mesh of the tile's model drawn with a texture named replace_tex is drawn \
-             with: a row of replacetexture.2da (Tile_ReplaceTex, which Aurora's window hasn't \
-             got)",
+            "What the tile's replace_tex meshes are drawn with: a row of replacetexture.2da",
         );
         let row = mg_area::replacement_row(Some(i64::from(props.replace)), rows.len());
         let r = ui.add_enabled_ui(enabled, |ui| {
@@ -1506,8 +1484,7 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
         }
         if !enabled {
             r.response.on_disabled_hover_text(
-                "None of these tiles' models has a mesh drawn with replace_tex (of the game's \
-                 tiles, only tms01_c08_01, which no tileset uses)",
+                "None of these tiles' models has a mesh drawn with replace_tex",
             );
         }
         let chosen = r.inner.and_then(|r| mg_area::replacement_value(usize::try_from(r).ok()?));

@@ -159,7 +159,7 @@ fn pages(
                 egui::Button::new(format!("Give Every Area This Page's {page} Settings")),
             )
             .on_hover_text(format!(
-                "Sets what this page shows ({}'s) on each of the other areas, changed here or not",
+                "Sets every other area to what this page shows ({}'s), changed here or not",
                 names[0]
             ))
             .clicked()
@@ -528,8 +528,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
         })
         .response
         .on_hover_text(
-            "This page's settings (the lighting, fog, sky and weather) from another area; the \
-             tiles' lights are left as they are",
+            "Takes the lighting, fog, sky and weather from another area. Tiles' lights stay.",
         );
         ui.menu_button("Saved Lighting", |ui| {
             if let Some((name, text)) = &deleted
@@ -553,9 +552,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             }
             if !saved.is_empty() {
                 ui.checkbox(&mut relight, "Tiles' Lights Too").on_hover_text(
-                    "Ticked, the lighting given also picks every tile's main and source lights \
-                     anew from the colors kept with it; unticked, the tiles' lights are left as \
-                     they are",
+                    "Also picks each tile's lights anew from the colors saved with the lighting",
                 );
             }
             ui.separator();
@@ -607,8 +604,8 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             })
             .response
             .on_hover_text(
-                "The lighting as a lighting scheme of the module's own: a row of environment.2da, \
-                 which this page lists and the game's SetAreaLightingScheme takes",
+                "Keeps the lighting as a row of the module's environment.2da, for \
+                 SetAreaLightingScheme",
             );
         })
         .response
@@ -954,8 +951,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         // The flags past the three, for custom shaders (their `areaFlags`
         // uniform): kept by the game (`engine_ee_fields.rs`).
         crate::widgets::field_label(ui, "Shader Flags").on_hover_text(
-            "Area flags past the three above, for custom shaders: a shader reads them \
-             from its areaFlags uniform. The stock shaders read none of them.",
+            "Area flags for custom shaders, read from their areaFlags uniform. Stock shaders \
+             ignore them.",
         );
         // Rows of their own (a wrapped row would run over the next one: the
         // form's grid sizes its rows before the wrap).
@@ -1288,9 +1285,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.end_row();
                     }
                     crate::widgets::field_label(ui, "Holding").on_hover_text(
-                        "Areas with this music (by day, by night or in battle), a variable (of \
-                         this value, if one is typed), or a field of this value (the area's \
-                         own, its sounds' and music's): * as in tags",
+                        "Areas with this music, variable or field value (* as in tags)",
                     );
                     crate::widgets::dropdown("area-chooser-hold")
                         .width(260.0)
@@ -1330,7 +1325,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                                         .hint_text("any")
                                         .desired_width(90.0),
                                 )
-                                .on_hover_text("Its value (* as in tags); empty: any");
+                                .on_hover_text("Its value (* as in tags). Empty: any.");
                             });
                             ui.end_row();
                         }
@@ -1366,8 +1361,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                 if ui
                     .add_enabled(can, egui::Button::new("Save Set"))
                     .on_hover_text(
-                        "Keeps the ticked areas under this name, for this module (in Moonglow's \
-                         data folder's area-sets)",
+                        "Keeps the ticked areas as a set under this name, for this module",
                     )
                     .clicked()
                 {

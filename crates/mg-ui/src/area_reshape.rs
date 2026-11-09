@@ -85,8 +85,8 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
                     .selected_text(EDGES[usize::from(d.edges % 4)])
                     .show(ui, &mut d.edges, &edges, |e| EDGES[usize::from(*e % 4)])
                     .on_hover_text(
-                        "North and east as in Aurora. The other two edges stay, and what is \
-                         in the area keeps its place against them",
+                        "The edges that move. What is in the area keeps its place against the \
+                         others.",
                     );
             });
             ui.horizontal(|ui| {
@@ -295,8 +295,7 @@ fn tileset_window(app: &mut Moonglow, ctx: &egui::Context) {
         if !d.hidden.is_empty() {
             let label = format!("Show hidden tilesets ({})", d.hidden.len());
             ui.checkbox(&mut d.show_hidden, label).on_hover_text(
-                "Tilesets the project's moonglow.toml hides ([tilesets] hidden): still in the \
-                 game, and areas on them open as any other",
+                "Tilesets the project's moonglow.toml hides. Areas on them still open as usual.",
             );
         }
         ui.weak(

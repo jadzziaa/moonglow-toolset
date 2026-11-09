@@ -163,7 +163,7 @@ pub(crate) fn ok_cancel(
     use crate::blueprint::Pressed;
     let tips = [
         "Save and close the window",
-        "Close the window without saving (unsaved changes are asked about first)",
+        "Close the window without saving, asking about unsaved changes first",
     ];
     let id = egui::Id::new(("side-ok-cancel", tab));
     let Some(pressed) = crate::blueprint::ok_cancel_saying(ui, id, read_only, tips) else {

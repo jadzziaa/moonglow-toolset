@@ -382,9 +382,8 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                 ui.checkbox(&mut draft.options.match_case, "Match case");
                 ui.checkbox(&mut draft.options.whole_word, "Whole words");
                 ui.checkbox(&mut draft.options.regex, "Regular expression").on_hover_text(
-                    "Find what is a regular expression (kz_\\d+, ^wp_(.*)$, (inn|tavern)); \
-                     Replace with may name what its groups found ($1, ${name}). Without \
-                     Match case, letters A to Z in either case",
+                    "Find what is a regular expression. Replace with may use its groups ($1, \
+                     ${name}).",
                 );
             });
             let mut tick = |ui: &mut egui::Ui, k: TextKind, hover: Option<&str>| {
@@ -410,13 +409,11 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                 for k in TextKind::ALL.into_iter().filter(|k| !k.players()) {
                     let hover = match k {
                         TextKind::Tag => {
-                            "Objects' and areas' tags: a tag made another's is \
-                                         said, as a paste's is"
+                            "Objects' and areas' tags. A tag made another's is warned of."
                         }
                         TextKind::ResRef => {
-                            "Fields that name a script, a blueprint, a \
-                                            conversation…: the resource itself isn't renamed \
-                                            (Rename… does that, and what names it)"
+                            "Fields naming a script, blueprint or conversation. Rename… renames \
+                             the resource itself."
                         }
                         TextKind::Variable => "Local variables' names and string values",
                         _ => "The other text fields (a door's Linked To, a key's tag, comments)",

@@ -148,17 +148,14 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                     x.speed(0.05).max_decimals(2)
                 });
                 ui.end_row();
-                crate::widgets::field_label(ui, "Multiplier").on_hover_text(
-                    "How much further it reaches: the game lengthens a light's reach by it, \
-                     not its brightness",
-                );
+                crate::widgets::field_label(ui, "Multiplier")
+                    .on_hover_text("How much further the light reaches, not how bright it is");
                 crate::widgets::spin_draft(ui, &mut d.spec.multiplier, 0.1..=10.0, 0.1, |x| {
                     x.speed(0.01).max_decimals(2)
                 });
                 ui.end_row();
                 crate::widgets::field_label(ui, "Priority").on_hover_text(
-                    "1 to 5: where more lights shine at one place than the game draws, those of \
-                     priority 1 are kept first",
+                    "1 to 5: where too many lights meet, the game keeps priority 1 first",
                 );
                 let mut p = u32::from(d.spec.priority);
                 crate::widgets::spin_draft(ui, &mut p, 1..=5, 1.0, |x| x);

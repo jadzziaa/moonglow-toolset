@@ -32,18 +32,10 @@ pub enum OptionsPage {
 }
 
 /// Options › General › Show duplicate tags warning, on hover.
-const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or an area's Copy… puts a tag you set on a \
-     second object (a script finds only one object by a tag). Off as in Aurora, which has no such \
-     warning. A project whose moonglow.toml sets [tags] paste_warning follows that whatever this \
-     says, and tags the project wants unique are warned of either way";
+const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or copy gives a second object a tag you set";
 
-const CLOSE_CANCELS_TIP: &str = "A window with OK and Cancel (a blueprint's or a placed \
-     object's Properties, Module and Area Properties, a conversation, the journal, the factions, \
-     the fields view, a NUI window) closed by its tab's ×, the tab's Close, Close Others, Close All \
-     or Ctrl+W sets back what was changed in it, as its Cancel does (and Aurora's close button), \
-     as one step that Undo takes back: Edit Copy's copy closed so is not made. Only OK keeps the \
-     changes then. Off: closing a window keeps them, as OK does. (The 2DA, hak, tileset, talk \
-     table and script editors ask about unsaved changes either way.)";
+const CLOSE_CANCELS_TIP: &str = "Closing a window with OK and Cancel sets back its changes, as \
+                                 Cancel does";
 
 /// The Options window's pages and their names.
 /// The user folders `nwn.ini` may put elsewhere that Moonglow reads or
@@ -643,12 +635,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                             ui.checkbox(&mut draft.aliases, "Follow nwn.ini's folder aliases")
                                 .on_hover_text(
-                                    "Find haks, talk tables, override and modules where the user \
-                                     folder's nwn.ini says they are (its [Alias] section), as the \
-                                     game does. Untick it when that nwn.ini is another install's \
-                                     (a game run under Proton, say, while Moonglow reads the \
-                                     folder from Linux): the user folder's own folders are read. \
-                                     Changing this reads the game's data again",
+                                    "Find haks, talk tables and override where nwn.ini's [Alias] \
+                                     says, as the game does",
                                 );
                             if let Some(user) = user.filter(|_| draft.aliases) {
                                 let gi = mg_resman::GameInstall::new("", Some(user.clone()), "en");
@@ -666,29 +654,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             crate::widgets::section_heading(ui, "Game Content");
                             ui.checkbox(&mut draft.workshop, "Read Steam Workshop content")
                                 .on_hover_text(
-                                    "The Steam Workshop items you are subscribed to (overrides, \
-                                     haks, talk tables), as the game started through Steam \
-                                     reads them. Off, as in Aurora: an item subscribed to for \
-                                     play is not the module's. Changing this reads the game's \
-                                     data again",
+                                    "Read the Steam Workshop items you subscribe to, as the game \
+                                     through Steam does",
                                 );
                             ui.checkbox(&mut draft.userpatch, "Read userpatch.ini's haks")
                                 .on_hover_text(
-                                    "The haks your userpatch.ini names (the HD Pack and the \
-                                     like), from the patch folder, under the module and its haks \
-                                     and over override, as the game reads them. Off, as in \
-                                     Aurora. Verify warns of what only they provide: players \
-                                     without them won't have it. Changing this reads the game's \
-                                     data again",
+                                    "Read the haks userpatch.ini names, such as the HD Pack, as \
+                                     the game does",
                                 );
                             ui.checkbox(
                                 &mut draft.auto_reload,
                                 "Reload haks, override and development when they change",
                             )
                             .on_hover_text(
-                                "Changed haks, 2DAs, models and textures show without a restart; \
-                                 a nasher project's files changed by another program are read \
-                                 again",
+                                "Show changed haks, 2DAs, models and textures without a restart",
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Sending Files");
@@ -709,8 +688,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                             ui.checkbox(&mut draft.nwsync_upload_input, "It reads what I type")
                                 .on_hover_text(
-                                    "A line under its output takes what you type, as a \
-                                     project's command with input = true",
+                                    "Give the command a line under its output to type into",
                                 );
                             ui.weak(
                                 "What Publish to NWSync's Upload runs to send the repository to \
@@ -768,17 +746,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
                             ui.checkbox(&mut draft.merchant_signs, "Show stores as $ signs")
                                 .on_hover_text(
-                                    "The game's marker for a store, as Aurora shows them, \
-                                 rather than an arrow along the store's facing",
+                                    "Show the game's store marker, not an arrow along its facing",
                                 );
                             ui.checkbox(
                                 &mut draft.turn_ring,
                                 "Show the turning and tilt rings around selected objects",
                             )
                             .on_hover_text(
-                                "A ring around the selection: drag it round to turn the objects. \
-                                 With Shift held, two rings that tilt their models \
-                                 and arrows that move them along one axis",
+                                "A ring to turn the selection. With Shift, rings to tilt it and \
+                                 arrows to move it.",
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Graphics");
@@ -793,10 +769,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Keep animating behind other windows",
                             )
                             .on_hover_text(
-                                "The area views and the model viewer go on playing their \
-                                 animations while another program's window has the focus. \
-                                 Off, they hold still there until Moonglow's window has it \
-                                 again, which spares the GPU",
+                                "Keep playing animations while another program has the focus. Off \
+                                 spares the GPU.",
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Editing");
@@ -805,23 +779,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Lights of any color and reach, written into a hak",
                             )
                             .on_hover_text(
-                                "On, Add Light Here and the palette's Lights offer Custom \
-                                 Light…: a light of the color, reach and shadows you choose, \
-                                 made as content (a model and a placeables.2da row) written \
-                                 into a hak you choose, which the module's players must have. \
-                                 Off, nothing is ever written into a hak for a light. A \
-                                 project's moonglow.toml ([lights] generated) wins over this",
+                                "Offer Custom Light…, which writes a light model and a 2DA row \
+                                 into a hak",
                             );
                             ui.checkbox(
                                 &mut draft.edit_group_tiles,
                                 "Allow editing tiles of groups and features",
                             )
                             .on_hover_text(
-                                "Off, a group or feature is one thing: its tiles don't turn, \
-                                 change appearance or take terrain, no group goes over another, \
-                                 and the Eraser or Delete takes it away whole. On, each tile of \
-                                 one can be changed alone, which leaves the rest of it standing: \
-                                 hard to see and to put right later (Undo does)",
+                                "Change a group's or feature's tiles one by one. Hard to put right \
+                                 later.",
                             );
                             if draft.edit_group_tiles {
                                 ui.label(
@@ -890,8 +857,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Open conversations as tabs of one window",
                             )
                             .on_hover_text(
-                                "A conversation opens as a tab of the window one is open in \
-                                 already; off, each in a window of its own",
+                                "Open each conversation as a tab of one window. Off, each in its \
+                                 own.",
                             );
                             ui.horizontal(|ui| {
                                 ui.checkbox(
@@ -899,8 +866,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "Automatically backup the conversation files",
                                 )
                                 .on_hover_text(
-                                    "Every few minutes, a copy of each open conversation with \
-                                 unsaved changes, in the temporary folder's moonglow-backups",
+                                    "Copy each open conversation with unsaved changes into the \
+                                     temp folder's moonglow-backups",
                                 );
                                 ui.add_enabled_ui(draft.dialog_backup, |ui| {
                                     let minutes = &mut draft.dialog_backup_minutes;
@@ -1003,8 +970,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .on_hover_text("Store a .ndb with each compiled script, for debuggers");
                             ui.checkbox(&mut draft.live_check, "Check for errors as you type")
                                 .on_hover_text(
-                                    "Compile the script a moment after typing stops and show \
-                                     its first error under the toolbar, its line underlined",
+                                    "Compile the script as you type and show its first error under \
+                                     the toolbar",
                                 );
                             crate::widgets::field_label(ui, "External Script Compiler");
                             ui.horizontal(|ui| {
@@ -1014,11 +981,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                         .desired_width(300.0),
                                 )
                                 .on_hover_text(
-                                    "A compiler program (nwn_script_comp, nwnsc) for Compile, \
-                                     Compile All Scripts and the build, in place of the one \
-                                     built in (the game's and Aurora's own). Empty: the \
-                                     built-in one. Errors as you type are always the built-in \
-                                     compiler's",
+                                    "A compiler program to use in place of the built-in one. \
+                                     Empty: built-in.",
                                 );
                                 if ui.button("Browse…").clicked() {
                                     browse = Some(Browse::Compiler);
@@ -1066,8 +1030,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 crate::widgets::field_label(ui, "Indent width");
                                 ui.add(egui::DragValue::new(&mut style.indent_width).range(1..=16))
                                     .on_hover_text(
-                                        "The spaces Tab puts in (to the next multiple of it), \
-                                         and Shift+Tab takes off",
+                                        "The spaces Tab puts in and Shift+Tab takes off",
                                     );
                             });
                             ui.checkbox(
@@ -1075,10 +1038,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Open scripts as tabs of one window",
                             )
                             .on_hover_text(
-                                "A script opens as a tab of the window scripts are open in \
-                                 already; off, each in a window of its own. (A tab dragged out \
-                                 is a window of its own again, and scripts docked in the \
-                                 middle open there either way)",
+                                "Open each script as a tab of one window. Off, each in its own.",
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "External Editor");
@@ -1092,8 +1052,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ),
                             )
                             .on_hover_text(
-                                "A script opened from the module tree opens in the external \
-                                 editor too; what it saves comes back into Moonglow's editor",
+                                "Also open scripts in the external editor. Its saves come back \
+                                 into Moonglow's.",
                             )
                             .on_disabled_hover_text("Choose an external script editor first");
                             ui.add_enabled(
@@ -1104,11 +1064,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ),
                             )
                             .on_hover_text(
-                                "Only the external editor opens, for a script kept as a file \
-                                 of its own (a nasher project's, a module folder's), whose \
-                                 saves Moonglow reads as it does files changed outside. A \
-                                 script in a .mod file still opens in Moonglow's editor too: \
-                                 that is how what the external editor saves comes back",
+                                "Open only the external editor, for scripts kept as files of their \
+                                 own",
                             )
                             .on_disabled_hover_text("With Open scripts in the external editor");
                             ui.add_space(crate::widgets::SECTION_GAP);
@@ -1183,13 +1140,11 @@ pub(crate) fn shadow_quality_choice(
     quality: &mut crate::settings::ShadowQuality,
 ) -> bool {
     use crate::settings::ShadowQuality;
-    let fast = ui.radio_value(quality, ShadowQuality::Fast, "Fast").on_hover_text(
-        "A shadow map stands in for the game's shadows: cheap in every area, its edges stepped \
-         where seen up close",
-    );
+    let fast = ui
+        .radio_value(quality, ShadowQuality::Fast, "Fast")
+        .on_hover_text("A shadow map: cheap in every area, its edges stepped up close");
     let high = ui.radio_value(quality, ShadowQuality::High, "High").on_hover_text(
-        "Stencil shadow volumes, as the game casts them: edges as sharp as the picture's, \
-         smoothed with it; dearer in the largest areas",
+        "Stencil shadow volumes, as sharp as the game's. Slower in the largest areas.",
     );
     fast.changed() || high.changed()
 }
@@ -1210,14 +1165,7 @@ fn texture_limit_choice(ui: &mut Ui, limit: &mut Option<u16>) {
         crate::widgets::dropdown("texture-limit")
             .selected_text(name(limit))
             .show(ui, limit, &TEXTURE_LIMITS, name)
-            .on_hover_text(
-                "For a GPU with little memory (an integrated one, or 2 to 4 GB): the areas, \
-                 models and pictures draw a texture larger than this at this size, its larger \
-                 levels left out as the game's lower texture quality leaves them. Each halving \
-                 takes a quarter of the memory: The Domains of Dread's woods, whose textures \
-                 are 1024 pixels, take 870 MB of them as they are and 240 MB at 512. Stock \
-                 textures are mostly 512 or less",
-            );
+            .on_hover_text("For a GPU with little memory: draw larger textures at this size");
     });
 }
 
@@ -1238,11 +1186,7 @@ fn area_resolution_choice(ui: &mut Ui, resolution: &mut Option<u8>) {
             .selected_text(name(resolution))
             .show(ui, resolution, &AREA_RESOLUTIONS, name)
             .on_hover_text(
-                "For a GPU that draws the areas slowly (an integrated one): the area views \
-                 draw their pictures at this share of the screen's pixels each way, stretched \
-                 to the view, softer for it; what is drawn over them (outlines, handles, the \
-                 map) stays sharp. A picture takes about as long as its pixels: at 50% a \
-                 quarter of the time and of the memory its targets take",
+                "For a slow GPU: draw the area views at this share of the screen's pixels",
             );
     });
 }
@@ -1254,12 +1198,7 @@ fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
         crate::widgets::dropdown("toolbar-buttons")
             .selected_text(name(&draft.toolbar_icons_only))
             .show(ui, &mut draft.toolbar_icons_only, &[false, true], name)
-            .on_hover_text(
-                "The buttons of the main toolbar and of the area view's toolbar: each with its \
-                 icon and its name, or, to save room, with its icon alone and its name in the \
-                 tip shown when the pointer rests on it (as in Aurora). Buttons without an icon \
-                 keep their names",
-            );
+            .on_hover_text("Each button with its icon and name, or its icon alone to save room");
     });
 }
 
@@ -1275,12 +1214,7 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
             .selected_text(draft.graphics_backend.name())
             .show(ui, &mut draft.graphics_backend, &offered, |b| b.name())
             .on_hover_text(
-                "What the area view, the previews and the window draw with. Automatic: the \
-                 graphics library's choice, except that an AMD GPU on Windows draws through \
-                 Direct3D 12 rather than Vulkan; checked as Moonglow starts, and where it draws \
-                 nothing, the GPU's other backend is taken. A backend with no adapter here \
-                 falls back to Automatic. A backend chosen here is kept even where the check \
-                 finds it draws nothing (a notice says so)",
+                "What Moonglow draws with. Automatic picks one and checks it as Moonglow starts.",
             );
     });
     let mut note = "Takes effect the next time Moonglow starts.".to_string();
@@ -1307,8 +1241,7 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
             if ui
                 .button("Show Again")
                 .on_hover_text(
-                    "Shows the notice under the toolbar again when you choose OK, from the next \
-                     start, where the check still finds the game's shaders drawing wrong",
+                    "Show the notice that the game's shaders draw wrong again, from the next start",
                 )
                 .clicked()
             {
@@ -1333,11 +1266,7 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
         ));
         if ui
             .button("Try Again")
-            .on_hover_text(
-                "Forgets these when you choose OK: from the next start Automatic takes its \
-                 usual backend again (checked as Moonglow starts). A driver update tries it \
-                 again by itself",
-            )
+            .on_hover_text("Forget the backends passed over, from the next start")
             .clicked()
         {
             draft.forget_graphics_failures = true;
@@ -1414,17 +1343,8 @@ fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft, project: Option<&(String, b
         project.is_none(),
         egui::Checkbox::new(target, "Put text typed into the talk table"),
     )
-    .on_hover_text(
-        "A name, a description or a conversation line typed becomes a line of the module's \
-         custom talk table, at the next free line of the project's range (Module Properties › \
-         Custom Content), and the field names it by its StrRef. Off: the text is the field's \
-         own, as Aurora writes it. String Edit's Move to Talk Table does one string at a time \
-         either way. A project's moonglow.toml ([talk] typed) wins over this",
-    )
-    .on_disabled_hover_text(
-        "The open module's project says this for everyone who works on it, so that its text is \
-         all in one place: change [talk] typed in its file to change it",
-    );
+    .on_hover_text("Put names, descriptions and lines you type into the module's talk table")
+    .on_disabled_hover_text("The project's moonglow.toml sets this for everyone ([talk] typed)");
     if let Some((file, on)) = project {
         let mine = if draft.talk_typed { "on" } else { "off" };
         ui.weak(format!(
@@ -1482,14 +1402,11 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
         let checks: Vec<Check> = Check::ALL.into_iter().filter(|c| c.group() == group).collect();
         let tip = match group {
             Group::References => {
-                "Scripts, conversations, blueprints, areas and other resources the module names \
-                 that neither it, its haks nor the game has"
-                    .to_string()
+                "Resources the module names that neither it, its haks nor the game has".to_string()
             }
             Group::Plugins => "The checks of the enabled plugins".to_string(),
             _ => {
-                let about: Vec<&str> = checks.iter().map(|c| c.about()).collect();
-                format!("That {}", about.join("; that "))
+                format!("{} checks, listed under its \u{25B8}", checks.len())
             }
         };
         let id = ui.make_persistent_id(("verify-group", group.id()));
@@ -1539,8 +1456,8 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
             .desired_width(f32::INFINITY),
     )
     .on_hover_text(
-        "Haks (NAME.hak), the override or development folder, and resources (a tileset, \
-         ttr01.set, with its tiles' models; a 2DA; a model), separated by commas",
+        "Haks, override or development, and resources (ttr01.set, a 2DA, a model), separated by \
+         commas",
     );
     let wrong: Vec<String> = (verify_words(&draft.verify_more).into_iter())
         .filter(|w| mg_module::doctor::Skip::parse(&[w]).is_err())
@@ -1718,18 +1635,10 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     ui.checkbox(&mut draft.build_on_save, "Build module on save")
         .on_hover_text("Run Build Module (with its defaults) before saving");
     ui.checkbox(&mut draft.mod_beside_folder, "Write a .mod beside a module folder on save")
-        .on_hover_text(
-            "A module opened as a folder is saved into the folder, and as \
-         <folder>.mod next to it as well, as Aurora saves a module \
-         directory: the game loads the .mod. (A nasher project has \
-         Build › Pack for its module file.)",
-        );
+        .on_hover_text("Also save a module folder as <folder>.mod beside it, which the game loads");
     ui.horizontal(|ui| {
         ui.checkbox(&mut draft.autosave, "Keep a recovery copy of unsaved work every")
-            .on_hover_text(
-                "In Moonglow's data folder; offered back after a crash \
-             (Recover Unsaved Work)",
-            );
+            .on_hover_text("Kept in Moonglow's data folder and offered back after a crash");
         ui.add_enabled_ui(draft.autosave, |ui| {
             let minutes = &mut draft.autosave_minutes;
             crate::widgets::spin_draft(ui, minutes, 1..=120, 1.0, |d| d);
@@ -1741,11 +1650,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     ui.checkbox(&mut draft.last_area, "Open a module on the area opened last")
         .on_hover_text("The first time, on the first area the module tree lists");
     ui.checkbox(&mut draft.reopen_tabs, "Open a module with the tabs it had when it was closed")
-        .on_hover_text(
-            "Its areas, scripts, blueprints, conversations and tools, in \
-         their order and their places, the one in front in front \
-         (kept in Moonglow's data folder, not in the module)",
-        );
+        .on_hover_text("Reopen its areas, scripts, blueprints and other tabs where they were");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Testing");
     ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
@@ -1754,9 +1659,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         "Start a Steam copy of the game through Steam for a test",
     )
     .on_hover_text(
-        "On: the game reaches Steam (its overlay, your Workshop content), \
-         as when started from Steam. Off: the game's program is started \
-         on its own, without Steam",
+        "Start the game through Steam, with its overlay and Workshop content. Off, without Steam.",
     );
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Appearance");
@@ -1765,10 +1668,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         crate::widgets::dropdown("ui-scale")
             .selected_text(format!("{}%", draft.ui_scale))
             .show(ui, &mut draft.ui_scale, &UI_SCALES, |s| format!("{s}%"))
-            .on_hover_text(
-                "The whole interface, text and all, larger or smaller \
-                 (set when you choose OK)",
-            );
+            .on_hover_text("Make the whole interface larger or smaller (set when you choose OK)");
     });
     ui.checkbox(&mut draft.light_theme, "Light theme");
     toolbar_buttons(ui, draft);
@@ -1776,26 +1676,15 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Windows and Tabs");
     ui.checkbox(&mut draft.properties_together, "Open Properties as tabs of one window")
-        .on_hover_text(
-            "A blueprint's or a placed object's Properties open as a tab of \
-         the window Properties are open in already; off, each in a \
-         window of its own. (A tab dragged out is a window of its own \
-         again)",
-        );
+        .on_hover_text("Open each Properties as a tab of one window. Off, each in its own.");
     ui.checkbox(&mut draft.close_cancels, "Closing a window cancels its changes (as Aurora)")
         .on_hover_text(CLOSE_CANCELS_TIP);
     ui.checkbox(&mut draft.drag_windows_anywhere, "Move windows by dragging anywhere in them")
         .on_hover_text(
-            "A window of tabs (Properties, conversations, scripts…) moves \
-         when dragged by any part that is not a control; off, only by \
-         its tab bar, so that a click that misses a control doesn't \
-         move it",
+            "Move a window by dragging any part that isn't a control. Off, by its tab bar.",
         );
-    ui.checkbox(&mut draft.tabs_by_recent, "Ctrl+Tab goes to the tab used last").on_hover_text(
-        "Next Tab and Previous Tab go through a pane's tabs in the \
-         order they were last used, for as long as Ctrl is held; off, \
-         to the next tab as they lie",
-    );
+    ui.checkbox(&mut draft.tabs_by_recent, "Ctrl+Tab goes to the tab used last")
+        .on_hover_text("Next Tab and Previous Tab follow the order tabs were last used");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Module Tree and Palettes");
     ui.checkbox(
@@ -1803,50 +1692,25 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         "Show the object selected in an area in the module tree",
     )
     .on_hover_text(
-        "An object selected in an area's view opens its area out in the \
-         module tree and goes to it there, as Aurora does; off, the tree \
-         goes to it only where its area is opened out already",
+        "Open the selected object's area in the module tree and go to it, as Aurora does",
     );
     ui.checkbox(&mut draft.tree_follows_tabs, "Show the tab chosen in the module tree")
-        .on_hover_text(
-            "A tab chosen (clicked, reached by Ctrl+Tab, or opened) marks its \
-         script, conversation, blueprint or area in the module tree, its \
-         group opened and the row brought into view, the keys left with \
-         the tab; off, the tree stays where it is and marks the area in \
-         front only, as Aurora does",
-        );
-    ui.checkbox(&mut draft.area_names, "List areas and blueprints by name").on_hover_text(
-        "In the module tree, by their names rather than their ResRefs \
-         (in the names' order; the ResRef shows on hover)",
-    );
-    ui.checkbox(&mut draft.name_resrefs, "Show ResRefs beside names").on_hover_text(
-        "Name (resref) in the module tree's lists by name and in \
-             the palettes: for telling apart blueprints of one name",
-    );
-    ui.checkbox(&mut draft.tree_hides_empty, "Hide empty groups in the module tree").on_hover_text(
-        "Groups with nothing in them (Scripts (0)) and the kinds of \
-         object an area has none of (Doors (0)) are left out of the \
-         module tree (the Wizards and Tools menus make what a hidden \
-         group's New would)",
-    );
+        .on_hover_text("Mark the tab in front's resource in the module tree");
+    ui.checkbox(&mut draft.area_names, "List areas and blueprints by name")
+        .on_hover_text("List them in the module tree by name rather than ResRef");
+    ui.checkbox(&mut draft.name_resrefs, "Show ResRefs beside names")
+        .on_hover_text("Show Name (resref) in the module tree and the palettes");
+    ui.checkbox(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
+        .on_hover_text("Leave groups with nothing in them out of the module tree");
     ui.checkbox(&mut draft.palette_hides_empty, "Hide empty categories in the palettes")
-        .on_hover_text(
-            "Categories with no blueprint in them (or in the categories under them) are left \
-             out of the palettes. A blueprint's Category list and Palette › Categories… still \
-             have every category",
-        );
+        .on_hover_text("Leave categories with no blueprints out of the palettes");
     ui.checkbox(&mut draft.categories_by_name, "List a blueprint's categories alphabetically")
         .on_hover_text(
-            "A blueprint's Category list in alphabetical order; off, in the \
-         palette's (Palette › Categories… sets it)",
+            "Sort a blueprint's Category list alphabetically. Off, in the palette's order.",
         );
     ui.checkbox(&mut draft.palette_cr, "Show challenge ratings in the creature palette");
-    ui.checkbox(&mut draft.armor_on_woman, "Show armor and cloaks on a woman").on_hover_text(
-        "An armor's or a cloak's model on a woman's body, and an \
-         armor's inventory icon as a woman's inventory shows it, in \
-         inventories, the palette and the item's Properties (whose \
-         Shown on changes it too); off, a man's",
-    );
+    ui.checkbox(&mut draft.armor_on_woman, "Show armor and cloaks on a woman")
+        .on_hover_text("Show armor and cloak models and icons on a woman's body. Off, a man's.");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Questions");
     ui.weak("What Moonglow asks, answered here once for all: each question's \"Always do this\" sets it too.");
@@ -1861,12 +1725,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         crate::widgets::dropdown("module-folders")
             .selected_text(name(&draft.module_folders))
             .show(ui, &mut draft.module_folders, &all, name)
-            .on_hover_text(
-                "A module opened as name.mod, with a folder named name \
-                 beside it (a module directory, as Aurora keeps one): \
-                 asked, as Aurora asks, or always the folder (Aurora's \
-                 Always open module directories), or always the .mod",
-            );
+            .on_hover_text("Which to open when a .mod has a folder of its name beside it");
     });
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Exporting to an archive there");
@@ -1879,13 +1738,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         crate::widgets::dropdown("export-existing")
             .selected_text(name(&draft.export_existing))
             .show(ui, &mut draft.export_existing, &all, name)
-            .on_hover_text(
-                "File › Export… to an .erf that is there already: \
-                 asked each time, as Aurora asks; or always appended to \
-                 (the resources added, those of the same names replaced, \
-                 the rest it holds kept); or always overwritten (a new \
-                 archive of the resources exported alone)",
-            );
+            .on_hover_text("What File › Export… does with an .erf that is there already");
     });
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Files there already");
@@ -1898,12 +1751,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         crate::widgets::dropdown("files-there")
             .selected_text(name(&draft.files_there))
             .show(ui, &mut draft.files_there, &all, name)
-            .on_hover_text(
-                "Files of the same names where Moonglow writes: files added to a hak, a \
-                 model's Export Files, conversations or minimaps exported into a folder, NUI \
-                 windows imported. Asked each time, or always replaced, or always left as they \
-                 are (the others written)",
-            );
+            .on_hover_text("What to do with files of the same names where Moonglow writes");
     });
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Equipping without the feats");
@@ -1916,21 +1764,12 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
         crate::widgets::dropdown("missing-feats")
             .selected_text(name(&draft.missing_feats))
             .show(ui, &mut draft.missing_feats, &all, name)
-            .on_hover_text(
-                "Equipping a creature with an item it lacks the feats for (a creature's \
-                 Inventory page): asked, as Aurora asks; or the feats added and the item \
-                 equipped; or the item left unequipped",
-            );
+            .on_hover_text("Equipping a creature with an item it lacks the feats for");
     });
-    ui.checkbox(&mut draft.ask_before_delete, "Ask before deleting from the module").on_hover_text(
-        "Delete… in the module tree asks first; unticked, what nothing else in the module names \
-         is deleted at once (Undo brings it back), and what something names is still asked \
-         about, the window saying what",
-    );
-    ui.checkbox(&mut draft.ask_before_closing, "Ask before the window is closed").on_hover_text(
-        "The window's close button asks first, where there are no \
-         unsaved changes to ask about (File › Exit does not)",
-    );
+    ui.checkbox(&mut draft.ask_before_delete, "Ask before deleting from the module")
+        .on_hover_text("Delete… in the module tree asks first. Off, only when something names it.");
+    ui.checkbox(&mut draft.ask_before_closing, "Ask before the window is closed")
+        .on_hover_text("Ask before closing Moonglow, even with nothing unsaved");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Warnings");
     ui.checkbox(&mut draft.namespace_warning, "Show reserved Blueprint ResRef namespace warning")
@@ -1945,24 +1784,14 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     )
     .on_hover_text(DUPLICATE_TAGS_TIP);
     ui.checkbox(&mut draft.spell_warning, "Show invalid creature spell assignment warning")
-        .on_hover_text(
-            "On a creature's Spells page: spells too high for its level or \
-     ability, or more than it may have",
-        );
-    ui.checkbox(&mut draft.inventory_warning, "Show creature inventory warning").on_hover_text(
-        "On a creature's Inventory page: the game may unequip what its \
-         feats or level do not allow",
-    );
+        .on_hover_text("Spells on a creature's Spells page too high for its level, or too many");
+    ui.checkbox(&mut draft.inventory_warning, "Show creature inventory warning")
+        .on_hover_text("Items on a creature's Inventory page that its feats or level don't allow");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Troubleshooting");
     let log = crate::trace::path().map(|p| p.display().to_string()).unwrap_or_default();
-    ui.checkbox(&mut draft.debug_log, "Write a debug log").on_hover_text(format!(
-        "What Moonglow does, step by step, to send with a report of \
-             something that fails without a word, each line with its \
-             time: {log} (a new one each time Moonglow starts, the last \
-             five kept, a few megabytes each at most). On unless you \
-             switch it off: after a crash, what led to it is there to send"
-    ));
+    ui.checkbox(&mut draft.debug_log, "Write a debug log")
+        .on_hover_text(format!("What Moonglow does, step by step, for a bug report: {log}"));
 }
 
 #[cfg(test)]

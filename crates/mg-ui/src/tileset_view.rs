@@ -333,8 +333,7 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         if ui
             .add_enabled(app.viewport.is_some(), egui::Button::new("Render Minimap Pictures"))
             .on_hover_text(
-                "Each tile seen from above, saved as its minimap picture (ImageMap2D) beside the \
-                 .set: 32 pixels, from the models beside the .set or in the game data",
+                "Save each tile's minimap picture (ImageMap2D), seen from above, beside the .set",
             )
             .on_disabled_hover_text("Rendering needs a GPU")
             .clicked()
@@ -572,9 +571,7 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
                             let renamed = ui
                                 .add_enabled(ok, egui::Button::new("Rename"))
                                 .on_hover_text(
-                                    "Every tile naming it, the painting rules and the general \
-                                     terrains follow; the palette beside the file follows when \
-                                     it is saved",
+                                    "Rename it in every tile, painting rule and general terrain",
                                 )
                                 .clicked();
                             if (renamed || enter) && ok {
@@ -755,7 +752,7 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
     ui.horizontal(|ui| {
         if ui
             .button("Add Door")
-            .on_hover_text("A door hook at the tile's middle, doortypes.2da row 0: move it below")
+            .on_hover_text("Add a door hook at the tile's middle, doortypes.2da row 0")
             .clicked()
         {
             d.change(|f| {
@@ -798,7 +795,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         let sel = d.tile;
         if ui
             .add_enabled(sel.is_some(), egui::Button::new("Duplicate Tile"))
-            .on_hover_text("A copy at the end (tiles are numbered by place, which areas store)")
+            .on_hover_text("Add a copy at the end, since areas store tiles by number")
             .clicked()
             && let Some(s) = sel
         {
@@ -808,7 +805,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         }
         if ui
             .button("Add Tile")
-            .on_hover_text("A tile at the end, its model named after the tileset, every corner the first terrain")
+            .on_hover_text("Add a tile at the end, its model named after the tileset")
             .clicked()
         {
             let model = format!("{}_a01_{:02}", t.general.name.to_lowercase(), t.tiles.len() + 1);
@@ -989,7 +986,7 @@ fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         if ui
             .button("Add Group")
             .on_hover_text(
-                "One tile (the tile chosen on the Tiles page, else tile 0); make it bigger below",
+                "Add a one-tile group of the tile chosen on the Tiles page. Make it bigger below.",
             )
             .clicked()
         {

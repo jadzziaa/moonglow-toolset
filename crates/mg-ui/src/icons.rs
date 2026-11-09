@@ -434,7 +434,8 @@ mod tests {
     /// as it was.
     #[test]
     fn icons_only_moves_the_name_into_the_tip() {
-        let (both, icons) = (Tools { icons_only: false }, Tools { icons_only: true });
+        let both = Tools { icons_only: false, hidden: 0 };
+        let icons = Tools { icons_only: true, hidden: 0 };
         assert_eq!(both.label("🎥", "Reorient Camera"), "🎥 Reorient Camera");
         assert_eq!(icons.label("🎥", "Reorient Camera"), "🎥");
         assert_eq!(both.tip("Reorient Camera", ""), None);

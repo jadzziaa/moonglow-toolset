@@ -871,7 +871,7 @@ fn bind(
                 "Properties use it (listed below): give them a constant value first",
             )
             .on_hover_text(
-                "Its handlers go too; their code stays in the event script, commented out",
+                "Its handlers go too. Their code stays in the event script, commented out.",
             )
             .clicked()
         {

@@ -352,7 +352,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
             });
         })
         .response
-        .on_hover_text("Grass of the area's own on a surface material: the tileset's, as a start");
+        .on_hover_text("The area's own grass on a surface material, starting from the tileset's");
         if let Some(m) = pick {
             let set = app.tileset(tileset);
             let o = GrassOverride::new(m, set.as_deref());

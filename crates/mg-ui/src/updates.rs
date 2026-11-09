@@ -614,10 +614,7 @@ fn install_state(
             }
             if ui
                 .button("Restart Now")
-                .on_hover_text(
-                    "Closes Moonglow, asking about unsaved work first, installs the update and \
-                     starts Moonglow again with the module that is open",
-                )
+                .on_hover_text("Install the update and restart with the module that is open")
                 .clicked()
             {
                 clicked = Clicked::RestartNow;
@@ -626,8 +623,7 @@ fn install_state(
                 && ui
                     .button("Later")
                     .on_hover_text(
-                        "Installed when Moonglow closes (the AppImage is in place already): the \
-                         next start is the new version",
+                        "Install it when Moonglow closes. The next start is the new version.",
                     )
                     .clicked()
             {
@@ -691,10 +687,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                 if installable {
                     if ui
                         .button("Install Now")
-                        .on_hover_text(
-                            "Downloads it, verifies its checksum and signature, installs it and \
-                             asks to restart",
-                        )
+                        .on_hover_text("Download, verify and install it, then ask to restart")
                         .clicked()
                     {
                         get(app, release.clone(), true);
@@ -702,8 +695,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                     if ui
                         .button("Later")
                         .on_hover_text(
-                            "Downloads and verifies it now, and installs it when Moonglow \
-                             closes: the next start is the new version",
+                            "Download and verify it now, and install it when Moonglow closes",
                         )
                         .clicked()
                     {
@@ -715,7 +707,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
                 if ui
                     .button("Don't Remind Me About This Version")
-                    .on_hover_text("No notice for this version; a later one is told again")
+                    .on_hover_text("No notice for this version. A later one is told again.")
                     .clicked()
                 {
                     app.settings.update_skipped = Some(release.version.to_string());
@@ -795,10 +787,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
             ui.horizontal(|ui| {
                 if ui
                     .button("Install Now")
-                    .on_hover_text(
-                        "Downloads it, verifies its checksum and signature, installs it and asks \
-                         to restart",
-                    )
+                    .on_hover_text("Download, verify and install it, then ask to restart")
                     .clicked()
                 {
                     get(app, r.clone(), true);
@@ -806,8 +795,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
                 if ui
                     .button("Later")
                     .on_hover_text(
-                        "Downloads and verifies it now, and installs it when Moonglow closes: \
-                         the next start is the new version",
+                        "Download and verify it now, and install it when Moonglow closes",
                     )
                     .clicked()
                 {
@@ -815,7 +803,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
                 }
                 if ui
                     .button("Don't Remind Me About This Version")
-                    .on_hover_text("No notice for this version; a later one is told again")
+                    .on_hover_text("No notice for this version. A later one is told again.")
                     .clicked()
                 {
                     app.settings.update_skipped = Some(r.version.to_string());
@@ -826,9 +814,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
             let always = ui
                 .checkbox(&mut app.settings.update_auto_install, "Always install updates")
                 .on_hover_text(
-                    "This release and every later one downloaded and verified as soon as it is \
-                     found, and installed when Moonglow closes, without asking (Tools › Options \
-                     › Updates › Install updates automatically)",
+                    "Install this and later releases when Moonglow closes, without asking",
                 );
             // (Ticked: this one too, as Later gets it.)
             if always.changed() && app.settings.update_auto_install {
@@ -943,10 +929,7 @@ pub(crate) fn options_page(ui: &mut egui::Ui, o: UpdateOptions, here: &UpdatesHe
     let mut shown = *o.check && !managed;
     let response = ui
         .add_enabled(!managed, egui::Checkbox::new(&mut shown, "Check for updates automatically"))
-        .on_hover_text(
-            "At each start and once a day while Moonglow runs, in the background, ask GitHub \
-             whether a newer Moonglow is out, and say so under the toolbar",
-        );
+        .on_hover_text("Ask GitHub at each start and daily whether a newer Moonglow is out");
     if response.changed() {
         *o.check = shown;
     }
@@ -957,15 +940,13 @@ pub(crate) fn options_page(ui: &mut egui::Ui, o: UpdateOptions, here: &UpdatesHe
             egui::Checkbox::new(&mut auto, "Install updates automatically"),
         )
         .on_hover_text(
-            "A newer release the automatic check finds is downloaded and verified in the \
-             background, and installed when Moonglow closes: the next start is the new version",
+            "Download newer releases in the background and install them when Moonglow closes",
         );
     if response.changed() {
         *o.auto_install = auto;
     }
     ui.checkbox(o.prereleases, "Include pre-releases").on_hover_text(
-        "Offer a newer pre-release too (a release candidate, to try before it is out); off: \
-         releases only",
+        "Offer newer pre-releases too, to try before they are out. Off: releases only.",
     );
     ui.weak(
         "Sent: one request to GitHub (api.github.com) at each start and once a day while \

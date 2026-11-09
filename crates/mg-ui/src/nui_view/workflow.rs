@@ -117,10 +117,8 @@ pub(super) fn create_bind(
                 }
                 widgets::field_label(ui, "Initial value");
                 fields::value(ui, &mut draft.value, 0);
-                ui.checkbox(&mut draft.rows, "List row array").on_hover_text(
-                    "A value for each row of a list, starting with one row. Bindings and Row \
-                     data edit the rows.",
-                );
+                ui.checkbox(&mut draft.rows, "List row array")
+                    .on_hover_text("A value for each row of a list, starting with one row");
                 if let Some(error) = draft.error(bindings) {
                     ui.weak(error);
                 }

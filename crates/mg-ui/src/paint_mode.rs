@@ -900,20 +900,17 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             (
                 (true, false, false),
                 "Row",
-                "Lay pieces end to end along a drag (fences, walls), each facing along the row; \
-                 a drag from the last row's end goes on from it",
+                "Lay pieces end to end along a drag, such as fences and walls",
             ),
             (
                 (false, true, false),
                 "Fill",
-                "Fill the rectangle dragged with rows of pieces (floors), on a grid Q and E \
-                 turn, each piece by its own size",
+                "Fill the rectangle dragged with rows of pieces, such as floors",
             ),
             (
                 (false, false, true),
                 "Erase",
-                "Take the chosen blueprints' placeables out of the circle as it is dragged \
-                 over them (not locked ones)",
+                "Remove the chosen blueprints' placeables under the circle, except locked ones",
             ),
         ] {
             let on = mode(s) == (row, fill, erase);
@@ -926,58 +923,46 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             field_label(ui, "Radius");
             let mut cm = i32::from(s.radius_cm);
             let (low, high) = (f32::from(RADIUS.0) / 100.0, f32::from(RADIUS.1) / 100.0);
-            meters(ui, &mut cm, (low, high)).on_hover_text("The circle's size (Shift + wheel)");
+            meters(ui, &mut cm, (low, high)).on_hover_text("The circle's size (Shift+wheel)");
             s.radius_cm = cm.clamp(i32::from(RADIUS.0), i32::from(RADIUS.1)) as u16;
         }
         if !s.by_drag() && !s.erase {
             field_label(ui, "Density");
             ui.add(egui::DragValue::new(&mut s.density).range(1..=400).suffix(" a tile"))
-                .on_hover_text(
-                    "How many placeables a tile's ground (10 by 10 m) holds once painted: the \
-                     brush adds until the circle has its share, counting those of these \
-                     blueprints already there (every placeable there, with Count All)",
-                );
+                .on_hover_text("How many placeables a 10 by 10 m tile holds once painted");
             ui.checkbox(&mut s.count_all, "Count All").on_hover_text(
                 "Density counts every placeable in the circle, not only these blueprints'",
             );
             field_label(ui, "Spacing");
             let mut cm = i32::from(s.spacing_cm);
             meters(ui, &mut cm, (0.0, 20.0)).on_hover_text(
-                "The least distance from one placeable to the next: between their middles, or \
-                 between their sides with By Size",
+                "The least distance between placeables, middle to middle (side to side with By \
+                 Size)",
             );
             s.spacing_cm = cm.clamp(0, 2000) as u16;
             ui.checkbox(&mut s.by_size, "By Size").on_hover_text(
-                "Spacing is kept between the placeables' sides, each by its model's box (as \
-                 scaled), rather than between their middles: large ones stand further apart",
+                "Keep spacing between the placeables' sides, so large ones stand further apart",
             );
             field_label(ui, "Flow");
             ui.add(egui::DragValue::new(&mut s.flow).range(1..=100).suffix("%")).on_hover_text(
-                "How much of what the circle lacks each dab adds: 100% fills it at once; less \
-                 fills it as you go over it, or hold the button",
+                "How much of what the circle lacks each dab adds. 100% fills it at once.",
             );
             field_label(ui, "Turn");
             ui.add(egui::DragValue::new(&mut s.turn_spread).range(0..=360).suffix("°"))
-                .on_hover_text(
-                    "How far each one's facing strays from the brush's (Q and E turn it): 360° \
-                     is any way",
-                );
+                .on_hover_text("How far each facing strays from the brush's: 360° is any way");
             field_label(ui, "Scale");
             ui.add(egui::DragValue::new(&mut s.scale_min).range(10..=500).suffix("%"));
             ui.label("to");
             ui.add(egui::DragValue::new(&mut s.scale_max).range(10..=500).suffix("%"))
                 .on_hover_text(
-                    "Each one's scale, picked between these. Static placeables take none (the \
-                     game gives them none)",
+                    "Each one's scale, picked between these. Static placeables take none.",
                 );
         }
         if s.by_drag() {
             field_label(ui, "Gap");
             let mut cm = i32::from(s.gap_cm);
-            meters(ui, &mut cm, (-10.0, 10.0)).on_hover_text(
-                "Room between pieces (an overlap, less than 0): a piece's size is its model's \
-                 box, which parts that stick out make larger",
-            );
+            meters(ui, &mut cm, (-10.0, 10.0))
+                .on_hover_text("Room between pieces, by their models' boxes (below 0, an overlap)");
             s.gap_cm = cm.clamp(-1000, 1000) as i16;
         }
         if !s.erase {
@@ -986,17 +971,15 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             meters(ui, &mut cm, (-10.0, 10.0))
                 .on_hover_text("How far above the ground they stand (below it, less than 0)");
             s.lift_cm = cm.clamp(-1000, 1000) as i16;
-            ui.checkbox(&mut s.lock, "Lock").on_hover_text(
-                "Lock what is painted (as the selection's Lock does): later clicks and boxes \
-                 pass through it to what is beneath",
-            );
+            ui.checkbox(&mut s.lock, "Lock")
+                .on_hover_text("Lock what is painted, so later clicks and boxes pass through it");
         }
         ui.separator();
         if chosen == 0 {
             ui.weak("Choose placeables in the palette (Ctrl + click for several)");
         } else {
             ui.weak(format!("{chosen} chosen"))
-                .on_hover_text("Ctrl + click in the palette for more, or fewer");
+                .on_hover_text("Ctrl+click in the palette for more, or fewer");
         }
     });
 }

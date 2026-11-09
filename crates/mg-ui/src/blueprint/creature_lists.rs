@@ -559,9 +559,8 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                         ui.strong(if prepares { "Spell" } else { "Known Spell" });
                         ui.strong("Level");
                         if raised > 0 {
-                            ui.strong("Casting").on_hover_text(
-                                "Casting Level: the spell level raised by the metamagic",
-                            );
+                            ui.strong("Casting")
+                                .on_hover_text("The spell level, raised by the metamagic");
                         }
                         ui.end_row();
                         for (row, name, l) in &spells {
@@ -1102,8 +1101,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                         if differ {
                             ui.colored_label(warn, super::MIXED).on_hover_text(
-                                "The creatures edited together have other counts here: this \
-                                 shows the first one's",
+                                "The creatures differ here. This shows the first one's.",
                             );
                         }
                     });
@@ -1135,8 +1133,8 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                                 let shown = counts[m.having[0]] as i64;
                                 if counts.iter().any(|c| *c as i64 != shown) {
                                     ui.colored_label(warn, super::MIXED).on_hover_text(
-                                        "They prepare it so many times each: this shows the first \
-                                         one's that has it, and a count typed is set on each",
+                                        "Counts differ: this shows the first one's. A count typed \
+                                         is set on each.",
                                     );
                                 }
                                 if let Some(v) = spin_number(ui, shown, 1..=99) {
@@ -1344,9 +1342,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Uses");
                 ui.strong("Caster Level");
                 ui.strong("Ready").on_hover_text(
-                    "Whether the creature has these uses, or starts with them spent. (The \
-                     file keeps a byte of flags for each use, which the game reads as yes \
-                     or no: nothing makes an ability's uses unlimited.)",
+                    "Whether the creature has these uses, or starts with them spent",
                 );
                 ui.label("");
                 ui.label("");
@@ -1592,16 +1588,8 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
 /// field, labeled as Aurora labels it, and Aurora's tip with what the game
 /// does with it.
 pub(super) const ITEM_FLAGS: [(&str, &str); 2] = [
-    (
-        "Dropable",
-        "Specify if selected item can be dropped: the game leaves it on the creature's remains \
-         when it is killed (GetDroppableFlag)",
-    ),
-    (
-        "Pickpocketable",
-        "Specify if selected item can be pickpocketed: a player can steal it with Pick Pocket \
-         (GetPickpocketableFlag)",
-    ),
+    ("Dropable", "Left on the creature's remains when it is killed (GetDroppableFlag)"),
+    ("Pickpocketable", "A player can steal it with Pick Pocket (GetPickpocketableFlag)"),
 ];
 
 /// The creature's items selected on its Inventory page (each its list and
@@ -1671,8 +1659,7 @@ fn item_options(
         ui.horizontal_wrapped(|ui| {
             let r = inventory::entry_resref(e);
             if list == "ItemList" {
-                let hint =
-                    "Take it from the backpack and equip it in the first free slot it goes in";
+                let hint = "Take it from the backpack and equip it in the first free slot";
                 if ui.small_button("Equip").on_hover_text(hint).clicked() {
                     out.wear = Some((i, r));
                 }
@@ -1686,8 +1673,7 @@ fn item_options(
             if ui
                 .small_button("Properties")
                 .on_hover_text(
-                    "The item's properties: a placed creature's item is its own; a blueprint's \
-                     is its blueprint (the module's to edit, the game's to look at)",
+                    "Open the item's properties (a blueprint's item opens its blueprint)",
                 )
                 .clicked()
             {
@@ -1730,8 +1716,7 @@ const MISSING_FEATS: (u32, &str) = (
 );
 
 /// What an equipped item's tip says when the creature may not wear it.
-const WORN_OFF: &str = "The game takes this off, into the backpack, as it loads the creature, \
-     and the area view and the creature's preview leave it off";
+const WORN_OFF: &str = "The game moves this to the backpack as it loads the creature";
 
 /// A talk table string, else its English text.
 fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
@@ -1875,10 +1860,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 let chosen = f.palette_chosen(ui, BlueprintKind::Item);
                 equip_chosen |= ui
                     .add_enabled(chosen.is_some(), egui::Button::new("Equip"))
-                    .on_hover_text(
-                        "Equip the item chosen above in the first free slot it goes in (the \
-                         Equip beside a slot puts it in that one)",
-                    )
+                    .on_hover_text("Equip the item chosen above in the first free slot it goes in")
                     .clicked();
                 options = item_options(f, ui, &picked, &names);
             });

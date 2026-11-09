@@ -828,10 +828,8 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             row_picker(ui, &id("row"), &choices(game, &table), &mut c.row, None);
             ui.end_row();
             if c.kind == Kind::Spell {
-                crate::widgets::field_label(ui, "As class").on_hover_text(
-                    "Creatures that know or have memorized it as this class (any: any class's, \
-                     or as a special ability)",
-                );
+                crate::widgets::field_label(ui, "As class")
+                    .on_hover_text("Creatures that know or have memorized it as this class");
                 let classes = Search::Class(0).table().expect("the classes' table");
                 row_picker(
                     ui,
@@ -875,8 +873,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
                 let hint = if c.number { "e.g. 103, 1.5 or 5..10" } else { "text it contains" };
                 find |= text(ui, &mut c.value, hint);
                 ui.checkbox(&mut c.number, "Number").on_hover_text(
-                    "Number fields holding this number (103, 1.5) or one in a range (5..10, \
-                     5.., ..10)",
+                    "Number fields holding this number (103, 1.5) or in a range (5..10)",
                 );
             });
             ui.end_row();
@@ -953,9 +950,7 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
                 .width(260.0)
                 .show(ui, &mut d.any, &[false, true], meeting)
                 .on_hover_text(
-                    "All: what the first finds, where the same object meets the others. Any: \
-                     what each finds. Either way, less the objects meeting a condition ticked \
-                     Not",
+                    "All: objects every condition finds. Any: objects any condition finds.",
                 );
             ui.end_row();
         }
@@ -986,17 +981,12 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
         ui.end_row();
         ui.label("");
         ui.checkbox(&mut d.regex, "Regular expressions").on_hover_text(
-            "Names and texts (a variable's name and value, a script's name, a field's label \
-             and text) are regular expressions, not * patterns: found anywhere unless \
-             anchored (^kz_(rent|own)$), letters A to Z in either case",
+            "Names and texts are regular expressions, found anywhere unless anchored (^kz_)",
         );
         ui.end_row();
         ui.label("");
-        ui.checkbox(&mut d.haks_and_game, "The haks' and the game's blueprints too").on_hover_text(
-            "Also the blueprints the module has none of that its haks and the game have (each \
-             as the game reads it), found read-only: opened to look at, never changed or \
-             edited together",
-        );
+        ui.checkbox(&mut d.haks_and_game, "The haks' and the game's blueprints too")
+            .on_hover_text("Also the haks' and the game's blueprints, read-only");
         ui.end_row();
     });
     if let Some(i) = remove {

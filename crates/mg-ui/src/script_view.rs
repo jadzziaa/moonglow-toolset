@@ -735,7 +735,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             true,
             glyph::OPEN,
             "Open…",
-            "Open another script: the module's, its haks' or the game's, found by name",
+            "Open another script by name: the module's, its haks' or the game's",
         )
         .clicked()
         {
@@ -753,7 +753,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
-            "the script, saved and compiled, with its compiled script if it compiles",
+            "the script, saved, and its compiled script",
         );
         to_scratch = button(ui, true, crate::icons::TO_SCRATCH, "To Scratch", &tip).clicked();
         ui.separator();
@@ -761,7 +761,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let keymap = &app.keymap;
         let ctx = ui.ctx().clone();
         let tip = |text: &str, cmd: Cmd| keymap.titled(text, cmd, &ctx);
-        let find_tip = format!("{}; {}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));
+        let find_tip = format!("{}\n{}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));
         open_find |= button(ui, true, glyph::FIND, "Find…", &find_tip).clicked();
         let replace_tip = tip("Replace", Cmd::Replace);
         open_replace |= button(ui, true, glyph::REPLACE, "Replace…", &replace_tip).clicked();
@@ -796,8 +796,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // The codepage the script is read and saved in.
         let codepage = crate::text::codepage_name(app.scripts[&key].codepage);
         ui.weak(codepage).on_hover_text(
-            "The codepage the script is read and saved in: the language's in Options › \
-             Language (Windows-1250 for Polish), as the game reads a script's text",
+            "The codepage the script is read and saved in, set by Options › Language",
         );
     });
     // The error the latest check found, under the toolbar, on a line of
@@ -818,10 +817,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .max_rect(rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center));
             ui.scope_builder(row, |ui| {
-                ui.add(label).on_hover_text(format!(
-                    "{said}\n\nFound as you type: the script is compiled when typing pauses \
-                     (Options › Script Editor)"
-                ))
+                ui.add(label)
+                    .on_hover_text(format!("{said}\n\nFound as you type (Options › Script Editor)"))
             });
         }
     }
@@ -2505,8 +2502,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                         let r = ui
                             .selectable_label(w.selected.contains(&key), key.resref.to_string())
                             .on_hover_text(
-                                "Double-click to open; Ctrl+click and Shift+click select more \
-                                 to open together",
+                                "Double-click to open. Ctrl+click and Shift+click select more.",
                             );
                         match from {
                             ScriptFrom::Module => {}

@@ -137,9 +137,8 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         }
         Ok(())
     })();
-    let tip = "Give each a copy of its model whose walkmesh is moved as the model is drawn \
-               (scaled, turned, moved), so that it blocks as it looks; written into the \
-               project's hak and rows file (moonglow.toml's [bake]). Says what it makes first";
+    let tip =
+        "Give each a model copy whose walkmesh blocks as it looks. Shows what it makes first.";
     let r = ui
         .add_enabled(why_not.is_ok(), egui::Button::new("Bake Walkmesh to Transform…"))
         .on_hover_text(tip)
@@ -160,8 +159,7 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         && ui
             .button("Unbake Walkmesh")
             .on_hover_text(
-                "Set each baked one back to the row its bake copies: its walkmesh is the \
-                 model's own again, its visual transform as it is",
+                "Set each baked one back to its original row and the model's own walkmesh",
             )
             .clicked()
     {
