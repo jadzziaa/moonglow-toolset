@@ -311,13 +311,13 @@ impl RowsFile {
         out
     }
 
-    /// Writes the file's text at `path` (its folder made if need be).
+    /// Writes the file's text at `path` (its folder made if need be), whole
+    /// or not at all ([`crate::write_replacing`]): a file cut short would
+    /// not be read, and nothing baked until it is.
     pub fn write(&self, path: &Path) -> Result<(), String> {
         let name = path.file_name().map_or(DEFAULT_ROWS_FILE.into(), |n| n.to_string_lossy());
-        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        std::fs::write(path, self.text(&name)).map_err(|e| format!("{}: {e}", path.display()))
+        crate::write_replacing(path, self.text(&name).as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     /// Row `row`, if the file has it.

@@ -142,6 +142,34 @@ fn the_rows_file_reads_back_as_written() {
     assert_eq!(RowsFile::parse("x", ""), Ok(RowsFile::default()));
 }
 
+/// The rows file is written beside its place and put there whole, not
+/// written over where it is (the review's V9: a crash mid-write left half
+/// a file, which is not read, and nothing baked): the file as it was,
+/// held by a second name, is untouched by the write, and nothing is left
+/// beside the new one.
+#[test]
+fn the_rows_file_is_written_whole_or_not_at_all() {
+    let dir = mg_testkit::scratch_dir("bake-rows-file-written-whole");
+    let path = dir.join("sub").join("baked_rows.toml");
+    let row = |n: u32| BakedRow {
+        row: 50000 + n,
+        copy_of: n,
+        model: format!("mgbk_{n:04}"),
+        label: "Baked".into(),
+    };
+    let first = RowsFile { rows: vec![row(1)] };
+    first.write(&path).unwrap();
+    assert_eq!(RowsFile::read(&path), Ok(Some(first.clone())), "its folder made");
+    let held = dir.join("held.toml");
+    std::fs::hard_link(&path, &held).unwrap();
+    let second = RowsFile { rows: vec![row(1), row(2)] };
+    second.write(&path).unwrap();
+    assert_eq!(RowsFile::read(&path), Ok(Some(second)));
+    assert_eq!(RowsFile::read(&held), Ok(Some(first)), "the old file was not written into");
+    let left: Vec<_> = std::fs::read_dir(dir.join("sub")).unwrap().flatten().collect();
+    assert_eq!(left.len(), 1, "{left:?}");
+}
+
 /// What is wrong with a rows file is said, with where; nothing panics.
 #[test]
 fn a_bad_rows_file_is_an_error_that_says_where() {
