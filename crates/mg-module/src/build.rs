@@ -318,10 +318,10 @@ impl Remembered {
             .map(|(k, (a, b))| (k.resref.to_string(), serde_json::json!([a, b])))
             .collect();
         let v = serde_json::json!({ "made_with": self.made_with, "scripts": scripts });
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(path, serde_json::to_vec(&v)?)
+        // (Whole or not at all: a crash while it is written does not
+        // leave half of it, read as nothing kept and every script built
+        // afresh.)
+        crate::write_replacing(path, &serde_json::to_vec(&v)?)
     }
 }
 

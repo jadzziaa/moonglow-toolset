@@ -199,13 +199,7 @@ pub fn manifest(entries: &[(ResKey, [u8; 20], u32)]) -> Vec<u8> {
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    let part = path.with_extension("part");
-    std::fs::write(&part, data)
-        .and_then(|()| std::fs::rename(&part, path))
-        .map_err(|e| format!("{}: {e}", path.display()))
+    crate::write_replacing_one_of_many(path, data).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Writes a manifest of `contents` (the first of a name winning) into the

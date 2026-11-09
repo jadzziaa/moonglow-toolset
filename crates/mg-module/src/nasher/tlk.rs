@@ -174,14 +174,8 @@ pub fn write_talk_table(path: &Path, tlk: &Tlk, style: JsonStyle) -> Result<bool
     if std::fs::read(path).is_ok_and(|had| had == text) {
         return Ok(false);
     }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    // Written beside it, then moved over it: never half a table.
-    let tmp = crate::sibling(path, ".part");
-    std::fs::write(&tmp, text)
-        .and_then(|()| std::fs::rename(&tmp, path))
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    // (Beside it, then moved over it: never half a table.)
+    crate::write_replacing(path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(true)
 }
 

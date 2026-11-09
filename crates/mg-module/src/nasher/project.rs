@@ -545,9 +545,7 @@ impl Project {
                 self.target
             )));
         }
-        let tmp = crate::sibling(&cfg, ".moonglow-tmp");
-        std::fs::write(&tmp, written).map_err(io(&tmp))?;
-        std::fs::rename(&tmp, &cfg).map_err(io(&cfg))?;
+        crate::write_replacing(&cfg, &written).map_err(io(&cfg))?;
         self.package = Package::read(&root)?;
         self.left_out = self.left_out();
         Ok(Some(added))
@@ -654,9 +652,7 @@ impl Project {
                 ModuleError::Source { name: file.display().to_string(), message }
             })?;
         }
-        let tmp = crate::sibling(&cfg, ".moonglow-tmp");
-        std::fs::write(&tmp, written).map_err(io(&tmp))?;
-        std::fs::rename(&tmp, &cfg).map_err(io(&cfg))?;
+        crate::write_replacing(&cfg, &written).map_err(io(&cfg))?;
         self.package = Package::read(&root)?;
         // (A package's own excludes, which a target with none takes, could
         // leave a table's file out of its target.)
@@ -700,7 +696,7 @@ impl Project {
                  [package.rules]\n  \"*\" = \"src\"\n\n[target]\nname = \"default\"\nfile = \"{file}\"\n\
                  description = \"\"\n"
             );
-            std::fs::write(&cfg, text).map_err(io(&cfg))?;
+            crate::write_replacing(&cfg, text.as_bytes()).map_err(io(&cfg))?;
         }
         let (mut project, resources) = Project::open(root, None)?;
         if !resources.is_empty() {
@@ -1082,12 +1078,7 @@ impl Project {
         for step in steps {
             match step {
                 Step::Write(key, path, form, text) => {
-                    if let Some(dir) = path.parent() {
-                        std::fs::create_dir_all(dir).map_err(io(dir))?;
-                    }
-                    let tmp = crate::sibling(&path, ".moonglow-tmp");
-                    std::fs::write(&tmp, &text).map_err(io(&tmp))?;
-                    std::fs::rename(&tmp, &path).map_err(io(&path))?;
+                    crate::write_replacing_one_of_many(&path, &text).map_err(io(&path))?;
                     let resource = resources[&key].clone();
                     self.sources.insert(
                         key,
@@ -1137,9 +1128,7 @@ impl Project {
                 continue;
             };
             let other = src.path.to_path_buf();
-            let tmp = crate::sibling(&lower, ".moonglow-tmp");
-            std::fs::write(&tmp, &src.file).map_err(io(&tmp))?;
-            std::fs::rename(&tmp, &lower).map_err(io(&lower))?;
+            crate::write_replacing_one_of_many(&lower, &src.file).map_err(io(&lower))?;
             if other.exists() {
                 std::fs::remove_file(&other).map_err(io(&other))?;
             }
@@ -1367,7 +1356,12 @@ pub(crate) fn scan(
     found
 }
 
-/// [`Project::left_out`] of a project at `root` editing `target`.
+/// [`Project::left_out`] of a project at `root` editing `target`. The
+/// walk of the source folders is also where a file half written when
+/// Moonglow stopped is taken away ([`crate::left_writing`]): an include
+/// (`src/**/*.{nss,json}`) does not find `x.nss.moonglow-tmp`, so the
+/// project's own files never held it, and version control offered it for
+/// commit.
 fn left_out_of(root: &Path, target: &Target) -> Vec<PathBuf> {
     let mut bases: Vec<String> = target.includes.iter().filter_map(|p| source_base(p)).collect();
     bases.sort();
@@ -1375,6 +1369,9 @@ fn left_out_of(root: &Path, target: &Target) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for base in bases {
         for path in super::glob::walk(root, &format!("{base}/**/*")).unwrap_or_default() {
+            if crate::left_writing(&path) {
+                continue;
+            }
             if out.contains(&path)
                 || target.covers(root, &path)
                 || target.excludes.iter().any(|p| super::glob::covers(root, p, &path))

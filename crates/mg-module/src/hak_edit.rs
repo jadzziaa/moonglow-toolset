@@ -10,7 +10,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -212,6 +211,9 @@ impl Hak {
 
     /// Opens an archive.
     pub fn open(path: &Path) -> Result<Hak, String> {
+        // (What a save that a crash cut short left beside it, once old.)
+        crate::left_writing(&crate::sibling(path, crate::WRITING));
+        crate::left_writing(&crate::sibling(&crate::sibling(path, ".bak"), crate::WRITING));
         let archive = ErfContainer::open(path).map_err(|e| e.to_string())?;
         let items = archive
             .index()
@@ -642,25 +644,16 @@ impl Hak {
         header.build_day = day;
         let entries: Vec<_> =
             self.items.iter().map(|i| (i.key.resref, i.key.restype, i.size)).collect();
-        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        let part = path.with_extension("part");
-        let write = || -> Result<(), String> {
-            let file =
-                std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
-            let mut w = std::io::BufWriter::new(file);
-            mg_erf::write_streamed(&mut w, &header, &entries, |i| {
+        // (Beside it under the one name Moonglow writes files by, a
+        // resource at a time, then moved over it: `x.hak` and `x.erf` no
+        // longer share `x.part`.)
+        crate::write_replacing_with(&path, |w| {
+            mg_erf::write_streamed(w, &header, &entries, |i| {
                 self.read(&self.items[i]).map(Cow::Owned).map_err(std::io::Error::other)
             })
-            .map_err(|e| e.to_string())?;
-            w.flush().map_err(|e| e.to_string())
-        };
-        if let Err(e) = write() {
-            let _ = std::fs::remove_file(&part);
-            return Err(e);
-        }
-        std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))
+        })
+        .map_err(|e| format!("{}: {e}", path.display()))?;
         let archive = ErfContainer::open(&path).map_err(|e| e.to_string())?;
         for item in &mut self.items {
             item.source = Source::Archive;
@@ -866,7 +859,7 @@ mod tests {
         let out = dir.join("out");
         assert_eq!(back.extract(&[mdl], &out).unwrap(), 1);
         assert_eq!(std::fs::read(out.join("plc_chair.mdl")).unwrap(), b"model 2");
-        assert!(!dir.join("mine.part").exists());
+        assert!(!dir.join("mine.hak.moonglow-tmp").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

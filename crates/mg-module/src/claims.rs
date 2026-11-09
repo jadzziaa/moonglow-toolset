@@ -379,13 +379,7 @@ fn rewrite(path: &Path, f: impl FnOnce(&str) -> Result<String, String>) -> Resul
     let out = f(&text)?;
     let out =
         if utf8 { out.into_bytes() } else { mg_core::Codepage::WINDOWS_1252.encode_lossy(&out) };
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    let tmp = crate::sibling(path, ".moonglow-tmp");
-    std::fs::write(&tmp, out)
-        .and_then(|()| std::fs::rename(&tmp, path))
-        .map_err(|e| format!("{}: {e}", path.display()))
+    crate::write_replacing(path, &out).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Which side a conflict of [`merge`] takes.

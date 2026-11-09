@@ -206,6 +206,7 @@ impl Module {
             return Self::open_folder(path);
         }
         left_writing(&sibling(path, WRITING));
+        left_writing(&sibling(&sibling(path, ".bak"), WRITING));
         let data = std::fs::read(path).map_err(io(path))?;
         let erf = Erf::read(&data)
             .map_err(|e| ModuleError::Archive { path: path.into(), message: e.to_string() })?;
@@ -651,35 +652,20 @@ impl Module {
     /// a copy of it: a large module's save copied a gigabyte).
     fn write_archive(&self, path: &Path) -> Result<(), ModuleError> {
         let writer = self.archive_writer()?;
-        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent).map_err(io(parent))?;
-        }
-        let tmp = sibling(path, ".moonglow-tmp");
-        // Written and flushed through one handle: flushing needs write
-        // access on Windows.
-        let written = std::fs::File::create(&tmp).map_err(io(&tmp)).and_then(|f| {
-            let mut out = std::io::BufWriter::new(f);
-            writer
-                .write_to(&mut out)
-                .map_err(|e| ModuleError::Archive { path: tmp.clone(), message: e.to_string() })?;
-            let f = out.into_inner().map_err(|e| e.into_error()).map_err(io(&tmp))?;
-            f.sync_all().map_err(io(&tmp))
+        // (What the archive's own making refuses, apart from the disk's
+        // errors.)
+        let mut refused = None;
+        let written = replace(path, true, true, |out| {
+            writer.write_to(out).map_err(|e| {
+                refused = Some(e.to_string());
+                std::io::Error::other("the archive could not be made")
+            })
         });
-        if let Err(e) = written {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e);
+        match (written, refused) {
+            (Ok(()), _) => Ok(()),
+            (Err(_), Some(message)) => Err(ModuleError::Archive { path: path.into(), message }),
+            (Err(e), None) => Err(io(path)(e)),
         }
-        // (The new archive's file does not stay behind, holding the room,
-        // when the old one cannot be kept or the move fails.)
-        let placed = match path.exists() {
-            true => keep_previous(path).map(|_| ()).map_err(io(&sibling(path, ".bak"))),
-            false => Ok(()),
-        }
-        .and_then(|()| std::fs::rename(&tmp, path).map_err(io(path)));
-        if placed.is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
-        placed
     }
 
     /// Writes the module into a folder, a file a resource: those that
@@ -810,9 +796,7 @@ impl Module {
                 None => disk(&p).as_deref() == Some(&v[..]),
             };
             if !same {
-                let tmp = sibling(&p, ".moonglow-tmp");
-                std::fs::write(&tmp, &v[..]).map_err(io(&tmp))?;
-                std::fs::rename(&tmp, &p).map_err(io(&p))?;
+                write_replacing_one_of_many(&p, &v[..]).map_err(io(&p))?;
             }
             files.note(*k, p, v.clone());
         }
@@ -1063,27 +1047,74 @@ pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// Writes `data` to `path` whole or not at all: into a file beside it,
-/// flushed to the disk, then put in its place. A crash or a full disk
-/// leaves the file as it was, never cut short.
-pub(crate) fn write_replacing(path: &Path, data: &[u8]) -> std::io::Result<()> {
+/// Writes `bytes` to `path` whole or not at all: into a file beside it
+/// (`name.ext.moonglow-tmp`, [`WRITING`]), flushed to the disk, then put
+/// in its place; the folder is made where it is not there. A crash or a
+/// full disk leaves the file as it was, never cut short, and a write that
+/// fails leaves no temporary file. How every file Moonglow keeps is
+/// written.
+pub fn write_replacing(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_replacing_with(path, |out| std::io::Write::write_all(out, bytes))
+}
+
+/// [`write_replacing`] for a file written as it is made (a hak or a
+/// module of gigabytes, never whole in memory): `write` is handed the
+/// file to write into.
+pub fn write_replacing_with(
+    path: &Path,
+    write: impl FnOnce(&mut std::io::BufWriter<std::fs::File>) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    replace(path, false, true, write)
+}
+
+/// [`write_replacing`] for one of the many files of one save (a module's
+/// folder, a project's sources, an NWSync repository's data): written
+/// beside its place, moved there, and no temporary file left where it
+/// fails, but not flushed to the disk file by file. A flush is about a
+/// millisecond a file on a fast disk, half a minute for the 30,000 files
+/// of a module's first save into a folder, and these files were never
+/// flushed.
+pub(crate) fn write_replacing_one_of_many(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    replace(path, false, false, |out| std::io::Write::write_all(out, bytes))
+}
+
+/// [`write_replacing_with`]; with `keep`, what was at `path` is kept
+/// beside it as `name.ext.bak` ([`keep_previous`]) once the new file is
+/// written whole, before it takes its place; without `flush`, the new
+/// file is not flushed to the disk first.
+fn replace(
+    path: &Path,
+    keep: bool,
+    flush: bool,
+    write: impl FnOnce(&mut std::io::BufWriter<std::fs::File>) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = sibling(path, ".moonglow-tmp");
+    let tmp = sibling(path, WRITING);
     // Written and flushed through one handle: flushing needs write access
     // on Windows.
-    let written = std::fs::File::create(&tmp).and_then(|mut f| {
-        std::io::Write::write_all(&mut f, data)?;
-        f.sync_all()
+    let written = std::fs::File::create(&tmp).and_then(|f| {
+        let mut out = std::io::BufWriter::new(f);
+        write(&mut out)?;
+        let file = out.into_inner().map_err(|e| e.into_error())?;
+        if flush { file.sync_all() } else { Ok(()) }
     });
-    match written.and_then(|()| std::fs::rename(&tmp, path)) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
+    let placed = written
+        .and_then(|()| match keep && path.exists() {
+            true => keep_previous(path).map(|_| ()).map_err(|e| {
+                let backup = sibling(path, ".bak");
+                std::io::Error::new(e.kind(), format!("{}: {e}", backup.display()))
+            }),
+            false => Ok(()),
+        })
+        .and_then(|()| std::fs::rename(&tmp, path));
+    // (The new file does not stay behind, holding the room, when it could
+    // not be written, the old one kept or the move made.)
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    placed
 }
 
 /// The areas a `module.ifo`'s root lists (`Mod_Area_list`), in its order:
@@ -1330,8 +1361,59 @@ mod tests {
         let m = Module::open(&folder).unwrap();
         assert!(!stale.exists() && fresh.exists());
         assert_eq!(m.len(), sample().len(), "neither is a resource");
+        let backup = left(dir.join("test.mod.bak.moonglow-tmp"), true);
         Module::open(&archive).unwrap();
-        assert!(!beside.exists());
+        assert!(!beside.exists() && !backup.exists());
+
+        // In a project: wherever in the include's folders, though the
+        // include (`src/**/*.{nss,json,…}`) does not take such a name in.
+        let root = dir.join("project");
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        m.set(key("script", ResType::NSS), &b"void main() {}"[..]);
+        m.save_as(&ModuleLocation::Project { root: root.clone(), target: "default".into() })
+            .unwrap();
+        std::fs::create_dir_all(root.join("src/deep")).unwrap();
+        let stale = left(root.join("src/script.nss.moonglow-tmp"), true);
+        let deep = left(root.join("src/deep/x.utc.json.moonglow-tmp"), true);
+        let fresh = left(root.join("src/area.git.json.moonglow-tmp"), false);
+        let m = Module::open(&root).unwrap();
+        assert!(!stale.exists() && !deep.exists() && fresh.exists());
+        assert_eq!(m.len(), 2, "none is a resource");
+        let said = m.project.as_ref().unwrap().warnings.join("\n");
+        assert!(!said.contains("moonglow-tmp"), "{said}");
+    }
+
+    /// A file is written whole or not at all, under one name while it is
+    /// written, and a write that fails leaves the file there as it was and
+    /// no temporary file: bytes at once, and a file written as it is made.
+    #[test]
+    fn a_file_is_replaced_whole_or_left_as_it_was() {
+        let dir = mg_testkit::scratch_dir("mg-module-write-replacing");
+        let path = dir.join("deep/er/file.txt");
+        write_replacing(&path, b"one").unwrap();
+        write_replacing(&path, b"two").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"two");
+        let failed = write_replacing_with(&path, |out| {
+            std::io::Write::write_all(out, b"half")?;
+            Err(std::io::Error::other("the disk is full"))
+        });
+        assert_eq!(failed.unwrap_err().to_string(), "the disk is full");
+        assert_eq!(std::fs::read(&path).unwrap(), b"two");
+        write_replacing_with(&path, |out| std::io::Write::write_all(out, b"three")).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"three");
+        // (Where the file cannot be put: a folder is in its place.)
+        std::fs::create_dir_all(dir.join("taken/in")).unwrap();
+        assert!(write_replacing(&dir.join("taken"), b"x").is_err());
+        let names = |d: &Path| -> Vec<String> {
+            let mut names: Vec<String> = (std::fs::read_dir(d).unwrap().flatten())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(names(&dir.join("deep/er")), ["file.txt"]);
+        assert_eq!(names(&dir), ["deep", "taken"]);
     }
 
     /// Saving into the module's own folder writes only the files that

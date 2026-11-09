@@ -229,7 +229,9 @@ pub fn copy(placements: &[Placement], replace: bool) -> Result<usize, String> {
             There::Same => false,
         })
         .collect();
-    let part = |p: &Placement| p.to.with_extension("part");
+    // (Each beside its place under the one name Moonglow writes files by:
+    // with the extension changed, `x.hak` and `x.erf` shared `x.part`.)
+    let part = |p: &Placement| crate::sibling(&p.to, crate::WRITING);
     for p in &go {
         let dir = p.to.parent().expect("in a folder");
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -382,7 +384,10 @@ mod tests {
         let p = placements(&user.join("hak"), &user.join("tlk"), &[odd]).unwrap();
         let e = copy(&p, false).unwrap_err();
         assert!(e.contains("z_odd.hak") && !e.contains("has no"), "{e}");
-        assert!(!user.join("hak/z_odd.hak").exists() && !user.join("hak/z_odd.part").exists());
+        assert!(
+            !user.join("hak/z_odd.hak").exists()
+                && !user.join("hak/z_odd.hak.moonglow-tmp").exists()
+        );
     }
 
     /// The archive fixtures (`tests/fixtures/archives`), our own text in
@@ -459,7 +464,7 @@ mod tests {
             assert!(
                 std::fs::read_dir(user.join("hak"))
                     .unwrap()
-                    .all(|f| { f.unwrap().path().extension().is_none_or(|e| e != "part") })
+                    .all(|f| { f.unwrap().path().extension().is_none_or(|e| e != "moonglow-tmp") })
             );
         }
     }

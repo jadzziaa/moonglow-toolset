@@ -1032,14 +1032,8 @@ impl Table {
             }
             let path = source.file().ok_or_else(|| format!("{source} is read-only here"))?;
             let data = tlk.to_bytes().map_err(|e| e.to_string())?;
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            }
-            // Written beside it, then moved over it: never half a table.
-            let tmp = path.with_extension("tlk.part");
-            std::fs::write(&tmp, data)
-                .and_then(|()| std::fs::rename(&tmp, path))
-                .map_err(|e| format!("{}: {e}", path.display()))
+            // (Beside it, then moved over it: never half a table.)
+            crate::write_replacing(path, &data).map_err(|e| format!("{}: {e}", path.display()))
         };
         if let Some((source, fem)) = &self.feminine {
             write(source, fem)?;
