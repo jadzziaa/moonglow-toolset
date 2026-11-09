@@ -1594,7 +1594,9 @@ fn var_body(
         {
             ui.ctx().copy_text(crate::var_sets::to_text(&edit.rows));
         }
-        let paste_id = egui::Id::new("var-set-paste");
+        // (This list's own: with one id for all, the paste went to whichever
+        // Variables list was drawn first, another object's.)
+        let paste_id = ui.id().with("var-set-paste");
         if ui
             .button("Paste Set")
             .on_hover_text(
