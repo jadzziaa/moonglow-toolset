@@ -587,6 +587,46 @@ fn a_helmet_without_its_model_is_the_bag() {
     }
 }
 
+/// A creature holding an item that names no model at all (a base item
+/// row with no `ItemClass`, as a hak's row not yet filled in, or one whose
+/// hak is not installed) is drawn without it, as it is drawn without a
+/// helmet or a cloak whose model is nowhere: the whole creature was left
+/// undrawn for its weapon (the review's M13; what the game draws of such
+/// an item was not read from the client).
+#[test]
+fn a_creature_holding_what_has_no_model_is_drawn_without_it() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut utc = CreatureLook::new(6).to_utc();
+    let held = |slot: u32, name: &str| {
+        let mut s = mg_gff::Struct::new(slot);
+        s.set("EquippedRes", mg_gff::Value::resref(name.parse().unwrap()));
+        s
+    };
+    utc.set(
+        "Equip_ItemList",
+        mg_gff::Value::List(vec![held(0x10, "nothing"), held(0x20, "torch")]),
+    );
+    // (baseitems.2da row 84 is padding: no item class, no default model.)
+    let items = |r: ResRef| -> Option<Gff> {
+        let mut g = Gff::new(*b"UTI ");
+        let torch = r.to_string() == "torch";
+        g.root.set("BaseItem", mg_gff::Value::Int(if torch { 15 } else { 84 }));
+        for part in ["ModelPart1", "ModelPart2", "ModelPart3"] {
+            g.root.set(part, mg_gff::Value::Byte(1));
+        }
+        Some(g)
+    };
+    let preview = creature(&game, &utc, &items).unwrap();
+    assert_eq!(preview.base.model, "pmh0");
+    assert!(models(&preview).contains(&"pmh0_chest001"), "{:?}", models(&preview));
+    let at =
+        |node: &str| preview.parts.iter().filter(|p| p.attach.as_deref() == Some(node)).count();
+    assert_eq!((at("rhand"), at("lhand")), (0, 1), "the other hand's torch is drawn");
+}
+
 /// A cloak moves with the bones of the body wearing it: on an elf (whose
 /// skeleton plays the human animations at 0.894 of their size, while her
 /// cloak's model has no scale of its own) its bones are where hers are,

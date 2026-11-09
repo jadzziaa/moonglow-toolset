@@ -371,7 +371,11 @@ pub(crate) fn dressed(
                 _ if shield => "lforearm",
                 _ => "lhand",
             };
-            for mut p in crate::item::item_parts(game, &it, colors, false)? {
+            // (One that names no model, nor a default one, is left off, as
+            // a helmet or a cloak whose model is nowhere is: the creature
+            // is drawn without it.)
+            let Ok(parts) = crate::item::item_parts(game, &it, colors, false) else { continue };
+            for mut p in parts {
                 p.attach = Some(node.into());
                 p.scale = weapon_scale;
                 p.item = true;
