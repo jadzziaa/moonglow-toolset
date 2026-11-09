@@ -917,6 +917,60 @@ fn a_mod_saved_by_another_program_is_read_again() {
     assert_eq!(on_disk.get(&b).unwrap(), b"void main() { int ours; }\n");
 }
 
+/// A file changed here and outside waits in Changed Outside Moonglow. A
+/// look at the files a watch heard of is of those alone, and its
+/// conflicts (none, for another file saved outside meanwhile) took the
+/// place of the whole list: the question closed unanswered and Save was
+/// refused from then on with nothing left to ask (the review of November
+/// 2026, D5). The conflicts of files not looked at stay.
+#[test]
+fn a_conflict_waits_while_other_files_change_outside() {
+    let dir = project_folder("ui-outside-conflict-kept", &[]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1100.0, 800.0);
+    // (The watch begins, and its first look finds nothing.)
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_millis(600) {
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource {
+        key: hello,
+        data: Some(b"void main() { int ours; }\n".to_vec()),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Ours", vec![edit])));
+    h.run_steps(2);
+    std::fs::write(dir.join("hello.nss"), "void main() { int theirs; }\n").unwrap();
+    let started = std::time::Instant::now();
+    while h.state().outside_conflicts().is_empty() {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(h.state().outside_conflicts(), [dir.join("hello.nss")]);
+    // Another file saved outside, which nothing here changed: read, and
+    // the first still waits.
+    let other = ResKey::parse("mg_other", ResType::NSS).unwrap();
+    std::fs::write(dir.join("mg_other.nss"), "void main() {}\n").unwrap();
+    let started = std::time::Instant::now();
+    while !h.state().ws.as_ref().unwrap().module.contains(&other) {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(h.state().outside_conflicts(), [dir.join("hello.nss")], "still asked about");
+    h.step();
+    h.get_by_label("Keep Moonglow's").click();
+    h.run_steps(3);
+    assert!(h.state().outside_conflicts().is_empty());
+}
+
 /// A nasher project's locks stay out of its files: Lock and Save leave the
 /// area's JSON as it was and keep the lock in Moonglow's folder; the area
 /// changed outside is read again (no conflict) with the lock still on; and
