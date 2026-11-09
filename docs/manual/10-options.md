@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:41:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T12:36:40Z }
 ---
 
 # Options
@@ -117,6 +117,10 @@ the module is opened again from its file.
   its models, with the arrows that move it along one axis, while Shift
   is held (see [Areas](04-areas.md)). On by
   default.
+- **Middle drag moves the view** (off by default): a middle drag moves
+  the camera, as Ctrl + drag does, and Alt + middle drag turns it: the
+  two swapped (see [the camera](04-areas.md#the-camera)). A right drag
+  turns it either way.
 
 ### Graphics
 

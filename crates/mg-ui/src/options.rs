@@ -156,6 +156,7 @@ pub struct OptionsDraft {
     pub texture_limit: Option<u16>,
     pub area_resolution: Option<u8>,
     pub animate_unfocused: bool,
+    pub middle_drag_moves: bool,
     pub edit_group_tiles: bool,
     pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
@@ -315,6 +316,7 @@ impl OptionsDraft {
             texture_limit: s.texture_limit,
             area_resolution: s.area_resolution,
             animate_unfocused: s.animate_unfocused,
+            middle_drag_moves: s.middle_drag_moves,
             edit_group_tiles: s.edit_group_tiles,
             turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
@@ -434,6 +436,7 @@ impl OptionsDraft {
             texture_limit: self.texture_limit,
             area_resolution: self.area_resolution,
             animate_unfocused: self.animate_unfocused,
+            middle_drag_moves: self.middle_drag_moves,
             edit_group_tiles: self.edit_group_tiles,
             no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
@@ -756,6 +759,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "A ring to turn the selection. With Shift, rings to tilt it and \
                                  arrows to move it.",
                             );
+                            ui.checkbox(&mut draft.middle_drag_moves, "Middle drag moves the view")
+                                .on_hover_text(
+                                    "Move the camera with a middle drag, as with Ctrl + drag, \
+                                     and turn it with Alt + middle drag.",
+                                );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Graphics");
                             ui.horizontal(|ui| {
@@ -1898,6 +1906,8 @@ mod tests {
         assert!(!d.merchant_signs, "stores are arrows unless asked");
         assert!(!d.edit_group_tiles, "groups are one thing unless asked");
         assert!(d.turn_ring, "the turning ring shows unless switched off");
+        assert!(!d.middle_drag_moves, "a middle drag turns the view unless asked");
+        d.middle_drag_moves = true;
         assert_eq!(d.area_background, None, "the fog color by default");
         use crate::settings::ShadowQuality;
         assert_eq!(d.shadow_quality, ShadowQuality::Fast, "the shadow map unless asked");
@@ -1913,6 +1923,7 @@ mod tests {
         assert_eq!((t.texture_limit, t.area_resolution), (Some(512), Some(75)));
         assert!(t.no_spawn_markers && !t.no_door_arrows);
         assert!(t.edit_group_tiles && OptionsDraft::from_settings(&t).edit_group_tiles);
+        assert!(t.middle_drag_moves && OptionsDraft::from_settings(&t).middle_drag_moves);
         assert_eq!(d.spawn_marker_size, (12, 4), "Aurora's Height and Width");
         let mut d = OptionsDraft::from_settings(&t);
         d.spawn_marker_size = (20, 6);

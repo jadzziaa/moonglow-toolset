@@ -233,7 +233,8 @@ fn a_middle_click_off_the_ground_leaves_the_camera() {
 }
 
 /// A middle drag still turns the camera and Alt + middle drag still moves
-/// it: neither puts the focus where it began.
+/// it: neither puts the focus where it began. With Options › Area › Middle
+/// drag moves the view, the other way round.
 #[test]
 fn a_middle_drag_turns_and_moves_the_camera_as_before() {
     use glam::Vec3;
@@ -273,6 +274,40 @@ fn a_middle_drag_turns_and_moves_the_camera_as_before() {
     // Looking north, the ground follows the pointer west: the focus east.
     let by = moved.target - start.target;
     assert!(by.x > 2.0 && by.y.abs() < 0.6 && by.z == 0.0, "moved: {by:?}");
+
+    // Options › Area › Middle drag moves the view (a builder's ask): the
+    // two swapped, a middle drag moving the camera as Ctrl + drag does
+    // and Alt + middle drag turning it.
+    h.state_mut().settings.middle_drag_moves = true;
+    set_orbit(&mut h, area, start);
+    drag(&mut h, egui::Modifiers::NONE);
+    let moved = orbit(&h);
+    assert_eq!((moved.yaw, moved.pitch, moved.distance), (start.yaw, start.pitch, start.distance));
+    let by = moved.target - start.target;
+    assert!(by.x > 2.0 && by.y.abs() < 0.6 && by.z == 0.0, "moved: {by:?}");
+    set_orbit(&mut h, area, start);
+    drag(&mut h, egui::Modifiers::ALT);
+    let turned = orbit(&h);
+    assert!((turned.yaw - start.yaw).abs() > 0.3, "turned: {}", turned.yaw);
+    assert_eq!((turned.target, turned.distance), (start.target, start.distance), "not moved");
+    // A right drag still turns it.
+    set_orbit(&mut h, area, start);
+    let from = screen(&h, area, Vec3::new(14.0, 14.0, 0.0));
+    let button = egui::PointerButton::Secondary;
+    let modifiers = egui::Modifiers::NONE;
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+    for k in 1..=6 {
+        h.hover_at(from + egui::vec2(-15.0 * k as f32, 0.0));
+        h.run_steps(1);
+    }
+    let to = from + egui::vec2(-90.0, 0.0);
+    h.event(egui::Event::PointerButton { pos: to, button, pressed: false, modifiers });
+    h.run_steps(3);
+    let turned = orbit(&h);
+    assert!((turned.yaw - start.yaw).abs() > 0.3, "right drag turned: {}", turned.yaw);
+    assert_eq!(turned.target, start.target, "not moved");
 }
 
 #[test]

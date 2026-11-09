@@ -4918,7 +4918,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let scaling = crate::paint_mode::wheel(app, ui, response) || scaling;
     app.area_hovered |= response.hovered();
     let was_tile_mode = view.tile_mode;
-    camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
+    let middle_moves = app.settings.middle_drag_moves;
+    camera_input(ui, view, response, (alt, shift, command), middle_moves, &app.keymap, scaling);
     // F10 into tile mode: the tile brush is put down (it would sit on top).
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;
@@ -5722,7 +5723,9 @@ pub(crate) fn cancelled(ui: &egui::Ui, response: &egui::Response) -> bool {
 }
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
-/// middle drag) turns it, Alt + middle drag moves it, the wheel zooms,
+/// middle drag) turns it, Alt + middle drag moves it (the middle drags
+/// swapped with `middle_moves`, Options › Area › Middle drag moves the
+/// view), the wheel zooms,
 /// Ctrl + Shift + the wheel or a middle drag moves it up and down,
 /// Alt + middle click (as in Blender) puts its focus on the ground
 /// clicked; the keys of Options › Keyboard (WASD, the arrows
@@ -5731,8 +5734,8 @@ fn camera_input(
     ui: &egui::Ui,
     view: &mut AreaView,
     response: &egui::Response,
-    (alt, shift): (bool, bool),
-    command: bool,
+    (alt, shift, command): (bool, bool, bool),
+    middle_moves: bool,
     keys: &crate::keys::Keymap,
     // The wheel is scaling the selection: it does not zoom.
     scaling: bool,
@@ -5774,8 +5777,12 @@ fn camera_input(
     // turns the selection; a right click is still the menu). With Shift
     // held it turns as without: Shift shows the selection's handles, and
     // the view is turned to get at them.
-    let turning = (held.by(egui::PointerButton::Middle) && !alt)
-        || (!alt && held.by(egui::PointerButton::Secondary));
+    // A middle drag turns it and Alt + middle drag moves it, or the
+    // other way round when asked (Options › Area).
+    let middle = held.by(egui::PointerButton::Middle);
+    let (middle_turns, middle_pans) =
+        (middle && alt == middle_moves, middle && alt != middle_moves);
+    let turning = middle_turns || (!alt && held.by(egui::PointerButton::Secondary));
     // What a pixel is on the ground at the target.
     let per_pixel = o.camera().per_point(rect.height());
     if command && shift && held.by(egui::PointerButton::Middle) {
@@ -5785,9 +5792,7 @@ fn camera_input(
     } else if turning {
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
-    } else if (command && held.by(egui::PointerButton::Primary))
-        || (alt && held.by(egui::PointerButton::Middle))
-    {
+    } else if (command && held.by(egui::PointerButton::Primary)) || middle_pans {
         // The ground follows the pointer, a closed hand showing it held.
         // (GitHub issue 25.)
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);

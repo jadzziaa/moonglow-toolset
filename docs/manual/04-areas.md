@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T07:47:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T12:36:40Z }
 ---
 
 # Areas
@@ -300,6 +300,7 @@ Options › Keyboard):
 | Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora) |
+| Middle drag, Alt + middle drag, with Options › Area › **Middle drag moves the view** | move the camera, turn it: the two middle drags swapped ([Options](10-options.md#view)) |
 | Alt + middle click | look at the ground clicked: the camera's focus goes there at once, at the ground's height (on its walkmesh, else on the tile's floor), its distance, turn and tilt kept, as Alt + middle click in Blender; a click on the sky or off the area does nothing |
 | Wheel, or a pinch on a touchpad | zoom (slowly with Shift, or with Ctrl unless the pointer is on a selected object that takes a scale; when painting tiles, Shift is the brush's) |
 | Sideways scroll (a tilted wheel, a second wheel, two fingers sideways on a touchpad) | move the camera left and right, as the screen has it |
@@ -498,7 +499,8 @@ of its post is another: lead it over the ground and the point moves, the
 encounter staying where it is.
 
 What you are dragging stays in hand while another button turns the
-camera (hold the middle button too and swing the view), until you let go
+camera (hold the middle button too and swing the view, or move it with
+**Middle drag moves the view**), until you let go
 of the button that holds it. **Escape** drops the drag: nothing moves.
 
 **Snapping** (the toolbar's **Snap** and **Turn**):

@@ -388,6 +388,11 @@ pub struct Settings {
     /// animations go on while another program's window has the focus
     /// (else they hold still there, sparing the GPU).
     pub animate_unfocused: bool,
+    /// Options › Area › Middle drag moves the view: a middle drag moves
+    /// the area view's camera, as Ctrl + drag does, and Alt + middle drag
+    /// turns it (the two swapped). Off, as in Blender: a middle drag
+    /// turns it.
+    pub middle_drag_moves: bool,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
@@ -1080,6 +1085,8 @@ mod tests {
         assert_eq!((back.texture_limit, back.area_resolution), (Some(512), Some(50)));
         // Animations hold still behind other windows unless kept going.
         assert!(!old.animate_unfocused);
+        // A middle drag turns the area view unless asked to move it.
+        assert!(!old.middle_drag_moves);
         let kept = Settings { animate_unfocused: true, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&kept).unwrap()).unwrap();
         assert!(back.animate_unfocused);
