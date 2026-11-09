@@ -457,6 +457,11 @@ fn typed(ty: FieldType, v: &LuaValue, old: Option<&Value>) -> Result<Value, Stri
                 LuaValue::Number(f) if f.is_finite() => *f,
                 _ => return Err(format!("a {} takes a number", ty.json_name())),
             };
+            // (A number past what a float holds would be written as
+            // infinity.)
+            if ty == FieldType::Float && !(n as f32).is_finite() {
+                return Err(format!("{n} does not fit a float"));
+            }
             if ty == FieldType::Float { Value::Float(n as f32) } else { Value::Double(n) }
         }
         FieldType::String => Value::String(text_of(v, ty)?),
@@ -921,11 +926,23 @@ pub(crate) fn form_field(f: &Table, kind: &str, start: &str) -> mlua::Result<For
     let label = f.get::<Option<String>>("label")?.unwrap_or_else(|| id.clone());
     let kind = match kind {
         "text" => FieldKind::Text { default: f.get::<Option<String>>(start)?.unwrap_or_default() },
-        "number" => FieldKind::Number {
-            default: f.get::<Option<f64>>(start)?.unwrap_or(0.0),
-            min: f.get("min")?,
-            max: f.get("max")?,
-        },
+        "number" => {
+            let default = f.get::<Option<f64>>(start)?.unwrap_or(0.0);
+            let (min, max): (Option<f64>, Option<f64>) = (f.get("min")?, f.get("max")?);
+            // (Not a number, or no end: it would reach the plugin as no
+            // number at all.)
+            for (what, n) in [(start, Some(default)), ("min", min), ("max", max)] {
+                if n.is_some_and(|n| !n.is_finite()) {
+                    return fail(format!("the number {id:?}'s {what} is not a number"));
+                }
+            }
+            if let (Some(min), Some(max)) = (min, max)
+                && min > max
+            {
+                return fail(format!("the number {id:?}'s min, {min}, is above its max, {max}"));
+            }
+            FieldKind::Number { default, min, max }
+        }
         "check" => FieldKind::Check { default: f.get::<Option<bool>>(start)?.unwrap_or(false) },
         "choice" => {
             let choices = choices_of(&id, f.get("choices")?)?;
@@ -2479,6 +2496,37 @@ pub(crate) fn api_names() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Numbers that are none (`0/0`), or have no end, are refused where
+    /// they are given: a form's field kept them and handed the plugin
+    /// something that is no number, and a float field was written as
+    /// infinity.
+    #[test]
+    fn numbers_that_are_not_finite_are_refused() {
+        let lua = Lua::new();
+        let e = typed(FieldType::Float, &LuaValue::Number(1e300), None).unwrap_err();
+        assert!(e.ends_with("does not fit a float"), "{e}");
+        assert_eq!(typed(FieldType::Float, &LuaValue::Number(1.5), None), Ok(Value::Float(1.5)));
+        assert_eq!(
+            typed(FieldType::Double, &LuaValue::Number(1e300), None),
+            Ok(Value::Double(1e300))
+        );
+        assert!(typed(FieldType::Double, &LuaValue::Number(f64::NAN), None).is_err());
+        let field = |code: &str| {
+            let t: Table = lua.load(code).eval().unwrap();
+            form_field(&t, "number", "default").map_err(|e| e.to_string())
+        };
+        assert!(field("{ id = 'n', default = 2, min = 1, max = 3 }").is_ok());
+        for bad in [
+            "{ id = 'n', default = 0/0 }",
+            "{ id = 'n', min = -1/0 }",
+            "{ id = 'n', max = 1/0 }",
+            "{ id = 'n', min = 3, max = 1 }",
+        ] {
+            let e = field(bad).unwrap_err();
+            assert!(e.contains("the number \"n\"'s"), "{bad}: {e}");
+        }
+    }
 
     /// A resource's name set from text is the text's bytes in the
     /// module's codepage, as reading the field gave them: a letter outside

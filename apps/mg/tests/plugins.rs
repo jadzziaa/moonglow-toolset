@@ -126,6 +126,9 @@ fn a_plugin_s_command_runs_on_a_module() {
     };
     assert!(fails(&["--answer", "prefx=A_"]).contains("no form asked for it"));
     assert!(fails(&["--answer", "count=many"]).contains("is not a number"));
+    // (They parse as numbers, and are none.)
+    assert!(fails(&["--answer", "count=nan"]).contains("\"nan\" is not a number"));
+    assert!(fails(&["--answer", "count=inf"]).contains("is not a number"));
     assert!(fails(&["--answer", "count=500"]).contains("outside what the field takes"));
     assert!(fails(&["--answer", "kind=dragons"]).contains("is not one of creatures, doors"));
     assert_eq!(tag(&path), "SGT_GATE_GUARD");

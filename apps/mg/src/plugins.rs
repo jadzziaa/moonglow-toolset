@@ -122,8 +122,9 @@ impl CliHost {
                     (FieldKind::Number { default, min, max }, g) => {
                         let n = match g.map(|g| g.trim().parse::<f64>()) {
                             None => *default,
-                            Some(Ok(n)) => n,
-                            Some(Err(_)) => {
+                            Some(Ok(n)) if n.is_finite() => n,
+                            // (`nan` and `inf` parse, and are none.)
+                            Some(_) => {
                                 fault(format!("{:?} is not a number", g.unwrap()));
                                 *default
                             }

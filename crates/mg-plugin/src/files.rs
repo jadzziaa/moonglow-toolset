@@ -451,7 +451,9 @@ pub(crate) fn image(
         "pixel",
         lua.create_function(move |_, (_, x, y): (This, f64, f64)| {
             let _held = &charge;
-            if x < 0.0 || y < 0.0 || x >= f64::from(width) || y >= f64::from(height) {
+            // (Said so that what is not a number is outside it too.)
+            let inside = x >= 0.0 && y >= 0.0 && x < f64::from(width) && y < f64::from(height);
+            if !inside {
                 return fail(format!("the picture has no pixel ({x}, {y})"));
             }
             let i = (y as usize * width as usize + x as usize) * 4;
