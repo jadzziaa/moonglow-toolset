@@ -1001,11 +1001,11 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     let lit =
         AreaLight { ambient: Vec3::splat(0.05), diffuse: Vec3::splat(0.05), direction: Vec3::Z };
-    let mut shot = |texture: &str, env: Option<&str>, default: bool| {
+    let mut shot_of = |model: Arc<GpuModel>, env: Option<&str>, default: bool| {
         let inst = Instance {
             env_map: env.map(str::to_string),
             env_map_default: default,
-            ..Instance::new(quad_with(texture), Mat4::IDENTITY)
+            ..Instance::new(model, Mat4::IDENTITY)
         };
         let scene = Scene {
             instances: vec![inst],
@@ -1016,6 +1016,8 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
         };
         r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
     };
+    let mut shot =
+        |texture: &str, env: Option<&str>, default: bool| shot_of(quad_with(texture), env, default);
     let red = |p: [u8; 4]| p[0] > p[2] + 8;
     let blue = |p: [u8; 4]| p[2] > p[0] + 8;
     // A placeable's `default`: the texture's `default` is the area's, its
@@ -1037,6 +1039,14 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     assert!(blue(named), "{named:?}");
     assert!(red(none), "{none:?}");
     assert!(red(creature), "{creature:?}");
+    // Two placeables of one model, one whose `Reflection` is `default`
+    // and one naming `chrome1`: each its own (the surfaces kept for a
+    // model left the flag out, and both took the first drawn's).
+    let model = quad_with("mirror_default");
+    let first = shot_of(model.clone(), Some("chrome1"), true);
+    let second = shot_of(model.clone(), Some("chrome1"), false);
+    let again = shot_of(model, Some("chrome1"), true);
+    assert!(red(first) && blue(second) && red(again), "{first:?} {second:?} {again:?}");
 }
 
 #[test]

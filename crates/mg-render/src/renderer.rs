@@ -354,7 +354,8 @@ struct Surface {
 }
 
 /// What a model's [`Surface`]s are kept by: the model, and of the
-/// instance its texture renames, its environment map and its PLT
+/// instance its texture renames, its environment map (and whether that
+/// is its own `default`'s: [`Instance::env_map_default`]) and its PLT
 /// colours (the first two by number: [`Renderer::names`],
 /// [`Renderer::renames`]), and the scene's environment map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -362,6 +363,7 @@ struct SurfaceKey {
     model: u64,
     renames: u32,
     env: u32,
+    env_default: bool,
     scene_env: u32,
     plt: Option<[u8; 10]>,
     /// Its material values ([`Renderer::values_id`]).
@@ -1840,6 +1842,7 @@ impl Renderer {
             model: inst.model.id,
             renames: inst.textures.as_deref().map_or(0, |t| self.renames_id(t)),
             env: self.name_id(inst.env_map.as_deref()),
+            env_default: inst.env_map_default,
             scene_env: scene_env_id,
             plt: inst.plt_colors,
             values: inst.material_values.as_ref().map_or(0, |v| self.values_id(v)),
