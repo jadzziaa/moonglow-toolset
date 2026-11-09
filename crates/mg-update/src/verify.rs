@@ -5,7 +5,7 @@
 use std::io::Read;
 use std::path::Path;
 
-use sha2::{Digest, Sha256};
+use mg_core::sha256::Sha256;
 
 /// The checksums' file a release publishes, and its signature.
 pub const SUMS: &str = "SHA256SUMS";
@@ -120,7 +120,7 @@ impl Hasher {
     }
 
     pub fn finish(self) -> Hash {
-        self.0.finalize().into()
+        self.0.finish()
     }
 }
 

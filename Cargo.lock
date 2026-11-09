@@ -3048,7 +3048,6 @@ dependencies = [
  "minisign",
  "minisign-verify",
  "serde_json",
- "sha2",
  "ureq",
  "zip",
 ]
