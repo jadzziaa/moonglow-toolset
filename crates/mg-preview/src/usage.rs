@@ -56,6 +56,11 @@
 //! - the 2DAs the game reads by itself (a hak's replacement of one the
 //!   game has), each reached from itself, and the tables a 2DA's cells
 //!   name (classes.2da a class's feat table);
+//! - what the game shows or plays of a table's rows by itself, with no
+//!   script naming the row ([`SHOWN_BY_THE_GAME`]): a feat's, skill's,
+//!   class's, domain's, race's and effect's icon, a spell's icon, visuals
+//!   and sounds, a cast-spell property's icon, of every row of the table
+//!   once it is reached;
 //! - what players choose at character creation: every head of the player
 //!   races and the body parts the creation screen offers them (part 1 of
 //!   each, part 2 of those a tattoo covers), for the phenotypes it offers,
@@ -163,6 +168,41 @@ const BY_NUMBER: [(&str, usize, Row); 9] = [
     ("ItemPropertyVisualEffect", 0, Row::ItemVisualEffect),
     ("ItemPropertyCastSpell", 0, Row::ItemSpell),
     ("SetCreatureAppearanceType", 1, Row::Appearance),
+];
+
+/// The tables whose rows the game shows or plays by itself, as a player
+/// meets them (a feat on the character sheet, a spell cast from the
+/// spellbook), and the columns that name a file of the row's: an icon, a
+/// model, a sound. No script names such a row, so every row's are
+/// reached once the table is. (Not appearance.2da or placeables.2da: a
+/// row of those is an object's, reached by the object.)
+const SHOWN_BY_THE_GAME: [(&str, &[&str]); 9] = [
+    ("feat", &["ICON"]),
+    ("masterfeats", &["ICON"]),
+    ("skills", &["Icon"]),
+    ("classes", &["Icon"]),
+    ("domains", &["Icon"]),
+    ("racialtypes", &["Icon"]),
+    (
+        "spells",
+        &[
+            "IconResRef",
+            "ConjHeadVisual",
+            "ConjHandVisual",
+            "ConjGrndVisual",
+            "ConjSoundVFX",
+            "ConjSoundMale",
+            "ConjSoundFemale",
+            "CastHeadVisual",
+            "CastHandVisual",
+            "CastGrndVisual",
+            "CastSound",
+            "ProjModel",
+            "ProjSound",
+        ],
+    ),
+    ("iprp_spells", &["Icon"]),
+    ("effecticons", &["Icon"]),
 ];
 
 /// A table a script names a row of by a number.
@@ -374,6 +414,7 @@ impl<'a> Walk<'a> {
     fn follow(&mut self, key: ResKey) {
         if key.restype == ResType::TWODA {
             self.table_names(key.resref);
+            self.shown_by_the_game(key.resref);
             return;
         }
         let Ok(data) = self.rm().get(&key) else { return };
@@ -766,6 +807,29 @@ impl<'a> Walk<'a> {
         }
         for name in named {
             self.reach(ResKey::new(name, ResType::TWODA));
+        }
+    }
+
+    /// What the game shows or plays of `table`'s rows by itself
+    /// ([`SHOWN_BY_THE_GAME`]): every row's icon, models and sounds.
+    fn shown_by_the_game(&mut self, table: ResRef) {
+        let name = table.to_string();
+        let Some((_, columns)) =
+            SHOWN_BY_THE_GAME.iter().find(|(t, _)| t.eq_ignore_ascii_case(&name))
+        else {
+            return;
+        };
+        let Ok(t) = self.game.table(&name) else { return };
+        for column in columns.iter().filter_map(|c| t.column(c)) {
+            for row in 0..t.len() {
+                let Some(v) = t.cell(row, column).map(str::trim) else { continue };
+                if v.is_empty() || v == "****" {
+                    continue;
+                }
+                if let Ok(name) = ResRef::from_str(v) {
+                    self.named(name);
+                }
+            }
         }
     }
 
@@ -1522,6 +1586,26 @@ mod tests {
             haks.insert(key(n), d);
         }
         haks.insert(key("classes.2da"), table(" Label FeatsTable\n0 Mine cls_feat_mine\n"));
+        stock.insert(key("feat.2da"), table(" LABEL ICON\n0 Alertness ife_alertness\n"));
+        stock.insert(key("spells.2da"), table(" Label IconResRef\n0 Acid_Fog is_acidfog\n"));
+        haks.insert(
+            key("feat.2da"),
+            table(
+                " LABEL ICON Constant\n0 Alertness ife_alertness ****\n1 Mine IFE_Mine ife_other\n",
+            ),
+        );
+        haks.insert(
+            key("spells.2da"),
+            table(
+                " Label IconResRef ConjHeadVisual ConjSoundVFX\n0 Acid_Fog is_acidfog **** ****\n\
+                 1 Mine is_mine vco_mine sco_mine\n",
+            ),
+        );
+        for n in ["ife_mine.tga", "ife_other.tga", "is_mine.tga", "fx_mine.tga"] {
+            haks.insert(key(n), &b"t"[..]);
+        }
+        haks.insert(key("sco_mine.wav"), &b"w"[..]);
+        haks.insert(key("vco_mine.mdl"), model("vco_mine", "fx_mine"));
         haks.insert(key("wswss_fxacid.mdl"), model("wswss_fxacid", "fx_acid"));
         haks.insert(key("wswss_fxfire.mdl"), model("wswss_fxfire", "fx_fire"));
         haks.insert(key("pmh0_head007.mdl"), model("pmh0_head007", "pmh0_head007"));
@@ -1595,6 +1679,20 @@ mod tests {
         assert_eq!(reached(&walk, "classes.2da").as_deref(), Some("classes.2da"));
         assert_eq!(reached(&walk, "cls_feat_mine.2da").as_deref(), Some("classes.2da"));
         assert_eq!(reached(&walk, "cls_feat_none.2da"), None);
+        // What the game shows of a table's rows by itself, with no script
+        // naming the row: a hak's feat.2da over the game's brings its
+        // feats' icons, its spells.2da its spells' icons, visuals and
+        // sounds (they were listed unused: the review's M5); not what a
+        // column the game shows nothing of names.
+        for n in ["ife_mine.tga", "is_mine.tga", "vco_mine.mdl", "fx_mine.tga", "sco_mine.wav"] {
+            assert_eq!(reached(&walk, n), None, "{n}");
+        }
+        walk.game_reads([key("feat.2da"), key("spells.2da")]);
+        assert_eq!(reached(&walk, "ife_mine.tga").as_deref(), Some("feat.2da"));
+        for n in ["is_mine.tga", "vco_mine.mdl", "fx_mine.tga", "sco_mine.wav"] {
+            assert_eq!(reached(&walk, n).as_deref(), Some("spells.2da"), "{n}");
+        }
+        assert_eq!(reached(&walk, "ife_other.tga"), None);
         // A player's choices: a human's heads (any number a byte holds),
         // portraits and voice sets; not a wolf's portrait, nor an NPC's.
         walk.players_choose();

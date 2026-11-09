@@ -1598,6 +1598,14 @@ the game's script), and what that names in turn:
   game has (classes.2da, spells.2da…) is used, and so is a table a used
   2DA names in a cell (a class's feat and skill tables, an item
   property's subtypes).
+- **What the game shows of a table's rows by itself**, with no script
+  naming the row: once the table is used, every row's icon in feat.2da,
+  masterfeats.2da, skills.2da, classes.2da, domains.2da, racialtypes.2da,
+  effecticons.2da and iprp_spells.2da, and in spells.2da every spell's
+  icon, its conjuring, casting and projectile models and their sounds.
+  So a hak's new feats' and spells' icons and visuals are used with its
+  `feat.2da` and `spells.2da`. (Not appearance.2da or placeables.2da:
+  a row there is used by the object that has it.)
 - **What players choose at character creation**: for the player races
   (racialtypes.2da's `PlayerRace`), each gender and the phenotypes the
   creation screen offers (ruleset.2da's `CHARGEN_ENABLED_PHENOTYPES`:
