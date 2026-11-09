@@ -66,7 +66,7 @@ pub fn armor_part(
 /// `DefaultModel`, then the bag the game drops things as (`it_bag`). How
 /// each is turned there: [`ground_turn`].
 pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewError> {
-    let lk = Lookup { game };
+    let lk = Lookup::of(game);
     let baseitems = game.table("baseitems")?;
     let base = uti.integer("BaseItem").unwrap_or(0);
     let row =
@@ -179,7 +179,7 @@ pub(crate) fn item_parts(
     colors: [u8; 10],
     female: bool,
 ) -> Result<Vec<Part>, PreviewError> {
-    let lk = Lookup { game };
+    let lk = Lookup::of(game);
     let baseitems = game.table("baseitems")?;
     let base = uti.integer("BaseItem").unwrap_or(0);
     let row =
@@ -275,5 +275,5 @@ fn armor(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, Preview
     let mut worn = uti.clone();
     worn.id = 0x2;
     utc.set("Equip_ItemList", Value::List(vec![worn]));
-    crate::creature::dressed(game, &utc, &|_: ResRef| None, false)
+    crate::creature::dressed(game, &utc, &|_: ResRef| None, false, None)
 }

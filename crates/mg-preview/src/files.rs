@@ -3,7 +3,7 @@
 //! are. For handing a placeable (or a door, an item, a creature) on to
 //! whoever mends its model, without digging through the haks for them.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use mg_core::{ResRef, ResType};
 use mg_gff::Struct;
@@ -36,6 +36,12 @@ pub struct Gatherer<'a> {
     seen: BTreeSet<ResKey>,
     /// Names given and found nowhere, each once, in the order met.
     missing: Vec<String>,
+    /// Those names, to tell one met before.
+    missed: HashSet<String>,
+    /// The textures gathered, each with how deep in a chain of textures
+    /// naming textures it was followed from at the shallowest: one met
+    /// again no shallower names nothing new.
+    textures: BTreeMap<ResRef, u8>,
     /// The models gathered that draw a mesh with `replace_tex`, which a
     /// tile of one draws with its replacement texture.
     replaced: BTreeSet<ResRef>,
@@ -48,6 +54,8 @@ impl<'a> Gatherer<'a> {
             out: Vec::new(),
             seen: BTreeSet::new(),
             missing: Vec::new(),
+            missed: HashSet::new(),
+            textures: BTreeMap::new(),
             replaced: BTreeSet::new(),
         }
     }
@@ -67,7 +75,7 @@ impl<'a> Gatherer<'a> {
     }
 
     fn miss(&mut self, name: String) {
-        if !self.missing.contains(&name) {
+        if self.missed.insert(name.clone()) {
             self.missing.push(name);
         }
     }
@@ -212,6 +220,12 @@ impl<'a> Gatherer<'a> {
         if name.eq_ignore_ascii_case("null") || depth > 4 {
             return;
         }
+        // (Once: every model of a tileset names the same few textures,
+        // and each was looked up, its MTR and TXI read, for each.)
+        match self.textures.get(&resref) {
+            Some(&done) if done <= depth => return,
+            _ => self.textures.insert(resref, depth),
+        };
         let material = self.add(resref, ResType::MTR);
         if material && let Some(data) = self.data(resref, ResType::MTR) {
             let mtr = Mtr::parse(&data);

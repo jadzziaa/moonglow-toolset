@@ -283,6 +283,11 @@ pub(crate) struct Walk<'a> {
     spec: Option<Option<Arc<mg_script::spec::Spec>>>,
     /// The rows followed, once each.
     rows: std::collections::HashSet<(Row, i64)>,
+    /// The names scripts and tables' cells gave, each tried once.
+    names: std::collections::HashSet<ResRef>,
+    /// What the previews of the objects walked have read of their parts'
+    /// models.
+    remembered: crate::Remembered,
     pub(crate) by_number: ByNumber,
 }
 
@@ -341,6 +346,8 @@ impl<'a> Walk<'a> {
             tables: None,
             spec: None,
             rows: Default::default(),
+            names: Default::default(),
+            remembered: Default::default(),
             by_number: ByNumber::default(),
         }
     }
@@ -475,6 +482,13 @@ impl<'a> Walk<'a> {
     /// script may name it is (a script, blueprint, conversation, sound,
     /// 2DA, model or texture).
     fn named(&mut self, r: ResRef) {
+        // (Once: a name is tried against 15 types, a model and a texture,
+        // each a look through every layer, and scripts give the same
+        // names again and again, in their source and compiled. What a
+        // name reaches the first time is reached.)
+        if !self.names.insert(r) {
+            return;
+        }
         let name = r.to_string().to_ascii_lowercase();
         for ty in NAMED_IN_SCRIPTS {
             self.reach(ResKey::new(r, ty));
@@ -621,7 +635,9 @@ impl<'a> Walk<'a> {
         let items = |r: ResRef| -> Option<Gff> {
             Gff::read(&rm.get(&ResKey::new(r, ResType::UTI)).ok()?).ok()
         };
-        if let Some(Ok(p)) = crate::of_object(self.game, kind, s, &items, crate::Shown::Placed) {
+        let shown = crate::Shown::Placed;
+        let kept = Some(&self.remembered);
+        if let Some(Ok(p)) = crate::of_object_with(self.game, kind, s, &items, shown, kept) {
             self.gather.preview(&p);
         }
     }
@@ -1102,7 +1118,7 @@ impl<'a> Walk<'a> {
     /// NULL` takes too ([`crate::creature::plt_fallbacks`]).
     fn body_part(&mut self, model: &str) {
         self.gather.add_model(model);
-        let lk = crate::Lookup { game: self.game };
+        let lk = crate::Lookup { game: self.game, remembered: Some(&self.remembered) };
         for texture in crate::creature::plt_fallbacks(&lk, model).values() {
             self.gather.add_texture(mg_image::plt::split_colors(texture).0);
         }
@@ -1599,6 +1615,114 @@ mod tests {
         // (A head and a cloak row nothing has.)
         assert_eq!(reached("pmh0_head124.plt"), None);
         assert_eq!(reached("cloak_008.plt"), None);
+    }
+
+    /// A container that counts how often each of its resources is read
+    /// and asked after.
+    #[derive(Debug)]
+    struct Counting {
+        files: MemContainer,
+        asked: Arc<std::sync::Mutex<HashMap<ResKey, (usize, usize)>>>,
+    }
+
+    impl mg_resman::Container for Counting {
+        fn contains(&self, key: &ResKey) -> bool {
+            self.asked.lock().unwrap().entry(*key).or_default().1 += 1;
+            self.files.contains(key)
+        }
+        fn read(&self, key: &ResKey) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
+            self.asked.lock().unwrap().entry(*key).or_default().0 += 1;
+            self.files.read(key)
+        }
+        fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+            self.files.keys()
+        }
+        fn len(&self) -> usize {
+            self.files.len()
+        }
+    }
+
+    /// The walk looks a thing up once, however often it meets it: a body
+    /// part's model is read once for its textures' fallbacks (and once to
+    /// gather it), not once more for every creature placed that has it; a
+    /// name a script gives fifty times is tried once; a texture every
+    /// model names has its material looked for once. And what it reaches
+    /// is the same as with one of each (the review's M17).
+    #[test]
+    fn the_walk_looks_a_thing_up_once_however_often_it_meets_it() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let walk_of = |copies: usize| {
+            let mut stock = MemContainer::new();
+            stock.insert(key("appearance.2da"), table("   LABEL MODELTYPE RACE\n0 Human P H\n"));
+            stock.insert(key("gender.2da"), table(" NAME GENDER\n0 Male M\n"));
+            stock.insert(key("phenotype.2da"), table(" Label DefaultPhenoType\n0 Normal 0\n"));
+            stock.insert(key("parts_robe.2da"), table(" COSTMODIFIER\n0 0\n"));
+            stock.insert(
+                key("capart.2da"),
+                table(" NAME MDLNAME NODENAME\n0 Torso chest torso_g\n1 Pelvis pelvis pelvis_g\n"),
+            );
+            stock.insert(
+                key("baseitems.2da"),
+                table(" label ItemClass ModelType\n0 sword WSwSs 2\n"),
+            );
+            let mut content = MemContainer::new();
+            content.insert(key("pmh0.mdl"), model("pmh0", "NULL"));
+            for part in ["pmh0_chest001", "pmh0_pelvis001", "pmh0_head001"] {
+                content.insert(key(&format!("{part}.mdl")), model(part, part));
+                content.insert(key(&format!("{part}.plt")), &b"plt"[..]);
+            }
+            content.insert(key("mg_named.utp"), {
+                let mut g = Gff::new(*b"UTP ");
+                g.root.set("Appearance", Value::Dword(0));
+                g.to_bytes().unwrap()
+            });
+            let mut man = Struct::new(4);
+            man.set("Appearance_Type", Value::Word(0));
+            man.set("Appearance_Head", Value::Byte(1));
+            man.set("BodyPart_Torso", Value::Byte(1));
+            man.set("BodyPart_Pelvis", Value::Byte(1));
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("Creature List", Value::List(vec![man; copies]));
+            let script = format!("void main() {{ {} }}", "f(\"mg_named\"); ".repeat(copies));
+            let asked = Arc::new(std::sync::Mutex::new(HashMap::new()));
+            let content = Counting { files: content, asked: asked.clone() };
+            let mut module = MemContainer::new();
+            let mut m = Module::new();
+            for (name, data) in
+                [("a1.git", git.to_bytes().unwrap()), ("s.nss", script.into_bytes())]
+            {
+                module.insert(key(name), data.clone());
+                m.set(key(name), data);
+            }
+            let mut rm = ResMan::new();
+            rm.add(priority::MODULE, "module", LayerClass::Erf, module);
+            rm.add(priority::HAK_USER, "hak:mg_content", LayerClass::Erf, content);
+            rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+            let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+            let mut walk = Walk::new(&game);
+            walk.module(&m);
+            walk.settle();
+            let mut reached: Vec<(ResKey, ResKey)> = walk.from.into_iter().collect();
+            reached.sort();
+            let asked = asked.lock().unwrap().clone();
+            (reached, asked)
+        };
+        let (one, _) = walk_of(1);
+        let (many, asked) = walk_of(50);
+        assert_eq!(many, one, "the same reached, from the same");
+        for n in ["pmh0_chest001.mdl", "pmh0_head001.plt", "mg_named.utp"] {
+            assert!(one.iter().any(|(k, _)| *k == key(n)), "{n} is reached: {one:?}");
+        }
+        let of = |n: &str| asked.get(&key(n)).copied().unwrap_or_default();
+        for part in ["pmh0_chest001.mdl", "pmh0_pelvis001.mdl", "pmh0_head001.mdl"] {
+            assert!(of(part).0 <= 2, "{part} was read {} times", of(part).0);
+        }
+        // (Asked after: the blueprint a script names, a model's texture's
+        // material and its image.)
+        for (n, most) in [("mg_named.utp", 4), ("pmh0_chest001.mtr", 4), ("pmh0_chest001.plt", 12)]
+        {
+            assert!(of(n).1 <= most, "{n} was asked after {} times", of(n).1);
+        }
     }
 
     /// What the walk followed only since the deferred sprint: a creature's

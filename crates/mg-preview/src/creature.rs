@@ -127,21 +127,23 @@ pub fn creature(
     utc: &Struct,
     item: &dyn Fn(ResRef) -> Option<Gff>,
 ) -> Result<Preview, PreviewError> {
-    dressed(game, utc, item, true)
+    dressed(game, utc, item, true, None)
 }
 
 /// [`creature`], what it may not wear left off where `as_the_game` (an
-/// armor's preview is a body that wears it whatever).
+/// armor's preview is a body that wears it whatever); `remembered`: what
+/// a walk over many creatures has read of their parts' models already.
 pub(crate) fn dressed(
     game: &GameData,
     utc: &Struct,
     item: &dyn Fn(ResRef) -> Option<Gff>,
     as_the_game: bool,
+    remembered: Option<&crate::Remembered>,
 ) -> Result<Preview, PreviewError> {
     let worn = |slot| {
         equipped(utc, slot, item).filter(|it| !as_the_game || game.wear_problem(utc, it).is_none())
     };
-    let lk = Lookup { game };
+    let lk = Lookup { game, remembered };
     let appearance = game.table("appearance")?;
     let row = number(utc, "Appearance_Type");
     // (A model of its own, where the row names one, that is there.)
@@ -395,6 +397,18 @@ pub(crate) fn plt_fallbacks(
     lk: &Lookup<'_>,
     model: &str,
 ) -> std::collections::BTreeMap<String, String> {
+    let model = model.to_ascii_lowercase();
+    let Some(kept) = lk.remembered else { return read_plt_fallbacks(lk, &model) };
+    if let Some(found) = kept.fallbacks.borrow().get(&model) {
+        return found.clone();
+    }
+    let found = read_plt_fallbacks(lk, &model);
+    kept.fallbacks.borrow_mut().insert(model, found.clone());
+    found
+}
+
+/// [`plt_fallbacks`] of `model` (lower case), read from the load order.
+fn read_plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
     // A part's name, and its fallbacks.
     let named = |name: &str| -> Vec<String> {
         let Some(part) = models::part_name(name) else { return Vec::new() };
@@ -406,7 +420,6 @@ pub(crate) fn plt_fallbacks(
             format!("pmh0_{rest}"),
         ]
     };
-    let model = model.to_ascii_lowercase();
     let mut out = std::collections::BTreeMap::new();
     // The part's own texture, where there is one, is what the game draws
     // on it, though its mesh names another part's (the game's own thigh 3
@@ -416,9 +429,9 @@ pub(crate) fn plt_fallbacks(
     // chest 3 names the human's chest 4 and is drawn in the human's
     // chest 3). A mesh naming something that is no part's (a head's hair,
     // a gem) keeps that.
-    let own = named(&model).into_iter().take(3).find(|c| lk.has_texture(c));
+    let own = named(model).into_iter().take(3).find(|c| lk.has_texture(c));
     // (The model read once, for its textures and for a mesh without one.)
-    let parsed = lk.model(&model);
+    let parsed = lk.model(model);
     for b in parsed.as_deref().map_or_else(Vec::new, crate::bitmaps) {
         if let Some(own) = own.as_ref().filter(|own| **own != b && !named(&b).is_empty()) {
             out.insert(b, own.clone());
@@ -427,7 +440,7 @@ pub(crate) fn plt_fallbacks(
         if lk.has_texture(&b) {
             continue;
         }
-        let candidates = named(&model).into_iter().chain(named(&b));
+        let candidates = named(model).into_iter().chain(named(&b));
         if let Some(c) = candidates.into_iter().find(|c| *c != b && lk.has_texture(c)) {
             out.insert(b, c);
         }
@@ -436,7 +449,7 @@ pub(crate) fn plt_fallbacks(
     // CEP's heads: `bitmap NULL`, with a PLT of the head's name). Under the
     // empty name (`mg_render::Instance::textures`).
     if parsed.as_deref().is_some_and(crate::unnamed_mesh)
-        && let Some(c) = named(&model).into_iter().find(|c| lk.has_texture(c))
+        && let Some(c) = named(model).into_iter().find(|c| lk.has_texture(c))
     {
         out.insert(String::new(), c);
     }

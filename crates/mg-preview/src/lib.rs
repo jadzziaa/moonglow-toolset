@@ -321,9 +321,22 @@ pub fn of_object(
     items: &dyn Fn(ResRef) -> Option<mg_gff::Gff>,
     shown: Shown,
 ) -> Option<Result<Preview, PreviewError>> {
+    of_object_with(game, kind, object, items, shown, None)
+}
+
+/// [`of_object`], with what a walk over many objects remembers of the
+/// models it has read ([`Remembered`]).
+pub(crate) fn of_object_with(
+    game: &GameData,
+    kind: mg_rules::ObjectKind,
+    object: &Struct,
+    items: &dyn Fn(ResRef) -> Option<mg_gff::Gff>,
+    shown: Shown,
+    remembered: Option<&Remembered>,
+) -> Option<Result<Preview, PreviewError>> {
     use mg_rules::ObjectKind as K;
     let preview = match kind {
-        K::Creature => creature(game, object, items),
+        K::Creature => creature::dressed(game, object, items, true, remembered),
         K::Door => door(game, object),
         K::Item => match shown {
             Shown::Alone { female } => item_on(game, object, female),
@@ -423,12 +436,30 @@ fn env_map(value: Option<&str>) -> Option<String> {
     value.map(str::to_ascii_lowercase)
 }
 
+/// What a walk over many objects (a module's every placed creature)
+/// keeps of the part models it has read, by model name: a body's parts
+/// are the same few models on every creature, and each was read and
+/// parsed again for each. Good for one game's load order as it is.
+#[derive(Debug, Default)]
+pub(crate) struct Remembered {
+    /// [`creature::plt_fallbacks`]' answers.
+    fallbacks: std::cell::RefCell<std::collections::HashMap<String, BTreeMap<String, String>>>,
+    /// [`Lookup::bitmaps`]' answers.
+    bitmaps: std::cell::RefCell<std::collections::HashMap<String, Vec<String>>>,
+}
+
 /// Resources the builders look up.
 struct Lookup<'a> {
     game: &'a GameData,
+    /// What the walk this is part of has looked up already.
+    remembered: Option<&'a Remembered>,
 }
 
-impl Lookup<'_> {
+impl<'a> Lookup<'a> {
+    fn of(game: &'a GameData) -> Lookup<'a> {
+        Lookup { game, remembered: None }
+    }
+
     /// Whether the game has the model (by its lists: nothing is read).
     fn has_model(&self, name: &str) -> bool {
         mg_resman::ResKey::parse(name, ResType::MDL).is_some_and(|k| self.game.resman.contains(&k))
@@ -462,7 +493,14 @@ impl Lookup<'_> {
 
     /// The meshes' textures (lower case).
     fn bitmaps(&self, model: &str) -> Vec<String> {
-        self.model(model).map_or_else(Vec::new, |m| bitmaps(&m))
+        let read = || self.model(model).map_or_else(Vec::new, |m| bitmaps(&m));
+        let Some(kept) = self.remembered else { return read() };
+        if let Some(found) = kept.bitmaps.borrow().get(model) {
+            return found.clone();
+        }
+        let found = read();
+        kept.bitmaps.borrow_mut().insert(model.to_string(), found.clone());
+        found
     }
 }
 
@@ -688,7 +726,7 @@ mod tests {
         let mut rm = mg_resman::ResMan::new();
         rm.add(mg_resman::priority::HAK_USER, "hak:x", mg_resman::LayerClass::Erf, listed);
         let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
-        let lk = Lookup { game: &game };
+        let lk = Lookup::of(&game);
         assert!(lk.has_model("c_orc") && !lk.has_model("c_elf"));
         assert!(!lk.has_model("a name too long for a resource"));
         for texture in ["c_orc", "old", "skin", "metal"] {
