@@ -548,7 +548,7 @@ to the module as one undoable step.
 | `ctx.edit:remove(name, field)` | Removes a field. |
 | `ctx.edit:insert(name, list, item, index?)` | Adds an item to the list at path `list`: a struct as `raw` writes one (`{ __struct_id = 2, Class = mg.int(4) }`), at `index` (0 is first), or at the end. Returns the index it is at. |
 | `ctx.edit:remove_item(name, item)` | Removes a list's item, by its path (`"/ClassList[0]"`). |
-| `ctx.edit:write(name, text)` | Writes a resource as text (new, or in place of what was there), converted to the module's codepage. |
+| `ctx.edit:write(name, text)` | Writes a resource as text (new, or in place of what was there), converted to the module's codepage. A new resource's name is one a file can have (no `/`, `\` or `:`), here and in the two below. |
 | `ctx.edit:write_bytes(name, bytes)` | Writes a resource as the bytes given. |
 | `ctx.edit:write_gff(name, document)` | Writes a GFF resource from its `raw` form (with `__data_type`). |
 | `ctx.edit:delete(name)` | Removes a resource from the module. |

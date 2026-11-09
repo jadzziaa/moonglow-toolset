@@ -728,6 +728,20 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
     Ok(t)
 }
 
+/// The resource a job writes whole (`ctx.edit:write` and its like): one
+/// the module has, by whatever name it has it, or a new one, whose name a
+/// file can have ([`ResRef::is_file_name`]). A module kept as files could
+/// not be saved with one that can't, and the save fails for all of it.
+fn key_to_write(s: &Shared, name: &str) -> mlua::Result<ResKey> {
+    let key = key_of(name)?;
+    if !key.resref.is_file_name() && !s.ws.borrow().module.contains(&key) {
+        return fail(format!(
+            "{name:?} can't be a new resource's name: a file can't be named so (no /, \\ or :)"
+        ));
+    }
+    Ok(key)
+}
+
 /// `ctx.edit`: the changes a command makes.
 fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     let t = lua.create_table()?;
@@ -838,7 +852,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     t.set(
         "write",
         lua.create_function(move |_, (_, name, text): (This, String, mlua::LuaString)| {
-            let key = key_of(&name)?;
+            let key = key_to_write(&s, &name)?;
             let text =
                 text.to_str().or_else(|_| fail("text must be UTF-8 (write_bytes takes any)"))?;
             let Some(data) = codepage().encode(&text) else {
@@ -851,7 +865,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     t.set(
         "write_bytes",
         lua.create_function(move |_, (_, name, bytes): (This, String, mlua::LuaString)| {
-            let key = key_of(&name)?;
+            let key = key_to_write(&s, &name)?;
             s.apply(Edit::SetResource { key, data: Some(bytes.as_bytes().to_vec()) })
         })?,
     )?;
@@ -859,7 +873,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     t.set(
         "write_gff",
         lua.create_function(move |lua, (_, name, doc): (This, String, LuaValue)| {
-            let key = key_of(&name)?;
+            let key = key_to_write(&s, &name)?;
             let json = json_of(lua, doc)?;
             let gff =
                 mg_gff::from_json(&json, codepage()).or_else(|e| fail(format!("{key}{e}")))?;

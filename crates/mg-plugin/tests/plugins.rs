@@ -463,6 +463,36 @@ fn what_the_host_holds_for_a_job_has_a_limit() {
     assert!(e.contains("hold more than the 512 MB a job may"), "{e}");
 }
 
+/// A new resource's name is one a file can have: `a/b.nss` could be
+/// written into an archive, and a module kept as files then could not be
+/// saved at all. A resource an archive already has under such a name is
+/// still read and written.
+#[test]
+fn a_new_resource_has_a_name_a_file_can_have() {
+    use mg_plugin::run_console;
+    let run = |module: Module, code: &str| {
+        let host = Rc::new(TestHost::default());
+        run_console(code, Input::new(module, None), host).map_err(|e| e.to_string())
+    };
+    for write in [
+        "ctx.edit:write('a/b.nss', 'void main() {}')",
+        "ctx.edit:write_bytes('a\\\\b.nss', 'x')",
+        "ctx.edit:write_bytes('c:b.nss', 'x')",
+        "ctx.edit:write_gff('../b.utc', { __data_type = 'UTC ' })",
+    ] {
+        let e = run(module(), write).unwrap_err();
+        assert!(e.contains("can't be a new resource's name"), "{write}: {e}");
+    }
+    let made = run(module(), "ctx.edit:write('fine.nss', 'void main() {}')").unwrap();
+    assert_eq!(made.edits.len(), 1);
+    // One the module has: an archive's, oddly named.
+    let mut odd = module();
+    odd.set(key("a/b.nss"), b"void main() { }".to_vec());
+    let code = "ctx.edit:write('a/b.nss', ctx.module:text('a/b.nss') .. '// read')";
+    let made = run(odd, code).unwrap();
+    assert!(matches!(&made.edits[0], Edit::SetResource { key: k, .. } if *k == key("a/b.nss")));
+}
+
 #[test]
 fn a_bad_edit_fails_where_it_is_made() {
     let host = Rc::new(TestHost::default());
