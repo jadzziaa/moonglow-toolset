@@ -1682,6 +1682,8 @@ fn var_body(
 pub struct VarPage {
     edit: VarTableEdit,
     read: Vec<Struct>,
+    /// The pass it was last drawn in: one not drawn since is forgotten.
+    drawn: u64,
 }
 
 /// A Properties window's Variables page (Carcerian's ask: variables are
@@ -1702,10 +1704,21 @@ pub(crate) fn variables_page(
     let id = (target.key, target.path.clone());
     // (Read anew where the list changed, but not under the fields typed in.)
     let typing = ui.ctx().memory(|m| m.focused().is_some());
+    // (A page not drawn in the pass before is another showing of it: a
+    // row added and not yet named, or a value that is no number, kept past
+    // its window's Cancel, came back when the window was next opened, and
+    // was set then.)
+    let pass = ui.ctx().cumulative_pass_nr();
+    app.var_pages.retain(|_, p| p.drawn + 1 >= pass);
     let mut page = match app.var_pages.remove(&id) {
         Some(p) if p.edit.target == target && (p.read == list || typing) => p,
-        _ => VarPage { edit: VarTableEdit::new(target.clone(), list), read: list.to_vec() },
+        _ => VarPage {
+            edit: VarTableEdit::new(target.clone(), list),
+            read: list.to_vec(),
+            drawn: pass,
+        },
     };
+    page.drawn = pass;
     let edit = &mut page.edit;
     if edit.described.is_none() {
         edit.described = Some(VarHelp::of(app, &edit.target));

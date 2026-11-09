@@ -2647,6 +2647,30 @@ fn the_variables_page_edits_them_in_place() {
     assert!(h.query_by_label("Delete").is_none(), "the page shows it as it is");
 }
 
+/// A row added and not yet named (not set: it has no name) was kept
+/// after its page was left, and shown again, to be set, when the page
+/// was next opened (the review of November 2026, S12): a page not drawn
+/// is forgotten, and shows the list as stored.
+#[test]
+fn the_variables_page_forgets_what_was_not_set_once_it_is_left() {
+    let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "wp_vars_left", ResType::UTW)
+    else {
+        return;
+    };
+    h.run();
+    h.get_all_by_label("Variables").next().unwrap().click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Delete").is_some(), "a row, not yet named");
+    h.get_by_label("Advanced").click();
+    h.run_steps(3);
+    h.get_all_by_label("Variables").next().unwrap().click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Delete").is_none(), "the list as stored: no row");
+    assert!(field(&mut h, &key).list("VarTable").is_none_or(<[_]>::is_empty));
+}
+
 #[test]
 fn variable_sets_are_saved_and_added_elsewhere() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_vars", ResType::UTW)
