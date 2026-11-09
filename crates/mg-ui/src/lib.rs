@@ -4426,6 +4426,9 @@ impl Moonglow {
         // (Tables first: one of a hak's is saved into the hak, which is
         // then written; one of the module's is a step saved below.)
         self.save_side_docs();
+        // (The recovery copy of where it is saved from: named by that
+        // place, which Save As leaves.)
+        let copy_before = self.recovery_archive();
         let Some(ws) = &mut self.ws else { return };
         // The custom palettes, as Aurora keeps them: the entries of the
         // blueprints added, changed or deleted since the module was opened
@@ -4469,6 +4472,12 @@ impl Moonglow {
                 self.log.info(format!("Saved {}", path.display()));
                 self.settings.remember(&path);
                 self.forget_recovery();
+                // (Saved elsewhere, or a new module's first save: the copy
+                // made under its old place holds work that is saved now,
+                // and was offered as unsaved at the next start.)
+                if let Some((archive, note)) = copy_before {
+                    recovery::Copy { archive, note }.remove();
+                }
                 self.keep_locks();
                 self.write_mod_beside_folder();
                 self.plugins_module_saved();

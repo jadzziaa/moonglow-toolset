@@ -192,7 +192,7 @@ impl Drop for Done {
 
 impl Moonglow {
     /// Where the open module's copy goes (with no folder: no copies).
-    fn recovery_archive(&self) -> Option<(PathBuf, Note)> {
+    pub(crate) fn recovery_archive(&self) -> Option<(PathBuf, Note)> {
         let dir = self.recovery_dir.as_ref()?;
         let ws = self.ws.as_ref()?;
         let module = ws.module.location.as_ref().map(|l| l.path().to_path_buf());
@@ -592,6 +592,21 @@ mod tests {
         let key = mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
         let copy = find(&dir.join("recovery")).into_iter().next()?;
         Module::open(&copy.archive).ok()?.get(&key).map(<[u8]>::to_vec)
+    }
+
+    /// Save As (and a new module's first save) left the copy made under
+    /// the old place: offered as unsaved work at the next start, and
+    /// Recover put it over the old module (the review of November 2026,
+    /// S6).
+    #[test]
+    fn a_save_elsewhere_takes_the_old_place_s_copy_with_it() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-save-as");
+        let mut app = changed(&dir);
+        app.write_recovery().unwrap();
+        assert_eq!(find(&dir.join("recovery")).len(), 1);
+        app.save(Some(ModuleLocation::Archive(dir.join("other.mod"))));
+        assert!(dir.join("other.mod").is_file());
+        assert!(find(&dir.join("recovery")).is_empty(), "the work is saved");
     }
 
     /// A panic in a thread of its own (a job's, an autosave's) leaves the
