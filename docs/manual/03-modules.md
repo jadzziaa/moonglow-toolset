@@ -1391,7 +1391,10 @@ Choosing one:
    ended (a question, `Continue? [y/N] `) shows there at once.
    **Cancel** stops it, and what it started (a `git` it runs, the
    shell's process group on Linux and macOS, asked to end and then made
-   to after two seconds; the shell's tree of processes on Windows). The
+   to after two seconds; the shell's tree of processes on Windows). A
+   command is over when its shell ends: a program its script leaves
+   running (`mg watch . &`, a server) runs on, and what it says after
+   the first second is no longer read. The
    log says how it ended: done, or its exit code. **File › Project ›
    Command Output** shows the last command's output afterwards, all of
    it (its last 20,000 lines; the log keeps the rest), how it ended,

@@ -471,8 +471,10 @@ pub(crate) fn run_steps(
     // (A command that writes none of the module's files has its haks
     // left open: nothing to draw again after.)
     let released = let_go == Some(true) && app.release_haks();
-    let output = app.project_commands.output.clone();
-    *output.lock().unwrap_or_else(|e| e.into_inner()) = Incoming::default();
+    // (Its own: what a program the last command left running still says
+    // goes to that command's, which nothing reads any more.)
+    let output = Output::default();
+    app.project_commands.output = output.clone();
     let state = &mut app.project_commands;
     state.last = Some(Last { label: label.clone(), ..Last::default() });
     state.running = true;
@@ -600,13 +602,31 @@ fn run_child(
         }
     };
     drop(stdin);
-    // (A program it started may hold the pipes past its end.)
+    // What it said last is read: its pipes end with it, unless a program
+    // it started and left running holds them (`mg watch . &`, a server, on
+    // Windows `start tool.exe`). Those are waited for a moment and then
+    // left: waited for to their end, the job never ended and Cancel, read
+    // only while the shell ran, did nothing. A reader left behind writes
+    // into this run's output alone ([`run_steps`] gives each its own).
     if !matches!(ended, Ended::Canceled) {
-        let _ = out.join();
-        let _ = errs.join();
+        let until = std::time::Instant::now() + READERS_WAIT;
+        while !(out.is_finished() && errs.is_finished())
+            && std::time::Instant::now() < until
+            && !progress.cancelled()
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if !(out.is_finished() && errs.is_finished()) {
+            // (The lines begun are all there will be of them.)
+            output.lock().unwrap_or_else(|e| e.into_inner()).end_lines();
+        }
     }
     ended
 }
+
+/// How long a command's output is still read after its shell ended, where
+/// a program it left running holds the pipes.
+const READERS_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The command over: how it ended, in its window; its input closed.
 fn ended_with(app: &mut Moonglow, said: String) {
@@ -947,6 +967,34 @@ mod tests {
         }
         assert!(test_kill_process(sleeper).is_err(), "what it started ended with it");
         assert!(began.elapsed() < Duration::from_secs(2), "asked, it ended at once");
+    }
+
+    /// A command whose script leaves a program running (`mg watch . &`, a
+    /// server) ends when its shell does: the program holds the shell's
+    /// pipes, and waiting for their end kept the job's window up for good,
+    /// with a Cancel that did nothing (the review of November 2026, D3).
+    /// What the shell said is all there.
+    #[test]
+    fn a_command_that_leaves_a_program_running_ends_with_its_shell() {
+        use rustix::process::{Pid, Signal, kill_process};
+        let output = Output::default();
+        let (_send, typed) = std::sync::mpsc::channel();
+        let progress = crate::jobs::Progress::default();
+        let began = Instant::now();
+        let command = shell("sleep 30 & echo $!; printf begun", Path::new("."), false);
+        let ended = run_child(command, &output, &typed, &mut false, &progress);
+        assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
+        assert!(matches!(ended, Ended::Exited(Some(0))), "{ended:?}");
+        let said: Vec<String> = {
+            let o = output.lock().unwrap();
+            o.lines.iter().map(|(_, l)| l.clone()).collect()
+        };
+        // (Its last line, begun and never ended, too.)
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(said[1], "begun");
+        // (The sleeper is the test's own to stop.)
+        let sleeper = Pid::from_raw(said[0].trim().parse().unwrap()).unwrap();
+        let _ = kill_process(sleeper, Signal::KILL);
     }
 }
 
