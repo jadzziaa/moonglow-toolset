@@ -337,15 +337,20 @@ pub(crate) fn tidy(project: &Path, dirs: &[PathBuf], dry_run: bool) -> Result<Ou
     for p in &plugins {
         // (The files read again: the one before may have changed them.)
         let file = mg_module::project_file::ProjectFile::read(&root);
-        let done = mg_plugin::settings::tidy(&p.manifest, &mut user, Some((&root, &file)), dry_run)
-            .map_err(|e| anyhow!("{}: {e}", p.manifest.id))?;
+        let had = user.clone();
+        let done = mg_plugin::settings::tidy(&p.manifest, &mut user, Some((&root, &file)), dry_run);
+        // What it moved into the user's own file is written before
+        // anything else is tidied, whether or not the tidy went through:
+        // it is out of the project's file already, and a failure further
+        // on (this plugin's, or the next one's) would leave it in neither.
+        if let (Some(path), false, true) = (&path, dry_run, user != had) {
+            mg_plugin::settings::write_user(path, &user).map_err(|e| anyhow!("{e}"))?;
+        }
+        let done = done.map_err(|e| anyhow!("{}: {e}", p.manifest.id))?;
         for line in &done {
             out.line(format!("{}\t{}{line}", p.manifest.id, if dry_run { "would: " } else { "" }));
         }
         all.push(json!({ "id": p.manifest.id, "done": done }));
-    }
-    if let (Some(path), false) = (&path, dry_run) {
-        mg_plugin::settings::write_user(path, &user).map_err(|e| anyhow!("{e}"))?;
     }
     let known: Vec<&str> = plugins.iter().map(|p| p.manifest.id.as_str()).collect();
     let file = mg_module::project_file::ProjectFile::read(&root);

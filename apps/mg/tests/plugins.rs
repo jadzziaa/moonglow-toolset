@@ -836,7 +836,6 @@ fn a_project_s_plugin_settings_are_tidied() {
     assert!(own.contains("code = \"ab\""), "moved where its scope keeps it: {own}");
 }
 
-/// The House rules example (a resource's own events, API 0.4).
 /// A plugin that refuses every save, written into `dir`.
 pub(crate) fn refuser(dir: &Path) {
     std::fs::create_dir_all(dir).unwrap();
@@ -854,6 +853,60 @@ pub(crate) fn refuser(dir: &Path) {
     .unwrap();
 }
 
+/// A value `mg plugin tidy` moves out of the project's file into the
+/// user's own is written there before anything else is tidied: a plugin
+/// further on whose tidy fails (here, the builder's own project file
+/// can't be written) left it in neither place.
+#[cfg(unix)]
+#[test]
+fn a_setting_moved_by_tidy_is_kept_when_a_later_tidy_fails() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = project_with_plugins("mg-plugin-tidy-fails");
+    let home = dir.join("home");
+    let plugin = |id: &str, setting: &str| {
+        let at = dir.join("named").join(id);
+        std::fs::create_dir_all(&at).unwrap();
+        let cfg = format!(
+            "[plugin]\nid = \"{id}\"\nname = \"{id}\"\nversion = \"1\"\napi = \"0.4\"\n\
+             license = \"MIT\"\n\n{setting}"
+        );
+        std::fs::write(at.join("plugin.cfg"), cfg).unwrap();
+        std::fs::write(at.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+        at
+    };
+    let one = plugin("a.one", "[setting]\nid = \"name\"\nlabel = \"Name\"\nscope = \"user\"\n");
+    let two = plugin("b.two", "");
+    std::fs::write(dir.join("moonglow.toml"), "[plugins.\"a.one\"]\nname = \"mine\"\n").unwrap();
+    let own = dir.join(".moonglow");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("user.toml"), "[plugins.\"b.two\"]\nlost = 1\n").unwrap();
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // (Who may write anywhere, the administrator, is not held by it.)
+    let held = std::fs::write(own.join("probe"), b"").is_err();
+    let project = dir.to_str().unwrap();
+    let (ok, out) =
+        mg_at(&home, &["plugin", "tidy", project, one.to_str().unwrap(), two.to_str().unwrap()]);
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if !held {
+        return;
+    }
+    assert!(!ok && out["error"].as_str().unwrap().starts_with("b.two: "), "{out}");
+    // Out of the project's file, and in the user's own.
+    assert!(!std::fs::read_to_string(dir.join("moonglow.toml")).unwrap().contains("mine"));
+    let mut kept = Vec::new();
+    let mut folders = vec![home.clone()];
+    while let Some(folder) = folders.pop() {
+        for e in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+            match e.path().is_dir() {
+                true => folders.push(e.path()),
+                false => kept.push(std::fs::read_to_string(e.path()).unwrap_or_default()),
+            }
+        }
+    }
+    assert!(kept.iter().any(|text| text.contains("a.one") && text.contains("mine")), "{kept:?}");
+}
+
+/// The House rules example (a resource's own events, API 0.4).
 fn house_rules() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/house-rules")
 }
