@@ -3662,6 +3662,20 @@ impl Moonglow {
                     | Action::ProjectCommand(_)
             ),
         };
+        // A job under way works on the module as it was when it began, and
+        // hands its work to the module open when it ends: nothing replaces
+        // or closes the module, or the window, under it. (Its window stops
+        // the pointer and the command keys, not a file dropped on the
+        // window, a menu's own keys or the window's close button.)
+        if let Some(job) = &self.job
+            && (discards || matches!(action, Action::CloseWindow | Action::Quit))
+        {
+            let title = job.title.clone();
+            self.log.warn(format!(
+                "{title} is still running: wait for it to finish, or cancel it, first"
+            ));
+            return;
+        }
         // (Q and E's turning under way is work to keep, or to ask about.)
         if discards || action == Action::CloseWindow {
             area_view::commit_key_turns(self);

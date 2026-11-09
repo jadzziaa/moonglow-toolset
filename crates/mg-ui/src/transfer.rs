@@ -330,6 +330,14 @@ impl Moonglow {
     /// Files and folders dropped onto the window (from the desktop's file
     /// manager), as [`dropped_to`] says what becomes of them.
     pub(crate) fn take_dropped(&mut self, paths: Vec<PathBuf>) {
+        // (Not under a job: what it hands over goes to the module it began
+        // on, as it was.)
+        if let Some(job) = &self.job {
+            let title = job.title.clone();
+            self.log
+                .warn(format!("Nothing taken from {}: {title} is still running", named(&paths)));
+            return;
+        }
         match dropped_to(&paths, self.ws.is_some()) {
             Dropped::Module(p) => self.actions.push(Action::OpenModule(p)),
             Dropped::Hak(p) => _ = crate::hak_view::open_at(self, &p),

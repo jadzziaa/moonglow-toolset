@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T07:56:44Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-09T22:40:54Z }
 ---
 
 # Build, verify and test
@@ -245,7 +245,9 @@ input, so nothing changes under the work; what it made (compiled scripts,
 say) then goes in as one step that Undo takes back. Canceled, it changes
 nothing. The build before saving (Options › General) and the compile
 before a test run wait instead, since saving and testing need their
-result.
+result. A module dropped on the window, Open, Close and the window's
+close button wait too: the log says the work is still running, and they
+are yours again once it is done or canceled.
 
 ## Verify Module
 

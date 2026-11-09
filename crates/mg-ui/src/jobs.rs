@@ -388,6 +388,37 @@ mod tests {
         app.log.entries.iter().any(|(l, m)| *l == level && m.contains(what))
     }
 
+    /// A module dropped on the window (or opened by a menu's own keys)
+    /// while a job ran was opened over it, and the job's work was then
+    /// handed to that module; the window's close button quit under it
+    /// (the review of November 2026, S5 and D7).
+    #[test]
+    fn nothing_replaces_the_module_or_closes_the_window_under_a_job() {
+        let mut app = app("ui-job-holds");
+        let other = mg_testkit::scratch_dir("ui-job-holds-other").join("other.mod");
+        Module::new().save_as(&ModuleLocation::Archive(other.clone())).unwrap();
+        let was = app.ws.as_ref().unwrap().module.location.clone();
+        let (go, wait) = mpsc::channel::<()>();
+        app.start_job("Count", move |_| _ = wait.recv(), |app, ()| app.log.info("counted"));
+        assert!(app.busy());
+        app.take_dropped(vec![other.clone()]);
+        app.actions.push(crate::Action::OpenModule(other));
+        app.actions.push(crate::Action::Close);
+        app.actions.push(crate::Action::CloseWindow);
+        app.actions.push(crate::Action::Quit);
+        app.run_actions();
+        assert_eq!(app.ws.as_ref().unwrap().module.location, was, "the module stays");
+        assert!(!app.quit_requested && app.confirm_discard.is_none());
+        assert!(logged(&app, Level::Warning, "Count is still running"));
+        go.send(()).unwrap();
+        until_done(&mut app);
+        assert!(logged(&app, Level::Info, "counted"));
+        // Over: they run again.
+        app.actions.push(crate::Action::Close);
+        app.run_actions();
+        assert!(app.ws.is_none());
+    }
+
     #[test]
     fn a_job_works_on_its_own_thread_and_hands_over_on_the_interface_s() {
         let mut app = app("ui-job");
