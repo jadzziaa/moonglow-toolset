@@ -46,6 +46,12 @@ pub struct TagClash {
     /// Shown as the builder's option says (the project's moonglow.toml
     /// doesn't set `paste_warning`): the window offers Don't warn again.
     pub from_option: bool,
+    /// The module's revision (`Workspace::revision`) the objects were
+    /// found at. They are kept by their places in their lists, and the
+    /// window doesn't stop the editor: once the module has changed
+    /// (another object of a list deleted, an Undo), Retag would give
+    /// whatever stands there the new tag, so it retags nothing then.
+    pub revision: u64,
 }
 
 /// The module's objects by tag, as they are now (unsaved edits too). An
@@ -147,9 +153,18 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     }
     let scripts = spelled(app, &[&found[..], &counted[..]].concat());
     let what = what.to_string();
-    let clash =
-        TagClash { what, clashes: found, objects, others, more, made, scripts, from_option };
-    app.tag_clash = Some(clash);
+    let revision = app.ws.as_ref().map_or(0, Workspace::revision);
+    app.tag_clash = Some(TagClash {
+        what,
+        clashes: found,
+        objects,
+        others,
+        more,
+        made,
+        scripts,
+        from_option,
+        revision,
+    });
 }
 
 /// The strings in the module's scripts that spell one of the tags
@@ -337,6 +352,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             });
         });
     if retag_them || retag_all {
+        if app.ws.as_ref().map(Workspace::revision) != Some(clash.revision) {
+            app.log.warn(format!(
+                "Retag: the module changed since {} was checked, and the objects may have moved \
+                 in their lists. Nothing was retagged.",
+                clash.what
+            ));
+            return;
+        }
         let edits = retag_edits(app, &clash, retag_all);
         let n = edits
             .iter()

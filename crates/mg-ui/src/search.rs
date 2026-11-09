@@ -542,6 +542,15 @@ pub struct AdvancedSearch {
     pub act: ActDraft,
     /// The events the objects found have (script fields' labels).
     pub events: Vec<String>,
+    /// The module's revision (`Workspace::revision`) the hits were found
+    /// at. A hit is a place (`keep.git /Creature List[3]`): once the
+    /// module has changed (an object deleted, an Undo, a file read again)
+    /// another object may stand there, so nothing acts on the hits before
+    /// they are found again.
+    pub found_at: Option<u64>,
+    /// Why a click did not do what it says (the hits were found again
+    /// first), until the next Find or change.
+    pub note: Option<String>,
 }
 
 impl AdvancedSearch {
@@ -630,14 +639,49 @@ impl Moonglow {
         draft.ticked = draft.hits.iter().map(|h| h.layer.is_none()).collect();
         draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
         draft.searched = Some(q);
+        draft.found_at = Some(ws.revision());
         // (A change's field follows what is looked for.)
         if let Some(field) = draft.first.field() {
             draft.act.name = field;
         }
     }
 
+    /// Whether the module changed since `draft`'s hits were found (its
+    /// pending edits written first): they are found again then, all
+    /// ticked, with a note of why, and the caller does nothing with them
+    /// this time. The hits name places, and whatever stands there now
+    /// would be changed, opened or edited together.
+    pub fn found_again(&mut self, draft: &mut AdvancedSearch) -> bool {
+        let Some(ws) = self.ws.as_mut() else { return false };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return true;
+        }
+        if draft.searched.is_none() || draft.found_at == Some(ws.revision()) {
+            return false;
+        }
+        // (What was asked then, not what the fields say now.)
+        let asked = draft.searched.clone();
+        let game = self.game.as_deref();
+        let cp = game.map_or(Codepage::WINDOWS_1252, GameData::codepage);
+        if let Some(q) = &asked {
+            draft.hits = self.search_kept.search(&ws.module, q, game, cp);
+            draft.ticked = draft.hits.iter().map(|h| h.layer.is_none()).collect();
+            draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
+            draft.found_at = Some(ws.revision());
+        }
+        draft.note = Some(
+            "The module changed since this was found. Found again, everything ticked: look the \
+             list over first."
+                .into(),
+        );
+        true
+    }
+
     /// Makes the window's change to what it found and ticked, in one
-    /// step, then finds again.
+    /// step, then finds again. Where the module changed since they were
+    /// found, they are found again and nothing is changed
+    /// ([`Moonglow::found_again`]).
     pub fn change_found(&mut self, draft: &mut AdvancedSearch) {
         let change = match draft.act.change(self.game.as_deref()) {
             Ok(c) => c,
@@ -646,6 +690,11 @@ impl Moonglow {
                 return;
             }
         };
+        if self.found_again(draft) {
+            draft.act.said = draft.note.clone();
+            return;
+        }
+        draft.note = None;
         let Some(ws) = self.ws.as_mut() else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
@@ -1204,6 +1253,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if draft.searched.is_some() && !current {
         ui.weak("Find again for what's asked now.");
     }
+    if let Some(note) = &draft.note {
+        ui.colored_label(ui.visuals().warn_fg_color, note);
+    }
     let mut open = Vec::new();
     let mut choose_areas = None;
     if draft.searched.is_some() {
@@ -1333,10 +1385,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if find && draft.query().is_ok() {
         draft.act.said = None;
+        draft.note = None;
         app.advanced_search(&mut draft);
     }
     if change {
         app.change_found(&mut draft);
+    }
+    // (A place opened or edited together is the hit's as it was found:
+    // in a module changed since, they are found again instead.)
+    let acts = go.is_some() || !open.is_empty() || choose_areas.is_some();
+    if acts && app.found_again(&mut draft) {
+        (go, choose_areas) = (None, None);
+        open.clear();
     }
     if let Some(i) = go {
         let h = &draft.hits[i];

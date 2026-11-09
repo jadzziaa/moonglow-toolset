@@ -431,6 +431,9 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_eq!(var(&creature(&mut h, 0)), None, "undone as one");
+    // (The module changed under what was found: found again first.)
+    h.get_by_label("Find").click();
+    h.run();
     // An event's script, on both.
     {
         let a = &mut h.state_mut().advanced_search.act;
@@ -469,6 +472,98 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.run_steps(2);
     // (The chooser's button: one area ticked.)
     h.get_by_label("Edit 1 Together");
+}
+
+/// What Advanced Search found is a list of places (`start.git /Creature
+/// List[1]`). With an object before one deleted since, Change wrote to
+/// whatever stood at the place by then, another creature (the review of
+/// November 2026, D2): in a module changed since they were found, the
+/// hits are found again and nothing is changed, opened or edited together
+/// until the builder has seen the new list.
+#[test]
+fn advanced_search_finds_again_before_it_acts_in_a_changed_module() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Act, Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-stale");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let creature = |tag: &str, quest: bool| {
+        let mut c = Struct::new(4);
+        c.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        let mut v = Struct::new(0);
+        v.set("Name", Value::String(b"nQuest".to_vec()));
+        v.set("Type", Value::Dword(1));
+        v.set("Value", Value::Int(1));
+        c.set("VarTable", Value::List(if quest { vec![v] } else { Vec::new() }));
+        c
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let creatures =
+        vec![creature("FIRST", false), creature("ASKS", true), creature("PLAIN", false)];
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let tags = |app: &mut Moonglow| -> Vec<(String, bool)> {
+        let ws = app.ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        let g = ws.module.gff(&start).unwrap().unwrap();
+        (g.root.list("Creature List").unwrap().iter())
+            .map(|c| {
+                let tag = String::from_utf8_lossy(c.string("Tag").unwrap()).into_owned();
+                let marked = c.list("VarTable").is_some_and(|v| {
+                    v.iter().any(|v| v.string("Name") == Some(b"nMarked".as_slice()))
+                });
+                (tag, marked)
+            })
+            .collect()
+    };
+    let mut d = mg_ui::search::AdvancedSearch {
+        first: Condition { kind: Kind::Variable, name: "nQuest".into(), ..Default::default() },
+        ..Default::default()
+    };
+    app.advanced_search(&mut d);
+    assert_eq!(d.hits.len(), 1, "{:?}", d.hits);
+    let object = |h: &mg_module::search::Hit| GffPath(h.path.0.iter().take(1).cloned().collect());
+    assert_eq!(object(&d.hits[0]), GffPath::root().item("Creature List", 1));
+    d.act.act = Act::SetVariable;
+    d.act.name = "nMarked".into();
+    d.act.value = "1".into();
+    // The first creature goes: at the place of the one found is PLAIN, which
+    // was never found.
+    let remove = Edit::remove_item(start, GffPath::root(), "Creature List", 0);
+    app.ws.as_mut().unwrap().apply(Command::new("Delete", vec![remove])).unwrap();
+    app.change_found(&mut d);
+    assert_eq!(tags(&mut app), [("ASKS".to_string(), false), ("PLAIN".to_string(), false)]);
+    assert!(d.note.as_deref().is_some_and(|n| n.contains("Found again")), "{:?}", d.note);
+    assert_eq!(object(&d.hits[0]), GffPath::root().item("Creature List", 0), "found where it is");
+    // Asked again, with the list as it is now: the creature that was found.
+    app.change_found(&mut d);
+    assert_eq!(tags(&mut app), [("ASKS".to_string(), true), ("PLAIN".to_string(), false)]);
+    assert!(d.note.is_none());
+
+    // In the window: a hit clicked after an Undo is found again, not
+    // opened where it was.
+    app.advanced_search = d;
+    let mut h = window_harness(app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    let was = h.state().dock.iter_all_tabs().count();
+    h.get_by_label_contains("creature ASKS").click();
+    h.run_steps(2);
+    assert_eq!(h.state().dock.iter_all_tabs().count(), was, "nothing opened");
+    h.get_by_label_contains("The module changed since this was found");
+    assert_eq!(
+        object(&h.state().advanced_search.hits[0]),
+        GffPath::root().item("Creature List", 1),
+        "found again, where Undo put it back"
+    );
 }
 
 /// Advanced Search's changes to lists, through Edit Together's rules
@@ -539,6 +634,9 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     assert!(h.query_by_label_contains("has it already").is_some());
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
+    // (Found again in the module as Undo left it.)
+    h.get_by_label("Find").click();
+    h.run();
     assert_eq!(list(&mut h, "FeatList", "Feat"), [vec![0], vec![]], "one step");
     act(&mut h, Act::RemoveFeat, 0);
     assert_eq!(list(&mut h, "FeatList", "Feat"), [Vec::<i64>::new(), vec![]]);
@@ -549,6 +647,9 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     assert_eq!(list(&mut h, "ClassList", "ClassLevel"), [vec![5, 3], vec![5, 3]]);
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
+    // (Found again in the module as Undo left it.)
+    h.get_by_label("Find").click();
+    h.run();
     act(&mut h, Act::RemoveClass, 4);
     assert_eq!(list(&mut h, "ClassList", "Class"), [vec![4], vec![4]]);
     assert!(h.query_by_label_contains("its only class").is_some());

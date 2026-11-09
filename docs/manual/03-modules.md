@@ -339,6 +339,13 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
   Edit Areas Together with the areas of what is ticked (areas found, or
   those the objects found are placed in) ticked.
 
+What was found is a list of places as the module was then. Once the
+module has changed (an object deleted, an Undo, a file read again from
+outside), a change, an Edit Together or a click on a place first finds
+again, ticks everything found and says so ("The module changed since
+this was found…"), and does nothing else: look the new list over, then
+ask again.
+
 ## nasher projects (version control)
 
 A `.mod` is one binary file, so version control (git) can't show what

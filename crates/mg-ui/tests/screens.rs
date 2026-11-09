@@ -7632,6 +7632,7 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                 made: (1..5).map(made).collect(),
                 scripts: vec!["kz_rental.nss line 14".into()],
                 from_option: true,
+                revision: 0,
             });
             shoot(&mut h, &dir, "duplicate-tags");
         }
