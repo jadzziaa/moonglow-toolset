@@ -2560,3 +2560,63 @@ fn check_for_conflicts_says_what_the_module_uses_of_its_haks() {
     assert!(used.contains("1 unused"), "{used}");
     assert!(h.query_by_label_contains("What the module uses (in the game a player has)").is_some());
 }
+
+/// Recover, New Module's Create and "Open Directory as a Module" replaced
+/// the open module without the question the other ways of leaving it ask
+/// (the review of November 2026, S2). The second step of New Module and
+/// of the folder question asks only where the work is not what it was
+/// when the first step was let through.
+#[test]
+fn recover_and_new_module_ask_before_they_replace_unsaved_work() {
+    let dir = mg_testkit::scratch_dir("ui-replace-asks");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.recovery_dir = Some(dir.join("recovery"));
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.run();
+    let key = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = |text: &[u8]| {
+        let e = mg_edit::Edit::SetResource { key, data: Some(text.to_vec()) };
+        mg_ui::Action::Apply(mg_edit::Command::new("Note", vec![e]))
+    };
+    let asked = |h: &Harness<'_, Moonglow>| h.state().confirm_discard.clone();
+
+    // New Module… with nothing unsaved asks nothing; an edit made while
+    // its window waits is asked about at Create.
+    h.state_mut().actions.push(mg_ui::Action::NewModuleDialog);
+    h.run();
+    assert!(asked(&h).is_none());
+    h.state_mut().actions.push(edit(b"// one"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::NewModule("other".into()));
+    h.run();
+    assert_eq!(asked(&h), Some(mg_ui::Action::NewModule("other".into())));
+    assert!(h.state().ws.as_ref().unwrap().is_modified(), "the module is still there");
+    h.state_mut().confirm_discard = None;
+    h.state_mut().wizard = None;
+
+    // Asked at New Module… and answered: Create is not asked again.
+    h.state_mut().actions.push(mg_ui::Action::NewModuleDialog);
+    h.run();
+    assert_eq!(asked(&h), Some(mg_ui::Action::NewModuleDialog));
+    let ask = h.state_mut().confirm_discard.take().unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Proceed(Box::new(ask)));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenModuleAsIs(dir.join("none.mod")));
+    h.run();
+    assert!(asked(&h).is_none(), "the same work as when it was asked");
+    h.state_mut().wizard = None;
+
+    // A recovery copy opened over unsaved work: asked, the copy still
+    // listed.
+    h.state_mut().actions.push(edit(b"// two"));
+    h.run();
+    h.state_mut().write_recovery().unwrap();
+    h.state_mut().find_recoveries();
+    let copy = h.state().recoveries[0].clone();
+    h.state_mut().actions.push(mg_ui::Action::Recover(copy.clone()));
+    h.run();
+    assert_eq!(asked(&h), Some(mg_ui::Action::Recover(copy)));
+    assert_eq!(h.state().recoveries.len(), 1);
+}

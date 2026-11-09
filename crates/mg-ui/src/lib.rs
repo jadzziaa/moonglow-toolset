@@ -189,6 +189,9 @@ pub enum Action {
     OpenModule(PathBuf),
     /// Opens this module as it is (the answer to that question).
     OpenModuleAsIs(PathBuf),
+    /// Opens a recovery copy as the module it came from (Recover Unsaved
+    /// Work), in place of the open one.
+    Recover(recovery::Copy),
     /// Opens the Export window with these resources chosen.
     ExportDialog(Vec<ResKey>),
     /// Writes resources as loose files (a script with its compiled script,
@@ -968,6 +971,10 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// The unsaved work ([`Moonglow::unsaved_mark`]) as it was when New
+    /// Module… or Open Module… was let through: their second step asks
+    /// again where it is other work by then.
+    pub(crate) discard_asked: Option<u64>,
     /// A `.mod` waiting for the answer to "open the folder beside it?".
     pub module_folder: Option<PathBuf>,
     /// What is asked of claimed and protected areas.
@@ -1297,6 +1304,7 @@ impl Moonglow {
             tree_to_match: false,
             import: None,
             confirm_discard: None,
+            discard_asked: None,
             module_folder: None,
             claims: Default::default(),
             project_commands: Default::default(),
@@ -3594,12 +3602,20 @@ impl Moonglow {
             // Options discard nothing unless they choose other folders: the
             // module is opened again from its file then.
             Action::ApplyOptions(draft) => self.options_reload(draft),
+            // The second step of New Module and of a `.mod` with its
+            // folder beside it, whose window does not stop the editor:
+            // asked again where the work changed since the first step
+            // was let through.
+            Action::NewModule(_) | Action::OpenModuleAsIs(_) => {
+                self.discard_asked != Some(self.unsaved_mark())
+            }
             other => matches!(
                 other,
                 Action::NewModuleDialog
                     | Action::OpenModuleDialog
                     | Action::OpenFolderDialog
                     | Action::OpenModule(_)
+                    | Action::Recover(_)
                     | Action::Close
                     | Action::Quit
                     | Action::RestartGraphics(_)
@@ -3630,6 +3646,12 @@ impl Moonglow {
     }
 
     fn run_now(&mut self, action: Action) {
+        if matches!(
+            action,
+            Action::NewModuleDialog | Action::OpenModuleDialog | Action::OpenModule(_)
+        ) {
+            self.discard_asked = Some(self.unsaved_mark());
+        }
         trace::note(format!("action {action:?}"));
         if let Action::OpenTab(tab) = &action {
             trace::note(format!(
@@ -3652,6 +3674,10 @@ impl Moonglow {
                 self.wizard = Some(Wizard::NewModule { name: "module000".into() });
             }
             Action::NewModule(name) => self.new_module(&name),
+            Action::Recover(copy) => {
+                self.recoveries.retain(|c| *c != copy);
+                self.recover(&copy);
+            }
             Action::AreaWizard => {
                 let (Some(ws), Some(game)) = (&self.ws, &self.game) else { return };
                 let areas = ws.module.keys_of(ResType::ARE).count();

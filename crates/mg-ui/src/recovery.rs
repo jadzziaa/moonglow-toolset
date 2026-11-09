@@ -325,6 +325,22 @@ impl Moonglow {
         }
     }
 
+    /// A mark of the unsaved work as it is: the module's revision and the
+    /// text typed in script editors and not saved. Another mark, other
+    /// work (never `u64::MAX`).
+    pub(crate) fn unsaved_mark(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.ws.as_ref().map(mg_edit::Workspace::revision).hash(&mut h);
+        let mut typed: Vec<_> = (self.scripts.iter())
+            .filter(|(_, b)| b.is_dirty())
+            .map(|(k, b)| (*k, crate::script_tools::hash(&b.text)))
+            .collect();
+        typed.sort();
+        typed.hash(&mut h);
+        h.finish() & (u64::MAX >> 1)
+    }
+
     /// The autosave at `now`: a copy started in the background when one is
     /// due; when to look again.
     fn autosave_tick(&mut self, now: std::time::Instant) -> Option<Duration> {
@@ -345,21 +361,9 @@ impl Moonglow {
         {
             return Some(every);
         }
-        // (What a copy would hold, told apart: the module's revision and
-        // the scripts' unsaved text. Looked at only when a copy is due.)
-        let state = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            ws.revision().hash(&mut h);
-            let mut typed: Vec<_> = (self.scripts.iter())
-                .filter(|(_, b)| b.is_dirty())
-                .map(|(k, b)| (*k, crate::script_tools::hash(&b.text)))
-                .collect();
-            typed.sort();
-            typed.hash(&mut h);
-            // (Never the mark of "no copy yet".)
-            h.finish() & (u64::MAX >> 1)
-        };
+        // (What a copy would hold, told apart. Looked at only when a copy
+        // is due.)
+        let state = self.unsaved_mark();
         if saved == state {
             return Some(every);
         }
@@ -480,8 +484,9 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
         },
     );
     if let Some(i) = recover {
-        let copy = app.recoveries.remove(i);
-        app.recover(&copy);
+        // (As an action: the open module's unsaved work is asked about
+        // first, and the copy stays listed until it is opened.)
+        app.actions.push(crate::Action::Recover(app.recoveries[i].clone()));
     }
     if let Some(i) = discard {
         app.recoveries.remove(i).remove();
