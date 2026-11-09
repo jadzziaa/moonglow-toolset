@@ -1576,9 +1576,13 @@ the game's script), and what that names in turn:
   script and function not followed (`by_number`).
 - **An area**: its tileset (the `.set` and its palette), and of the
   tiles, those the area places, each with its model, walkmesh and map
-  image; the tileset's grass and environment map; the skybox's models,
-  the loading screen, the ambient sounds and the music (with its
-  stingers).
+  image, and the texture a tile's replacement puts on its model
+  (replacetexture.2da, where the model has a `replace_tex`); the
+  tileset's grass and environment map, and its edge tiles' models, which
+  the game draws past the area's edge (every model of
+  `<tileset>_edge.2da`, whichever of them the area's edge takes); the
+  skybox's models, the loading screen, the ambient sounds and the music
+  (with its stingers).
 - **An object, as the area view draws it**: a placeable's or door's
   model and sounds (placeableobjsnds.2da); a creature's body (head, body
   parts, wings, tail, what it wears), its portrait and sound set (the
@@ -1588,7 +1592,12 @@ the game's script), and what that names in turn:
   and their inventory icons (an armor's, its parts' layers, a man's and
   a woman's), a weapon's hits and the model of its **Visual Effect**
   property; armor's parts and cloaks for every gender, part-based race
-  and phenotype that has a model of them, as anyone may wear them.
+  and phenotype that has a model of them, as anyone may wear them. A
+  part's model comes with the texture the game draws on it, which need
+  not be the one its mesh names: the PLT of the part's own name
+  (`pme0_chest009.plt` on an elf's chest whose mesh names the human's,
+  or on a head whose mesh names none), and a cloak's `cloakmodel.2da`
+  texture, also where the cloak lies in an area.
 - **A model's own files**: walkmeshes, textures (the DDS or TGA the game
   picks, and a PLT), materials and TXIs and what they name, its
   emitters' models and its supermodels.
@@ -1601,13 +1610,21 @@ the game's script), and what that names in turn:
   game has (classes.2da, spells.2da…) is used, and so is a table a used
   2DA names in a cell (a class's feat and skill tables, an item
   property's subtypes).
+- **What the game shows of a table's rows by itself**, with no script
+  naming the row: once the table is used, every row's icon in feat.2da,
+  masterfeats.2da, skills.2da, classes.2da, domains.2da, racialtypes.2da,
+  effecticons.2da and iprp_spells.2da, and in spells.2da every spell's
+  icon, its conjuring, casting and projectile models and their sounds.
+  So a hak's new feats' and spells' icons and visuals are used with its
+  `feat.2da` and `spells.2da`. (Not appearance.2da or placeables.2da:
+  a row there is used by the object that has it.)
 - **What players choose at character creation**: for the player races
   (racialtypes.2da's `PlayerRace`), each gender and the phenotypes the
   creation screen offers (ruleset.2da's `CHARGEN_ENABLED_PHENOTYPES`:
   normal and large, unless a hak changes it), every head and the body
   parts the screen offers: part 1 of each, and part 2 of the chest,
   biceps, forearms and shins (its tattoos; the same for every race, and
-  read from no table); those races' portraits and the players' voice
+  read from no table), each with its texture as above; those races' portraits and the players' voice
   sets (soundset.2da's type 0).
 
 Each hak resource is then **used** (reached, and this hak's copy is the
@@ -2246,8 +2263,9 @@ plugin reads a description with `mg.twoda.describe`
   folder has files of those names already, it asks first: replace them,
   skip those, or cancel. **Export › Export Model Files…** on an area's
   right-click menu in the module tree does the same for the area: its
-  `.are` and `.git`, its tileset (`.set`), its tiles' models, walkmeshes
-  and minimap pictures, its skybox and loading screen, and the models of
+  `.are` and `.git`, its tileset (`.set`), its tiles' models, walkmeshes,
+  minimap pictures and replacement textures, the tileset's edge tiles
+  (the tile border), its skybox and loading screen, and the models of
   every creature, door, placeable and item placed in it. `mg
   model-files` does both from a terminal.
 - **Copy to Scratch Folder** (the same right-click menu's **Export**; **To

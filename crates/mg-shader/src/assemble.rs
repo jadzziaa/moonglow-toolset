@@ -5,7 +5,7 @@
 //! can name them.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use mg_core::ResType;
@@ -297,19 +297,62 @@ fn text_of(data: &[u8]) -> String {
         .collect()
 }
 
+/// The most text a program may come to with its includes spliced in:
+/// the game's largest are a few hundred kilobytes. A file included from
+/// every line of another is spliced each time, so two files of a few
+/// megabytes could ask for a hundred gigabytes.
+const MAX_TEXT: usize = 8 << 20;
+
+/// The most includes a program may splice (each reads its file).
+const MAX_SPLICES: usize = u16::MAX as usize;
+
 struct Splicer<'a> {
     sources: &'a dyn Sources,
     out: Assembled,
+    /// Each file's place in `out.files`, by its name (lower case).
+    places: HashMap<String, u16>,
+    /// How many files were spliced, one counted each time.
+    splices: usize,
 }
 
 impl Splicer<'_> {
+    /// A file's place in the program's files: the one it has, where it
+    /// was spliced before.
     fn file(&mut self, name: &str, origin: String) -> Result<u16, ShaderError> {
-        let file = SourceFile { name: name.to_ascii_lowercase(), origin };
-        let i = u16::try_from(self.out.files.len()).map_err(|_| {
-            ShaderError::Include(Diagnostic { at: None, message: "too many includes".into() })
-        })?;
-        self.out.files.push(file);
+        let too_many =
+            || ShaderError::Include(Diagnostic { at: None, message: "too many includes".into() });
+        self.splices += 1;
+        if self.splices > MAX_SPLICES + 1 {
+            return Err(too_many());
+        }
+        let name = name.to_ascii_lowercase();
+        if let Some(&i) = self.places.get(&name) {
+            return Ok(i);
+        }
+        let i = u16::try_from(self.out.files.len()).map_err(|_| too_many())?;
+        self.places.insert(name.clone(), i);
+        self.out.files.push(SourceFile { name, origin });
         Ok(i)
+    }
+
+    /// Adds a line of file `file` to the program's text, which may not
+    /// come to more than [`MAX_TEXT`].
+    fn push(&mut self, text: &str, file: u16, line: u32) -> Result<(), ShaderError> {
+        if self.out.text.len() + text.len() >= MAX_TEXT {
+            let at = At { file: self.out.files[usize::from(file)].clone(), line };
+            return Err(ShaderError::Include(Diagnostic {
+                at: Some(at),
+                message: format!(
+                    "the program with its includes spliced in is over {} MB: a file is \
+                     included again and again",
+                    MAX_TEXT >> 20
+                ),
+            }));
+        }
+        self.out.text.push_str(text);
+        self.out.text.push('\n');
+        self.out.lines.push(LineOrigin { file, line });
+        Ok(())
     }
 
     /// The file `name`'s text without its last newline, or the error
@@ -374,9 +417,7 @@ impl Splicer<'_> {
                 let (file, text) = self.load(&inc, Some(at))?;
                 open.push(Open { file, name: lower, text, at: 0, line: 0 });
             } else {
-                self.out.text.push_str(line);
-                self.out.text.push('\n');
-                self.out.lines.push(LineOrigin { file, line: line_no });
+                self.push(line, file, line_no)?;
             }
         }
         Ok(())
@@ -400,12 +441,12 @@ pub fn assemble(
             files: Vec::new(),
             lines: Vec::new(),
         },
+        places: HashMap::new(),
+        splices: 0,
     };
     let pre = s.file("(preamble)", String::new())?;
     for (i, line) in preamble.text(stage).lines().enumerate() {
-        s.out.text.push_str(line);
-        s.out.text.push('\n');
-        s.out.lines.push(LineOrigin { file: pre, line: u32::try_from(i + 1).unwrap_or(0) });
+        s.push(line, pre, u32::try_from(i + 1).unwrap_or(0))?;
     }
     s.splice(name)?;
     Ok(s.out)
@@ -485,10 +526,47 @@ mod tests {
             let last = u32::try_from(a.lines.len()).unwrap();
             assert_eq!(a.origin(last).unwrap().file.name, format!("c{depth}"));
         }
-        // A file included twice, not inside itself, is spliced each time.
-        let src = files(&[("prog", "#include \"a\"\n#include \"a\"\n"), ("a", "x\n")]);
+        // A file included twice, not inside itself, is spliced each time,
+        // and is one of the program's files: each of its lines, both
+        // times, is that file's.
+        let src = files(&[("prog", "#include \"a\"\n#include \"A\"\ny\n"), ("a", "x\n")]);
         let a = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap();
-        assert!(a.text.ends_with("x\nx\n"));
+        assert!(a.text.ends_with("x\nx\ny\n"));
+        let names: Vec<_> = a.files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["(preamble)", "prog", "a"]);
+        let last = u32::try_from(a.lines.len()).unwrap();
+        let at = |line: u32| a.origin(line).unwrap().to_string();
+        assert_eq!([at(last - 2), at(last - 1), at(last)], ["a.shd:1", "a.shd:1", "prog.shd:3"]);
+    }
+
+    /// What a program's includes add up to is bounded: a file of 1 MB
+    /// included 40 times is refused at the line that passes the bound
+    /// (60,000 includes of a file of 2 MB assembled 120 GB of text: the
+    /// review's M11), and so is an include spliced more times than a
+    /// program has files, however small it is. A program of the size of
+    /// the game's largest, several times over, is taken.
+    #[test]
+    fn what_the_includes_add_up_to_is_bounded() {
+        let big = "float padding_padding_padding;\n".repeat((1 << 20) / 31);
+        let many = "#include \"big\"\n".repeat(40);
+        let src = files(&[("prog", &many), ("big", &big)]);
+        let started = std::time::Instant::now();
+        let e = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap_err();
+        assert!(matches!(e, ShaderError::Include(_)), "{e}");
+        assert!(e.to_string().contains("big.shd:") && e.to_string().contains("over 8 MB"), "{e}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let few = "#include \"big\"\n".repeat(7);
+        let src = files(&[("prog", &few), ("big", &big)]);
+        let a = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(a.text.len() > 7 << 20 && a.files.len() == 3);
+        // An empty file from every line of another: each is a read.
+        let many = "#include \"e\"\n".repeat(70_000);
+        let src = files(&[("prog", &many), ("e", "")]);
+        let e = assemble("prog", Stage::Fragment, &Preamble::default(), &src).unwrap_err();
+        assert!(e.to_string().contains("too many includes"), "{e}");
+        let many = "#include \"e\"\n".repeat(60_000);
+        let src = files(&[("prog", &many), ("e", "")]);
+        assert!(assemble("prog", Stage::Fragment, &Preamble::default(), &src).is_ok());
     }
 
     #[test]

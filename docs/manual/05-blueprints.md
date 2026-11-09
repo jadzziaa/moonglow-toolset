@@ -730,7 +730,11 @@ every change, as Aurora does on OK.
 - **Appearance** opens with the creature's model, as it looks now and as
   large as the window has room for; its wings, tail and colors, and its
   body parts, are to the right, so a change shows as you make it (a
-  body part may be **0 (none)**, which draws nothing). A body part's
+  body part may be **0 (none)**, which draws nothing). Each part's list
+  offers the numbers the creature's phenotype has a model of and those
+  its phenotype.2da `DefaultPhenoType` has, which the game falls back
+  to: a phenotype with few parts of its own, or none, wears the default
+  body's. A body part's
   mesh that is a skin mesh is drawn as the game draws it: as a plain
   mesh where it is kept as text; where it is compiled, following the
   skeleton's bones if it was compiled against the skeleton (as Beamdog's

@@ -127,21 +127,23 @@ pub fn creature(
     utc: &Struct,
     item: &dyn Fn(ResRef) -> Option<Gff>,
 ) -> Result<Preview, PreviewError> {
-    dressed(game, utc, item, true)
+    dressed(game, utc, item, true, None)
 }
 
 /// [`creature`], what it may not wear left off where `as_the_game` (an
-/// armor's preview is a body that wears it whatever).
+/// armor's preview is a body that wears it whatever); `remembered`: what
+/// a walk over many creatures has read of their parts' models already.
 pub(crate) fn dressed(
     game: &GameData,
     utc: &Struct,
     item: &dyn Fn(ResRef) -> Option<Gff>,
     as_the_game: bool,
+    remembered: Option<&crate::Remembered>,
 ) -> Result<Preview, PreviewError> {
     let worn = |slot| {
         equipped(utc, slot, item).filter(|it| !as_the_game || game.wear_problem(utc, it).is_none())
     };
-    let lk = Lookup { game };
+    let lk = Lookup { game, remembered };
     let appearance = game.table("appearance")?;
     let row = number(utc, "Appearance_Type");
     // (A model of its own, where the row names one, that is there.)
@@ -183,16 +185,13 @@ pub(crate) fn dressed(
 
     if model_type.starts_with('P') {
         let genders = game.table("gender")?;
-        let g = cell(&genders, number(utc, "Gender").max(0) as usize, "GENDER")
-            .map(|v| v.to_ascii_lowercase())
-            .filter(|v| v == "m" || v == "f")
-            .unwrap_or_else(|| "m".into());
-        let pheno = number(utc, "Phenotype").max(0);
         let phenotypes = game.table("phenotype")?;
-        let default_pheno = cell_int(&phenotypes, pheno as usize, "DefaultPhenoType").unwrap_or(0);
-        let letter = race.to_ascii_lowercase();
-        let skeleton = models::skeleton(&g, &letter, pheno);
-        let fallback = models::skeleton(&g, &letter, default_pheno);
+        // Its phenotype's skeleton, then the phenotype's default's: by the
+        // one rule Verify and the blueprint's lists go by.
+        let [skeleton, fallback] =
+            models::skeletons(utc, &appearance, Some(&genders), Some(&phenotypes))
+                .ok_or(PreviewError::NoRow { table: "appearance", row })?;
+        let female = skeleton.chars().nth(1) == Some('f');
         let skel = if lk.has_model(&skeleton) { skeleton.clone() } else { fallback.clone() };
         preview.base = Part::new(&skel);
         let part_model = |name: &str, n: i64| -> Option<String> {
@@ -312,7 +311,7 @@ pub(crate) fn dressed(
                 if let Some(model) = model {
                     let mut p = Part::new(model);
                     p.attach = Some("head_g".into());
-                    let scale_col = if g == "f" { "HELMET_SCALE_F" } else { "HELMET_SCALE_M" };
+                    let scale_col = if female { "HELMET_SCALE_F" } else { "HELMET_SCALE_M" };
                     p.scale = cell_f32(&appearance, r, scale_col).unwrap_or(1.0);
                     p.colors = Some(item_colors(h, colors));
                     p.env_map = Some("chrome1".into());
@@ -374,7 +373,11 @@ pub(crate) fn dressed(
                 _ if shield => "lforearm",
                 _ => "lhand",
             };
-            for mut p in crate::item::item_parts(game, &it, colors, false)? {
+            // (One that names no model, nor a default one, is left off, as
+            // a helmet or a cloak whose model is nowhere is: the creature
+            // is drawn without it.)
+            let Ok(parts) = crate::item::item_parts(game, &it, colors, false) else { continue };
+            for mut p in parts {
                 p.attach = Some(node.into());
                 p.scale = weapon_scale;
                 p.item = true;
@@ -390,16 +393,26 @@ pub(crate) fn dressed(
 /// applies whatever the model names; and for one that is missing, the
 /// game's fallbacks: the part's own name → phenotype 0 → human of the
 /// same gender → human male; then the same from the texture's name.
-fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn plt_fallbacks(
+    lk: &Lookup<'_>,
+    model: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let model = model.to_ascii_lowercase();
+    let Some(kept) = lk.remembered else { return read_plt_fallbacks(lk, &model) };
+    if let Some(found) = kept.fallbacks.borrow().get(&model) {
+        return found.clone();
+    }
+    let found = read_plt_fallbacks(lk, &model);
+    kept.fallbacks.borrow_mut().insert(model, found.clone());
+    found
+}
+
+/// [`plt_fallbacks`] of `model` (lower case), read from the load order.
+fn read_plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
     // A part's name, and its fallbacks.
     let named = |name: &str| -> Vec<String> {
-        let Some((prefix, rest)) = name.split_once('_') else { return Vec::new() };
-        let mut chars = prefix.chars();
-        let (Some('p'), Some(g), Some(r), Some(_), None) =
-            (chars.next(), chars.next(), chars.next(), chars.next(), chars.next())
-        else {
-            return Vec::new();
-        };
+        let Some(part) = models::part_name(name) else { return Vec::new() };
+        let (g, r, rest) = (part.gender, part.race, part.part);
         vec![
             name.to_string(),
             format!("p{g}{r}0_{rest}"),
@@ -407,7 +420,6 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
             format!("pmh0_{rest}"),
         ]
     };
-    let model = model.to_ascii_lowercase();
     let mut out = std::collections::BTreeMap::new();
     // The part's own texture, where there is one, is what the game draws
     // on it, though its mesh names another part's (the game's own thigh 3
@@ -417,9 +429,9 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
     // chest 3 names the human's chest 4 and is drawn in the human's
     // chest 3). A mesh naming something that is no part's (a head's hair,
     // a gem) keeps that.
-    let own = named(&model).into_iter().take(3).find(|c| lk.has_texture(c));
+    let own = named(model).into_iter().take(3).find(|c| lk.has_texture(c));
     // (The model read once, for its textures and for a mesh without one.)
-    let parsed = lk.model(&model);
+    let parsed = lk.model(model);
     for b in parsed.as_deref().map_or_else(Vec::new, crate::bitmaps) {
         if let Some(own) = own.as_ref().filter(|own| **own != b && !named(&b).is_empty()) {
             out.insert(b, own.clone());
@@ -428,7 +440,7 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
         if lk.has_texture(&b) {
             continue;
         }
-        let candidates = named(&model).into_iter().chain(named(&b));
+        let candidates = named(model).into_iter().chain(named(&b));
         if let Some(c) = candidates.into_iter().find(|c| *c != b && lk.has_texture(c)) {
             out.insert(b, c);
         }
@@ -437,7 +449,7 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
     // CEP's heads: `bitmap NULL`, with a PLT of the head's name). Under the
     // empty name (`mg_render::Instance::textures`).
     if parsed.as_deref().is_some_and(crate::unnamed_mesh)
-        && let Some(c) = named(&model).into_iter().find(|c| lk.has_texture(c))
+        && let Some(c) = named(model).into_iter().find(|c| lk.has_texture(c))
     {
         out.insert(String::new(), c);
     }

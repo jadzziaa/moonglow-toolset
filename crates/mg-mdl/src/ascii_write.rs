@@ -95,12 +95,19 @@ pub fn bound_elsewhere(model: &Model, skin: &crate::Skin) -> bool {
 }
 
 /// The skeleton a body part is worn on, by the part's name: `pmh0` for
-/// `pmh0_neck001` (`p<gender><race><phenotype>_<part><number>`).
+/// `pmh0_neck001` (`p<gender><race><phenotype>_<part><number>`, the
+/// phenotype of as many digits as it has: `pmh15`), read by characters (a
+/// compiled model's name may hold any bytes). As `mg_rules::models::part_name`
+/// reads the name: mg-rules is above this crate, and its test holds the
+/// two to one table of names.
 pub fn skeleton_of(part: &str) -> Option<&str> {
     let (skeleton, rest) = part.split_once('_')?;
-    let is = skeleton.len() == 4
-        && skeleton.starts_with(['p', 'P'])
-        && skeleton[3..].bytes().all(|b| b.is_ascii_digit())
+    let mut chars = skeleton.chars();
+    let is = chars.next().is_some_and(|c| matches!(c, 'p' | 'P'))
+        && chars.next().is_some_and(|c| matches!(c, 'm' | 'f' | 'M' | 'F'))
+        && chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && !chars.as_str().is_empty()
+        && chars.as_str().bytes().all(|b| b.is_ascii_digit())
         && !rest.is_empty();
     is.then_some(skeleton)
 }
@@ -813,8 +820,10 @@ impl Writer {
                 open.push((d, 2));
             }
         }
+        // (No deeper than a tree of every face a mesh can have is: a chain
+        // of entries would be indented by its length, a line an entry.)
         for (e, d) in tree.iter().zip(depth) {
-            let lead = if d == 0 { "  aabb".to_string() } else { " ".repeat(d + 6) };
+            let lead = if d == 0 { "  aabb".to_string() } else { " ".repeat(d.min(64) + 6) };
             self.line(&format!("{lead} {} {} {}", vec(&e.min), vec(&e.max), e.face));
         }
     }
@@ -1079,6 +1088,11 @@ endmodelgeom m\ndonemodel m\n";
         assert_eq!(skeleton_of("PFE2_robe003"), Some("PFE2"));
         assert_eq!(skeleton_of("plc_a01"), None);
         assert_eq!(skeleton_of("pmh0"), None);
+        // A phenotype of two digits; and a name that is not ASCII, which
+        // was cut inside a character (a panic).
+        assert_eq!(skeleton_of("pmh15_neck001"), Some("pmh15"));
+        assert_eq!(skeleton_of("pa\u{e9}_x"), None);
+        assert_eq!(skeleton_of("pm\u{e9}0_x"), None);
     }
 
     #[test]
@@ -1116,5 +1130,19 @@ endmodelgeom m\ndonemodel m\n";
         assert!(w.out.starts_with("  aabb 0 0 0 1 1 1 -1"));
         // nwnmdlcomp: depth + 6 spaces, then a space before the numbers.
         assert_eq!(indents, vec![2, 8, 9, 9, 8]);
+    }
+
+    /// A tree that is a chain (a compiled model may hold 400,000 entries
+    /// so) is not indented by its depth without end: that was 80 GB of
+    /// spaces (the review's M3).
+    #[test]
+    fn a_chain_of_aabb_entries_is_indented_so_far_and_no_further() {
+        let tree = vec![AabbEntry { min: [0.0; 3], max: [1.0; 3], face: -1 }; 400_000];
+        let mut w = Writer { out: String::new(), opts: Options::default(), skeleton: None };
+        w.aabb(&tree);
+        assert_eq!(w.out.lines().count(), 400_000);
+        assert!(w.out.len() < 100 * 400_000, "{}", w.out.len());
+        let deepest = w.out.lines().map(|l| l.len() - l.trim_start().len()).max();
+        assert_eq!(deepest, Some(71));
     }
 }

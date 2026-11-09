@@ -17,5 +17,10 @@ mg-schema.workspace = true
 mg-tlk.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+# (Its own reading of a body part's name, held to this crate's test table:
+# mg-mdl is below mg-rules and can't call it.)
+mg-mdl.workspace = true
+
 [lints]
 workspace = true

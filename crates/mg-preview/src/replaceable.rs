@@ -152,7 +152,7 @@ fn walk(
                 }
                 if let Some(chunk) = clean(e.chunk.as_deref())
                     && depth < CHUNK_DEPTH
-                    && let Some(m) = (Lookup { game }).model(&chunk)
+                    && let Some(m) = Lookup::of(game).model(&chunk)
                 {
                     let mut inner = Vec::new();
                     walk(
@@ -267,7 +267,7 @@ fn txi(game: &GameData, name: &str) -> Option<Txi> {
 /// The textures a preview's models are drawn with (the base and its
 /// parts), each once, by name.
 pub fn textures(game: &GameData, preview: &Preview) -> Vec<ModelTexture> {
-    let lk = Lookup { game };
+    let lk = Lookup::of(game);
     let mut out: Vec<ModelTexture> = Vec::new();
     for part in std::iter::once(&preview.base).chain(&preview.parts) {
         let Some(model) = lk.model(&part.model) else { continue };
@@ -431,7 +431,7 @@ fn is_plt(game: &GameData, name: &str) -> bool {
 /// The animations a preview's base model plays: its own and its
 /// supermodels', nearest first, each name once (lower case).
 pub fn animations(game: &GameData, preview: &Preview) -> Vec<String> {
-    let lk = Lookup { game };
+    let lk = Lookup::of(game);
     let Some(model) = lk.model(&preview.base.model) else { return Vec::new() };
     let load = |name: &str| -> Option<Arc<Model>> { lk.model(name) };
     mg_mdl::animations(&model, &load).into_iter().map(|(n, _)| n.to_ascii_lowercase()).collect()
@@ -552,7 +552,7 @@ mod tests {
         // The thrown model's texture is drawn, under the emitter's node,
         // but not offered as a replacement (whether one reaches it isn't
         // known).
-        let m = Lookup { game: &game }.model("mg_fx").unwrap();
+        let m = Lookup::of(&game).model("mg_fx").unwrap();
         let stone = uses(&game, &m, None).into_iter().find(|u| u.name == "mg_stone").unwrap();
         assert_eq!(stone.node, format!("sparks{CHUNK_SEP}mg_rock{CHUNK_SEP}m0"));
         assert_eq!((stone.role, stone.drawn), (Role::Slot(0), true));
@@ -617,7 +617,7 @@ mod tests {
         rm.add(priority::HAK_USER, "hak:x", LayerClass::Erf, hak);
         rm.add(priority::OVERRIDE, "override", LayerClass::Directory, folder);
         let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
-        let model = Lookup { game: &game }.model("mg_tile").unwrap();
+        let model = Lookup::of(&game).model("mg_tile").unwrap();
         let found = uses(&game, &model, Some("mg_ref01"));
         let seen: Vec<(&str, &str, Role, bool)> =
             found.iter().map(|u| (u.name.as_str(), u.node.as_str(), u.role, u.drawn)).collect();

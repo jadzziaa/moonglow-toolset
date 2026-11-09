@@ -2903,6 +2903,7 @@ dependencies = [
  "mg-2da",
  "mg-core",
  "mg-gff",
+ "mg-mdl",
  "mg-resman",
  "mg-schema",
  "mg-tlk",

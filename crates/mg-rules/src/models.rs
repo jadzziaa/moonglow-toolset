@@ -82,6 +82,41 @@ pub fn skeleton(gender: &str, race: &str, phenotype: i64) -> String {
     format!("p{gender}{race}{phenotype}").to_ascii_lowercase()
 }
 
+/// A body part's model name in its pieces ([`part_name`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartName<'a> {
+    /// The skeleton it is worn on, as written (`pmh0`).
+    pub skeleton: &'a str,
+    /// `m` or `f`, as written.
+    pub gender: char,
+    /// The race's letter (appearance.2da `RACE`), as written.
+    pub race: char,
+    /// The phenotype's number, as written: as many digits as it has
+    /// (a server's own phenotype 15 is `pmh15`, as [`skeleton`] writes it).
+    pub phenotype: &'a str,
+    /// The part and its number (`chest001`, `cloak_003`).
+    pub part: &'a str,
+}
+
+/// A body part's model name (a head's, an armor part's, a worn cloak's)
+/// in its pieces: `p`, the gender, the race's letter, the phenotype's
+/// digits, `_`, and the part with its number (`pmh0_chest001`,
+/// `PFE2_robe003`, `pmh15_cloak_003`), read by characters, in either
+/// case. `None` for any other name. The one reading of the name
+/// [`skeleton`] and [`body_part_model`] write: the previews' textures,
+/// the usage walk and (by its own copy, held to this one's test table)
+/// mg-mdl's `skeleton_of` go by it.
+pub fn part_name(name: &str) -> Option<PartName<'_>> {
+    let (skeleton, part) = name.split_once('_')?;
+    let mut chars = skeleton.chars();
+    chars.next().filter(|c| matches!(c, 'p' | 'P'))?;
+    let gender = chars.next().filter(|c| matches!(c, 'm' | 'f' | 'M' | 'F'))?;
+    let race = chars.next().filter(char::is_ascii_alphabetic)?;
+    let phenotype = chars.as_str();
+    let numbered = !phenotype.is_empty() && phenotype.bytes().all(|b| b.is_ascii_digit());
+    (numbered && !part.is_empty()).then_some(PartName { skeleton, gender, race, phenotype, part })
+}
+
 /// A part of a body hung on `skeleton`: `pmh0_shinr002`.
 pub fn body_part_model(skeleton: &str, part: &str, n: i64) -> String {
     format!("{skeleton}_{part}{n:03}")
@@ -269,6 +304,63 @@ mod tests {
             ]
         );
         assert!(models(&[("BaseItem", 5)]).is_empty() && models(&[("BaseItem", 9)]).is_empty());
+    }
+
+    /// Names and what they are a part of: the skeleton and the part, or
+    /// no body part's name. [`part_name`] and mg-mdl's `skeleton_of` (its
+    /// own copy: mg-mdl is below this crate) are both held to it.
+    const PART_NAMES: [(&str, Option<(&str, &str)>); 18] = [
+        ("pmh0_chest001", Some(("pmh0", "chest001"))),
+        ("pfe2_head012", Some(("pfe2", "head012"))),
+        ("PFE2_robe003", Some(("PFE2", "robe003"))),
+        ("pmh0_cloak_003", Some(("pmh0", "cloak_003"))),
+        // A server's own phenotype of two digits.
+        ("pmh15_neck001", Some(("pmh15", "neck001"))),
+        ("pfo104_chest001", Some(("pfo104", "chest001"))),
+        // Not a body part's: a placeable, a skeleton alone, no part, no
+        // phenotype, a phenotype that is no number, another gender.
+        ("plc_a01", None),
+        ("pmh0", None),
+        ("pmh0_", None),
+        ("pmh_chest001", None),
+        ("pmhx_chest001", None),
+        ("pmh0x_chest001", None),
+        ("pxh0_chest001", None),
+        ("xmh0_chest001", None),
+        // Bytes that are no ASCII, as a compiled model's name may hold
+        // (cut inside a character, this was a panic).
+        ("pa\u{e9}_x", None),
+        ("pm\u{e9}0_x", None),
+        ("p\u{e9}h0_x", None),
+        ("", None),
+    ];
+
+    #[test]
+    fn a_body_part_s_name_in_its_pieces() {
+        for (name, expected) in PART_NAMES {
+            let read = part_name(name);
+            assert_eq!(read.map(|p| (p.skeleton, p.part)), expected, "{name}");
+            assert_eq!(mg_mdl::ascii_write::skeleton_of(name), expected.map(|e| e.0), "{name}");
+            // What is read is what was written.
+            if let Some(p) = read {
+                assert_eq!(format!("p{}{}{}_{}", p.gender, p.race, p.phenotype, p.part), {
+                    let mut written = name.to_string();
+                    written.replace_range(..1, "p");
+                    written
+                });
+            }
+        }
+        let p = part_name("PFE2_robe003").unwrap();
+        assert_eq!((p.gender, p.race, p.phenotype), ('F', 'E', "2"));
+        // What `skeleton` and `body_part_model` write reads back.
+        let name = body_part_model(&skeleton("f", "O", 15), "chest", 7);
+        let p = part_name(&name).unwrap();
+        assert_eq!(
+            (p.skeleton, p.gender, p.race, p.phenotype, p.part),
+            ("pfo15", 'f', 'o', "15", "chest007")
+        );
+        let cloak = body_cloak_model(&skeleton("m", "h", 0), 3);
+        assert_eq!(part_name(&cloak).unwrap().part, "cloak_003");
     }
 
     #[test]

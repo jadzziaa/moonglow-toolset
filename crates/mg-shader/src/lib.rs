@@ -71,7 +71,8 @@ fn list(d: &[Diagnostic]) -> String {
 /// Why a program didn't compile.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ShaderError {
-    /// The program or an include isn't found, or includes nest too deep.
+    /// The program or an include isn't found, the includes loop, or they
+    /// add up to more than a program may be.
     #[error("{0}")]
     Include(Diagnostic),
     /// glslang refused it: what it said, at the files and lines it said it.
@@ -294,7 +295,8 @@ void main ()
         assert_eq!(outputs, ["mg_draw", "mg_light", "vNormalView", "vTexCoord"]);
         assert!(r.textures.is_empty());
         let names: Vec<_> = p.files.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, ["(preamble)", "vs_test", "inc_test", "inc_test"]);
+        // (The include, spliced twice, is one of its files.)
+        assert_eq!(names, ["(preamble)", "vs_test", "inc_test"]);
     }
 
     #[test]

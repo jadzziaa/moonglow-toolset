@@ -46,7 +46,17 @@ pub const NODE_TYPES: &[&str] = &[
     "wok",
 ];
 
-/// Keywords followed by a count and that many rows.
+/// Whether a word is a number as a list's row begins with one: a digit,
+/// a sign or a point first (`inf` and `nan` are words, and end a list).
+/// The reader's rule and the linter's, so that the rows the linter counts
+/// are the rows read.
+pub(crate) fn is_number(w: &str) -> bool {
+    let b = w.as_bytes();
+    matches!(b.first(), Some(b'0'..=b'9' | b'-' | b'+' | b'.')) && w.parse::<f32>().is_ok()
+}
+
+/// Keywords followed by a count and that many rows: the reader's lists
+/// and the linter's.
 pub const LISTS: &[&str] = &[
     "verts",
     "tverts",
@@ -77,7 +87,7 @@ pub const LISTS: &[&str] = &[
     "mirrorlist",
 ];
 
-/// Lists whose rows start with a name.
+/// Lists whose rows start with a name, not a number (counts are trusted).
 pub const NAMED_LISTS: &[&str] = &["weights", "texturenames", "multimaterial"];
 
 /// Every node.

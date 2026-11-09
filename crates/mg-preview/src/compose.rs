@@ -445,12 +445,53 @@ impl Composed {
         })
     }
 
-    fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
+    /// The base as it stands in `animation` at `t`: the animation it
+    /// plays for it (none: it has none of the name, and is at rest) and
+    /// its nodes.
+    fn base_posed(&self, animation: Option<&str>, t: f32) -> (Option<&Animation>, Vec<Mat4>) {
         let base_anim = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
-        let base_pose: Arc<Vec<Mat4>> = Arc::new(match &base_anim {
+        let pose = match base_anim {
             Some(a) => self.base.pose(a, t),
             None => self.base.gpu.rest.clone(),
-        });
+        };
+        (base_anim, pose)
+    }
+
+    /// A part's nodes as it stands where `animation` is asked at `t`, the
+    /// base playing `base_anim` with its nodes at `base_pose` (`bones`:
+    /// where the part's skin's bones are worked out from,
+    /// [`Placed::hung`]); none: as its model has them at rest. The one
+    /// rule for what is drawn ([`Composed::instances`]) and for what is
+    /// boxed and picked ([`Composed::stance`]).
+    ///
+    /// Animated parts play the animation on their own nodes: their own
+    /// (wings, tails), also where the base has none of the name, else the
+    /// base's (robe and cloak bones). A part without the one asked plays
+    /// none of its own: the client stands it as the base's leaves it
+    /// (`reading_wings_without_bones`, 2026-11-01).
+    fn part_pose(
+        &self,
+        p: &Placed,
+        animation: Option<&str>,
+        base_anim: Option<&Animation>,
+        base_pose: &[Mat4],
+        bones: Mat4,
+        t: f32,
+    ) -> Option<Vec<Mat4>> {
+        if !p.animated {
+            return p.skeleton_pose(base_pose, bones);
+        }
+        let own = animation.and_then(|a| p.animation(a));
+        // (A skeleton's animation, the base's or its supermodel's, moves
+        // the part as it moves the base: at the base's scale, through its
+        // chain of supermodels. The part's very own keep theirs.)
+        let worn = self.base.worn_scale(base_anim);
+        own.or(base_anim).map(|a| anim::pose_worn(&p.gpu.model, a, t, worn))
+    }
+
+    fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
+        let (base_anim, base_pose) = self.base_posed(animation, t);
+        let base_pose: Arc<Vec<Mat4>> = Arc::new(base_pose);
         let instance = |p: &Placed, transform: Mat4, pose: Option<Arc<Vec<Mat4>>>| Instance {
             pose,
             env_map: p.env_map.clone(),
@@ -479,23 +520,8 @@ impl Composed {
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
             let (hung, bones) = p.hung(at);
             let placed = transform * hung;
-            // Animated parts play the animation on their own nodes: their
-            // own (wings, tails), else the base's (robe and cloak bones).
-            // A part without the one asked plays none of its own: the
-            // client stands it as the base's leaves it
-            // (`reading_wings_without_bones`, 2026-11-01).
-            let pose = if p.animated {
-                let own = animation.and_then(|a| p.animation(a));
-                // (A skeleton's animation, the base's or its supermodel's,
-                // moves the part as it moves the base: at the base's
-                // scale, through its chain of supermodels. The part's very
-                // own keep theirs.)
-                let worn = self.base.worn_scale(base_anim);
-                own.or(base_anim).map(|a| Arc::new(anim::pose_worn(&p.gpu.model, a, t, worn)))
-            } else {
-                p.skeleton_pose(&base_pose, bones).map(Arc::new)
-            };
-            out.push(instance(p, placed, pose));
+            let pose = self.part_pose(p, animation, base_anim, &base_pose, bones, t);
+            out.push(instance(p, placed, pose.map(Arc::new)));
         }
         out
     }
@@ -667,24 +693,15 @@ impl Composed {
     /// [`Composed::ray_hit_in`] meets it. Made once and kept, a click on
     /// it is tried against what the box is around.
     pub fn stance(&self, animation: Option<&str>, t: f32) -> Stance {
-        let playing = animation.and_then(|a| playing(a, |n| self.base.animation(n)));
-        let (base, playing) = match (playing, animation) {
-            (Some(a), Some(asked)) => (self.base.pose(a, t), Some((asked, a, t))),
-            _ => (self.base.gpu.rest.clone(), None),
-        };
-        // The parts: those that play it (wings, tails, robes) as they
-        // stand in it too, as [`Composed::instances`] draws them; the
-        // others on the base's nodes.
+        let (base_anim, base) = self.base_posed(animation, t);
+        // The parts: each as [`Composed::instances`] draws it (those that
+        // play it, wings, tails and robes, as they stand in it; the
+        // others on the base's nodes).
         let parts = (self.parts.iter())
             .map(|p| {
                 let at = p.attach.and_then(|i| base.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-                let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
-                    let own = p.animation(asked);
-                    let worn = self.base.worn_scale(Some(base));
-                    Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
-                });
                 let (hung, bones) = p.hung(at);
-                (posed.or_else(|| p.skeleton_pose(&base, bones)), hung)
+                (self.part_pose(p, animation, base_anim, &base, bones, t), hung)
             })
             .collect();
         Stance { base, parts }
@@ -1325,6 +1342,17 @@ mod ray_tests {
         let stance = c.stance(Some("pause1"), 0.5);
         let at_rest = stance.parts[0].0.as_ref().is_none_or(|p| p[1].w_axis.x.abs() < 1e-5);
         assert!(at_rest, "its stance as it is drawn");
+        // And where the base has none of the name and the part has: it is
+        // drawn playing its own, and boxed and picked as it is drawn (its
+        // stance had it at rest: the review's M15). Whatever is asked, a
+        // part's stance is its instance's pose.
+        for asked in [Some("creadyl"), Some("pause1"), Some("nothing"), None] {
+            let drawn = c.instances(asked, 0.5, Mat4::IDENTITY)[1].pose.clone();
+            let stance = c.stance(asked, 0.5);
+            assert_eq!(stance.parts[0].0.as_ref(), drawn.as_deref(), "{asked:?}");
+        }
+        let stance = c.stance(Some("creadyl"), 0.5);
+        assert!((stance.parts[0].0.as_ref().unwrap()[1].w_axis.x - 1.0).abs() < 1e-5);
     }
 
     /// A model of scale 2 on one of 3 plays the owner's animation at 6, as

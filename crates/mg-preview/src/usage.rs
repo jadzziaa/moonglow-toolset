@@ -26,8 +26,11 @@
 //!   ([`ByNumber`]), not followed;
 //! - what an area is drawn with: its tileset (its `.set` and palette) and,
 //!   of the tiles, those the area places: each one's model, walkmesh
-//!   (`.wok`) and map image; the tileset's grass texture and environment
-//!   map; its skybox's models (skyboxes.2da), its loading screen
+//!   (`.wok`), map image and replacement texture (replacetexture.2da, where
+//!   its model has a `replace_tex`); the tileset's grass texture and
+//!   environment map, and its edge tiles' models (`<tileset>_edge.2da`,
+//!   every row's: the tile border past the area's edge);
+//!   its skybox's models (skyboxes.2da), its loading screen
 //!   (loadscreens.2da), its ambient sounds (ambientsound.2da) and music
 //!   (ambientmusic.2da and its stingers);
 //! - what an object looks like, as the area view draws it
@@ -53,6 +56,11 @@
 //! - the 2DAs the game reads by itself (a hak's replacement of one the
 //!   game has), each reached from itself, and the tables a 2DA's cells
 //!   name (classes.2da a class's feat table);
+//! - what the game shows or plays of a table's rows by itself, with no
+//!   script naming the row ([`SHOWN_BY_THE_GAME`]): a feat's, skill's,
+//!   class's, domain's, race's and effect's icon, a spell's icon, visuals
+//!   and sounds, a cast-spell property's icon, of every row of the table
+//!   once it is reached;
 //! - what players choose at character creation: every head of the player
 //!   races and the body parts the creation screen offers them (part 1 of
 //!   each, part 2 of those a tattoo covers), for the phenotypes it offers,
@@ -162,6 +170,41 @@ const BY_NUMBER: [(&str, usize, Row); 9] = [
     ("SetCreatureAppearanceType", 1, Row::Appearance),
 ];
 
+/// The tables whose rows the game shows or plays by itself, as a player
+/// meets them (a feat on the character sheet, a spell cast from the
+/// spellbook), and the columns that name a file of the row's: an icon, a
+/// model, a sound. No script names such a row, so every row's are
+/// reached once the table is. (Not appearance.2da or placeables.2da: a
+/// row of those is an object's, reached by the object.)
+const SHOWN_BY_THE_GAME: [(&str, &[&str]); 9] = [
+    ("feat", &["ICON"]),
+    ("masterfeats", &["ICON"]),
+    ("skills", &["Icon"]),
+    ("classes", &["Icon"]),
+    ("domains", &["Icon"]),
+    ("racialtypes", &["Icon"]),
+    (
+        "spells",
+        &[
+            "IconResRef",
+            "ConjHeadVisual",
+            "ConjHandVisual",
+            "ConjGrndVisual",
+            "ConjSoundVFX",
+            "ConjSoundMale",
+            "ConjSoundFemale",
+            "CastHeadVisual",
+            "CastHandVisual",
+            "CastGrndVisual",
+            "CastSound",
+            "ProjModel",
+            "ProjSound",
+        ],
+    ),
+    ("iprp_spells", &["Icon"]),
+    ("effecticons", &["Icon"]),
+];
+
 /// A table a script names a row of by a number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Row {
@@ -240,6 +283,11 @@ pub(crate) struct Walk<'a> {
     spec: Option<Option<Arc<mg_script::spec::Spec>>>,
     /// The rows followed, once each.
     rows: std::collections::HashSet<(Row, i64)>,
+    /// The names scripts and tables' cells gave, each tried once.
+    names: std::collections::HashSet<ResRef>,
+    /// What the previews of the objects walked have read of their parts'
+    /// models.
+    remembered: crate::Remembered,
     pub(crate) by_number: ByNumber,
 }
 
@@ -298,6 +346,8 @@ impl<'a> Walk<'a> {
             tables: None,
             spec: None,
             rows: Default::default(),
+            names: Default::default(),
+            remembered: Default::default(),
             by_number: ByNumber::default(),
         }
     }
@@ -371,6 +421,7 @@ impl<'a> Walk<'a> {
     fn follow(&mut self, key: ResKey) {
         if key.restype == ResType::TWODA {
             self.table_names(key.resref);
+            self.shown_by_the_game(key.resref);
             return;
         }
         let Ok(data) = self.rm().get(&key) else { return };
@@ -431,6 +482,13 @@ impl<'a> Walk<'a> {
     /// script may name it is (a script, blueprint, conversation, sound,
     /// 2DA, model or texture).
     fn named(&mut self, r: ResRef) {
+        // (Once: a name is tried against 15 types, a model and a texture,
+        // each a look through every layer, and scripts give the same
+        // names again and again, in their source and compiled. What a
+        // name reaches the first time is reached.)
+        if !self.names.insert(r) {
+            return;
+        }
         let name = r.to_string().to_ascii_lowercase();
         for ty in NAMED_IN_SCRIPTS {
             self.reach(ResKey::new(r, ty));
@@ -577,7 +635,9 @@ impl<'a> Walk<'a> {
         let items = |r: ResRef| -> Option<Gff> {
             Gff::read(&rm.get(&ResKey::new(r, ResType::UTI)).ok()?).ok()
         };
-        if let Some(Ok(p)) = crate::of_object(self.game, kind, s, &items, crate::Shown::Placed) {
+        let shown = crate::Shown::Placed;
+        let kept = Some(&self.remembered);
+        if let Some(Ok(p)) = crate::of_object_with(self.game, kind, s, &items, shown, kept) {
             self.gather.preview(&p);
         }
     }
@@ -589,15 +649,19 @@ impl<'a> Walk<'a> {
         {
             self.reach_named(&format!("{name}palstd"), ResType::ITP);
             set = self.tileset(r);
+            // (The tables its tile border's models and its tiles'
+            // replacement textures are read from.)
+            self.table(&mg_rules::rows::edge_table(&name));
+            self.table("replacetexture");
         }
         // (The tables its skybox and loading screen are read from.)
         self.table("skyboxes");
         if are.integer("LoadScreenID").is_some_and(|r| r > 0) {
             self.table("loadscreens");
         }
-        // Its tiles' models, walkmeshes and minimap pictures, the
-        // tileset's maps, the skybox and the loading screen, as Export
-        // Files gathers them.
+        // Its tiles' models, walkmeshes, minimap pictures and replacement
+        // textures, the tileset's maps and edge tiles, the skybox and the
+        // loading screen, as Export Files gathers them.
         self.gather.area(self.game, are, set.as_deref(), None);
     }
 
@@ -762,6 +826,29 @@ impl<'a> Walk<'a> {
         }
     }
 
+    /// What the game shows or plays of `table`'s rows by itself
+    /// ([`SHOWN_BY_THE_GAME`]): every row's icon, models and sounds.
+    fn shown_by_the_game(&mut self, table: ResRef) {
+        let name = table.to_string();
+        let Some((_, columns)) =
+            SHOWN_BY_THE_GAME.iter().find(|(t, _)| t.eq_ignore_ascii_case(&name))
+        else {
+            return;
+        };
+        let Ok(t) = self.game.table(&name) else { return };
+        for column in columns.iter().filter_map(|c| t.column(c)) {
+            for row in 0..t.len() {
+                let Some(v) = t.cell(row, column).map(str::trim) else { continue };
+                if v.is_empty() || v == "****" {
+                    continue;
+                }
+                if let Ok(name) = ResRef::from_str(v) {
+                    self.named(name);
+                }
+            }
+        }
+    }
+
     /// The phenotypes the creation screen's Body offers: the bits of
     /// ruleset.2da's `CHARGEN_ENABLED_PHENOTYPES` (5, phenotypes 0 and 2,
     /// where the table has none), as the client's
@@ -824,7 +911,7 @@ impl<'a> Walk<'a> {
                         if ResKey::parse(&name, ResType::MDL)
                             .is_some_and(|k| self.rm().contains(&k))
                         {
-                            self.gather.add_model(&name);
+                            self.body_part(&name);
                         }
                     }
                 }
@@ -911,8 +998,9 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// An item's models (`placed`: as it lies, drawn already) and their
-    /// icons; armor's parts and a cloak as anyone may wear them.
+    /// An item's models (`placed`: it lies in an area, and what it lies as
+    /// is gathered already) and their icons; armor's parts and a cloak as
+    /// anyone may wear them.
     fn item(&mut self, s: &Struct, placed: bool) {
         let base = s.integer("BaseItem").unwrap_or(-1);
         let mut armor = false;
@@ -953,13 +1041,19 @@ impl<'a> Walk<'a> {
         }
         let Ok(p) = crate::item(self.game, s) else { return };
         let p = crate::replaced(p, s);
-        if !placed {
+        // (One that lies as something else, a cloak folded, is drawn as
+        // this once it is picked up and worn: its cloakmodel.2da texture.)
+        let lies_as_another = || {
+            (std::iter::once(&p.base).chain(&p.parts))
+                .any(|part| mg_rules::models::part_name(&part.model).is_some())
+        };
+        if !placed || lies_as_another() {
             self.gather.preview(&p);
         }
         for part in std::iter::once(&p.base).chain(&p.parts) {
             let name = part.model.to_ascii_lowercase();
-            match armor_part(&name) {
-                Some((_, _, _, rest)) => self.worn(rest),
+            match mg_rules::models::part_name(&name) {
+                Some(worn) => self.worn(worn.part),
                 None if self.parts.insert(name.clone()) => {
                     self.gather.add_texture(&format!("i{name}"))
                 }
@@ -996,7 +1090,8 @@ impl<'a> Walk<'a> {
     }
 
     /// A part worn (`chest001`, `cloak_001`): its model for every gender,
-    /// part-based race and phenotype that has one, once.
+    /// part-based race and phenotype that has one, with the textures the
+    /// game draws on it, once.
     fn worn(&mut self, part: &str) {
         if !self.parts.insert(part.to_string()) {
             return;
@@ -1009,10 +1104,23 @@ impl<'a> Walk<'a> {
                 for ph in &phenotypes {
                     let variant = format!("p{g}{r}{ph}_{part}");
                     if ResKey::parse(&variant, ResType::MDL).is_some_and(|k| rm.contains(&k)) {
-                        self.gather.add_model(&variant);
+                        self.body_part(&variant);
                     }
                 }
             }
+        }
+    }
+
+    /// A body part's model (a head, an armor's part) and what the game
+    /// draws on it, as a creature's preview has it: the textures its
+    /// meshes name and, whatever they name, the part's own PLT (or its
+    /// fallbacks': phenotype 0's, the human's), which a mesh with `bitmap
+    /// NULL` takes too ([`crate::creature::plt_fallbacks`]).
+    fn body_part(&mut self, model: &str) {
+        self.gather.add_model(model);
+        let lk = crate::Lookup { game: self.game, remembered: Some(&self.remembered) };
+        for texture in crate::creature::plt_fallbacks(&lk, model).values() {
+            self.gather.add_texture(mg_image::plt::split_colors(texture).0);
         }
     }
 
@@ -1048,19 +1156,6 @@ impl<'a> Walk<'a> {
         }
         self.wearers = Some((races, phenotypes));
     }
-}
-
-/// An armor part's model name, `p` + gender + race + phenotype + `_` +
-/// the part and its number (`pmh0_chest001`), in its pieces.
-fn armor_part(name: &str) -> Option<(char, char, &str, &str)> {
-    let rest = name.strip_prefix('p')?;
-    let mut chars = rest.chars();
-    let g = chars.next().filter(|c| matches!(c, 'm' | 'f'))?;
-    let r = chars.next().filter(char::is_ascii_lowercase)?;
-    let tail = &rest[2..];
-    let (ph, part) = tail.split_once('_')?;
-    (!ph.is_empty() && ph.bytes().all(|b| b.is_ascii_digit()) && !part.is_empty())
-        .then_some((g, r, ph, part))
 }
 
 /// The game a player has, with the module's haks and the module
@@ -1351,8 +1446,283 @@ mod tests {
         let base = |k: &ResKey| *k == key("mg_unused.mdl");
         let u = attribute(&game.resman, &walk.from, "mg_content", &layer("hak:mg_content"), &base);
         assert_eq!(u.unused.len(), 1);
-        assert_eq!(armor_part("pmh0_chest001"), Some(('m', 'h', "0", "chest001")));
-        assert_eq!(armor_part("plc_a01"), None);
+    }
+
+    /// A walk of a module of `resources` (each in the module's layer)
+    /// over a hak `content` and the game's `stock`: the game, and what
+    /// the walk reached with what it was reached from.
+    fn walked(
+        resources: Vec<(&str, Vec<u8>)>,
+        content: MemContainer,
+        stock: MemContainer,
+    ) -> (GameData, HashMap<ResKey, ResKey>) {
+        let mut module = MemContainer::new();
+        let mut m = Module::new();
+        for (name, data) in resources {
+            module.insert(key(name), data.clone());
+            m.set(key(name), data);
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::MODULE, "module", LayerClass::Erf, module);
+        rm.add(priority::HAK_USER, "hak:mg_content", LayerClass::Erf, content);
+        rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let from = {
+            let mut walk = Walk::new(&game);
+            walk.module(&m);
+            walk.settle();
+            walk.players_choose();
+            walk.settle();
+            walk.from
+        };
+        (game, from)
+    }
+
+    /// What the area view draws past an area's edge and on a tile whose
+    /// texture is replaced is used: the models of the tileset's edge
+    /// table (named nowhere else) with their textures, and the
+    /// replacetexture.2da texture of a tile whose model has a
+    /// `replace_tex`, by the tile's `Tile_ReplaceTex` (row 0 without the
+    /// field); not that of a row no tile takes. They were listed unused,
+    /// and a release cut by the report lost them (the review's M4).
+    #[test]
+    fn an_area_s_tile_border_and_replacement_textures_are_used() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        let set = "[GENERAL]\nName=mgt01\n[TILES]\nCount=2\n[TILE0]\nModel=mgt01_a01\n\
+                   [TILE1]\nModel=mgt01_a02\n";
+        stock.insert(key("mgt01.set"), set.as_bytes());
+        let mut content = MemContainer::new();
+        content.insert(
+            key("mgt01_edge.2da"),
+            table(" Corner1 Edge Corner2 Model Height\n0 Grass **** Grass MGT01_Z01 0\n1 Grass **** **** **** 0\n"),
+        );
+        content.insert(key("mgt01_z01.mdl"), model("mgt01_z01", "mg_edge"));
+        content.insert(key("mg_edge.tga"), &b"tga"[..]);
+        content.insert(
+            key("replacetexture.2da"),
+            table(" TEXTURENAME\n0 MG_Flag0\n1 mg_flag1\n2 mg_flag2\n"),
+        );
+        for n in ["mg_flag0.tga", "mg_flag1.tga", "mg_flag2.tga", "mg_plain.tga"] {
+            content.insert(key(n), &b"tga"[..]);
+        }
+        content.insert(key("mgt01_a01.mdl"), model("mgt01_a01", "Replace_Tex"));
+        content.insert(key("mgt01_a02.mdl"), model("mgt01_a02", "mg_plain"));
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tileset", Value::resref(rr("mgt01")));
+        // A flag tile without the field (row 0), one of row 1 (value 2),
+        // and a plain tile of row 2 (value 3), which has nothing replaced.
+        let tiles = [(0, None), (0, Some(2)), (1, Some(3))].map(|(id, replace)| {
+            let mut tile = Struct::new(1);
+            tile.set("Tile_ID", Value::Int(id));
+            if let Some(v) = replace {
+                tile.set("Tile_ReplaceTex", Value::Byte(v));
+            }
+            tile
+        });
+        are.root.set("Tile_List", Value::List(tiles.to_vec()));
+        let (_, from) = walked(vec![("a1.are", are.to_bytes().unwrap())], content, stock);
+        for n in [
+            "mgt01_edge.2da",
+            "mgt01_z01.mdl",
+            "mg_edge.tga",
+            "replacetexture.2da",
+            "mg_flag0.tga",
+            "mg_flag1.tga",
+            "mg_plain.tga",
+        ] {
+            assert_eq!(from.get(&key(n)).map(|f| f.to_string()).as_deref(), Some("a1.are"), "{n}");
+        }
+        assert_eq!(from.get(&key("mg_flag2.tga")), None);
+    }
+
+    /// A worn part and a creation-screen head are used with the texture
+    /// the game draws on them, not only the one their meshes name: a head
+    /// whose mesh has `bitmap NULL` with the PLT of its name, an elf's
+    /// chest whose mesh names the human's with the elf's own PLT, and a
+    /// cloak lying in an area with its cloakmodel.2da texture. They were
+    /// listed unused beside their models (the review's M6).
+    #[test]
+    fn a_part_s_own_texture_is_used_with_its_model() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        stock.insert(
+            key("appearance.2da"),
+            table("   LABEL MODELTYPE RACE\n0 Human P H\n1 Elf P E\n"),
+        );
+        stock.insert(key("racialtypes.2da"), table(" Label Appearance PlayerRace\n0 Human 0 1\n"));
+        stock.insert(
+            key("baseitems.2da"),
+            table(
+                " label ItemClass ModelType DefaultModel\n0 sword WSwSs 2 ****\n\
+                 1 armor AArmor 3 ****\n2 cloak Cloak 1 ****\n",
+            ),
+        );
+        stock
+            .insert(key("cloakmodel.2da"), table(" LABEL MODEL TEXTURE\n0 none 1 1\n1 Mine 3 7\n"));
+        // (A server's own phenotype of two digits, 15.)
+        let phenotypes: String = (0..16).map(|row| format!("{row} P{row} 0\n")).collect();
+        stock
+            .insert(key("phenotype.2da"), table(&format!(" Label DefaultPhenoType\n{phenotypes}")));
+        let mut content = MemContainer::new();
+        content.insert(key("pmh15_chest009.mdl"), model("pmh15_chest009", "NULL"));
+        content.insert(key("pmh15_chest009.plt"), &b"plt"[..]);
+        content.insert(key("pmh0_head123.mdl"), model("pmh0_head123", "NULL"));
+        content.insert(key("pme0_chest009.mdl"), model("pme0_chest009", "pmh0_chest009"));
+        content.insert(key("pmh0_cloak_003.mdl"), model("pmh0_cloak_003", "cloak_001"));
+        let textures = [
+            "pmh0_head123.plt",
+            "pme0_chest009.plt",
+            "pmh0_chest009.plt",
+            "cloak_007.plt",
+            "pmh0_head124.plt",
+            "cloak_008.plt",
+        ];
+        for n in textures {
+            content.insert(key(n), &b"plt"[..]);
+        }
+        // A store with the armor, and a cloak lying in an area.
+        let mut armor = Struct::new(0);
+        armor.set("BaseItem", Value::Int(1));
+        armor.set("ArmorPart_Torso", Value::Byte(9));
+        let mut page = Struct::new(0);
+        page.set("ItemList", Value::List(vec![armor]));
+        let mut shop = Gff::new(*b"UTM ");
+        shop.root.set("StoreList", Value::List(vec![page]));
+        let mut cloak = Struct::new(0);
+        cloak.set("BaseItem", Value::Int(2));
+        cloak.set("ModelPart1", Value::Byte(1));
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(mg_rules::ObjectKind::Item.list(), Value::List(vec![cloak]));
+        let resources =
+            vec![("shop.utm", shop.to_bytes().unwrap()), ("a1.git", git.to_bytes().unwrap())];
+        let (_, from) = walked(resources, content, stock);
+        let reached = |n: &str| from.get(&key(n)).map(|f| f.to_string());
+        assert_eq!(reached("pmh0_head123.mdl").as_deref(), Some("racialtypes.2da"));
+        assert_eq!(reached("pmh0_head123.plt").as_deref(), Some("racialtypes.2da"));
+        for n in ["pme0_chest009.mdl", "pme0_chest009.plt", "pmh0_chest009.plt"] {
+            assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
+        }
+        // A part of a phenotype of two digits is a part like any other
+        // (its name was read as no part's, and it got no texture: the
+        // review's M10).
+        for n in ["pmh15_chest009.mdl", "pmh15_chest009.plt"] {
+            assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
+        }
+        for n in ["pmh0_cloak_003.mdl", "cloak_007.plt"] {
+            assert_eq!(reached(n).as_deref(), Some("a1.git"), "{n}");
+        }
+        // (A head and a cloak row nothing has.)
+        assert_eq!(reached("pmh0_head124.plt"), None);
+        assert_eq!(reached("cloak_008.plt"), None);
+    }
+
+    /// A container that counts how often each of its resources is read
+    /// and asked after.
+    #[derive(Debug)]
+    struct Counting {
+        files: MemContainer,
+        asked: Arc<std::sync::Mutex<HashMap<ResKey, (usize, usize)>>>,
+    }
+
+    impl mg_resman::Container for Counting {
+        fn contains(&self, key: &ResKey) -> bool {
+            self.asked.lock().unwrap().entry(*key).or_default().1 += 1;
+            self.files.contains(key)
+        }
+        fn read(&self, key: &ResKey) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
+            self.asked.lock().unwrap().entry(*key).or_default().0 += 1;
+            self.files.read(key)
+        }
+        fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+            self.files.keys()
+        }
+        fn len(&self) -> usize {
+            self.files.len()
+        }
+    }
+
+    /// The walk looks a thing up once, however often it meets it: a body
+    /// part's model is read once for its textures' fallbacks (and once to
+    /// gather it), not once more for every creature placed that has it; a
+    /// name a script gives fifty times is tried once; a texture every
+    /// model names has its material looked for once. And what it reaches
+    /// is the same as with one of each (the review's M17).
+    #[test]
+    fn the_walk_looks_a_thing_up_once_however_often_it_meets_it() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let walk_of = |copies: usize| {
+            let mut stock = MemContainer::new();
+            stock.insert(key("appearance.2da"), table("   LABEL MODELTYPE RACE\n0 Human P H\n"));
+            stock.insert(key("gender.2da"), table(" NAME GENDER\n0 Male M\n"));
+            stock.insert(key("phenotype.2da"), table(" Label DefaultPhenoType\n0 Normal 0\n"));
+            stock.insert(key("parts_robe.2da"), table(" COSTMODIFIER\n0 0\n"));
+            stock.insert(
+                key("capart.2da"),
+                table(" NAME MDLNAME NODENAME\n0 Torso chest torso_g\n1 Pelvis pelvis pelvis_g\n"),
+            );
+            stock.insert(
+                key("baseitems.2da"),
+                table(" label ItemClass ModelType\n0 sword WSwSs 2\n"),
+            );
+            let mut content = MemContainer::new();
+            content.insert(key("pmh0.mdl"), model("pmh0", "NULL"));
+            for part in ["pmh0_chest001", "pmh0_pelvis001", "pmh0_head001"] {
+                content.insert(key(&format!("{part}.mdl")), model(part, part));
+                content.insert(key(&format!("{part}.plt")), &b"plt"[..]);
+            }
+            content.insert(key("mg_named.utp"), {
+                let mut g = Gff::new(*b"UTP ");
+                g.root.set("Appearance", Value::Dword(0));
+                g.to_bytes().unwrap()
+            });
+            let mut man = Struct::new(4);
+            man.set("Appearance_Type", Value::Word(0));
+            man.set("Appearance_Head", Value::Byte(1));
+            man.set("BodyPart_Torso", Value::Byte(1));
+            man.set("BodyPart_Pelvis", Value::Byte(1));
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("Creature List", Value::List(vec![man; copies]));
+            let script = format!("void main() {{ {} }}", "f(\"mg_named\"); ".repeat(copies));
+            let asked = Arc::new(std::sync::Mutex::new(HashMap::new()));
+            let content = Counting { files: content, asked: asked.clone() };
+            let mut module = MemContainer::new();
+            let mut m = Module::new();
+            for (name, data) in
+                [("a1.git", git.to_bytes().unwrap()), ("s.nss", script.into_bytes())]
+            {
+                module.insert(key(name), data.clone());
+                m.set(key(name), data);
+            }
+            let mut rm = ResMan::new();
+            rm.add(priority::MODULE, "module", LayerClass::Erf, module);
+            rm.add(priority::HAK_USER, "hak:mg_content", LayerClass::Erf, content);
+            rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+            let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+            let mut walk = Walk::new(&game);
+            walk.module(&m);
+            walk.settle();
+            let mut reached: Vec<(ResKey, ResKey)> = walk.from.into_iter().collect();
+            reached.sort();
+            let asked = asked.lock().unwrap().clone();
+            (reached, asked)
+        };
+        let (one, _) = walk_of(1);
+        let (many, asked) = walk_of(50);
+        assert_eq!(many, one, "the same reached, from the same");
+        for n in ["pmh0_chest001.mdl", "pmh0_head001.plt", "mg_named.utp"] {
+            assert!(one.iter().any(|(k, _)| *k == key(n)), "{n} is reached: {one:?}");
+        }
+        let of = |n: &str| asked.get(&key(n)).copied().unwrap_or_default();
+        for part in ["pmh0_chest001.mdl", "pmh0_pelvis001.mdl", "pmh0_head001.mdl"] {
+            assert!(of(part).0 <= 2, "{part} was read {} times", of(part).0);
+        }
+        // (Asked after: the blueprint a script names, a model's texture's
+        // material and its image.)
+        for (n, most) in [("mg_named.utp", 4), ("pmh0_chest001.mtr", 4), ("pmh0_chest001.plt", 12)]
+        {
+            assert!(of(n).1 <= most, "{n} was asked after {} times", of(n).1);
+        }
     }
 
     /// What the walk followed only since the deferred sprint: a creature's
@@ -1427,6 +1797,26 @@ mod tests {
             haks.insert(key(n), d);
         }
         haks.insert(key("classes.2da"), table(" Label FeatsTable\n0 Mine cls_feat_mine\n"));
+        stock.insert(key("feat.2da"), table(" LABEL ICON\n0 Alertness ife_alertness\n"));
+        stock.insert(key("spells.2da"), table(" Label IconResRef\n0 Acid_Fog is_acidfog\n"));
+        haks.insert(
+            key("feat.2da"),
+            table(
+                " LABEL ICON Constant\n0 Alertness ife_alertness ****\n1 Mine IFE_Mine ife_other\n",
+            ),
+        );
+        haks.insert(
+            key("spells.2da"),
+            table(
+                " Label IconResRef ConjHeadVisual ConjSoundVFX\n0 Acid_Fog is_acidfog **** ****\n\
+                 1 Mine is_mine vco_mine sco_mine\n",
+            ),
+        );
+        for n in ["ife_mine.tga", "ife_other.tga", "is_mine.tga", "fx_mine.tga"] {
+            haks.insert(key(n), &b"t"[..]);
+        }
+        haks.insert(key("sco_mine.wav"), &b"w"[..]);
+        haks.insert(key("vco_mine.mdl"), model("vco_mine", "fx_mine"));
         haks.insert(key("wswss_fxacid.mdl"), model("wswss_fxacid", "fx_acid"));
         haks.insert(key("wswss_fxfire.mdl"), model("wswss_fxfire", "fx_fire"));
         haks.insert(key("pmh0_head007.mdl"), model("pmh0_head007", "pmh0_head007"));
@@ -1500,6 +1890,20 @@ mod tests {
         assert_eq!(reached(&walk, "classes.2da").as_deref(), Some("classes.2da"));
         assert_eq!(reached(&walk, "cls_feat_mine.2da").as_deref(), Some("classes.2da"));
         assert_eq!(reached(&walk, "cls_feat_none.2da"), None);
+        // What the game shows of a table's rows by itself, with no script
+        // naming the row: a hak's feat.2da over the game's brings its
+        // feats' icons, its spells.2da its spells' icons, visuals and
+        // sounds (they were listed unused: the review's M5); not what a
+        // column the game shows nothing of names.
+        for n in ["ife_mine.tga", "is_mine.tga", "vco_mine.mdl", "fx_mine.tga", "sco_mine.wav"] {
+            assert_eq!(reached(&walk, n), None, "{n}");
+        }
+        walk.game_reads([key("feat.2da"), key("spells.2da")]);
+        assert_eq!(reached(&walk, "ife_mine.tga").as_deref(), Some("feat.2da"));
+        for n in ["is_mine.tga", "vco_mine.mdl", "fx_mine.tga", "sco_mine.wav"] {
+            assert_eq!(reached(&walk, n).as_deref(), Some("spells.2da"), "{n}");
+        }
+        assert_eq!(reached(&walk, "ife_other.tga"), None);
         // A player's choices: a human's heads (any number a byte holds),
         // portraits and voice sets; not a wolf's portrait, nor an NPC's.
         walk.players_choose();

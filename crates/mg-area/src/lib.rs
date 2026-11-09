@@ -38,12 +38,8 @@ pub mod terrain;
 pub mod walk;
 
 pub use grass_view::{CHUNK, GrassDraw, Grown, chunk_of, grass_chosen};
-pub use mg_rules::rows::{replacement_row, replacement_value};
+pub use mg_rules::rows::{REPLACE_TEX, replacement_row, replacement_value};
 pub use scene::{AreaScene, BareLight, Sight, Usage, View, fog, overview};
-
-/// The texture a tile model's mesh is drawn with where the tile's
-/// `Tile_ReplaceTex` replaces it ([`replacement_row`]).
-pub const REPLACE_TEX: &str = "replace_tex";
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;
@@ -661,8 +657,7 @@ impl AreaModel {
                     source_lights: [byte("Tile_SrcLight1"), byte("Tile_SrcLight2")],
                     anim_loops: [1, 2, 3].map(|n| int(&format!("Tile_AnimLoop{n}")) != 0),
                     replace_texture: replacements.as_ref().and_then(|table| {
-                        let row = replacement_row(t.integer("Tile_ReplaceTex"), table.len())?;
-                        Some(table.get(row, "TEXTURENAME")?.to_ascii_lowercase())
+                        mg_rules::rows::replacement_texture(table, t.integer("Tile_ReplaceTex"))
                     }),
                     position: Vec3::new(
                         (column as f32 + 0.5) * TILE_SIZE,
@@ -692,7 +687,7 @@ impl AreaModel {
         }
         let hooks = tiles_hooks(&tiles, tileset);
         let border = match (tileset, tileset_ref) {
-            (Some(set), Some(name)) => (game.table(&format!("{name}_edge")))
+            (Some(set), Some(name)) => (game.table(&border::edge_table(&name.to_string())))
                 .map(|t| border::border(set, &border::edge_rows(&t), &tiles, (width, height), step))
                 .unwrap_or_default(),
             _ => Vec::new(),

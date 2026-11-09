@@ -93,7 +93,7 @@ pub fn waypoint(game: &GameData, utw: &Struct) -> Result<Preview, PreviewError> 
 /// (a store has no appearance).
 pub fn store(game: &GameData) -> Result<Preview, PreviewError> {
     const MARKER: &str = "gi_store";
-    if !(Lookup { game }).has_model(MARKER) {
+    if !Lookup::of(game).has_model(MARKER) {
         return Err(PreviewError::NoModel(MARKER.into()));
     }
     Ok(Preview::model(MARKER))
@@ -109,7 +109,7 @@ pub fn sound(game: &GameData, uts: &Struct) -> Result<Preview, PreviewError> {
         (true, true) => "gi_sound_rndm",
         (true, false) => "gi_sound_pos",
     };
-    if !(Lookup { game }).has_model(marker) {
+    if !Lookup::of(game).has_model(marker) {
         return Err(PreviewError::NoModel(marker.into()));
     }
     Ok(Preview::model(marker))
