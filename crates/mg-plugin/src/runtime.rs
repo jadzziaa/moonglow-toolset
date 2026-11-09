@@ -235,7 +235,7 @@ impl Shared {
     }
 
     /// Whether the job is to stop: canceled, or out of time.
-    fn stopped(&self) -> bool {
+    pub(crate) fn stopped(&self) -> bool {
         self.host.cancelled() || self.out_of_time()
     }
 

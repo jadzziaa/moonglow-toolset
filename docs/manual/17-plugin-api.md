@@ -681,7 +681,7 @@ fails. A file of more than 64 MB is not read.
 | `file.name` | The file's name, without its folder. |
 | `file.bytes` | What is in it, a string of bytes. |
 | `folder.name` | The folder's name. |
-| `folder:files()` | The names of its files and of those in its folders, sorted. |
+| `folder:files()` | The names of its files and of those in its folders, sorted. A folder of more than 20,000 files is not listed: the call fails. |
 | `folder:bytes(name)` | A file's bytes. |
 | `folder:text(name)` | A file as text: UTF-8 if it is, else from the module's codepage (Windows-1252, unless a hak of the module has an `encoding.2da`). |
 | `folder:write(name, bytes)` | Writes a file into the folder, when the handler has returned: as `name` (a name alone, not a path; not one that begins with a dot), in place of a file of that name there. The first time a job writes into a folder the user is asked whether to allow it, and a refusal ends the job. Undo does not take it back, and a check can't write. |

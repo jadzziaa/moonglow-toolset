@@ -34,7 +34,8 @@ pub(crate) const NAMES: [&str; 11] = [
     "image:pixel",
 ];
 
-/// The most files of a folder that are listed.
+/// The most files of a folder that are listed: a folder with more is
+/// not listed at all.
 const MAX_LISTED: usize = 20_000;
 /// The most pixels a picture may have (a small file can unpack to a
 /// great many).
@@ -59,18 +60,30 @@ fn name_of(path: &Path) -> String {
 }
 
 /// The files in `dir` and the folders in it, by their paths from `dir`
-/// with `/`, sorted. Links are not followed out of it.
-fn listing(dir: &Path) -> Vec<String> {
+/// with `/`, sorted. Links are not followed out of it. A folder of more
+/// than `most` files is an error, told as soon as it is known (a part of
+/// them, whichever the system gave first, would be taken for them all),
+/// and the walk ends between two folders when `stopped` says so.
+fn listing(dir: &Path, most: usize, stopped: &dyn Fn() -> bool) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     let mut todo = vec![PathBuf::new()];
     while let Some(sub) = todo.pop() {
+        if stopped() {
+            return Err("canceled".into());
+        }
         let Ok(entries) = std::fs::read_dir(dir.join(&sub)) else { continue };
         for e in entries.flatten() {
             let Ok(kind) = e.file_type() else { continue };
             let path = sub.join(e.file_name());
             if kind.is_dir() {
                 todo.push(path);
-            } else if kind.is_file() && out.len() < MAX_LISTED {
+            } else if kind.is_file() {
+                if out.len() == most {
+                    return Err(format!(
+                        "the folder {} has more than {most} files: choose a folder within it",
+                        name_of(dir)
+                    ));
+                }
                 let parts: Vec<String> = path
                     .components()
                     .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -80,7 +93,7 @@ fn listing(dir: &Path) -> Vec<String> {
         }
     }
     out.sort();
-    out
+    Ok(out)
 }
 
 /// The file `name` (a path with `/`) of folder `dir`, and nothing outside
@@ -162,8 +175,13 @@ pub(crate) fn folder_table(lua: &Lua, s: &Rc<Shared>, dir: PathBuf) -> mlua::Res
     {
         let folder = lua.create_table()?;
         folder.set("name", name_of(&dir))?;
-        let d = dir.clone();
-        folder.set("files", lua.create_function(move |_, _: This| Ok(listing(&d)))?)?;
+        let (d, sh) = (dir.clone(), s.clone());
+        folder.set(
+            "files",
+            lua.create_function(move |_, _: This| {
+                listing(&d, MAX_LISTED, &|| sh.stopped()).or_else(fail)
+            })?,
+        )?;
         let d = dir.clone();
         folder.set(
             "bytes",
@@ -456,7 +474,12 @@ mod tests {
         std::fs::write(dir.join("in/sub/b.txt"), "b").unwrap();
         std::fs::write(dir.join("secret.txt"), "s").unwrap();
         let root = dir.join("in");
-        assert_eq!(listing(&root), ["a.txt", "sub/b.txt"]);
+        assert_eq!(listing(&root, 2, &|| false).unwrap(), ["a.txt", "sub/b.txt"]);
+        // One file more than are listed: an error, not a list of some.
+        let e = listing(&root, 1, &|| false).unwrap_err();
+        assert_eq!(e, "the folder in has more than 1 files: choose a folder within it");
+        // And a job called off stops walking.
+        assert_eq!(listing(&root, 2, &|| true).unwrap_err(), "canceled");
         assert!(inside(&root, "a.txt").is_ok());
         assert!(inside(&root, "sub/b.txt").is_ok());
         for out in ["../secret.txt", "/etc/passwd", "sub/../../secret.txt", "", "sub", "none.txt"] {
