@@ -738,10 +738,19 @@ fn a_plugin_asks_in_its_job_s_window() {
     h.state_mut().run_plugin_command("test.forms", "rename");
     wait_for(&mut h, "Prefix Tags");
     h.get_by_label("Cancel").click();
+    // (Clicked again while the form still shows: on Windows CI a click
+    // as the window settled was once not taken.)
     let started = std::time::Instant::now();
+    let mut clicked = started;
     while h.state().busy() {
         h.run_steps(1);
         std::thread::sleep(std::time::Duration::from_millis(5));
+        if clicked.elapsed() > std::time::Duration::from_secs(2)
+            && h.query_by_label("Prefix Tags").is_some()
+        {
+            h.get_by_label("Cancel").click();
+            clicked = std::time::Instant::now();
+        }
         assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
     }
     h.run_steps(2);
