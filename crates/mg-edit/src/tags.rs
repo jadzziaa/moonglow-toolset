@@ -21,44 +21,148 @@ pub struct Made {
 /// another `Tag`, each area's own, and each object they place (an
 /// `InsertItem` into an area's list of objects). An object only moved
 /// (taken out of a list and put back in the same command) or given the
-/// tag it had is not. Read before the edits are applied (`ws` as it is
-/// then).
+/// tag it had is not: an object placed is a moved one only where the
+/// command takes one of its tag and blueprint out of that list, one for
+/// one (a command that takes one object out and places another gives the
+/// other's tag). Read before the edits are applied (`ws` as it is then);
+/// each object is given where it is once they are (an edit's places are
+/// those of its moment in the command).
 pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
+    /// An item of a list of placed objects while the edits go by.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Slot {
+        /// The item at this place before the command.
+        Was(usize),
+        /// The item this edit (by its number) places.
+        New(usize),
+        /// One of a list set whole: nothing is known of it.
+        Other,
+    }
+    type ListAt = (ResKey, String);
     let placed = |key: &ResKey, list: &str| {
         key.restype == ResType::GIT && ObjectKind::from_list(list).is_some()
     };
-    let removes = |key: &ResKey, list: &str| {
-        edits
-            .iter()
-            .any(|e| matches!(e, Edit::RemoveItem { key: k, list: l, .. } if k == key && l == list))
-    };
-    let mut out = Vec::new();
-    for e in edits {
+    // The lists the edits touch, each as the command leaves it.
+    let mut lists: Vec<(ListAt, Vec<Slot>)> = Vec::new();
+    fn slots_of(
+        lists: &mut Vec<(ListAt, Vec<Slot>)>,
+        ws: &mut Workspace,
+        key: &ResKey,
+        list: &str,
+    ) -> usize {
+        if let Some(i) = lists.iter().position(|((k, l), _)| k == key && l == list) {
+            return i;
+        }
+        let len = (ws.doc(key).ok()).and_then(|d| d.root.list(list)).map_or(0, <[Struct]>::len);
+        lists.push(((*key, list.to_string()), (0..len).map(Slot::Was).collect()));
+        lists.len() - 1
+    }
+    // What the edits take out, tags they set (the edit's number, its
+    // list and the slot), and the area tags set.
+    let mut taken: Vec<(usize, Slot)> = Vec::new();
+    let mut retagged: Vec<(usize, usize, Slot, &[u8])> = Vec::new();
+    let mut areas: Vec<(usize, Made)> = Vec::new();
+    for (n, e) in edits.iter().enumerate() {
         match e {
             Edit::SetField { key, path, label, value: Some(Value::String(new)) }
                 if label == "Tag" =>
             {
-                let object = match path.0.as_slice() {
-                    [] => key.restype == ResType::ARE,
-                    [Step::Item(list, _)] => placed(key, list),
-                    _ => false,
-                };
-                if !object {
-                    continue;
-                }
-                let was = ws.doc(key).ok().and_then(|d| path.get(&d.root)?.string("Tag"));
-                if was != Some(new.as_slice()) {
-                    out.push(Made { key: *key, path: path.clone() });
+                match path.0.as_slice() {
+                    [] if key.restype == ResType::ARE => {
+                        let was = ws.doc(key).ok().and_then(|d| d.root.string("Tag"));
+                        if was != Some(new.as_slice()) {
+                            areas.push((n, Made { key: *key, path: path.clone() }));
+                        }
+                    }
+                    [Step::Item(list, i)] if placed(key, list) => {
+                        let at = slots_of(&mut lists, ws, key, list);
+                        if let Some(slot) = lists[at].1.get(*i) {
+                            retagged.push((n, at, *slot, new.as_slice()));
+                        }
+                    }
+                    _ => {}
                 }
             }
-            Edit::InsertItem { key, path, list, index, .. }
-                if path.0.is_empty() && placed(key, list) && !removes(key, list) =>
+            Edit::SetField { key, path, label, value }
+                if path.0.is_empty() && placed(key, label) =>
             {
-                out.push(Made { key: *key, path: path.item(list, *index) });
+                let at = slots_of(&mut lists, ws, key, label);
+                let len = match value {
+                    Some(Value::List(items)) => items.len(),
+                    _ => 0,
+                };
+                lists[at].1 = vec![Slot::Other; len];
+            }
+            Edit::InsertItem { key, path, list, index, .. }
+                if path.0.is_empty() && placed(key, list) =>
+            {
+                let at = slots_of(&mut lists, ws, key, list);
+                let slots = &mut lists[at].1;
+                slots.insert((*index).min(slots.len()), Slot::New(n));
+            }
+            Edit::RemoveItem { key, path, list, index }
+                if path.0.is_empty() && placed(key, list) =>
+            {
+                let at = slots_of(&mut lists, ws, key, list);
+                if *index < lists[at].1.len() {
+                    taken.push((at, lists[at].1.remove(*index)));
+                }
             }
             _ => {}
         }
     }
+    // What an object is told by, for a move: its tag and its blueprint.
+    let told = |ws: &mut Workspace, at: usize, slot: Slot| -> Option<(Vec<u8>, Option<ResRef>)> {
+        let (key, list) = &lists[at].0;
+        let field = ObjectKind::from_list(list)?.resref_field();
+        let of = |s: &Struct| (s.string("Tag").unwrap_or(b"").to_vec(), s.resref(field));
+        match slot {
+            Slot::Was(i) => ws.doc(key).ok()?.root.list(list)?.get(i).map(of),
+            Slot::New(n) => match edits.get(n)? {
+                Edit::InsertItem { item, .. } => Some(of(item)),
+                _ => None,
+            },
+            Slot::Other => None,
+        }
+    };
+    // The objects that were there and are taken out: one of them stands
+    // for one placed that is the same.
+    let mut gone: Vec<(usize, (Vec<u8>, Option<ResRef>))> = Vec::new();
+    for &(at, slot) in &taken {
+        if matches!(slot, Slot::Was(_))
+            && let Some(t) = told(ws, at, slot)
+        {
+            gone.push((at, t));
+        }
+    }
+    let mut made: Vec<(usize, Made)> = areas;
+    for at in 0..lists.len() {
+        for (place, slot) in lists[at].1.clone().into_iter().enumerate() {
+            let here = || {
+                let (key, list) = &lists[at].0;
+                Made { key: *key, path: GffPath::root().item(list, place) }
+            };
+            // The first edit that set its tag to another than it had.
+            let was = told(ws, at, slot).map(|(tag, _)| tag);
+            let set = (retagged.iter())
+                .find(|(_, l, s, new)| *l == at && *s == slot && was.as_deref() != Some(*new));
+            let Slot::New(n) = slot else {
+                made.extend(set.map(|(n, ..)| (*n, here())));
+                continue;
+            };
+            let moved =
+                told(ws, at, slot).and_then(|t| gone.iter().position(|(l, g)| *l == at && *g == t));
+            match moved {
+                Some(i) => {
+                    gone.remove(i);
+                    made.extend(set.map(|(n, ..)| (*n, here())));
+                }
+                None => made.push((n, here())),
+            }
+        }
+    }
+    made.sort_by_key(|(n, _)| *n);
+    let mut out: Vec<Made> = made.into_iter().map(|(_, m)| m).collect();
     out.dedup();
     out
 }
@@ -169,6 +273,27 @@ mod tests {
             ),
         ];
         assert!(made_by(&mut ws, &moved).is_empty());
+        // The barrel taken out and another placeable placed, with the
+        // tag the waypoint has: that one is made (any removal of the list
+        // made every object placed into it a moved one).
+        let remove_barrel = moved[0].clone();
+        let other = |index| {
+            let item = tagged("WP_A", "plc_chest");
+            Edit::insert_item(git, GffPath::root(), "Placeable List", index, item)
+        };
+        let barrel = GffPath::root().item("Placeable List", 0);
+        let replaced = vec![remove_barrel.clone(), other(0)];
+        assert_eq!(made_by(&mut ws, &replaced), [Made { key: git, path: barrel.clone() }]);
+        // One for one: the barrel moved and a second barrel placed.
+        let twice = vec![remove_barrel.clone(), moved[1].clone(), moved[1].clone()];
+        assert_eq!(made_by(&mut ws, &twice).len(), 1);
+        // Placed before the barrel, which is then taken out: where it is
+        // after the command, and a tag set after the removal is read
+        // from the object it is set on.
+        let chest = vec![other(1), remove_barrel.clone(), set(barrel.clone(), "Tag", "WP_A")];
+        assert_eq!(made_by(&mut ws, &chest), [Made { key: git, path: barrel.clone() }]);
+        let chest = vec![other(1), remove_barrel, set(barrel.clone(), "Tag", "CHEST")];
+        assert_eq!(made_by(&mut ws, &chest), [Made { key: git, path: barrel }]);
         // Weighed after: the placed waypoint's tag is its blueprint's.
         ws.apply(Command::new("t", edits)).unwrap();
         let blueprint = |_: &Workspace, k: ResKey| {
