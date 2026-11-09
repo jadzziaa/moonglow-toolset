@@ -306,9 +306,10 @@ fn messages(said: &str, names: &[String]) -> Vec<String> {
             .match_indices(".nss(")
             .next()
             .map(|(dot, _)| {
-                lower[..dot]
-                    .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .map_or(0, |p| p + 1)
+                // (Past the character before the name, however long it is.)
+                (lower[..dot].char_indices().rev())
+                    .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_'))
+                    .map_or(0, |(p, c)| p + c.len_utf8())
             })
             .unwrap_or(0);
         let text = line[from..].trim();
@@ -432,6 +433,13 @@ mod tests {
         let m = messages(said, &names);
         assert_eq!(m[1], "inc.nss(3): Error: NSC1040: Syntax error");
         assert_eq!((m[0].as_str(), m[2].as_str()), ("", ""));
+        // The character before the file's name may be longer than a byte
+        // (a resref's byte above 0x7F, a typographic quote): the line is
+        // cut after it, not inside it.
+        let m = messages("src/\u{bf}aba.nss(4): ERROR: x\n", &["\u{bf}aba".to_string()]);
+        assert_eq!(m[0], "aba.nss(4): ERROR: x");
+        let m = messages("\u{201c}user.nss(4)\u{201d}: ERROR: x\n", &names);
+        assert_eq!(m[1], "user.nss(4)\u{201d}: ERROR: x");
     }
 
     /// A script whose name names a folder (a crafted module's `../../x`)
