@@ -126,8 +126,15 @@ pub struct Workspace {
     /// ([`Workspace::last_step`]).
     undo: Vec<(u64, Command)>,
     redo: Vec<(u64, Command)>,
-    /// Commands applied since the last save (undo past it counts down).
-    changes_since_save: isize,
+    /// The step on top of the undo history when the module was opened or
+    /// last saved (0: none), where Undo and Redo come back to the saved
+    /// state.
+    saved_at: u64,
+    /// The saved state can't be come back to by Undo or Redo (a command
+    /// applied over what Undo took back past the save, the saved step
+    /// amended or withdrawn, the history dropped with changes unsaved,
+    /// recovered work): changed until the next save.
+    unsaved: bool,
     /// Moves on every change (apply, undo, redo), for views that cache.
     revision: u64,
     /// [`Workspace::rewrites`], by resource.
@@ -198,7 +205,8 @@ impl Workspace {
             viewed: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
-            changes_since_save: 0,
+            saved_at: 0,
+            unsaved: false,
             revision: first_revision(),
             rewrites: HashMap::new(),
             touching: Vec::new(),
@@ -334,7 +342,12 @@ impl Workspace {
 
     /// Whether there are changes since opening or the last save.
     pub fn is_modified(&self) -> bool {
-        self.changes_since_save != 0
+        self.unsaved || self.top_step() != self.saved_at
+    }
+
+    /// The step on top of the undo history (0: none).
+    fn top_step(&self) -> u64 {
+        self.undo.last().map_or(0, |(step, _)| *step)
     }
 
     /// How many commands Undo can take back: a command's place in the
@@ -394,7 +407,6 @@ impl Workspace {
         // (Undone, the last is taken back first.)
         let edits = last.into_iter().rev().flat_map(|(_, c)| c.edits).collect();
         self.undo.push((step, Command::new(label, edits)));
-        self.changes_since_save -= n as isize - 1;
         true
     }
 
@@ -413,8 +425,11 @@ impl Workspace {
     pub fn apply(&mut self, cmd: Command) -> Result<(), EditError> {
         let inverse = self.run(&cmd)?;
         self.undo.push((next_step(), inverse));
+        // (What Redo held is gone: the saved state too, if it was there.)
+        if self.redo.iter().any(|(step, _)| *step == self.saved_at) {
+            self.unsaved = true;
+        }
         self.redo.clear();
-        self.changes_since_save += 1;
         self.moved(true);
         Ok(())
     }
@@ -427,6 +442,10 @@ impl Workspace {
             return Err(EditError::NothingToAmend);
         };
         let inverse = self.run(&Command::new(label, edits))?;
+        // (The saved step is no longer what was saved.)
+        if self.top_step() == self.saved_at {
+            self.unsaved = true;
+        }
         let last = &mut self.undo.last_mut().expect("checked above").1;
         // Undo reverts the amendment first, then the command.
         let earlier = std::mem::replace(&mut last.edits, inverse.edits);
@@ -448,7 +467,6 @@ impl Workspace {
         };
         let label = forward.label.clone();
         self.redo.push((step, forward));
-        self.changes_since_save -= 1;
         self.moved(true);
         Ok(Some(label))
     }
@@ -465,7 +483,10 @@ impl Workspace {
                 return Err(e);
             }
         };
-        self.changes_since_save -= 1;
+        // (Forgotten: Redo can't bring the saved state back.)
+        if step == self.saved_at {
+            self.unsaved = true;
+        }
         self.moved(true);
         Ok(Some(label))
     }
@@ -483,7 +504,6 @@ impl Workspace {
         };
         let label = inverse.label.clone();
         self.undo.push((step, inverse));
-        self.changes_since_save += 1;
         self.moved(true);
         Ok(Some(label))
     }
@@ -731,7 +751,8 @@ impl Workspace {
     pub fn save(&mut self) -> Result<(), EditError> {
         self.flush()?;
         self.module.save()?;
-        self.changes_since_save = 0;
+        self.saved_at = self.top_step();
+        self.unsaved = false;
         self.saved = resources_of(&self.module);
         Ok(())
     }
@@ -741,7 +762,8 @@ impl Workspace {
     pub fn save_as(&mut self, location: &mg_module::ModuleLocation) -> Result<(), EditError> {
         self.flush()?;
         self.module.save_as(location)?;
-        self.changes_since_save = 0;
+        self.saved_at = self.top_step();
+        self.unsaved = false;
         self.saved = resources_of(&self.module);
         Ok(())
     }
@@ -810,6 +832,9 @@ impl Workspace {
             |c: &Command| c.edits.iter().any(|e| changes.iter().any(|(k, _)| k == e.key()));
         let dropped = self.undo.iter().chain(&self.redo).any(|(_, c)| touched(c));
         if dropped {
+            // (Changed stays changed, saved stays saved.)
+            self.unsaved = self.is_modified();
+            self.saved_at = 0;
             self.undo.clear();
             self.redo.clear();
         }
@@ -820,7 +845,7 @@ impl Workspace {
     /// Counts the module as changed since it was saved (recovered work
     /// that is not in its file yet).
     pub fn mark_modified(&mut self) {
-        self.changes_since_save = self.changes_since_save.max(1);
+        self.unsaved = true;
     }
 }
 
@@ -1309,6 +1334,57 @@ mod tests {
         assert_eq!(root(&mut ws), (None, None));
         ws.redo().unwrap();
         assert_eq!(root(&mut ws), (Some(3), Some(2)));
+    }
+
+    #[test]
+    fn a_new_edit_after_an_undo_past_the_save_is_unsaved_work() {
+        let dir = std::env::temp_dir().join(format!("mg-edit-undone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut ws = workspace();
+        let k = key("module", ResType::IFO);
+        let set = |label: &str, v: i32| {
+            Command::new(
+                label,
+                vec![Edit::SetField {
+                    key: k,
+                    path: GffPath::root(),
+                    label: label.into(),
+                    value: Some(Value::Int(v)),
+                }],
+            )
+        };
+        let place = mg_module::ModuleLocation::Archive(dir.join("m.mod"));
+        ws.apply(set("A", 1)).unwrap();
+        ws.save_as(&place).unwrap();
+        assert!(!ws.is_modified());
+        // Undo past the save, then another edit: one step back, one on,
+        // and the module is the saved one less A, with B.
+        ws.undo().unwrap();
+        assert!(ws.is_modified());
+        ws.apply(set("B", 2)).unwrap();
+        assert!(ws.is_modified(), "not the saved module");
+        ws.undo().unwrap();
+        assert!(ws.is_modified(), "the saved state is beyond Redo now");
+        // Undo and Redo around the save still come back to it.
+        ws.save_as(&place).unwrap();
+        ws.apply(set("C", 3)).unwrap();
+        ws.undo().unwrap();
+        assert!(!ws.is_modified());
+        ws.redo().unwrap();
+        ws.save_as(&place).unwrap();
+        ws.undo().unwrap();
+        ws.redo().unwrap();
+        assert!(!ws.is_modified());
+        // Recovered work stays unsaved whatever Undo takes back.
+        ws.mark_modified();
+        ws.undo().unwrap();
+        assert!(ws.is_modified());
+        // The saved step amended is no longer what was saved.
+        ws.redo().unwrap();
+        ws.save_as(&place).unwrap();
+        ws.amend(set("D", 4).edits).unwrap();
+        assert!(ws.is_modified());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
