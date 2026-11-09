@@ -705,9 +705,18 @@ fn a_plugin_asks_in_its_job_s_window() {
     wait_for(&mut h, "Prefix Tags");
     assert_eq!(h.get_all_by_label("Prefix Tags").count(), 1);
     assert!(h.query_by_label("Forms: Prefix Tags").is_none());
-    h.get_by_label("Prefix Tags").hover();
-    h.run_steps(60);
-    h.get_by_label_contains("From the plugin Forms");
+    // (Hovered until the tip shows, with a deadline: on a busy machine
+    // the tip's delay takes more frames.)
+    let started = std::time::Instant::now();
+    while h.query_by_label_contains("From the plugin Forms").is_none() {
+        h.get_by_label("Prefix Tags").hover();
+        h.run_steps(5);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "no plugin's name on hover"
+        );
+    }
     h.get_by_label("At most");
     assert!(h.get_all_by_value("NPC_").next().is_some(), "the prefix's default");
     h.get_by_label("OK").click();
