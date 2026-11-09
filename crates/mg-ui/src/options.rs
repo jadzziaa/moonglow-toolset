@@ -62,6 +62,8 @@ pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OptionsDraft {
     pub page: OptionsPage,
+    /// The settings the draft was made from ([`OptionsDraft::apply`]).
+    pub opened: Option<Box<Settings>>,
     pub game_root: String,
     pub user_dir: String,
     pub script_style: ScriptStyle,
@@ -224,6 +226,7 @@ impl OptionsDraft {
     pub fn from_settings(s: &Settings) -> OptionsDraft {
         OptionsDraft {
             page: OptionsPage::default(),
+            opened: Some(Box::new(s.clone())),
             keymap: crate::keys::Keymap::new(&s.key_bindings),
             plugin_commands: Vec::new(),
             project_commands: Vec::new(),
@@ -338,7 +341,128 @@ impl OptionsDraft {
     }
 
     /// The settings with these options.
+    /// The settings with these options: what the draft changed since it
+    /// was opened, written over the settings as they are now. An option
+    /// left as it was found keeps what it is now: set meanwhile from
+    /// somewhere else (a question's "Always do this", the area view's
+    /// Shadows menu, an update skipped), it was put back by OK, the tab
+    /// being one that stays open, and opens again with the module.
     pub fn apply(&self, s: &Settings) -> Settings {
+        let mut mine = self.written_over(s);
+        let Some(opened) = &self.opened else { return mine };
+        let unchanged = self.written_over(opened);
+        macro_rules! keep {
+            ($($field:ident),* $(,)?) => {
+                $(if unchanged.$field == opened.$field {
+                    mine.$field = s.$field.clone();
+                })*
+            };
+        }
+        keep!(
+            game_root,
+            user_dir,
+            script_style,
+            build_on_save,
+            no_mod_beside_folder,
+            module_folders,
+            export_existing,
+            files_there,
+            missing_feats,
+            delete_without_asking,
+            area_names,
+            categories_by_name,
+            drag_windows_anywhere,
+            no_last_area,
+            no_reopen_tabs,
+            tabs_by_recent,
+            close_without_asking,
+            no_debug_log,
+            name_resrefs,
+            palette_no_cr,
+            armor_on_woman,
+            light_theme,
+            graphics_backend,
+            graphics_failures,
+            graphics_notices_hidden,
+            toolbar_icons_only,
+            hidden_area_tools,
+            ui_scale,
+            minimize_on_test,
+            test_without_steam,
+            no_auto_reload,
+            no_backups,
+            no_autosave,
+            autosave_minutes,
+            no_hak_warning,
+            no_namespace_warning,
+            no_spell_warning,
+            no_inventory_warning,
+            warn_duplicate_tags,
+            no_standard_warning,
+            auto_compile,
+            no_live_check,
+            debug_info,
+            scripts_external,
+            scripts_external_only,
+            scripts_own_windows,
+            properties_own_windows,
+            close_cancels,
+            tree_keeps_areas_closed,
+            tree_stays,
+            tree_hides_empty,
+            palette_hides_empty,
+            dialogs_own_windows,
+            dialog_font_size,
+            script_templates,
+            scratch_dir,
+            nwsync_upload,
+            nwsync_upload_input,
+            external_editor,
+            external_compiler,
+            read_workshop,
+            read_userpatch,
+            no_nwn_aliases,
+            external_compiler_args,
+            dialog_hide_names,
+            edit_language,
+            talk_typed,
+            talk_reuse,
+            area_background,
+            no_spawn_markers,
+            spawn_marker_size,
+            no_door_arrows,
+            generated_lights,
+            verify_skip,
+            merchant_signs,
+            shadow_quality,
+            texture_limit,
+            area_resolution,
+            animate_unfocused,
+            middle_drag_moves,
+            edit_group_tiles,
+            no_turn_ring,
+            dialog_npc_color,
+            dialog_pc_color,
+            dialog_no_text_popup,
+            dialog_paste_source_to_dest,
+            dialog_drag_dest_to_source,
+            dialog_no_backup,
+            dialog_backup_minutes,
+            no_placed_sounds,
+            ambient_sound,
+            ambient_music,
+            music_volume,
+            key_bindings,
+            no_update_check,
+            update_auto_install,
+            update_prereleases,
+            update_skipped,
+        );
+        mine
+    }
+
+    /// Every option of the draft written over `s`.
+    fn written_over(&self, s: &Settings) -> Settings {
         Settings {
             game_root: path(&self.game_root),
             user_dir: path(&self.user_dir),
@@ -1805,6 +1929,34 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Options' OK wrote back every setting as it was when the tab was
+    /// opened: one set since from somewhere else (a question's "Always do
+    /// this", an update skipped) was put back (the review of November
+    /// 2026, S13). What the draft changed is written; the rest stays as
+    /// it is now.
+    #[test]
+    fn ok_writes_what_the_draft_changed_and_leaves_the_rest_as_it_is_now() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        // Set elsewhere while the tab is open.
+        let mut now = s.clone();
+        now.files_there = crate::settings::FilesThere::Replace;
+        now.update_skipped = Some("9.9.9".into());
+        now.scratch_dir = Some("/tmp/scratch".into());
+        // Changed in the tab.
+        d.build_on_save = !d.build_on_save;
+        let t = d.apply(&now);
+        assert_eq!(t.build_on_save, d.build_on_save);
+        assert_eq!(t.files_there, crate::settings::FilesThere::Replace);
+        assert_eq!(t.update_skipped.as_deref(), Some("9.9.9"));
+        assert_eq!(t.scratch_dir, now.scratch_dir);
+        // An option changed in the tab wins over one set elsewhere.
+        d.files_there = crate::settings::FilesThere::Skip;
+        assert_eq!(d.apply(&now).files_there, crate::settings::FilesThere::Skip);
+        // Nothing changed in the tab: the settings as they are.
+        assert_eq!(OptionsDraft::from_settings(&s).apply(&now), now);
+    }
 
     #[test]
     fn looks_alone_do_not_reload_the_game() {
