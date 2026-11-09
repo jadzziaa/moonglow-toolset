@@ -2097,3 +2097,31 @@ fn the_resource_browser_s_filter_and_list_take_the_keys() {
     assert_eq!(now.len(), 1, "{now:?}");
     assert!(now[0].starts_with("nw_it_gem00"), "{now:?}");
 }
+
+/// Exit with a hak never saved beside a saved module asked "Save changes
+/// to the module?", and its Save saved the module and then did nothing,
+/// each time (the review of November 2026, S11): the hak's own question
+/// is asked, and the log says what waits.
+#[test]
+fn quitting_with_an_unsaved_hak_asks_about_the_hak() {
+    let dir = mg_testkit::scratch_dir("ui-quit-unsaved-hak");
+    let path = sample_module(&dir);
+    std::fs::write(dir.join("mg_one.2da"), "2DA V2.0\n\n   A\n0  1\n").unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 760.0);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run();
+    h.state_mut().haks[0].hak.add_files(&[dir.join("mg_one.2da")]);
+    h.run();
+    assert!(h.state().has_unsaved_work());
+    for action in [mg_ui::Action::Quit, mg_ui::Action::SaveThen(Box::new(mg_ui::Action::Quit))] {
+        h.state_mut().actions.push(action);
+        h.run();
+        let app = h.state();
+        assert!(!app.quit_requested && app.confirm_discard.is_none(), "not the module's question");
+        let said =
+            app.log.entries.iter().filter(|(_, l)| l.contains("An editor beside the module"));
+        assert!(said.count() >= 1, "{:?}", app.log.entries);
+    }
+}

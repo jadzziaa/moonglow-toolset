@@ -3394,6 +3394,31 @@ impl Moonglow {
             || self.side_unsaved()
     }
 
+    /// Whether the only unsaved work is in editors beside the module (a
+    /// hak, a table or a tileset of its own file).
+    fn only_side_unsaved(&self) -> bool {
+        let module =
+            self.ws.as_ref().is_some_and(|ws| ws.is_modified() || ws.module.location.is_none())
+                || self.scripts.values().any(|b| b.is_dirty())
+                || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable());
+        !module && self.side_unsaved()
+    }
+
+    /// Asks of each editor beside the module with unsaved changes whether
+    /// to save it (its own question, as when its tab is closed), and says
+    /// that what was asked for waits for the answers.
+    fn ask_side_docs(&mut self) {
+        let tabs: Vec<Tab> =
+            self.side_docs().filter(|d| d.has_unsaved()).map(|d| d.tab()).collect();
+        for tab in &tabs {
+            self.may_close_side(tab);
+        }
+        self.log.warn(
+            "An editor beside the module has unsaved changes: answer its question, then do that \
+             again",
+        );
+    }
+
     fn new_module(&mut self, name: &str) {
         let Some(game) = &self.game else {
             self.log.error("Creating a module needs the game data");
@@ -3697,6 +3722,13 @@ impl Moonglow {
             other => other,
         };
         if discards && self.has_unsaved_work() {
+            // (Only an editor beside the module, a new hak say: its own
+            // question, where the module's named the module and its Save
+            // saved nothing of the hak.)
+            if self.only_side_unsaved() {
+                self.ask_side_docs();
+                return;
+            }
             self.confirm_discard = Some(action);
             return;
         }
@@ -3763,6 +3795,10 @@ impl Moonglow {
                 self.save(None);
                 if !self.has_unsaved_work() {
                     self.run_now(*next);
+                } else if self.only_side_unsaved() {
+                    // (Saved, but for an editor beside it that the module's
+                    // Save does not save: nothing happened, with no word.)
+                    self.ask_side_docs();
                 }
             }
             Action::Proceed(next) => self.run_now(*next),
