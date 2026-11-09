@@ -18,18 +18,13 @@ impl Section {
     /// A value parsed like the game's integer reader (sign, digits, trailing
     /// junk ignored); `None` if missing or not a number.
     pub fn int(&self, key: &str) -> Option<i32> {
-        let v = self.get(key)?.trim();
-        let end = v
-            .char_indices()
-            .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && (c == '-' || c == '+'))))
-            .map_or(v.len(), |(i, _)| i);
-        v[..end].parse().ok()
+        mg_core::num::parse_decimal(self.get(key)?)
     }
 
-    /// A value parsed as a float (the longest valid prefix).
+    /// A value parsed as a float (the longest valid prefix, found in one
+    /// pass: a value of a megabyte is read once).
     pub fn float(&self, key: &str) -> Option<f32> {
-        let v = self.get(key)?.trim();
-        (1..=v.len()).rev().filter(|&n| v.is_char_boundary(n)).find_map(|n| v[..n].parse().ok())
+        mg_core::num::parse_float(self.get(key)?)
     }
 
     /// A non-empty string value.
@@ -92,5 +87,18 @@ mod tests {
         assert_eq!(t.float("X"), Some(1.5));
         assert_eq!(t.int("N"), Some(-4));
         assert!(ini.section("nope").is_none());
+    }
+
+    /// A value of 200 KB is read at once, not once for each prefix of it.
+    #[test]
+    fn a_long_value_is_read_at_once() {
+        let long = format!("{}{}", "1".repeat(100_000), "x".repeat(100_000));
+        let ini = Ini::parse(&format!("[GENERAL]\nTransition={long}\nHeight=1.5f\nN={long}\n"));
+        let g = ini.section("GENERAL").unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(g.float("Transition"), Some(f32::INFINITY));
+        assert_eq!(g.float("Height"), Some(1.5));
+        assert_eq!(g.int("N"), None);
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
     }
 }

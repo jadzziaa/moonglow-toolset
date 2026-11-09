@@ -580,41 +580,10 @@ pub fn parse_int(s: &str) -> Option<i32> {
 }
 
 /// Parses a float cell like C's `atof`: the longest valid prefix. `None` if
-/// there is none.
+/// there is none. (One reader for every text file of the game's:
+/// [`mg_core::num::parse_float`].)
 pub fn parse_float(s: &str) -> Option<f32> {
-    let s = s.trim();
-    let b = s.as_bytes();
-    let mut end = 0;
-    if matches!(b.first(), Some(b'+' | b'-')) {
-        end = 1;
-    }
-    let digits_start = end;
-    while end < b.len() && b[end].is_ascii_digit() {
-        end += 1;
-    }
-    if end < b.len() && b[end] == b'.' {
-        end += 1;
-        while end < b.len() && b[end].is_ascii_digit() {
-            end += 1;
-        }
-    }
-    if end == digits_start || (end == digits_start + 1 && b[digits_start] == b'.') {
-        return None;
-    }
-    // Optional exponent.
-    if end < b.len() && matches!(b[end], b'e' | b'E') {
-        let mut e = end + 1;
-        if matches!(b.get(e), Some(b'+' | b'-')) {
-            e += 1;
-        }
-        if b.get(e).is_some_and(u8::is_ascii_digit) {
-            while b.get(e).is_some_and(u8::is_ascii_digit) {
-                e += 1;
-            }
-            end = e;
-        }
-    }
-    s[..end].parse().ok()
+    mg_core::num::parse_float(s)
 }
 
 #[cfg(test)]
