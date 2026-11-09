@@ -63,8 +63,12 @@ impl Installer {
 pub struct Facts {
     /// The program (`current_exe`).
     pub exe: PathBuf,
-    /// `$APPIMAGE`: the image the AppImage's runtime started.
+    /// `$APPIMAGE`: the image an AppImage's runtime started. Not this
+    /// program's by itself: a terminal or an editor that is an AppImage
+    /// hands the variable down to what it starts ([`Facts::image`]).
     pub appimage: Option<PathBuf>,
+    /// `$APPDIR`: where that runtime mounted the image.
+    pub appdir: Option<PathBuf>,
     /// `$FLATPAK_ID`, and `/.flatpak-info` there.
     pub flatpak_id: Option<String>,
     pub flatpak_info: bool,
@@ -93,6 +97,11 @@ impl Facts {
                 .filter(|a| !a.is_empty())
                 .map(PathBuf::from)
                 .filter(|a| a.is_file()),
+            // (As `current_exe` names it: with its links followed.)
+            appdir: std::env::var_os("APPDIR")
+                .filter(|a| !a.is_empty())
+                .map(PathBuf::from)
+                .map(|d| d.canonicalize().unwrap_or(d)),
             flatpak_id: std::env::var("FLATPAK_ID").ok(),
             flatpak_info: Path::new("/.flatpak-info").exists(),
             os: std::env::consts::OS.into(),
@@ -100,6 +109,16 @@ impl Facts {
             uninstaller,
             program_files,
         }
+    }
+
+    /// The AppImage this program runs from: `$APPIMAGE`, where the program
+    /// lies in the image's mount (`$APPDIR`; the runtime sets both). The
+    /// variable alone is another program's image where Moonglow was
+    /// started from one, and that file is not Moonglow's to replace or to
+    /// start again.
+    pub fn image(&self) -> Option<&Path> {
+        let (image, mount) = (self.appimage.as_deref()?, self.appdir.as_deref()?);
+        self.exe.starts_with(mount).then_some(image)
     }
 }
 
@@ -129,8 +148,8 @@ impl Kind {
         {
             return Kind::Managed(i);
         }
-        if let Some(image) = &facts.appimage {
-            return Kind::AppImage { image: image.clone(), arch: facts.arch.clone() };
+        if let Some(image) = facts.image() {
+            return Kind::AppImage { image: image.to_path_buf(), arch: facts.arch.clone() };
         }
         // (A Windows path read on any system, as the tests do.)
         let dir = if facts.os == "windows" {
@@ -251,6 +270,7 @@ mod tests {
         // An AppImage, wherever its runtime mounted the program.
         let mut f = facts("linux", "/tmp/.mount_MoonglXYZ/usr/bin/moonglow");
         f.appimage = Some("/home/me/.local/opt/Moonglow.AppImage".into());
+        f.appdir = Some("/tmp/.mount_MoonglXYZ".into());
         let kind = Kind::detect(&f);
         assert_eq!(
             kind,
@@ -302,5 +322,27 @@ mod tests {
         assert_eq!(mac.package(&v).unwrap(), "Moonglow-3.3.0-macos.dmg");
         assert_eq!(mac.folder(), Some(Path::new("/Applications")));
         assert_eq!(Kind::detect(&facts("macos", "/usr/local/bin/moonglow")), Kind::Other);
+    }
+
+    /// `$APPIMAGE` handed down by a terminal or an editor that is an
+    /// AppImage is not this program's image: a build of one's own or a
+    /// distribution's package started from there is still offered the
+    /// page only, and nothing of the other program's is replaced.
+    #[test]
+    fn another_program_s_appimage_is_not_this_one() {
+        for exe in ["/usr/bin/moonglow", "/home/me/moonglow/target/release/moonglow"] {
+            let mut f = facts("linux", exe);
+            f.appimage = Some("/home/me/Apps/Cursor.AppImage".into());
+            assert_eq!((f.image(), Kind::detect(&f)), (None, Kind::Other), "{exe}");
+            f.appdir = Some("/tmp/.mount_CursorABC".into());
+            assert_eq!((f.image(), Kind::detect(&f)), (None, Kind::Other), "{exe}");
+        }
+        // (A mount whose name only begins as the program's folder does.)
+        let mut f = facts("linux", "/tmp/.mount_MoonglXYZ2/usr/bin/moonglow");
+        f.appimage = Some("/home/me/Apps/Cursor.AppImage".into());
+        f.appdir = Some("/tmp/.mount_MoonglXYZ".into());
+        assert_eq!(Kind::detect(&f), Kind::Other);
+        f.appdir = Some("/tmp/.mount_MoonglXYZ2".into());
+        assert_eq!(f.image(), Some(Path::new("/home/me/Apps/Cursor.AppImage")));
     }
 }
