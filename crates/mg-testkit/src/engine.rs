@@ -147,17 +147,31 @@ pub fn save_game(
     }
     // (A command typed while the module is still being set up is not
     // taken: typed again until the server says it is saving.)
+    // Done when the server says so, or, once it is saving, when the
+    // save's file is there and has kept its size for a second: its
+    // "Save complete" can stay in its output's buffer (seen when the
+    // master server's advisory was printed into the "Saving" line).
+    let sav = saves.join("000002 - mgsave").join(format!("{module}.sav"));
     let mut complete = false;
     let mut saving = false;
     let mut asked = None::<Instant>;
+    let mut held = None::<(u64, Instant)>;
     while start.elapsed() < timeout && !complete {
         if !saving && asked.is_none_or(|at| at.elapsed() > Duration::from_secs(3)) {
             server.say("save 2 mgsave")?;
             asked = Some(Instant::now());
         }
+        if saving && let Ok(meta) = std::fs::metadata(&sav) {
+            match held {
+                Some((len, since)) if len == meta.len() && meta.len() > 0 => {
+                    complete = since.elapsed() > Duration::from_secs(1);
+                }
+                _ => held = Some((meta.len(), Instant::now())),
+            }
+        }
         let Ok(line) = lines.recv_timeout(Duration::from_millis(200)) else { continue };
         saving |= line.contains("Saving");
-        complete = line.contains("Save complete");
+        complete |= line.contains("Save complete");
         printed.push(line);
     }
     let log = server.log();
@@ -165,5 +179,5 @@ pub fn save_game(
     if !complete {
         return Err(failed(&printed, log, "the save did not complete"));
     }
-    Ok(saves.join("000002 - mgsave").join(format!("{module}.sav")))
+    Ok(sav)
 }
