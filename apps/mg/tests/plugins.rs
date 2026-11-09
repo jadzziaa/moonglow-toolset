@@ -69,6 +69,30 @@ fn plugins_are_listed_and_checked() {
     assert_eq!(checked["plugins"][0]["faults"].as_array().unwrap().len(), 4, "{checked}");
 }
 
+/// `mg plugin check` (and `pack`, which checks first) runs a plugin's
+/// top-level code, an archive's from anywhere too: code that never
+/// returns is stopped, and said to have run out of time.
+#[test]
+fn a_plugin_whose_code_never_loads_is_stopped() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-endless");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.endless\"\nname = \"Endless\"\nversion = \"1\"\napi = \"0.1\"\n\
+         license = \"MIT\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("main.luau"), "while true do end\n").unwrap();
+    let started = std::time::Instant::now();
+    let (ok, checked) = mg(&["plugin", "check", dir.to_str().unwrap()]);
+    assert!(!ok, "{checked}");
+    let fault = checked["plugins"][0]["faults"][0].as_str().unwrap_or_default();
+    assert!(fault.contains("ran out of time: its code may take 5 seconds to load"), "{checked}");
+    let out = dir.join("endless.zip");
+    let (ok, packed) = mg(&["plugin", "pack", dir.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    assert!(!ok && !out.exists(), "{packed}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(60), "{:?}", started.elapsed());
+}
+
 #[test]
 fn a_plugin_s_command_runs_on_a_module() {
     let dir = mg_testkit::scratch_dir("mg-plugin-run");

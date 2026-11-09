@@ -766,6 +766,8 @@ reached only through what the user chooses (`ctx.ui:open_file`,
   does (a save, a paste, a wizard's Finish), have 5 seconds (Manage
   Plugins sets another); past that
   they are stopped ([`ctx.event`](#ctxevent)).
+- Where a plugin is only checked (`mg plugin check`, `mg plugin pack`,
+  an archive about to be installed), its code has 5 seconds to load.
 - A job is stopped when the user cancels; no `pcall` catches that.
 - Nothing is kept between jobs but the plugin's settings
   (`ctx.settings:set`). A plugin runs when its command is chosen, when

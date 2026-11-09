@@ -2325,13 +2325,16 @@ pub(crate) fn run_check(
 }
 
 /// Loads a plugin's code from `files` and compares what it registers with
-/// what `manifest` declares.
+/// what `manifest` declares. The code has [`crate::EVENT_BUDGET`] to load
+/// in: what is inspected may be an archive from anywhere, and nobody is
+/// there to cancel it.
 pub(crate) fn inspect(
     files: Source,
     manifest: &Manifest,
     host: Rc<dyn Host>,
 ) -> Result<Vec<String>, PluginError> {
-    let input = Input::new(mg_module::Module::new(), None);
+    let mut input = Input::new(mg_module::Module::new(), None);
+    input.budget = Some(crate::EVENT_BUDGET);
     let sh = shared_in(files, &manifest.name, input, &host);
     let run = || -> mlua::Result<Vec<String>> {
         let lua = start(Some(&manifest.entry), &sh)?;
@@ -2362,7 +2365,16 @@ pub(crate) fn inspect(
         }
         Ok(faults)
     };
-    run().map_err(|e| failure(&manifest.name, &host, e))
+    run().map_err(|e| match sh.budget {
+        Some(budget) if sh.out_of_time() && !host.cancelled() => PluginError::Script {
+            plugin: manifest.name.clone(),
+            message: format!(
+                "it ran out of time: its code may take {} seconds to load, and was stopped",
+                budget.as_secs_f32()
+            ),
+        },
+        _ => failure(&manifest.name, &host, e),
+    })
 }
 
 /// A value as the console shows it: text and numbers as they are, a table
