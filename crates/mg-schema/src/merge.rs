@@ -28,8 +28,17 @@ pub use mg_gff::merge::{Conflict, ListRule, Merged, Prefer};
 use crate::{fac, git, ifo, jrl, utc, ute, uti, utm};
 
 /// What an item of the list `label` is, in a file of type `file_type`
-/// (`"GIT"`, `"IFO"`...).
+/// (`"GIT"`, `"IFO"`...), for a list that is in no item of another (an
+/// area's placed objects): [`list_rule_in`] for one that is.
 pub fn list_rule(file_type: &str, label: &str) -> ListRule {
+    list_rule_in(file_type, None, label)
+}
+
+/// [`list_rule`] for a list in an item of the list `inside` (`None`: in
+/// none). An area's lists of placed objects are those of the file's own
+/// struct: a placed store's `StoreList` (its panes) has the label of the
+/// area's list of stores, and is a store's.
+pub fn list_rule_in(file_type: &str, inside: Option<&str>, label: &str) -> ListRule {
     const PLACED: [&str; 9] = [
         git::CREATURE_LIST.label,
         git::DOOR_LIST.label,
@@ -45,7 +54,7 @@ pub fn list_rule(file_type: &str, label: &str) -> ListRule {
         label.strip_prefix(prefix).is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
     };
     match (file_type, label) {
-        ("GIT", l) if PLACED.contains(&l) => ListRule::Placed,
+        ("GIT", l) if inside.is_none() && PLACED.contains(&l) => ListRule::Placed,
         (_, l) if l == git::VAR_TABLE.label => ListRule::ByKey(&["Name", "Type"]),
         ("IFO", l) if l == ifo::MOD_AREA_LIST.label => ListRule::ByKey(&["Area_Name"]),
         ("IFO", l) if l == ifo::MOD_HAK_LIST.label => ListRule::ByKey(&["Mod_Hak"]),
@@ -74,7 +83,7 @@ pub fn list_rule(file_type: &str, label: &str) -> ListRule {
 /// Merges `ours` and `theirs`, both made from `base`, each list by what
 /// its items are ([`list_rule`]).
 pub fn merge(base: &Gff, ours: &Gff, theirs: &Gff, prefer: Prefer) -> Merged {
-    mg_gff::merge::merge(base, ours, theirs, prefer, &list_rule)
+    mg_gff::merge::merge(base, ours, theirs, prefer, &list_rule_in)
 }
 
 #[cfg(test)]
@@ -130,8 +139,86 @@ mod tests {
         assert_eq!(m.gff, uti(vec![property(6, 0, 2), property(16, 4, 1)]));
     }
 
+    /// A store placed in an area: its blueprint in `ResRef`, its panes in
+    /// a `StoreList` of its own, pane `id` holding `items`.
+    fn placed_store(x: f32, markup: i32, pane: u32, items: &[(&str, u16)]) -> Struct {
+        let mut s = Struct::new(11);
+        s.set("ResRef", Value::ResRef("nw_storgenral001".into()));
+        s.set("Tag", Value::String("STORE".into()));
+        s.set("XPosition", Value::Float(x));
+        s.set("YPosition", Value::Float(4.0));
+        s.set("ZPosition", Value::Float(0.0));
+        s.set("MarkUp", Value::Int(markup));
+        let panes = (0..5u32).map(|id| {
+            let mut p = Struct::new(id);
+            let held: Vec<Struct> = (items.iter().enumerate())
+                .filter(|_| id == pane)
+                .map(|(n, (res, at))| {
+                    let mut i = Struct::new(n as u32);
+                    i.set("TemplateResRef", Value::ResRef((*res).into()));
+                    i.set("Repos_PosX", Value::Word(*at));
+                    i.set("Repos_Posy", Value::Word(0));
+                    i
+                })
+                .collect();
+            p.set("ItemList", Value::List(held));
+            p
+        });
+        s.set("StoreList", Value::List(panes.collect()));
+        s
+    }
+
+    fn area(stores: Vec<Struct>) -> Gff {
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("StoreList", Value::List(stores));
+        g
+    }
+
+    /// Each side adds an item to one pane of a placed store: the pane is
+    /// one, with both items (the panes took the placed objects' rule, by
+    /// the label they share with the area's list of stores, and came out
+    /// twice).
+    #[test]
+    fn a_placed_store_s_panes_merge_by_pane() {
+        let (torch, sword, bow) = (("nw_it_torch001", 0), ("nw_wswls001", 2), ("nw_wbwsh001", 4));
+        let b = area(vec![placed_store(10.0, 100, 4, &[torch])]);
+        let o = area(vec![placed_store(10.0, 100, 4, &[torch, sword])]);
+        let t = area(vec![placed_store(10.0, 100, 4, &[torch, bow])]);
+        let m = merge(&b, &o, &t, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        let stores = m.gff.root.list("StoreList").unwrap();
+        assert_eq!(stores.len(), 1);
+        let panes = stores[0].list("StoreList").unwrap();
+        assert_eq!(panes.iter().map(|p| p.id).collect::<Vec<_>>(), [0, 1, 2, 3, 4]);
+        let held: Vec<_> = (panes[4].list("ItemList").unwrap().iter())
+            .map(|i| i.resref("TemplateResRef").unwrap().to_string())
+            .collect();
+        assert_eq!(held, ["nw_it_torch001", "nw_wswls001", "nw_wbwsh001"]);
+    }
+
+    /// One side moves a placed store and the other changes its markup: it
+    /// is one store, moved and marked up (its blueprint is in `ResRef`, so
+    /// no step of the match knew it and it came out twice).
+    #[test]
+    fn a_placed_store_moved_and_changed_is_one_store() {
+        let b = area(vec![placed_store(10.0, 100, 4, &[])]);
+        let o = area(vec![placed_store(25.0, 100, 4, &[])]);
+        let t = area(vec![placed_store(10.0, 150, 4, &[])]);
+        let m = merge(&b, &o, &t, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        assert_eq!(m.gff, area(vec![placed_store(25.0, 150, 4, &[])]));
+    }
+
     #[test]
     fn lists_are_told_apart_by_what_their_items_are() {
+        // An area's stores are placed objects, a placed store's panes its
+        // own, by their struct ids.
+        assert_eq!(list_rule("GIT", "StoreList"), ListRule::Placed);
+        assert_eq!(list_rule_in("GIT", Some("StoreList"), "StoreList"), ListRule::ByStructId);
+        assert_eq!(
+            list_rule_in("GIT", Some("Creature List"), "FeatList"),
+            ListRule::ByKey(&["Feat"])
+        );
         assert_eq!(list_rule("GIT", "Placeable List"), ListRule::Placed);
         assert_eq!(list_rule("GIT", "List"), ListRule::Placed);
         // A placed creature's own lists are a creature's.

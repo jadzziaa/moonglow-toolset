@@ -48,7 +48,9 @@ pub enum ListRule {
     /// same `TemplateResRef`, `Tag` and position (`XPosition`/`YPosition`/
     /// `ZPosition`, or `X`/`Y`/`Z`, to 4 decimal places); the only one of
     /// its `TemplateResRef` and `Tag` left (an object moved); the only one
-    /// of its `TemplateResRef` and position left (an object retagged).
+    /// of its `TemplateResRef` and position left (an object retagged). (A
+    /// placed store names its blueprint in `ResRef`, which stands for
+    /// `TemplateResRef` where an object has none.)
     /// Anything else is a removed object and an added one. Objects both
     /// sides added are all kept (one, where both added the same object).
     Placed,
@@ -75,15 +77,23 @@ pub struct Merged {
 
 /// Merges `ours` and `theirs`, both made from `base`. `rules` says what an
 /// item of a list is, by the file's type (`"GIT"`, without the trailing
-/// space) and the list's label.
+/// space), the label of the list whose item the list is in (`None` for a
+/// list that is in no item of another: a placed store's `StoreList` is in
+/// an item of the area's `StoreList`) and the list's label.
 pub fn merge(
     base: &Gff,
     ours: &Gff,
     theirs: &Gff,
     prefer: Prefer,
-    rules: &dyn Fn(&str, &str) -> ListRule,
+    rules: &dyn Fn(&str, Option<&str>, &str) -> ListRule,
 ) -> Merged {
-    let mut m = Merger { file_type: ours.file_type_str(), rules, prefer, conflicts: Vec::new() };
+    let mut m = Merger {
+        file_type: ours.file_type_str(),
+        rules,
+        inside: Vec::new(),
+        prefer,
+        conflicts: Vec::new(),
+    };
     let header = |g: &Gff| Value::String([g.file_type, g.version].concat());
     let (hb, ho, ht) = (header(base), header(ours), header(theirs));
     let top = match m.scalar("(file type)", Some(&hb), Some(&ho), Some(&ht)) {
@@ -101,7 +111,9 @@ pub fn merge(
 
 struct Merger<'a> {
     file_type: String,
-    rules: &'a dyn Fn(&str, &str) -> ListRule,
+    rules: &'a dyn Fn(&str, Option<&str>, &str) -> ListRule,
+    /// The lists the merge is inside of, outermost first.
+    inside: Vec<String>,
     prefer: Prefer,
     conflicts: Vec<Conflict>,
 }
@@ -276,10 +288,14 @@ impl Merger<'_> {
         if let Some(l) = settled(&b, &o, &t) {
             return l.to_vec();
         }
-        match (self.rules)(&self.file_type, label) {
+        let rule = (self.rules)(&self.file_type, self.inside.last().map(String::as_str), label);
+        self.inside.push(label.to_string());
+        let out = match rule {
             ListRule::ByIndex => self.by_index(path, b, o, t),
             rule => self.by_identity(path, rule, b, o, t),
-        }
+        };
+        self.inside.pop();
+        out
     }
 
     fn by_index(&mut self, path: &str, b: &[Struct], o: &[Struct], t: &[Struct]) -> Vec<Struct> {
@@ -557,12 +573,25 @@ fn placed_steps() -> [(KeyOf, bool); 4] {
     fn join(a: Option<Vec<u8>>, b: Option<Vec<u8>>) -> Option<Vec<u8>> {
         Some([a?, b?].concat())
     }
+    fn tagged(s: &Struct) -> Option<Vec<u8>> {
+        join(blueprint_key(s), fields_key(s, &["Tag"]))
+    }
     [
         (|s| fields_key(s, &["ObjectId"]), false),
-        (|s| join(fields_key(s, &["TemplateResRef", "Tag"]), position_key(s)), false),
-        (|s| fields_key(s, &["TemplateResRef", "Tag"]), true),
-        (|s| join(fields_key(s, &["TemplateResRef"]), position_key(s)), true),
+        (|s| join(tagged(s), position_key(s)), false),
+        (|s| tagged(s), true),
+        (|s| join(blueprint_key(s), position_key(s)), true),
     ]
+}
+
+/// The field a placed object names its blueprint in: `TemplateResRef`,
+/// and a placed store's `ResRef` (it has no `TemplateResRef`).
+fn blueprint_label(s: &Struct) -> &'static str {
+    if s.contains("TemplateResRef") { "TemplateResRef" } else { "ResRef" }
+}
+
+fn blueprint_key(s: &Struct) -> Option<Vec<u8>> {
+    fields_key(s, &[blueprint_label(s)])
 }
 
 /// An item's identity under `rule` (`None`: it has none, and pairs only
@@ -700,7 +729,7 @@ fn describe(rule: ListRule, s: &Struct) -> String {
         ListRule::Placed => {
             let at = if s.contains("XPosition") { POSITION } else { POINT };
             let (x, y) = (text(s.get(at[0])), text(s.get(at[1])));
-            format!("{} \"{}\" at {x}, {y}", text(s.get("TemplateResRef")), text(s.get("Tag")))
+            format!("{} \"{}\" at {x}, {y}", text(s.get(blueprint_label(s))), text(s.get("Tag")))
         }
     }
 }
@@ -728,7 +757,7 @@ mod tests {
         s
     }
 
-    fn rules(_: &str, label: &str) -> ListRule {
+    fn rules(_: &str, _: Option<&str>, label: &str) -> ListRule {
         match label {
             "VarTable" => ListRule::ByKey(&["Name", "Type"]),
             "Mod_Area_list" => ListRule::ByKey(&["Area_Name"]),
