@@ -345,7 +345,11 @@ pub fn compile(text: &[u8], sources: &Sources<'_>) -> Result<Compiled, CompileEr
     let line = |node: usize| map.nodes.get(node).map_or(0, |s| s.start);
 
     // Whether a node's block has a keyword (lines are numbered from 1).
-    let text_lines: Vec<&str> = std::str::from_utf8(text).unwrap_or("").lines().collect();
+    // (Read as the reader reads it, so that the lines are its lines: a
+    // byte that is no UTF-8, an exporter's Latin-1 file name, is one
+    // character of its line.)
+    let lossy = String::from_utf8_lossy(text);
+    let text_lines: Vec<&str> = lossy.lines().collect();
     let says =
         |node: usize, keyword: &str| {
             let Some(span) = map.nodes.get(node).filter(|s| s.start > 0) else { return true };
@@ -723,6 +727,28 @@ endmodelgeom m\ndonemodel m\n";
         let parts = PartNumbers::read(&compiled.binary).unwrap();
         let of = |name: &str| parts.numbers[back.node(name).unwrap()];
         assert_eq!((of("m"), of("b"), of("a"), of("floor")), (0, 1, 2, 3));
+    }
+
+    /// A mesh keeps the shininess its text gives, and has 1 where it gives
+    /// none, whatever bytes the text holds: with one byte that is no UTF-8
+    /// (an exporter's file name in Windows-1252, in a comment or a
+    /// `filedependancy`) no keyword was found in any node, and every mesh
+    /// was compiled with a shininess of 1 (the review's M8).
+    #[test]
+    fn a_text_that_is_not_utf_8_keeps_its_shininess() {
+        let shiny = MODEL.replace("  bitmap wood\n", "  bitmap wood\n  shininess 26\n");
+        let shininess = |text: &[u8], node: &str| {
+            let compiled = compile(text, &Sources::default()).unwrap();
+            let back = Model::read(&compiled.binary).unwrap();
+            back.nodes[back.node(node).unwrap()].mesh().unwrap().shininess
+        };
+        assert_eq!(shininess(shiny.as_bytes(), "b"), 26.0);
+        assert_eq!(shininess(shiny.as_bytes(), "floor"), 1.0);
+        let mut latin = b"# mod\xE8le.max\nfiledependancy caf\xE9.max\n".to_vec();
+        latin.extend_from_slice(shiny.as_bytes());
+        assert!(std::str::from_utf8(&latin).is_err());
+        assert_eq!(shininess(&latin, "b"), 26.0);
+        assert_eq!(shininess(&latin, "floor"), 1.0);
     }
 
     #[test]
