@@ -150,7 +150,10 @@ impl Grid {
 
     /// The groups that `changes` (cells and their new tiles) would leave
     /// part of: each as the cells it has, where it is whole now. A group
-    /// they take away whole, or don't touch, is not one of them.
+    /// they take away whole, or don't touch, is not one of them. (Touched:
+    /// a cell of it gets another tile. Taken whole: every cell of it is
+    /// among the changes, also one whose new tile is the one it has, as
+    /// where a group placed over another shares a tile with it.)
     pub fn groups_broken(
         &self,
         index: &TileIndex,
@@ -159,13 +162,14 @@ impl Grid {
         let changed = |c: (u32, u32)| {
             changes.iter().any(|&(at, p)| at == c && Some(p) != self.get_tile(c.0, c.1))
         };
+        let covered = |c: (u32, u32)| changes.iter().any(|&(at, _)| at == c);
         let mut out: Vec<Vec<(u32, u32)>> = Vec::new();
         for &((x, y), _) in changes {
             if !changed((x, y)) || out.iter().any(|g| g.contains(&(x, y))) {
                 continue;
             }
             if let Some(cells) = self.group_cells(index, x, y)
-                && !cells.iter().all(|&c| changed(c))
+                && !cells.iter().all(|&c| covered(c))
             {
                 out.push(cells);
             }
@@ -1333,7 +1337,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
     fn a_group_placed_exactly_changes_its_cells_alone() {
         let mut set = set();
         let n = set.tiles.len() as u32;
-        for model in ["hut_w", "hut_e", "pond"] {
+        for model in ["hut_w", "hut_e", "pond", "barn_e"] {
             let mut t = set.tiles[15].clone();
             t.model = model.into();
             set.tiles.push(t);
@@ -1347,7 +1351,9 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         };
         let hut = group("Hut", vec![Some(n), Some(n + 1)]);
         let pond = group("Pond", vec![Some(n + 2)]);
-        set.groups.extend([hut.clone(), pond.clone()]);
+        // (A barn whose west tile is the hut's.)
+        let barn = group("Barn", vec![Some(n), Some(n + 3)]);
+        set.groups.extend([hut.clone(), pond.clone(), barn.clone()]);
         let index = TileIndex::new(&set);
         let mut g = grid(&index, 5);
         // (A step up under where the hut goes.)
@@ -1396,6 +1402,15 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
         assert_eq!(g.blocked(), [(0, 4), (1, 4)]);
         assert!(g.place_group_exact(&index, &hut, 0, 4, 0).is_some());
+        // Over all of it by a group that shares a tile with it in one
+        // cell (the barn, whose west tile is the hut's): the hut goes
+        // whole all the same, though that cell's tile stays as it is.
+        let s = g.place_group_exact(&index, &barn, 0, 4, 0);
+        assert_eq!(g.blocked(), []);
+        put(&mut g, s);
+        assert_eq!(g.group_found(&index, 1, 4), Some((2, vec![(0, 4), (1, 4)])));
+        // (And half over the barn is refused, as over the hut.)
+        assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
     }
 
     #[test]
