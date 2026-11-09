@@ -8,6 +8,7 @@
 pub mod bin;
 pub mod lang;
 pub mod locstring;
+pub mod nim;
 pub mod num;
 pub mod release;
 pub mod resref;

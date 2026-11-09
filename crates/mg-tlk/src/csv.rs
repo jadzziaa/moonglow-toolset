@@ -36,7 +36,7 @@ pub fn to_csv(tlk: &Tlk, codepage: Codepage) -> Vec<u8> {
         out.push(b',');
         let length = json::rounded(e.sound_length);
         if length > 0.0 {
-            out.extend_from_slice(json::nim_float(f64::from(length)).as_bytes());
+            out.extend_from_slice(mg_core::nim::float(f64::from(length)).as_bytes());
         }
         out.push(b',');
         quoted(&mut out, &json::decode(&e.text, codepage));

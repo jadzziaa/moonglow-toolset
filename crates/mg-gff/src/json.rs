@@ -345,7 +345,7 @@ fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bea
                     out.push_str(",\n");
                 }
                 pad(out, indent + 2);
-                escape_nim(out, k);
+                mg_core::nim::escape_json(out, k);
                 out.push_str(": ");
                 let bearing = bearing || k == "Bearing" || k == "Orientation";
                 write_pretty(out, child, style, indent + 2, bearing);
@@ -369,7 +369,7 @@ fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bea
             out.push(']');
         }
         Json::Array(_) => out.push_str("[]"),
-        Json::String(s) => escape_nim(out, s),
+        Json::String(s) => mg_core::nim::escape_json(out, s),
         Json::Number(n) => match (n.as_i64(), n.as_u64()) {
             (Some(i), _) if !n.is_f64() => out.push_str(&i.to_string()),
             (_, Some(u)) if !n.is_f64() => out.push_str(&u.to_string()),
@@ -379,7 +379,7 @@ fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bea
                     Some(places) => truncate_float(f, places, bearing),
                     None => f,
                 };
-                out.push_str(&if style.g16_floats { g16_float(f) } else { nim_float(f) });
+                out.push_str(&if style.g16_floats { g16_float(f) } else { mg_core::nim::float(f) });
             }
         },
         Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -398,59 +398,6 @@ fn truncate_float(f: f64, places: u8, bearing: bool) -> f64 {
     }
     let v: f64 = trimmed.trim_end_matches('.').parse().unwrap_or(f);
     if bearing && trimmed == format!("{:.places$}", -std::f64::consts::PI) { v.abs() } else { v }
-}
-
-/// A float as Nim's `addFloat` writes it: the shortest digits that read back
-/// to it, fixed when the decimal point falls within -6 to 17 places of them
-/// (with `.0` for whole numbers), else scientific (`1.5e+17`, `1e-8`).
-fn nim_float(f: f64) -> String {
-    if !f.is_finite() {
-        return if f.is_nan() {
-            "nan".into()
-        } else if f > 0.0 {
-            "inf".into()
-        } else {
-            "-inf".into()
-        };
-    }
-    let sci = format!("{:e}", f.abs()); // shortest digits: "1.2345e-9"
-    let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let exp: i32 = exp.parse().unwrap_or(0);
-    // The decimal point's position after the first digit's.
-    let point = exp + 1;
-    let mut out = String::new();
-    if f.is_sign_negative() {
-        out.push('-');
-    }
-    let n = digits.len() as i32;
-    if f == 0.0 {
-        out.push_str("0.0");
-    } else if (-6..=17).contains(&point) {
-        if point <= 0 {
-            out.push_str("0.");
-            out.extend(std::iter::repeat_n('0', (-point) as usize));
-            out.push_str(&digits);
-        } else if point < n {
-            out.push_str(&digits[..point as usize]);
-            out.push('.');
-            out.push_str(&digits[point as usize..]);
-        } else {
-            out.push_str(&digits);
-            out.extend(std::iter::repeat_n('0', (point - n) as usize));
-            out.push_str(".0");
-        }
-    } else {
-        out.push_str(&digits[..1]);
-        if n > 1 {
-            out.push('.');
-            out.push_str(&digits[1..]);
-        }
-        out.push('e');
-        out.push(if exp < 0 { '-' } else { '+' });
-        out.push_str(&exp.abs().to_string());
-    }
-    out
 }
 
 /// A float as Nim 1 wrote it: C's `%.16g` (16 significant digits, trailing
@@ -503,26 +450,6 @@ fn g16_float(f: f64) -> String {
         out.push_str(".0");
     }
     out
-}
-
-/// A string as Nim's `escapeJson` writes it.
-fn escape_nim(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '\n' => out.push_str("\\n"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            '\t' => out.push_str("\\t"),
-            '\u{b}' => out.push_str("\\u000b"),
-            '\r' => out.push_str("\\r"),
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
 }
 
 fn as_int(v: &Json, path: &str) -> Result<i128, JsonError> {
@@ -675,7 +602,7 @@ mod tests {
             (12345678.0, "12345678.0"),
             (1.5707942247390747, "1.5707942247390747"),
         ] {
-            assert_eq!(nim_float(v), text, "{v:e}");
+            assert_eq!(mg_core::nim::float(v), text, "{v:e}");
         }
     }
 

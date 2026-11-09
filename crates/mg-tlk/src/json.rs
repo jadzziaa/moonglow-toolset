@@ -59,16 +59,21 @@ pub fn to_json(tlk: &Tlk, style: JsonStyle) -> Vec<u8> {
         }
         out.extend_from_slice(format!("{nl}{ind2}{{{nl}{ind3}\"id\"{colon}{id}").as_bytes());
         out.extend_from_slice(format!(",{nl}{ind3}\"text\"{colon}").as_bytes());
-        push_string(&mut out, &decode(&e.text, style.codepage));
+        mg_core::nim::escape_json_bytes(&mut out, &decode(&e.text, style.codepage));
         let sound = sound_bytes(e);
         if !sound.is_empty() {
             out.extend_from_slice(format!(",{nl}{ind3}\"sound\"{colon}").as_bytes());
-            push_string(&mut out, sound);
+            mg_core::nim::escape_json_bytes(&mut out, sound);
         }
         let length = rounded(e.sound_length);
         if length > 0.0 {
             out.extend_from_slice(format!(",{nl}{ind3}\"soundLen\"{colon}").as_bytes());
-            out.extend_from_slice(nim_float(f64::from(length)).as_bytes());
+            // (A length that is no number, as `nwn_tlk` writes it: text.
+            // It can't read that back; Moonglow does.)
+            match length.is_finite() {
+                true => out.extend_from_slice(mg_core::nim::float(f64::from(length)).as_bytes()),
+                false => out.extend_from_slice(b"\"inf\""),
+            }
         }
         out.extend_from_slice(format!("{nl}{ind2}}}").as_bytes());
     }
@@ -116,11 +121,12 @@ pub fn from_json(text: &[u8], codepage: Codepage) -> Result<Tlk, String> {
             entry.sound = bytes;
         }
         if let Some(length) = e.get("soundLen") {
-            let length = length
-                .as_f64()
-                .filter(|_| length.is_f64())
-                .filter(|l| *l >= 0.0)
-                .ok_or_else(|| format!("{at}: its \"soundLen\" is not a length (as 1.0)"))?;
+            // (`"inf"`: an infinite length, as it is written.)
+            let length = match length.as_str() {
+                Some("inf") => Some(f64::INFINITY),
+                _ => length.as_f64().filter(|_| length.is_f64()).filter(|l| *l >= 0.0),
+            }
+            .ok_or_else(|| format!("{at}: its \"soundLen\" is not a length (as 1.0)"))?;
             entry.sound_length = length as f32;
         }
         if !entry.text.is_empty() {
@@ -244,74 +250,6 @@ pub(crate) fn encode(s: &str, codepage: Codepage) -> Vec<u8> {
                 None => out.extend_from_slice(one.as_bytes()),
             }
         }
-    }
-    out
-}
-
-/// A JSON string of bytes (UTF-8 but for stray bytes, which go as they
-/// are), escaped as Nim's `escapeJson` escapes it.
-fn push_string(out: &mut Vec<u8>, bytes: &[u8]) {
-    out.push(b'"');
-    for &b in bytes {
-        match b {
-            b'\n' => out.extend_from_slice(b"\\n"),
-            0x08 => out.extend_from_slice(b"\\b"),
-            0x0c => out.extend_from_slice(b"\\f"),
-            b'\t' => out.extend_from_slice(b"\\t"),
-            0x0b => out.extend_from_slice(b"\\u000b"),
-            b'\r' => out.extend_from_slice(b"\\r"),
-            b'"' => out.extend_from_slice(b"\\\""),
-            b'\\' => out.extend_from_slice(b"\\\\"),
-            0..=0x07 => out.extend_from_slice(format!("\\u000{b}").as_bytes()),
-            0x0e..=0x1f => out.extend_from_slice(format!("\\u00{b:02X}").as_bytes()),
-            _ => out.push(b),
-        }
-    }
-    out.push(b'"');
-}
-
-/// A float as Nim's `$` writes it: the shortest digits that read back as
-/// it, with the point among them while it is at most 17 digits in (else
-/// as `d.ddde+NN`), and `.0` after a whole number.
-pub(crate) fn nim_float(v: f64) -> String {
-    if v == 0.0 {
-        return "0.0".into();
-    }
-    // (Rust's `{:e}` gives as few digits, `1.5e0`, `9.99e-5`; where two
-    // are as near, as 2.4235000610351562 and ...563 to 2.42350006103515625,
-    // it takes the higher and Nim the even one, as rounding to that many
-    // digits does.)
-    let shortest = format!("{:e}", v.abs());
-    let places = shortest.split_once('e').map_or(0, |(m, _)| m.len().saturating_sub(2));
-    let sci = format!("{:.places$e}", v.abs());
-    let (mantissa, exp) = sci.split_once('e').expect("{:e} has an e");
-    let exp: i32 = exp.parse().expect("an exponent");
-    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
-    let n = digits.len() as i32;
-    let point = exp + 1;
-    let mut out = String::from(if v < 0.0 { "-" } else { "" });
-    if (-5..=17).contains(&point) {
-        if point <= 0 {
-            out.push_str("0.");
-            out.extend(std::iter::repeat_n('0', (-point) as usize));
-            out.push_str(&digits);
-        } else if point < n {
-            out.push_str(&digits[..point as usize]);
-            out.push('.');
-            out.push_str(&digits[point as usize..]);
-        } else {
-            out.push_str(&digits);
-            out.extend(std::iter::repeat_n('0', (point - n) as usize));
-            out.push_str(".0");
-        }
-    } else {
-        out.push_str(&digits[..1]);
-        if n > 1 {
-            out.push('.');
-            out.push_str(&digits[1..]);
-        }
-        let sign = if exp < 0 { '-' } else { '+' };
-        out.push_str(&format!("e{sign}{:02}", exp.abs()));
     }
     out
 }
@@ -547,7 +485,29 @@ mod tests {
             // nwn_tlk writes a length of dialog.tlk's.)
             (f64::from(2.4235f32), "2.4235000610351562"),
         ] {
-            assert_eq!(nim_float(v), s);
+            assert_eq!(mg_core::nim::float(v), s);
         }
+    }
+
+    /// A sound length of +infinity (`7F800000`, a damaged table's or
+    /// another tool's) is written, not a panic: as `nwn_tlk` writes it,
+    /// the text `"inf"`, which reads back to the same table; the CSV has
+    /// `inf`.
+    #[test]
+    fn an_infinite_sound_length_is_written_and_read_back() {
+        let mut tlk = Tlk::new(Language::ENGLISH);
+        tlk.entries.push(entry(FLAG_TEXT | FLAG_SOUND_LENGTH, b"x", b"vo", f32::INFINITY));
+        tlk.entries.push(entry(FLAG_TEXT, b"y", b"", f32::NAN));
+        for style in [JsonStyle::default(), JsonStyle { pretty: true, ..JsonStyle::default() }] {
+            let json = to_json(&tlk, style);
+            let text = String::from_utf8(json.clone()).unwrap();
+            assert!(text.contains("\"soundLen\"") && text.contains("\"inf\""), "{text}");
+            let back = from_json(&json, style.codepage).unwrap();
+            assert_eq!(back.entries[0].sound_length, f32::INFINITY);
+            assert_eq!(back.entries[0].text, b"x");
+            assert_eq!(to_json(&back, style), json);
+        }
+        let csv = String::from_utf8(crate::csv::to_csv(&tlk, Codepage::default())).unwrap();
+        assert!(csv.starts_with("0,\"vo\",inf,"), "{csv}");
     }
 }
