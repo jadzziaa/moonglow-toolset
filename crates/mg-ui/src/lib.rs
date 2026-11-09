@@ -3847,7 +3847,10 @@ impl Moonglow {
                     Ok(Some(label)) => {
                         talk_typed::stepped(self, action == Action::Redo, depth);
                         blueprint::follow::retarget(self, followed);
-                        self.scripts.clear();
+                        // (A script's editor reads its text again where
+                        // the step changed it; one with unsaved text
+                        // keeps it, as it does when its file changes.)
+                        self.scripts.retain(|_, b| b.is_dirty());
                         // (A plugin's haks written with it, before the
                         // module's haks are layered again; Verify's fixes
                         // made as it.)

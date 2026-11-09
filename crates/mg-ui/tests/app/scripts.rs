@@ -420,6 +420,36 @@ fn script_with_a_new_line(
     (h, key, text, edited)
 }
 
+/// The module's Undo and Redo (the keys somewhere else than a script's
+/// editor) dropped every script editor's text: what was typed and not
+/// yet saved was gone without a word (the review of November 2026, S1).
+#[test]
+fn the_module_s_undo_keeps_a_script_s_unsaved_text() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-undo-keeps-script-text", false);
+    // The keys leave the editor: Undo is the module's.
+    h.ctx.memory_mut(|m| {
+        if let Some(id) = m.focused() {
+            m.surrender_focus(id);
+        }
+    });
+    h.run();
+    assert!(!script_has_keys(&h, key));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    let ws = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().is_some();
+    assert!(!ws(&h), "the module's step is taken back");
+    assert_eq!(
+        h.state().script_text(key).as_deref(),
+        Some(edited.as_str()),
+        "the typed line stays"
+    );
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run();
+    assert!(ws(&h));
+    assert_eq!(h.state().script_text(key).as_deref(), Some(edited.as_str()));
+    assert_ne!(edited, text);
+}
+
 /// The open Edit menu's Undo or Redo row (`what`), as it reads (with its
 /// key).
 fn edit_row(h: &Harness<'_, Moonglow>, what: &str) -> String {
