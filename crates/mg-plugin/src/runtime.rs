@@ -214,7 +214,7 @@ pub(crate) struct Shared {
     /// How long the job may run ([`Input::budget`]), and when it must
     /// have ended.
     budget: Option<std::time::Duration>,
-    deadline: Option<std::time::Instant>,
+    deadline: std::cell::Cell<Option<std::time::Instant>>,
 }
 
 pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
@@ -231,7 +231,7 @@ pub(crate) fn key_of(name: &str) -> mlua::Result<ResKey> {
 impl Shared {
     /// Whether the job ran past its time budget.
     pub(crate) fn out_of_time(&self) -> bool {
-        self.deadline.is_some_and(|d| std::time::Instant::now() > d)
+        self.deadline.get().is_some_and(|d| std::time::Instant::now() > d)
     }
 
     /// Whether the job is to stop: canceled, or out of time.
@@ -322,6 +322,13 @@ impl Shared {
             Ok(bytes) => Ok(bytes.into_owned()),
             Err(_) => fail(format!("{layer} has no {key}")),
         }
+    }
+
+    /// What `read` makes of a GFF resource of the module, read where the
+    /// job's copy has it (not copied: an area's GIT is megabytes, and an
+    /// entry of the selection reads two fields of it).
+    fn read_gff<R>(&self, key: &ResKey, read: impl FnOnce(&Gff) -> R) -> Option<R> {
+        self.ws.borrow_mut().doc(key).ok().map(read)
     }
 
     /// A GFF resource's root.
@@ -998,7 +1005,7 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
         Selected::Tile { area, index } => {
             t.set("area", area.to_string())?;
             t.set("index", *index)?;
-            let width = sh.gff(&key, false).ok().and_then(|g| g.root.integer("Width"));
+            let width = sh.read_gff(&key, |g| g.root.integer("Width")).flatten();
             if let Some(w) = width.filter(|w| *w > 0).map(|w| w as usize) {
                 t.set("x", index % w)?;
                 t.set("y", index / w)?;
@@ -1011,23 +1018,30 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
     // (A layer's copy is the game's, whether or not the module has its own.)
     let in_module = s.layer().is_none() && sh.ws.borrow().module.contains(&key);
     t.set("module", in_module)?;
+    // Its tag, and what a placed object was made from, where it is.
+    let facts = |g: &Gff| {
+        let at = path.get(&g.root)?;
+        Some((at.string("Tag").map(<[u8]>::to_vec), at.resref("TemplateResRef")))
+    };
     let read = match s {
         Selected::Resource(_) => None,
-        Selected::Copy { layer, .. } if key.restype.is_gff() => {
-            sh.layer_bytes(&key, layer).ok().and_then(|b| Gff::read(&b).ok())
-        }
+        Selected::Copy { layer, .. } if key.restype.is_gff() => sh
+            .layer_bytes(&key, layer)
+            .ok()
+            .and_then(|b| Gff::read(&b).ok())
+            .and_then(|g| facts(&g)),
         Selected::Copy { .. } => None,
-        Selected::Blueprint(_) if !in_module => sh.gff(&key, true).ok(),
-        _ => sh.gff(&key, false).ok(),
+        Selected::Blueprint(_) if !in_module => sh.gff(&key, true).ok().and_then(|g| facts(&g)),
+        _ => sh.read_gff(&key, facts).flatten(),
     };
     let text = |b: &[u8]| lua.create_string(codepage().decode(b).as_bytes());
-    if let Some(at) = read.as_ref().and_then(|g| path.get(&g.root)) {
-        if let Some(tag) = at.string("Tag") {
-            t.set("tag", text(tag)?)?;
+    if let Some((tag, made_from)) = read {
+        if let Some(tag) = tag {
+            t.set("tag", text(&tag)?)?;
         }
         // (What a placed object was made from; else its own name.)
         let resref = match s {
-            Selected::Object { .. } => at.resref("TemplateResRef"),
+            Selected::Object { .. } => made_from,
             Selected::Tile { .. } => None,
             _ => Some(key.resref),
         };
@@ -1220,6 +1234,7 @@ fn unknown_setting(name: &str, decls: &[crate::SettingDecl]) -> String {
 
 /// What a job's handler gets (`about`: the plugin's id, name and version).
 pub(crate) fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> {
+    let began = std::time::Instant::now();
     let ctx = lua.create_table()?;
     ctx.set("module", reader(lua, sh, false)?)?;
     ctx.set("game", reader(lua, sh, true)?)?;
@@ -1310,6 +1325,8 @@ pub(crate) fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Res
     )?;
     crate::files::questions(lua, sh, &ui)?;
     ctx.set("ui", ui)?;
+    // (Making it is the host's work, not time of the job's budget.)
+    sh.deadline.set(sh.deadline.get().map(|d| d + began.elapsed()));
     Ok(ctx)
 }
 
@@ -1676,7 +1693,7 @@ fn shared_holding(
     let deadline = input.budget.map(|b| std::time::Instant::now() + b);
     Rc::new(Shared {
         budget: input.budget,
-        deadline,
+        deadline: std::cell::Cell::new(deadline),
         files,
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
@@ -2429,4 +2446,73 @@ pub(crate) fn api_names() -> Vec<String> {
         Ok(out)
     };
     names().unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Nobody;
+    impl Host for Nobody {
+        fn log(&self, _: Level, _: &str) {}
+        fn ask(&self, _: &Question) -> Option<Answer> {
+            None
+        }
+    }
+
+    /// A large selection in a large area is read where the job's copy of
+    /// the area has it: 500 of an area's 4,000 placed objects make a
+    /// `ctx.selection` in a moment (each entry copied the whole GIT, which
+    /// took a panel's quarter second many times over), and the entries
+    /// say what they said.
+    #[test]
+    fn a_large_selection_is_read_without_copying_the_area() {
+        use mg_rules::ObjectKind;
+        let area = ResRef::from_str("big").unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let placeables: Vec<Struct> = (0..4000)
+            .map(|i| {
+                let mut p = Struct::new(9);
+                p.set("Tag", Value::String(format!("crate_{i}").into_bytes()));
+                p.set("TemplateResRef", Value::resref(ResRef::from_str("plc_crate").unwrap()));
+                for n in 0..20 {
+                    p.set(&format!("Field{n}"), Value::String(b"some text of a field".to_vec()));
+                }
+                p
+            })
+            .collect();
+        git.root.set(ObjectKind::Placeable.list(), Value::List(placeables));
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Width", Value::Int(8));
+        let tiles: Vec<Struct> = (0..64).map(|_| Struct::new(1)).collect();
+        are.root.set("Tile_List", Value::List(tiles));
+        let mut module = mg_module::Module::new();
+        module.set_gff(ResKey::new(area, mg_core::ResType::GIT), &git).unwrap();
+        module.set_gff(ResKey::new(area, mg_core::ResType::ARE), &are).unwrap();
+        let mut input = Input::new(module, None);
+        input.selection.selected = (0..500)
+            .map(|i| Selected::Object { area, kind: ObjectKind::Placeable, index: i * 8 })
+            .chain((0..64).map(|index| Selected::Tile { area, index }))
+            .collect();
+        input.budget = Some(std::time::Duration::from_millis(250));
+        let host: Rc<dyn Host> = Rc::new(Nobody);
+        let sh = shared_in(Source::Nothing, "", input, &host);
+        let lua = start(None, &sh).unwrap();
+        let started = std::time::Instant::now();
+        let ctx = context(&lua, &sh, ["", "", ""]).unwrap();
+        let took = started.elapsed();
+        let chosen: Table = ctx.get("selection").unwrap();
+        assert_eq!(chosen.raw_len(), 564);
+        let entry: Table = chosen.get(3).unwrap();
+        assert_eq!(entry.get::<String>("tag").unwrap(), "crate_16");
+        assert_eq!(entry.get::<String>("resref").unwrap(), "plc_crate");
+        assert_eq!(entry.get::<String>("path").unwrap(), "/Placeable List[16]");
+        let tile: Table = chosen.get(500 + 11).unwrap();
+        assert_eq!((tile.get::<usize>("x").unwrap(), tile.get::<usize>("y").unwrap()), (2, 1));
+        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+        // And the time it took is not the job's.
+        assert!(!sh.out_of_time());
+        let left = sh.deadline.get().unwrap() - std::time::Instant::now();
+        assert!(left > std::time::Duration::from_millis(100), "{left:?}");
+    }
 }
