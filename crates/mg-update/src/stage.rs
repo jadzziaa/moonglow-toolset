@@ -316,6 +316,9 @@ pub fn unzip(zip: &Path, into: &Path) -> Result<(), String> {
     unpacked
 }
 
+/// macOS's own tool for disk images, where the system has it.
+const HDIUTIL: &str = "/usr/bin/hdiutil";
+
 /// The steps that copy the disk image's app out to `staged`: mounted
 /// read-only where Finder doesn't show it, copied with `ditto` (which keeps
 /// the app's signature, links and attributes), and let go of.
@@ -325,7 +328,7 @@ pub fn mac_copy_out(dmg: &Path, mount: &Path, staged: &Path, app: &Path) -> Vec<
     vec![
         Step::RemoveAll(staged.to_path_buf()),
         Step::Run {
-            program: "hdiutil".into(),
+            program: HDIUTIL.into(),
             args: vec![
                 "attach".into(),
                 "-nobrowse".into(),
@@ -338,14 +341,14 @@ pub fn mac_copy_out(dmg: &Path, mount: &Path, staged: &Path, app: &Path) -> Vec<
             wait: true,
         },
         Step::Run {
-            program: "ditto".into(),
+            program: "/usr/bin/ditto".into(),
             args: vec![mount.join("Moonglow Toolset.app").into(), staged.into()],
             wait: true,
         },
         // (Let go of even when the copy failed: these steps are each run,
         // `run_all`, and the first failure is said.)
         Step::Run {
-            program: "hdiutil".into(),
+            program: HDIUTIL.into(),
             args: vec!["detach".into(), mount.into(), "-force".into()],
             wait: true,
         },
@@ -671,10 +674,10 @@ mod tests {
         assert_eq!(
             run,
             [
-                "hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /c/m /c/Moonglow-3.3.0-macos.dmg"
+                "/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /c/m /c/Moonglow-3.3.0-macos.dmg"
                     .to_string(),
-                format!("ditto {} /Applications/.moonglow-update-3.3.0.app", app.display()),
-                "hdiutil detach /c/m -force".to_string(),
+                format!("/usr/bin/ditto {} /Applications/.moonglow-update-3.3.0.app", app.display()),
+                "/usr/bin/hdiutil detach /c/m -force".to_string(),
             ]
         );
         assert_eq!(steps[0], Step::RemoveAll("/Applications/.moonglow-update-3.3.0.app".into()));

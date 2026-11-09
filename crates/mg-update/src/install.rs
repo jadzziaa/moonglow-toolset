@@ -12,11 +12,19 @@ use crate::{Kind, verify};
 /// is gone as Moonglow closes, so the next start logs it ([`take_report`]).
 pub const REPORT: &str = "last-install.txt";
 
+/// How long a program an install waits for may take (mounting a disk
+/// image of some tens of megabytes and copying an app out of it take
+/// seconds): one still running then is stopped, and the step fails.
+pub const RUN_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// A step of an install.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
-    /// A program run, waited for (and failing unless it succeeds), or
-    /// started and left.
+    /// A program run, waited for (with nothing on its input, for at most
+    /// [`RUN_LIMIT`], and failing unless it succeeds), or started and
+    /// left. The system's own tools are named by their full paths: a
+    /// `hdiutil` earlier on `PATH` is not the one an update is mounted
+    /// with.
     Run {
         program: PathBuf,
         args: Vec<OsString>,
@@ -60,14 +68,24 @@ fn step_error(step: &Step, e: impl std::fmt::Display) -> String {
 }
 
 fn one(step: &Step) -> Result<(), String> {
+    one_within(step, RUN_LIMIT)
+}
+
+fn one_within(step: &Step, limit: std::time::Duration) -> Result<(), String> {
     match step {
         Step::Run { program, args, wait } => {
             let mut command = std::process::Command::new(program);
             command.args(args);
             if *wait {
-                let status = command.status().map_err(|e| step_error(step, e))?;
-                if !status.success() {
-                    return Err(step_error(step, status));
+                let out = mg_core::process::output_within(&mut command, limit)
+                    .map_err(|e| step_error(step, e))?;
+                if !out.status.success() {
+                    let said = String::from_utf8_lossy(&out.stderr);
+                    let said = said.trim().lines().last().unwrap_or_default().to_string();
+                    return Err(match said.is_empty() {
+                        true => step_error(step, out.status),
+                        false => step_error(step, format!("{} ({said})", out.status)),
+                    });
                 }
             } else {
                 command.spawn().map_err(|e| step_error(step, e))?;
@@ -256,6 +274,28 @@ mod tests {
 
     fn staged(kind: Kind, ready: Ready) -> Staged {
         Staged { version: Version::parse("3.3.0").unwrap(), kind, ready }
+    }
+
+    /// A program an install waits for that doesn't end (a disk image
+    /// asking to agree to a license) is stopped at the limit and the step
+    /// fails; one that fails says what it wrote; nothing reads the
+    /// terminal's input.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_that_hangs_fails_its_step() {
+        let run = |program: &str, args: &[&str]| Step::Run {
+            program: program.into(),
+            args: args.iter().map(OsString::from).collect(),
+            wait: true,
+        };
+        let started = std::time::Instant::now();
+        let limit = std::time::Duration::from_millis(200);
+        let e = one_within(&run("sleep", &["30"]), limit).unwrap_err();
+        assert!(e.starts_with("sleep failed: ") && e.contains("was stopped"), "{e}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        one(&run("sh", &["-c", "read line; test -z \"$line\""])).unwrap();
+        let e = one(&run("sh", &["-c", "echo no such image >&2; exit 2"])).unwrap_err();
+        assert!(e.contains("no such image"), "{e}");
     }
 
     #[test]

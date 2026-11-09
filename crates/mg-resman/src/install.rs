@@ -486,7 +486,13 @@ fn steam_from_registry() -> Vec<PathBuf> {
     ]
     .into_iter()
     .filter_map(|(key, name)| {
-        let mut reg = std::process::Command::new("reg");
+        // (Windows' own, by its place where the system says it; stopped
+        // if it doesn't answer.)
+        let program = std::env::var_os("SystemRoot")
+            .map(|root| PathBuf::from(root).join("System32").join("reg.exe"))
+            .filter(|reg| reg.is_file())
+            .unwrap_or_else(|| PathBuf::from("reg"));
+        let mut reg = std::process::Command::new(program);
         reg.args(["query", key, "/v", name]);
         #[cfg(windows)]
         {
@@ -494,7 +500,9 @@ fn steam_from_registry() -> Vec<PathBuf> {
             use std::os::windows::process::CommandExt;
             reg.creation_flags(0x0800_0000);
         }
-        let out = reg.output().ok().filter(|o| o.status.success())?;
+        let limit = std::time::Duration::from_secs(10);
+        let out = mg_core::process::output_within(&mut reg, limit).ok()?;
+        let out = Some(out).filter(|o| o.status.success())?;
         reg_value(&String::from_utf8_lossy(&out.stdout), name)
     })
     .map(PathBuf::from)
