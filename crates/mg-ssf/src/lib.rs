@@ -15,7 +15,9 @@ pub enum SsfError {
     NameTooLong(usize),
 }
 
-/// One slot: sound resref (raw bytes, up to 16) and text.
+/// One slot: sound resref (raw bytes, up to 16: the field without the
+/// NULs at its end, bytes after a NUL within it kept; the game reads up
+/// to the first, [`SsfEntry::sound_name`]) and text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SsfEntry {
     pub sound: Vec<u8>,
@@ -43,7 +45,7 @@ impl Ssf {
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             let mut e = Reader::at(data, t.u32_usize()?)?;
-            let sound = e.fixed_str(16)?.to_vec();
+            let sound = e.fixed_bytes(16)?.to_vec();
             entries.push(SsfEntry { sound, strref: StrRef(e.u32()?) });
         }
         Ok(Ssf { entries })
@@ -70,9 +72,32 @@ impl Ssf {
     }
 }
 
+impl SsfEntry {
+    /// The sound's name as the game reads it: the field up to its first
+    /// NUL.
+    pub fn sound_name(&self) -> &[u8] {
+        mg_core::bin::before_nul(&self.sound)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sound field with bytes after a NUL is written back as it was.
+    #[test]
+    fn a_sound_s_bytes_after_a_nul_are_kept() {
+        let s = Ssf { entries: vec![SsfEntry { sound: b"vs_attack".to_vec(), strref: StrRef(1) }] };
+        let mut bytes = s.to_bytes().unwrap();
+        let at = bytes.len() - 20;
+        bytes[at..at + 16].copy_from_slice(b"ab\0cd\0\0\0\0\0\0\0\0\0\0\0");
+        let read = Ssf::read(&bytes).unwrap();
+        assert_eq!(
+            (&read.entries[0].sound[..], read.entries[0].sound_name()),
+            (&b"ab\0cd"[..], &b"ab"[..])
+        );
+        assert_eq!(read.to_bytes().unwrap(), bytes);
+    }
 
     #[test]
     fn round_trip_and_truncation() {
