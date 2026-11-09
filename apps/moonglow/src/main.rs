@@ -496,12 +496,16 @@ fn main() -> eframe::Result<()> {
     // device (`run_native`'s closure, below): the graphics backend chosen
     // is read from the same file before, so that it is one setting among
     // the others in Options (its own file would keep it apart from them).
-    // Without the file, or where it can't be read: Automatic.
+    // Without the file, or where it can't be read: Automatic. They are
+    // read here once, for the app too: where they do not all read, what
+    // does is kept, the file as it was is put aside before eframe saves
+    // over it, and the log says so (`Settings::read_eframe`).
     let settings_file = eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron"));
-    let saved = settings_file
+    let read = settings_file
         .as_deref()
-        .and_then(|f| Settings::read_eframe_file(f, SETTINGS_KEY))
+        .map(|f| Settings::read_eframe(f, SETTINGS_KEY))
         .unwrap_or_default();
+    let saved = &read.settings;
     let wanted = saved.graphics_backend.backend();
     // (The backends recorded as drawing nothing here: Automatic passes
     // over them.)
@@ -550,13 +554,17 @@ fn main() -> eframe::Result<()> {
         APP_NAME,
         options,
         Box::new(move |cc| {
-            let mut settings: Settings =
-                cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
+            // (As read above, from the file eframe's storage is.)
+            let unread = read.problem();
+            let mut settings: Settings = read.settings;
             // `--user-dir DIR`: this run's user folder, over Options' (not
             // saved).
             let not_a_folder = line.user_dir.clone().filter(|d| !d.is_dir());
             settings.user_dir_this_run = line.user_dir.clone().filter(|d| d.is_dir());
             let mut moonglow = Moonglow::with_settings(settings, Box::new(NativeDialogs));
+            if let Some(unread) = unread {
+                moonglow.log.error(unread);
+            }
             if let Some(dir) = not_a_folder {
                 moonglow.log.error(format!(
                     "--user-dir {}: not a folder; the user folder of Options › Folders is used",

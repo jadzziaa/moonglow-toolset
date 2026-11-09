@@ -694,3 +694,12 @@ The command-line tool, `mg`, never checks.
 | Linux | `~/.local/share/moonglowtoolset` |
 | Windows | `%APPDATA%\Moonglow Toolset\data` |
 | macOS | `~/Library/Application Support/Moonglow-Toolset` |
+
+The settings are the file `app.ron` there. A setting saved by a newer
+Moonglow that this one can't read (you went back a version, or run two
+side by side) is at its default, and the others are as you left them.
+Where a setting, or the whole file, does not read at all, Moonglow
+keeps the file as it was beside it before it saves its own
+(`app.ron.unreadable-` and the time), and says which settings in the
+log: to have them back, close Moonglow and put that file in `app.ron`'s
+place, under the version that wrote it.
