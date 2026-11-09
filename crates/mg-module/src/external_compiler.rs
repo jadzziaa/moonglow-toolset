@@ -16,6 +16,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use mg_core::{ResRef, ResType};
+use mg_resman::ResKey;
+
 /// The places in a line of arguments, and what goes in each.
 pub const PLACES: [(&str, &str); 6] = [
     ("{files}", "the scripts to compile (an argument each)"),
@@ -145,11 +148,16 @@ impl ExternalCompiler {
         for d in [&src, &out] {
             std::fs::create_dir_all(d).map_err(|e| io(d, e))?;
         }
+        // A script's file is named after it, and a name read from a module
+        // may name a folder (`../../x`): such a script is not written, and
+        // is said below to be one no external compiler can be given.
         for (name, text) in sources {
-            let path = src.join(format!("{name}.nss"));
+            let Ok(path) = scratch_file(&src, name) else { continue };
             std::fs::write(&path, text).map_err(|e| io(&path, e))?;
         }
-        let files: Vec<PathBuf> = names.iter().map(|n| src.join(format!("{n}.nss"))).collect();
+        let given: Vec<Option<PathBuf>> =
+            names.iter().map(|n| scratch_file(&src, n).ok()).collect();
+        let files: Vec<PathBuf> = given.iter().flatten().cloned().collect();
         let mut said = String::new();
         let mut from = 0;
         while from < files.len() {
@@ -186,7 +194,15 @@ impl ExternalCompiler {
         Ok(names
             .iter()
             .zip(messages)
-            .map(|(name, message)| {
+            .zip(&given)
+            .map(|((name, message), given)| {
+                if given.is_none() {
+                    let message = format!(
+                        "{name}.nss: the script's name is not a file's (it names a folder), so \
+                         an external compiler cannot be given it: rename the script"
+                    );
+                    return Outcome { message, ..Default::default() };
+                }
                 let ncs = read(name, "ncs");
                 let message = match (&ncs, message.is_empty()) {
                     (Some(_), _) => String::new(),
@@ -200,6 +216,17 @@ impl ExternalCompiler {
             })
             .collect())
     }
+}
+
+/// The file of script `name` (a resref's text, as [`ResRef`]'s `Display`
+/// writes it: a character a byte) in the scratch folder `dir`; an error for
+/// a name that is no file's there ([`ResKey::path_in`]).
+fn scratch_file(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+    let refused = |said: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, said);
+    let bytes: Result<Vec<u8>, _> = name.chars().map(|c| u8::try_from(u32::from(c))).collect();
+    let bytes = bytes.map_err(|_| refused(format!("{name}: not a resref")))?;
+    let resref = ResRef::from_bytes(&bytes).map_err(|e| refused(format!("{name}: {e}")))?;
+    ResKey::new(resref, ResType::NSS).path_in(dir)
 }
 
 /// The files in `dir`: stem and extension (lower case), and path.
@@ -405,6 +432,37 @@ mod tests {
         let m = messages(said, &names);
         assert_eq!(m[1], "inc.nss(3): Error: NSC1040: Syntax error");
         assert_eq!((m[0].as_str(), m[2].as_str()), ("", ""));
+    }
+
+    /// A script whose name names a folder (a crafted module's `../../x`)
+    /// is not written anywhere, and is said to be one that cannot be
+    /// compiled; the others are compiled.
+    #[cfg(unix)]
+    #[test]
+    fn a_script_named_as_a_folder_is_written_nowhere() {
+        let evil = format!("../../moonglow-extcomp-evil-{}", std::process::id());
+        let outside = std::env::temp_dir().join(format!("{}.nss", &evil[6..]));
+        let _ = std::fs::remove_file(&outside);
+        let c = ExternalCompiler {
+            program: "true".into(),
+            arguments: "{files}".into(),
+            ..Default::default()
+        };
+        let sources: [(String, &[u8]); 3] =
+            [(evil.clone(), b"x"), ("a\\b".into(), b"x"), ("fine".into(), b"x")];
+        let made = c.compile(&sources, &[evil.clone(), "fine".into()]).unwrap();
+        assert!(!outside.exists(), "{} was written", outside.display());
+        assert!(made[0].ncs.is_none() && made[0].message.contains("not a file's"), "{made:?}");
+        assert!(made[0].message.starts_with(&format!("{evil}.nss: ")), "{made:?}");
+        // (The other script was given to the compiler, which made nothing.)
+        assert!(made[1].message.contains("made no compiled script"), "{made:?}");
+        for name in ["../x", "a/b", "a\\b", "c:x", "x\u{1}", "\u{201c}x"] {
+            assert!(scratch_file(Path::new("/s"), name).is_err(), "{name:?}");
+        }
+        assert_eq!(
+            scratch_file(Path::new("/s"), "\u{e9}t\u{e9}").unwrap(),
+            Path::new("/s/été.nss")
+        );
     }
 
     /// A stand-in compiler (a shell script): it "compiles" a script with
