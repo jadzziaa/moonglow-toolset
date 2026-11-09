@@ -31,6 +31,8 @@ pub enum TwoDaError {
     DuplicateColumn(String),
     #[error("a cell value contains a double quote, which 2DA cannot express")]
     Unquotable,
+    #[error("a cell value contains a line break, which 2DA cannot express")]
+    LineBreak,
     #[error(
         "the table's short rows would be padded with more than {0} empty cells (a header of \
          many columns over many short lines)"
@@ -250,9 +252,23 @@ impl TwoDa {
         self.get(row, column).and_then(parse_int)
     }
 
+    /// Whether a cell can hold `value`: an error for a double quote (a
+    /// cell is quoted with them, and nothing escapes one) and for a line
+    /// break (a row is a line: the rest of the value would be the next
+    /// row, and every row after it one further down).
+    pub fn holds(value: &str) -> Result<(), TwoDaError> {
+        if value.contains('"') {
+            Err(TwoDaError::Unquotable)
+        } else if value.contains(['\n', '\r']) {
+            Err(TwoDaError::LineBreak)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Sets the cell at (`row`, `column`): `None`, or `****`, empties it.
-    /// An error for a value a 2DA cannot hold (a double quote); nothing
-    /// for a cell the table does not have.
+    /// An error for a value a 2DA cannot hold ([`TwoDa::holds`]: a double
+    /// quote, a line break); nothing for a cell the table does not have.
     pub fn set(
         &mut self,
         row: usize,
@@ -260,8 +276,8 @@ impl TwoDa {
         value: Option<String>,
     ) -> Result<(), TwoDaError> {
         let value = value.filter(|v| v != "****");
-        if value.as_ref().is_some_and(|v| v.contains('"')) {
-            return Err(TwoDaError::Unquotable);
+        if let Some(v) = &value {
+            TwoDa::holds(v)?;
         }
         if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(column)) {
             *cell = value;
@@ -403,7 +419,7 @@ impl TwoDa {
         let esc = |c: &Option<String>| -> Result<String, TwoDaError> {
             match c {
                 None => Ok("****".into()),
-                Some(v) if v.contains('"') => Err(TwoDaError::Unquotable),
+                Some(v) if TwoDa::holds(v).is_err() => TwoDa::holds(v).map(|()| String::new()),
                 Some(v) if v.is_empty() || v.contains([' ', '\t']) => Ok(format!("\"{v}\"")),
                 Some(v) => Ok(v.clone()),
             }
@@ -755,6 +771,13 @@ mod tests {
         t.set(0, 0, Some("****".into())).unwrap();
         assert_eq!((t.get(1, "Cost"), t.get(0, "Label")), (Some("5"), None));
         assert_eq!(t.set(0, 0, Some("a \"b\"".into())), Err(TwoDaError::Unquotable));
+        // A line break would be the next row's beginning.
+        for broken in ["a\nb", "a\r\nb", "a\r"] {
+            assert_eq!(t.set(0, 0, Some(broken.into())), Err(TwoDaError::LineBreak), "{broken:?}");
+        }
+        let mut read = t.clone();
+        read.rows[0][0] = Some("a\nb".into());
+        assert_eq!(read.to_bytes(Codepage::default()), Err(TwoDaError::LineBreak));
         // (A cell that is not there: nothing.)
         t.set(9, 0, Some("x".into())).unwrap();
         assert_eq!(t.add_row(), 2);
