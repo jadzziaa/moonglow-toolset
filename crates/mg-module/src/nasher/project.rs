@@ -489,7 +489,10 @@ impl Project {
         let cfg = Package::config_path(&root);
         let bad =
             |message: String| ModuleError::Source { name: cfg.display().to_string(), message };
-        let text = std::fs::read_to_string(&cfg).map_err(io(&cfg))?;
+        // (As text a character a byte where it is not UTF-8: nasher reads
+        // such a file, and every other line of it is written as it was.)
+        let file = super::cfg::FileText::read(&cfg).map_err(io(&cfg))?;
+        let text = file.text.as_str();
         // The include of the target's whose folder holds the first file.
         let pattern = (self.target().includes.iter())
             .find(|p| source_base(p).is_some_and(|base| left[0].starts_with(root.join(base))))
@@ -530,7 +533,8 @@ impl Project {
         }
         // Not written unless it takes files in for the target edited (a
         // line that does not would be added again at every try).
-        let taken = Package::parse(&root, &written, &|k| std::env::var(k).ok())
+        let written = file.bytes(&written);
+        let taken = Package::parse_bytes(&root, &written, &|k| std::env::var(k).ok())
             .ok()
             .and_then(|p| p.target(&self.target).map(|t| left_out_of(&root, t)))
             .is_some_and(|after| after.len() < left.len());
@@ -607,7 +611,8 @@ impl Project {
             }
             files.push(file);
         }
-        let text = std::fs::read_to_string(&cfg).map_err(io(&cfg))?;
+        let cfg_text = super::cfg::FileText::read(&cfg).map_err(io(&cfg))?;
+        let text = cfg_text.text.as_str();
         let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
         let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
         // The module target's own sources leave the tables out, where it
@@ -640,6 +645,7 @@ impl Project {
         }
         let mut written = lines.join(newline);
         written.push_str(newline);
+        let written = cfg_text.bytes(&written);
         // The tables first: a nasher.cfg naming files that aren't there
         // would be read as a mistake.
         let empty = mg_tlk::Tlk::new(language);
@@ -1906,6 +1912,28 @@ mod tests {
             ),
             "{written}"
         );
+
+        // A nasher.cfg that is not UTF-8 throughout (a comment typed in
+        // Windows-1252), which nasher reads: opened, and the line added
+        // leaves its bytes as they were.
+        let root = scratch("left-out-bytes");
+        let cfg = b"# M\xf3dulo\r\n[package]\r\n  [package.sources]\r\n  include = \
+                    \"src/**/*.{nss,json}\"\r\n[target]\r\nname = \"m\"\r\nfile = \"m.mod\"\r\n";
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        module().save_as(&project_location(&root)).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/win.jui"), b"{}").unwrap();
+        let (mut p, _) = Project::open(&root, None).unwrap();
+        assert!(p.take_in_left_out().unwrap().is_some());
+        assert!(p.left_out.is_empty());
+        let written = std::fs::read(root.join("nasher.cfg")).unwrap();
+        let added = b"  include = \"src/**/*.jui\"\r\n";
+        let at = cfg.windows(8).position(|w| w == b"[target]").unwrap();
+        assert_eq!(written, [&cfg[..at], added, &cfg[at..]].concat());
+        p.add_talk_table("words", mg_core::Language::ENGLISH, false).unwrap();
+        let written = std::fs::read(root.join("nasher.cfg")).unwrap();
+        assert!(written.starts_with(b"# M\xf3dulo\r\n[package]\r\n"));
+        assert!(Project::open(&root, None).is_ok());
     }
 
     #[test]

@@ -351,7 +351,10 @@ unpacking or packing between the toolset and git.
 
 - **Open a project:** **File › Open Folder…** and choose the project's
   folder (the one with `nasher.cfg`). Moonglow edits the target that packs
-  a module (the default target if it does).
+  a module (the default target if it does). A `nasher.cfg` that is not
+  UTF-8 throughout (a description typed in Windows-1252) opens too, as
+  nasher reads it, and a line Moonglow adds to it leaves every other
+  byte of it as it was.
 - **Save** writes only the files of the resources you changed, exactly as
   `nasher unpack` would, so `git diff` shows your changes and nothing
   else:
