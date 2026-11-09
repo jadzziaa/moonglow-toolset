@@ -222,7 +222,10 @@ fn from_file(path: &Path) -> Result<(Module, String)> {
     for picture in mg_nui::image_names(&window, &settings) {
         for ty in [ResType::TGA, ResType::PNG, ResType::DDS, ResType::JPG, ResType::BMP] {
             let Some(key) = ResKey::parse(&picture, ty) else { continue };
-            if let Ok(bytes) = std::fs::read(dir.join(key.to_string())) {
+            // (A file of the folder: a name that leads out of it, as a
+            // window's file from anywhere may have, is no picture here.)
+            let Ok(file) = key.path_in(dir) else { continue };
+            if let Ok(bytes) = std::fs::read(file) {
                 m.set(key, bytes);
             }
         }
@@ -347,4 +350,33 @@ fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) 
         out.note(format!("warning: {issue}"));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A window's file is drawn with the pictures beside it, and none
+    /// from anywhere else: a picture named `../../x` read the file two
+    /// folders up into the window's picture.
+    #[test]
+    fn a_window_s_file_reads_pictures_beside_it_only() {
+        let top = mg_testkit::scratch_dir("mg-nui-pictures-beside");
+        let dir = top.join("a/b");
+        std::fs::create_dir_all(&dir).unwrap();
+        let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/mg-nui/tests/data");
+        let text = std::fs::read_to_string(from.join("crier.jui")).unwrap();
+        let mut window: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let children = window["root"]["children"].as_array_mut().expect("the window's controls");
+        children.push(serde_json::json!({ "type": "image", "value": "../../x" }));
+        children.push(serde_json::json!({ "type": "image", "value": "beside" }));
+        std::fs::write(dir.join("crier.jui"), window.to_string()).unwrap();
+        std::fs::write(top.join("x.tga"), b"not this window's").unwrap();
+        std::fs::write(dir.join("beside.tga"), b"this window's").unwrap();
+        let (m, name) = from_file(&dir.join("crier.jui")).unwrap();
+        assert_eq!(name, "crier");
+        let mut keys: Vec<String> = m.keys().map(ToString::to_string).collect();
+        keys.sort();
+        assert_eq!(keys, ["beside.tga", "crier.jui"]);
+    }
 }
