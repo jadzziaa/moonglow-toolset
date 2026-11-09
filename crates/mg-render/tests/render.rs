@@ -5813,6 +5813,94 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
     }
 }
 
+/// A creature made of parts is one object to the lights' shadows: two of
+/// 20 part instances each under one lamp cast every part's shadow, from
+/// two maps. (A map was planned for each instance: the 16 parts nearest
+/// the camera's target cast and the other 24 cast nothing.)
+#[test]
+fn a_creature_of_parts_casts_one_shadow_from_a_light() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    // Each creature's parts: plates 30 cm across, 40 cm apart, a meter up.
+    let part = |creature: usize, i: usize| {
+        let base = if creature == 0 { -2.0 } else { 2.0 };
+        Vec3::new(base + ((i % 5) as f32 - 2.0) * 0.4, ((i / 5) as f32 - 1.5) * 0.4, 1.0)
+    };
+    let scene = |shadows: bool, together: bool| {
+        let mut instances = vec![Instance {
+            receives_shadows: true,
+            ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(6.0)))
+        }];
+        for creature in 0..2 {
+            instances.extend((0..20).map(|i| Instance {
+                casts_light_shadows: true,
+                object: together.then_some(creature as u32),
+                ..Instance::new(
+                    plate.clone(),
+                    Mat4::from_translation(part(creature, i)) * Mat4::from_scale(Vec3::splat(0.15)),
+                )
+            }));
+        }
+        Scene {
+            instances,
+            lights: vec![
+                mg_render::PointLight::new(Vec3::new(0.0, 0.0, 2.0), Vec3::ONE, 10.0, false, 4)
+                    .casting(true, 10.0, 2.0),
+            ],
+            area: AreaLight {
+                ambient: Vec3::splat(0.004),
+                diffuse: Vec3::splat(0.012),
+                direction: Vec3::Z,
+            },
+            light_shadows: shadows
+                .then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            ..Default::default()
+        }
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    // (From 4 m up, a part a meter up throws its shadow 4/3 as far from
+    // under the lamp as it is; 128 pixels are 12 tan 0.4 meters.)
+    let pixel = |p: Vec3| {
+        let scale = 128.0 / (12.0 * 0.4f32.tan());
+        let at = |v: f32| (128.0 + v * 4.0 / 3.0 * scale).round() as u32;
+        (at(p.x), at(-p.y))
+    };
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.shadow_volumes = volumes;
+        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 256, 256);
+        let (cast, off, apart) =
+            (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+        let name = format!("shadows_light_parts{}.png", if volumes { "_high" } else { "" });
+        save(&cast, &mg_testkit::output_dir("render").join(name));
+        let dark = |img: &mg_image::Rgba| {
+            (0..40)
+                .filter(|n| {
+                    let (x, y) = pixel(part(n / 20, n % 20));
+                    let lit = grey(off.pixel(x, y));
+                    assert!(lit > 20.0, "part {n}: the ground is lit {lit}");
+                    grey(img.pixel(x, y)) < lit * 0.75
+                })
+                .count()
+        };
+        assert_eq!(dark(&cast), 40, "volumes {volumes}: every part of both");
+        // (Each instance an object by itself: the 16 nearest alone.)
+        assert_eq!(dark(&apart), 16, "volumes {volumes}: parts as creatures");
+        // Between the two, no shadow.
+        let between = (128, 40);
+        let (a, b) = (grey(cast.pixel(between.0, between.1)), grey(off.pixel(128, 40)));
+        assert!((a - b).abs() <= 1.0, "volumes {volumes}: {a} {b}");
+    }
+}
+
 /// A unit cube from 0 to 1, each face's vertices its own (as a model's
 /// are where its texture coordinates part), wound outwards.
 fn cube() -> Model {

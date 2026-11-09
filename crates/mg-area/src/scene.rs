@@ -1103,7 +1103,7 @@ impl AreaScene {
             }
         }
         let lit_shadows = view.light_shadows_of(&area.lighting).is_some();
-        for (o, shown) in area.objects.iter().zip(&self.objects) {
+        for (n, (o, shown)) in area.objects.iter().zip(&self.objects).enumerate() {
             if !view.shows(o.kind) {
                 continue;
             }
@@ -1163,6 +1163,8 @@ impl AreaScene {
                 unlit,
                 casts_shadows: casts && i.casts_shadows,
                 casts_light_shadows: from_lights && i.casts_shadows,
+                // (Its parts are one object: one shadow from a light.)
+                object: Some(n as u32),
                 receives_shadows: o.is_static,
                 ..i
             }));

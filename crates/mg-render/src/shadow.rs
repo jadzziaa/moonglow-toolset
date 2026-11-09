@@ -18,6 +18,9 @@
 //! game's own shaders and Moonglow's are darkened alike, after either has
 //! lit the pixel.
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
@@ -33,7 +36,8 @@ pub(crate) const MAP_SIZE: u32 = 2048;
 pub(crate) const LIGHT_MAP_SIZE: u32 = 512;
 
 /// How many creatures cast the lights' shadows at once (the nearest the
-/// camera looks at): the client's `max-casting-lights` (3 by default)
+/// camera looks at; a creature made of parts is one:
+/// [`Instance::object`]): the client's `max-casting-lights` (3 by default)
 /// didn't change what one creature casts, and was not settled for many.
 pub(crate) const MAX_LIGHT_SHADOWS: usize = 16;
 
@@ -479,12 +483,27 @@ pub(crate) fn light_projection(light: Vec3, at: Vec3, radius: f32, reach: f32) -
 /// has none (none asked for, or no creature with a light that casts).
 pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightPlan<'a>> {
     let shadows = scene.light_shadows.filter(|s| s.opacity > 0.0)?;
-    let mut creatures: Vec<(f32, &'a Instance)> = scene
-        .instances
-        .iter()
-        .filter(|i| i.casts_light_shadows)
-        .map(|i| (i.transform.w_axis.truncate().distance(camera.target), i))
-        .collect();
+    // A creature's instances (its base first, then its parts: one made of
+    // body parts is an instance a part), the nearest the camera's target
+    // first.
+    let mut creatures: Vec<(f32, Vec<&'a Instance>)> = Vec::new();
+    let mut of_object: HashMap<u32, usize> = HashMap::new();
+    for inst in scene.instances.iter().filter(|i| i.casts_light_shadows) {
+        let known = inst.object.and_then(|o| match of_object.entry(o) {
+            Entry::Occupied(e) => Some(*e.get()),
+            Entry::Vacant(e) => {
+                e.insert(creatures.len());
+                None
+            }
+        });
+        match known {
+            Some(at) => creatures[at].1.push(inst),
+            None => {
+                let from_target = inst.transform.w_axis.truncate().distance(camera.target);
+                creatures.push((from_target, vec![inst]));
+            }
+        }
+    }
     creatures.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut plan = LightPlan {
         lights: Vec::new(),
@@ -497,32 +516,36 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
     };
     // (Each map's light, by its place in the scene's.)
     let mut cast_from = Vec::new();
-    for (_, inst) in creatures {
+    for (_, parts) in creatures {
         if plan.lights.len() == MAX_LIGHT_SHADOWS {
             break;
         }
-        let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
         let first = plan.casters.len();
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
-        for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
-            let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
-            let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
-            if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 }) {
-                continue;
+        for inst in &parts {
+            let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
+            let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
+            for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
+                let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
+                let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
+                if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 }) {
+                    continue;
+                }
+                let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                let skinned = skin_bones(mesh, pose, &mut plan.bones);
+                let (a, b) = posed_box(world_box(world, mesh), skinned);
+                (lo, hi) = (lo.min(a), hi.max(b));
+                let model = &inst.model;
+                plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
             }
-            let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
-            let skinned = skin_bones(mesh, pose, &mut plan.bones);
-            let (a, b) = posed_box(world_box(world, mesh), skinned);
-            (lo, hi) = (lo.min(a), hi.max(b));
-            let model = &inst.model;
-            plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
         }
         if plan.casters.len() == first {
             continue;
         }
+        // (One light for the whole of it, from where its base stands, and
+        // one map: its box is all its parts'.)
         let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
-        let feet = inst.transform.w_axis.truncate();
+        let feet = parts[0].transform.w_axis.truncate();
         let Some(light) = casting_light(&scene.lights, at, radius, feet) else {
             plan.casters.truncate(first);
             continue;
