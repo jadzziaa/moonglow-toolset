@@ -484,29 +484,66 @@ fn passage(kind: Kind, i: u32) -> String {
 
 // ---------------------------------------------------------------- escapes
 
+/// The words Ink reads as a declaration where they start a line, each
+/// with what follows it there.
+const INK_KEYWORDS: [&str; 6] = ["VAR ", "CONST ", "LIST ", "INCLUDE ", "EXTERNAL ", "TODO:"];
+
 /// Text for Ink: a backslash before each character Ink reads as syntax
-/// (and before `-`, `*`, `+` or `=` starting a line), a blank line as an
-/// empty comment (`//`), which Ink skips and Moonglow reads back.
+/// (and before `-`, `*`, `+` or `=` starting a line, or the first letter
+/// of a word Ink reads as a declaration there: `\VAR is a joke`), a blank
+/// line as an empty comment (`//`), which Ink skips and Moonglow reads
+/// back.
 fn ink_text(s: &str) -> String {
     s.lines()
-        .map(|line| {
-            if line.trim().is_empty() {
-                return "//".to_string();
-            }
-            let mut out = String::new();
-            for (i, c) in line.trim_start().chars().enumerate() {
-                let syntax =
-                    matches!(c, '\\' | '{' | '}' | '[' | ']' | '|' | '#' | '/' | '<' | '>' | '~')
-                        || (i == 0 && matches!(c, '-' | '*' | '+' | '='));
-                if syntax {
-                    out.push('\\');
-                }
-                out.push(c);
-            }
-            out
-        })
+        .map(|line| if line.trim().is_empty() { "//".to_string() } else { ink_line(line) })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// One line of [`ink_text`], which is not blank.
+fn ink_line(line: &str) -> String {
+    let line = line.trim_start();
+    let mut out = String::new();
+    if INK_KEYWORDS.iter().any(|k| line.starts_with(k)) {
+        out.push('\\');
+    }
+    for (i, c) in line.chars().enumerate() {
+        let syntax = matches!(c, '\\' | '{' | '}' | '[' | ']' | '|' | '#' | '/' | '<' | '>' | '~')
+            || (i == 0 && matches!(c, '-' | '*' | '+' | '='));
+        if syntax {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A reply's text as an Ink choice holds it, on one line: its line breaks
+/// written `\n` (a blank line is nothing between two of them: a comment
+/// would end the choice).
+fn ink_choice_text(s: &str) -> String {
+    s.lines()
+        .map(|line| if line.trim().is_empty() { String::new() } else { ink_line(line) })
+        .collect::<Vec<_>>()
+        .join("\\n")
+}
+
+/// [`ink_choice_text`] read back: Ink's escapes undone, an escaped `n` a
+/// line break (a backslash of the text itself is written `\\`, so
+/// `C:\\new` is `C:\new`).
+fn ink_choice_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('n') => out.push('\n'),
+                other => out.extend(other),
+            },
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// A line of Ink without its comment (`//` not escaped), escapes kept.
@@ -1550,11 +1587,7 @@ pub fn to_ink(g: &Gff) -> String {
             let Some(reply) = node(g, Kind::Reply, r) else { continue };
             let t = text(reply);
             // A choice is one line: its line breaks are written `\n`.
-            let t = if t.is_empty() {
-                "(Continue)".to_string()
-            } else {
-                t.lines().map(ink_text).collect::<Vec<_>>().join("\\n")
-            };
+            let t = if t.is_empty() { "(Continue)".to_string() } else { ink_choice_text(&t) };
             let cond = resref(l, "Active").map(|c| format!("{{{c}}} ")).unwrap_or_default();
             let target = match next_of(g, Parent::Node(Kind::Reply, r)) {
                 Next::End => "END".to_string(),
@@ -1629,6 +1662,8 @@ pub fn from_ink_over(source: &str, replaced: Option<&Gff>) -> Result<Gff, String
             continue;
         }
         let line = ink_uncomment(raw).trim();
+        // (A declaration: one of an NPC line's own that starts so is
+        // written with a backslash before it.)
         if line.is_empty() || line.starts_with("VAR ") || line.starts_with("CONST ") {
             continue;
         }
@@ -1704,7 +1739,7 @@ pub fn from_ink_over(source: &str, replaced: Option<&Gff>) -> Result<Gff, String
                 Some(r) => {
                     let end = ink_find(r, ']')
                         .ok_or(format!("line {at}: a choice's [text] doesn't end"))?;
-                    (r[..end].replace("\\n", "\n"), r[end + 1..].trim())
+                    (r[..end].to_string(), r[end + 1..].trim())
                 }
                 None => match rest.split_once("->") {
                     Some((t, _)) => (t.trim().to_string(), &rest[t.len()..]),
@@ -1717,11 +1752,7 @@ pub fn from_ink_over(source: &str, replaced: Option<&Gff>) -> Result<Gff, String
                 .map(|t| t.trim().to_string())
                 .ok_or(format!("line {at}: a choice must divert (-> KNOT or -> END)"))?;
             let text = text.trim();
-            let text = if text == "(Continue)" {
-                String::new()
-            } else {
-                text.split('\n').map(ink_unescape).collect::<Vec<_>>().join("\n")
-            };
+            let text = if text == "(Continue)" { String::new() } else { ink_choice_unescape(text) };
             let to = (target != "END" && target != "DONE").then_some(target);
             k.replies.push((text, cond, tags, to));
         } else if let Some(r) = line.strip_prefix('{') {
@@ -2236,6 +2267,36 @@ mod tests {
         assert!(t.contains("NPC Back again?   [if c_seen]"), "{t}");
         assert!(t.contains("    1. Who are you?   [if c_curious]"), "{t}");
         assert!(t.contains("(goes to E1 above)"), "{t}");
+    }
+
+    /// Three texts that did not come back from Ink as written (the
+    /// review's V13): a reply with a backslash before an `n` (its `\n` was
+    /// read as a line break), an NPC line that starts with a word Ink
+    /// declares by (it was skipped as a declaration), and a reply with a
+    /// line of spaces between two paragraphs (written as a comment, which
+    /// cut the choice short: the story was refused).
+    #[test]
+    fn ink_texts_come_back_as_written() {
+        let mut g = new_dialog();
+        let var = add_node(&mut g, Parent::Root, "VAR is a joke, right?\nCONST too.\nVARY not.");
+        let at = Parent::Node(Kind::Entry, var);
+        let path = add_node(&mut g, at, "Path: C:\\new\\\\n and \\ alone");
+        let paragraphs = add_node(&mut g, at, "One.\n \nTwo.\n-three\\n");
+        let list = add_node(&mut g, at, "LIST of things [x] // not a comment");
+        let ink = to_ink(&g);
+        assert!(ink.contains("\n\\VAR is a joke, right?\n\\CONST too.\nVARY not.\n"), "{ink}");
+        assert!(ink.contains("+ [Path: C:\\\\new\\\\\\\\n and \\\\ alone] -> END"), "{ink}");
+        assert!(ink.contains("+ [One.\\n\\nTwo.\\n\\-three\\\\n] -> END"), "{ink}");
+        let back = from_ink(&ink).unwrap();
+        let said = |kind, i| text(node(&back, kind, i).unwrap());
+        assert_eq!(said(Kind::Entry, var), "VAR is a joke, right?\nCONST too.\nVARY not.");
+        assert_eq!(said(Kind::Reply, path), "Path: C:\\new\\\\n and \\ alone");
+        assert_eq!(said(Kind::Reply, paragraphs), "One.\n\nTwo.\n-three\\n");
+        assert_eq!(said(Kind::Reply, list), "LIST of things [x] // not a comment");
+        assert_eq!(play_outline(&back, 100), play_outline(&g, 100));
+        // A story's own declarations are still passed over.
+        let declared = from_ink("VAR c = true\nCONST d = 1\n-> a\n=== a ===\nHi\n").unwrap();
+        assert_eq!(text(node(&declared, Kind::Entry, 0).unwrap()), "Hi");
     }
 
     #[test]
