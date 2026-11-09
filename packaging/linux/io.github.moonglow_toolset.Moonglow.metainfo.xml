@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.18.0" date="2026-11-08">
+      <description>
+        <p>The area toolbar's buttons can be hidden, Verify checks that a
+        material's textures are there, plugins get panels with fields,
+        and tooltips are short.</p>
+      </description>
+    </release>
     <release version="3.17.0" date="2026-11-08">
       <description>
         <p>Lists take typed letters, the Appearance Gallery places by
