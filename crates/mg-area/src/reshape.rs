@@ -354,11 +354,14 @@ fn rotate_once(are: &mut Struct, git: &mut Struct) {
                 s.set("XOrientation", Value::Float(-oy));
                 s.set("YOrientation", Value::Float(ox));
             }
-            if let Some(points) = s.list_mut("Geometry") {
+            // A trigger's points are `PointX`/`PointY`, an encounter's `X`/`Y`.
+            if let Some([pxl, pyl, _]) = mg_module::placement::point_fields(kind)
+                && let Some(points) = s.list_mut("Geometry")
+            {
                 for p in points {
-                    let (px, py) = (float(p, "PointX"), float(p, "PointY"));
-                    p.set("PointX", Value::Float(-py));
-                    p.set("PointY", Value::Float(px));
+                    let (px, py) = (float(p, pxl), float(p, pyl));
+                    p.set(pxl, Value::Float(-py));
+                    p.set(pyl, Value::Float(px));
                 }
             }
             if let Some(spawns) = s.list_mut("SpawnPointList") {
@@ -399,8 +402,27 @@ mod tests {
         door.set("Y", Value::Float(5.0));
         door.set("Bearing", Value::Float(0.0));
         git.set("Door List", Value::List(vec![door]));
+        // An encounter 10 by 4, lying west to east: its points are `X`/`Y`.
+        let mut encounter = Struct::new(7);
+        encounter.set("XPosition", Value::Float(10.0));
+        encounter.set("YPosition", Value::Float(5.0));
+        let outline = [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)].map(|(x, y)| {
+            let mut p = Struct::new(1);
+            p.set("X", Value::Float(x));
+            p.set("Y", Value::Float(y));
+            p.set("Z", Value::Float(0.0));
+            p
+        });
+        encounter.set("Geometry", Value::List(outline.to_vec()));
+        git.set("Encounter List", Value::List(vec![encounter]));
         let (mut a, mut g) = (are.clone(), git.clone());
         rotate_once(&mut a, &mut g);
+        // The encounter's outline turns with it, in its own fields.
+        let e = &g.list("Encounter List").unwrap()[0];
+        let points = e.list("Geometry").unwrap();
+        assert!(points.iter().all(|p| !p.contains("PointX") && !p.contains("PointY")));
+        assert_eq!((points[1].float("X"), points[1].float("Y")), (Some(0.0), Some(10.0)));
+        assert_eq!((points[2].float("X"), points[2].float("Y")), (Some(-4.0), Some(10.0)));
         // 3 by 2 becomes 2 by 3; tile 0 at (0, 0) goes to (1, 0), turned.
         assert_eq!((a.integer("Width"), a.integer("Height")), (Some(2), Some(3)));
         let t = &a.list("Tile_List").unwrap()[1];
@@ -417,5 +439,12 @@ mod tests {
             (d.float("X").unwrap() - 25.0).abs() < 1e-4
                 && (d.float("Y").unwrap() - 5.0).abs() < 1e-4
         );
+        let e = &g.list("Encounter List").unwrap()[0];
+        for (now, was) in e.list("Geometry").unwrap().iter().zip(&outline) {
+            assert!(!now.contains("PointX"), "no field is added to a point");
+            for l in ["X", "Y"] {
+                assert!((now.float(l).unwrap() - was.float(l).unwrap()).abs() < 1e-4);
+            }
+        }
     }
 }
