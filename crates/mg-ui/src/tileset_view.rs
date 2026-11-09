@@ -1126,14 +1126,24 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
         if !done.insert(name.to_lowercase()) {
             continue;
         }
-        match crate::model_view::render_tile_from_above(app, &tile.model, MINIMAP_SIZE) {
-            Some(image) => {
-                let path = dir.join(format!("{}.tga", name.to_lowercase()));
-                match std::fs::write(&path, mg_image::write_tga(&image)) {
-                    Ok(()) => written += 1,
-                    Err(e) => failed.push(format!("{}: {e}", path.display())),
-                }
+        // (The name is the tileset file's own text: a picture's name, or
+        // the file is not written. `ImageMap2D=../../x` wrote outside the
+        // tileset's folder.)
+        let named = mg_core::ResRef::from_str(&name.to_lowercase())
+            .map_err(|e| e.to_string())
+            .and_then(|r| crate::transfer::named_in(&dir, &r, "tga"));
+        let path = match named {
+            Ok(path) => path,
+            Err(e) => {
+                failed.push(format!("{name}: {e}"));
+                continue;
             }
+        };
+        match crate::model_view::render_tile_from_above(app, &tile.model, MINIMAP_SIZE) {
+            Some(image) => match std::fs::write(&path, mg_image::write_tga(&image)) {
+                Ok(()) => written += 1,
+                Err(e) => failed.push(format!("{}: {e}", path.display())),
+            },
             None => failed.push(format!("{}: model not found", tile.model)),
         }
     }

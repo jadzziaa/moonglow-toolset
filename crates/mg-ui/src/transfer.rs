@@ -109,6 +109,22 @@ const UNSAVED: &str = "the import replaces it in the module, but its editor keep
                        and saving them writes over what was imported";
 
 /// What To Scratch's hover says: where it copies `what`, or that it asks.
+/// The file a resource is exported to in `dir`, named after it with
+/// another ending (`NAME.png`, `NAME.csv`): refused where the name can't
+/// be a file's, as [`ResKey::path_in`] refuses it (a module from elsewhere
+/// may name a resource `../../x`, and the file was written outside the
+/// folder chosen).
+pub(crate) fn named_in(
+    dir: &Path,
+    name: &mg_core::ResRef,
+    ending: &str,
+) -> Result<PathBuf, String> {
+    if name.is_empty() || !name.is_file_name() {
+        return Err(format!("{name:?} is not a name a file can have"));
+    }
+    Ok(dir.join(format!("{name}.{ending}")))
+}
+
 pub(crate) fn scratch_tip(scratch: Option<&std::path::Path>, what: &str) -> String {
     match scratch {
         Some(d) => format!("Copy {what} into the scratch folder, {}", d.display()),

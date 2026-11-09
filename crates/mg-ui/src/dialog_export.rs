@@ -114,8 +114,11 @@ impl Moonglow {
         let Some(dir) = self.dialogs.pick_folder(&title, start.as_deref()) else { return };
         self.export_dir = Some(dir.clone());
         let existing: Vec<String> = (keys.iter())
+            .filter(|k| {
+                let ending = format.extensions()[0];
+                crate::transfer::named_in(&dir, &k.resref, ending).is_ok_and(|p| p.exists())
+            })
             .map(|k| file_name(*k, format))
-            .filter(|name| dir.join(name).exists())
             .collect();
         if existing.is_empty() {
             self.write_conversations(&keys, format, &dir);
@@ -137,6 +140,13 @@ impl Moonglow {
         let mut failed: Vec<String> = Vec::new();
         for &key in keys {
             let name = file_name(key, format);
+            let path = match crate::transfer::named_in(dir, &key.resref, format.extensions()[0]) {
+                Ok(path) => path,
+                Err(e) => {
+                    failed.push(format!("{key}: {e}"));
+                    continue;
+                }
+            };
             let text = match ws.doc(&key) {
                 Ok(g) => text_of(g, key, format),
                 Err(e) => {
@@ -144,9 +154,9 @@ impl Moonglow {
                     continue;
                 }
             };
-            match std::fs::write(dir.join(&name), text) {
+            match std::fs::write(&path, text) {
                 Ok(()) => written.push(name),
-                Err(e) => failed.push(format!("{key}: {}: {e}", dir.join(&name).display())),
+                Err(e) => failed.push(format!("{key}: {}: {e}", path.display())),
             }
         }
         let n = written.len();
@@ -222,4 +232,57 @@ pub(crate) fn ask_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let keys = if choice == FilesThere::Skip { ask.new_ones() } else { ask.keys.clone() };
     app.write_exported(&ask, &keys);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_core::{ResRef, ResType};
+    use mg_module::{Module, ModuleLocation};
+
+    /// A module from elsewhere may name a resource `../x`: the exports
+    /// that name a file after a resource wrote it outside the folder
+    /// chosen (the review of November 2026: A2, D4, S8).
+    #[test]
+    fn a_resource_named_like_a_path_is_not_exported_out_of_the_folder() {
+        let dir = mg_testkit::scratch_dir("ui-export-names");
+        let hostile = ResKey::new(ResRef::from_str("../x").unwrap(), ResType::DLG);
+        let plain = ResKey::new(ResRef::from_str("plain").unwrap(), ResType::DLG);
+        let mut m = Module::new();
+        for key in [hostile, plain] {
+            m.set(key, mg_module::dialog::new_dialog().to_bytes().unwrap());
+        }
+        m.save_as(&ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir.join("m.mod"));
+        let out = dir.join("out");
+        app.write_conversations(&[hostile, plain], Format::Csv, &out);
+        let files: Vec<_> =
+            std::fs::read_dir(&out).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(files, ["plain.csv"]);
+        assert!(!dir.join("x.csv").exists());
+        let said =
+            |app: &Moonglow, what: &str| app.log.entries.iter().any(|(_, l)| l.contains(what));
+        assert!(said(&app, "not a name a file can have"), "{:?}", app.log.entries);
+
+        // The names themselves.
+        let name = |n: &str| ResRef::from_str(n).unwrap();
+        for bad in ["../x", "a/b", "a\\b", "c:x", ""] {
+            assert!(crate::transfer::named_in(&out, &name(bad), "png").is_err(), "{bad:?}");
+        }
+        assert_eq!(
+            crate::transfer::named_in(&out, &name("area001"), "png"),
+            Ok(out.join("area001.png"))
+        );
+
+        // A conversation's backup, the same.
+        app.conversation_backups = dir.join("backups");
+        app.actions.push(crate::Action::OpenTab(crate::Tab::Dialog(hostile)));
+        app.run_actions();
+        let e = mg_edit::Edit::SetResource { key: plain, data: m.get(&plain).map(<[u8]>::to_vec) };
+        app.ws.as_mut().unwrap().apply(mg_edit::Command::new("Touch", vec![e])).unwrap();
+        app.ws.as_mut().unwrap().mark_modified();
+        assert!(app.backup_conversations().is_empty());
+        assert!(!dir.join("x.bak").exists() && !dir.join("backups").join("x.bak").exists());
+    }
 }

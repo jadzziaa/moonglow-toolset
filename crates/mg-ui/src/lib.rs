@@ -5759,7 +5759,14 @@ impl Moonglow {
             if self.dialog_backed_up.get(&key) == Some(&bytes) {
                 continue;
             }
-            let path = dir.join(format!("{}.bak", key.resref));
+            let path = match transfer::named_in(&dir, &key.resref, "bak") {
+                Ok(path) => path,
+                Err(e) => {
+                    self.log.error(format!("No backup of {key}: {e}"));
+                    self.dialog_backed_up.insert(key, bytes);
+                    continue;
+                }
+            };
             match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, &bytes)) {
                 Ok(()) => {
                     self.dialog_backed_up.insert(key, bytes);

@@ -71,8 +71,8 @@ impl Moonglow {
         self.export_dir = Some(dir.clone());
         let keys: Vec<ResKey> = areas.iter().map(|a| ResKey::new(*a, ResType::ARE)).collect();
         let existing: Vec<String> = (areas.iter())
+            .filter(|a| crate::transfer::named_in(&dir, a, "png").is_ok_and(|p| p.exists()))
             .map(|a| format!("{a}.png"))
-            .filter(|name| dir.join(name).exists())
             .collect();
         if existing.is_empty() {
             self.write_minimaps(&keys, notes, &dir);
@@ -94,7 +94,7 @@ impl Moonglow {
         for key in keys {
             let name = format!("{}.png", key.resref);
             let wrote = self.minimap_png(key.resref, notes).and_then(|(data, n)| {
-                let path = dir.join(&name);
+                let path = crate::transfer::named_in(dir, &key.resref, "png")?;
                 std::fs::write(&path, data).map_err(|e| format!("{}: {e}", path.display()))?;
                 Ok(n)
             });
