@@ -15,6 +15,53 @@ use crate::{Kind, Release, Version};
 /// failed or interrupted one left is found and removed ([`clean`]).
 pub const PREFIX: &str = ".moonglow-update-";
 
+/// The file in the updates' cache folder that a run of Moonglow keeps
+/// locked from the start of a download until it ends ([`hold`]): what it
+/// writes and stages is another run's to leave alone ([`clean`]).
+pub const LOCK: &str = ".moonglow-update-lock";
+
+/// What a second run is told when it would download too.
+pub const BUSY: &str =
+    "another Moonglow that is running has this update: it is installed as that one closes";
+
+/// The locks this run holds, by cache folder (one, but for the tests).
+static HELD: std::sync::Mutex<Vec<(PathBuf, File)>> = std::sync::Mutex::new(Vec::new());
+
+fn held() -> std::sync::MutexGuard<'static, Vec<(PathBuf, File)>> {
+    HELD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Takes the lock of `cache` for this run, until it ends or a download fails:
+/// whether it was taken now (not held already), or [`BUSY`] where another
+/// run holds it. Where the file can't be made or the system has no locks,
+/// the update goes on without one, as it did before there was one.
+fn hold(cache: &Path) -> Result<bool, String> {
+    let mut held = held();
+    if held.iter().any(|(c, _)| c == cache) {
+        return Ok(false);
+    }
+    let _ = std::fs::create_dir_all(cache);
+    let options = {
+        let mut o = std::fs::OpenOptions::new();
+        o.read(true).write(true).create(true).truncate(false);
+        o
+    };
+    let Ok(file) = options.open(cache.join(LOCK)) else { return Ok(false) };
+    match file.try_lock() {
+        Ok(()) => {
+            held.push((cache.to_path_buf(), file));
+            Ok(true)
+        }
+        Err(std::fs::TryLockError::WouldBlock) => Err(BUSY.into()),
+        Err(std::fs::TryLockError::Error(_)) => Ok(false),
+    }
+}
+
+/// Lets go of the lock of `cache` (a download that failed left nothing).
+fn release_lock(cache: &Path) {
+    held().retain(|(c, _)| c != cache);
+}
+
 /// The largest package taken (the AppImage is about 60 MB).
 const PACKAGE_LIMIT: u64 = 1 << 30;
 
@@ -108,8 +155,27 @@ impl Write for Hashing<'_> {
 
 /// Downloads this copy's package of `release`, checks it against the
 /// release's `SHA256SUMS` signed by `key`, and makes it ready to install
-/// (`cache`: Moonglow's cache folder for updates).
+/// (`cache`: Moonglow's cache folder for updates). This run holds the
+/// cache's lock from here on, so that a second Moonglow started meanwhile
+/// leaves the download and what is staged alone; where another run holds
+/// it, nothing is downloaded ([`BUSY`]).
 pub fn fetch(
+    http: &dyn Http,
+    key: &PublicKey,
+    release: &Release,
+    kind: &Kind,
+    cache: &Path,
+    progress: Progress,
+) -> Result<Staged, String> {
+    let taken = hold(cache)?;
+    let staged = fetch_held(http, key, release, kind, cache, progress);
+    if staged.is_err() && taken {
+        release_lock(cache);
+    }
+    staged
+}
+
+fn fetch_held(
     http: &dyn Http,
     key: &PublicKey,
     release: &Release,
@@ -290,11 +356,28 @@ pub fn mac_copy_out(dmg: &Path, mount: &Path, staged: &Path, app: &Path) -> Vec<
 /// Removes what a failed or interrupted update left: in `cache` (the
 /// updates' cache folder) all but the last install's report, and beside
 /// the program what is named [`PREFIX`]. Nothing staged outlives the run
-/// that staged it.
+/// that staged it; and while another run is downloading or has an update
+/// staged (it holds the cache's lock, [`LOCK`]), nothing is removed: it is
+/// that run's, and the start after it cleans.
 pub fn clean(kind: &Kind, cache: &Path) {
+    // (Locked here for as long as it takes, so that no download begins
+    // in the middle of it; the lock file itself is never removed, or two
+    // runs could each lock one of their own.)
+    let _lock = if held().iter().any(|(c, _)| c == cache) {
+        None
+    } else {
+        match File::open(cache.join(LOCK)) {
+            Ok(file) => match file.try_lock() {
+                Err(std::fs::TryLockError::WouldBlock) => return,
+                _ => Some(file),
+            },
+            Err(_) => None,
+        }
+    };
     if let Ok(entries) = std::fs::read_dir(cache) {
         for e in entries.flatten() {
-            if e.file_name() != crate::install::REPORT {
+            let name = e.file_name();
+            if name != crate::install::REPORT && name != LOCK {
                 remove(&e.path());
             }
         }
@@ -397,13 +480,13 @@ mod tests {
         assert_eq!(std::fs::read(&image).unwrap(), b"the old AppImage");
         assert_eq!(
             names(&dir),
-            [".moonglow-update-3.3.0.AppImage", "Moonglow-3.2.0-x86_64.AppImage"]
+            [".moonglow-update-3.3.0.AppImage", "Moonglow-3.2.0-x86_64.AppImage", "cache"]
         );
         // Installed: renamed over the image, its path kept.
         let restart = crate::install::install(&staged, true, &cache).unwrap();
         assert_eq!(restart, crate::Restart::Exe(image.clone()));
         assert_eq!(std::fs::read(&image).unwrap(), b"new");
-        assert_eq!(names(&dir), ["Moonglow-3.2.0-x86_64.AppImage"]);
+        assert_eq!(names(&dir), ["Moonglow-3.2.0-x86_64.AppImage", "cache"]);
     }
 
     #[test]
@@ -453,8 +536,11 @@ mod tests {
         });
         let e = fetch(&*half, &key.public(), &release, &kind, &cache, &mut |_, _| {}).unwrap_err();
         assert_eq!(e, "the download broke off");
-        // Nothing left but the image as it was.
-        assert_eq!(names(&dir), ["Moonglow-3.2.0-x86_64.AppImage"]);
+        // Nothing left but the image as it was (and the lock's file, let
+        // go of).
+        assert_eq!(names(&dir), ["Moonglow-3.2.0-x86_64.AppImage", "cache"]);
+        assert_eq!(names(&cache), [LOCK]);
+        assert!(held().iter().all(|(c, _)| *c != cache));
         assert_eq!(std::fs::read(&image).unwrap(), b"the old AppImage");
     }
 
@@ -619,5 +705,51 @@ mod tests {
             [".hidden", "Moonglow-3.2.0-x86_64.AppImage", "Other.AppImage", "cache"]
         );
         assert_eq!(names(&cache), [crate::install::REPORT]);
+    }
+
+    /// A second Moonglow started while the first downloads or has an
+    /// update staged for its close: it removes nothing of the first's
+    /// (which holds the cache's lock) and doesn't download over it; once
+    /// the first has ended, the next start cleans as before.
+    #[test]
+    fn another_run_s_staged_update_is_left_alone() {
+        let dir = crate::tests::scratch("stage-two-runs");
+        let cache = dir.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let (kind, _) = image_kind(&dir);
+        let staged = dir.join(".moonglow-update-3.3.0.AppImage");
+        let part = cache.join("Moonglow-3.3.0-macos.dmg.part");
+        std::fs::write(&staged, b"new").unwrap();
+        std::fs::write(&part, b"half").unwrap();
+        // The other run: a handle of its own on the lock, as another
+        // process has.
+        let theirs = File::create(cache.join(LOCK)).unwrap();
+        theirs.try_lock().unwrap();
+        clean(&kind, &cache);
+        assert!(staged.exists() && part.exists());
+        let key = TestKey::new();
+        let files =
+            crate::serve::signed(&key, "v3.3.0", &[("Moonglow-3.3.0-x86_64.AppImage", b"new")]);
+        let release = release("v3.3.0", &files);
+        let http = serving(files.clone(), "v3.3.0");
+        let e = fetch(&*http, &key.public(), &release, &kind, &cache, &mut |_, _| {}).unwrap_err();
+        assert_eq!(e, BUSY);
+        assert_eq!(std::fs::read(&staged).unwrap(), b"new");
+        // It has ended.
+        drop(theirs);
+        clean(&kind, &cache);
+        assert!(!staged.exists() && !part.exists());
+        assert_eq!(names(&cache), [LOCK]);
+        // This run's own staged update is its own to clean (a new
+        // download begins with it), and held against the next run.
+        fetch(&*http, &key.public(), &release, &kind, &cache, &mut |_, _| {}).unwrap();
+        assert!(staged.exists());
+        assert!(matches!(
+            File::open(cache.join(LOCK)).unwrap().try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        clean(&kind, &cache);
+        assert!(!staged.exists());
+        release_lock(&cache);
     }
 }
