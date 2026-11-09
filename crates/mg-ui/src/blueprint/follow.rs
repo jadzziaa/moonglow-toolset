@@ -318,7 +318,10 @@ pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
             _ => {}
         }
     }
+    // (And what the windows over the tabs hold: Variables, String Edit.)
+    open.extend(held(app));
     open.retain(|(area, _)| areas.contains(area));
+    open.sort_by(|a, b| (a.0, &a.1.0).cmp(&(b.0, &b.1.0)));
     open.dedup();
     if open.is_empty() {
         return out;
@@ -340,6 +343,48 @@ pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
         }
     }
     out
+}
+
+/// The places in areas' GITs that windows other than the Properties tabs
+/// hold: the Variables window's and String Edit's objects (opened from a
+/// Properties window or from the module tree, and not closed with it).
+/// They wrote to whatever stood at their place once an object before it
+/// was deleted, or an Undo put one back.
+fn held(app: &Moonglow) -> Vec<Place> {
+    let targets =
+        [app.var_edit.as_ref().map(|w| &w.target), app.loc_edit.as_ref().map(|w| &w.target)];
+    let mut out = Vec::new();
+    for t in targets.into_iter().flatten() {
+        for (key, path) in
+            std::iter::once((&t.key, &t.path)).chain(t.also.iter().map(|(k, p)| (k, p)))
+        {
+            if key.restype == ResType::GIT {
+                out.push((key.resref, path.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// A window's target pointed at where its objects went; false where its
+/// first is gone (the window closes). Others gone are left out.
+fn moved_target(
+    t: &mut crate::widgets::FieldTarget,
+    now: &impl Fn(&ResKey, &GffPath) -> Option<Option<(ResKey, GffPath)>>,
+) -> bool {
+    match now(&t.key, &t.path) {
+        Some(Some((k, p))) => (t.key, t.path) = (k, p),
+        Some(None) => return false,
+        None => {}
+    }
+    t.also = std::mem::take(&mut t.also)
+        .into_iter()
+        .filter_map(|(k, p)| match now(&k, &p) {
+            Some(to) => to,
+            None => Some((k, p)),
+        })
+        .collect();
+    true
 }
 
 /// The edits of `edits` that [`followed`] reads (an Undo's or a Redo's,
@@ -443,26 +488,48 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
         }
     }
     app.blueprint_pages.extend(taken);
+    // (Every window's notes: one whose own object stayed may have noted
+    // another's field, in a window of several objects.)
     let changed: Vec<_> = app.properties_changed.keys().cloned().collect();
     let mut taken = Vec::new();
     for (key, path) in changed {
-        let Some(to) = now(&key, &path) else { continue };
+        let to = match now(&key, &path) {
+            Some(Some(to)) => to,
+            // (The window's first object gone: so is the window.)
+            Some(None) => {
+                app.properties_changed.remove(&(key, path));
+                continue;
+            }
+            None => (key, path.clone()),
+        };
         let Some(mut changes) = app.properties_changed.remove(&(key, path)) else { continue };
-        let Some(to) = to else { continue };
         moved_tab(&mut changes.tab, &moved);
-        for was in &mut changes.was {
+        changes.was.retain_mut(|was| {
             // (The object's path, and the structs of it the field is in.)
-            let super::Was::Field(k, p, ..) = was else { continue };
+            let super::Was::Field(k, p, ..) = was else { return true };
             let object = p.0.iter().rposition(|s| matches!(s, Step::Item(..)));
             let (object, within) = p.0.split_at(object.map_or(0, |i| i + 1));
-            if let Some(Some((k2, mut p2))) = now(k, &GffPath(object.to_vec())) {
-                p2.0.extend_from_slice(within);
-                (*k, *p) = (k2, p2);
+            match now(k, &GffPath(object.to_vec())) {
+                Some(Some((k2, mut p2))) => {
+                    p2.0.extend_from_slice(within);
+                    (*k, *p) = (k2, p2);
+                    true
+                }
+                // (Its object gone: nothing to set back.)
+                Some(None) => false,
+                None => true,
             }
-        }
+        });
         taken.push((to, changes));
     }
     app.properties_changed.extend(taken);
+    // The Variables window and String Edit, with their objects.
+    if app.var_edit.as_mut().is_some_and(|w| !moved_target(&mut w.target, &now)) {
+        app.var_edit = None;
+    }
+    if app.loc_edit.as_mut().is_some_and(|w| !moved_target(&mut w.target, &now)) {
+        app.loc_edit = None;
+    }
 }
 
 #[cfg(test)]

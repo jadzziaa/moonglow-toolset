@@ -2604,3 +2604,71 @@ fn a_properties_window_s_buttons_stay_put() {
     }
     assert!(moving.is_empty(), "{} sizes:\n{}", moving.len(), moving.join("\n"));
 }
+
+/// The Variables window and String Edit kept their object by its place
+/// in its list and wrote there at OK, whatever stood there by then: an
+/// object deleted before theirs (or put back by Undo) while they were
+/// open had the next object's variables replaced (the review of November
+/// 2026, S3 and B6). They follow their object as its Properties window
+/// does, and close when it is gone.
+#[test]
+fn the_variables_window_follows_its_object_through_the_list() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    use mg_ui::widgets::{FieldTarget, LocStringEdit, VarTableEdit};
+    let dir = mg_testkit::scratch_dir("ui-variables-follow");
+    let path = sample_module(&dir);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut g = Gff::new(*b"GIT ");
+    let placed = |tag: &str| {
+        let mut s = Struct::new(9);
+        s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        s.set("VarTable", Value::List(Vec::new()));
+        s
+    };
+    g.root.set("Placeable List", Value::List(["A", "B", "C", "D"].map(placed).to_vec()));
+    m.set(git, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.run();
+    let at = |i: usize| GffPath::root().item("Placeable List", i);
+    // Variables on C, String Edit on D.
+    h.state_mut().var_edit = Some(VarTableEdit::new(FieldTarget::new(git, at(2), "VarTable"), &[]));
+    h.state_mut().loc_edit = Some(LocStringEdit::new(
+        FieldTarget::new(git, at(3), "LocName"),
+        "Name",
+        &LocString::default(),
+    ));
+    h.run();
+    let held = |h: &Harness<'_, Moonglow>| {
+        let app = h.state();
+        (
+            app.var_edit.as_ref().map(|w| w.target.path.clone()),
+            app.loc_edit.as_ref().map(|w| w.target.path.clone()),
+        )
+    };
+    let remove = |i: usize| {
+        let e = Edit::RemoveItem {
+            key: git,
+            path: GffPath::root(),
+            list: "Placeable List".into(),
+            index: i,
+        };
+        mg_ui::Action::Apply(Command::new("Delete", vec![e]))
+    };
+    // A deleted: C is the second now, D the third.
+    h.state_mut().actions.push(remove(0));
+    h.run();
+    assert_eq!(held(&h), (Some(at(1)), Some(at(2))));
+    // Undo puts A back: they are where they were.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(held(&h), (Some(at(2)), Some(at(3))));
+    // C itself deleted: its window closes; D's follows.
+    h.state_mut().actions.push(remove(2));
+    h.run();
+    assert_eq!(held(&h), (None, Some(at(2))));
+}
