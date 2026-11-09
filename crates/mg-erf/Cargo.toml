@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 mg-core.workspace = true
-ruzstd.workspace = true
 zstd.workspace = true
 thiserror.workspace = true
 

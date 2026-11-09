@@ -69,8 +69,11 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
                 return Err(CompressedBufError::Dictionary);
             }
             let frame = r.bytes(r.remaining())?;
-            let dec = ruzstd::decoding::StreamingDecoder::new(frame)
-                .map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
+            // (The reference library's streaming decoder, which writes
+            // them too: the one frame, what follows it left unread.)
+            let dec = zstd::stream::read::Decoder::with_buffer(frame)
+                .map_err(|e| CompressedBufError::Zstd(e.to_string()))?
+                .single_frame();
             // (The header's size is the file's word, and a frame of
             // run-length blocks holds 128 KB in every 4 bytes: no more is
             // read than a file of the frame's length may copy out
