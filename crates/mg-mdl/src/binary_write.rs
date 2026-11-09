@@ -763,46 +763,62 @@ impl Writer<'_> {
     /// A walkmesh's tree from its entries in pre-order (a leaf holds a
     /// face; another entry has the two that follow it): the root's offset.
     fn aabb(&mut self, entries: &[AabbEntry]) -> usize {
-        fn place(d: &mut Data, entries: &[AabbEntry], next: &mut usize) -> usize {
-            let Some(e) = entries.get(*next) else { return 0 };
-            *next += 1;
+        let d = &mut self.data;
+        // The entries placed (each where it is, and the entry that is its
+        // second child), and those still waiting for a child: no call a
+        // level, since a list may be a chain as long as it is.
+        let mut placed: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut open: Vec<(usize, u8)> = Vec::new();
+        for (i, e) in entries.iter().enumerate() {
             let at = d.alloc(40);
             d.vec3(at, e.min);
             d.vec3(at + 12, e.max);
             d.u32(at + 0x20, e.face as u32);
-            if e.face < 0 {
-                let first = *next;
-                let left = place(d, entries, next);
-                d.u32(at + 0x18, left as u32);
-                let second = *next;
-                let right = place(d, entries, next);
-                d.u32(at + 0x1C, right as u32);
-                // The plane that parts its children, as the game adds it
-                // (nwn-mdl-spec MDL-MESH-052): the axis along which their
-                // boxes' centres lie farthest apart (x only if strictly,
-                // then y over z), negative (8, 16, 32) where the right one
-                // lies lower; a tie is -Z.
-                let centre = |i: usize| {
-                    entries
-                        .get(i)
-                        .map_or([0.0; 3], |c| [0, 1, 2].map(|k| (c.min[k] + c.max[k]) * 0.5))
-                };
-                let d3 = sub(centre(second), centre(first));
-                let a = d3.map(f32::abs);
-                let axis = if a[0] > a[1] && a[0] > a[2] {
-                    0
-                } else if a[1] > a[2] {
-                    1
-                } else {
-                    2
-                };
-                let flag = if d3[axis] > 0.0 { 1u32 << axis } else { 8u32 << axis };
-                d.u32(at + 0x24, flag);
+            placed.push((at, None));
+            if let Some((parent, children)) = open.last_mut() {
+                d.u32(placed[*parent].0 + if *children == 0 { 0x18 } else { 0x1C }, at as u32);
+                if *children == 1 {
+                    placed[*parent].1 = Some(i);
+                }
+                *children += 1;
             }
-            at
+            if e.face < 0 {
+                open.push((i, 0));
+            } else {
+                while open.last().is_some_and(|(_, children)| *children == 2) {
+                    open.pop();
+                }
+            }
+            // The root's tree is whole: what follows is no part of it.
+            if open.is_empty() {
+                break;
+            }
         }
-        let mut next = 0;
-        place(&mut self.data, entries, &mut next)
+        // The plane that parts an entry's children, as the game adds it
+        // (nwn-mdl-spec MDL-MESH-052): the axis along which their boxes'
+        // centres lie farthest apart (x only if strictly, then y over z),
+        // negative (8, 16, 32) where the right one lies lower; a tie is
+        // -Z. (A child the list ends before has its centre at the origin.)
+        let centre = |i: usize| {
+            entries.get(i).map_or([0.0; 3], |c| [0, 1, 2].map(|k| (c.min[k] + c.max[k]) * 0.5))
+        };
+        for (i, &(at, second)) in placed.iter().enumerate() {
+            if entries[i].face >= 0 {
+                continue;
+            }
+            let d3 = sub(centre(second.unwrap_or(entries.len())), centre(i + 1));
+            let a = d3.map(f32::abs);
+            let axis = if a[0] > a[1] && a[0] > a[2] {
+                0
+            } else if a[1] > a[2] {
+                1
+            } else {
+                2
+            };
+            let flag = if d3[axis] > 0.0 { 1u32 << axis } else { 8u32 << axis };
+            d.u32(at + 0x24, flag);
+        }
+        placed.first().map_or(0, |&(at, _)| at)
     }
 
     fn light(&mut self, at: usize, l: &Light) {
@@ -878,8 +894,37 @@ impl Writer<'_> {
         Ok((at, list))
     }
 
-    /// A node of the model and, after it, its children.
-    fn model_node(&mut self, index: usize) -> Result<usize, CompileError> {
+    /// The model's nodes from its root: each node and, after it, its
+    /// children (no call a level: a model may be a chain of its nodes).
+    fn model_nodes(&mut self) -> Result<usize, CompileError> {
+        let model = self.model;
+        let mut root = 0;
+        let mut written = 0;
+        // A node to write, and where its place is to be written.
+        let mut stack: Vec<(usize, Option<usize>)> = vec![(0, None)];
+        while let Some((index, slot)) = stack.pop() {
+            written += 1;
+            let node = model.nodes.get(index).filter(|_| written <= model.nodes.len());
+            let Some(node) = node else {
+                return Err(CompileError::Invalid {
+                    node: model.nodes.get(index).map_or(model.name.clone(), |n| n.name.clone()),
+                    what: "its children are not a tree of the model's nodes".into(),
+                });
+            };
+            let (at, list) = self.model_node(index)?;
+            match slot {
+                Some(slot) => self.data.u32(slot, at as u32),
+                None => root = at,
+            }
+            let children = node.children.iter().enumerate().rev();
+            stack.extend(children.map(|(i, &child)| (child, Some(list + 4 * i))));
+        }
+        Ok(root)
+    }
+
+    /// A node of the model: where it is and where its children's places
+    /// are to be written.
+    fn model_node(&mut self, index: usize) -> Result<(usize, usize), CompileError> {
         let model = self.model;
         let node: &Node = &model.nodes[index];
         let node_flags = node_flags(&node.kind);
@@ -937,21 +982,38 @@ impl Writer<'_> {
                 }
             }
         }
-        for (i, &child) in node.children.iter().enumerate() {
-            let c = self.model_node(child)?;
-            self.data.u32(list + 4 * i, c as u32);
-        }
-        Ok(at)
+        Ok((at, list))
     }
 
-    /// A node of an animation and, after it, its children: of the type of
-    /// the model's node of its name, which says what its controllers are.
-    fn anim_node(
+    /// An animation's nodes from its root, as [`Self::model_nodes`].
+    fn anim_nodes(
         &mut self,
         anim: &Animation,
         children: &[Vec<usize>],
-        index: usize,
     ) -> Result<usize, CompileError> {
+        let mut root = 0;
+        let mut stack: Vec<(usize, Option<usize>)> = vec![(0, None)];
+        while let Some((index, slot)) = stack.pop() {
+            let (at, list) = self.anim_node(anim, children[index].len(), index)?;
+            match slot {
+                Some(slot) => self.data.u32(slot, at as u32),
+                None => root = at,
+            }
+            let below = children[index].iter().enumerate().rev();
+            stack.extend(below.map(|(i, &child)| (child, Some(list + 4 * i))));
+        }
+        Ok(root)
+    }
+
+    /// A node of an animation, of the type of the model's node of its
+    /// name, which says what its controllers are: where it is and where
+    /// its children's places are to be written.
+    fn anim_node(
+        &mut self,
+        anim: &Animation,
+        children: usize,
+        index: usize,
+    ) -> Result<(usize, usize), CompileError> {
         let node: &AnimNode = &anim.nodes[index];
         let own = self.model.node(&node.name);
         let mut node_flags = match own {
@@ -964,8 +1026,7 @@ impl Writer<'_> {
             node_flags = flags::HEADER | flags::MESH | flags::ANIM;
         }
         let part = own.and_then(|i| self.parts.numbers.get(i).copied()).unwrap_or(-1);
-        let (at, list) =
-            self.node_header(&node.name, node_flags, 0, part, false, children[index].len())?;
+        let (at, list) = self.node_header(&node.name, node_flags, 0, part, false, children)?;
         let controllers: Vec<&Controller> = node.controllers.iter().collect();
         self.controllers(at, &node.name, node_flags, &controllers)?;
         if node_flags & flags::MESH != 0 {
@@ -1023,11 +1084,7 @@ impl Writer<'_> {
             d.u32(at + 0x2A0, vsets as u32);
             d.u32(at + 0x2A4, tsets as u32);
         }
-        for (i, &child) in children[index].iter().enumerate() {
-            let c = self.anim_node(anim, children, child)?;
-            self.data.u32(list + 4 * i, c as u32);
-        }
-        Ok(at)
+        Ok((at, list))
     }
 
     fn animation(&mut self, anim: &Animation) -> Result<usize, CompileError> {
@@ -1054,7 +1111,7 @@ impl Writer<'_> {
                     children[p].push(i);
                 }
             }
-            let root = self.anim_node(anim, &children, 0)?;
+            let root = self.anim_nodes(anim, &children)?;
             self.data.u32(at + 0x48, root as u32);
         }
         Ok(at)
@@ -1107,7 +1164,7 @@ pub(crate) fn write_from(
     debug_assert_eq!(header, 0);
     let animations = w.data.alloc(model.animations.len() * 4);
     w.data.array(0x78, animations, model.animations.len());
-    let root = w.model_node(0)?;
+    let root = w.model_nodes()?;
     w.data.u32(0x48, root as u32);
     for (i, anim) in model.animations.iter().enumerate() {
         let at = w.animation(anim)?;
@@ -1179,6 +1236,100 @@ doneanim wave m\ndonemodel m\n";
         // And once more, byte for byte.
         let again = write(&back, &part_numbers(&back, None)).unwrap();
         assert_eq!(again, bytes);
+    }
+
+    /// Runs `f` on a thread with a stack of 256 KiB: what walks a tree by
+    /// a call a level ends it there.
+    fn on_a_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new().stack_size(256 << 10).spawn(f).unwrap().join().unwrap()
+    }
+
+    /// A model may be a chain of its nodes, each the child of the one
+    /// before, and an animation too: 20,000 of them (a megabyte or so of
+    /// text) compile, where a call a node ran out of stack (the review's
+    /// M3).
+    #[test]
+    fn a_chain_of_nodes_is_written_without_a_call_a_level() {
+        let chain: String =
+            (1..20_000).map(|i| format!("node dummy n{i}\nparent n{}\nendnode\n", i - 1)).collect();
+        let text = format!(
+            "newmodel m\nbeginmodelgeom m\nnode dummy n0\nparent NULL\nendnode\n{chain}\
+             endmodelgeom m\nnewanim a m\nlength 1\nnode dummy n0\nparent NULL\nendnode\n{chain}\
+             doneanim a m\ndonemodel m\n"
+        );
+        assert!(text.len() < 2 << 20);
+        let bytes = on_a_small_stack(move || {
+            let model = Model::read(text.as_bytes()).unwrap();
+            write(&model, &part_numbers(&model, None)).unwrap()
+        });
+        let back = Model::read(&bytes).unwrap();
+        assert_eq!((back.nodes.len(), back.animations[0].nodes.len()), (20_000, 20_000));
+        assert_eq!(back.nodes[19_999].parent, Some(19_998));
+        assert_eq!(back.animations[0].nodes[19_999].parent, Some(19_998));
+    }
+
+    /// Children that are not a tree (a node its own descendant) are an
+    /// error, not a model without end.
+    #[test]
+    fn nodes_that_loop_are_refused() {
+        let mut model = Model::read(MODEL.as_bytes()).unwrap();
+        model.nodes[3].children.push(0);
+        let said = write(&model, &part_numbers(&model, None)).unwrap_err().to_string();
+        assert!(said.contains("not a tree"), "{said}");
+    }
+
+    /// A walkmesh's tree is written from its entries in pre-order,
+    /// whatever its shape: a chain of 100,000 entries that are no leaf
+    /// (a call an entry ran out of stack), a list that ends before a
+    /// child, entries after the tree is whole.
+    #[test]
+    fn a_walkmesh_tree_is_written_without_a_call_a_level() {
+        let e = |face| AabbEntry { min: [face as f32; 3], max: [face as f32 + 1.0; 3], face };
+        let tree = |entries: Vec<AabbEntry>| {
+            let mut model = Model::read(MODEL.as_bytes()).unwrap();
+            let NodeKind::Mesh(mesh) = &mut model.nodes[1].kind else { panic!() };
+            mesh.extra = MeshExtra::Aabb(entries);
+            let bytes = on_a_small_stack(move || write(&model, &part_numbers(&model, None)));
+            let back = Model::read(&bytes.unwrap()).unwrap();
+            let MeshExtra::Aabb(back) = &back.nodes[1].mesh().unwrap().extra else { panic!() };
+            back.clone()
+        };
+        let whole = vec![e(-1), e(-1), e(0), e(1), e(2)];
+        assert_eq!(tree(whole.clone()), whole);
+        // What follows the root's tree is no part of it.
+        assert_eq!(tree([whole.clone(), vec![e(3), e(4)]].concat()), whole);
+        assert_eq!(tree(vec![e(7), e(8)]), [e(7)]);
+        // A list that ends before its children.
+        assert_eq!(tree(vec![e(-1), e(0)]), [e(-1), e(0)]);
+        assert_eq!(tree(vec![e(-1); 100_000]).len(), 100_000);
+    }
+
+    /// The plane an entry's children are parted by, and where they are:
+    /// the bytes a walkmesh's tree is written as.
+    #[test]
+    fn a_walkmesh_tree_s_entries_point_at_their_children() {
+        let e =
+            |min: f32, face| AabbEntry { min: [min, 0.0, 0.0], max: [min + 1.0, 1.0, 1.0], face };
+        let entries = [e(0.0, -1), e(0.0, -1), e(0.0, 0), e(1.0, 1), e(4.0, 2)];
+        let model = Model::read(MODEL.as_bytes()).unwrap();
+        let parts = part_numbers(&model, None);
+        let mut w = Writer {
+            model: &model,
+            parts: &parts,
+            sources: &[],
+            data: Data::default(),
+            raw: Raw::default(),
+        };
+        w.data.alloc(8);
+        let root = w.aabb(&entries);
+        let u32_at = |at: usize| u32::from_le_bytes(w.data.0[at..at + 4].try_into().unwrap());
+        assert_eq!(root, 8);
+        let entry = |i: usize| [0x18, 0x1C, 0x20, 0x24].map(|o| u32_at(8 + 40 * i + o));
+        // Left, right, face, plane (+X is 1).
+        assert_eq!(entry(0), [48, 168, u32::MAX, 1]);
+        assert_eq!(entry(1), [88, 128, u32::MAX, 1]);
+        assert_eq!(entry(2), [0, 0, 0, 0]);
+        assert_eq!(entry(4), [0, 0, 2, 0]);
     }
 
     /// A key of 16 values does not fit the byte that says how many a key

@@ -813,8 +813,10 @@ impl Writer {
                 open.push((d, 2));
             }
         }
+        // (No deeper than a tree of every face a mesh can have is: a chain
+        // of entries would be indented by its length, a line an entry.)
         for (e, d) in tree.iter().zip(depth) {
-            let lead = if d == 0 { "  aabb".to_string() } else { " ".repeat(d + 6) };
+            let lead = if d == 0 { "  aabb".to_string() } else { " ".repeat(d.min(64) + 6) };
             self.line(&format!("{lead} {} {} {}", vec(&e.min), vec(&e.max), e.face));
         }
     }
@@ -1116,5 +1118,19 @@ endmodelgeom m\ndonemodel m\n";
         assert!(w.out.starts_with("  aabb 0 0 0 1 1 1 -1"));
         // nwnmdlcomp: depth + 6 spaces, then a space before the numbers.
         assert_eq!(indents, vec![2, 8, 9, 9, 8]);
+    }
+
+    /// A tree that is a chain (a compiled model may hold 400,000 entries
+    /// so) is not indented by its depth without end: that was 80 GB of
+    /// spaces (the review's M3).
+    #[test]
+    fn a_chain_of_aabb_entries_is_indented_so_far_and_no_further() {
+        let tree = vec![AabbEntry { min: [0.0; 3], max: [1.0; 3], face: -1 }; 400_000];
+        let mut w = Writer { out: String::new(), opts: Options::default(), skeleton: None };
+        w.aabb(&tree);
+        assert_eq!(w.out.lines().count(), 400_000);
+        assert!(w.out.len() < 100 * 400_000, "{}", w.out.len());
+        let deepest = w.out.lines().map(|l| l.len() - l.trim_start().len()).max();
+        assert_eq!(deepest, Some(71));
     }
 }
