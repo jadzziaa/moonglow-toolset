@@ -21,6 +21,14 @@ use mg_set::Tileset;
 /// these bounds.
 const SIZE: (u32, u32) = (16, 256);
 
+/// The most tiles an area's side is taken to have (the game's own limit is
+/// 32; `doctor::tile_seams` reads as many).
+const MAX_TILES: u32 = 1024;
+
+/// The most pixels a minimap's side has: a 32 by 32 area at the largest
+/// tile asked for (1024).
+const MAX_PIXELS: u32 = 32 * 1024;
+
 /// A tile's picture, as RGBA (rows bottom first).
 fn picture(rm: &ResMan, name: &str) -> Option<Rgba> {
     let resref = ResRef::from_str(&name.to_ascii_lowercase()).ok()?;
@@ -60,10 +68,13 @@ pub fn minimap(
 ) -> Result<Rgba, String> {
     let width = are.integer("Width").ok_or("the area has no width")?;
     let height = are.integer("Height").ok_or("the area has no height")?;
-    let (width, height) = (
-        u32::try_from(width).map_err(|_| "bad width")?,
-        u32::try_from(height).map_err(|_| "bad height")?,
-    );
+    // Nothing is sized or divided by what the file claims before this: the
+    // game's own areas are 32 tiles a side at most.
+    let side = |v: i64, what: &str| match u32::try_from(v) {
+        Ok(v) if (1..=MAX_TILES).contains(&v) => Ok(v),
+        _ => Err(format!("the area's {what} is {v}: an area is 1 to {MAX_TILES} tiles a side")),
+    };
+    let (width, height) = (side(width, "width")?, side(height, "height")?);
     let tiles = match are.get("Tile_List") {
         Some(mg_gff::Value::List(l)) => l.as_slice(),
         _ => &[],
@@ -92,6 +103,13 @@ pub fn minimap(
     if size == 0 || size > 1024 {
         return Err("a tile is 1 to 1024 pixels".into());
     }
+    if width.max(height) * size > MAX_PIXELS {
+        return Err(format!(
+            "the picture would be {} by {} pixels: {MAX_PIXELS} a side at most",
+            width * size,
+            height * size
+        ));
+    }
     let mut out = Rgba::new(width * size, height * size);
     for px in out.data.as_chunks_mut::<4>().0 {
         px[3] = 255;
@@ -101,7 +119,7 @@ pub fn minimap(
         if row >= height {
             break;
         }
-        if let Some(image) = image {
+        if let Some(image) = image.as_ref().filter(|p| p.width > 0 && p.height > 0) {
             place(&mut out, (col * size, row * size), size, image, *turns);
         }
     }
@@ -333,6 +351,40 @@ mod tests {
         assert_eq!(big.pixel(3, 3), [255, 255, 255, 255]);
         let png = png(&big).unwrap();
         assert_eq!(&png[1..4], b"PNG");
+    }
+
+    /// An ARE's root of `width` by one tiles, with one tile.
+    fn area(width: i32) -> Struct {
+        let mut are = Struct::new(0);
+        are.set("Width", mg_gff::Value::Int(width));
+        are.set("Height", mg_gff::Value::Int(1));
+        let mut tile = Struct::new(1);
+        tile.set("Tile_ID", mg_gff::Value::Int(0));
+        are.set("Tile_List", mg_gff::Value::List(vec![tile]));
+        are
+    }
+
+    /// An area whose ARE claims no width, or one no area has, is refused
+    /// before anything is divided or sized by it (the review's V1: Width 0
+    /// divided by zero, Width 70000 asked for the memory of such a picture).
+    #[test]
+    fn a_width_no_area_has_is_refused() {
+        let rm = ResMan::new();
+        let set = Tileset::parse(b"[GENERAL]\r\nName=none\r\n", Default::default()).unwrap();
+        for width in [0, 70000] {
+            let err = minimap(&rm, &area(width), &set, None).unwrap_err();
+            assert!(err.contains("width"), "{width}: {err}");
+        }
+        let mut flat = area(1);
+        flat.set("Height", mg_gff::Value::Int(0));
+        assert!(minimap(&rm, &flat, &set, None).unwrap_err().contains("height"));
+        // A picture too large for its tiles' size is refused too.
+        let err = minimap(&rm, &area(1024), &set, Some(1024)).unwrap_err();
+        assert!(err.contains("pixels"), "{err}");
+        // One the game could hold is drawn: black where a tile has no picture.
+        let map = minimap(&rm, &area(2), &set, Some(4)).unwrap();
+        assert_eq!((map.width, map.height), (8, 4));
+        assert_eq!(map.pixel(0, 0), [0, 0, 0, 255]);
     }
 
     /// A waypoint at `at` (meters) with a map note, enabled or not, or none.
