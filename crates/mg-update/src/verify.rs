@@ -149,6 +149,54 @@ pub fn still(path: &Path, hash: &Hash) -> Result<(), String> {
     }
 }
 
+/// One hash of everything under `dir`: each file's path and contents,
+/// each link's path and where it points, each folder's path, in the
+/// paths' order. What an unpacked zip or a copied-out app is checked
+/// again by ([`still_tree`]), as a single file is by its own hash.
+pub fn hash_tree(dir: &Path) -> Result<Hash, String> {
+    let bad = |e: std::io::Error| format!("can't read {}: {e}", dir.display());
+    let mut entries: Vec<(std::path::PathBuf, u8, Vec<u8>)> = Vec::new();
+    let mut stack = vec![std::path::PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        for entry in std::fs::read_dir(dir.join(&rel)).map_err(bad)? {
+            let entry = entry.map_err(bad)?;
+            let path = rel.join(entry.file_name());
+            let kind = entry.file_type().map_err(bad)?;
+            if kind.is_symlink() {
+                let to = std::fs::read_link(dir.join(&path)).map_err(bad)?;
+                entries.push((path, b'l', to.as_os_str().as_encoded_bytes().to_vec()));
+            } else if kind.is_dir() {
+                entries.push((path.clone(), b'd', Vec::new()));
+                stack.push(path);
+            } else {
+                let hash = hash_file(&dir.join(&path))?;
+                entries.push((path, b'f', hash.to_vec()));
+            }
+        }
+    }
+    entries.sort();
+    let mut hasher = Hasher::default();
+    for (path, kind, what) in entries {
+        let path = path.as_os_str().as_encoded_bytes();
+        hasher.update(&(path.len() as u64).to_le_bytes());
+        hasher.update(path);
+        hasher.update(&[kind]);
+        hasher.update(&(what.len() as u64).to_le_bytes());
+        hasher.update(&what);
+    }
+    Ok(hasher.finish())
+}
+
+/// `dir` still holds what was checked, no file of it changed, added or
+/// gone ([`hash_tree`]).
+pub fn still_tree(dir: &Path, hash: &Hash) -> Result<(), String> {
+    if hash_tree(dir)? == *hash {
+        Ok(())
+    } else {
+        Err(format!("{} changed after it was checked", dir.display()))
+    }
+}
+
 /// Signing, for these tests: a key made by the test, never the owner's
 /// (other crates' tests: `mg_testkit::signing`).
 #[cfg(test)]

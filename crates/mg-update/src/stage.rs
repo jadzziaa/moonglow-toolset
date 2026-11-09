@@ -83,10 +83,12 @@ pub enum Ready {
     /// The Windows installer checked, in the cache folder (run).
     Installer { file: PathBuf, hash: Hash },
     /// The zip's files, unpacked into a folder beside the program's (each
-    /// swapped in).
-    Files { dir: PathBuf },
-    /// The disk image's app, copied out beside the app (swapped in).
-    App { app: PathBuf },
+    /// swapped in), and the hash of all of them as they were unpacked
+    /// from the checked zip ([`verify::hash_tree`]).
+    Files { dir: PathBuf, seal: Hash },
+    /// The disk image's app, copied out beside the app (swapped in), and
+    /// the hash of all of it as it was copied from the checked image.
+    App { app: PathBuf, seal: Hash },
 }
 
 impl Staged {
@@ -246,7 +248,8 @@ fn fetch_held(
         Kind::WindowsZip { dir } => {
             let staged = dir.join(format!("{PREFIX}{v}"));
             unzip(&part, &staged)?;
-            Ready::Files { dir: staged }
+            let seal = verify::hash_tree(&staged)?;
+            Ready::Files { dir: staged, seal }
         }
         Kind::MacApp { app } => {
             let dmg = cache.join(&package);
@@ -257,7 +260,8 @@ fn fetch_held(
             let done = crate::install::run_all(&steps);
             let _ = std::fs::remove_file(&dmg);
             done?;
-            Ready::App { app: staged }
+            let seal = verify::hash_tree(&staged)?;
+            Ready::App { app: staged, seal }
         }
         Kind::Managed(_) | Kind::Other => unreachable!("no package"),
     };
@@ -613,7 +617,9 @@ mod tests {
             &mut |_, _| {},
         )
         .unwrap();
-        assert_eq!(staged.ready, Ready::Files { dir: program.join(".moonglow-update-3.3.0") });
+        let unpacked = program.join(".moonglow-update-3.3.0");
+        let seal = verify::hash_tree(&unpacked).unwrap();
+        assert_eq!(staged.ready, Ready::Files { dir: unpacked, seal });
         assert_eq!(
             names(&program),
             [".moonglow-update-3.3.0", "manual", "mg.exe", "moonglow.exe", "my-notes.txt"]
