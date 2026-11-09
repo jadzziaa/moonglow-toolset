@@ -2233,7 +2233,10 @@ impl Renderer {
         // The lights' shadows: which creatures cast them from which light.
         // (The sun's, what casts them and where their map is, are worked
         // out beside the meshes' draws, below.)
-        let light_plan = crate::shadow::light_plan(scene, camera);
+        // (Skins cast into a map; the stencil volumes, as the game's, cast
+        // none of them.)
+        let skins_cast = !self.shadow_volumes;
+        let light_plan = crate::shadow::light_plan(scene, camera, skins_cast);
         // (Whether there may be shadows: what they fall on is drawn first
         // where there are, and among the rest where there aren't.)
         let may_shadow = scene.shadows.is_some_and(|s| s.opacity > 0.0) || light_plan.is_some();
@@ -2369,8 +2372,8 @@ impl Renderer {
         let aspect = size.0 as f32 / size.1.max(1) as f32;
         let shadow_plan = std::thread::scope(|threads| {
             let apart = scene.instances.len() >= PLAN_APART && scene.shadows.is_some();
-            let planning =
-                apart.then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect)));
+            let planning = apart
+                .then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect, skins_cast)));
             for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
                 // (Only where the frame has shadows: else the solid draws keep
                 // their order.)
@@ -2867,7 +2870,7 @@ impl Renderer {
             }
             match planning {
                 Some(p) => p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)),
-                None => crate::shadow::plan(scene, camera, aspect),
+                None => crate::shadow::plan(scene, camera, aspect, skins_cast),
             }
         });
         let shadowing = shadow_plan.is_some() || light_plan.is_some();

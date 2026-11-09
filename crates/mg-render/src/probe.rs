@@ -181,7 +181,7 @@ fn check(gpu: &Gpu, p: &mut Probe, drawn_wrong: &mut bool) -> Result<(), String>
 
 /// A quad `side` metres across, flat at height `z`, in `color`
 /// (unlit: drawn in it), skinned to bone 1 where `skinned`.
-fn quad(name: &str, side: f32, z: f32, color: [f32; 3], skinned: bool) -> Model {
+pub(crate) fn quad(name: &str, side: f32, z: f32, color: [f32; 3], skinned: bool) -> Model {
     let h = side / 2.0;
     let mesh = Mesh {
         diffuse: color,

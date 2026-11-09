@@ -155,13 +155,12 @@ fn skin_bones(mesh: &GpuMesh, pose: &[Mat4], bones: &mut Vec<Mat4>) -> Option<u3
 
 /// A caster's box: a skinned mesh's grown by half its size each way (its
 /// bones move it out of the box it was bound in).
-fn posed_box((min, max): (Vec3, Vec3), skinned: Option<u32>) -> (Vec3, Vec3) {
-    match skinned {
-        Some(_) => {
-            let grow = (max - min).max_element() * 0.5;
-            (min - Vec3::splat(grow), max + Vec3::splat(grow))
-        }
-        None => (min, max),
+fn posed_box((min, max): (Vec3, Vec3), skinned: bool) -> (Vec3, Vec3) {
+    if skinned {
+        let grow = (max - min).max_element() * 0.5;
+        (min - Vec3::splat(grow), max + Vec3::splat(grow))
+    } else {
+        (min, max)
     }
 }
 
@@ -253,10 +252,18 @@ pub(crate) struct Plan<'a> {
 
 /// The shadow map a scene needs, seen by `camera` in a picture of
 /// `aspect`: `None` where it has no shadows (none asked for, none to cast
-/// or none to receive one in sight).
-pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option<Plan<'a>> {
+/// or none to receive one in sight). `skins`: skinned meshes cast (the
+/// map's; the stencil volumes, as the game's, cast none of them).
+pub(crate) fn plan<'a>(
+    scene: &'a Scene,
+    camera: &Camera,
+    aspect: f32,
+    skins: bool,
+) -> Option<Plan<'a>> {
     let shadows = scene.shadows.filter(|s| s.opacity > 0.0)?;
-    let mut casters: Vec<(Caster<'a>, (Vec3, Vec3))> = Vec::new();
+    // (Each with its box, and a skinned one's pose: its bones are worked
+    // out once it is known to cast into the map's region.)
+    let mut casters: Vec<(Caster<'a>, (Vec3, Vec3), Option<&'a [Mat4]>)> = Vec::new();
     let mut bones = Vec::new();
     let (mut rmin, mut rmax) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for inst in &scene.instances {
@@ -283,18 +290,19 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
             if inst.receives_shadows && inst.opacity >= 1.0 && !hidden {
                 (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
             }
-            if casts(inst, mesh, alpha) {
-                let skinned = skin_bones(mesh, pose, &mut bones);
-                let caster = Caster { mesh, model, world, bones: skinned, bottom };
-                casters.push((caster, posed_box(bounds, skinned)));
+            let skinned = mesh.skin.is_some();
+            if casts(inst, mesh, alpha) && (skins || !skinned) {
+                let caster = Caster { mesh, model, world, bones: None, bottom };
+                casters.push((caster, posed_box(bounds, skinned), skinned.then_some(pose)));
             }
         }
         for mesh in &inst.model.shadow_only {
-            if casts(inst, mesh, 1.0) {
+            let skinned = mesh.skin.is_some();
+            if casts(inst, mesh, 1.0) && (skins || !skinned) {
                 let world = node(mesh.node);
-                let skinned = skin_bones(mesh, pose, &mut bones);
                 let bounds = posed_box(world_box(world, mesh), skinned);
-                casters.push((Caster { mesh, model, world, bones: skinned, bottom }, bounds));
+                let caster = Caster { mesh, model, world, bones: None, bottom };
+                casters.push((caster, bounds, skinned.then_some(pose)));
             }
         }
     }
@@ -316,12 +324,16 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     // light, over the region; the box reaching back to the farthest
     // towards the light.
     let mut kept = Vec::with_capacity(casters.len());
-    for (caster, bounds) in casters {
+    for (mut caster, bounds, pose) in casters {
         let (clo, chi) = to_light(bounds);
         if chi.x < lo.x || clo.x > hi.x || chi.y < lo.y || clo.y > hi.y || chi.z < lo.z {
             continue;
         }
         hi.z = hi.z.max(chi.z);
+        // (The bones of those kept alone: the map is drawn again when
+        // they change, and a creature animating out of its region changed
+        // them every frame.)
+        caster.bones = pose.and_then(|pose| skin_bones(caster.mesh, pose, &mut bones));
         kept.push(caster);
     }
     if kept.is_empty() {
@@ -481,7 +493,12 @@ pub(crate) fn light_projection(light: Vec3, at: Vec3, radius: f32, reach: f32) -
 
 /// The lights' shadows a scene needs, seen by `camera`: `None` where it
 /// has none (none asked for, or no creature with a light that casts).
-pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightPlan<'a>> {
+/// `skins`: skinned meshes cast ([`plan`]).
+pub(crate) fn light_plan<'a>(
+    scene: &'a Scene,
+    camera: &Camera,
+    skins: bool,
+) -> Option<LightPlan<'a>> {
     let shadows = scene.light_shadows.filter(|s| s.opacity > 0.0)?;
     // A creature's instances (its base first, then its parts: one made of
     // body parts is an instance a part), the nearest the camera's target
@@ -520,7 +537,7 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
         if plan.lights.len() == MAX_LIGHT_SHADOWS {
             break;
         }
-        let first = plan.casters.len();
+        let (first, first_bone) = (plan.casters.len(), plan.bones.len());
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         for inst in &parts {
             let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
@@ -528,12 +545,14 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
             for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
                 let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
                 let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
-                if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 }) {
+                if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 })
+                    || (mesh.skin.is_some() && !skins)
+                {
                     continue;
                 }
                 let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
                 let skinned = skin_bones(mesh, pose, &mut plan.bones);
-                let (a, b) = posed_box(world_box(world, mesh), skinned);
+                let (a, b) = posed_box(world_box(world, mesh), skinned.is_some());
                 (lo, hi) = (lo.min(a), hi.max(b));
                 let model = &inst.model;
                 plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
@@ -547,7 +566,9 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
         let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
         let feet = parts[0].transform.w_axis.truncate();
         let Some(light) = casting_light(&scene.lights, at, radius, feet) else {
+            // (With its bones: nothing draws them.)
             plan.casters.truncate(first);
+            plan.bones.truncate(first_bone);
             continue;
         };
         cast_from.push(light);
@@ -1570,6 +1591,83 @@ mod tests {
         assert!(inside(ground.with_z(0.0)), "{ground}");
         // Nothing beside it.
         assert!(!inside(at + Vec3::X * 5.0));
+    }
+
+    /// The plans carry the bones of the skinned meshes that are drawn into
+    /// a map: not those of a creature out of the sun's map's region (its
+    /// animation changed them every frame, and the map was drawn again
+    /// each frame with a still camera), nor of one no light casts for, nor
+    /// any where skins cast nothing (the stencil volumes).
+    #[test]
+    fn the_plans_carry_the_bones_of_what_is_drawn_alone() {
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let model = |m| std::sync::Arc::new(crate::GpuModel::new(&gpu, std::sync::Arc::new(m)));
+        let cast = |m: mg_mdl::Model| {
+            let mut m = m;
+            for n in &mut m.nodes {
+                if let mg_mdl::NodeKind::Mesh(mesh) = &mut n.kind {
+                    mesh.shadow = true;
+                }
+            }
+            m
+        };
+        let ground = model(crate::probe::quad("ground", 20.0, 0.0, [1.0; 3], false));
+        let skin = model(cast(crate::probe::quad("skinned", 1.0, 1.0, [1.0; 3], true)));
+        let rigid = model(cast(crate::probe::quad("rigid", 1.0, 1.0, [1.0; 3], false)));
+        assert!(skin.meshes[0].skin.is_some() && skin.meshes[0].casts);
+        let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0));
+        let creature = |m: &std::sync::Arc<crate::GpuModel>, x: f32| Instance {
+            casts_light_shadows: true,
+            ..Instance::new(m.clone(), at(x))
+        };
+        let scene = |x: f32| Scene {
+            instances: vec![
+                Instance { receives_shadows: true, ..Instance::new(ground.clone(), at(0.0)) },
+                creature(&rigid, 0.0),
+                creature(&skin, x),
+            ],
+            area: crate::AreaLight {
+                ambient: Vec3::splat(0.2),
+                diffuse: Vec3::splat(0.6),
+                direction: Vec3::Z,
+            },
+            shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            light_shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            lights: vec![
+                PointLight::new(Vec3::new(3.0, 0.0, 3.0), Vec3::ONE, 10.0, false, 4)
+                    .casting(true, 10.0, 0.0),
+            ],
+            ..Default::default()
+        };
+        // (Looking down on the ground's middle: 5 m of it seen.)
+        let camera = Camera {
+            eye: Vec3::new(0.0, -0.01, 6.0),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        // In the region: both cast, the skin with its bone.
+        let near = scene(1.0);
+        let sun = plan(&near, &camera, 1.0, true).expect("a plan");
+        assert_eq!((sun.casters.len(), sun.bones.len()), (2, 1));
+        assert_eq!(sun.casters.iter().filter(|c| c.bones.is_some()).count(), 1);
+        // The skin out of the region: the rigid one alone, and no bones.
+        let far = scene(60.0);
+        let sun = plan(&far, &camera, 1.0, true).expect("a plan");
+        assert_eq!((sun.casters.len(), sun.bones.len()), (1, 0));
+        // Skins casting nothing (the stencil volumes): none planned.
+        let sun = plan(&near, &camera, 1.0, false).expect("a plan");
+        assert_eq!((sun.casters.len(), sun.bones.len()), (1, 0));
+        // The lights': the skin within the lamp's reach casts, with its
+        // bone; out of it, nothing of it is left; nor where skins cast
+        // nothing.
+        let lit = light_plan(&near, &camera, true).expect("a plan");
+        assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (2, 2, 1));
+        let lit = light_plan(&far, &camera, true).expect("a plan");
+        assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
+        let lit = light_plan(&near, &camera, false).expect("a plan");
+        assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
     }
 
     /// The light's view looks down along the light: a point towards the
