@@ -2,7 +2,7 @@
 //! importing an ERF (Aurora's File › Export / Import) or loose files into
 //! a module.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use mg_core::{ResRef, ResType, StrRef};
@@ -317,8 +317,13 @@ impl Incoming {
         }
         let mut out = Incoming::default();
         let mut keyed: Vec<(ResKey, PathBuf)> = Vec::new();
+        // (A module's folder brought whole is tens of thousands of files:
+        // the files taken and each resource's files are looked up, not
+        // every one compared with every other.)
+        let mut taken: HashSet<PathBuf> = HashSet::new();
+        let mut twins: HashMap<ResKey, Vec<usize>> = HashMap::new();
         for f in files {
-            if keyed.iter().any(|(_, p)| *p == f) {
+            if taken.contains(&f) {
                 continue;
             }
             let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -327,15 +332,19 @@ impl Incoming {
             // name.)
             let ext = name.rsplit_once('.').and_then(|(_, e)| ResType::from_extension(e));
             match ext.and_then(refused_type).map_or_else(|| file_key(&name), Err) {
-                Ok(k) => keyed.push((k, f)),
+                Ok(k) => {
+                    taken.insert(f.clone());
+                    twins.entry(k).or_default().push(keyed.len());
+                    keyed.push((k, f));
+                }
                 Err(why) => out.refused.push(Refused { what, why }),
             }
         }
         for (i, (k, f)) in keyed.iter().enumerate() {
             let what = f.display().to_string();
-            let others: Vec<String> = (keyed.iter().enumerate())
-                .filter(|(j, (o, _))| *j != i && o == k)
-                .map(|(_, (_, p))| p.display().to_string())
+            let others: Vec<String> = (twins[k].iter())
+                .filter(|j| **j != i)
+                .map(|j| keyed[*j].1.display().to_string())
                 .collect();
             if !others.is_empty() {
                 let why = format!("{k} is among the files twice: also {}", others.join(", "));
@@ -883,6 +892,28 @@ mod tests {
         // A file not there.
         let gone = Incoming::files(&[dir.join("gone.nss")]);
         assert!(gone.refused[0].why.starts_with("doesn't read"), "{:?}", gone.refused);
+        // A file given twice is one; a resource in three files is refused
+        // three times, each naming the other two in the order given.
+        std::fs::create_dir_all(dir.join("third")).unwrap();
+        std::fs::write(dir.join("third").join("Twice.nss"), b"// three").unwrap();
+        let (a, b, c) = (
+            dir.join("twice.nss"),
+            dir.join("copy").join("TWICE.nss"),
+            dir.join("third").join("Twice.nss"),
+        );
+        let given = [dir.join("guard.utc"), a.clone(), dir.join("guard.utc"), b.clone()];
+        let many = Incoming::files(&[&given[..], &[c.clone(), a.clone()]].concat());
+        assert_eq!(many.resources.len(), 1);
+        let shown = |p: &PathBuf| p.display().to_string();
+        let said: Vec<(String, String)> =
+            many.refused.iter().map(|r| (r.what.clone(), r.why.clone())).collect();
+        let also = |x: &PathBuf, y: &PathBuf| {
+            format!("twice.nss is among the files twice: also {}, {}", shown(x), shown(y))
+        };
+        assert_eq!(
+            said,
+            [(shown(&a), also(&b, &c)), (shown(&b), also(&a, &c)), (shown(&c), also(&a, &b))]
+        );
     }
 
     /// Files planned and imported as an archive's resources are: those the
