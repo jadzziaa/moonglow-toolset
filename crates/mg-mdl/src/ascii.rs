@@ -178,6 +178,10 @@ const LISTS: &[&str] = &[
 /// Lists whose lines start with a name, not a number (counts are trusted).
 const NAMED_LISTS: &[&str] = &["weights", "texturenames", "multimaterial"];
 
+/// The most values a key has in a compiled model (the byte that counts
+/// them keeps four bits for it); a Bézier key has its two handles besides.
+pub(crate) const KEY_VALUES: usize = 15;
+
 /// A list as written: its keyword's line and its rows.
 #[derive(Default)]
 struct List<'a> {
@@ -328,13 +332,30 @@ fn node_block<'a>(
                 let name = k.trim_end_matches("key").trim_end_matches("bezier").to_string();
                 let count = l.words.get(1).and_then(|w| w.parse::<usize>().ok());
                 let mut rows = Vec::new();
+                // A key is as wide as its list's widest row (every other
+                // row is filled up to it), so a row is read no further
+                // than one value past what a compiled model holds: that
+                // is still too wide to compile, and a row of a hundred
+                // thousand numbers does not make every key as wide.
+                let most = 1 + if bezier { 3 * KEY_VALUES } else { KEY_VALUES } + 1;
+                let mut cut = None;
                 while i < ls.len() && is_number(ls[i].words[0]) {
                     if count.is_some_and(|c| rows.len() >= c) {
                         break;
                     }
-                    rows.push(ls[i].words.iter().filter_map(|w| w.parse().ok()).collect());
+                    let mut row: Vec<f32> =
+                        ls[i].words.iter().filter_map(|w| w.parse().ok()).collect();
+                    if row.len() > most {
+                        row.truncate(most);
+                        cut.get_or_insert(ls[i].number);
+                    }
+                    rows.push(row);
                     n.span.end = ls[i].number;
                     i += 1;
+                }
+                if let Some(line) = cut {
+                    let fit = most - 2;
+                    note(notes, line, format!("{k}: a key holds at most {fit} values"));
                 }
                 if let Some(c) = count.filter(|&c| rows.len() < c) {
                     note(notes, l.number, format!("{k}: {} of {c} keys", rows.len()));
@@ -1166,6 +1187,49 @@ pub(crate) fn read_with(data: &[u8], implicit_root: bool) -> Result<(Model, Sour
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key list is as wide as its widest row and every row is filled
+    /// up to it: one row of 100,000 numbers among 100,000 rows of one
+    /// (400 KB of text) asked for 40 GB. A row is read to one value past
+    /// what a compiled model holds, and says so (the review's M2).
+    #[test]
+    fn one_wide_row_does_not_widen_every_key() {
+        for (keyword, most) in [("xkey", 16), ("positionbezierkey", 46), ("alphakey", 16)] {
+            let rows = format!("0{}\n{}", " 1".repeat(100_000), "0\n".repeat(100_000));
+            let key = format!("{keyword}\n{rows}endlist\n");
+            let text = format!(
+                "newmodel m\nbeginmodelgeom m\nnode dummy m\nparent NULL\nendnode\n\
+                 node trimesh t\nparent m\n{}endnode\nendmodelgeom m\n\
+                 newanim a m\nlength 1\nnode dummy m\nparent NULL\n{key}endnode\ndoneanim a m\n\
+                 donemodel m\n",
+                if keyword == "alphakey" { key.as_str() } else { "" },
+            );
+            assert!(text.len() < 1_300_000);
+            let (model, map) = read_mapped(text.as_bytes()).unwrap();
+            let c = if keyword == "alphakey" {
+                model.nodes[1].controllers.iter().find(|c| c.name == "alpha").unwrap()
+            } else {
+                &model.animations[0].nodes[0].controllers[0]
+            };
+            assert_eq!((c.times.len(), c.columns), (100_001, most), "{keyword}");
+            assert_eq!(c.values.len(), 100_001 * most);
+            assert!(c.handles.is_empty());
+            let said = format!("{keyword}: a key holds at most");
+            assert!(map.notes.iter().any(|n| n.message.starts_with(&said)), "{:?}", map.notes);
+        }
+        // A key of what fits, and of one more, is read as written.
+        let text = format!(
+            "newmodel m\nbeginmodelgeom m\nnode dummy m\nparent NULL\nendnode\nendmodelgeom m\n\
+             newanim a m\nnode dummy m\nparent NULL\nxkey\n0{}\nykey\n0{}\nendnode\n\
+             doneanim a m\ndonemodel m\n",
+            " 1".repeat(15),
+            " 1".repeat(16),
+        );
+        let (model, map) = read_mapped(text.as_bytes()).unwrap();
+        let keys = &model.animations[0].nodes[0].controllers;
+        assert_eq!((keys[0].columns, keys[1].columns), (15, 16));
+        assert!(map.notes.is_empty(), "{:?}", map.notes);
+    }
 
     /// A blank line among a skin's weights is a vertex without any: the
     /// rows after it stay with their vertices (a Vault model, Mindwitness).
