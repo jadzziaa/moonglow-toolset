@@ -416,11 +416,24 @@ impl Container for MemContainer {
 }
 
 impl ResKey {
-    /// Parses `name.ext` (the last dot separates the extension).
+    /// Parses `name.ext` (the last dot separates the extension): what
+    /// [`ResKey`]'s `Display` and [`ResKey::path_in`] write, back. A
+    /// name's byte above 0x7F is written as the character of that number
+    /// (`0xE8` as `è`), so a character up to U+00FF is read as its byte,
+    /// and a resource keeps its name through a folder: read as the
+    /// character's UTF-8 bytes it came back as another name, or as none
+    /// where those were more than 16. (A name with a character past
+    /// U+00FF is no name written here: its UTF-8 bytes, as before.)
     pub fn from_filename(name: &str) -> Option<ResKey> {
         let (stem, ext) = name.rsplit_once('.')?;
         let restype = ResType::from_extension(ext)?;
-        let resref = ResRef::from_str(stem).ok().filter(|r| !r.is_empty())?;
+        let bytes: Option<Vec<u8>> =
+            stem.chars().map(|c| u8::try_from(u32::from(c)).ok()).collect();
+        let resref = match bytes {
+            Some(bytes) => ResRef::from_bytes(&bytes),
+            None => ResRef::from_str(stem),
+        };
+        let resref = resref.ok().filter(|r| !r.is_empty())?;
         Some(ResKey::new(resref, restype))
     }
 }

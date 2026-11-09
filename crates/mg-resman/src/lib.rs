@@ -743,6 +743,32 @@ mod tests {
         assert_eq!(ResKey::from_filename("waytoolongname_abcdef.utc"), None);
     }
 
+    /// A name with bytes above 0x7F (`pi\xE8ce01`, as other tools make
+    /// them) is the same resource written into a folder and read back,
+    /// sixteen such bytes too.
+    #[test]
+    fn a_name_past_ascii_survives_a_folder() {
+        let dir = Path::new("unpacked");
+        let all: Vec<u8> = (0x80..=0xFF).collect();
+        let names = all.chunks(16).chain([&b"pi\xE8ce01"[..], b"Se\xF1or"]);
+        for bytes in names {
+            let key = ResKey::new(ResRef::from_bytes(bytes).unwrap(), ResType::UTC);
+            let file = key.path_in(dir).unwrap();
+            let name = file.file_name().unwrap().to_str().unwrap();
+            let back = ResKey::from_filename(name).unwrap();
+            assert_eq!(back, key, "{name}");
+            assert_eq!(back.resref.to_lowercase().as_bytes(), key.resref.to_lowercase().as_bytes());
+            assert_eq!(ResKey::from_filename(&key.to_string()), Some(key));
+        }
+        assert_eq!(
+            ResKey::from_filename("pi\u{e8}ce01.utc").unwrap().resref.as_bytes(),
+            b"pi\xE8ce01"
+        );
+        // A character that is no byte: the name's UTF-8, as it was.
+        let wide = ResKey::from_filename("z\u{142}oty.utc").unwrap();
+        assert_eq!(wide.resref.as_bytes(), "z\u{142}oty".as_bytes());
+    }
+
     #[test]
     fn changed_folders_and_archives_are_reloaded() {
         let dir = std::env::temp_dir().join(format!("mg-resman-reload-{}", std::process::id()));
