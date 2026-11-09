@@ -8,7 +8,7 @@
 //! game.
 
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use mg_core::bin::{CopyBudget, slice};
 
@@ -148,7 +148,10 @@ impl<'a> Bin<'a> {
         let (keys, nkeys) = self.array(node + 0x54, 12)?;
         let (data_off, ndata) = self.array(node + 0x60, 4)?;
         let data = if ndata > 0 { self.f32s(self.m + data_off, ndata)? } else { Vec::new() };
-        let mut out = Vec::with_capacity(nkeys);
+        // By name, where in `out`: a repeated controller takes the place
+        // at the end and empties the earlier one.
+        let mut out: Vec<Option<Controller>> = Vec::with_capacity(nkeys);
+        let mut place: HashMap<String, usize> = HashMap::new();
         for i in 0..nkeys {
             let k = keys + i * 12;
             let id = self.u32(k)?;
@@ -171,6 +174,10 @@ impl<'a> Bin<'a> {
                 _ => (columns, stride),
             };
             let keyed = data.get(value_at..value_at + times.len() * stride);
+            // Every key record may point at the same floats: what each
+            // copies of them is charged, as a shared vertex stream is.
+            let copied = if keyed.is_some() { times.len() * (1 + stride) } else { times.len() };
+            self.charge(copied * 4)?;
             let (times, values, handles) = match keyed {
                 Some(v) if bezier && columns > 0 => {
                     let mut values = Vec::with_capacity(times.len() * columns);
@@ -187,10 +194,12 @@ impl<'a> Bin<'a> {
             // A repeated controller (fx_flame01's light has two shadow
             // radii) replaces the earlier one, as a repeated ASCII keyword
             // does.
-            out.retain(|c: &Controller| c.name != name);
-            out.push(Controller { name, times, values, columns, handles });
+            if let Some(earlier) = place.insert(name.clone(), out.len()) {
+                out[earlier] = None;
+            }
+            out.push(Some(Controller { name, times, values, columns, handles }));
         }
-        Ok(out)
+        Ok(out.into_iter().flatten().collect())
     }
 
     fn children(&self, node: usize) -> Result<Vec<usize>, MdlError> {
@@ -833,6 +842,73 @@ mod tests {
         assert_eq!(model.animations[2].nodes[0].controllers[0].values, [0.5; 3]);
         let Err(e) = read(&one_animation_many_times(300, 1 << 18)) else { panic!("read") };
         assert!(e.to_string().contains("pointing at the same data"), "{e}");
+    }
+
+    /// [`compiled_by_the_game`] with its animation node given `records`
+    /// key records, each of `rows` rows of one value at the start of a
+    /// controller data array of 65,535 floats: the first `again` of them
+    /// the position's (one row), the others of controllers of their own.
+    fn many_keys_of_the_same_floats(records: usize, rows: u16, again: usize) -> Vec<u8> {
+        let file = compiled_by_the_game();
+        let model_len = u32::from_le_bytes(file[4..8].try_into().unwrap()) as usize;
+        let mut m = Out(file[12..12 + model_len].to_vec());
+        let raw = &file[12 + model_len..];
+        let data_at = m.0.len();
+        m.floats(data_at, &vec![0.5; 65_535]);
+        m.u32(0x660, data_at as u32);
+        m.u32(0x664, 65_535);
+        let keys_at = m.0.len();
+        for i in 0..records {
+            let k = keys_at + 12 * i;
+            // Ids no controller has: each its own name (`ctrl<id>`).
+            m.u32(k, if i < again { 8 } else { 1000 + i as u32 });
+            m.u16(k + 4, if i < again { 1 } else { rows });
+            m.put(k + 10, &[if i < again { 3 } else { 1 }]);
+        }
+        m.u32(0x654, keys_at as u32);
+        m.u32(0x658, records as u32);
+        let mut out = vec![0; 4];
+        out.extend((m.0.len() as u32).to_le_bytes());
+        out.extend((raw.len() as u32).to_le_bytes());
+        out.extend(m.0);
+        out.extend(raw);
+        out
+    }
+
+    /// Key records are 12 bytes each and may all point at the same floats:
+    /// a model of half a megabyte whose 20,000 records each copy 65,535
+    /// times and values (10 GB), stops at the copy budget (the review's
+    /// M1). A model with a few such records reads.
+    #[test]
+    fn key_records_of_the_same_floats_hit_the_copy_limit() {
+        let model = read(&many_keys_of_the_same_floats(4, 65_535, 0)).unwrap();
+        let keys = &model.animations[0].nodes[0].controllers;
+        assert_eq!(keys.len(), 4);
+        assert_eq!((keys[3].times.len(), keys[3].values.len()), (65_535, 65_535));
+        let file = many_keys_of_the_same_floats(20_000, 65_535, 0);
+        assert!(file.len() < 600_000);
+        let started = std::time::Instant::now();
+        let Err(e) = read(&file) else { panic!("read") };
+        assert!(e.to_string().contains("pointing at the same data"), "{e}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    /// A controller named again replaces the earlier one and stands
+    /// where the last of them stood, and a node's key records are read in
+    /// one pass: 200,000 of them took minutes while each looked through
+    /// all before it.
+    #[test]
+    fn a_repeated_controller_replaces_the_earlier_one() {
+        let model = read(&many_keys_of_the_same_floats(5, 2, 3)).unwrap();
+        let keys = &model.animations[0].nodes[0].controllers;
+        let names: Vec<&str> = keys.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["position", "ctrl1003", "ctrl1004"]);
+        assert_eq!(keys[0].values, [0.5; 3]);
+        assert_eq!(keys[2].values, [0.5; 2]);
+        let started = std::time::Instant::now();
+        let model = read(&many_keys_of_the_same_floats(200_003, 1, 3)).unwrap();
+        assert_eq!(model.animations[0].nodes[0].controllers.len(), 200_001);
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
     }
 
     #[test]
