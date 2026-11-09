@@ -3741,7 +3741,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     Some(_) => {}
                 }
             }
-            let cp = module_codepage(cli, &m);
+            let cp = codepage_with(cli, &m, game.as_ref());
             let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
             let shown = |n: &mg_core::LocString| mg_rules::shown(game.as_ref(), n, language, cp);
             let listed = areas::list_named(&m, &shown);
@@ -3800,7 +3800,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 bail!("name areas or give a filter, or pass --all to change every area");
             }
             let resrefs: Vec<mg_core::ResRef> = chosen.iter().map(|a| a.resref).collect();
-            let codepage = module_codepage(cli, &m);
+            let codepage = cp;
             // What Make Placeables Static leaves dynamic, and why (read
             // before the change, by the project's rules).
             let mut left_dynamic = Vec::new();
@@ -4297,7 +4297,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
-            let codepage = module_codepage(cli, &m);
+            let codepage = mg_rules::text_codepage(&rm, game_language(&gi));
             use mg_core::ResRef;
             let draw = |area: ResRef| -> Result<(mg_module::minimap::Drawn, Vec<u8>)> {
                 let key = ResKey::new(area, ResType::ARE);
@@ -4443,9 +4443,9 @@ fn run(cli: &Cli) -> Result<Output> {
             // (Names are matched and shown in the module's own letters, as
             // the module tree shows them: the talk table's where a name has
             // none of its own, another language's where it has no English.)
-            let cp = module_codepage(cli, &m);
             let mut notes = Output::default();
             let game = game_data_if_any(cli, &m, &mut notes);
+            let cp = codepage_with(cli, &m, game.as_ref());
             let q = mg_module::query::Query {
                 types,
                 tag: tag.clone(),
@@ -4818,13 +4818,49 @@ fn run(cli: &Cli) -> Result<Output> {
 /// The codepage of a module's text ([`mg_rules::text_codepage`]):
 /// Windows-1252, or the table of an `encoding.2da` in its haks (which
 /// takes the game install to find them: without one, Windows-1252).
+///
+/// Found once a run for a list of haks: it takes the game's resource
+/// manager and every hak's index for one table, and a command asks more
+/// than once. (A command that has the game's data or a resource manager
+/// for the module reads it from that: [`codepage_with`].)
 fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
-    let own = Codepage::WINDOWS_1252;
     let haks = m.haks().unwrap_or_default();
+    let mut found = CODEPAGES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, codepage)) = found.iter().find(|(of, _)| *of == haks) {
+        return *codepage;
+    }
+    let codepage = read_codepage(cli, &haks);
+    found.push((haks, codepage));
+    codepage
+}
+
+/// The codepages [`module_codepage`] found in this run, by the haks they
+/// were read from (the install is one a run).
+static CODEPAGES: std::sync::Mutex<Vec<(Vec<String>, Codepage)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// How often this run built a resource manager to find a codepage.
+#[cfg(test)]
+static CODEPAGES_READ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn read_codepage(cli: &Cli, haks: &[String]) -> Codepage {
+    #[cfg(test)]
+    CODEPAGES_READ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let own = Codepage::WINDOWS_1252;
     let Ok(gi) = install(cli) else { return own };
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
-    let _ = rm.add_haks(&gi, &haks);
+    let _ = rm.add_haks(&gi, haks);
     mg_rules::text_codepage(&rm, game_language(&gi))
+}
+
+/// [`module_codepage`] for a command that may have the game's data for
+/// the module already (the same table, read from what is open: the game
+/// and the haks are not opened again for it).
+pub(crate) fn codepage_with(cli: &Cli, m: &Module, game: Option<&mg_rules::GameData>) -> Codepage {
+    match game {
+        Some(game) => game.text_codepage(),
+        None => module_codepage(cli, m),
+    }
 }
 
 /// The install's language (English where its code is none the game has).
@@ -5303,7 +5339,7 @@ fn verify(
     skip.leave_out(&mut missing, &mut findings);
     // Each finding with its fix, if it has one.
     let found = mg_edit::fix::attach(&m, findings, &theirs);
-    let codepage = mg_rules::text_codepage(&rm, game_language(gi));
+    let codepage = game_codepage;
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())
     } else {
@@ -5788,5 +5824,50 @@ fn gff(
             out.line(serde_json::to_string_pretty(&value)?);
             Ok(out)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A module's codepage is found once a run for its haks, however
+    /// often a command asks, and is what reading it afresh gives; a
+    /// command with the game's data open reads it from that.
+    #[test]
+    fn a_module_s_codepage_is_found_once_a_run() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let root = mg_testkit::corpus!();
+        let root = root.to_str().unwrap();
+        let cli = <Cli as clap::Parser>::parse_from([
+            "mg",
+            "--root",
+            root,
+            "--no-user-dir",
+            "ls",
+            "x.hak",
+        ]);
+        let mut m = Module::new();
+        let mut info = Gff::new(*b"IFO ");
+        let haks = ["mg_codepage_test_hak".to_string()];
+        info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &haks));
+        m.set_info(&info).unwrap();
+        assert_eq!(m.haks().unwrap(), haks);
+        let before = CODEPAGES_READ.load(SeqCst);
+        let first = module_codepage(&cli, &m);
+        assert_eq!(CODEPAGES_READ.load(SeqCst), before + 1);
+        for _ in 0..3 {
+            assert_eq!(module_codepage(&cli, &m), first);
+        }
+        assert_eq!(CODEPAGES_READ.load(SeqCst), before + 1, "read once");
+        assert_eq!(first, read_codepage(&cli, &haks));
+        // With the game's data open, nothing more is built for it.
+        let gi = install(&cli).unwrap();
+        let game = game_data_in(&gi, &m, &mut Output::default()).unwrap();
+        let read = CODEPAGES_READ.load(SeqCst);
+        assert_eq!(codepage_with(&cli, &m, Some(&game)), first);
+        assert_eq!(CODEPAGES_READ.load(SeqCst), read);
+        assert_eq!(codepage_with(&cli, &m, None), first);
+        assert_eq!(CODEPAGES_READ.load(SeqCst), read);
     }
 }
