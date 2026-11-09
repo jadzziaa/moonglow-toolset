@@ -2783,6 +2783,9 @@ fn run(cli: &Cli) -> Result<Output> {
             m.save()?;
             remember(&mut out, module, &pass.now);
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
+            // (What compiled is saved, and the exit says that not all did:
+            // a pipeline goes no further with a module of old scripts.)
+            out.failed = failed > 0;
             if *uncompiled {
                 out.note(format!(
                     "compiled {} scripts, {failed} failed",
