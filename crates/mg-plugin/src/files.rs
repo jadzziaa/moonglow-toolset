@@ -346,10 +346,11 @@ pub(crate) fn hak(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     Ok(t)
 }
 
-/// A picture's pixels, rows from the top.
-fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), String> {
+/// What kind of picture bytes are: the kind given, else by how they
+/// begin.
+fn kind_of(bytes: &[u8], kind: Option<&str>) -> Result<&'static str, String> {
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
-    let kind = match kind.map(str::to_ascii_lowercase).as_deref() {
+    Ok(match kind.map(str::to_ascii_lowercase).as_deref() {
         Some("png") => "png",
         Some("tga") => "tga",
         Some("dds") => "dds",
@@ -357,7 +358,39 @@ fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), Strin
         None if bytes.starts_with(PNG) => "png",
         None if bytes.starts_with(b"DDS ") => "dds",
         None => "tga",
+    })
+}
+
+/// The width and height a picture's header declares, read before any of
+/// it is decoded (a few bytes can declare a great many pixels): refused
+/// past [`MAX_PIXELS`]. A header cut short is `(0, 0)`: decoding it says
+/// what is wrong with it.
+fn size_of(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32), String> {
+    let le16 =
+        |at: usize| bytes.get(at..at + 2).map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])));
+    let four = |at: usize| bytes.get(at..at + 4).map(|b| [b[0], b[1], b[2], b[3]]);
+    let le32 = |at: usize| four(at).map(u32::from_le_bytes);
+    let be32 = |at: usize| four(at).map(u32::from_be_bytes);
+    let size = match kind_of(bytes, kind)? {
+        // (After its signature: the IHDR chunk's length and name.)
+        "png" => (be32(16), be32(20)),
+        // (The standard header has its height first; BioWare's own, its
+        // width.)
+        "dds" if bytes.starts_with(b"DDS ") => (le32(16), le32(12)),
+        "dds" => (le32(0), le32(4)),
+        _ => (le16(12), le16(14)),
     };
+    let (Some(width), Some(height)) = size else { return Ok((0, 0)) };
+    if u64::from(width) * u64::from(height) > MAX_PIXELS {
+        return Err("the picture is too large".into());
+    }
+    Ok((width, height))
+}
+
+/// A picture's pixels, rows from the top.
+fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), String> {
+    size_of(bytes, kind)?;
+    let kind = kind_of(bytes, kind)?;
     if kind != "png" {
         let rgba = match kind {
             "dds" => mg_image::read(ResType::DDS, bytes).map(|t| t.to_rgba().top_down()),
@@ -457,5 +490,39 @@ mod tests {
         assert_eq!(again, data);
         assert!(decode(b"not a picture", None).is_err());
         assert!(decode(&png_bytes, Some("bmp")).is_err());
+    }
+
+    /// A header that declares more pixels than a plugin's picture may have
+    /// is refused by the header, before anything is decoded: a
+    /// run-length TGA of a few megabytes would otherwise be a gigabyte of
+    /// pixels before it was found too large.
+    #[test]
+    fn a_picture_too_large_is_refused_by_its_header() {
+        // A run-length true-color TGA of 16,384 × 16,384 with one packet.
+        let mut tga = vec![0u8; 18];
+        tga[2] = 10;
+        tga[12..14].copy_from_slice(&16_384u16.to_le_bytes());
+        tga[14..16].copy_from_slice(&16_384u16.to_le_bytes());
+        tga[16] = 32;
+        tga.extend_from_slice(&[0xff, 1, 2, 3, 4]);
+        assert_eq!(decode(&tga, None).unwrap_err(), "the picture is too large");
+        assert_eq!(decode(&tga, Some("tga")).unwrap_err(), "the picture is too large");
+        // Both headers of a DDS.
+        let mut bioware = Vec::new();
+        for n in [16_384u32, 16_384, 4, 0, 0] {
+            bioware.extend_from_slice(&n.to_le_bytes());
+        }
+        assert_eq!(decode(&bioware, Some("dds")).unwrap_err(), "the picture is too large");
+        let mut standard = b"DDS ".to_vec();
+        for n in [124u32, 0, 16_384, 16_384] {
+            standard.extend_from_slice(&n.to_le_bytes());
+        }
+        assert_eq!(decode(&standard, None).unwrap_err(), "the picture is too large");
+        // One within the limit, cut short, is told as cut short.
+        tga[12..14].copy_from_slice(&64u16.to_le_bytes());
+        tga[14..16].copy_from_slice(&64u16.to_le_bytes());
+        assert_ne!(decode(&tga, None).unwrap_err(), "the picture is too large");
+        assert_eq!(size_of(&tga, None), Ok((64, 64)));
+        assert_eq!(size_of(&tga[..10], None), Ok((0, 0)));
     }
 }
