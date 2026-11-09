@@ -578,7 +578,8 @@ and nothing on standard error, for scripts, build pipelines and tools
   an error. `mg verify` prints its result and exits with an error when it
   found errors.
 - **What doesn't change:** `mg gff` prints the GFF's JSON as it does
-  without `--json`. `mg cat` gives the resource's `text`, or its bytes as
+  without `--json`, and nothing else: its notes go to standard error
+  either way, so that what it printed reads back as the GFF. `mg cat` gives the resource's `text`, or its bytes as
   `hex`. `mg lsp` speaks JSON already, and refuses `--json`.
 
 ```text

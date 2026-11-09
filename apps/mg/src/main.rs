@@ -1803,6 +1803,10 @@ struct Output {
     failed: bool,
     /// Written already (cat's bytes, the language server).
     done: bool,
+    /// The JSON is a document (a GFF's, which `mg gff` reads back), not a
+    /// report: the notes go to standard error with `--json` too, and not
+    /// among its fields.
+    document: bool,
 }
 
 impl Output {
@@ -1833,7 +1837,9 @@ impl Output {
         }
         let mut out = io::stdout().lock();
         if json {
-            if let serde_json::Value::Object(o) = &mut self.json
+            if self.document {
+                self.notes.iter().for_each(|n| eprintln!("{n}"));
+            } else if let serde_json::Value::Object(o) = &mut self.json
                 && !self.notes.is_empty()
             {
                 o.insert("notes".into(), self.notes.into());
@@ -5777,7 +5783,7 @@ fn gff(
             Ok(Output::new(serde_json::json!({ "written": path_text(o) })))
         }
         // The GFF as JSON is the output, with --json or without.
-        None if json => Ok(Output::new(value)),
+        None if json => Ok(Output { json: value, document: true, ..Default::default() }),
         None => {
             let mut out = Output::default();
             out.line(serde_json::to_string_pretty(&value)?);

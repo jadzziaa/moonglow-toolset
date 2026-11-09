@@ -252,3 +252,43 @@ fn find_and_info() {
     assert_eq!(white.len(), 6, "{white:?}");
     assert!(find(&["--tag", "no_such_tag"]).is_empty());
 }
+
+/// `mg --json gff` prints the GFF's JSON and nothing else: what there is
+/// to say of the module it was read with (here, that the `.mod` has its
+/// module folder beside it) goes to standard error, not among the GFF's
+/// fields as `"notes"`, and what was printed reads back as the GFF.
+#[test]
+fn a_gff_s_json_has_no_notes_among_its_fields() {
+    use mg_gff::{Gff, Value as Field};
+    let dir = mg_testkit::scratch_dir("mg-gff-notes");
+    let mut m = mg_module::Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let castle = dir.join("castle.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(castle.clone())).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(dir.join("castle"))).unwrap();
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", Field::String(b"guard".to_vec()));
+    let file = dir.join("guard.utc");
+    std::fs::write(&file, guard.to_bytes().unwrap()).unwrap();
+    let (f, c) = (file.to_str().unwrap(), castle.to_str().unwrap());
+
+    for json in [&["--json"][..], &[][..]] {
+        let out = crate::mg_alone().args(json).args(["gff", f, "--module", c]).output().unwrap();
+        assert!(out.status.success(), "{json:?}");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains("has its module folder beside it"), "{json:?}: {said}");
+        let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(printed.get("notes").is_none(), "{json:?}: {printed}");
+        // It reads back, with `mg gff` and as the GFF it was.
+        let written = dir.join("guard.json");
+        std::fs::write(&written, &out.stdout).unwrap();
+        let back = dir.join("back.utc");
+        let args = ["gff", written.to_str().unwrap(), "-o", back.to_str().unwrap()];
+        let made = crate::mg_alone().args(args).output().unwrap();
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+        assert_eq!(Gff::read(&std::fs::read(&back).unwrap()).unwrap(), guard);
+    }
+    // A report still carries them.
+    let (ok, info) = crate::json_out(crate::mg_alone().args(["--json", "info", c]));
+    assert!(ok && info["notes"][0].as_str().unwrap().contains("module folder beside it"), "{info}");
+}
