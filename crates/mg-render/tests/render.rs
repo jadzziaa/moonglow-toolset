@@ -5813,6 +5813,130 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
     }
 }
 
+/// What a view keeps from frame to frame is its own: an area's view (its
+/// sun's shadow map) drawn, another view drawn through the same renderer,
+/// then the area's again draws the map once in all, and each view's
+/// stencil target is of its own size (the one renderer kept one map and
+/// one target, which the second view's frame took: the area's next frame
+/// drew its map again, and two views of two sizes made the target anew
+/// twice a frame). A view drawn without High lets go of its stencil
+/// target, and one whose targets are let go of leaves nothing.
+#[test]
+fn a_view_keeps_its_own_from_frame_to_frame() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |plate_at: f32| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(plate.clone(), Mat4::from_translation(Vec3::new(plate_at, 0.0, 1.0))),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        // (A soft particle: the frame reads the targets' depth copy.)
+        particles: vec![mg_render::particles::ParticleBatch {
+            texture: None,
+            blend: mg_render::particles::ParticleBlend::Normal,
+            render_order: 0,
+            vertices: [(-1.0, 0.0), (1.0, 0.0), (1.0, 2.0)]
+                .map(|(x, z)| mg_render::particles::ParticleVertex {
+                    pos: [x, 3.0, z],
+                    uv: [0.0, 0.0],
+                    color: [1.0; 4],
+                    softness: 0.0,
+                })
+                .to_vec(),
+            tint: None,
+            softness: 5.0,
+        }],
+        line_shapes: vec![mg_render::LineShape {
+            lines: Arc::from(vec![[Vec3::ZERO, Vec3::X]]),
+            copies: vec![mg_render::LineCopy {
+                offset: Vec3::new(plate_at, 0.0, 0.5),
+                scale: 1.0,
+                color: [1.0; 4],
+            }],
+        }],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu, format, 4);
+    let (area, other) = (scene(0.0), scene(2.0));
+    let area_targets = mg_render::Targets::new(&gpu, format, 4, 96, 64);
+    let other_targets = mg_render::Targets::new(&gpu, format, 4, 48, 48);
+    assert_eq!(r.kept_for(&area_targets), None);
+    // Fast: the sun's map.
+    let mut casts = Vec::new();
+    for (s, t) in [
+        (&area, &area_targets),
+        (&other, &other_targets),
+        (&area, &area_targets),
+        (&other, &other_targets),
+    ] {
+        r.render_targets(&gpu, &NoAssets, s, &camera, t);
+        assert_eq!(r.drawn.sun_casters, 1);
+        casts.push(r.drawn.sun_map_drawn);
+    }
+    assert_eq!(casts, [true, true, false, false], "each view's map drawn once");
+    let kept = r.kept_for(&area_targets).expect("the area's");
+    assert!(kept.sun_map && kept.stencil_target.is_none() && kept.line_shapes == 1, "{kept:?}");
+    // (And a bind group on the area's depth copy, or the other view's.)
+    let other_kept = r.kept_for(&other_targets).expect("the other's");
+    assert!(kept.copies != other_kept.copies, "{kept:?} {other_kept:?}");
+    // High: a stencil target each, of its own size, kept across the other's
+    // frame.
+    r.shadow_volumes = true;
+    for _ in 0..2 {
+        r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+        r.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
+    }
+    assert_eq!(r.kept_for(&area_targets).unwrap().stencil_target, Some((96, 64)));
+    assert_eq!(r.kept_for(&other_targets).unwrap().stencil_target, Some((48, 48)));
+    // Back to Fast in one view: its target is let go of, the other's kept.
+    r.shadow_volumes = false;
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    assert!(!r.drawn.sun_map_drawn, "the map still holds the area's casters");
+    assert_eq!(r.kept_for(&area_targets).unwrap().stencil_target, None);
+    assert_eq!(r.kept_for(&other_targets).unwrap().stencil_target, Some((48, 48)));
+    // A view lets go of its targets: nothing of it is kept.
+    assert!(r.kept_for(&area_targets).unwrap().copies, "the last drawn: its depth copy bound");
+    r.let_go_of(&area_targets);
+    assert_eq!(r.kept_for(&area_targets), None);
+    assert!(r.kept_for(&other_targets).is_some());
+    // Targets dropped (a view made again at another size): what was kept
+    // for them goes at the next frame drawn.
+    r.shadow_volumes = true;
+    let resized = mg_render::Targets::new(&gpu, format, 4, 80, 80);
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &resized);
+    assert_eq!(r.kept_for(&resized).unwrap().stencil_target, Some((80, 80)));
+    assert_eq!(r.views_kept(), 2);
+    drop(resized);
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    assert_eq!(r.views_kept(), 2, "the other's and the area's");
+    r.shadow_volumes = false;
+    // And the pictures are as a renderer of its own draws them.
+    let mut fresh = Renderer::new(&gpu, format, 4);
+    fresh.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
+    let alone = gpu.read_rgba(&other_targets.color);
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    r.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
+    assert_eq!(gpu.read_rgba(&other_targets.color).data, alone.data);
+}
+
 /// A creature made of parts is one object to the lights' shadows: two of
 /// 20 part instances each under one lamp cast every part's shadow, from
 /// two maps. (A map was planned for each instance: the 16 parts nearest

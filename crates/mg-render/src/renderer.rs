@@ -462,16 +462,16 @@ pub struct Renderer {
     /// The draw that fills a target's framebuffer copies
     /// ([`crate::framebuffer`]), made the first time one is filled.
     copier: Option<crate::framebuffer::Copier>,
-    /// The sun's shadow map and what draws and reads it
-    /// ([`crate::shadow`]), made at the first frame with shadows.
+    /// What draws and reads the shadow maps ([`crate::shadow`]), made at
+    /// the first frame with shadows.
     shadow_maps: Option<crate::shadow::ShadowMaps>,
     /// The shadows are the game's own kind, stencil shadow volumes
     /// ([`crate::volume`]: the area view's Shadows quality High), where
     /// on; off (the default), a shadow map stands in for them (Fast:
     /// cheaper, its edges a texel of the map wide).
     pub shadow_volumes: bool,
-    /// The stencil volumes' target and pipelines, made at the first frame
-    /// with [`Renderer::shadow_volumes`].
+    /// The stencil volumes' pipelines, made at the first frame with
+    /// [`Renderer::shadow_volumes`].
     volumes: Option<crate::volume::ShadowVolumes>,
     /// Shiny water is drawn by the game's programs this frame: they are
     /// on, [`Renderer::game_water`], and the target has its copies.
@@ -508,11 +508,8 @@ pub struct Renderer {
     line_copy_pipeline: wgpu::RenderPipeline,
     /// The frame's copies of its line shapes, shape after shape.
     line_copy_buffer: wgpu::Buffer,
-    /// The line shapes' lines, by where their `Arc` points: those of the
-    /// last frame's shapes.
-    shape_buffers: HashMap<usize, ShapeBuffer>,
-    /// The lights each mesh took, kept from frame to frame.
-    reach_cache: ReachCache,
+    /// What each view keeps from one of its frames to the next.
+    views: crate::views::Views<ViewState>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -573,6 +570,36 @@ pub struct Renderer {
     pub drawn: Drawn,
 }
 
+/// What a view keeps from one of its frames to the next
+/// ([`crate::views`]): another view's frame between them leaves it be.
+#[derive(Debug, Default)]
+struct ViewState {
+    /// The lights each mesh took.
+    reach: ReachCache,
+    /// The line shapes' lines, by where their `Arc` points: those of the
+    /// view's last frame's shapes.
+    shapes: HashMap<usize, ShapeBuffer>,
+    /// The sun's shadow map and what it holds, from the view's first
+    /// frame with the sun's shadows as a map.
+    sun: Option<crate::shadow::SunMap>,
+    /// The stencil volumes' target, while the view's frames lay them.
+    stencil: Option<crate::volume::StencilTarget>,
+}
+
+/// What the renderer keeps for a view ([`Renderer::kept_for`]).
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewKept {
+    /// Bind groups on its targets' framebuffer copies.
+    pub copies: bool,
+    /// Its map of the sun's shadows.
+    pub sun_map: bool,
+    /// Its stencil volumes' target, of this size.
+    pub stencil_target: Option<(u32, u32)>,
+    /// How many line shapes' lines.
+    pub line_shapes: usize,
+}
+
 /// What a frame drew ([`Renderer::drawn`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Drawn {
@@ -611,6 +638,9 @@ pub struct Drawn {
     /// lights' shadows.
     pub sun_casters: usize,
     pub light_shadows: usize,
+    /// The sun's shadow map was drawn in this frame: not where the view's
+    /// map held the frame's casters as they are already.
+    pub sun_map_drawn: bool,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -1364,8 +1394,7 @@ impl Renderer {
             line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_copy_pipeline,
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
-            shape_buffers: HashMap::new(),
-            reach_cache: ReachCache::default(),
+            views: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -2159,6 +2188,11 @@ impl Renderer {
         size: (u32, u32),
         copies: Option<&crate::framebuffer::Copies>,
     ) {
+        // (What was kept for views whose targets are gone, let go of: a
+        // view made again at another size.)
+        for gone in self.views.take_gone() {
+            self.forget_copies(gone);
+        }
         // (What isn't drawn lately let go of, where it is too much.)
         self.begin_kept();
         self.let_go_of_stale_textures();
@@ -2278,7 +2312,11 @@ impl Renderer {
         let frustum = Frustum::new(on_screen);
         let mut reach = LightGrid::new(&scene.lights);
         // (What each mesh took in the frames before, while the lights stay.)
-        let mut reach_cache = std::mem::take(&mut self.reach_cache);
+        // (The view's own: another view's frame since has left them.)
+        let view_key = all_copies.map(|c| c.id);
+        let mut kept_view = self.views.take(view_key);
+        let view_key = all_copies.map(|c| (c.id, Arc::downgrade(&c.alive)));
+        let mut reach_cache = std::mem::take(&mut kept_view.reach);
         reach_cache.begin(&scene.lights);
         let mut chosen = Vec::new();
         let mut places = 0;
@@ -3162,7 +3200,7 @@ impl Renderer {
         );
         // The line shapes: the lines of those not drawn last frame sent,
         // and every copy; each shape's copies drawn by one draw.
-        let shapes = self.line_shapes(gpu, &scene.line_shapes);
+        let shapes = self.line_shapes(gpu, &scene.line_shapes, &mut kept_view.shapes);
         // The game's shaders' blocks and bind groups (the solid draws sorted
         // above).
         // (Those after the framebuffer's copy, last.)
@@ -3244,11 +3282,16 @@ impl Renderer {
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         // The shadow maps, before the scene (none for the volumes).
         let volumes = self.shadow_volumes;
+        // (A view drawn without the volumes lets go of their target: as
+        // large as its picture's own depth, with its samples.)
+        if !(shadowing && volumes) {
+            kept_view.stencil = None;
+        }
         if shadowing && !volumes {
             let maps =
                 self.shadow_maps.get_or_insert_with(|| crate::shadow::ShadowMaps::new(&gpu.device));
             if let Some(plan) = &shadow_plan {
-                maps.cast(gpu, &mut encoder, plan);
+                self.drawn.sun_map_drawn = maps.cast(gpu, &mut encoder, plan, &mut kept_view.sun);
             }
             if let Some(plan) = &light_plan {
                 maps.cast_lights(gpu, &mut encoder, plan);
@@ -3300,10 +3343,11 @@ impl Renderer {
                                 camera,
                                 size,
                                 scene.fog,
+                                &mut kept_view.stencil,
                             );
                     }
-                    if let (false, Some(plan), Some(maps)) =
-                        (volumes, &shadow_plan, &mut self.shadow_maps)
+                    if let (false, Some(plan), Some(maps), Some(map)) =
+                        (volumes, &shadow_plan, &mut self.shadow_maps, &kept_view.sun)
                     {
                         let targets = (target, depth);
                         maps.darken(
@@ -3311,7 +3355,7 @@ impl Renderer {
                             &mut encoder,
                             targets,
                             format,
-                            plan,
+                            (plan, map),
                             camera,
                             size,
                             scene.fog,
@@ -3465,7 +3509,7 @@ impl Renderer {
                 pass.set_bind_group(0, &self.particle_frame, &[]);
                 pass.set_vertex_buffer(1, self.line_copy_buffer.slice(..));
                 for (key, copies) in &shapes {
-                    let shape = &self.shape_buffers[key];
+                    let shape = &kept_view.shapes[key];
                     pass.set_vertex_buffer(0, shape.buffer.slice(..));
                     pass.draw(0..shape.ends, copies.clone());
                 }
@@ -3474,24 +3518,71 @@ impl Renderer {
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
-        self.reach_cache = reach_cache;
+        kept_view.reach = reach_cache;
+        self.views.put(view_key, kept_view);
+    }
+
+    /// Lets go of what is kept for the view drawn into `targets`, which
+    /// are let go of (a view not shown for a while, a tab closed, a
+    /// picture drawn once): the bind groups on their framebuffer copies,
+    /// which held the copies on the GPU, and what the view kept from frame
+    /// to frame (its shadow map, its stencil volumes' target, its meshes'
+    /// lights, its line shapes).
+    ///
+    /// A view that only drops its targets has the same let go of at the
+    /// next frame drawn, of any view; a view that then draws nothing (the
+    /// last 3D view closed) holds its copies until then.
+    pub fn let_go_of(&mut self, targets: &Targets) {
+        self.forget_copies(targets.copies.id);
+        self.views.forget(targets.copies.id);
+    }
+
+    /// Lets go of the bind groups on the framebuffer copies numbered `id`.
+    fn forget_copies(&mut self, id: u64) {
+        if self.particle_depth.as_ref().is_some_and(|(of, _)| *of == id) {
+            self.particle_depth = None;
+        }
+        self.game.forget_framebuffer(id);
+    }
+
+    /// How many views have something kept for them, for tests.
+    #[doc(hidden)]
+    pub fn views_kept(&self) -> usize {
+        self.views.len()
+    }
+
+    /// What is kept for the view drawn into `targets` (`None`: nothing,
+    /// as [`Renderer::let_go_of`] leaves it), for tests.
+    #[doc(hidden)]
+    pub fn kept_for(&self, targets: &Targets) -> Option<ViewKept> {
+        let id = targets.copies.id;
+        let copies = self.particle_depth.as_ref().is_some_and(|(of, _)| *of == id)
+            || self.game.holds_framebuffer(id);
+        let state = self.views.of(Some(id));
+        (copies || state.is_some()).then(|| ViewKept {
+            copies,
+            sun_map: state.is_some_and(|s| s.sun.is_some()),
+            stencil_target: state.and_then(|s| s.stencil.as_ref()).map(|(_, size, _)| *size),
+            line_shapes: state.map_or(0, |s| s.shapes.len()),
+        })
     }
 
     /// The frame's line shapes put on the GPU: the lines of each not drawn
     /// in the frame before sent (and those of shapes no longer drawn let
     /// go), and every copy, shape after shape. Each shape's lines (by
-    /// [`Renderer::shape_buffers`]' key) and the range of its copies.
+    /// their key in `buffers`, the view's) and the range of its copies.
     fn line_shapes(
         &mut self,
         gpu: &Gpu,
         shapes: &[crate::LineShape],
+        buffers: &mut HashMap<usize, ShapeBuffer>,
     ) -> Vec<(usize, std::ops::Range<u32>)> {
         use wgpu::util::DeviceExt;
         let mut copies = Vec::new();
         let mut drawn = Vec::new();
         for shape in shapes.iter().filter(|s| !s.lines.is_empty() && !s.copies.is_empty()) {
             let key = Arc::as_ptr(&shape.lines) as *const () as usize;
-            self.shape_buffers.entry(key).or_insert_with(|| {
+            buffers.entry(key).or_insert_with(|| {
                 let ends: Vec<[f32; 3]> =
                     shape.lines.iter().flat_map(|l| l.map(|p| p.to_array())).collect();
                 ShapeBuffer {
@@ -3511,7 +3602,7 @@ impl Renderer {
             }));
             drawn.push((key, first..copies.len() as u32));
         }
-        self.shape_buffers.retain(|key, _| drawn.iter().any(|(k, _)| k == key));
+        buffers.retain(|key, _| drawn.iter().any(|(k, _)| k == key));
         upload(
             gpu,
             &mut self.line_copy_buffer,
@@ -3554,6 +3645,8 @@ impl Renderer {
     ) -> Rgba {
         let targets = Targets::new(gpu, self.color_format, self.sample_count, width, height);
         self.render_targets(gpu, assets, scene, camera, &targets);
+        // (A picture drawn once: nothing is kept for its targets.)
+        self.let_go_of(&targets);
         gpu.read_rgba(&targets.color)
     }
 }

@@ -818,20 +818,49 @@ struct Darkener {
     layout: wgpu::BindGroupLayout,
 }
 
-/// The shadow map and what draws it and reads it, made at the first frame
-/// that has shadows.
+/// What draws the shadow maps and reads them, made at the first frame
+/// that has shadows. The sun's map itself is a view's ([`SunMap`]).
 #[derive(Debug)]
 pub(crate) struct ShadowMaps {
-    map: wgpu::TextureView,
     sampler: wgpu::Sampler,
     casting: Casting,
     params: wgpu::Buffer,
     darkeners: std::collections::HashMap<(wgpu::TextureFormat, u32, bool), Darkener>,
     /// The lights' maps, made at the first frame with lights' shadows.
     lights: Option<LightMaps>,
+}
+
+/// A view's map of the sun's shadows, kept from one of its frames to the
+/// next ([`crate::views`]): made at the view's first frame with them.
+#[derive(Debug)]
+pub(crate) struct SunMap {
+    map: wgpu::TextureView,
     /// What the map holds: the light's projection, the casters' meshes,
     /// transforms and bones (drawn again only when they change).
     holds: Option<Held>,
+}
+
+impl SunMap {
+    fn new(device: &wgpu::Device) -> SunMap {
+        let map = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("shadow map"),
+                size: wgpu::Extent3d {
+                    width: MAP_SIZE,
+                    height: MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: MAP_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        SunMap { map, holds: None }
+    }
 }
 
 /// What a shadow map holds: its projection, its casters (mesh, transform,
@@ -851,23 +880,6 @@ pub(crate) struct Casting {
 
 impl ShadowMaps {
     pub(crate) fn new(device: &wgpu::Device) -> ShadowMaps {
-        let map = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("shadow map"),
-                size: wgpu::Extent3d {
-                    width: MAP_SIZE,
-                    height: MAP_SIZE,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: MAP_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&Default::default());
         // (Four texels compared and their results blended: an edge a texel
         // wide, as hard as the game's.)
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -888,7 +900,6 @@ impl ShadowMaps {
             })
         };
         ShadowMaps {
-            map,
             sampler,
             casting: Casting::new(device, Some(wgpu::Face::Back)),
             params: buffer(
@@ -898,34 +909,38 @@ impl ShadowMaps {
             ),
             darkeners: Default::default(),
             lights: None,
-            holds: None,
         }
     }
 
-    /// Draws `plan`'s casters into the map (unless it holds them already).
+    /// Draws `plan`'s casters into the view's `map` (made where it has
+    /// none), unless it holds them already: whether it drew them.
     pub(crate) fn cast(
         &mut self,
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         plan: &Plan,
-    ) {
+        map: &mut Option<SunMap>,
+    ) -> bool {
+        let map = map.get_or_insert_with(|| SunMap::new(&gpu.device));
         let holds: Vec<_> = plan.casters.iter().map(Caster::key).collect();
-        if self
+        if map
             .holds
             .as_ref()
             .is_some_and(|(l, h, b)| *l == plan.light && *h == holds && *b == plan.bones)
         {
-            return;
+            return false;
         }
         self.casting.upload(gpu, &plan.casters, &plan.bones);
         let group = self.casting.group(gpu, plan.light);
-        self.casting.draw(encoder, &self.map, &group, &plan.casters, 0, true);
-        self.holds = Some((plan.light, holds, plan.bones.clone()));
+        self.casting.draw(encoder, &map.map, &group, &plan.casters, 0, true);
+        map.holds = Some((plan.light, holds, plan.bones.clone()));
+        true
     }
 
-    /// Lays the sun's shadows over what is drawn in `target` (multisampled
-    /// by `samples`, of `format`), as deep as `depth` says, for `camera`
-    /// seeing a picture of `size`; `fog`: the scene's.
+    /// Lays the sun's shadows, as the view's `map` has them, over what is
+    /// drawn in `target` (multisampled by `samples`, of `format`), as deep
+    /// as `depth` says, for `camera` seeing a picture of `size`; `fog`:
+    /// the scene's.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn darken(
         &mut self,
@@ -933,7 +948,7 @@ impl ShadowMaps {
         encoder: &mut wgpu::CommandEncoder,
         targets: (&wgpu::TextureView, &wgpu::TextureView),
         format: (wgpu::TextureFormat, u32),
-        plan: &Plan,
+        (plan, map): (&Plan, &SunMap),
         camera: &Camera,
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
@@ -947,7 +962,7 @@ impl ShadowMaps {
             .darkeners
             .entry((format.0, format.1, false))
             .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, false));
-        darkener.lay(gpu, encoder, targets, &self.params, &self.map, &self.sampler);
+        darkener.lay(gpu, encoder, targets, &self.params, &map.map, &self.sampler);
     }
 
     /// Draws the lights' maps of `plan`.

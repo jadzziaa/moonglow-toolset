@@ -5091,7 +5091,7 @@ impl Moonglow {
     /// The 3D views' targets let go of, with egui's textures that show
     /// them (which held them on the GPU after the views were gone).
     fn let_go_of_view_targets(&mut self) {
-        let Some(vp) = &self.viewport else { return };
+        let Some(vp) = &mut self.viewport else { return };
         for view in self.area_views.values_mut() {
             view.let_go_of_targets(vp);
         }

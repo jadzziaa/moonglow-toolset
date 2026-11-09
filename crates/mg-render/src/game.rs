@@ -2685,6 +2685,22 @@ impl GameShaders {
         self.fb = fb;
     }
 
+    /// Lets go of the copies numbered `id` (their target is let go of):
+    /// this frame's, and the pipelines' groups made with them, which held
+    /// them on the GPU.
+    pub(crate) fn forget_framebuffer(&mut self, id: u64) {
+        if self.fb.as_ref().is_some_and(|fb| fb.id == id) {
+            self.fb = None;
+        }
+        self.fb_groups.retain(|_, (of, _)| *of != id);
+    }
+
+    /// Whether anything holds the copies numbered `id`.
+    pub(crate) fn holds_framebuffer(&self, id: u64) -> bool {
+        self.fb.as_ref().is_some_and(|fb| fb.id == id)
+            || self.fb_groups.values().any(|(of, _)| *of == id)
+    }
+
     /// A pipeline's group 1 with this frame's copies, where it is made.
     fn fb_group(&self, id: u32) -> Option<&wgpu::BindGroup> {
         let fb = self.fb.as_ref()?;

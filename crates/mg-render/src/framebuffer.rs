@@ -25,6 +25,9 @@ pub struct Copies {
     /// Tells one target's copies from another's (the game's bind groups
     /// are made for one).
     pub(crate) id: u64,
+    /// Gone with the copies: what the renderer keeps for their view
+    /// ([`crate::views`]) is dropped once they are.
+    pub(crate) alive: std::sync::Arc<()>,
 }
 
 /// The depth copy's format.
@@ -56,6 +59,7 @@ impl Copies {
             color: make("framebuffer colour", format),
             depth: make("framebuffer depth", DEPTH_COPY),
             id: NEXT.fetch_add(1, Ordering::Relaxed),
+            alive: Default::default(),
         }
     }
 }

@@ -171,9 +171,12 @@ impl Viewport3d {
 
     /// Lets go of a view's targets and the egui texture that shows them
     /// (egui's binding of the texture held it on the GPU otherwise, after
-    /// the view had let go of it): made again when it is drawn.
-    pub(crate) fn let_go_of_targets(&self, held: &mut Option<(Targets, egui::TextureId)>) {
-        if let Some((_, id)) = held.take() {
+    /// the view had let go of it), with what the renderer kept for the
+    /// view (its shadow map, and the bind groups that held the targets'
+    /// framebuffer copies): made again when it is drawn.
+    pub(crate) fn let_go_of_targets(&mut self, held: &mut Option<(Targets, egui::TextureId)>) {
+        if let Some((targets, id)) = held.take() {
+            self.renderer.let_go_of(&targets);
             self.render_state.renderer.write().free_texture(&id);
         }
     }
@@ -189,7 +192,7 @@ pub(crate) const UNSEEN_AFTER: f64 = 2.0;
 /// After a frame: the model views not drawn for [`UNSEEN_AFTER`] let go
 /// of their targets.
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
-    let Some(vp) = app.viewport.as_ref() else { return };
+    let Some(vp) = app.viewport.as_mut() else { return };
     for view in app.model_views.values_mut() {
         if view.targets.is_some() && view.last_frame.is_none_or(|t| now - t > UNSEEN_AFTER) {
             view.let_go_of_targets(vp);
@@ -199,7 +202,7 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
 
 impl ModelView {
     /// Lets go of its picture's targets (drawn anew into new ones).
-    pub(crate) fn let_go_of_targets(&mut self, vp: &Viewport3d) {
+    pub(crate) fn let_go_of_targets(&mut self, vp: &mut Viewport3d) {
         vp.let_go_of_targets(&mut self.targets);
     }
 
@@ -1286,6 +1289,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // (Drawn again and again: the game's programs are made while it goes
     // on, Moonglow's own shader drawing until they are.)
     vp.renderer.game_background = true;
+    // (Its ground's shadow is a shadow map's, whatever quality the area
+    // view last drew its own with: the stencil volumes cast no skin's.)
+    vp.renderer.shadow_volumes = false;
     vp.renderer.render_targets(&vp.gpu, assets, &scene, &camera, targets);
     vp.renderer.game_background = false;
     // A program of the game's that reads the clock moves what it draws:

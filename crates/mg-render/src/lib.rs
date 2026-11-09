@@ -21,6 +21,7 @@ mod renderer;
 pub mod scene;
 mod shadow;
 pub mod texture;
+mod views;
 mod volume;
 pub mod watch;
 
@@ -32,6 +33,8 @@ pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use pool::MeshMemory;
 pub use reach::{Frustum, box_corners};
+#[doc(hidden)]
+pub use renderer::ViewKept;
 pub use renderer::{
     DEPTH_FORMAT, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, STALE_TEXTURES_KEPT,
     STALE_TEXTURES_KEPT_INTEGRATED, Targets, TextureMemory, attenuation_params, tint_light,
