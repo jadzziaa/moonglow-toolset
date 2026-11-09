@@ -165,6 +165,8 @@ const GROUP_SIDE: u32 = 32;
 struct Sections<'a> {
     named: HashMap<String, &'a Section>,
     doors: HashMap<usize, Vec<(usize, &'a Section)>>,
+    /// The most items a list is read with, see [`Sections::items`].
+    most: usize,
 }
 
 impl<'a> Sections<'a> {
@@ -188,7 +190,7 @@ impl<'a> Sections<'a> {
         for of_tile in doors.values_mut() {
             of_tile.sort_by_key(|(d, _)| *d);
         }
-        Sections { named, doors }
+        Sections { named, doors, most: ini.sections.len() * 8 + 4096 }
     }
 
     fn find(&self, name: &str) -> Option<&'a Section> {
@@ -207,6 +209,9 @@ impl<'a> Sections<'a> {
     /// as many as the count says, up to the last one there is (a count
     /// that is no count, `Count=1869573190`, costs nothing), and holes
     /// among them as `None`, with a warning and their names in `gone`.
+    /// The file's size bounds the list (eight items a section it has, and
+    /// 4,096): one far section, `[TILE2147483646]`, is no list of billions
+    /// of holes, and what lies past the bound is left out with a warning.
     fn items(
         &self,
         list: &str,
@@ -228,6 +233,14 @@ impl<'a> Sections<'a> {
                 None => format!("[{list}] Count={count}, but there is no [{item}n]"),
             });
         }
+        if n > self.most {
+            warnings.push(format!(
+                "[{item}{}] is too far past the file's other sections: read up to [{item}{}]",
+                n - 1,
+                self.most - 1
+            ));
+        }
+        let n = n.min(self.most);
         let mut missing = Vec::new();
         let items = (0..n)
             .map(|i| {
@@ -557,6 +570,17 @@ mod tests {
         // One warning for each, not one per door.
         let about = |what: &str| t.warnings.iter().filter(|w| w.contains(what)).count();
         assert_eq!((about("Doors="), about("is no size"), about("no [GROUP2]")), (2, 1, 1));
+        assert!(t.warnings.len() < 20, "{:?}", t.warnings);
+
+        // A count with one far section: the file's size bounds the list.
+        let far = "[GENERAL]\nName=x\n[TILES]\nCount=2147483647\n[TILE2147483646]\nModel=a\n\
+[TERRAIN TYPES]\nCount=50000000\n[TERRAIN49999999]\nName=t\n";
+        let started = std::time::Instant::now();
+        let t = Tileset::parse(far.as_bytes(), Codepage::default()).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert!(t.tiles.len() < 10_000 && t.tiles.iter().all(Tile::is_hole));
+        assert!(t.terrains.is_empty() && t.missing_sections.len() < 20_000);
+        assert!(t.warnings.iter().any(|w| w.contains("[TILE2147483646] is too far")));
         assert!(t.warnings.len() < 20, "{:?}", t.warnings);
 
         // The tileset editor, on the same file: a tile copied with the
