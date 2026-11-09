@@ -461,10 +461,13 @@ fn typed(ty: FieldType, v: &LuaValue, old: Option<&Value>) -> Result<Value, Stri
         }
         FieldType::String => Value::String(text_of(v, ty)?),
         FieldType::ResRef => {
+            // (Its bytes in the module's codepage, as a field read gives
+            // them: not turned back into text, which a letter outside
+            // ASCII does not survive.)
             let bytes = text_of(v, ty)?;
-            let name = String::from_utf8_lossy(&bytes).into_owned();
-            let r = ResRef::from_str(&name)
-                .map_err(|e| format!("{name:?} is not a resource name: {e}"))?;
+            let r = ResRef::from_bytes(&bytes).map_err(|e| {
+                format!("{:?} is not a resource name: {e}", codepage().decode(&bytes))
+            })?;
             Value::resref(r)
         }
         FieldType::Void => match v {
@@ -2462,6 +2465,28 @@ pub(crate) fn api_names() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A resource's name set from text is the text's bytes in the
+    /// module's codepage, as reading the field gave them: a letter outside
+    /// ASCII was written as three other bytes, and counted as three.
+    #[test]
+    fn a_resref_set_from_text_keeps_its_letters() {
+        let lua = Lua::new();
+        let text = |t: &str| LuaValue::String(lua.create_string(t).unwrap());
+        assert_eq!(codepage(), Codepage::WINDOWS_1252);
+        let made = typed(FieldType::ResRef, &text("caf\u{e9}"), None).unwrap();
+        assert_eq!(made, Value::ResRef(vec![0x63, 0x61, 0x66, 0xe9]));
+        // Sixteen letters are sixteen bytes, whichever they are.
+        let long = "\u{e9}".repeat(16);
+        assert_eq!(typed(FieldType::ResRef, &text(&long), None), Ok(Value::ResRef(vec![0xe9; 16])));
+        let e = typed(FieldType::ResRef, &text(&"\u{e9}".repeat(17)), None).unwrap_err();
+        assert!(e.contains("is not a resource name"), "{e}");
+        // And it reads back as it was given.
+        let mut s = Struct::new(0);
+        s.set("Conversation", made);
+        let read = plain(&lua, &s, &GffPath::root()).unwrap();
+        assert_eq!(read.get::<String>("Conversation").unwrap(), "caf\u{e9}");
+    }
 
     struct Nobody;
     impl Host for Nobody {
