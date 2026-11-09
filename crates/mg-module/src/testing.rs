@@ -32,13 +32,11 @@ pub fn matches(filter: Option<&str>, name: &str) -> bool {
     }
     let parts: Vec<&str> = filter.split('*').collect();
     let (first, last) = (parts[0], parts[parts.len() - 1]);
-    if !name.starts_with(first) || name.len() < first.len() + last.len() {
+    // (Cut where the parts end, never by their lengths alone: a name's
+    // character of two bytes may lie there.)
+    let Some(mut rest) = name.strip_prefix(first).and_then(|rest| rest.strip_suffix(last)) else {
         return false;
-    }
-    let mut rest = &name[first.len()..name.len() - last.len()];
-    if !name[first.len()..].ends_with(last) {
-        return false;
-    }
+    };
     for part in &parts[1..parts.len() - 1] {
         match rest.find(part) {
             Some(at) => rest = &rest[at + part.len()..],
@@ -445,6 +443,11 @@ mod tests {
         assert!(matches(Some("*rules*"), "test_rules_feats"));
         assert!(!matches(Some("test_*_feat"), "test_rules_feats"));
         assert!(!matches(Some("a*a"), "a"));
+        // A script's name with a byte above 0x7F (two bytes of its text)
+        // where a part's length would cut it.
+        assert!(!matches(Some("test_*x"), "test_\u{e9}"));
+        assert!(matches(Some("test_*x"), "test_\u{e9}x"));
+        assert!(matches(Some("*\u{e9}*"), "test_\u{e9}x"));
     }
 
     #[test]

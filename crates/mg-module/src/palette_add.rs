@@ -34,6 +34,14 @@ pub struct Added {
     pub instance: Struct,
 }
 
+/// The first `most` characters of `text` (all of it where it has no
+/// more): where a new resref's stem is cut. By characters, not bytes: a
+/// resref's byte above 0x7F is written as a character of two, and a cut
+/// by bytes could fall inside it.
+pub fn first_chars(text: &str, most: usize) -> &str {
+    text.char_indices().nth(most).map_or(text, |(at, _)| &text[..at])
+}
+
 /// A new blueprint resref for a copy of `template`, a creature's or an
 /// item's, as Aurora's Add to Palette names it: the template without a
 /// leading `nw_` and its trailing number (within 13 characters); from that
@@ -61,7 +69,7 @@ pub fn new_resref_named(
     let base = naming.strip(base);
     let stem = base.trim_end_matches(|c: char| c.is_ascii_digit());
     let mut n: u32 = base[stem.len()..].parse().unwrap_or(0);
-    let stem = &stem[..stem.len().min(13)];
+    let stem = first_chars(stem, 13);
     let stem = if stem.is_empty() { "blueprint" } else { stem };
     let named = |n: u32| naming.fit(stem, &format!("{n:03}"));
     let used = |n: u32| match n {
@@ -133,7 +141,7 @@ pub fn copy_resref_named(
     let base = naming.strip(lower.strip_prefix("nw_").unwrap_or(&lower));
     let stem = base.trim_end_matches(|c: char| c.is_ascii_digit());
     let n: u32 = base[stem.len()..].parse().unwrap_or(0);
-    let stem = &stem[..stem.len().min(13)];
+    let stem = first_chars(stem, 13);
     let stem = if stem.is_empty() { "blueprint" } else { stem };
     naming.numbered(stem, n + 1, taken)
 }
@@ -362,6 +370,21 @@ fn file_type(t: ResType) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A template with a byte above 0x7F (a character of two bytes in its
+    /// text) where the stem is cut: cut after the character, not in it.
+    #[test]
+    fn a_stem_is_cut_by_characters() {
+        assert_eq!(first_chars("abcdefghijkl\u{e9}xy", 13), "abcdefghijkl\u{e9}");
+        assert_eq!(first_chars("abc", 13), "abc");
+        assert_eq!(first_chars("\u{e9}\u{e9}", 1), "\u{e9}");
+        let free = |_: &str| false;
+        let template = "abcdefghijkl\u{e9}x";
+        let _ = new_resref(template, &free);
+        let _ = copy_resref_named(template, &Naming::default(), &free);
+        let _ = situated_resref_named(template, &Naming::default(), &free);
+        assert_eq!(new_resref("abcdefghijklmnop", &free).unwrap().to_string(), "abcdefghijklm001");
+    }
 
     /// A placed creature made a blueprint: its items' `Dropable` and
     /// `Pickpocketable` go into the blueprint's entries, equipped as in
