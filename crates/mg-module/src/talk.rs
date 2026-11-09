@@ -281,6 +281,10 @@ struct Change {
     /// Changes made as one (an import's): undone and redone together.
     /// 0: on its own.
     batch: u64,
+    /// The table's length before, where the change put a line past its
+    /// end (the lines between are empty): its undo cuts the table back to
+    /// it.
+    grew_from: Option<usize>,
 }
 
 /// A talk table open for editing: its file (and the feminine table's, if
@@ -685,7 +689,7 @@ impl Table {
             return Ok(());
         }
         let before = self.current(row);
-        self.apply(Change { row, before, after, typing, batch: 0 });
+        self.apply(Change { row, before, after, typing, batch: 0, grew_from: None });
         Ok(())
     }
 
@@ -693,17 +697,26 @@ impl Table {
     pub fn add_line(&mut self, line: &Line) -> Result<usize, String> {
         let row = self.len();
         let after = self.entries(line, row)?;
-        self.apply(Change { row, before: (None, None), after, typing: None, batch: 0 });
+        self.apply(Change {
+            row,
+            before: (None, None),
+            after,
+            typing: None,
+            batch: 0,
+            grew_from: None,
+        });
         Ok(row)
     }
 
     /// Puts a line at `row` (past the end: the table reaches it with empty
     /// lines), in the table's history: Move to Talk Table's line in the
-    /// project's range.
+    /// project's range. One step of the history however far the row is,
+    /// which its undo takes back with the empty lines it was reached by.
     pub fn put_line(&mut self, row: usize, line: &Line) -> Result<(), String> {
         let after = self.entries(line, row)?;
         let before = self.current(row);
-        self.apply(Change { row, before, after, typing: None, batch: 0 });
+        let grew_from = (row > self.len()).then_some(self.len());
+        self.apply(Change { row, before, after, typing: None, batch: 0, grew_from });
         Ok(())
     }
 
@@ -712,7 +725,14 @@ impl Table {
     pub fn remove_last(&mut self) {
         let Some(row) = self.len().checked_sub(1) else { return };
         let before = self.current(row);
-        self.apply(Change { row, before, after: (None, None), typing: None, batch: 0 });
+        self.apply(Change {
+            row,
+            before,
+            after: (None, None),
+            typing: None,
+            batch: 0,
+            grew_from: None,
+        });
     }
 
     pub fn can_undo(&self) -> bool {
@@ -726,6 +746,16 @@ impl Table {
     pub fn undo(&mut self) {
         while let Some(c) = self.undo.pop() {
             self.put(c.row, c.before.clone());
+            // (The empty lines it was reached with go too, unless a line
+            // typed for a field has been put among them since.)
+            if let Some(len) =
+                c.grew_from.filter(|len| (*len..self.len()).all(|r| self.is_blank(r)))
+            {
+                self.tlk.entries.truncate(len);
+                if let Some((_, f)) = &mut self.feminine {
+                    f.entries.truncate(len);
+                }
+            }
             let batch = c.batch;
             self.redo.push(c);
             // (The rest of an import with it.)
@@ -917,12 +947,6 @@ impl Table {
         &mut self,
         lines: std::collections::BTreeMap<usize, Line>,
     ) -> Result<(usize, usize), String> {
-        let empty = Line {
-            text: String::new(),
-            feminine: self.feminine.as_ref().map(|_| String::new()),
-            sound: String::new(),
-            sound_length: 0.0,
-        };
         // Every line must be one the table can hold, before any is set.
         for (row, line) in &lines {
             self.entries(line, *row)
@@ -932,15 +956,15 @@ impl Table {
         let from = self.undo.len();
         let (mut changed, mut added) = (0, 0);
         for (row, line) in lines {
-            while self.len() < row {
-                self.add_line(&empty)?;
-            }
             if row < self.len() {
                 let before = self.undo.len();
                 self.set_line(row, &line, None)?;
                 changed += usize::from(self.undo.len() > before);
             } else {
-                self.add_line(&line)?;
+                // (A row far past the end is one step, as any other: a
+                // step for each empty line between was millions of them
+                // for one mistyped StrRef.)
+                self.put_line(row, &line)?;
                 added += 1;
             }
         }
@@ -1071,6 +1095,36 @@ mod tests {
         assert!(t.import_csv("StrRef,Text\n1,ok\nx,bad\n").is_err());
         assert!(t.import_csv("Text\nno strref\n").is_err());
         assert_eq!(t.to_csv(), before);
+    }
+
+    /// A row far past the table's end is one step of the history, not one
+    /// for each empty line between (millions of them, and gigabytes, for
+    /// one mistyped StrRef), and one undo takes it and the lines between
+    /// back.
+    #[test]
+    fn an_import_far_past_the_end_is_one_step() {
+        let dir = std::env::temp_dir();
+        for feminine in [false, true] {
+            let mut t = Table::create("far", &dir, Language::ENGLISH, feminine);
+            assert_eq!(t.import_csv("StrRef,Text\n500000,x\n500003,y\n"), Ok((0, 2)));
+            assert_eq!((t.undo.len(), t.len()), (2, 500_004));
+            assert_eq!((t.line(500_000).text.as_str(), t.line(500_003).text.as_str()), ("x", "y"));
+            assert!(t.is_blank(499_999) && t.is_blank(500_001));
+            if let Some((_, f)) = &t.feminine {
+                assert_eq!(f.entries.len(), 500_004);
+            }
+            t.undo();
+            assert_eq!((t.undo.len(), t.len()), (0, 0), "one undo empties it");
+            assert!(t.feminine.as_ref().is_none_or(|(_, f)| f.entries.is_empty()));
+            t.redo();
+            assert_eq!((t.len(), t.line(500_003).text.as_str()), (500_004, "y"));
+            // Move to Talk Table's line, the same.
+            let mut t = Table::create("far", &dir, Language::ENGLISH, feminine);
+            let line = Line { text: "z".into(), ..t.line(0) };
+            t.put_line(1000, &line).unwrap();
+            t.undo();
+            assert_eq!(t.len(), 0);
+        }
     }
 
     #[test]
