@@ -3705,7 +3705,9 @@ impl Moonglow {
         ) {
             self.discard_asked = Some(self.unsaved_mark());
         }
-        trace::note(format!("action {action:?}"));
+        if trace::on() {
+            trace::note(format!("action {}", trace::brief(&action)));
+        }
         if let Action::OpenTab(tab) = &action {
             trace::note(format!(
                 "  open tab {tab:?}: docks {}, already open {}, focused pane {:?}",

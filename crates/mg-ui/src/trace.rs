@@ -151,13 +151,44 @@ pub fn set(on: bool) {
     }
 }
 
+/// The most characters of a value a line says.
+const LONGEST: usize = 1200;
+
+/// `text` cut to [`LONGEST`] characters, with a mark where it was cut.
+fn cut(text: &str) -> String {
+    match text.char_indices().nth(LONGEST) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text.to_string(),
+    }
+}
+
+/// A value as its `Debug` says it, cut as a line is: formatted only as
+/// far as is said (an action holding an import's files or a compiled
+/// script was written out whole, hundreds of megabytes of digits, before
+/// it was cut, and whether or not the log was on).
+pub fn brief(value: &impl std::fmt::Debug) -> String {
+    struct Short(String, usize);
+    impl std::fmt::Write for Short {
+        fn write_str(&mut self, s: &str) -> std::fmt::Result {
+            for c in s.chars() {
+                if self.1 == 0 {
+                    return Err(std::fmt::Error);
+                }
+                self.0.push(c);
+                self.1 -= 1;
+            }
+            Ok(())
+        }
+    }
+    let mut out = Short(String::new(), LONGEST + 1);
+    let _ = std::fmt::write(&mut out, format_args!("{value:?}"));
+    out.0
+}
+
 fn write(state: &mut State, text: &str) {
     let t = state.started.elapsed().as_secs_f64();
     // (Long values, a resource's bytes in an action, are cut.)
-    let mut text: String = text.chars().take(1200).collect();
-    if text.len() == 1200 {
-        text.push('…');
-    }
+    let text = cut(text);
     let clock = utc(SystemTime::now()).1;
     let indent = "\n".to_string() + &" ".repeat(26);
     let line = format!("[{clock} {t:9.3}] {}\n", text.replace('\n', &indent));
@@ -233,6 +264,28 @@ impl log::Log for Libraries {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long value is cut by its characters, and formatted only as far
+    /// as it is said (the review of November 2026, S18 and S27).
+    #[test]
+    fn a_long_value_is_cut_before_it_is_written_out() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        assert_eq!(cut(&"é".repeat(1200)), "é".repeat(1200), "as long as it may be");
+        assert_eq!(cut(&"é".repeat(1300)), "é".repeat(1200) + "…");
+        static ASKED: AtomicUsize = AtomicUsize::new(0);
+        struct Byte;
+        impl std::fmt::Debug for Byte {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                ASKED.fetch_add(1, Ordering::Relaxed);
+                f.write_str("255")
+            }
+        }
+        let big: Vec<Byte> = (0..1_000_000).map(|_| Byte).collect();
+        let said = brief(&big);
+        assert_eq!(said.chars().count(), 1201);
+        assert!(ASKED.load(Ordering::Relaxed) < 1000, "not every byte formatted");
+        assert_eq!(brief(&"short"), "\"short\"");
+    }
 
     #[test]
     fn a_full_log_is_set_aside_and_a_new_one_begun() {
