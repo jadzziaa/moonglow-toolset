@@ -12,11 +12,19 @@ use crate::{Kind, verify};
 /// is gone as Moonglow closes, so the next start logs it ([`take_report`]).
 pub const REPORT: &str = "last-install.txt";
 
+/// How long a program an install waits for may take (mounting a disk
+/// image of some tens of megabytes and copying an app out of it take
+/// seconds): one still running then is stopped, and the step fails.
+pub const RUN_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// A step of an install.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
-    /// A program run, waited for (and failing unless it succeeds), or
-    /// started and left.
+    /// A program run, waited for (with nothing on its input, for at most
+    /// [`RUN_LIMIT`], and failing unless it succeeds), or started and
+    /// left. The system's own tools are named by their full paths: a
+    /// `hdiutil` earlier on `PATH` is not the one an update is mounted
+    /// with.
     Run {
         program: PathBuf,
         args: Vec<OsString>,
@@ -60,14 +68,24 @@ fn step_error(step: &Step, e: impl std::fmt::Display) -> String {
 }
 
 fn one(step: &Step) -> Result<(), String> {
+    one_within(step, RUN_LIMIT)
+}
+
+fn one_within(step: &Step, limit: std::time::Duration) -> Result<(), String> {
     match step {
         Step::Run { program, args, wait } => {
             let mut command = std::process::Command::new(program);
             command.args(args);
             if *wait {
-                let status = command.status().map_err(|e| step_error(step, e))?;
-                if !status.success() {
-                    return Err(step_error(step, status));
+                let out = mg_core::process::output_within(&mut command, limit)
+                    .map_err(|e| step_error(step, e))?;
+                if !out.status.success() {
+                    let said = String::from_utf8_lossy(&out.stderr);
+                    let said = said.trim().lines().last().unwrap_or_default().to_string();
+                    return Err(match said.is_empty() {
+                        true => step_error(step, out.status),
+                        false => step_error(step, format!("{} ({said})", out.status)),
+                    });
                 }
             } else {
                 command.spawn().map_err(|e| step_error(step, e))?;
@@ -184,7 +202,7 @@ pub fn plan(staged: &Staged, restart: bool, cache: &Path) -> Result<(Vec<Step>, 
             }],
             Restart::ByInstaller,
         ),
-        (Kind::WindowsZip { dir }, Ready::Files { dir: new }) => {
+        (Kind::WindowsZip { dir }, Ready::Files { dir: new, .. }) => {
             // Each file the zip holds: the old one moved aside (a running
             // program can be moved on Windows, not overwritten), the new
             // one into its place. Nothing else of the folder is touched.
@@ -205,7 +223,7 @@ pub fn plan(staged: &Staged, restart: bool, cache: &Path) -> Result<(Vec<Step>, 
             steps.push(Step::RemoveAll(new.clone()));
             (steps, Restart::Exe(dir.join("moonglow.exe")))
         }
-        (Kind::MacApp { app }, Ready::App { app: new }) => {
+        (Kind::MacApp { app }, Ready::App { app: new, .. }) => {
             // The app moved aside, the new one into its place (undone if
             // that fails), the old one removed.
             let old = app.with_file_name(format!("{PREFIX}old.app"));
@@ -223,11 +241,17 @@ pub fn plan(staged: &Staged, restart: bool, cache: &Path) -> Result<(Vec<Step>, 
     })
 }
 
-/// Installs `staged` (its files checked again first) and says how to start
-/// Moonglow again.
+/// Installs `staged` (its files checked again first: the image or the
+/// installer by its hash, the unpacked zip and the copied-out app by the
+/// hash of all their files, which have waited beside the program since
+/// they were made ready) and says how to start Moonglow again.
 pub fn install(staged: &Staged, restart: bool, cache: &Path) -> Result<Restart, String> {
-    if let Ready::Image { file, hash } | Ready::Installer { file, hash } = &staged.ready {
-        verify::still(file, hash)?;
+    match &staged.ready {
+        Ready::Image { file, hash } | Ready::Installer { file, hash } => verify::still(file, hash)?,
+        Ready::Files { dir: tree, seal } | Ready::App { app: tree, seal } => {
+            verify::still_tree(tree, seal)?
+        }
+        Ready::Installed => {}
     }
     let (steps, again) = plan(staged, restart, cache)?;
     run(&steps)?;
@@ -256,6 +280,62 @@ mod tests {
 
     fn staged(kind: Kind, ready: Ready) -> Staged {
         Staged { version: Version::parse("3.3.0").unwrap(), kind, ready }
+    }
+
+    /// A program an install waits for that doesn't end (a disk image
+    /// asking to agree to a license) is stopped at the limit and the step
+    /// fails; one that fails says what it wrote; nothing reads the
+    /// terminal's input.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_that_hangs_fails_its_step() {
+        let run = |program: &str, args: &[&str]| Step::Run {
+            program: program.into(),
+            args: args.iter().map(OsString::from).collect(),
+            wait: true,
+        };
+        let started = std::time::Instant::now();
+        let limit = std::time::Duration::from_millis(200);
+        let e = one_within(&run("sleep", &["30"]), limit).unwrap_err();
+        assert!(e.starts_with("sleep failed: ") && e.contains("was stopped"), "{e}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        one(&run("sh", &["-c", "read line; test -z \"$line\""])).unwrap();
+        let e = one(&run("sh", &["-c", "echo no such image >&2; exit 2"])).unwrap_err();
+        assert!(e.contains("no such image"), "{e}");
+    }
+
+    /// An unpacked zip (or a copied-out app) with a file changed, added
+    /// or taken away since it was made ready is refused, and nothing of
+    /// the program is touched; as it was, it is installed.
+    #[test]
+    fn unpacked_files_changed_since_they_were_checked_are_refused() {
+        let dir = crate::tests::scratch("install-sealed");
+        let (program, new) = (dir.join("Moonglow"), dir.join("Moonglow/.moonglow-update-3.3.0"));
+        std::fs::create_dir_all(new.join("manual")).unwrap();
+        std::fs::write(program.join("moonglow.exe"), "old").unwrap();
+        std::fs::write(new.join("moonglow.exe"), "new").unwrap();
+        std::fs::write(new.join("manual/01.md"), "a chapter").unwrap();
+        let seal = verify::hash_tree(&new).unwrap();
+        let s = staged(
+            Kind::WindowsZip { dir: program.clone() },
+            Ready::Files { dir: new.clone(), seal },
+        );
+        let refused = |what: &str| {
+            let e = install(&s, false, &dir.join("cache")).unwrap_err();
+            assert!(e.contains("changed after it was checked"), "{what}: {e}");
+            assert_eq!(std::fs::read(program.join("moonglow.exe")).unwrap(), b"old", "{what}");
+        };
+        std::fs::write(new.join("moonglow.exe"), "evil").unwrap();
+        refused("a file changed");
+        std::fs::write(new.join("moonglow.exe"), "new").unwrap();
+        std::fs::write(new.join("extra.dll"), "planted").unwrap();
+        refused("a file added");
+        std::fs::remove_file(new.join("extra.dll")).unwrap();
+        std::fs::rename(new.join("manual/01.md"), new.join("manual/02.md")).unwrap();
+        refused("a file renamed");
+        std::fs::rename(new.join("manual/02.md"), new.join("manual/01.md")).unwrap();
+        install(&s, false, &dir.join("cache")).unwrap();
+        assert_eq!(std::fs::read(program.join("moonglow.exe")).unwrap(), b"new");
     }
 
     #[test]
@@ -307,7 +387,7 @@ mod tests {
     fn the_macos_app_is_moved_aside_then_the_new_one_into_its_place() {
         let s = staged(
             Kind::MacApp { app: "/Applications/Moonglow Toolset.app".into() },
-            Ready::App { app: "/Applications/.moonglow-update-3.3.0.app".into() },
+            Ready::App { app: "/Applications/.moonglow-update-3.3.0.app".into(), seal: [0; 32] },
         );
         let (steps, again) = plan(&s, true, Path::new("/c")).unwrap();
         assert_eq!(again, Restart::Open("/Applications/Moonglow Toolset.app".into()));
@@ -339,11 +419,16 @@ mod tests {
             std::fs::create_dir_all(d.join("Contents/MacOS")).unwrap();
             std::fs::write(d.join("Contents/MacOS/moonglow"), v).unwrap();
         }
-        let s = staged(Kind::MacApp { app: app.clone() }, Ready::App { app: new.clone() });
+        let seal = verify::hash_tree(&new).unwrap();
+        let s = staged(Kind::MacApp { app: app.clone() }, Ready::App { app: new.clone(), seal });
         let read = || std::fs::read_to_string(app.join("Contents/MacOS/moonglow")).unwrap();
-        // The new one gone before it is swapped in: the old one is put back.
+        // The new one gone before it is swapped in: the install says so
+        // before it moves anything, and the swap's own steps, run all the
+        // same, put the old one back.
         std::fs::rename(&new, dir.join("elsewhere")).unwrap();
         let e = install(&s, true, &dir).unwrap_err();
+        assert!(e.contains("can't read"), "{e}");
+        let e = run(&plan(&s, true, &dir).unwrap().0).unwrap_err();
         assert!(e.contains("can't move"), "{e}");
         assert_eq!(read(), "old");
         assert!(!dir.join(".moonglow-update-old.app").exists());

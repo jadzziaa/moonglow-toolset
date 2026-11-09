@@ -524,7 +524,11 @@ nasher Project takes in `.nwnt` files instead of `.json` where the
 settings it is saved under (the global `user.cfg`, or one already in the
 folder's `.nasher`) say NWNT. A field whose label has a dot in it can't
 be written as NWNT (`nwn_nwnt` reads the dot as a struct's); the game's
-own files have none. A field with no label at all (BioWare's own
+own files have none. Nor can text with a typed backslash before `n` or
+`r` (`C:\new`, or `\n` meant for a script to expand): NWNT writes a line
+break that way, so the text would read back with one. Saving such a file
+fails and names the field; change the text, or keep the project's GFF
+files as JSON. A field with no label at all (BioWare's own
 tileset palettes have one, so a palette copied from the game's may) is
 written, read and packed by Moonglow, but `nwn_nwnt` can't read it
 back, so `nasher pack` fails on that file.
@@ -1480,7 +1484,10 @@ module's name, or take the name off the list and add the file. Windows'
 file system (and macOS's, as it usually is) takes a name in another case
 for the same file, so there the game finds it, and Moonglow doesn't warn;
 a module made there may still not load on a Linux server, so name haks in
-lower case.
+lower case. A hak or a talk table named with a folder separator, a colon
+or a control character (`../x`, `C:\haks\x`) names no file in the hak or
+`tlk` folders: Moonglow and `mg` open nothing for it, wherever such a
+path would lead, and say that it is not found and why.
 - **Choose** a row with a click; Ctrl + click adds or takes out a row,
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots

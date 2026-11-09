@@ -115,6 +115,11 @@ replaces, under a name starting `.moonglow-update-`, and renamed only
 once it is checked; a broken or interrupted download is removed, and
 what one leaves behind is removed at the next start.
 
+With two Moonglow windows open, the one that downloaded the update
+installs it as it closes. The other leaves that download alone, and if
+asked to install the update too it says that another Moonglow that is
+running has it.
+
 **When Moonglow doesn't install it**, the window says why and links the
 release page:
 
@@ -122,7 +127,9 @@ release page:
   (`flatpak update io.github.moonglow_toolset.Moonglow`, `scoop update
   moonglow`), and Moonglow doesn't ask by itself
   ([Options](10-options.md#updates)).
-- A copy built from source, or installed by a distribution's package.
+- A copy built from source, or installed by a distribution's package
+  (also when it was started from a terminal or an editor that is itself
+  an AppImage: that program's file is not Moonglow's to replace).
 - A folder Moonglow can't write to (an AppImage in `/opt`, the app in
   `/Applications` for a user who isn't an administrator): it says so
   before downloading anything. Update it as you installed it.

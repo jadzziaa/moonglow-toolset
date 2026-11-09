@@ -27,8 +27,8 @@ pub use container::{
     Container, DirContainer, ERF_READ_LIMIT, ErfContainer, KeyContainer, MemContainer,
 };
 pub use file_name::{
-    CASE_IGNORED, Listed, differs_in_case, file_name_bytes, file_name_text, listed, name_of_file,
-    named_file,
+    CASE_IGNORED, Listed, NO_FILE_NAME, differs_in_case, file_name_bytes, file_name_text,
+    is_file_name, listed, name_of_file, named_file,
 };
 pub use install::{GameInstall, default_user_dir};
 
@@ -741,6 +741,32 @@ mod tests {
         assert_eq!(ResKey::from_filename("readme"), None);
         assert_eq!(ResKey::from_filename("x.unknownext"), None);
         assert_eq!(ResKey::from_filename("waytoolongname_abcdef.utc"), None);
+    }
+
+    /// A name with bytes above 0x7F (`pi\xE8ce01`, as other tools make
+    /// them) is the same resource written into a folder and read back,
+    /// sixteen such bytes too.
+    #[test]
+    fn a_name_past_ascii_survives_a_folder() {
+        let dir = Path::new("unpacked");
+        let all: Vec<u8> = (0x80..=0xFF).collect();
+        let names = all.chunks(16).chain([&b"pi\xE8ce01"[..], b"Se\xF1or"]);
+        for bytes in names {
+            let key = ResKey::new(ResRef::from_bytes(bytes).unwrap(), ResType::UTC);
+            let file = key.path_in(dir).unwrap();
+            let name = file.file_name().unwrap().to_str().unwrap();
+            let back = ResKey::from_filename(name).unwrap();
+            assert_eq!(back, key, "{name}");
+            assert_eq!(back.resref.to_lowercase().as_bytes(), key.resref.to_lowercase().as_bytes());
+            assert_eq!(ResKey::from_filename(&key.to_string()), Some(key));
+        }
+        assert_eq!(
+            ResKey::from_filename("pi\u{e8}ce01.utc").unwrap().resref.as_bytes(),
+            b"pi\xE8ce01"
+        );
+        // A character that is no byte: the name's UTF-8, as it was.
+        let wide = ResKey::from_filename("z\u{142}oty.utc").unwrap();
+        assert_eq!(wide.resref.as_bytes(), "z\u{142}oty".as_bytes());
     }
 
     #[test]

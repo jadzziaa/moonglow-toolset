@@ -209,8 +209,10 @@ impl Editing {
     ) -> Result<Vec<CellChange>, TwoDaError> {
         let cells: Vec<(usize, usize, Option<String>)> =
             cells.into_iter().map(|(r, c, v)| (r, c, v.filter(|v| v != "****"))).collect();
-        if cells.iter().any(|(_, _, v)| v.as_ref().is_some_and(|v| v.contains('"'))) {
-            return Err(TwoDaError::Unquotable);
+        // (All of them before any is put: a value no cell holds, a double
+        // quote or a line break, changes nothing.)
+        for (_, _, value) in &cells {
+            value.as_deref().map_or(Ok(()), TwoDa::holds)?;
         }
         let mut changed = Vec::new();
         for (row, column, value) in cells {

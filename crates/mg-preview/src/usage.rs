@@ -389,7 +389,7 @@ impl<'a> Walk<'a> {
         if key.restype == ResType::SSF {
             if let Ok(ssf) = mg_ssf::Ssf::read(&data) {
                 for e in &ssf.entries {
-                    self.reach_named(&String::from_utf8_lossy(&e.sound), ResType::WAV);
+                    self.reach_named(&String::from_utf8_lossy(e.sound_name()), ResType::WAV);
                 }
             }
             return;

@@ -31,6 +31,10 @@ pub enum TwoDaError {
     DuplicateColumn(String),
     #[error("a cell value contains a double quote, which 2DA cannot express")]
     Unquotable,
+    #[error("a cell value contains a line break, which 2DA cannot express")]
+    LineBreak,
+    #[error("{place}: the character {character:?} is not in the codepage the table is written in")]
+    Unencodable { place: String, character: char },
     #[error(
         "the table's short rows would be padded with more than {0} empty cells (a header of \
          many columns over many short lines)"
@@ -250,9 +254,23 @@ impl TwoDa {
         self.get(row, column).and_then(parse_int)
     }
 
+    /// Whether a cell can hold `value`: an error for a double quote (a
+    /// cell is quoted with them, and nothing escapes one) and for a line
+    /// break (a row is a line: the rest of the value would be the next
+    /// row, and every row after it one further down).
+    pub fn holds(value: &str) -> Result<(), TwoDaError> {
+        if value.contains('"') {
+            Err(TwoDaError::Unquotable)
+        } else if value.contains(['\n', '\r']) {
+            Err(TwoDaError::LineBreak)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Sets the cell at (`row`, `column`): `None`, or `****`, empties it.
-    /// An error for a value a 2DA cannot hold (a double quote); nothing
-    /// for a cell the table does not have.
+    /// An error for a value a 2DA cannot hold ([`TwoDa::holds`]: a double
+    /// quote, a line break); nothing for a cell the table does not have.
     pub fn set(
         &mut self,
         row: usize,
@@ -260,8 +278,8 @@ impl TwoDa {
         value: Option<String>,
     ) -> Result<(), TwoDaError> {
         let value = value.filter(|v| v != "****");
-        if value.as_ref().is_some_and(|v| v.contains('"')) {
-            return Err(TwoDaError::Unquotable);
+        if let Some(v) = &value {
+            TwoDa::holds(v)?;
         }
         if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(column)) {
             *cell = value;
@@ -403,7 +421,7 @@ impl TwoDa {
         let esc = |c: &Option<String>| -> Result<String, TwoDaError> {
             match c {
                 None => Ok("****".into()),
-                Some(v) if v.contains('"') => Err(TwoDaError::Unquotable),
+                Some(v) if TwoDa::holds(v).is_err() => TwoDa::holds(v).map(|()| String::new()),
                 Some(v) if v.is_empty() || v.contains([' ', '\t']) => Ok(format!("\"{v}\"")),
                 Some(v) => Ok(v.clone()),
             }
@@ -465,7 +483,36 @@ impl TwoDa {
         for (label, r) in labels.iter().zip(&rows) {
             out += &line(label, r);
         }
-        codepage.encode(&out).map(|b| b.into_owned()).ok_or(TwoDaError::Unquotable)
+        match codepage.encode(&out) {
+            Some(bytes) => Ok(bytes.into_owned()),
+            None => Err(self.unencodable(codepage)),
+        }
+    }
+
+    /// The first of the table's texts with a character `codepage` lacks
+    /// (looked for once the whole table failed to encode): where it is
+    /// and the character, for the builder to find it.
+    fn unencodable(&self, codepage: Codepage) -> TwoDaError {
+        let lacking = |text: &str| {
+            let mut buf = [0u8; 4];
+            text.chars().find(|c| codepage.encode(c.encode_utf8(&mut buf)).is_none())
+        };
+        let columns = self.columns.iter().map(|c| (format!("the column name {c}"), c.as_str()));
+        let default = self.default.iter().map(|d| ("the DEFAULT: value".to_string(), d.as_str()));
+        let cells = self.rows.iter().enumerate().flat_map(|(r, row)| {
+            row.iter().enumerate().filter_map(move |(c, cell)| {
+                let column = self.columns.get(c).map_or("?", String::as_str);
+                Some((format!("row {r}, column {column}"), cell.as_deref()?))
+            })
+        });
+        columns
+            .chain(default)
+            .chain(cells)
+            .find_map(|(place, text)| {
+                lacking(text).map(|character| TwoDaError::Unencodable { place, character })
+            })
+            // (Nothing of the table's: not reached, the rest being ASCII.)
+            .unwrap_or(TwoDaError::Unencodable { place: "the table".into(), character: '?' })
     }
 }
 
@@ -580,41 +627,10 @@ pub fn parse_int(s: &str) -> Option<i32> {
 }
 
 /// Parses a float cell like C's `atof`: the longest valid prefix. `None` if
-/// there is none.
+/// there is none. (One reader for every text file of the game's:
+/// [`mg_core::num::parse_float`].)
 pub fn parse_float(s: &str) -> Option<f32> {
-    let s = s.trim();
-    let b = s.as_bytes();
-    let mut end = 0;
-    if matches!(b.first(), Some(b'+' | b'-')) {
-        end = 1;
-    }
-    let digits_start = end;
-    while end < b.len() && b[end].is_ascii_digit() {
-        end += 1;
-    }
-    if end < b.len() && b[end] == b'.' {
-        end += 1;
-        while end < b.len() && b[end].is_ascii_digit() {
-            end += 1;
-        }
-    }
-    if end == digits_start || (end == digits_start + 1 && b[digits_start] == b'.') {
-        return None;
-    }
-    // Optional exponent.
-    if end < b.len() && matches!(b[end], b'e' | b'E') {
-        let mut e = end + 1;
-        if matches!(b.get(e), Some(b'+' | b'-')) {
-            e += 1;
-        }
-        if b.get(e).is_some_and(u8::is_ascii_digit) {
-            while b.get(e).is_some_and(u8::is_ascii_digit) {
-                e += 1;
-            }
-            end = e;
-        }
-    }
-    s[..end].parse().ok()
+    mg_core::num::parse_float(s)
 }
 
 #[cfg(test)]
@@ -786,6 +802,26 @@ mod tests {
         t.set(0, 0, Some("****".into())).unwrap();
         assert_eq!((t.get(1, "Cost"), t.get(0, "Label")), (Some("5"), None));
         assert_eq!(t.set(0, 0, Some("a \"b\"".into())), Err(TwoDaError::Unquotable));
+        // A character the codepage lacks is named with its cell, not
+        // called a double quote.
+        let mut wide = t.clone();
+        wide.set(1, 0, Some("z\u{142}oty".into())).unwrap();
+        let e = wide.to_bytes(Codepage::WINDOWS_1252).unwrap_err();
+        let place = format!("row 1, column {}", wide.columns()[0]);
+        assert_eq!(e, TwoDaError::Unencodable { place, character: '\u{142}' });
+        assert!(e.to_string().contains("row 1, column") && e.to_string().contains("'\u{142}'"));
+        assert!(wide.to_bytes(Codepage::WINDOWS_1250).is_ok());
+        let mut named = t.clone();
+        named.rename_column(0, "A\u{2192}B").unwrap();
+        let e = named.to_bytes(Codepage::WINDOWS_1252).unwrap_err();
+        assert!(e.to_string().starts_with("the column name A\u{2192}B: "), "{e}");
+        // A line break would be the next row's beginning.
+        for broken in ["a\nb", "a\r\nb", "a\r"] {
+            assert_eq!(t.set(0, 0, Some(broken.into())), Err(TwoDaError::LineBreak), "{broken:?}");
+        }
+        let mut read = t.clone();
+        read.rows[0][0] = Some("a\nb".into());
+        assert_eq!(read.to_bytes(Codepage::default()), Err(TwoDaError::LineBreak));
         // (A cell that is not there: nothing.)
         t.set(9, 0, Some("x".into())).unwrap();
         assert_eq!(t.add_row(), 2);

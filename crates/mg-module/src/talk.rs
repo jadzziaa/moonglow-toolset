@@ -115,8 +115,10 @@ pub fn find(rm: &ResMan, tlk_dirs: &[PathBuf], name: &str) -> Option<Found> {
         };
         return Some(Found { source, data: data.into_owned() });
     }
+    // (A name with a folder in it is no file's in these: not found.)
+    let file = mg_resman::named_file(name, "tlk")?;
     tlk_dirs.iter().find_map(|d| {
-        let path = d.join(mg_resman::named_file(name, "tlk"));
+        let path = d.join(&file);
         let data = std::fs::read(&path).ok()?;
         Some(Found { source: Source::File(path), data })
     })
@@ -343,9 +345,14 @@ impl Table {
     }
 
     /// A new, empty table in `dir` (the user's `tlk/` folder), not yet
-    /// saved.
+    /// saved. (A name that is no file's, [`mg_resman::is_file_name`], which
+    /// the windows that make tables don't give: `unnamed.tlk`, never a
+    /// file outside `dir`.)
     pub fn create(name: &str, dir: &Path, language: Language, feminine: bool) -> Table {
-        let file = |n: &str| Source::File(dir.join(mg_resman::named_file(n, "tlk")));
+        let file = |n: &str| {
+            let file = mg_resman::named_file(n, "tlk").unwrap_or_else(|| "unnamed.tlk".into());
+            Source::File(dir.join(file))
+        };
         Table {
             name: name.to_string(),
             source: file(name),

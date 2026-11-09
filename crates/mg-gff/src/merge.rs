@@ -377,7 +377,10 @@ impl Merger<'_> {
                     of_side[*j] = Some(i);
                 }
             }
-            let used: Vec<bool> = (0..side.len()).map(|j| m.contains(&Some(j))).collect();
+            let mut used = vec![false; side.len()];
+            for &j in m.iter().flatten() {
+                used[j] = true;
+            }
             let mut after = None;
             let mut out = Vec::new();
             for j in 0..side.len() {
@@ -391,19 +394,29 @@ impl Merger<'_> {
         };
         let mut ours_added: Vec<(Option<usize>, Struct)> =
             added(o, &om).into_iter().map(|(a, j)| (a, o[j].clone())).collect();
+        // (Ours by what they hold and by their key, each looked up, not
+        // every one of theirs held against every one of ours.)
+        let mut ours_same: HashMap<u64, Vec<usize>> = HashMap::new();
+        let mut ours_keyed: HashMap<Vec<u8>, usize> = HashMap::new();
+        for (n, (_, s)) in ours_added.iter().enumerate() {
+            ours_same.entry(fingerprint(s)).or_default().push(n);
+            if rule != ListRule::Placed
+                && let Some(k) = key(rule, s)
+            {
+                ours_keyed.entry(k).or_insert(n);
+            }
+        }
         let mut theirs_added: Vec<(Option<usize>, Struct)> = Vec::new();
         for (after, j) in added(t, &tm) {
             let ti = &t[j];
             // The same item added by both is one.
-            if ours_added.iter().any(|(_, s)| s == ti) {
+            let same = ours_same.get(&fingerprint(ti));
+            if same.is_some_and(|ns| ns.iter().any(|&n| ours_added[n].1 == *ti)) {
                 continue;
             }
             let same_key = match rule {
                 ListRule::Placed => None,
-                _ => {
-                    let k = key(rule, ti);
-                    ours_added.iter().position(|(_, s)| k.is_some() && key(rule, s) == k)
-                }
+                _ => key(rule, ti).and_then(|k| ours_keyed.get(&k).copied()),
             };
             match same_key {
                 Some(n) => {
@@ -412,6 +425,7 @@ impl Merger<'_> {
                     if let Some(Value::Struct(s)) =
                         self.conflict(&p, None, Some(&ours), Some(&as_value(ti)))
                     {
+                        ours_same.entry(fingerprint(&s)).or_default().push(n);
                         ours_added[n].1 = s;
                     }
                 }
@@ -419,11 +433,18 @@ impl Merger<'_> {
             }
         }
         let mut out = Vec::with_capacity(order.len() + ours_added.len() + theirs_added.len());
+        // (Each side's new items by the item they follow, in their order.)
+        let by_place = |list: Vec<(Option<usize>, Struct)>| {
+            let mut by: HashMap<Option<usize>, Vec<Struct>> = HashMap::new();
+            for (after, s) in list {
+                by.entry(after).or_default().push(s);
+            }
+            by
+        };
+        let (mut ours_at, mut theirs_at) = (by_place(ours_added), by_place(theirs_added));
         let mut place = |out: &mut Vec<Struct>, at: Option<usize>| {
-            for list in [&mut ours_added, &mut theirs_added] {
-                let (here, rest): (Vec<_>, Vec<_>) = list.drain(..).partition(|(a, _)| *a == at);
-                out.extend(here.into_iter().map(|(_, s)| s));
-                *list = rest;
+            for by in [&mut ours_at, &mut theirs_at] {
+                out.extend(by.remove(&at).into_iter().flatten());
             }
         };
         place(&mut out, None);
@@ -554,16 +575,71 @@ fn key(rule: ListRule, s: &Struct) -> Option<Vec<u8>> {
     }
 }
 
+/// A number two structs the same in every field share (and others
+/// nearly never do): what equal items are looked up by.
+fn fingerprint(s: &Struct) -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn of_struct(s: &Struct, h: &mut impl Hasher) {
+        s.id.hash(h);
+        s.fields.len().hash(h);
+        for f in &s.fields {
+            f.label.as_bytes().hash(h);
+            of_value(&f.value, h);
+        }
+    }
+    fn of_value(v: &Value, h: &mut impl Hasher) {
+        std::mem::discriminant(v).hash(h);
+        match v {
+            Value::Byte(n) => n.hash(h),
+            Value::Char(n) => n.hash(h),
+            Value::Word(n) => n.hash(h),
+            Value::Short(n) => n.hash(h),
+            Value::Dword(n) => n.hash(h),
+            Value::Int(n) => n.hash(h),
+            Value::Dword64(n) => n.hash(h),
+            Value::Int64(n) => n.hash(h),
+            // (By their bits, as they are compared.)
+            Value::Float(f) => f.to_bits().hash(h),
+            Value::Double(f) => f.to_bits().hash(h),
+            Value::String(b) | Value::ResRef(b) | Value::Void(b) => b.hash(h),
+            Value::LocString(ls) => {
+                ls.strref.0.hash(h);
+                for (k, text) in &ls.strings {
+                    (k.0, text).hash(h);
+                }
+            }
+            Value::Struct(s) => of_struct(s, h),
+            Value::List(items) => {
+                items.len().hash(h);
+                items.iter().for_each(|s| of_struct(s, h));
+            }
+        }
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    of_struct(s, &mut h);
+    h.finish()
+}
+
 /// For each item of `base`, the item of `side` that is it.
 fn matching(rule: ListRule, base: &[Struct], side: &[Struct]) -> Vec<Option<usize>> {
     let mut of_base: Vec<Option<usize>> = vec![None; base.len()];
     let mut used = vec![false; side.len()];
     // The same in every field, in order (mostly at the same place, so
     // looked for there first).
+    // (Each side item's fingerprint taken once and looked up: an item
+    // that has no equal, one a side changed, was held against the whole
+    // list, 25 million structs for an area of 5,000 objects all moved.)
+    let mut same: HashMap<u64, Vec<usize>> = HashMap::new();
+    for (j, s) in side.iter().enumerate() {
+        same.entry(fingerprint(s)).or_default().push(j);
+    }
     let mut next = 0;
     for (i, b) in base.iter().enumerate() {
-        let at =
-            (next..side.len()).chain(0..next.min(side.len())).find(|&j| !used[j] && side[j] == *b);
+        let Some(same) = same.get(&fingerprint(b)) else { continue };
+        // The first from `next` on, else the first before it.
+        let from = same.partition_point(|&j| j < next);
+        let at = (same[from..].iter().chain(&same[..from]).copied())
+            .find(|&j| !used[j] && side[j] == *b);
         if let Some(j) = at {
             (of_base[i], used[j], next) = (Some(j), true, j + 1);
         }
@@ -680,6 +756,38 @@ mod tests {
 
     fn labels(s: &Struct) -> Vec<String> {
         s.fields.iter().map(|f| f.label.to_string()).collect()
+    }
+
+    /// An area of 5,000 objects, every one moved on one side and a
+    /// thousand added on each: merged as a small one is, in well under a
+    /// second (each unmatched item was held against the whole other
+    /// list: 25 million struct comparisons).
+    #[test]
+    fn a_long_list_changed_throughout_merges_at_once() {
+        let n = 5000;
+        let item = |i: usize, x: f32| placed("plc", &format!("t{i}"), x, i as f32);
+        let list = |items: Vec<Struct>| root(&[("Placeable List", Value::List(items))]);
+        let b: Vec<Struct> = (0..n).map(|i| item(i, 1.0)).collect();
+        let mut o: Vec<Struct> = (0..n).map(|i| item(i, 2.5)).collect();
+        o.extend((0..1000).map(|i| placed("ours", &format!("o{i}"), 0.0, 0.0)));
+        let mut t = b.clone();
+        t.remove(7);
+        t.extend((0..1000).map(|i| placed("theirs", &format!("n{i}"), 0.0, 0.0)));
+        // (One added by both, the same.)
+        t.push(o[n + 3].clone());
+        let started = std::time::Instant::now();
+        let m = run(&list(b.clone()), &list(o.clone()), &list(t), Prefer::Ours);
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(1), "{took:?}");
+        let merged = m.gff.root.list("Placeable List").unwrap();
+        // Ours' moves, theirs' removal (changed by ours: a conflict, ours
+        // kept), and both sides' new items, the shared one once.
+        assert_eq!(m.conflicts.len(), 1, "{:?}", m.conflicts);
+        assert_eq!(merged.len(), n + 2000);
+        assert_eq!(merged[..n], o[..n]);
+        assert_eq!(merged[n..n + 1000], o[n..]);
+        assert!(merged[n + 1000..].iter().all(|s| s.resref("TemplateResRef").is_some()));
+        assert_eq!(merged[n + 1000].string("Tag"), Some(&b"n0"[..]));
     }
 
     #[test]

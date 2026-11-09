@@ -147,6 +147,59 @@ pub fn nwnt_unkept_label(s: &Struct) -> Option<String> {
     None
 }
 
+/// What NWNT can't keep of `s`, if anything: the first field that
+/// [`from_nwnt`] would not read back as [`to_nwnt`] was given it, as
+/// `path: why`. The format's own limits, which `nwn_nwnt` has too:
+///
+/// - a label with `.`, `$` or `=` in it, or one of the file's own fields
+///   (not a struct's or a list item's) that begins with a space (the
+///   punctuation, and the trimming of a line; `[`, `]` and a space at the
+///   end are read back, a field's name being all that is before its `$`);
+/// - text (a string, a localized string's entry) with a backslash before
+///   `n` or `r`, which reads back as a line break: `nwn_nwnt` escapes line
+///   breaks and no backslash;
+/// - a resource name with a line break in it (written as it is).
+///
+/// `None` if the whole of it can be written and read back.
+pub fn nwnt_unkept(s: &Struct, codepage: Codepage) -> Option<String> {
+    unkept(s, codepage, true)
+}
+
+fn unkept(s: &Struct, codepage: Codepage, root: bool) -> Option<String> {
+    for f in &s.fields {
+        let label = f.label.to_string_lossy();
+        if let Some(c) = label.chars().find(|c| ".$=".contains(*c)) {
+            return Some(format!("{label}: NWNT can't keep a label with \"{c}\" in it"));
+        }
+        if root && label.trim_start() != label {
+            return Some(format!("{label:?}: NWNT can't keep a label that begins with a space"));
+        }
+        let escaped = |text: &[u8]| {
+            let text = codepage.decode(text);
+            text.contains("\\n") || text.contains("\\r")
+        };
+        const ESCAPE: &str = "NWNT can't keep text with a backslash before n or r (it reads it \
+                              back as a line break)";
+        let why = match &f.value {
+            Value::String(v) if escaped(v) => Some(ESCAPE.to_string()),
+            Value::LocString(ls) if ls.strings.iter().any(|(_, t)| escaped(t)) => {
+                Some(ESCAPE.to_string())
+            }
+            Value::ResRef(v) if v.iter().any(|b| matches!(b, b'\n' | b'\r')) => {
+                Some("NWNT can't keep a resource name with a line break in it".to_string())
+            }
+            Value::Struct(c) => unkept(c, codepage, false),
+            Value::List(items) => items.iter().find_map(|i| unkept(i, codepage, false)),
+            _ => None,
+        };
+        if let Some(why) = why {
+            let nested = matches!(f.value, Value::Struct(_) | Value::List(_));
+            return Some(format!("{label}{}{why}", if nested { "/" } else { ": " }));
+        }
+    }
+    None
+}
+
 /// Nim's hash of an integer (`hashWangYi1`, Nim 1.4 and after).
 fn nim_hash(x: u64) -> u64 {
     const P0: u64 = 0xa076_1d64_78bd_642f;
@@ -177,13 +230,21 @@ fn nim_table_order(entries: &[(LocStringKey, Vec<u8>)]) -> Vec<(u32, &[u8])> {
         }
         slots[i] = Some(entry);
     }
-    let mut slots: Slots<'_> = vec![None; 32];
-    let mut count = 0usize;
+    // Each key once, where it was first put, with its last text (found by
+    // a map: a scan of the table for every entry is quadratic).
+    let mut unique: Vec<(u32, &[u8])> = Vec::new();
+    let mut at: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
     for (key, text) in entries {
-        if let Some(had) = slots.iter_mut().flatten().find(|(k, _)| *k == key.0) {
-            had.1 = text;
-            continue;
+        match at.entry(key.0) {
+            std::collections::hash_map::Entry::Occupied(had) => unique[*had.get()].1 = text,
+            std::collections::hash_map::Entry::Vacant(new) => {
+                new.insert(unique.len());
+                unique.push((key.0, text));
+            }
         }
+    }
+    let mut slots: Slots<'_> = vec![None; 32];
+    for (count, entry) in unique.into_iter().enumerate() {
         if slots.len() * 2 < count * 3 || slots.len() - count < 4 {
             let grown = vec![None; slots.len() * 2];
             let old = std::mem::replace(&mut slots, grown);
@@ -191,8 +252,7 @@ fn nim_table_order(entries: &[(LocStringKey, Vec<u8>)]) -> Vec<(u32, &[u8])> {
                 place(&mut slots, entry);
             }
         }
-        place(&mut slots, (key.0, text));
-        count += 1;
+        place(&mut slots, entry);
     }
     slots.into_iter().flatten().collect()
 }
@@ -243,7 +303,7 @@ pub fn from_nwnt(text: &str, codepage: Codepage) -> Result<Gff, NwntError> {
     let file_type = file_type.ok_or(NwntError { line: 1, message: "no data_type".into() })?;
     let mut gff = Gff::new(file_type);
     let mut reader = Reader { lines: &lines, next: 0, cp: codepage };
-    gff.root = reader.read_struct("", ROOT_STRUCT_ID)?;
+    gff.root = reader.read_struct("", ROOT_STRUCT_ID, 0)?;
     if let Some(l) = lines.get(reader.next) {
         return Err(NwntError {
             line: l.at,
@@ -262,9 +322,16 @@ struct Reader<'a> {
 impl Reader<'_> {
     /// The fields of the struct whose fields' names begin with `prefix`, up
     /// to the first line that isn't one.
-    fn read_struct(&mut self, prefix: &str, id: u32) -> Result<Struct, NwntError> {
+    fn read_struct(&mut self, prefix: &str, id: u32, depth: usize) -> Result<Struct, NwntError> {
         let mut s = Struct::new(id);
         let lines = self.lines;
+        if depth > crate::read::MAX_DEPTH {
+            let at = lines.get(self.next).or(lines.last()).map_or(1, |l| l.at);
+            return Err(NwntError {
+                line: at,
+                message: format!("struct nesting is deeper than {}", crate::read::MAX_DEPTH),
+            });
+        }
         while let Some(l) = lines.get(self.next) {
             let Some(rest) = l.name.strip_prefix(prefix) else { break };
             let at = l.at;
@@ -337,7 +404,7 @@ impl Reader<'_> {
                 "struct" => {
                     let label = label(rest)?;
                     let id = id()?;
-                    let child = self.read_struct(&format!("{}.", l.name), id)?;
+                    let child = self.read_struct(&format!("{}.", l.name), id, depth + 1)?;
                     s.fields.push(Field { label, value: Value::Struct(child) });
                     continue;
                 }
@@ -350,7 +417,7 @@ impl Reader<'_> {
                         None
                     } else {
                         let id = id()?;
-                        Some(self.read_struct(&format!("{}.", l.name), id)?)
+                        Some(self.read_struct(&format!("{}.", l.name), id, depth + 1)?)
                     };
                     let list = s.fields.iter_mut().rev().find_map(|f| match &mut f.value {
                         Value::List(items) if f.label == of => Some(items),
@@ -490,6 +557,34 @@ mod tests {
         assert_eq!(nim_table_order(&many).len(), 60);
     }
 
+    /// Structs nested past what the binary reader takes (128) are an
+    /// error, not a stack that runs out; a localized string of 100,000
+    /// entries (each key twice) is ordered in no time.
+    #[test]
+    fn deep_nesting_and_long_tables_are_bounded() {
+        let mut text = String::from("data_type = UTI\n");
+        for depth in 0..5000 {
+            text.push_str(&".".repeat(depth));
+            text.push_str("$Struct = 0\n");
+        }
+        let e = from_nwnt(&text, Codepage::WINDOWS_1252).unwrap_err();
+        assert!(e.message.contains("deeper than 128"), "{e}");
+        assert_eq!(e.line, 131);
+        // (As deep as the binary reader takes is read.)
+        let lines: Vec<&str> = text.lines().take(1 + 128).collect();
+        from_nwnt(&lines.join("\n"), Codepage::WINDOWS_1252).unwrap();
+
+        let entries: Vec<(LocStringKey, Vec<u8>)> = (0..200_000u32)
+            .map(|k| (LocStringKey(k % 100_000), k.to_string().into_bytes()))
+            .collect();
+        let started = std::time::Instant::now();
+        let ordered = nim_table_order(&entries);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(ordered.len(), 100_000);
+        let seven = ordered.iter().find(|e| e.0 == 7).unwrap();
+        assert_eq!(seven.1, b"100007", "a key's later text");
+    }
+
     /// Read back, the file is the same but for its fields' order (sorted)
     /// and the bearing.
     #[test]
@@ -543,6 +638,56 @@ mod tests {
         assert!(refused("data_type = UTI\nN[0] = x").contains("no localized string"));
         assert!(refused("data_type = UTI\nV$Void = !!").contains("base64"));
         assert!(refused("data_type = UTI\nT$CExoString = \u{4e2d}").contains("codepage"));
+    }
+
+    /// What reads back as something else is named: the format's
+    /// punctuation in a label, a typed backslash before `n` or `r` in
+    /// text, a line break in a resource name. Line breaks themselves, a
+    /// backslash before anything else and a backslash before a line
+    /// break are kept.
+    #[test]
+    fn what_nwnt_can_t_keep_is_found() {
+        let cp = Codepage::WINDOWS_1252;
+        let back = |g: &Gff| from_nwnt(&to_nwnt(g, cp, 4), cp);
+        assert_eq!(nwnt_unkept(&sample().root, cp), None);
+        let mut kept = Gff::new(*b"UTI ");
+        kept.root.set("A", Value::String(b"C:\\dir\\x a\nb\\\n\\\r \\".to_vec()));
+        kept.root.set("B", Value::ResRef(b"a\\nb".to_vec()));
+        // (In the order they are written in: sorted.)
+        let mut inner = Struct::new(0);
+        inner.set(" led", Value::Byte(1));
+        kept.root.set("S", Value::Struct(inner));
+        kept.root.set("a[0] ", Value::Byte(1));
+        kept.root.set("b]", Value::String(b"x".to_vec()));
+        assert_eq!(nwnt_unkept(&kept.root, cp), None);
+        assert_eq!(back(&kept).unwrap(), kept);
+
+        let unkept = |label: &str, value: Value| {
+            let mut item = Struct::new(0);
+            item.set(label, value);
+            let mut g = Gff::new(*b"UTI ");
+            g.root.set("L", Value::List(vec![item]));
+            assert!(back(&g).map_or(true, |b| b != g), "{label} reads back the same");
+            nwnt_unkept(&g.root, cp).unwrap_or_else(|| panic!("{label} is not found"))
+        };
+        for text in [&b"a\\nb"[..], b"C:\\new", b"a\\\\rb"] {
+            let why = unkept("Text", Value::String(text.to_vec()));
+            assert!(
+                why.starts_with("L/Text: ") && why.contains("backslash before n or r"),
+                "{why}"
+            );
+        }
+        let name = LocString::from_text(Language::ENGLISH, Gender::Male, b"a\\nb".to_vec());
+        assert!(unkept("Name", Value::LocString(name)).contains("backslash"));
+        assert!(unkept("Ref", Value::ResRef(b"a\nb".to_vec())).contains("resource name"));
+        for label in ["a.b", "a$b", "a=b"] {
+            let why = unkept(label, Value::Byte(1));
+            assert!(why.starts_with("L/") && why.contains("a label"), "{why}");
+        }
+        let mut led = Gff::new(*b"UTI ");
+        led.root.set(" a", Value::Byte(1));
+        assert!(back(&led).unwrap() != led);
+        assert!(nwnt_unkept(&led.root, cp).unwrap().contains("begins with a space"));
     }
 
     #[test]

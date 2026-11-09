@@ -35,7 +35,9 @@ pub const FLAG_SOUND_LENGTH: u32 = 0x4;
 pub struct TlkEntry {
     pub flags: u32,
     pub text: Vec<u8>,
-    /// Up to 16 bytes; kept raw because shipped tables contain junk here.
+    /// Up to 16 bytes; kept raw because shipped tables contain junk here:
+    /// the field without the NULs at its end, bytes after a NUL within
+    /// it too (the sound's name is [`TlkEntry::sound_name`]).
     pub sound: Vec<u8>,
     /// Unused by the game; kept for round trips.
     pub volume_variance: u32,
@@ -45,6 +47,12 @@ pub struct TlkEntry {
 }
 
 impl TlkEntry {
+    /// The sound's name as the game reads it: the field up to its first
+    /// NUL.
+    pub fn sound_name(&self) -> &[u8] {
+        mg_core::bin::before_nul(&self.sound)
+    }
+
     /// An entry with text only.
     pub fn text(text: impl Into<Vec<u8>>) -> TlkEntry {
         TlkEntry { flags: FLAG_TEXT, text: text.into(), ..Default::default() }
@@ -84,7 +92,7 @@ impl Tlk {
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             let flags = r.u32()?;
-            let sound = r.fixed_str(16)?.to_vec();
+            let sound = r.fixed_bytes(16)?.to_vec();
             let volume_variance = r.u32()?;
             let pitch_variance = r.u32()?;
             let offset = r.u32_usize()?;
@@ -184,6 +192,32 @@ impl Tlk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sound field with bytes after a NUL (`ab\0cd`, a tool that
+    /// didn't clear its buffer) is written back byte for byte, and its
+    /// JSON has the NUL, as `nwn_tlk`'s has; the sound's name is `ab`.
+    #[test]
+    fn a_sound_s_bytes_after_a_nul_are_kept() {
+        let mut t = Tlk::new(Language::ENGLISH);
+        t.entries.push(TlkEntry {
+            flags: FLAG_TEXT | FLAG_SOUND,
+            text: b"x".to_vec(),
+            sound: b"vs_hello".to_vec(),
+            ..Default::default()
+        });
+        let mut bytes = t.to_bytes().unwrap();
+        bytes[24..40].copy_from_slice(b"ab\0cd\0\0\0\0\0\0\0\0\0\0\0");
+        let read = Tlk::read(&bytes).unwrap();
+        assert_eq!(
+            (&read.entries[0].sound[..], read.entries[0].sound_name()),
+            (&b"ab\0cd"[..], &b"ab"[..])
+        );
+        assert_eq!(read.to_bytes().unwrap(), bytes);
+        let json = json::to_json(&read, json::JsonStyle::default());
+        assert!(String::from_utf8(json.clone()).unwrap().contains(r#""sound":"ab\u0000cd""#));
+        let back = json::from_json(&json, mg_core::Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(back.entries[0].sound, read.entries[0].sound);
+    }
 
     #[test]
     fn round_trip() {

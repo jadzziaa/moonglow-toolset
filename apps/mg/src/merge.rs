@@ -169,8 +169,8 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
     } else if merged.gff == theirs.gff && theirs.form == ours.form {
         (theirs.data, "theirs")
     } else if ours.form == Form::Nwnt {
-        if let Some(path) = mg_gff::nwnt_unkept_label(&merged.gff.root) {
-            bail!("{name}: {path}: NWNT can't keep a label with a dot in it");
+        if let Some(unkept) = mg_gff::nwnt_unkept(&merged.gff.root, cp) {
+            bail!("{name}: {unkept}");
         }
         (mg_gff::to_nwnt(&merged.gff, cp, conv.float_places).into_bytes(), "merged")
     } else if ours.form == Form::Json {

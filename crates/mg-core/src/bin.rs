@@ -57,6 +57,12 @@ impl CopyBudget {
     }
 }
 
+/// The bytes before the first NUL: a name as the game reads it from a
+/// fixed-size field kept whole ([`Reader::fixed_bytes`]).
+pub fn before_nul(bytes: &[u8]) -> &[u8] {
+    bytes.iter().position(|&c| c == 0).map_or(bytes, |end| &bytes[..end])
+}
+
 /// A bounds-checked little-endian cursor over a byte slice.
 #[derive(Debug, Clone)]
 pub struct Reader<'a> {
@@ -143,6 +149,16 @@ impl<'a> Reader<'a> {
     pub fn fixed_str(&mut self, n: usize) -> Result<&'a [u8], BinError> {
         let b = self.bytes(n)?;
         Ok(b.iter().position(|&c| c == 0).map_or(b, |end| &b[..end]))
+    }
+
+    /// Reads a fixed-size, NUL-padded field and returns its bytes without
+    /// the NULs at its end: one within it, and what follows that (a tool
+    /// that didn't clear its buffer), is kept, so that the field is
+    /// written back as it was. What the game reads of it is
+    /// [`before_nul`].
+    pub fn fixed_bytes(&mut self, n: usize) -> Result<&'a [u8], BinError> {
+        let b = self.bytes(n)?;
+        Ok(&b[..b.iter().rposition(|&c| c != 0).map_or(0, |last| last + 1)])
     }
 
     read_le! {
@@ -252,6 +268,17 @@ mod tests {
         let mut r = Reader::new(b"abc\0\0\0xyz");
         assert_eq!(r.fixed_str(6).unwrap(), b"abc");
         assert_eq!(r.fixed_str(3).unwrap(), b"xyz");
+    }
+
+    #[test]
+    fn fixed_bytes_keep_what_follows_a_nul() {
+        let mut r = Reader::new(b"ab\0cd\0\0\0abc\0\0\0xyz");
+        let junk = r.fixed_bytes(8).unwrap();
+        assert_eq!((junk, before_nul(junk)), (&b"ab\0cd"[..], &b"ab"[..]));
+        assert_eq!(r.fixed_bytes(4).unwrap(), b"abc");
+        assert_eq!(r.fixed_bytes(2).unwrap(), b"");
+        assert_eq!(r.fixed_bytes(3).unwrap(), b"xyz");
+        assert!(r.fixed_bytes(1).is_err());
     }
 
     #[test]

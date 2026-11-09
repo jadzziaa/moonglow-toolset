@@ -614,7 +614,9 @@ impl Fixture {
         let haks = module.haks().unwrap_or_default();
         if let Some(folder) = folder {
             for name in &haks {
-                let path = folder.join("hak").join(mg_resman::named_file(name, "hak"));
+                // (A name with a folder in it is no file's there.)
+                let Some(file) = mg_resman::named_file(name, "hak") else { continue };
+                let path = folder.join("hak").join(file);
                 if !path.is_file() {
                     continue;
                 }

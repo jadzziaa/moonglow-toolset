@@ -15,7 +15,9 @@
 //! and `+connect` ends in "Your CD Key is unauthorized". A key is not made
 //! up here: [`start`] takes the `cdkey.ini` that `MG_CLIENT_CDKEY` names
 //! (the owner's to give; copied into the scratch user directory, never
-//! sent anywhere but the sandbox's loopback) and is an error without it.
+//! sent anywhere but the sandbox's loopback, and removed from there when
+//! the sandbox ends: the scratch folder is where pictures to share come
+//! from) and is an error without it.
 //! The server checks no key: its master server is out of reach in the
 //! sandbox, so its `masterserver.key-authentication` is `if-reachable`
 //! (with `always`, the default, nobody gets in without the master server).
@@ -42,6 +44,30 @@ pub struct Joined {
     /// The scratch directory: the client's user directory is `user`, the
     /// server's `server`.
     pub scratch: PathBuf,
+    /// The CD key's copy in the client's user directory, removed when
+    /// this goes (after `server`, so once the sandbox has ended).
+    key: KeyCopy,
+}
+
+/// The copy of the owner's `cdkey.ini` in a scratch user directory:
+/// removed when dropped, however the run ended ([`Joined::stop`], a
+/// failed test's unwinding, a start that failed after the copy).
+#[derive(Debug)]
+struct KeyCopy(PathBuf);
+
+impl KeyCopy {
+    fn make(key: &Path, user: &Path) -> io::Result<KeyCopy> {
+        // (The guard first: a copy cut short is removed too.)
+        let copy = KeyCopy(user.join("cdkey.ini"));
+        std::fs::copy(key, &copy.0)?;
+        Ok(copy)
+    }
+}
+
+impl Drop for KeyCopy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// The repository's root.
@@ -95,7 +121,7 @@ pub fn start(
     }
     let user = client_dir(scratch);
     std::fs::create_dir_all(&user)?;
-    std::fs::copy(&key, user.join("cdkey.ini"))?;
+    let key = KeyCopy::make(&key, &user)?;
     let server = server_dir(scratch);
     std::fs::create_dir_all(&server)?;
     // (And the module kept loaded when the last player leaves: reloaded
@@ -136,7 +162,7 @@ pub fn start(
         args: server_args.iter().map(Into::into).collect(),
         ..Default::default()
     })?;
-    Ok(Joined { server, scratch: scratch.to_path_buf() })
+    Ok(Joined { server, scratch: scratch.to_path_buf(), key })
 }
 
 impl Joined {
@@ -171,8 +197,34 @@ impl Joined {
             .then_some(shot)
     }
 
-    /// Ends the sandbox (the server and the client with it).
+    /// Ends the sandbox (the server and the client with it), and removes
+    /// the CD key's copy from the scratch directory (as dropping this
+    /// does).
     pub fn stop(self) {
         self.server.stop(Duration::from_secs(1));
+        drop(self.key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The CD key's copy is gone from the scratch user directory once its
+    /// run has ended, and the owner's file is as it was.
+    #[test]
+    fn the_cd_key_s_copy_goes_with_the_run() {
+        let dir = crate::scratch_dir("joined-key-copy");
+        let user = client_dir(&dir);
+        std::fs::create_dir_all(&user).unwrap();
+        let owners = dir.join("owners-cdkey.ini");
+        std::fs::write(&owners, "[NWN1]\nYourKey=not-a-key\n").unwrap();
+        let copy = KeyCopy::make(&owners, &user).unwrap();
+        assert_eq!(std::fs::read(user.join("cdkey.ini")).unwrap(), std::fs::read(&owners).unwrap());
+        drop(copy);
+        assert!(!user.join("cdkey.ini").exists() && owners.is_file());
+        // A key that isn't there: nothing left behind.
+        assert!(KeyCopy::make(&dir.join("none.ini"), &user).is_err());
+        assert!(!user.join("cdkey.ini").exists());
     }
 }

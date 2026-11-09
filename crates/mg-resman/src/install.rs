@@ -61,15 +61,16 @@ impl GameInstall {
     /// `PatchFile000=name` and on, the highest number winning, as the game
     /// reads them. The folder is `nwn.ini`'s `[Alias]` `PATCH=`, else
     /// `patch/` in the user directory. Empty without the file, or with
-    /// [`GameInstall::userpatch`] off.
+    /// [`GameInstall::userpatch`] off. A name is a hak's as a module's is
+    /// ([`crate::file_name_text`], [`crate::named_file`]): its bytes are
+    /// the file's, on Linux a `ñ` written as 0xF1 the file named with
+    /// that byte, and one with a folder in it is no file's.
     pub fn userpatch_haks(&self) -> Vec<(String, Option<PathBuf>)> {
         let Some(user) = self.user_dir.as_ref().filter(|_| self.userpatch) else {
             return Vec::new();
         };
-        let read = |name: &str| {
-            std::fs::read(user.join(name)).map(|b| b.iter().map(|&c| c as char).collect::<String>())
-        };
-        let Ok(ini) = read("userpatch.ini") else { return Vec::new() };
+        let Ok(ini) = std::fs::read(user.join("userpatch.ini")) else { return Vec::new() };
+        let ini = crate::file_name_text(&ini);
         let folder = self.user_folder("patch").unwrap_or_else(|| user.join("patch"));
         let mut haks: Vec<(u32, String)> = ini_section(&ini, "patch")
             .into_iter()
@@ -82,7 +83,8 @@ impl GameInstall {
         haks.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
         haks.into_iter()
             .map(|(_, name)| {
-                let path = Some(folder.join(format!("{name}.hak"))).filter(|p| p.is_file());
+                let file = crate::named_file(&name, "hak");
+                let path = file.map(|f| folder.join(f)).filter(|p| p.is_file());
                 (name, path)
             })
             .collect()
@@ -126,7 +128,7 @@ impl GameInstall {
     pub fn find_root() -> Option<PathBuf> {
         match env::var_os("NWN_ROOT") {
             Some(r) => Some(PathBuf::from(r)).filter(|p| Self::is_install(p)),
-            None => candidate_roots().into_iter().find(|p| Self::is_install(p)),
+            None => find_install(&Probe::here(), &|p| Self::is_install(p)),
         }
     }
 
@@ -236,9 +238,11 @@ impl GameInstall {
 
     /// The file of the hak `name` (without `.hak`, as
     /// [`crate::file_name_text`] reads a module's) the game opens: the
-    /// first of [`GameInstall::hak_dirs`] that has [`crate::named_file`].
+    /// first of [`GameInstall::hak_dirs`] that has [`crate::named_file`]
+    /// (none for a name with a folder in it: nothing outside the hak
+    /// folders is a module's hak).
     pub fn find_hak(&self, name: &str) -> Option<PathBuf> {
-        let file = crate::named_file(name, "hak");
+        let file = crate::named_file(name, "hak")?;
         self.hak_dirs().into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
     }
 
@@ -289,7 +293,7 @@ impl GameInstall {
         else {
             return None;
         };
-        let file = crate::named_file(&other, "hak");
+        let file = crate::named_file(&other, "hak")?;
         dirs.iter().map(|d| d.join(&file)).find(|p| p.is_file())
     }
 
@@ -298,6 +302,9 @@ impl GameInstall {
     /// found, and where a file of its name in another case is there, that
     /// file and what to do.
     pub fn hak_not_found(&self, name: &str) -> String {
+        if !crate::is_file_name(name) {
+            return format!("hak {name} not found: {}", crate::NO_FILE_NAME);
+        }
         match self.hak_in_other_case(name) {
             Some(file) => format!(
                 "hak {name} not found: the game opens a hak only by its exact name, and {} has \
@@ -345,16 +352,60 @@ impl GameInstall {
 /// The game's number on Steam.
 const STEAM_APP: &str = "704450";
 
+/// What finding the game asks of the system it runs on: its name
+/// (`std::env::consts::OS`), its environment, a file's text and Steam's
+/// folders in the registry. The tests stand in for each.
+struct Probe<'a> {
+    os: &'a str,
+    env: &'a dyn Fn(&str) -> Option<std::ffi::OsString>,
+    read: &'a dyn Fn(&Path) -> Option<String>,
+    registry: &'a dyn Fn() -> Vec<PathBuf>,
+}
+
+impl Probe<'static> {
+    fn here() -> Probe<'static> {
+        Probe {
+            os: env::consts::OS,
+            env: &|name| env::var_os(name),
+            read: &|path| std::fs::read_to_string(path).ok(),
+            registry: &steam_from_registry,
+        }
+    }
+}
+
+/// The first install among the places the game may be: the usual ones
+/// first ([`candidate_roots`]), and only when none of them has it the
+/// folders on every drive letter, which cost a wait each on a drive that
+/// doesn't answer (a network drive that is mapped and away).
+fn find_install(probe: &Probe, is_install: &dyn Fn(&Path) -> bool) -> Option<PathBuf> {
+    [false, true]
+        .into_iter()
+        .find_map(|far| candidate_roots(probe, far).into_iter().find(|p| is_install(p)))
+}
+
 /// Where the game may be: in each Steam library (Steam's own folder, and
-/// those it lists on other drives), then where GOG puts it.
-fn candidate_roots() -> Vec<PathBuf> {
-    let home = env::var_os("HOME").map(PathBuf::from);
+/// those it lists on other drives), then where GOG and Beamdog put it;
+/// or (`far`, Windows alone) what is tried after all of those: Steam, a
+/// library of its own or GOG's folder at the top of any drive.
+fn candidate_roots(probe: &Probe, far: bool) -> Vec<PathBuf> {
+    let var = |name: &str| (probe.env)(name);
+    let (linux, macos, windows) = (probe.os == "linux", probe.os == "macos", probe.os == "windows");
+    let home = var("HOME").map(PathBuf::from);
     let game = Path::new("steamapps").join("common").join("Neverwinter Nights");
     let gog = "Neverwinter Nights Enhanced Edition";
     // Steam's own folders.
     let mut steam: Vec<PathBuf> = Vec::new();
     let mut other: Vec<PathBuf> = Vec::new();
-    if cfg!(target_os = "linux") {
+    if far {
+        if windows {
+            for drive in 'C'..='Z' {
+                let drive = PathBuf::from(format!("{drive}:\\"));
+                steam.push(drive.join("Steam"));
+                steam.push(drive.join("SteamLibrary"));
+                other.push(drive.join("GOG Games").join(gog));
+            }
+        }
+    } else if linux {
         if let Some(h) = &home {
             steam.push(h.join(".local/share/Steam"));
             steam.push(h.join(".steam/steam"));
@@ -362,55 +413,49 @@ fn candidate_roots() -> Vec<PathBuf> {
             steam.push(h.join("snap/steam/common/.local/share/Steam"));
             other.push(h.join("GOG Games").join(gog));
         }
-    } else if cfg!(target_os = "macos") {
+    } else if macos {
         if let Some(h) = &home {
             steam.push(h.join("Library/Application Support/Steam"));
         }
-    } else if cfg!(windows) {
+    } else if windows {
         for pf in ["ProgramFiles(x86)", "ProgramFiles"] {
-            if let Some(p) = env::var_os(pf) {
+            if let Some(p) = var(pf) {
                 steam.push(PathBuf::from(&p).join("Steam"));
                 other.push(PathBuf::from(p).join("GOG Galaxy").join("Games").join(gog));
             }
         }
         // Steam where its installer put it, as the registry says (a
         // folder of the user's choosing).
-        steam.extend(steam_from_registry());
-        // Steam, a library of its own or GOG's folder on any drive.
-        for drive in 'C'..='Z' {
-            let drive = PathBuf::from(format!("{drive}:\\"));
-            steam.push(drive.join("Steam"));
-            steam.push(drive.join("SteamLibrary"));
-            other.push(drive.join("GOG Games").join(gog));
-        }
+        steam.extend((probe.registry)());
     }
     // The libraries each lists (a game put on a second drive is in one).
     let mut libraries = steam.clone();
     for s in &steam {
         for list in [s.join("steamapps"), s.join("config")] {
-            if let Ok(text) = std::fs::read_to_string(list.join("libraryfolders.vdf")) {
+            if let Some(text) = (probe.read)(&list.join("libraryfolders.vdf")) {
                 libraries.extend(steam_libraries(&text));
             }
         }
     }
-    // Beamdog's client: its library folders (its settings, else its
-    // usual one), the stable release before the development one.
-    let beamdog_settings = if cfg!(windows) {
-        env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .or_else(|| env::var_os("USERPROFILE").map(|h| Path::new(&h).join("AppData/Roaming")))
-    } else if cfg!(target_os = "macos") {
-        home.as_ref().map(|h| h.join("Library/Application Support"))
-    } else {
-        env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.as_ref().map(|h| h.join(".config")))
+    if !far {
+        // Beamdog's client: its library folders (its settings, else its
+        // usual one), the stable release before the development one.
+        let beamdog_settings = if windows {
+            var("APPDATA")
+                .map(PathBuf::from)
+                .or_else(|| var("USERPROFILE").map(|h| Path::new(&h).join("AppData/Roaming")))
+        } else if macos {
+            home.as_ref().map(|h| h.join("Library/Application Support"))
+        } else {
+            var("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .or_else(|| home.as_ref().map(|h| h.join(".config")))
+        }
+        .map(|d| d.join("Beamdog Client").join("settings.json"));
+        let beamdog_home = if windows { var("USERPROFILE").map(PathBuf::from) } else { home };
+        let settings = beamdog_settings.and_then(|p| (probe.read)(&p));
+        other.extend(beamdog_roots(settings.as_deref(), beamdog_home.as_deref()));
     }
-    .map(|d| d.join("Beamdog Client").join("settings.json"));
-    let beamdog_home =
-        if cfg!(windows) { env::var_os("USERPROFILE").map(PathBuf::from) } else { home };
-    let settings = beamdog_settings.and_then(|p| std::fs::read_to_string(p).ok());
-    other.extend(beamdog_roots(settings.as_deref(), beamdog_home.as_deref()));
     let mut v: Vec<PathBuf> = Vec::new();
     for root in libraries.into_iter().map(|l| l.join(&game)).chain(other) {
         if !v.contains(&root) {
@@ -479,7 +524,13 @@ fn steam_from_registry() -> Vec<PathBuf> {
     ]
     .into_iter()
     .filter_map(|(key, name)| {
-        let mut reg = std::process::Command::new("reg");
+        // (Windows' own, by its place where the system says it; stopped
+        // if it doesn't answer.)
+        let program = std::env::var_os("SystemRoot")
+            .map(|root| PathBuf::from(root).join("System32").join("reg.exe"))
+            .filter(|reg| reg.is_file())
+            .unwrap_or_else(|| PathBuf::from("reg"));
+        let mut reg = std::process::Command::new(program);
         reg.args(["query", key, "/v", name]);
         #[cfg(windows)]
         {
@@ -487,7 +538,9 @@ fn steam_from_registry() -> Vec<PathBuf> {
             use std::os::windows::process::CommandExt;
             reg.creation_flags(0x0800_0000);
         }
-        let out = reg.output().ok().filter(|o| o.status.success())?;
+        let limit = std::time::Duration::from_secs(10);
+        let out = mg_core::process::output_within(&mut reg, limit).ok()?;
+        let out = Some(out).filter(|o| o.status.success())?;
         reg_value(&String::from_utf8_lossy(&out.stdout), name)
     })
     .map(PathBuf::from)
@@ -691,6 +744,92 @@ impl ResMan {
 #[cfg(test)]
 mod install_tests {
     use super::*;
+
+    /// On Windows the game in Steam's usual folder (or a library it
+    /// lists, GOG's or Beamdog's) is found without a look at any other
+    /// drive letter: a drive that is mapped and away costs a wait for
+    /// each file asked of it. Only when none of those has the game are
+    /// the drives' own folders tried.
+    #[test]
+    fn the_usual_folders_are_tried_before_any_drive_letter() {
+        use std::cell::RefCell;
+        let asked: RefCell<Vec<String>> = RefCell::new(Vec::new());
+        let note = |path: &Path| asked.borrow_mut().push(path.to_string_lossy().into_owned());
+        let env = |name: &str| match name {
+            "ProgramFiles(x86)" => Some(r"C:\Program Files (x86)".into()),
+            "USERPROFILE" => Some(r"C:\Users\me".into()),
+            _ => None,
+        };
+        let read = |path: &Path| {
+            note(path);
+            let listed = path.to_string_lossy().starts_with(r"C:\Program Files (x86)")
+                && path.ends_with("steamapps/libraryfolders.vdf");
+            listed.then(|| {
+                "\"libraryfolders\"\n{\n\t\"1\"\n\t{\n\t\t\"path\"\t\t\"G:\\\\Games\"\n\t}\n}\n"
+                    .into()
+            })
+        };
+        let registry = || vec![PathBuf::from(r"C:\Tools\Steam")];
+        let probe = Probe { os: "windows", env: &env, read: &read, registry: &registry };
+        let other_drive = |asked: &[String]| {
+            asked
+                .iter()
+                .find(|p| ('D'..='Z').any(|d| p.starts_with(&format!("{d}:\\")) && d != 'G'))
+                .cloned()
+        };
+        // In Steam's own folder.
+        // (Joined as the candidates are: the tests run where `\` is no
+        // separator.)
+        let game =
+            |library: PathBuf| library.join("steamapps").join("common").join("Neverwinter Nights");
+        let at = |drive: &str, folder: &str| PathBuf::from(drive).join(folder);
+        let default = game(at(r"C:\Program Files (x86)", "Steam"));
+        let found = find_install(&probe, &|p| {
+            note(p);
+            p == default
+        });
+        assert_eq!(found.as_ref(), Some(&default));
+        assert_eq!(other_drive(&asked.borrow()), None, "{:?}", asked.borrow());
+        // In a library Steam lists on another drive: that drive alone.
+        asked.borrow_mut().clear();
+        let listed = game(r"G:\Games".into());
+        let found = find_install(&probe, &|p| {
+            note(p);
+            p == listed
+        });
+        assert_eq!(found.as_ref(), Some(&listed));
+        assert_eq!(other_drive(&asked.borrow()), None, "{:?}", asked.borrow());
+        assert!(asked.borrow().iter().any(|p| p.starts_with(r"C:\Tools\Steam")), "the registry's");
+        // Nowhere usual: the drives' own folders, each letter's.
+        asked.borrow_mut().clear();
+        let far = game(at("E:\\", "SteamLibrary"));
+        let found = find_install(&probe, &|p| {
+            note(p);
+            p == far
+        });
+        assert_eq!(found.as_ref(), Some(&far));
+        // (Every place the game was looked for before is still one.)
+        let all: Vec<PathBuf> =
+            [false, true].into_iter().flat_map(|f| candidate_roots(&probe, f)).collect();
+        for place in [
+            game(at(r"C:\Program Files (x86)", "Steam")),
+            game(r"C:\Tools\Steam".into()),
+            game(r"G:\Games".into()),
+            game(at("Z:\\", "Steam")),
+            game(at("D:\\", "SteamLibrary")),
+            PathBuf::from(r"C:\Program Files (x86)")
+                .join("GOG Galaxy")
+                .join("Games")
+                .join("Neverwinter Nights Enhanced Edition"),
+            at("F:\\", "GOG Games").join("Neverwinter Nights Enhanced Edition"),
+            at(r"C:\Users\me", "Beamdog Library").join("00785"),
+        ] {
+            assert!(all.contains(&place), "{}", place.display());
+        }
+        // Elsewhere, no second round at all.
+        let linux = Probe { os: "linux", ..probe };
+        assert!(candidate_roots(&linux, true).is_empty());
+    }
 
     /// Why a folder isn't the game, as a builder who chose it is told: the
     /// original game's (GitHub issue 39, the Diamond Edition), a folder
@@ -980,6 +1119,26 @@ mod install_tests {
         let found: Vec<_> =
             install.userpatch_haks().into_iter().filter(|(_, p)| p.is_some()).collect();
         assert_eq!(found, [("high".into(), Some(patches.join("high.hak")))]);
+        // A name's bytes are its file's, as a module's hak's are: on Linux
+        // `se\xF1or` is the file with the byte 0xF1, not the one named in
+        // UTF-8; and a name with a folder in it is no file's.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let byte = patches.join(std::ffi::OsStr::from_bytes(b"se\xF1or.hak"));
+            hak(&byte, "byte");
+            hak(&dir.join("outside.hak"), "outside");
+            std::fs::write(
+                user.join("userpatch.ini"),
+                b"[Patch]\nPatchFile000=se\xF1or\nPatchFile001=../outside\n",
+            )
+            .unwrap();
+            let found = install.userpatch_haks();
+            assert_eq!(
+                found,
+                [("../outside".to_string(), None), ("se\u{f1}or".to_string(), Some(byte))]
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

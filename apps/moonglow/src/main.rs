@@ -434,8 +434,9 @@ fn relaunch(again: &mg_ui::renderer_check::Relaunch, line: &CommandLine) {
         }
         Some(Restart::Exe(exe)) => std::process::Command::new(exe),
         // This program: the AppImage itself where it is one (the program
-        // inside its mount goes when this run ends).
-        None => match std::env::var_os("APPIMAGE").filter(|a| !a.is_empty()) {
+        // inside its mount goes when this run ends), which `$APPIMAGE`
+        // alone does not say.
+        None => match mg_update::Facts::here().image() {
             Some(image) => std::process::Command::new(image),
             None => {
                 let Ok(exe) = std::env::current_exe() else { return };

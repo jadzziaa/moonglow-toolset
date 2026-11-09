@@ -217,13 +217,9 @@ impl SetFile {
     /// below its `Doors` count (which in custom tilesets may be no count
     /// at all), each door's number and section, by number.
     pub fn doors(&self, tile: usize) -> Vec<(usize, String)> {
-        let declared = self
-            .get(&format!("TILE{tile}"), "Doors")
-            .and_then(|d| d.trim().parse::<i64>().ok())
-            .unwrap_or(0)
-            .max(0);
+        let declared = self.number(&format!("TILE{tile}"), "Doors");
         let mut doors = self.door_sections(tile);
-        doors.retain(|(d, _)| (*d as i64) < declared);
+        doors.retain(|(d, _)| *d < declared);
         doors
     }
 
@@ -243,7 +239,15 @@ impl SetFile {
     }
 
     fn count(&self, section: &str) -> usize {
-        self.get(section, "Count").and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+        self.number(section, "Count")
+    }
+
+    /// A count as the reader reads it ([`Section::int`](crate::ini::Section::int),
+    /// the game's way: what follows the digits is ignored, so `Count=250;`
+    /// is 250 here too), none or a negative one as 0.
+    fn number(&self, section: &str, key: &str) -> usize {
+        let n = self.get(section, key).and_then(mg_core::num::parse_decimal);
+        n.unwrap_or(0).max(0) as usize
     }
 }
 
@@ -346,8 +350,7 @@ pub fn duplicate_tile(f: &mut SetFile, from: usize) -> Option<usize> {
     f.add_section(&format!("TILE{n}"), &entries);
     // The door sections that are there, up to the count (which in custom
     // tilesets may be no count at all).
-    let doors =
-        f.get(&format!("TILE{from}"), "Doors").and_then(|d| d.parse::<usize>().ok()).unwrap_or(0);
+    let doors = f.number(&format!("TILE{from}"), "Doors");
     for (d, name) in f.door_sections(from) {
         let door = f.entries(&name);
         if d < doors && !door.is_empty() {
@@ -566,6 +569,30 @@ mod tests {
         let t = crate::Tileset::parse(f.text().as_bytes(), mg_core::Codepage::default()).unwrap();
         assert_eq!((t.general.name.as_str(), t.tiles.len()), ("ZZZ01", 0));
         assert!(f.text().starts_with("[GENERAL]\r\nName=ZZZ01\r\n"), "{}", f.text());
+    }
+
+    /// A count with something after its number (`Count=2;`, `Doors=1x`)
+    /// is the number, as the reader and the game have it: a tile added is
+    /// the third, not a second `[TILE0]` under `Count=1`.
+    #[test]
+    fn counts_are_read_as_the_reader_reads_them() {
+        let text = "[GENERAL]\nName=x\n[TILES]\nCount=2;\n[TILE0]\nModel=a\nDoors=1x\n\
+[TILE0DOOR0]\nType=3\n[TILE1]\nModel=b\nDoors=-1\n";
+        let read = |f: &SetFile| {
+            crate::Tileset::parse(f.text().as_bytes(), mg_core::Codepage::default()).unwrap()
+        };
+        let mut f = SetFile::parse(text);
+        assert_eq!(read(&f).tiles.len(), 2);
+        assert_eq!(f.doors(0), [(0, "TILE0DOOR0".to_string())]);
+        assert!(f.doors(1).is_empty());
+        assert_eq!(add_tile(&mut f, "c", "Grass"), 2);
+        assert_eq!(f.get("TILES", "Count"), Some("3"));
+        assert!(f.has_section("TILE2"));
+        assert_eq!(duplicate_tile(&mut f, 0), Some(3));
+        assert!(f.has_section("TILE3DOOR0"), "the door is copied with its tile");
+        let t = read(&f);
+        assert_eq!((t.tiles.len(), t.tiles[3].doors.len()), (4, 1));
+        assert_eq!(t.tiles[2].model, "c");
     }
 
     #[test]

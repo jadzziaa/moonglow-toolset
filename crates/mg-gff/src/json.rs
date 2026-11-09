@@ -145,14 +145,31 @@ pub fn value_from_json(json: &Json, codepage: Codepage) -> Result<Value, JsonErr
     field_read(field, codepage, "")
 }
 
+/// A struct's id: signed, as nwn_gff writes them, or unsigned; an error
+/// for a number that is neither (cut to 32 bits it would be another id).
+fn struct_id(v: &Json, path: &str) -> Result<u32, JsonError> {
+    match as_int(v, path)? {
+        id @ -0x8000_0000..0 => Ok(id as i32 as u32),
+        id => id.try_into().or_else(|_| err(path, "__struct_id out of range")),
+    }
+}
+
+/// A localized string's talk-table line: -1 for none, else a line's
+/// number; an error for any other (`4294967296` cut to 32 bits is line 0).
+fn strref_read(v: &Json, path: &str) -> Result<StrRef, JsonError> {
+    match as_int(v, path)? {
+        -1 => Ok(StrRef::NONE),
+        id => match u32::try_from(id) {
+            Ok(id) => Ok(StrRef(id)),
+            Err(_) => err(path, format!("id {id} out of range (-1 for none, or a line's number)")),
+        },
+    }
+}
+
 fn struct_read(obj: &Map<String, Json>, cp: Codepage, path: &str) -> Result<Struct, JsonError> {
     let id = match obj.get("__struct_id") {
         None => ROOT_STRUCT_ID,
-        // Signed, as nwn_gff writes them, or unsigned.
-        Some(v) => match as_int(v, path)? {
-            id @ -0x8000_0000..0 => id as i32 as u32,
-            id => id.try_into().or_else(|_| err(path, "__struct_id out of range"))?,
-        },
+        Some(v) => struct_id(v, path)?,
     };
     let mut s = Struct::new(id);
     for (label, field) in obj {
@@ -225,12 +242,12 @@ fn field_read(field: &Map<String, Json>, cp: Codepage, fpath: &str) -> Result<Va
             };
             // The strref used to live next to "value"; nwn_gff still reads it there.
             let mut ls = LocString::from_strref(match field.get("id") {
-                Some(id) => StrRef(as_int(id, fpath)? as u32),
+                Some(id) => strref_read(id, fpath)?,
                 None => StrRef::NONE,
             });
             for (k, v) in entries {
                 if k == "id" {
-                    ls.strref = StrRef(as_int(v, fpath)? as u32);
+                    ls.strref = strref_read(v, fpath)?;
                     continue;
                 }
                 let Ok(key) = k.parse::<u32>() else {
@@ -249,7 +266,7 @@ fn field_read(field: &Map<String, Json>, cp: Codepage, fpath: &str) -> Result<Va
             let mut child = struct_read(o, cp, fpath)?;
             if !o.contains_key("__struct_id") {
                 child.id = match field.get("__struct_id") {
-                    Some(v) => as_int(v, fpath)? as i64 as u32,
+                    Some(v) => struct_id(v, fpath)?,
                     None => 0,
                 };
             }
@@ -328,7 +345,7 @@ fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bea
                     out.push_str(",\n");
                 }
                 pad(out, indent + 2);
-                escape_nim(out, k);
+                mg_core::nim::escape_json(out, k);
                 out.push_str(": ");
                 let bearing = bearing || k == "Bearing" || k == "Orientation";
                 write_pretty(out, child, style, indent + 2, bearing);
@@ -352,7 +369,7 @@ fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bea
             out.push(']');
         }
         Json::Array(_) => out.push_str("[]"),
-        Json::String(s) => escape_nim(out, s),
+        Json::String(s) => mg_core::nim::escape_json(out, s),
         Json::Number(n) => match (n.as_i64(), n.as_u64()) {
             (Some(i), _) if !n.is_f64() => out.push_str(&i.to_string()),
             (_, Some(u)) if !n.is_f64() => out.push_str(&u.to_string()),
@@ -362,7 +379,7 @@ fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bea
                     Some(places) => truncate_float(f, places, bearing),
                     None => f,
                 };
-                out.push_str(&if style.g16_floats { g16_float(f) } else { nim_float(f) });
+                out.push_str(&if style.g16_floats { g16_float(f) } else { mg_core::nim::float(f) });
             }
         },
         Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -381,59 +398,6 @@ fn truncate_float(f: f64, places: u8, bearing: bool) -> f64 {
     }
     let v: f64 = trimmed.trim_end_matches('.').parse().unwrap_or(f);
     if bearing && trimmed == format!("{:.places$}", -std::f64::consts::PI) { v.abs() } else { v }
-}
-
-/// A float as Nim's `addFloat` writes it: the shortest digits that read back
-/// to it, fixed when the decimal point falls within -6 to 17 places of them
-/// (with `.0` for whole numbers), else scientific (`1.5e+17`, `1e-8`).
-fn nim_float(f: f64) -> String {
-    if !f.is_finite() {
-        return if f.is_nan() {
-            "nan".into()
-        } else if f > 0.0 {
-            "inf".into()
-        } else {
-            "-inf".into()
-        };
-    }
-    let sci = format!("{:e}", f.abs()); // shortest digits: "1.2345e-9"
-    let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let exp: i32 = exp.parse().unwrap_or(0);
-    // The decimal point's position after the first digit's.
-    let point = exp + 1;
-    let mut out = String::new();
-    if f.is_sign_negative() {
-        out.push('-');
-    }
-    let n = digits.len() as i32;
-    if f == 0.0 {
-        out.push_str("0.0");
-    } else if (-6..=17).contains(&point) {
-        if point <= 0 {
-            out.push_str("0.");
-            out.extend(std::iter::repeat_n('0', (-point) as usize));
-            out.push_str(&digits);
-        } else if point < n {
-            out.push_str(&digits[..point as usize]);
-            out.push('.');
-            out.push_str(&digits[point as usize..]);
-        } else {
-            out.push_str(&digits);
-            out.extend(std::iter::repeat_n('0', (point - n) as usize));
-            out.push_str(".0");
-        }
-    } else {
-        out.push_str(&digits[..1]);
-        if n > 1 {
-            out.push('.');
-            out.push_str(&digits[1..]);
-        }
-        out.push('e');
-        out.push(if exp < 0 { '-' } else { '+' });
-        out.push_str(&exp.abs().to_string());
-    }
-    out
 }
 
 /// A float as Nim 1 wrote it: C's `%.16g` (16 significant digits, trailing
@@ -488,26 +452,6 @@ fn g16_float(f: f64) -> String {
     out
 }
 
-/// A string as Nim's `escapeJson` writes it.
-fn escape_nim(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '\n' => out.push_str("\\n"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            '\t' => out.push_str("\\t"),
-            '\u{b}' => out.push_str("\\u000b"),
-            '\r' => out.push_str("\\r"),
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-}
-
 fn as_int(v: &Json, path: &str) -> Result<i128, JsonError> {
     match v {
         // (A whole number written as a float, `4.0`, is one: scripting
@@ -559,6 +503,37 @@ mod tests {
         assert_eq!(j["V"]["value64"], "AQID");
         let back = from_json(&j, Codepage::WINDOWS_1252).unwrap();
         assert_eq!(back, g);
+    }
+
+    /// A talk-table line or a struct's id past 32 bits (or below what a
+    /// signed one holds) is an error that names the field, not the number
+    /// its low 32 bits make: `4294967296` was line 0, `-2` line 4294967294.
+    #[test]
+    fn ids_out_of_range_are_errors() {
+        let read = |field: Json| {
+            from_json(&json!({"__data_type": "GFF ", "N": field}), Codepage::default())
+        };
+        let name = |id: i64| json!({"type": "cexolocstring", "value": {"id": id, "0": "a"}});
+        let legacy = |id: i64| json!({"type": "cexolocstring", "id": id, "value": {}});
+        for make in [&name as &dyn Fn(i64) -> Json, &legacy] {
+            for (id, strref) in [(-1, StrRef::NONE), (0, StrRef(0)), (4_294_967_295, StrRef::NONE)]
+            {
+                let g = read(make(id)).unwrap();
+                assert_eq!(g.root.locstring("N").unwrap().strref, strref, "{id}");
+            }
+            for id in [4_294_967_296, -2, i64::MIN] {
+                let e = read(make(id)).unwrap_err().to_string();
+                assert!(e.contains('N') && e.contains("out of range"), "{id}: {e}");
+            }
+        }
+        let child = |id: i64| json!({"type": "struct", "__struct_id": id, "value": {}});
+        for (id, read_as) in [(-1, u32::MAX), (7, 7), (4_294_967_295, u32::MAX)] {
+            assert_eq!(read(child(id)).unwrap().root.child("N").unwrap().id, read_as, "{id}");
+        }
+        for id in [4_294_967_296, -2_147_483_649] {
+            let e = read(child(id)).unwrap_err().to_string();
+            assert!(e.contains('N') && e.contains("out of range"), "{id}: {e}");
+        }
     }
 
     #[test]
@@ -627,7 +602,7 @@ mod tests {
             (12345678.0, "12345678.0"),
             (1.5707942247390747, "1.5707942247390747"),
         ] {
-            assert_eq!(nim_float(v), text, "{v:e}");
+            assert_eq!(mg_core::nim::float(v), text, "{v:e}");
         }
     }
 

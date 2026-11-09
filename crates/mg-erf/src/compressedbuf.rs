@@ -8,7 +8,7 @@
 
 use std::io::Read;
 
-use mg_core::bin::{BinError, Reader};
+use mg_core::bin::{BinError, CopyBudget, Reader};
 use thiserror::Error;
 
 /// `XRES`, the magic of compressed ERF/BIF entries.
@@ -30,6 +30,11 @@ pub enum CompressedBufError {
     Dictionary,
     #[error("zstd data is corrupt: {0}")]
     Zstd(String),
+    #[error(
+        "the header says {size} bytes, more than a compressed buffer of {compressed} is read to \
+         ({limit})"
+    )]
+    TooLarge { size: usize, compressed: usize, limit: usize },
     #[error("decompressed {actual} bytes, header says {expected}")]
     SizeMismatch { expected: usize, actual: usize },
 }
@@ -64,12 +69,22 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
                 return Err(CompressedBufError::Dictionary);
             }
             let frame = r.bytes(r.remaining())?;
-            let dec = ruzstd::decoding::StreamingDecoder::new(frame)
-                .map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
-            // (The header's size is the file's word: room made for no more
-            // than a frame of this length could plausibly hold, and no
-            // more read than it says, so a crafted size or a frame that
-            // expands without end runs out of nothing.)
+            // (The reference library's streaming decoder, which writes
+            // them too: the one frame, what follows it left unread.)
+            let dec = zstd::stream::read::Decoder::with_buffer(frame)
+                .map_err(|e| CompressedBufError::Zstd(e.to_string()))?
+                .single_frame();
+            // (The header's size is the file's word, and a frame of
+            // run-length blocks holds 128 KB in every 4 bytes: no more is
+            // read than a file of the frame's length may copy out
+            // anywhere, `CopyBudget`'s 64 times and 64 MiB, so 130 KB that
+            // claim 4 GiB are refused before a byte is read. Room is made
+            // for no more than a frame of this length could plausibly
+            // hold, and no more read than the header says.)
+            let limit = max_size(frame.len());
+            if size > limit {
+                return Err(CompressedBufError::TooLarge { size, compressed: frame.len(), limit });
+            }
             let mut out = Vec::with_capacity(size.min(frame.len().saturating_mul(64)));
             dec.take(size as u64 + 1)
                 .read_to_end(&mut out)
@@ -82,6 +97,12 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
         return Err(CompressedBufError::SizeMismatch { expected: size, actual: out.len() });
     }
     Ok(out)
+}
+
+/// The most a compressed frame of `len` bytes is read to: what a file of
+/// that length may copy out ([`CopyBudget`]).
+fn max_size(len: usize) -> usize {
+    len.saturating_mul(CopyBudget::FACTOR).saturating_add(CopyBudget::SLACK)
 }
 
 /// Wraps bytes uncompressed (algorithm 0).
@@ -142,9 +163,12 @@ mod tests {
         for n in [0, 3, 8, 15, 20, 27, packed.len() - 1] {
             assert!(decompress(&packed[..n], MAGIC_XRES).is_err(), "cut at {n}");
         }
-        // The header says 4 GiB: refused once the frame ends.
+        // The header says 4 GiB: refused for its size; 64 MiB: once the
+        // frame ends.
         let mut huge = packed.clone();
         huge[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(decompress(&huge, MAGIC_XRES), Err(CompressedBufError::TooLarge { .. })));
+        huge[12..16].copy_from_slice(&(64u32 << 20).to_le_bytes());
         assert!(matches!(
             decompress(&huge, MAGIC_XRES),
             Err(CompressedBufError::SizeMismatch { actual: 4096, .. })
@@ -157,6 +181,49 @@ mod tests {
             decompress(&small, MAGIC_XRES),
             Err(CompressedBufError::SizeMismatch { expected: 100, actual: 101 })
         ));
+    }
+
+    /// A frame of run-length blocks (128 KB of zeros in 4 bytes each)
+    /// under a header that says `size`.
+    fn zeros(size: u32, blocks: u32) -> Vec<u8> {
+        use mg_core::bin::WriteLe;
+        let mut buf = Vec::new();
+        buf.put_bytes(b"XRES");
+        buf.put_u32(3);
+        buf.put_u32(2);
+        buf.put_u32(size);
+        buf.put_u32(1);
+        buf.put_u32(0);
+        // The frame: its magic, no flags, a window of 128 KB.
+        buf.put_bytes(&[0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x38]);
+        for i in 0..blocks {
+            let last = u32::from(i + 1 == blocks);
+            let header = (131_072 << 3) | (1 << 1) | last;
+            buf.put_bytes(&header.to_le_bytes()[..3]);
+            buf.push(0);
+        }
+        buf
+    }
+
+    /// 33 KB that claim (and hold) a gigabyte are refused at once, before
+    /// any of it is read; what a blank texture is (16 MiB of one byte in
+    /// 500 bytes) is read.
+    #[test]
+    fn a_frame_that_expands_past_all_proportion_is_refused() {
+        let bomb = zeros(1 << 30, 8192);
+        assert!(bomb.len() < 40_000);
+        let started = std::time::Instant::now();
+        let refused = decompress(&bomb, MAGIC_XRES);
+        assert!(started.elapsed() < std::time::Duration::from_millis(200));
+        assert!(
+            matches!(refused, Err(CompressedBufError::TooLarge { size: 0x4000_0000, .. })),
+            "{refused:?}"
+        );
+        // (The same for 4 GiB.)
+        let refused = decompress(&zeros(u32::MAX, 8192), MAGIC_XRES);
+        assert!(matches!(refused, Err(CompressedBufError::TooLarge { .. })), "{refused:?}");
+        let blank = decompress(&zeros(16 << 20, 128), MAGIC_XRES).unwrap();
+        assert!(blank.len() == 16 << 20 && blank.iter().all(|b| *b == 0));
     }
 
     #[test]

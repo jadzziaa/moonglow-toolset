@@ -68,6 +68,10 @@ pub struct Spec {
     pub engine_structures: Vec<String>,
 }
 
+/// The most engine structures a spec declares (the game's has ten): a
+/// `#define ENGINE_STRUCTURE_<n>` at or past it is skipped.
+const MAX_ENGINE_STRUCTURES: usize = 256;
+
 impl Spec {
     pub fn function(&self, name: &str) -> Option<&Function> {
         self.functions.iter().find(|f| f.name == name)
@@ -124,6 +128,9 @@ impl Spec {
                     && let [name, value] = words.as_slice()
                     && let Some(n) =
                         name.strip_prefix("ENGINE_STRUCTURE_").and_then(|n| n.parse::<usize>().ok())
+                    // The game has ten: a number far past them is no
+                    // engine structure, and sizes nothing.
+                    && n < MAX_ENGINE_STRUCTURES
                 {
                     if spec.engine_structures.len() <= n {
                         spec.engine_structures.resize(n + 1, String::new());
@@ -237,6 +244,20 @@ int Random(int nMaxInteger);
 void ActionMoveToObject(object oMoveTo, int bRun=FALSE, float fRange=1.0f);
 void Jump(vector vDest=[0.0,0.0,0.0], location lLoc=LOCATION_INVALID);
 ";
+
+    /// A module's or hak's `nwscript.nss` with an engine structure of an
+    /// absurd number: skipped, not a list of that size (or an index past
+    /// one that wrapped to nothing).
+    #[test]
+    fn engine_structure_numbers_size_nothing() {
+        let src = "#define ENGINE_STRUCTURE_0 effect\n\
+#define ENGINE_STRUCTURE_18446744073709551615 x\n\
+#define ENGINE_STRUCTURE_99999999999 y\n\
+#define ENGINE_STRUCTURE_256 z\n\
+#define ENGINE_STRUCTURE_3 talent\n";
+        let s = Spec::parse(src.as_bytes());
+        assert_eq!(s.engine_structures, ["effect", "", "", "talent"]);
+    }
 
     /// A function's documentation as written too, for Help to show as
     /// `nwscript.nss` has it: the `//`, the spaces before it and inside
