@@ -6200,8 +6200,11 @@ endmodelgeom fx\ndonemodel fx\n";
 
     #[test]
     fn materials_and_objects() {
-        let rm =
-            resman(&[("my_mat", ResType::MTR, b"texture0 a_texture_name_too_long\ntexture1 ok\n")]);
+        // (`ok` is there, so that `mtr-texture` has nothing to say.)
+        let rm = resman(&[
+            ("my_mat", ResType::MTR, b"texture0 a_texture_name_too_long\ntexture1 ok\n"),
+            ("ok", ResType::TGA, b""),
+        ]);
         let mut m = Module::new();
         let mut utp = Gff::new(*b"UTP ");
         utp.root.set("Appearance", Value::Dword(9));
