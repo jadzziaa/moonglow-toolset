@@ -36,11 +36,20 @@ pub struct Gatherer<'a> {
     seen: BTreeSet<ResKey>,
     /// Names given and found nowhere, each once, in the order met.
     missing: Vec<String>,
+    /// The models gathered that draw a mesh with `replace_tex`, which a
+    /// tile of one draws with its replacement texture.
+    replaced: BTreeSet<ResRef>,
 }
 
 impl<'a> Gatherer<'a> {
     pub fn new(rm: &'a ResMan) -> Gatherer<'a> {
-        Gatherer { rm, out: Vec::new(), seen: BTreeSet::new(), missing: Vec::new() }
+        Gatherer {
+            rm,
+            out: Vec::new(),
+            seen: BTreeSet::new(),
+            missing: Vec::new(),
+            replaced: BTreeSet::new(),
+        }
     }
 
     /// What is gathered so far, in the order it was found.
@@ -81,9 +90,14 @@ impl<'a> Gatherer<'a> {
 
     /// What the game draws an area with (`are`, its ARE fields; `git`, its
     /// GIT's, for what is placed in it): its tileset (`.set`), each tile's
-    /// model with its walkmesh and minimap picture, the tileset's
-    /// environment map and grass, the skybox's models and the loading
-    /// screen; and every creature, door, placeable and item placed in it,
+    /// model with its walkmesh and minimap picture, and the texture a
+    /// tile's `Tile_ReplaceTex` puts in place of its model's `replace_tex`
+    /// (replacetexture.2da); the tileset's environment map and grass, and
+    /// its edge tiles' models (`<tileset>_edge.2da`: the tile border past
+    /// the area's edge is drawn with those that fit its edge tiles, and
+    /// all of the table's are gathered); the skybox's models and the
+    /// loading screen; and every creature, door, placeable and item placed
+    /// in it,
     /// as [`Gatherer::preview`] gathers a blueprint's (the items a
     /// creature wears read from the load order). `set` is the area's
     /// tileset where the caller has it read already (else it is read).
@@ -104,6 +118,7 @@ impl<'a> Gatherer<'a> {
             for t in [&set.general.env_map, &set.grass.texture].into_iter().flatten() {
                 self.texture(t, 0);
             }
+            let replacements = game.table("replacetexture").ok();
             for tile in are.list("Tile_List").unwrap_or_default() {
                 let id = usize::try_from(tile.integer("Tile_ID").unwrap_or(-1)).ok();
                 let Some(t) = id.and_then(|i| set.tiles.get(i)) else { continue };
@@ -111,6 +126,20 @@ impl<'a> Gatherer<'a> {
                 if let Some(map) = &t.image_map_2d {
                     self.texture(map, 0);
                 }
+                // (As the area view: where the model has a `replace_tex`.)
+                let replaced = ResRef::cut(&t.model).is_some_and(|m| self.replaced.contains(&m));
+                let texture = replacements.as_ref().filter(|_| replaced).and_then(|table| {
+                    mg_rules::rows::replacement_texture(table, tile.integer("Tile_ReplaceTex"))
+                });
+                if let Some(texture) = texture {
+                    self.texture(&texture, 0);
+                }
+            }
+            // The tile border's models: the tileset's edge tiles.
+            let edges =
+                name.and_then(|n| game.table(&mg_rules::rows::edge_table(&n.to_string())).ok());
+            for row in edges.as_deref().map(mg_rules::rows::edge_rows).unwrap_or_default() {
+                self.model(&row.model, 0);
             }
         }
         let cell = |table: &str, row: i64, column: &str| {
@@ -242,6 +271,10 @@ impl<'a> Gatherer<'a> {
                 NodeKind::Mesh(m) => {
                     for t in m.textures.iter().flatten().chain(&m.material) {
                         self.texture(t, 0);
+                    }
+                    let first = m.textures[0].as_deref();
+                    if first.is_some_and(|t| t.eq_ignore_ascii_case(mg_rules::rows::REPLACE_TEX)) {
+                        self.replaced.insert(resref);
                     }
                 }
                 NodeKind::Emitter(e) => {
@@ -464,6 +497,64 @@ mod tests {
             ["tst01.set", "mg_sky.tga", "tst01_a01.mdl", "tst01_a01.wok", "mg_wood.tga"]
         );
         assert!(g.missing().contains(&"tst01_gone.mdl".to_string()), "{:?}", g.missing());
+    }
+
+    /// An area's files have what the area view draws past its edge and on
+    /// a tile whose texture is replaced: the models of the tileset's edge
+    /// table with their textures, and the replacement texture of a tile
+    /// whose model has a `replace_tex` (the review's M4).
+    #[test]
+    fn an_area_brings_its_tile_border_and_replacement_textures() {
+        let key = |name: &str| ResKey::from_filename(name).unwrap();
+        let tile = |name: &str, texture: &str| {
+            MODEL.replace("mg_fog", name).replace("mg_chunk", "null").replace("mg_wood", texture)
+        };
+        let mut hak = MemContainer::new();
+        let set = "[GENERAL]\nName=TST01\n[TILES]\nCount=2\n[TILE0]\nModel=tst01_a01\n\
+                   [TILE1]\nModel=tst01_a02\n";
+        hak.insert(key("tst01.set"), set.as_bytes());
+        hak.insert(key("tst01_a01.mdl"), tile("tst01_a01", "replace_tex").as_bytes());
+        hak.insert(key("tst01_a02.mdl"), tile("tst01_a02", "mg_wood").as_bytes());
+        hak.insert(key("tst01_z01.mdl"), tile("tst01_z01", "mg_edge").as_bytes());
+        for n in ["mg_wood.tga", "mg_edge.tga", "mg_flag0.tga", "mg_flag1.tga", "fxpa_smoke.tga"] {
+            hak.insert(key(n), &b"tga"[..]);
+        }
+        let edge = "2DA V2.0\n\n Corner1 Edge Corner2 Model\n0 Grass **** Grass TST01_Z01\n\
+                    1 Grass Road Grass tst01_gone\n2 Water **** **** ****\n";
+        hak.insert(key("tst01_edge.2da"), edge.as_bytes());
+        let replace = "2DA V2.0\n\n TEXTURENAME\n0 mg_flag0\n1 MG_Flag1\n2 mg_flag2\n";
+        hak.insert(key("replacetexture.2da"), replace.as_bytes());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:tiles", LayerClass::Erf, hak);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut are = Struct::default();
+        are.set("Tileset", mg_gff::Value::resref(ResRef::from_str("tst01").unwrap()));
+        // The plain tile with a replacement set (nothing of it is drawn),
+        // the flag tile with row 1's (value 2).
+        let tiles = [(1, 1), (0, 2)].map(|(id, replace)| {
+            let mut t = Struct::default();
+            t.set("Tile_ID", mg_gff::Value::Int(id));
+            t.set("Tile_ReplaceTex", mg_gff::Value::Byte(replace));
+            t
+        });
+        are.set("Tile_List", mg_gff::Value::List(tiles.to_vec()));
+        let mut g = Gatherer::new(&game.resman);
+        g.area(&game, &are, None, None);
+        let names: Vec<String> = g.files().iter().map(|f| f.key.to_string()).collect();
+        assert_eq!(
+            names,
+            [
+                "tst01.set",
+                "tst01_a02.mdl",
+                "mg_wood.tga",
+                "fxpa_smoke.tga",
+                "tst01_a01.mdl",
+                "mg_flag1.tga",
+                "tst01_z01.mdl",
+                "mg_edge.tga",
+            ]
+        );
+        assert_eq!(g.missing(), ["replace_tex", "tst01_gone.mdl"]);
     }
 
     /// A placeable's row of placeables.2da, as a 2DA of that row numbered

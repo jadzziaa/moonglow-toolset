@@ -48,6 +48,53 @@ pub fn replacement_value(row: usize) -> Option<u8> {
     u8::try_from(row + 1).ok()
 }
 
+/// The texture a tile model's mesh is drawn with where the tile's
+/// `Tile_ReplaceTex` replaces it ([`replacement_row`]).
+pub const REPLACE_TEX: &str = "replace_tex";
+
+/// The texture (lower case) a tile whose `Tile_ReplaceTex` is `value`
+/// draws its model's [`REPLACE_TEX`] with: `table` (replacetexture.2da)'s
+/// `TEXTURENAME` of [`replacement_row`]. What the area view draws and
+/// what an area's files are gathered by.
+pub fn replacement_texture(table: &mg_2da::TwoDa, value: Option<i64>) -> Option<String> {
+    let row = replacement_row(value, table.len())?;
+    Some(table.get(row, "TEXTURENAME")?.to_ascii_lowercase())
+}
+
+/// The table of a tileset's edge tiles, which the game continues an
+/// area's edge outward with (its tile border): `<tileset>_edge`.
+pub fn edge_table(tileset: &str) -> String {
+    format!("{}_edge", tileset.to_ascii_lowercase())
+}
+
+/// A row of a tileset's edge table (`<tileset>_edge.2da`): terrains and
+/// crosser lower case, `None` for `****`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeRow {
+    pub corner1: Option<String>,
+    pub edge: Option<String>,
+    pub corner2: Option<String>,
+    /// In the tileset's height steps.
+    pub height: i32,
+    pub model: String,
+}
+
+/// The rows of an edge table that name a model.
+pub fn edge_rows(table: &mg_2da::TwoDa) -> Vec<EdgeRow> {
+    let cell = |row: usize, column: &str| table.get(row, column).map(str::to_ascii_lowercase);
+    (0..table.len())
+        .filter_map(|row| {
+            Some(EdgeRow {
+                corner1: cell(row, "Corner1"),
+                edge: cell(row, "Edge"),
+                corner2: cell(row, "Corner2"),
+                height: table.get_int(row, "Height").unwrap_or(0),
+                model: cell(row, "Model")?,
+            })
+        })
+        .collect()
+}
+
 /// A 2DA whose rows a field names, and where a row's name is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowTable {

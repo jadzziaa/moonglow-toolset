@@ -1569,9 +1569,13 @@ the game's script), and what that names in turn:
   script and function not followed (`by_number`).
 - **An area**: its tileset (the `.set` and its palette), and of the
   tiles, those the area places, each with its model, walkmesh and map
-  image; the tileset's grass and environment map; the skybox's models,
-  the loading screen, the ambient sounds and the music (with its
-  stingers).
+  image, and the texture a tile's replacement puts on its model
+  (replacetexture.2da, where the model has a `replace_tex`); the
+  tileset's grass and environment map, and its edge tiles' models, which
+  the game draws past the area's edge (every model of
+  `<tileset>_edge.2da`, whichever of them the area's edge takes); the
+  skybox's models, the loading screen, the ambient sounds and the music
+  (with its stingers).
 - **An object, as the area view draws it**: a placeable's or door's
   model and sounds (placeableobjsnds.2da); a creature's body (head, body
   parts, wings, tail, what it wears), its portrait and sound set (the
@@ -2239,8 +2243,9 @@ plugin reads a description with `mg.twoda.describe`
   folder has files of those names already, it asks first: replace them,
   skip those, or cancel. **Export › Export Model Files…** on an area's
   right-click menu in the module tree does the same for the area: its
-  `.are` and `.git`, its tileset (`.set`), its tiles' models, walkmeshes
-  and minimap pictures, its skybox and loading screen, and the models of
+  `.are` and `.git`, its tileset (`.set`), its tiles' models, walkmeshes,
+  minimap pictures and replacement textures, the tileset's edge tiles
+  (the tile border), its skybox and loading screen, and the models of
   every creature, door, placeable and item placed in it. `mg
   model-files` does both from a terminal.
 - **Copy to Scratch Folder** (the same right-click menu's **Export**; **To

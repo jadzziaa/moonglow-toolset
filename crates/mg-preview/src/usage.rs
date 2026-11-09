@@ -26,8 +26,11 @@
 //!   ([`ByNumber`]), not followed;
 //! - what an area is drawn with: its tileset (its `.set` and palette) and,
 //!   of the tiles, those the area places: each one's model, walkmesh
-//!   (`.wok`) and map image; the tileset's grass texture and environment
-//!   map; its skybox's models (skyboxes.2da), its loading screen
+//!   (`.wok`), map image and replacement texture (replacetexture.2da, where
+//!   its model has a `replace_tex`); the tileset's grass texture and
+//!   environment map, and its edge tiles' models (`<tileset>_edge.2da`,
+//!   every row's: the tile border past the area's edge);
+//!   its skybox's models (skyboxes.2da), its loading screen
 //!   (loadscreens.2da), its ambient sounds (ambientsound.2da) and music
 //!   (ambientmusic.2da and its stingers);
 //! - what an object looks like, as the area view draws it
@@ -589,15 +592,19 @@ impl<'a> Walk<'a> {
         {
             self.reach_named(&format!("{name}palstd"), ResType::ITP);
             set = self.tileset(r);
+            // (The tables its tile border's models and its tiles'
+            // replacement textures are read from.)
+            self.table(&mg_rules::rows::edge_table(&name));
+            self.table("replacetexture");
         }
         // (The tables its skybox and loading screen are read from.)
         self.table("skyboxes");
         if are.integer("LoadScreenID").is_some_and(|r| r > 0) {
             self.table("loadscreens");
         }
-        // Its tiles' models, walkmeshes and minimap pictures, the
-        // tileset's maps, the skybox and the loading screen, as Export
-        // Files gathers them.
+        // Its tiles' models, walkmeshes, minimap pictures and replacement
+        // textures, the tileset's maps and edge tiles, the skybox and the
+        // loading screen, as Export Files gathers them.
         self.gather.area(self.game, are, set.as_deref(), None);
     }
 
@@ -1353,6 +1360,94 @@ mod tests {
         assert_eq!(u.unused.len(), 1);
         assert_eq!(armor_part("pmh0_chest001"), Some(('m', 'h', "0", "chest001")));
         assert_eq!(armor_part("plc_a01"), None);
+    }
+
+    /// A walk of a module of `resources` (each in the module's layer)
+    /// over a hak `content` and the game's `stock`: the game, and what
+    /// the walk reached with what it was reached from.
+    fn walked(
+        resources: Vec<(&str, Vec<u8>)>,
+        content: MemContainer,
+        stock: MemContainer,
+    ) -> (GameData, HashMap<ResKey, ResKey>) {
+        let mut module = MemContainer::new();
+        let mut m = Module::new();
+        for (name, data) in resources {
+            module.insert(key(name), data.clone());
+            m.set(key(name), data);
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::MODULE, "module", LayerClass::Erf, module);
+        rm.add(priority::HAK_USER, "hak:mg_content", LayerClass::Erf, content);
+        rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let from = {
+            let mut walk = Walk::new(&game);
+            walk.module(&m);
+            walk.settle();
+            walk.players_choose();
+            walk.settle();
+            walk.from
+        };
+        (game, from)
+    }
+
+    /// What the area view draws past an area's edge and on a tile whose
+    /// texture is replaced is used: the models of the tileset's edge
+    /// table (named nowhere else) with their textures, and the
+    /// replacetexture.2da texture of a tile whose model has a
+    /// `replace_tex`, by the tile's `Tile_ReplaceTex` (row 0 without the
+    /// field); not that of a row no tile takes. They were listed unused,
+    /// and a release cut by the report lost them (the review's M4).
+    #[test]
+    fn an_area_s_tile_border_and_replacement_textures_are_used() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        let set = "[GENERAL]\nName=mgt01\n[TILES]\nCount=2\n[TILE0]\nModel=mgt01_a01\n\
+                   [TILE1]\nModel=mgt01_a02\n";
+        stock.insert(key("mgt01.set"), set.as_bytes());
+        let mut content = MemContainer::new();
+        content.insert(
+            key("mgt01_edge.2da"),
+            table(" Corner1 Edge Corner2 Model Height\n0 Grass **** Grass MGT01_Z01 0\n1 Grass **** **** **** 0\n"),
+        );
+        content.insert(key("mgt01_z01.mdl"), model("mgt01_z01", "mg_edge"));
+        content.insert(key("mg_edge.tga"), &b"tga"[..]);
+        content.insert(
+            key("replacetexture.2da"),
+            table(" TEXTURENAME\n0 MG_Flag0\n1 mg_flag1\n2 mg_flag2\n"),
+        );
+        for n in ["mg_flag0.tga", "mg_flag1.tga", "mg_flag2.tga", "mg_plain.tga"] {
+            content.insert(key(n), &b"tga"[..]);
+        }
+        content.insert(key("mgt01_a01.mdl"), model("mgt01_a01", "Replace_Tex"));
+        content.insert(key("mgt01_a02.mdl"), model("mgt01_a02", "mg_plain"));
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tileset", Value::resref(rr("mgt01")));
+        // A flag tile without the field (row 0), one of row 1 (value 2),
+        // and a plain tile of row 2 (value 3), which has nothing replaced.
+        let tiles = [(0, None), (0, Some(2)), (1, Some(3))].map(|(id, replace)| {
+            let mut tile = Struct::new(1);
+            tile.set("Tile_ID", Value::Int(id));
+            if let Some(v) = replace {
+                tile.set("Tile_ReplaceTex", Value::Byte(v));
+            }
+            tile
+        });
+        are.root.set("Tile_List", Value::List(tiles.to_vec()));
+        let (_, from) = walked(vec![("a1.are", are.to_bytes().unwrap())], content, stock);
+        for n in [
+            "mgt01_edge.2da",
+            "mgt01_z01.mdl",
+            "mg_edge.tga",
+            "replacetexture.2da",
+            "mg_flag0.tga",
+            "mg_flag1.tga",
+            "mg_plain.tga",
+        ] {
+            assert_eq!(from.get(&key(n)).map(|f| f.to_string()).as_deref(), Some("a1.are"), "{n}");
+        }
+        assert_eq!(from.get(&key("mg_flag2.tga")), None);
     }
 
     /// What the walk followed only since the deferred sprint: a creature's
