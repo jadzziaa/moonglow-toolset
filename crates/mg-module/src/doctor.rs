@@ -986,7 +986,11 @@ pub fn examine_groups(
             }
             let keys: Vec<ResKey> = layer.container.keys().collect();
             let won: Vec<ResKey> = (keys.into_par_iter())
-                .filter(|key| !skip.resource(key) && resman.find(key) == Some(i))
+                // (The copy the game reads: the pending baked rows' layer
+                // is over the haks, and is not one.)
+                .filter(|key| {
+                    !skip.resource(key) && crate::bake::layer_read(resman, key) == Some(i)
+                })
                 .collect();
             custom.extend(won.into_iter().map(|key| (key, i)));
         }
@@ -2629,7 +2633,9 @@ const AURORA_ROW_LIMITS: [(&str, usize, &str); 2] = [
 /// aren't there, and other haks' copies it hides.
 fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     use Severity::*;
-    let Ok(data) = d.rm.get(&key) else { return };
+    // (Its layer's copy, the one the game reads: for placeables.2da the
+    // pending baked rows' layer may be over it.)
+    let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
     let data = data.into_owned();
     let name = key.resref.to_string().to_ascii_lowercase();
     // Tables the game has are the ones it and Aurora read; others are read
@@ -5486,6 +5492,30 @@ Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
                 .all(|x| x.severity == Severity::Error)
         );
         assert_eq!(Group::of(tag), Group::Module);
+    }
+
+    /// While a baked row waits for the project's build, its layer is over
+    /// the haks with a placeables.2da of its own: the hak's copy is still
+    /// the one the game reads, and the one checked (the review's V3: it was
+    /// no longer "the winning copy", and none of the 2DA checks ran on it).
+    #[test]
+    fn a_hak_s_placeables_are_checked_under_pending_baked_rows() {
+        let table = b"2DA V2.0\n\n   Label ModelName StrRef\n0  Chair plc_chair 5\n1  Stool plc_stool 16777217\n2  Box plc_box 3 Crate plc_crate 4\n";
+        let mut rm = resman(&[("placeables", ResType::TWODA, table)]);
+        let tlk = TalkTables { base: 100, custom: Some(1) };
+        let before = examine(&Module::new(), &rm, tlk);
+        let mut pending = mg_resman::MemContainer::new();
+        let sound = b"2DA V2.0\n\n   Label ModelName StrRef\n0  Chair plc_chair 5\n";
+        pending.insert(key("placeables", ResType::TWODA), sound.to_vec());
+        let (at, label) = (crate::bake::PENDING_PRIORITY, crate::bake::PENDING_LABEL);
+        rm.add(at, label, mg_resman::LayerClass::Erf, pending);
+        assert_eq!(rm.origin(&key("placeables", ResType::TWODA)), Some(label));
+        let f = examine(&Module::new(), &rm, tlk);
+        assert_eq!(
+            checks(&f),
+            [("2da-row", "row 2".into()), ("2da-strref", "row 1, StrRef".into())]
+        );
+        assert_eq!(f, before);
     }
 
     #[test]

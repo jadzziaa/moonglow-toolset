@@ -236,7 +236,10 @@ pub fn plan(
 ) -> Result<Plan, String> {
     let spec = spec.normalized();
     let key = placeables_key();
-    let top = rm.find(&key).ok_or("the game data has no placeables.2da")?;
+    // (Not the walkmesh bake's pending rows' layer, which is over every hak
+    // while a baked row waits for the project's build: no hak can be moved
+    // above it.)
+    let top = crate::bake::layer_read(rm, &key).ok_or("the game data has no placeables.2da")?;
     let layers = rm.layers();
     let label = format!("hak:{}", hak.name.to_lowercase());
     let at = layers.iter().position(|l| l.label.eq_ignore_ascii_case(&label));
@@ -466,6 +469,34 @@ mod tests {
         assert!(again.describe().contains("Nothing is written"));
         let other = plan(&rm, cp, LightSpec { radius: 8.0, ..spec }, listed, None).unwrap();
         assert_eq!((other.row, other.reused), (20001, false));
+    }
+
+    /// While a baked row waits for the project's build, Moonglow reads
+    /// placeables.2da from a layer of its own over the haks: a light still
+    /// goes into the hak whose copy the game reads, listed or new (the
+    /// review's V3: both were refused, with advice to move the hak above a
+    /// layer that is no hak).
+    #[test]
+    fn pending_baked_rows_do_not_refuse_a_light() {
+        let dir = mg_testkit::scratch_dir("mg-lights-pending");
+        let base = table(&["Chest **** plc_c01 **** 1 0 0"]);
+        let theirs = table(&["Chest **** plc_c01 **** 1 0 0", "Their_Own **** x_own **** 1 0 0"]);
+        let pending = table(&[
+            "Chest **** plc_c01 **** 1 0 0",
+            "Their_Own **** x_own **** 1 0 0",
+            "Baked **** mgbk_0001 **** 1 0 0",
+        ]);
+        let rm = game(&[
+            (crate::bake::PENDING_LABEL, crate::bake::PENDING_PRIORITY, Some(pending)),
+            ("hak:theirs", priority::HAK_USER, Some(theirs)),
+            ("game", priority::KEY, Some(base)),
+        ]);
+        let (cp, spec) = (Codepage::default(), LightSpec::default());
+        let listed = HakChoice { name: "theirs".into(), path: dir.join("theirs.hak"), new: false };
+        let p = plan(&rm, cp, spec, listed, None).unwrap();
+        assert_eq!((p.row, p.table_from.as_str()), (2, "hak:theirs"));
+        let p = plan(&rm, cp, spec, new_hak(&dir, "lights").unwrap(), None).unwrap();
+        assert_eq!((p.row, p.table_from.as_str()), (2, "hak:theirs"));
     }
 
     /// A development folder above the haks with its own table: a new hak

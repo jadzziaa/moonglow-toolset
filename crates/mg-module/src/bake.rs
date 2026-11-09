@@ -337,6 +337,14 @@ impl RowsFile {
     }
 }
 
+/// The layer whose copy of a resource the game reads (its place in
+/// [`ResMan::layers`]): the first that has it, [`PENDING_LABEL`]'s
+/// stepped over, which holds what the project's build will make and is
+/// no file the game or a builder has.
+pub fn layer_read(rm: &ResMan, key: &ResKey) -> Option<usize> {
+    rm.layers().iter().position(|l| l.label != PENDING_LABEL && l.container.contains(key))
+}
+
 /// The placeables.2da the game reads with these resources, but for the
 /// module file's own copy and [`PENDING_LABEL`]'s: the haks' or the
 /// game's, and the layer it is read from.
