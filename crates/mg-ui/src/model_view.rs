@@ -1188,8 +1188,14 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         camera.view(),
     );
     // Animated alpha, self-illumination and vertices; dangly meshes.
-    let mut state =
-        playing.map_or_else(|| MeshState::new(&model), |a| anim::mesh_state(&model, a, view.time));
+    // (Guarded, as building the model is: custom content's animated meshes
+    // hold surprises, and the model is then shown at rest.)
+    let mut state = playing
+        .and_then(|a| {
+            let name = &model.model.name;
+            mg_render::guard::guarded(name, || anim::mesh_state(&model, a, view.time))
+        })
+        .unwrap_or_else(|| MeshState::new(&model));
     let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
     dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
     dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
