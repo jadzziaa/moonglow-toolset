@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod added;
 mod bake;
 mod claims;
 mod diff;
@@ -116,13 +117,42 @@ enum Cmd {
         /// module itself, are in the load order too.
         #[arg(long)]
         module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
     },
-    /// Print a resource from the game's load order to stdout.
+    /// Print a resource from the game's load order to stdout; or, with
+    /// --to, write many into a folder, each with the layer it came from,
+    /// its size and its SHA-256 (one run reads every archive once).
+    /// Fails if a resource is found nowhere (with --to, once the rest are
+    /// written).
     Cat {
-        resource: String,
+        /// `name.ext`, e.g. `classes.2da`; with --to, as many as needed.
+        #[arg(value_name = "RESOURCE", required_unless_present = "list")]
+        resources: Vec<String>,
+        /// With --to: more names from a file, a line each (`-`: standard
+        /// input; blank lines and lines beginning with `#` passed over).
+        #[arg(long, value_name = "FILE", requires = "to")]
+        list: Option<PathBuf>,
+        /// Write each resource into this folder (made if missing) by its
+        /// name, rather than to standard output.
+        #[arg(long, value_name = "FOLDER")]
+        to: Option<PathBuf>,
+        /// With --to: write over files of the same names in the folder.
+        #[arg(long, requires = "to")]
+        force: bool,
+        /// With --to: say what would be written (and its size and
+        /// SHA-256); write nothing.
+        #[arg(long, requires = "to")]
+        dry_run: bool,
         /// A compiled model (.mdl) as the text it compiles from.
         #[arg(long)]
         text: bool,
+        /// A module (.mod, folder or nasher project) whose haks, and the
+        /// module itself, are in the load order too.
+        #[arg(long)]
+        module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
     },
     /// List the resource layers in load order with their sizes.
     Layers,
@@ -2474,14 +2504,10 @@ fn run(cli: &Cli) -> Result<Output> {
             out.notes.splice(0..0, notes.notes);
             out
         }
-        Cmd::Which { resource, module } => {
-            let gi = install(cli)?;
+        Cmd::Which { resource, module, added } => {
             let key = resource_key(resource)?;
             let mut out = Output::default();
-            let rm = match module {
-                Some(path) => module_resman(&gi, &crate::open_module(path)?, &mut out)?,
-                None => ResMan::for_game(&gi)?,
-            };
+            let rm = resman_with(cli, module.as_deref(), added, &mut out)?;
             // Every copy, highest first: the first is the one the game reads.
             let copies = rm.copies(&key);
             let Some(&top) = copies.first() else { bail!("{key} not found") };
@@ -2501,8 +2527,25 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Cat { resource, text } => {
-            let rm = ResMan::for_game(&install(cli)?)?;
+        Cmd::Cat { resources, list, to, force, dry_run, text, module, added } => {
+            let mut notes = Output::default();
+            let rm = resman_with(cli, module.as_deref(), added, &mut notes)?;
+            if let Some(dir) = to {
+                let names = added::names(resources, list.as_deref())?;
+                let asked = added::Many {
+                    names: &names,
+                    dir,
+                    text: *text,
+                    force: *force,
+                    dry_run: *dry_run,
+                };
+                let mut out = added::many(&rm, &asked)?;
+                out.notes.splice(0..0, notes.notes);
+                return Ok(out);
+            }
+            let [resource] = &resources[..] else {
+                bail!("{} resources: give --to FOLDER to write them into", resources.len())
+            };
             let key = resource_key(resource)?;
             let data = rm.get(&key)?;
             // (A model that is text already is printed as it is.)
@@ -2513,7 +2556,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 Some(Err(mg_mdl::DecompileError::NotBinary)) | None => data,
                 Some(Err(e)) => anyhow::bail!("{key}: {e}"),
             };
-            if cli.json {
+            let mut out = if cli.json {
                 // Text as text; other bytes as hexadecimal.
                 let text = std::str::from_utf8(&data).ok().map(str::to_string);
                 let hex = text
@@ -2529,7 +2572,9 @@ fn run(cli: &Cli) -> Result<Output> {
             } else {
                 io::stdout().lock().write_all(&data)?;
                 Output { done: true, ..Default::default() }
-            }
+            };
+            out.notes = notes.notes;
+            out
         }
         Cmd::Layers => {
             let rm = ResMan::for_game(&install(cli)?)?;
@@ -5274,6 +5319,24 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     for missing in missing {
         out.note(format!("warning: {}", gi.hak_not_found(&missing)));
     }
+    Ok(rm)
+}
+
+/// The resman `mg which` and `mg cat` read from: the game's, with a
+/// module's haks and the module where one is given, and the archives and
+/// folders given with `--hak` over them.
+fn resman_with(
+    cli: &Cli,
+    module: Option<&Path>,
+    added: &added::Added,
+    out: &mut Output,
+) -> Result<ResMan> {
+    let gi = install(cli)?;
+    let mut rm = match module {
+        Some(path) => module_resman(&gi, &crate::open_module(path)?, out)?,
+        None => ResMan::for_game(&gi)?,
+    };
+    added.stack_onto(&mut rm)?;
     Ok(rm)
 }
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-07T08:20:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T15:23:56Z }
 ---
 
 # Command-line tools
@@ -51,8 +51,9 @@ JSON (below).
 
 | Command | Does |
 | --- | --- |
-| `mg which NAME.EXT` | where a resource comes from in the game's load order: the layer the game reads it from, then each layer whose copy that one overrides ("hak:low (overridden by hak:top)"); `--module MODULE` puts the module's haks and the module in the load order too |
-| `mg cat NAME.EXT` | print a resource to standard output; `--text` prints a compiled model (`.mdl`) as the text it compiles from |
+| `mg which NAME.EXT` | where a resource comes from in the game's load order: the layer the game reads it from, then each layer whose copy that one overrides ("hak:low (overridden by hak:top)"); `--module MODULE` puts the module's haks and the module in the load order too; `--hak PATH` adds your own ([below](#haks-and-folders-of-your-own)) |
+| `mg cat NAME.EXT` | print a resource to standard output; `--text` prints a compiled model (`.mdl`) as the text it compiles from; `--module` and `--hak` as for `mg which` |
+| `mg cat NAME.EXT… --to FOLDER` | write many resources into a folder in one run, each by its name, from where the game reads it (every archive opened once: thousands take a second or two, where a run of `mg` a resource takes about a tenth of a second each); more names from `--list FILE`, a line each (`-`: standard input; blank lines and lines that begin with `#` passed over), each name once. Each is printed with its layer, size and SHA-256 (`--json`: `resources`, each with `resource`, `found`, `layer`, `file`, `size` and `sha256`, or `found: false` and `why`; and `missing`). A name found nowhere, or no resource's name, is said, and the run fails once the rest are written. `--dry-run` says the same and writes nothing; files of those names in the folder are written over only with `--force`; `--text` writes compiled models as text |
 | `mg layers` | the load order's layers and their sizes |
 | `mg tlk STRREF…` | talk-table strings by number |
 | `mg tlk-export TABLE.tlk OUT [--module MODULE]` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it. The JSON, as `nwn_tlk`'s, is one table's: export `TABLEf.tlk` on its own for the feminine one. A CSV's StrRefs are a custom table's, as a module's files name its lines (16777216 and up: line 131 is 16777347); `--base` numbers the lines from 0, as the game's own `dialog.tlk`'s are named. `--module` reads the text by the module's `encoding.2da` (in its haks), where it has one. A sound length that is no number (infinite, in a damaged table or another tool's) is written `"soundLen":"inf"` in the JSON, as `nwn_tlk` writes it, and `inf` in the CSV. `mg tlk-import` reads either |
@@ -62,6 +63,16 @@ JSON (below).
 | `mg 2da-diff A.2da B.2da --base BASE.2da -o MERGED.2da` | merge two tables that were both made from BASE: what either changed is taken. A cell both changed, each to something else, is a conflict (two rows added under one number are, where they differ): it fails and writes nothing, unless `--prefer a` or `--prefer b` says whose to take. `--edits FILE` writes the merged table as an edit file |
 | `mg tlk-diff A.tlk B.tlk [--base BASE.tlk -o MERGED.tlk]` | the same for talk tables, by line. `--lines FILE.json` writes the lines that differ as a file for `mg tlk-import` |
 | `mg tlk-alloc TABLE.tlk --from NAMES.toml` | write a custom talk table from strings kept by name: see [Strings by name](#strings-by-name) |
+
+### Haks and folders of your own
+
+`--hak PATH`, which `mg which` and `mg cat` take as often as needed, adds
+a hak, ERF or module (`.hak`, `.erf`, `.mod`) or a folder of loose files
+(its own files, not its folders') to the load order: the first given wins
+over the next, and all of them over every hak (the game's, the user
+folder's, a `--module`'s), under the user folder's `development/`
+(`--no-user-dir` leaves that out). Its layer is named by its kind and the
+path as given: `hak:build/hak/top.hak`, `folder:assets/models`.
 
 ## Modules
 

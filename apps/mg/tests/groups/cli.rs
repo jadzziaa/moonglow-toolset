@@ -2,6 +2,8 @@
 //! here, so that they are linked once and their tests run side by side. A
 //! new test file is named here (`every_test_file_is_in_the_group` says so).
 
+#[path = "../added_haks.rs"]
+mod added_haks;
 #[path = "../areas.rs"]
 mod areas;
 #[path = "../attach.rs"]
