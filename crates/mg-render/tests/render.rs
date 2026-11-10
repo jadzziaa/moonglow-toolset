@@ -1185,6 +1185,62 @@ fn the_sky_fade_is_laid_over_the_sky_by_its_alpha() {
     assert!(px[0] > 245 && (180..205).contains(&px[1]) && (180..205).contains(&px[2]), "{px:?}");
 }
 
+/// Moonglow's own shader leaves the picture's alpha as the scene cleared
+/// it where it draws solid, as the game's programs' passes do: a layer
+/// drawn by the `vertexalpha` effect without `transparency`, its vertex
+/// alpha a half, and a sky whose texture has alpha (wrote theirs, and the
+/// panel showed through the picture there, as through `mgv render`'s
+/// PNG); and the sky is not cut where its texture's alpha is low (the
+/// game's sky program is made with `NO_DISCARD`).
+#[test]
+fn a_solid_draw_leaves_the_picture_s_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.opaque("layer", [255, 0, 0]);
+    let named = "customshadervs vertexalpha_vs\ncustomshaderfs vertexalpha_fs\n";
+    assets.materials.insert("layer".into(), mg_image::mtr::Mtr::parse(named.as_bytes()));
+    // (A sky a tenth opaque: below the cut.)
+    assets.solid("thin", [0, 0, 255, 25]);
+    let quad_with = |bitmap: &str, alpha: u8| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(bitmap.into());
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.colors = vec![[255, 255, 255, alpha]; 4];
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let far =
+        Mat4::from_translation(Vec3::new(0.0, 0.0, -500.0)) * Mat4::from_scale(Vec3::splat(2000.0));
+    let scene = Scene {
+        instances: vec![Instance::new(quad_with("layer", 128), Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        sky: Some(Instance::new(quad_with("thin", 255), far)),
+        background: [0.0, 1.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    for samples in [1, 4] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        assert_eq!(r.drawn.game, 0, "Moonglow's own shader");
+        // The layer, in the middle: red, the picture opaque there.
+        let layer = image.pixel(32, 32);
+        assert!(layer[0] > layer[1] + 100, "{samples} samples: the layer {layer:?}");
+        // The sky, in a corner: its texture's blue, not the background
+        // (green) it was cut to.
+        let sky = image.pixel(3, 3);
+        assert!(sky[2] > 200 && sky[1] < 60, "{samples} samples: the sky {sky:?}");
+        let see_through = image.data.as_chunks::<4>().0.iter().filter(|p| p[3] != 255).count();
+        assert_eq!(see_through, 0, "{samples} samples: pixels whose alpha is not the clear's");
+    }
+}
+
 /// The scene's depths stay in the depth buffer: what a caller draws after
 /// it, tested against them, is hidden where the scene is nearer.
 #[test]

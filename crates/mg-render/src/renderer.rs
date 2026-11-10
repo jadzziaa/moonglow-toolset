@@ -1165,7 +1165,16 @@ impl Renderer {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: color_format,
                         blend,
-                        write_mask: wgpu::ColorWrites::ALL,
+                        // (A pass that doesn't blend leaves the picture's
+                        // alpha as the scene cleared it, as the game's
+                        // programs' do, `GamePass::write_mask`: what a
+                        // solid draw wrote below opaque, a `vertexalpha`
+                        // layer's or a sky's texture's, made the picture
+                        // see-through there.)
+                        write_mask: match blend {
+                            Some(_) => wgpu::ColorWrites::ALL,
+                            None => wgpu::ColorWrites::COLOR,
+                        },
                     })],
                 }),
                 multiview_mask: None,
@@ -2540,7 +2549,9 @@ impl Renderer {
                         && inst.opacity < 1.0
                         && alpha / inst.opacity >= 1.0
                         && !see_through;
-                    let discard = ALPHA_DISCARD;
+                    // (None of the sky is cut, whatever its texture's alpha:
+                    // the game's sky program is made with `NO_DISCARD`.)
+                    let discard = if is_sky { -1.0 } else { ALPHA_DISCARD };
                     // The 32 most important lights that reach the mesh.
                     let ball = (centre, radius);
                     let set = reach_cache.reaching(&mut reach, ball, place, &mut chosen);
