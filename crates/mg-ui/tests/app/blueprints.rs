@@ -3342,7 +3342,8 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let g = ws.doc(&git).unwrap();
     let c = &g.root.list("Creature List").unwrap()[0];
     assert_eq!(c.resref("Conversation"), Some(ResRef::from_str("store001").unwrap()));
-    assert_eq!(c.integer("FactionID"), Some(3), "Merchant");
+    // (As the field is stored, a WORD: the wizard wrote a DWORD, the review's B9.)
+    assert_eq!(c.get("FactionID"), Some(&mg_gff::Value::Word(3)), "Merchant");
     let store = &g.root.list("StoreList").unwrap()[0];
     assert_eq!(store.resref("ResRef"), Some(ResRef::from_str("nw_storethief001").unwrap()));
     assert_eq!((store.float("XPosition"), store.float("YPosition")), (Some(5.0), Some(5.0)));

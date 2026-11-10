@@ -680,7 +680,7 @@ pub(crate) fn side_panel<R>(ui: &mut Ui, id: egui::Id, add: impl FnOnce(&mut Ui)
 }
 
 /// A value of an integer field, of the type the field has (else `default`).
-pub(super) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
+pub(crate) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
     let t = existing.map_or(default, Value::field_type);
     match t {
         FieldType::Byte => Value::Byte(v.clamp(0, 255) as u8),

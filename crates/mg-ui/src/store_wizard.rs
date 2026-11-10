@@ -466,7 +466,15 @@ fn build(
         edits.push(set("VarTable", Value::List(vars)));
     }
     if w.hostile && w.use_faction {
-        edits.push(set(faction_field(w.list), Value::Dword(w.faction)));
+        // (In the type the field is stored in, else its own: a creature's
+        // is a WORD, a placeable's a DWORD.)
+        let field = faction_field(w.list);
+        let own = match w.list {
+            "Creature List" => mg_gff::FieldType::Word,
+            _ => mg_gff::FieldType::Dword,
+        };
+        let faction = crate::blueprint::integer(creature.get(field), i64::from(w.faction), own);
+        edits.push(set(field, faction));
     }
     let (list, _) = git_list(ResType::UTM).expect("stores have a list");
     edits.push(Edit::insert_item(git, GffPath::root(), list, count, placed));
