@@ -167,6 +167,41 @@ enum Side {
     Below,
 }
 
+impl Place {
+    /// The place as the settings and a module's open tabs keep it:
+    /// `window`, `middle`, `palettes`, `split left 300`.
+    fn text(self) -> String {
+        match self {
+            Place::Window => "window".into(),
+            Place::Middle => "middle".into(),
+            Place::Palettes => "palettes".into(),
+            Place::Split(side, share) => format!("split {} {share}", side.name()),
+        }
+    }
+
+    /// The place [`Place::text`] wrote (a split's share kept between a
+    /// twentieth and nineteen twentieths); `None` for other text.
+    fn parse(text: &str) -> Option<Place> {
+        let mut words = text.split_whitespace();
+        Some(match (words.next()?, words.next()) {
+            ("window", None) => Place::Window,
+            ("middle", None) => Place::Middle,
+            ("palettes", None) => Place::Palettes,
+            ("split", Some(side)) => {
+                let side = match side {
+                    "left" => Side::Left,
+                    "right" => Side::Right,
+                    "above" => Side::Above,
+                    "below" => Side::Below,
+                    _ => return None,
+                };
+                Place::Split(side, words.next()?.parse::<u16>().ok()?.clamp(50, 950))
+            }
+            _ => return None,
+        })
+    }
+}
+
 impl Side {
     fn name(self) -> &'static str {
         match self {
@@ -2016,26 +2051,16 @@ impl Moonglow {
     /// last dragged to (GitHub issue 14), a window of its own otherwise.
     fn place_for(&self, tab: &Tab) -> Place {
         let kept = kept_by_kind(&self.settings.window_places, tab);
-        match kept.map(|(_, p)| p.as_str()) {
-            Some("middle") => Place::Middle,
-            Some("palettes") => Place::Palettes,
-            Some(split) => {
-                // "split left 300": the side, and thousandths of the two.
-                let mut words = split.split_whitespace();
-                let side = match (words.next(), words.next()) {
-                    (Some("split"), Some("left")) => Side::Left,
-                    (Some("split"), Some("right")) => Side::Right,
-                    (Some("split"), Some("above")) => Side::Above,
-                    (Some("split"), Some("below")) => Side::Below,
-                    _ => return Place::Window,
-                };
-                match words.next().and_then(|w| w.parse::<u16>().ok()) {
-                    Some(share) => Place::Split(side, share.clamp(50, 950)),
-                    None => Place::Window,
-                }
-            }
-            None => Place::Window,
-        }
+        // ("split left 300": the side, and thousandths of the two.)
+        kept.and_then(|(_, p)| Place::parse(p)).unwrap_or(Place::Window)
+    }
+
+    /// The middle's pane: the main window's first that is not the
+    /// palettes' (the areas', or the one that says none is open).
+    pub(crate) fn middle_pane(&self) -> Option<egui_dock::NodePath> {
+        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+        (self.dock.iter_leaves().map(|(p, _)| p))
+            .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette)
     }
 
     /// Notes where the user dragged a tool window to (a window seen in
@@ -2053,9 +2078,7 @@ impl Moonglow {
             && self.maximized.is_empty()
         {
             let side = match self.split_of(path.node) {
-                Some(Place::Split(side, share)) if side != Side::Right => {
-                    Some(format!("split {} {share}", side.name()))
-                }
+                Some(place @ Place::Split(side, _)) if side != Side::Right => Some(place.text()),
                 _ => None,
             };
             let kind = Tab::Palette.kind();
@@ -2076,13 +2099,11 @@ impl Moonglow {
             if before.is_some_and(|b| b != now) && !self.maximized.contains_key(&tab) {
                 let kind = tab.kind();
                 self.settings.window_places.retain(|(k, _)| k != kind);
-                let name = match now {
-                    Place::Middle => "middle".to_string(),
-                    Place::Palettes => "palettes".to_string(),
-                    Place::Split(side, share) => format!("split {} {share}", side.name()),
-                    Place::Window => continue,
-                };
-                self.settings.window_places.push((kind.to_string(), name));
+                // (A window of its own is where one opens anyway.)
+                if now == Place::Window {
+                    continue;
+                }
+                self.settings.window_places.push((kind.to_string(), now.text()));
             }
         }
     }
@@ -2345,11 +2366,7 @@ impl Moonglow {
     fn tab_pane(&self) -> Option<egui_dock::NodePath> {
         let tabs = |p: &egui_dock::NodePath| self.dock.leaf(*p).map_or(0, |l| l.tabs.len());
         let focused = self.dock.focused_leaf().filter(|p| tabs(p) > 1);
-        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
-        focused.or_else(|| {
-            (self.dock.iter_leaves().map(|(p, _)| p))
-                .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette)
-        })
+        focused.or_else(|| self.middle_pane())
     }
 
     /// The tab Close Tab closes: the one in front of the pane with the
@@ -2505,10 +2522,7 @@ impl Moonglow {
     /// The middle's tab of a number (from 1; 9: its last), brought to the
     /// front.
     fn number_tab(&mut self, number: usize) {
-        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
-        let Some((_, leaf)) = (self.dock.iter_leaves())
-            .find(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != palette)
-        else {
+        let Some(leaf) = self.middle_pane().and_then(|p| self.dock.leaf(p).ok()) else {
             return;
         };
         let tab = if number == 9 { leaf.tabs.last() } else { leaf.tabs.get(number - 1) };
@@ -3597,16 +3611,7 @@ impl Moonglow {
         self.search_kept = Default::default();
         self.release_game_data();
         if let Some(game) = exclusive(&mut self.game) {
-            let module_layers: Vec<String> = game
-                .resman
-                .layers()
-                .iter()
-                .filter(|l| l.priority == priority::MODULE || l.label.starts_with("hak:"))
-                .map(|l| l.label.clone())
-                .collect();
-            for l in module_layers {
-                game.resman.remove(&l);
-            }
+            remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
@@ -4090,17 +4095,13 @@ impl Moonglow {
                     } else if !tab.docks() {
                         // Where one of its kind was last dragged to, if
                         // that pane is there; a window of its own else.
-                        let palette =
-                            self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
                         let pane = match self.place_for(&tab) {
                             Place::Window => None,
                             Place::Palettes => self
                                 .dock
                                 .find_tab(&Tab::Palette)
                                 .map(|p| egui_dock::NodePath { surface: p.surface, node: p.node }),
-                            Place::Middle => (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| {
-                                p.surface.is_main() && Some((p.surface, p.node)) != palette
-                            }),
+                            Place::Middle => self.middle_pane(),
                             // A pane of its own off that side of the middle,
                             // as large as it was (GitHub issue 22).
                             Place::Split(side, share) => self.split_middle(side, share, &tab),
@@ -4153,11 +4154,8 @@ impl Moonglow {
                         let other = |p: &egui_dock::NodePath| {
                             p.surface.is_main() && Some((p.surface, p.node)) != palette
                         };
-                        let target = self
-                            .dock
-                            .focused_leaf()
-                            .filter(other)
-                            .or_else(|| self.dock.iter_leaves().map(|(p, _)| p).find(other));
+                        let target =
+                            self.dock.focused_leaf().filter(other).or_else(|| self.middle_pane());
                         match (target, palette) {
                             (Some(pane), _) => {
                                 self.dock.set_focused_node_and_surface(pane);
@@ -5019,11 +5017,7 @@ impl Moonglow {
     /// A nasher project's packed module is looked at once packed, before
     /// it is copied there.
     pub(crate) fn test_may_start(&mut self) -> bool {
-        if test_module::game_running() {
-            self.log.warn(
-                "The game started for the last test is still running: close it, then test \
-                 again (a second test would write the module under it)",
-            );
+        if self.game_still_running() {
             return false;
         }
         if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
@@ -5038,13 +5032,22 @@ impl Moonglow {
         allowed
     }
 
-    /// Starts the game on the saved module (Test Module).
-    fn test_module(&mut self, choose: bool) {
-        if test_module::game_running() {
+    /// Whether the game started for the last test is still running, said
+    /// in the log if so: no other test starts meanwhile.
+    fn game_still_running(&mut self) -> bool {
+        let running = test_module::game_running();
+        if running {
             self.log.warn(
                 "The game started for the last test is still running: close it, then test \
                  again (a second test would write the module under it)",
             );
+        }
+        running
+    }
+
+    /// Starts the game on the saved module (Test Module).
+    fn test_module(&mut self, choose: bool) {
+        if self.game_still_running() {
             return;
         }
         // NUI windows changed since their last build are built first, so the
@@ -5130,11 +5133,7 @@ impl Moonglow {
     /// modules folder as [`test_module::FROM_HERE`] with its start moved,
     /// and the game started on it.
     fn test_from_here(&mut self, area: mg_core::ResRef, at: [f32; 3], facing: f32, choose: bool) {
-        if test_module::game_running() {
-            self.log.warn(
-                "The game started for the last test is still running: close it, then test \
-                 again (a second test would write the module under it)",
-            );
+        if self.game_still_running() {
             return;
         }
         let Some(install) = self.install.clone() else {
@@ -5388,13 +5387,7 @@ impl Moonglow {
         }
         self.release_game_data();
         let Some(game) = exclusive(&mut self.game) else { return false };
-        let haks: Vec<String> = (game.resman.layers().iter())
-            .filter(|l| l.label.starts_with("hak:"))
-            .map(|l| l.label.clone())
-            .collect();
-        for l in haks {
-            game.resman.remove(&l);
-        }
+        remove_layers(&mut game.resman, is_hak_layer);
         self.haks_layered.clear();
         self.game_data_changed();
         true
@@ -5408,16 +5401,7 @@ impl Moonglow {
         let baked = self.ws.as_ref().and_then(|ws| ws.module.project_file.baked_rows().ok());
         self.release_game_data();
         let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
-        let old: Vec<String> = game
-            .resman
-            .layers()
-            .iter()
-            .filter(|l| l.label.starts_with("hak:"))
-            .map(|l| l.label.clone())
-            .collect();
-        for l in old {
-            game.resman.remove(&l);
-        }
+        remove_layers(&mut game.resman, is_hak_layer);
         match game.resman.add_haks(gi, &listed) {
             Ok(missing) => {
                 for h in missing {
@@ -6030,6 +6014,21 @@ fn kept_by_kind<'a, T>(kept: &'a [(String, T)], tab: &Tab) -> Option<&'a (String
     kept.iter()
         .find(|(k, _)| k == kind)
         .or_else(|| tab.kind_before().and_then(|b| kept.iter().find(|(k, _)| k == b)))
+}
+
+/// Whether a layer of the load order is one of the module's haks (as
+/// `ResMan::add_haks` labels them).
+fn is_hak_layer(layer: &mg_resman::Layer) -> bool {
+    layer.label.starts_with("hak:")
+}
+
+/// Takes the layers `gone` says out of the load order.
+fn remove_layers(resman: &mut mg_resman::ResMan, gone: impl Fn(&mg_resman::Layer) -> bool) {
+    let labels: Vec<String> =
+        resman.layers().iter().filter(|l| gone(l)).map(|l| l.label.clone()).collect();
+    for label in labels {
+        resman.remove(&label);
+    }
 }
 
 /// The game data to change (its layers, its talk table): only while

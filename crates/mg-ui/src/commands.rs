@@ -954,6 +954,17 @@ fn script_in_front(app: &Moonglow) -> Option<mg_resman::ResKey> {
     }
 }
 
+/// The name of the command with the id `id`, as Options › Keyboard lists
+/// it: what a key command that works anywhere is called
+/// ([`keys::Cmd::name`]). (The names by id, made once; the id itself for
+/// one that is no command.)
+pub(crate) fn general_name(id: &'static str) -> &'static str {
+    static NAMES: std::sync::OnceLock<std::collections::HashMap<String, String>> =
+        std::sync::OnceLock::new();
+    let names = NAMES.get_or_init(|| Id::all().into_iter().map(|c| (c.id(), c.name())).collect());
+    names.get(id).map_or(id, String::as_str)
+}
+
 /// A command's or a key command's name, by the id its keys are kept under.
 pub fn name_of(id: &str) -> String {
     Id::all()
@@ -2004,6 +2015,16 @@ mod tests {
             let general = cmd.group() == keys::Group::General;
             assert_eq!(ids.contains(cmd.id()), general, "{}", cmd.id());
         }
+        // (And named as that command is: one name, the menus'.)
+        for cmd in keys::Cmd::ALL {
+            assert!(!cmd.name().is_empty() && cmd.name() != cmd.id(), "{}", cmd.id());
+            if cmd.group() == keys::Group::General {
+                let id = Id::all().into_iter().find(|c| c.id() == cmd.id()).unwrap();
+                assert_eq!(cmd.name(), id.name());
+            }
+        }
+        assert_eq!(keys::Cmd::Save.name(), "Save");
+        assert_eq!(keys::Cmd::TestChoose.name(), "Test Module, Choose Character");
         assert_eq!(name_of("build-module"), "Build Module");
         assert_eq!(name_of("camera-forward"), "Move Camera Forward");
         assert_eq!(name_of("some-plugin.command"), "some-plugin.command");
