@@ -1151,9 +1151,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     },
                     InfoTab::Bookmarks => {
                         let buf = &app.scripts[&key];
+                        // (The marked lines' texts in one pass over the
+                        // script, not one from its top for each.)
+                        let marked = buf.numbered.iter().flatten().chain(&buf.bookmarks).copied();
+                        let texts = tools::lines_text(&buf.text, marked);
                         for (n, line) in buf.numbered.iter().enumerate() {
                             let Some(line) = line else { continue };
-                            let text = buf.text.lines().nth(*line).unwrap_or_default().trim();
+                            let text = texts.get(line).copied().unwrap_or_default();
                             if ui
                                 .selectable_label(false, format!("[{n}] {:>5}: {text}", line + 1))
                                 .on_hover_text(format!("Ctrl+{n}"))
@@ -1163,7 +1167,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                         for line in &buf.bookmarks {
-                            let text = buf.text.lines().nth(*line).unwrap_or_default().trim();
+                            let text = texts.get(line).copied().unwrap_or_default();
                             if ui
                                 .selectable_label(false, format!("{:>5}: {text}", line + 1))
                                 .clicked()
@@ -1289,9 +1293,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         && let Some((a, b)) = cursor(&ctx, key)
     {
         use egui::{Key, Modifiers};
-        let lines = buf.text.chars().skip(a).take(b - a).any(|c| c == '\n');
         let outdent = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
         let tab = !outdent && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+        // (Looked for when Tab is pressed, in the selection: every
+        // character before the cursor was gone through each frame.)
+        let lines = tab && tools::spans_lines(&buf.text, a, b);
         if outdent || (tab && lines) {
             let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent, indent);
             buf.text = text;

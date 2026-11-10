@@ -502,9 +502,38 @@ fn is_ident(c: char) -> bool {
 
 /// The identifier ending at a character index: its start and text.
 pub fn word_before(text: &str, chars: usize) -> (usize, String) {
-    let before: Vec<char> = text.chars().take(chars).collect();
-    let start = before.iter().rposition(|c| !is_ident(*c)).map_or(0, |p| p + 1);
-    (start, before[start..].iter().collect())
+    // (From the character's byte backwards, as `word_at`: every character
+    // before the cursor was copied out, each frame a completion list was
+    // open.)
+    let at = byte_index(text, chars);
+    let before = text[..at].char_indices().rev().find(|(_, c)| !is_ident(*c));
+    let start = before.map_or(0, |(i, c)| i + c.len_utf8());
+    let word = &text[start..at];
+    // (An index past the text's end is its end.)
+    let chars = if at == text.len() { chars.min(text.chars().count()) } else { chars };
+    (chars - word.chars().count(), word.to_string())
+}
+
+/// Whether the characters `from..to` of `text` hold a line end.
+pub fn spans_lines(text: &str, from: usize, to: usize) -> bool {
+    let (a, b) = (byte_index(text, from.min(to)), byte_index(text, from.max(to)));
+    text.as_bytes()[a..b].contains(&b'\n')
+}
+
+/// The text of each of `lines` (0-based) of `text`, trimmed, in one pass
+/// over it; a line it does not have is empty.
+pub fn lines_text<'a>(
+    text: &'a str,
+    lines: impl IntoIterator<Item = usize>,
+) -> HashMap<usize, &'a str> {
+    let mut found: HashMap<usize, &str> = lines.into_iter().map(|l| (l, "")).collect();
+    let Some(last) = found.keys().copied().max() else { return found };
+    for (i, line) in text.lines().enumerate().take(last.saturating_add(1)) {
+        if let Some(text) = found.get_mut(&i) {
+            *text = line.trim();
+        }
+    }
+    found
 }
 
 /// What a new line begins with, started at character `at`: the spaces and
@@ -695,9 +724,11 @@ pub fn convert_indentation_in(
         return convert_indentation(text, tabs, width);
     }
     let chars: Vec<char> = text.chars().collect();
+    // (A selection kept from a longer text: held to this one, where it
+    // may be empty, at the end: its line then.)
     let (from, to) = (from.min(chars.len()), to.min(chars.len()));
     let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
-    let last = if chars[to - 1] == '\n' { to - 1 } else { to };
+    let last = if to > from && chars[to - 1] == '\n' { to - 1 } else { to };
     let end = chars[last..].iter().position(|&c| c == '\n').map_or(chars.len(), |i| last + i);
     let (head, block, tail): (String, String, String) = (
         chars[..start].iter().collect(),
@@ -1039,6 +1070,46 @@ mod tests {
         assert_eq!(find(tree, "arbol", 0, &exact), Some((10, 15)));
         assert_eq!(replace_all(tree, "arbol", "roble", &o), ("// roble, roble".into(), 2));
         assert_eq!(find_lines("Árbol\nx\narbol", "arbol", &o).len(), 2);
+    }
+
+    /// The word before the cursor, the lines a selection spans and the
+    /// bookmarked lines' texts are read where they are, not through a copy
+    /// of the text's characters or a walk from its top for each: as the
+    /// plain way has them.
+    #[test]
+    fn the_cursor_s_word_a_selection_s_lines_and_marked_lines_texts() {
+        let text = "int n\u{e9}e = GetLo\n  caf\u{e9}_x;\n\nlast";
+        let plain = |chars: usize| {
+            let before: Vec<char> = text.chars().take(chars).collect();
+            let start = before.iter().rposition(|c| !is_ident(*c)).map_or(0, |p| p + 1);
+            (start, before[start..].iter().collect::<String>())
+        };
+        for chars in 0..text.chars().count() + 3 {
+            assert_eq!(word_before(text, chars), plain(chars), "at {chars}");
+        }
+        assert_eq!(word_before(text, 15), (10, "GetLo".into()));
+        assert_eq!(word_before("", 4), (0, String::new()));
+        for (from, to) in [(0, 3), (0, 15), (0, 16), (15, 16), (16, 15), (16, 16), (30, 99)] {
+            let (a, b) = (from.min(to), from.max(to));
+            let plain = text.chars().skip(a).take(b - a).any(|c| c == '\n');
+            assert_eq!(spans_lines(text, from, to), plain, "{from}..{to}");
+        }
+        let texts = lines_text(text, [1, 3, 0, 9]);
+        assert_eq!(texts[&0], "int n\u{e9}e = GetLo");
+        assert_eq!((texts[&1], texts[&3], texts[&9]), ("caf\u{e9}_x;", "last", ""));
+        assert!(lines_text(text, []).is_empty());
+    }
+
+    /// A selection kept from a longer text (the external editor emptied
+    /// the file in the frame a conversion was pending) converts the line
+    /// it is held to, and nothing of an empty text: it read the character
+    /// before the text's start.
+    #[test]
+    fn convert_indentation_of_a_selection_past_the_text_s_end() {
+        assert_eq!(convert_indentation_in("", true, 4, 3, 9), "");
+        assert_eq!(convert_indentation_in("    a\n    b", true, 4, 30, 90), "    a\n\tb");
+        assert_eq!(convert_indentation_in("    a\n    b\n", true, 4, 30, 90), "    a\n    b\n");
+        assert_eq!(convert_indentation_in("    a\n    b\n", true, 4, 2, 6), "\ta\n    b\n");
     }
 
     /// Replace All replaces the matches the text has, each once: a needle
