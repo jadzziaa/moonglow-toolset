@@ -7,6 +7,9 @@
 //!
 //! A copy is the module as an archive (`<name>-<id>.mod`) and a note
 //! (`.json`): where the module lives, its name, when the copy was made.
+//! Each is written whole or not at all, the note first; an archive whose
+//! note is not there or does not read is offered all the same, named from
+//! its file, as a module never saved.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -97,16 +100,37 @@ fn file_stem(module: Option<&Path>, name: &str) -> String {
     format!("{clean}-{:08x}", h as u32)
 }
 
-/// The copies in a folder, newest first.
+/// The note of an archive that has none that reads (the note was written
+/// in place after the archive: power lost between the two, or in the
+/// middle of the second, left unsaved work that was never offered, and
+/// never removed): the module's name from the file's (without the hash of
+/// its place), where it lives not known (recovered, it is saved where the
+/// builder says), made when the file was written.
+fn note_from_file(archive: &Path) -> Note {
+    let stem = archive.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = match stem.rsplit_once('-') {
+        Some((name, hash)) if !name.is_empty() && hash.len() == 8 => name.to_string(),
+        _ => stem,
+    };
+    let time = (std::fs::metadata(archive).and_then(|m| m.modified()).ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    Note { module: None, folder: false, project_target: None, name, time }
+}
+
+/// The copies in a folder, newest first: each archive, with its note (one
+/// without a note that reads, named from its file: [`note_from_file`]).
 pub fn find(dir: &Path) -> Vec<Copy> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut out: Vec<Copy> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .filter_map(|p| {
-            let note: Note = serde_json::from_slice(&std::fs::read(&p).ok()?).ok()?;
-            let archive = p.with_extension("mod");
-            archive.is_file().then_some(Copy { archive, note })
+        .filter(|p| p.extension().is_some_and(|x| x == "mod") && p.is_file())
+        .map(|archive| {
+            let note = std::fs::read(archive.with_extension("json"))
+                .ok()
+                .and_then(|text| serde_json::from_slice::<Note>(&text).ok())
+                .unwrap_or_else(|| note_from_file(&archive));
+            Copy { archive, note }
         })
         .collect();
     out.sort_by_key(|c| std::cmp::Reverse(c.note.time));
@@ -121,18 +145,18 @@ struct Job {
 }
 
 impl Job {
-    /// Writes the archive (through a temporary file), then the note.
+    /// Writes the note, then the archive, each whole or not at all
+    /// ([`mg_module::write_replacing`]). The note first: an archive is
+    /// never there without the note of where its module lives (a note
+    /// alone is no copy, and goes with the next one or when the copy is
+    /// forgotten).
     fn run(self) -> Result<PathBuf, String> {
-        let dir = self.archive.parent().unwrap_or(Path::new("."));
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let bytes = self.module.to_archive_bytes().map_err(|e| e.to_string())?;
-        let tmp = self.archive.with_extension("mod.tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.archive)
-            .map_err(|e| format!("{}: {e}", self.archive.display()))?;
         let note = serde_json::to_vec_pretty(&self.note).map_err(|e| e.to_string())?;
         let path = self.archive.with_extension("json");
-        std::fs::write(&path, note).map_err(|e| format!("{}: {e}", path.display()))?;
+        mg_module::write_replacing(&path, &note).map_err(|e| format!("{}: {e}", path.display()))?;
+        mg_module::write_replacing(&self.archive, &bytes)
+            .map_err(|e| format!("{}: {e}", self.archive.display()))?;
         Ok(self.archive)
     }
 }
@@ -721,6 +745,55 @@ mod tests {
         })
         .join();
         assert!(!busy.load(Ordering::Acquire));
+    }
+
+    /// An archive whose note is not there, is empty or is cut short is
+    /// still offered (the note was written in place, after the archive:
+    /// the review of November 2026, S23), named from its file, and
+    /// recovered as a module never saved; removing it takes both files.
+    /// A note without an archive is no copy.
+    #[test]
+    fn an_archive_without_a_note_that_reads_is_still_found() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-no-note");
+        let mut app = changed(&dir);
+        let archive = app.write_recovery().unwrap();
+        let note = archive.with_extension("json");
+        let found = find(&dir.join("recovery"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].note.module.as_deref(), Some(dir.join("m.mod").as_path()));
+        let whole = std::fs::read(&note).unwrap();
+        for cut in [Some(&whole[..whole.len() / 2]), Some(&b""[..]), None] {
+            match cut {
+                Some(text) => std::fs::write(&note, text).unwrap(),
+                None => std::fs::remove_file(&note).unwrap(),
+            }
+            let found = find(&dir.join("recovery"));
+            assert_eq!(found.len(), 1, "{cut:?}");
+            assert_eq!(found[0].archive, archive);
+            let made = Note { time: found[0].note.time, ..note_from_file(&archive) };
+            assert_eq!(found[0].note, made);
+            assert_eq!((made.name.as_str(), made.module), ("m", None));
+            assert!(now().abs_diff(made.time) < 600, "made when the file was: {}", made.time);
+        }
+        assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
+        let copy = find(&dir.join("recovery")).remove(0);
+        let mut again = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        again.recover(&copy);
+        let ws = again.ws.as_ref().unwrap();
+        assert!(ws.is_modified() && ws.module.location.is_none(), "never saved");
+        copy.remove();
+        assert!(!archive.exists() && find(&dir.join("recovery")).is_empty());
+        // A note alone (the copy's first writing stopped after it).
+        std::fs::write(&note, &whole).unwrap();
+        assert!(find(&dir.join("recovery")).is_empty());
+        // Nothing is left beside a copy written.
+        app.write_recovery().unwrap();
+        let mut files: Vec<String> = (std::fs::read_dir(dir.join("recovery")).unwrap())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        let stem = archive.file_stem().unwrap().to_string_lossy().into_owned();
+        assert_eq!(files, [format!("{stem}.json"), format!("{stem}.mod")]);
     }
 
     #[test]

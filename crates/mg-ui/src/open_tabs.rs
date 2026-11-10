@@ -1118,10 +1118,7 @@ impl Moonglow {
             return;
         }
         // (Whole or not at all: written beside it, then put in its place.)
-        let partial = path.with_extension("json.partial");
-        let written = (path.parent().map_or(Ok(()), std::fs::create_dir_all))
-            .and_then(|()| std::fs::write(&partial, &text))
-            .and_then(|()| std::fs::rename(&partial, &path));
+        let written = mg_module::write_replacing_one_of_many(&path, text.as_bytes());
         match written {
             Ok(()) => trace::note(format!("open tabs written: {}", path.display())),
             Err(e) if !std::mem::replace(&mut self.open_tabs.told, true) => self.log.warn(format!(

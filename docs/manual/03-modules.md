@@ -1449,7 +1449,9 @@ copies live in Moonglow's own data folder, never next to the module or in
 the game's folders, and are removed when you save or discard the changes.
 If Moonglow (or the computer) stops first, the next start offers the copy
 in **Recover Unsaved Work**: open it as an unsaved module (with the tabs
-it had), then save it where you want. As in Aurora, open conversations are also backed up as
+it had), then save it where you want. (A copy whose note of where its
+module lives was lost with the power is offered too, by its file's name:
+recovered, it is a module never saved.) As in Aurora, open conversations are also backed up as
 `<name>.bak` every 5 minutes.
 
 ## Module Properties

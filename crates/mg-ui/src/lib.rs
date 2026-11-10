@@ -3159,7 +3159,7 @@ impl Moonglow {
         let Some(path) = self.dialogs.save_file(FileKind::Log, suggested.as_deref()) else {
             return;
         };
-        match std::fs::write(&path, self.log.text()) {
+        match mg_module::write_replacing(&path, self.log.text().as_bytes()) {
             Ok(()) => self.log.info(format!("Saved the log to {}", path.display())),
             Err(e) => self.log.error(format!("Could not write {}: {e}", path.display())),
         }
@@ -4603,7 +4603,6 @@ impl Moonglow {
         // (The .mod of its name there, in any case: `Castle/` beside
         // `castle.mod` is written as `castle.mod`.)
         let path = mg_module::folder::mod_beside(dir);
-        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
         // (As saving a .mod: the one there kept as its backup, and the new
         // one written beside it, then moved into its place.)
         if !self.settings.no_backups && path.is_file() {
@@ -4612,13 +4611,8 @@ impl Moonglow {
                 self.log.warn(format!("{}: {e}", backup.display()));
             }
         }
-        let part = dir.with_file_name(format!("{name}.moonglow-tmp"));
-        let written = ws
-            .module
-            .to_archive_bytes()
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| std::fs::write(&part, bytes).map_err(|e| e.to_string()))
-            .and_then(|()| std::fs::rename(&part, &path).map_err(|e| e.to_string()));
+        let written = (ws.module.to_archive_bytes().map_err(|e| e.to_string()))
+            .and_then(|b| mg_module::write_replacing(&path, &b).map_err(|e| e.to_string()));
         match written {
             Ok(()) => self.log.info(format!("Wrote {}", path.display())),
             Err(e) => self.log.error(format!("{}: {e}", path.display())),
@@ -4706,10 +4700,9 @@ impl Moonglow {
         };
         match ws.module.target_archive_with(&lookup) {
             Ok(Some((path, bytes, models))) => {
-                let written = path
-                    .parent()
-                    .map_or(Ok(()), std::fs::create_dir_all)
-                    .and_then(|()| std::fs::write(&path, bytes));
+                // (Whole or not at all: the module packed before is not
+                // left cut short.)
+                let written = mg_module::write_replacing(&path, &bytes);
                 match written {
                     Ok(()) => {
                         let what = "the project";
@@ -5161,9 +5154,7 @@ impl Moonglow {
         let modules = install.user_folder("modules").unwrap_or_else(|| user.join("modules"));
         let dest = modules.join(format!("{}.mod", test_module::FROM_HERE));
         let written = bytes.and_then(|b| {
-            std::fs::create_dir_all(&modules)
-                .and_then(|()| std::fs::write(&dest, b))
-                .map_err(|e| format!("{}: {e}", dest.display()))
+            mg_module::write_replacing(&dest, &b).map_err(|e| format!("{}: {e}", dest.display()))
         });
         match written {
             Ok(()) => {
@@ -5865,7 +5856,9 @@ impl Moonglow {
                     continue;
                 }
             };
-            match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, &bytes)) {
+            // (Whole or not at all: a write that stops leaves the backup
+            // before it, the last good one.)
+            match mg_module::write_replacing(&path, &bytes) {
                 Ok(()) => {
                     self.dialog_backed_up.insert(key, bytes);
                     written.push(path);
