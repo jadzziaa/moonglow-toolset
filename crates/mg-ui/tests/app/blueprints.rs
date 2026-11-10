@@ -1012,6 +1012,28 @@ fn an_object_s_factions_leave_out_the_pc_faction() {
 /// draws; Clear takes one out, and a static placeable is said to draw as
 /// made.
 #[test]
+fn a_material_made_tintable_shows_the_tint_section_once_resources_are_read_again() {
+    // (The review's B14: what was kept for the game data's address stayed
+    // when Reload Resources changed the game data in place.)
+    let user = mg_testkit::scratch_dir("ui-bp-chest-tint-later-user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let Some((mut h, _)) =
+        blueprint_harness_with("plc_chest1", "chest_tint_later", ResType::UTP, Some(user.clone()))
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    assert!(h.query_by_label("Whole object").is_none(), "nothing to tint yet");
+    let mtr = "texture0 plc_rugdmtlbrk\nparameter float tdodTint 1.0 1.0 1.0 0.0\n";
+    std::fs::write(user.join("override/plc_rugdmtlbrk.mtr"), mtr).unwrap();
+    h.state_mut().reload_resources(true);
+    settle(&mut h);
+    assert!(h.query_by_label("Whole object").is_some(), "the Tint section");
+}
+
+#[test]
 fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
     let user = mg_testkit::scratch_dir("ui-bp-chest-tint-user");
     std::fs::create_dir_all(user.join("override")).unwrap();

@@ -522,7 +522,8 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             let mut numbers: Vec<u16> = Vec::new();
             for skeleton in prefix.iter().take(if prefix[0] == prefix[1] { 1 } else { 2 }) {
                 let models = format!("{skeleton}_{part}");
-                numbers.extend(super::item::model_numbers(ui, game, &models).iter());
+                let load_order = f.app.load_order;
+                numbers.extend(super::item::model_numbers(ui, game, load_order, &models).iter());
             }
             numbers.sort_unstable();
             numbers.dedup();

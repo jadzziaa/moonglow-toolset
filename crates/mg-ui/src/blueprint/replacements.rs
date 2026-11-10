@@ -160,7 +160,7 @@ struct Offered {
 fn offered(f: &Form<'_>, ui: &Ui) -> Offered {
     let Some(game) = f.app.game.clone() else { return Offered::default() };
     let id = f.id("replacements-offered");
-    let stamp: Stamp = (f.app.ws.as_ref().map(|w| w.revision()), Arc::as_ptr(&game) as usize);
+    let stamp: Stamp = (f.app.ws.as_ref().map(|w| w.revision()), f.app.load_order);
     if let Some((was, o)) = ui.data(|d| d.get_temp::<(Stamp, Offered)>(id))
         && was == stamp
     {
@@ -198,8 +198,10 @@ fn offered(f: &Form<'_>, ui: &Ui) -> Offered {
     o
 }
 
-/// What [`offered`] was read for: the module's revision and the game data.
-type Stamp = (Option<u64>, usize);
+/// What [`offered`] was read for: the module's revision and the load
+/// order ([`crate::Moonglow::load_order`]; not the game data's address,
+/// which Reload Resources leaves as it was).
+type Stamp = (Option<u64>, u64);
 
 /// A row of the texture table: a texture of the models, or an entry whose
 /// texture they don't have.
@@ -497,25 +499,18 @@ fn icon_prefixes(game: &mg_rules::GameData) -> Vec<String> {
 
 /// The textures a replacement can draw with: the game's, the haks' and the
 /// module's DDS and TGA textures, each name once. The game's are listed
-/// once for the game data (29,567 of them took 15 ms a click), the
+/// once for the load order (29,567 of them took 15 ms a click), the
 /// module's each time.
 fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
     let Some(game) = app.game.clone() else { return Arc::default() };
     let id = egui::Id::new("select-texture-names");
-    let stamp = Arc::as_ptr(&game) as usize;
-    let cached = ui.data(|d| d.get_temp::<(usize, Arc<Textures>)>(id));
-    let listed = match cached {
-        Some((was, t)) if was == stamp => t,
-        _ => {
-            let mut names: Vec<String> = Vec::new();
-            for t in [ResType::DDS, ResType::TGA] {
-                names.extend(game.resman.list(t).into_iter().map(|r| r.to_lowercase().to_string()));
-            }
-            let t = Arc::new(Textures::of(names, &icon_prefixes(&game)));
-            ui.data_mut(|d| d.insert_temp(id, (stamp, t.clone())));
-            t
+    let listed = super::kept_for_load_order(ui, app.load_order, id, || {
+        let mut names: Vec<String> = Vec::new();
+        for t in [ResType::DDS, ResType::TGA] {
+            names.extend(game.resman.list(t).into_iter().map(|r| r.to_lowercase().to_string()));
         }
-    };
+        Arc::new(Textures::of(names, &icon_prefixes(&game)))
+    });
     let own: Vec<String> = app.ws.as_ref().map_or_else(Vec::new, |ws| {
         ws.module
             .keys()

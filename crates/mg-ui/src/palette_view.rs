@@ -34,6 +34,12 @@ pub(crate) struct Dragged(pub(crate) ResKey);
 /// Blueprints' tags, by resref.
 type Tags = Arc<HashMap<ResRef, String>>;
 
+/// What a palette was grouped for: the palette itself (held, and told by
+/// `Arc::ptr_eq`: kept by its address alone, a later palette made at the
+/// address of one let go of was shown as the old one was grouped), the
+/// groupings as read, the grouping and whether by category within.
+type GroupedFor = (Arc<Palette>, u64, String, bool);
+
 /// The palette pane's state.
 #[derive(Debug)]
 pub struct PaletteView {
@@ -48,11 +54,8 @@ pub struct PaletteView {
     standard: HashMap<BlueprintKind, Arc<Palette>>,
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
-    /// Each palette grouped as Group by asks (`grouped`), and what for:
-    /// the palette (its place), the groupings as read, the grouping and
-    /// whether by category within.
-    #[allow(clippy::type_complexity)]
-    grouped: HashMap<(BlueprintKind, bool), ((usize, u64, String, bool), Arc<Grouped>)>,
+    /// Each palette grouped as Group by asks (`grouped`), and what for.
+    grouped: HashMap<(BlueprintKind, bool), (GroupedFor, Arc<Grouped>)>,
     pub selected: Option<ResKey>,
     /// The hovered blueprint's thumbnail, once rendered.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
@@ -1345,10 +1348,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let game = app.game.as_deref().expect("checked");
     let grouping = by.map(|i| offered[i]);
     let grouped = grouping.map(|g| {
-        let made_for =
-            (Arc::as_ptr(&palette) as usize, groupings.fingerprint, g.id.clone(), nested);
+        let made_for = (palette.clone(), groupings.fingerprint, g.id.clone(), nested);
+        let same = |at: &GroupedFor| {
+            Arc::ptr_eq(&at.0, &made_for.0)
+                && (at.1, &at.2, at.3) == (made_for.1, &made_for.2, nested)
+        };
         match view.grouped.get(&(kind, custom)) {
-            Some((at, made)) if *at == made_for => made.clone(),
+            Some((at, made)) if same(at) => made.clone(),
             _ => {
                 let started = std::time::Instant::now();
                 let made = Arc::new(mg_module::palette_groups::group_palette(

@@ -916,6 +916,12 @@ pub struct Moonglow {
     /// The pass in which an area view last had something in hand (a
     /// brush, a paste, a drag, a terrain tool): Escape is its then.
     pub(crate) area_tool_at: u64,
+    /// How many times the load order changed (`load_order_changed`): what
+    /// is kept of the game data by name between frames (the numbers there
+    /// are models and icons of, a model's textures, the textures to pick
+    /// from) is kept for this. Reload Resources changes the game data in
+    /// place, so its address tells nothing.
+    pub(crate) load_order: u64,
     /// The Properties window Escape is Cancel for this frame, as Aurora's
     /// Escape is (`blueprint::window_drawn_but` presses it).
     pub(crate) escape_cancel: Option<Tab>,
@@ -1287,6 +1293,7 @@ impl Moonglow {
             picked: HashMap::new(),
             viewed: HashMap::new(),
             area_tool_at: 0,
+            load_order: 0,
             escape_cancel: None,
             tree_reveal: None,
             tree_area: None,
@@ -3280,6 +3287,7 @@ impl Moonglow {
     /// The game data's layers changed: the browser and the read-only
     /// viewers show them anew.
     fn load_order_changed(&mut self) {
+        self.load_order += 1;
         self.nui_assets.invalidate();
         self.browser.stale = true;
         self.viewed.clear();

@@ -694,6 +694,26 @@ pub(crate) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> V
     }
 }
 
+/// What `make` makes of the game data, kept in egui's memory under `id`
+/// while the load order is the one it was made for (`load_order`:
+/// [`Moonglow::load_order`]), and made again when a hak, the override or
+/// the module's own files change what the game data has.
+pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
+    ui: &Ui,
+    load_order: u64,
+    id: egui::Id,
+    make: impl FnOnce() -> T,
+) -> T {
+    if let Some((was, kept)) = ui.data(|d| d.get_temp::<(u64, T)>(id))
+        && was == load_order
+    {
+        return kept;
+    }
+    let made = make();
+    ui.data_mut(|d| d.insert_temp(id, (load_order, made.clone())));
+    made
+}
+
 /// The color of text that is the talk table's (a StrRef's), not a
 /// blueprint's own.
 pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
