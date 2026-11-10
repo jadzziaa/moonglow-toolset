@@ -471,3 +471,33 @@ fn only_what_was_installed_from_an_archive_is_removed() {
         assert!(kept.dir.join("main.luau").is_file());
     }
 }
+
+/// An installed plugin's code digest is a project's of the same files, and
+/// follows its folder: a file edited by hand is other code.
+#[test]
+fn an_installed_plugin_s_code_digest_is_its_folder_s() {
+    let dir = mg_testkit::scratch_dir("plugin-code-digest");
+    for file in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::write(dir.join(file), fixture(file)).unwrap();
+    }
+    let installed = Plugin::load(&dir).unwrap();
+    let project = Plugin::load_project(&dir).unwrap();
+    assert_eq!(installed.digest(), None);
+    let digest = installed.code_digest().unwrap();
+    assert!(digest.starts_with("sha256:"), "{digest}");
+    assert_eq!(Some(digest.as_str()), project.digest());
+    assert_eq!(project.code_digest().as_deref(), project.digest());
+    // A test of its author's is not its code.
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(dir.join("tests/a.luau"), "-- a test").unwrap();
+    assert_eq!(installed.code_digest().unwrap(), digest);
+    // Edited by hand under the same version: another digest; the project's
+    // copy, read before, keeps its own.
+    let code = String::from_utf8(fixture("main.luau")).unwrap();
+    std::fs::write(dir.join("main.luau"), format!("{code}\n-- edited\n")).unwrap();
+    assert_ne!(installed.code_digest().unwrap(), digest);
+    assert_eq!(project.code_digest().unwrap(), digest);
+    // Its folder gone: none.
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(installed.code_digest(), None);
+}

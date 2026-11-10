@@ -157,6 +157,17 @@ impl Plugin {
         self.frozen.as_ref().map(|f| f.digest.as_str())
     }
 
+    /// The digest of its code as it is now: a project's as it was read
+    /// ([`Plugin::digest`]), an installed one's as its folder holds it
+    /// (the same files and rule, read again: it runs from its folder).
+    /// None: its folder could not be read.
+    pub fn code_digest(&self) -> Option<String> {
+        match &self.frozen {
+            Some(f) => Some(f.digest.clone()),
+            None => package::files_of(&self.dir).ok().map(|files| Frozen::new(files).digest),
+        }
+    }
+
     /// Whether it is a project's (read whole, [`Plugin::load_project`]).
     pub fn is_project(&self) -> bool {
         self.frozen.is_some()

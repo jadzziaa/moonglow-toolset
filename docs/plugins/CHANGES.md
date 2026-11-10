@@ -105,6 +105,14 @@ one that leaned on what follows fails where it used to go on:
   says `refresh = "edits"` is seldom caught so. A button that names no
   place runs on what is selected, as before.
 
+What an installed plugin's events were allowed (a folder, a yes to
+write) is kept for its code, by a digest of its files, as a project's
+plugin's is: an author who edits an installed plugin's files by hand,
+under the same version, is asked its questions again. What an earlier
+Moonglow kept by the plugin's id and version is kept for its code as it
+is at its first event, once; a user who upgrades is not asked again for
+plugins nobody touched.
+
 ## 0.8
 
 In Moonglow 3.16.0. Only an addition: a plugin written for 0.7 or
