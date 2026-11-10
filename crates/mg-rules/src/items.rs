@@ -7,6 +7,8 @@
 //! base-game item (`engine_item_cost.rs`), down to its single-precision
 //! arithmetic and the way it picks the "two most expensive" spells.
 
+use std::sync::Arc;
+
 use crate::GameData;
 
 /// Item property type of Cast Spell (itempropdef.2da row).
@@ -620,6 +622,20 @@ pub struct PropertyType {
     pub param1: Option<u8>,
 }
 
+/// Which of a table's named rows a list holds, and in what order: what a
+/// list kept is kept by, with its table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct NamedRows {
+    /// Only the rows this column has another number than 0 in, a blank
+    /// cell read as the number beside it.
+    only: Option<(&'static str, i32)>,
+    /// By name ([`crate::by_name`]), not in the table's order.
+    by_name: bool,
+}
+
+/// A list kept of a table's named rows: which of them, and the list.
+pub(crate) type NamedList = (NamedRows, Arc<Vec<crate::Choice>>);
+
 impl GameData {
     /// An item property type.
     pub fn property_type(&self, row: u16) -> Option<PropertyType> {
@@ -640,7 +656,8 @@ impl GameData {
     }
 
     /// The property types a base item can have (itemprops.2da, in the column
-    /// baseitems.2da `PropColumn` names), by name.
+    /// baseitems.2da `PropColumn` names), by name. Made once for a column,
+    /// until the tables change ([`invalidate`](Self::invalidate)).
     pub fn available_properties(&self, base_item: u32) -> Vec<PropertyType> {
         let column = self
             .table("baseitems")
@@ -648,19 +665,53 @@ impl GameData {
             .and_then(|t| t.get_int(base_item as usize, "PropColumn"))
             .filter(|&c| c >= 0);
         let Some(column) = column else { return Vec::new() };
+        let cache = &self.property_types;
+        if let Some(made) = cache.read().expect("property type cache poisoned").get(&column) {
+            return made.to_vec();
+        }
         let Ok(props) = self.table("itemprops") else { return Vec::new() };
         let mut out: Vec<PropertyType> = (0..props.len())
             .filter(|&row| props.cell(row, column as usize) == Some("1"))
             .filter_map(|row| self.property_type(row as u16))
             .collect();
         out.sort_by_key(|t| t.name.to_lowercase());
-        out
+        let made = Arc::new(out);
+        cache.write().expect("property type cache poisoned").insert(column, made.clone());
+        made.to_vec()
     }
 
     /// Rows of a table with a name (its `Name` string, else its `Label`),
-    /// skipping unnamed ones such as the "Random" rows.
-    fn named_rows(&self, table: &str, keep: impl Fn(usize) -> bool) -> Vec<crate::Choice> {
+    /// skipping unnamed ones such as the "Random" rows: those `rows`
+    /// keeps, in the table's order or by name. Made once, until the tables
+    /// or the talk table change ([`invalidate`](Self::invalidate),
+    /// [`set_custom_tlk`](Self::set_custom_tlk)): the Properties page asks
+    /// each frame, for every kind of property, and a hak's table of
+    /// twenty thousand feats was named and sorted each time.
+    fn named_rows(&self, table: &str, rows: NamedRows) -> Arc<Vec<crate::Choice>> {
+        let cache = &self.named;
+        let kept = |lists: &Vec<NamedList>| {
+            lists.iter().find(|(r, _)| *r == rows).map(|(_, list)| list.clone())
+        };
+        if let Some(made) = cache.read().expect("named cache poisoned").get(table).and_then(kept) {
+            return made;
+        }
+        let made = Arc::new(self.name_rows(table, rows));
+        let mut cache = cache.write().expect("named cache poisoned");
+        cache.entry(table.to_string()).or_default().push((rows, made.clone()));
+        made
+    }
+
+    fn name_rows(&self, table: &str, rows: NamedRows) -> Vec<crate::Choice> {
+        // (By name: the list in the table's order, kept too, sorted.)
+        if rows.by_name {
+            let listed = self.named_rows(table, NamedRows { by_name: false, ..rows });
+            return crate::by_name(listed.to_vec());
+        }
         let Ok(t) = self.table(table) else { return Vec::new() };
+        let keep = |row: usize| match rows.only {
+            Some((column, unset)) => t.get_int(row, column).unwrap_or(unset) != 0,
+            None => true,
+        };
         (0..t.len())
             .filter(|&row| keep(row))
             .filter_map(|row| {
@@ -691,32 +742,65 @@ impl GameData {
     }
 
     /// A property type's subtypes for a base item (Cast Spell: the spells
-    /// usable on it).
+    /// usable on it), in their table's order.
     pub fn property_subtypes(&self, t: &PropertyType, base_item: u32) -> Vec<crate::Choice> {
-        let Some(table) = &t.subtypes else { return Vec::new() };
-        let spells = self.table(table).ok().filter(|_| table == "iprp_spells");
-        let column = self.use_column(base_item, "PotionUse", "WandUse").unwrap_or("GeneralUse");
-        self.named_rows(table, |row| {
-            spells.as_ref().is_none_or(|s| s.get_int(row, column).unwrap_or(1) != 0)
-        })
+        self.property_subtype_list(t, base_item).to_vec()
+    }
+
+    /// [`property_subtypes`](Self::property_subtypes), as the list kept:
+    /// for what asks each frame (no copy of it is made).
+    pub fn property_subtype_list(
+        &self,
+        t: &PropertyType,
+        base_item: u32,
+    ) -> Arc<Vec<crate::Choice>> {
+        self.subtype_rows(t, base_item, false)
+    }
+
+    /// [`property_subtypes`](Self::property_subtypes) by name
+    /// ([`crate::by_name`]), sorted once and kept.
+    pub fn property_subtypes_by_name(
+        &self,
+        t: &PropertyType,
+        base_item: u32,
+    ) -> Arc<Vec<crate::Choice>> {
+        self.subtype_rows(t, base_item, true)
+    }
+
+    fn subtype_rows(
+        &self,
+        t: &PropertyType,
+        base_item: u32,
+        by_name: bool,
+    ) -> Arc<Vec<crate::Choice>> {
+        let Some(table) = &t.subtypes else { return Arc::default() };
+        // (A spell is usable unless its column says 0.)
+        let only = (table == "iprp_spells").then(|| {
+            let column = self.use_column(base_item, "PotionUse", "WandUse").unwrap_or("GeneralUse");
+            (column, 1)
+        });
+        self.named_rows(table, NamedRows { only, by_name })
     }
 
     /// The values of a cost table (Cast Spell's charges: those that apply
     /// to the base item).
     pub fn property_costs(&self, cost_table: u8, base_item: u32) -> Vec<crate::Choice> {
+        self.property_cost_list(cost_table, base_item).to_vec()
+    }
+
+    /// [`property_costs`](Self::property_costs), as the list kept.
+    pub fn property_cost_list(&self, cost_table: u8, base_item: u32) -> Arc<Vec<crate::Choice>> {
         if cost_table == 0 {
-            return Vec::new();
+            return Arc::default();
         }
         let Some(table) = self.text("iprp_costtable", cost_table as usize, "Name") else {
-            return Vec::new();
+            return Arc::default();
         };
         let table = table.to_lowercase();
-        let charges = self.table(&table).ok().filter(|_| table == "iprp_chargecost");
+        // (A charge cost applies where a potion's or a wand's column has one.)
         let column = self.use_column(base_item, "PotionCost", "WandCost");
-        self.named_rows(&table, |row| match (&charges, column) {
-            (Some(c), Some(col)) => c.get_int(row, col).unwrap_or(0) != 0,
-            _ => true,
-        })
+        let only = column.filter(|_| table == "iprp_chargecost").map(|c| (c, 0));
+        self.named_rows(&table, NamedRows { only, by_name: false })
     }
 
     /// The parameter table (iprp_paramtable.2da row) of a property with a
@@ -731,9 +815,14 @@ impl GameData {
 
     /// A parameter table's values.
     pub fn property_params(&self, param_table: u8) -> Vec<crate::Choice> {
+        self.property_param_list(param_table).to_vec()
+    }
+
+    /// [`property_params`](Self::property_params), as the list kept.
+    pub fn property_param_list(&self, param_table: u8) -> Arc<Vec<crate::Choice>> {
         match self.text("iprp_paramtable", param_table as usize, "TableResRef") {
-            Some(t) => self.named_rows(&t.to_lowercase(), |_| true),
-            None => Vec::new(),
+            Some(t) => self.named_rows(&t.to_lowercase(), NamedRows::default()),
+            None => Arc::default(),
         }
     }
 
@@ -864,6 +953,94 @@ mod tests {
         assert_eq!(armor, [vec![], vec![3], vec![2], vec![4]]);
         assert_eq!(gd.missing_feats(&item(3, 2), &[3, 4]), [2]);
         assert!(gd.required_feats(&mg_gff::Struct::new(0)).is_empty());
+    }
+
+    /// The property lists are made once and kept: the same list each time
+    /// it is asked for (no rows named, nothing sorted again), the same
+    /// rows as before, and made anew once the tables may have changed. A
+    /// table of 25,000 subtypes, asked for by name a thousand times (a
+    /// thousand frames of the Properties page), is sorted once.
+    #[test]
+    fn property_lists_are_made_once_and_kept() {
+        let mut feats = String::from("2DA V2.0\n\nName Label\n");
+        for row in 0..25_000 {
+            feats += &format!("{row} {} Feat{:05}\n", 16_777_216 + row, (row * 7919) % 25_000);
+        }
+        let tables: [(&str, &str); 8] = [
+            ("baseitems", "2DA V2.0\n\nlabel PropColumn\n0 sword 0\n1 potion 8\n"),
+            (
+                "itemprops",
+                "2DA V2.0\n\nc0 c1 c2 c3 c4 c5 c6 c7 c8\n0 1 0 0 0 0 0 0 0 0\n\
+                 1 1 0 0 0 0 0 0 0 1\n2 1 0 0 0 0 0 0 0 1\n",
+            ),
+            (
+                "itempropdef",
+                "2DA V2.0\n\nName Label SubTypeResRef CostTableResRef Param1ResRef\n\
+                 0 **** Zeta iprp_feats 1 0\n1 **** Cast iprp_spells 2 ****\n2 **** Alpha **** 0 ****\n",
+            ),
+            ("iprp_feats", &feats),
+            (
+                "iprp_spells",
+                "2DA V2.0\n\nName Label GeneralUse PotionUse\n0 900 Zap 1 0\n1 901 Heal 1 1\n\
+                 2 902 Bless **** 1\n3 903 Doom 0 0\n",
+            ),
+            ("iprp_costtable", "2DA V2.0\n\nName\n0 ****\n1 iprp_bonuscost\n2 iprp_chargecost\n"),
+            (
+                "iprp_chargecost",
+                "2DA V2.0\n\nName Label PotionCost\n0 910 Single 1\n1 911 Five 0\n2 912 One ****\n",
+            ),
+            ("iprp_paramtable", "2DA V2.0\n\nTableResRef\n0 iprp_spells\n"),
+        ];
+        let mut mem = MemContainer::new();
+        for (name, body) in tables {
+            mem.insert(ResKey::parse(name, ResType::TWODA).unwrap(), body.as_bytes());
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "mem", LayerClass::Key, mem);
+        let gd = GameData::new(rm, Tlk::new(Language::ENGLISH));
+        // (No talk table line: each row by its label, as the lists fall
+        // back to.) The kinds by name; a potion's are its column's.
+        let names = |base| -> Vec<String> {
+            gd.available_properties(base).into_iter().map(|t| t.name).collect()
+        };
+        assert_eq!(names(0), ["Alpha", "Cast", "Zeta"]);
+        assert_eq!(names(1), ["Alpha", "Cast"]);
+        let kinds = gd.available_properties(0);
+        let (cast, zeta) = (&kinds[1], &kinds[2]);
+        let texts = |list: &[crate::Choice]| -> Vec<String> {
+            list.iter().map(|c| c.text.clone()).collect()
+        };
+        // A spell is one unless its column says 0; a potion has its own.
+        assert_eq!(texts(&gd.property_subtypes(cast, 0)), ["Zap", "Heal", "Bless"]);
+        assert_eq!(texts(&gd.property_subtype_list(cast, 1)), ["Heal", "Bless"]);
+        assert_eq!(texts(&gd.property_subtypes_by_name(cast, 0)), ["Bless", "Heal", "Zap"]);
+        // A charge cost applies to a potion where its column has one.
+        assert_eq!(texts(&gd.property_costs(2, 0)), ["Single", "Five", "One"]);
+        assert_eq!(texts(&gd.property_cost_list(2, 1)), ["Single"]);
+        assert_eq!(texts(&gd.property_params(0)), ["Zap", "Heal", "Bless", "Doom"]);
+        assert!(gd.property_cost_list(0, 0).is_empty() && gd.property_param_list(9).is_empty());
+        // The long list: by name, the same list every time, at no cost.
+        let sorted = gd.property_subtypes_by_name(zeta, 0);
+        assert_eq!(sorted.len(), 25_000);
+        assert_eq!(
+            (sorted[0].text.as_str(), sorted[24_999].text.as_str()),
+            ("Feat00000", "Feat24999")
+        );
+        assert_eq!(*sorted, crate::by_name(gd.property_subtypes(zeta, 0)));
+        let started = std::time::Instant::now();
+        for _ in 0..1000 {
+            assert!(Arc::ptr_eq(&gd.property_subtypes_by_name(zeta, 0), &sorted));
+            assert!(Arc::ptr_eq(
+                &gd.property_subtype_list(cast, 1),
+                &gd.property_subtype_list(cast, 1)
+            ));
+            assert_eq!(gd.available_properties(0).len(), 3);
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        // The tables may have changed: made anew, the same rows.
+        gd.invalidate();
+        let again = gd.property_subtypes_by_name(zeta, 0);
+        assert!(!Arc::ptr_eq(&again, &sorted) && again == sorted);
     }
 
     fn prop(property: u16, subtype: u16, cost_value: u16) -> ItemProperty {

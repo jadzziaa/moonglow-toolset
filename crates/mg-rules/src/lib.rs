@@ -169,6 +169,11 @@ pub struct GameData {
     /// ([`appearance_problems`](Self::appearance_problems)), by the kind
     /// of object and the fields that bear on it.
     judged: RwLock<HashMap<appearance::JudgedKey, Arc<Vec<appearance::ModelProblem>>>>,
+    /// The item property lists made so far (`items.rs`): a table's named
+    /// rows, by the table and by which of them and in what order; and the
+    /// property types of each itemprops.2da column.
+    named: RwLock<HashMap<String, Vec<items::NamedList>>>,
+    property_types: RwLock<HashMap<i32, Arc<Vec<items::PropertyType>>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -273,6 +278,8 @@ impl GameData {
             choices: RwLock::new(HashMap::new()),
             marked: RwLock::new(HashMap::new()),
             judged: RwLock::new(HashMap::new()),
+            named: RwLock::new(HashMap::new()),
+            property_types: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
         }
     }
@@ -283,6 +290,8 @@ impl GameData {
         // (The lists name rows by its strings.)
         self.choices.get_mut().expect("choice cache poisoned").clear();
         self.marked.get_mut().expect("marked cache poisoned").clear();
+        self.named.get_mut().expect("named cache poisoned").clear();
+        self.property_types.get_mut().expect("property type cache poisoned").clear();
     }
 
     pub fn custom_tlk(&self) -> Option<&Tlk> {
@@ -309,6 +318,8 @@ impl GameData {
         self.choices.write().expect("choice cache poisoned").clear();
         self.marked.write().expect("marked cache poisoned").clear();
         self.judged.write().expect("judged cache poisoned").clear();
+        self.named.write().expect("named cache poisoned").clear();
+        self.property_types.write().expect("property type cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
     }
 
