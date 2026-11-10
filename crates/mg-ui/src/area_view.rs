@@ -725,7 +725,7 @@ impl Watching {
         use mg_render::watch;
         // (A look the GPU never gave back: given up, and the next taken.)
         if let Some(s) = self.sampler.as_mut()
-            && s.give_up(now)
+            && s.give_up(&vp.gpu, now)
         {
             self.pending = None;
             if !std::mem::replace(&mut self.noted.lost, true) {

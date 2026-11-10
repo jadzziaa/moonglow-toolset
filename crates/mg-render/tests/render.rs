@@ -6484,13 +6484,19 @@ fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
     assert!(colored as f32 >= 0.97 * of as f32, "{colored} of {of} drawn points colored");
     assert_eq!(seen.colors[0], [0.0; 3], "the sky's corner: the background");
     assert_eq!(blanked.colored(scene.background), 0);
-    // A look the GPU never gives back is given up after a while, and the
-    // next is taken.
+    // A look the GPU has done is not given up, however long ago it was
+    // taken (a view whose next frame comes later than that, its tab
+    // behind another: it was dropped unread as lost, and the log said the
+    // GPU hadn't given it back): it is there to take.
     sampler.look(&gpu, &targets, seen.expected.clone(), 100.0);
     assert!(sampler.busy());
-    assert!(!sampler.give_up(100.0 + watch::LOST - 0.5));
-    assert!(sampler.give_up(100.0 + watch::LOST));
-    assert!(!sampler.busy());
+    assert!(!sampler.give_up(&gpu, 100.0 + watch::LOST - 0.5), "not yet, done or not");
+    let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+    assert!(!sampler.give_up(&gpu, 100.0 + watch::LOST + 1.0));
+    assert!(sampler.busy());
+    let late = sampler.take(&gpu).expect("the look, read late");
+    assert_eq!(late.counted(), blanked.counted(), "of the targets as last drawn");
+    assert!(!sampler.busy() && !sampler.give_up(&gpu, 1e6), "none under way");
 }
 
 /// Moonglow's own shaders (each WGSL source the renderer makes, at one

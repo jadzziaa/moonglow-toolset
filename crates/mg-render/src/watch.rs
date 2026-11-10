@@ -347,8 +347,35 @@ pub(crate) fn source(samples: u32) -> String {
 struct Pending {
     buffer: wgpu::Buffer,
     mapped: Receiver<Result<(), wgpu::BufferAsyncError>>,
+    /// The mapping's answer, once it has come ([`Pending::back`]).
+    answer: Option<Result<(), ()>>,
     expected: Expected,
     at: f64,
+}
+
+impl Pending {
+    /// Whether the GPU has done the look (its answer is in, read or
+    /// lost), asking the device without waiting.
+    fn back(&mut self, gpu: &Gpu) -> bool {
+        if self.answer.is_none() {
+            // (Waited for, in a test: each look read in the frame after.)
+            let wait = WAIT.load(std::sync::atomic::Ordering::SeqCst);
+            let how = if wait { wgpu::PollType::wait_indefinitely() } else { wgpu::PollType::Poll };
+            let _ = gpu.device.poll(how);
+            self.answer = match self.mapped.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) | Ok(Err(_)) => Some(Err(())),
+                Ok(Ok(())) => Some(Ok(())),
+            };
+        }
+        self.answer.is_some()
+    }
+}
+
+/// Whether a look taken at `at` is given up at `now`: one the GPU has not
+/// done (`back`) in [`LOST`] seconds.
+fn lost(back: bool, at: f64, now: f64) -> bool {
+    !back && now - at >= LOST
 }
 
 /// A look the GPU has done ([`Sampler::take`]): the expectation of its
@@ -548,26 +575,17 @@ impl Sampler {
         gpu.queue.submit([encoder.finish()]);
         let (tx, rx) = channel();
         buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| drop(tx.send(r)));
-        self.pending = Some(Pending { buffer, mapped: rx, expected, at: now });
+        self.pending = Some(Pending { buffer, mapped: rx, answer: None, expected, at: now });
     }
 
     /// The look under way, once the GPU has done it (never waiting).
     pub fn take(&mut self, gpu: &Gpu) -> Option<Look> {
-        let pending = self.pending.as_ref()?;
-        // (Waited for, in a test: each look read in the frame after.)
-        let wait = WAIT.load(std::sync::atomic::Ordering::SeqCst);
-        let how = if wait { wgpu::PollType::wait_indefinitely() } else { wgpu::PollType::Poll };
-        let _ = gpu.device.poll(how);
-        match pending.mapped.try_recv() {
-            Err(std::sync::mpsc::TryRecvError::Empty) => return None,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) | Ok(Err(_)) => {
-                // (Lost: the next look is another.)
-                self.pending = None;
-                return None;
-            }
-            Ok(Ok(())) => {}
+        if !self.pending.as_mut()?.back(gpu) {
+            return None;
         }
         let pending = self.pending.take()?;
+        // (Lost: the next look is another.)
+        pending.answer?.ok()?;
         let texels: Vec<[f32; 4]> = {
             let data = pending.buffer.slice(..).get_mapped_range().ok()?;
             data.as_chunks::<16>()
@@ -591,9 +609,13 @@ impl Sampler {
     /// Gives up the look under way if the GPU hasn't done it in [`LOST`]
     /// seconds since it was taken (at `now`): whether it did. (A look that
     /// never came back would keep the next from being taken: the watch
-    /// would look no more.)
-    pub fn give_up(&mut self, now: f64) -> bool {
-        if self.pending.as_ref().is_some_and(|p| now - p.at >= LOST) {
+    /// would look no more.) The device is asked first: a look done long
+    /// since, by a view not drawn meanwhile (its tab behind another), is
+    /// left for [`Sampler::take`], not given up as lost by the clock
+    /// alone.
+    pub fn give_up(&mut self, gpu: &Gpu, now: f64) -> bool {
+        let Some(pending) = self.pending.as_mut() else { return false };
+        if lost(pending.back(gpu), pending.at, now) {
             self.pending = None;
             return true;
         }
@@ -627,6 +649,16 @@ mod tests {
             at += EVERY;
         }
         v
+    }
+
+    /// A look is given up when the GPU hasn't done it in a while: not one
+    /// it has done, however long ago it was taken.
+    #[test]
+    fn a_look_is_lost_only_while_the_gpu_has_not_done_it() {
+        assert!(!lost(false, 100.0, 100.0 + LOST - 0.5));
+        assert!(lost(false, 100.0, 100.0 + LOST));
+        assert!(!lost(true, 100.0, 100.0 + LOST));
+        assert!(!lost(true, 100.0, 1e9));
     }
 
     /// Drawing nothing of what is expected, for long enough, is a

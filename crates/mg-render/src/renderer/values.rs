@@ -102,6 +102,7 @@ impl ValueSets {
         self.by_hash.clear();
     }
 
+    #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.sets.len()
     }
