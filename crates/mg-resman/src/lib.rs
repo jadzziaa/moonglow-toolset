@@ -25,6 +25,7 @@ use thiserror::Error;
 
 pub use container::{
     Container, DirContainer, ERF_READ_LIMIT, ErfContainer, KeyContainer, MemContainer,
+    is_file_or_link_to_one,
 };
 pub use file_name::{
     CASE_IGNORED, Listed, NO_FILE_NAME, differs_in_case, file_name_bytes, file_name_text,
@@ -651,6 +652,34 @@ mod tests {
         let none = |_: &ResKey| None;
         assert_eq!(rm.get_over(&key("mod", ResType::TWODA), none).unwrap().1, "override");
         assert!(rm.texture_over(ResRef::from_str("po_none").unwrap(), none).is_none());
+    }
+
+    /// A file linked into a folder is one of its resources, as the game
+    /// reads it (`engine_linked_files`); a link to a folder is not
+    /// followed; and the linked file changed is the folder changed (the
+    /// review's Z3: a linked model or script was not in the load order).
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_s_linked_files_are_its_resources() {
+        let dir = mg_testkit::scratch_dir("mg-resman-linked");
+        let (outside, dev) = (dir.join("build"), dir.join("development"));
+        std::fs::create_dir_all(outside.join("deeper")).unwrap();
+        std::fs::create_dir_all(&dev).unwrap();
+        std::fs::write(outside.join("linked.nss"), b"void main() {}").unwrap();
+        std::fs::write(outside.join("deeper/inside.nss"), b"void main() {}").unwrap();
+        std::fs::write(dev.join("plain.nss"), b"void main() {}").unwrap();
+        std::os::unix::fs::symlink(outside.join("linked.nss"), dev.join("linked.nss")).unwrap();
+        std::os::unix::fs::symlink(outside.join("deeper"), dev.join("deeper")).unwrap();
+        std::os::unix::fs::symlink(outside.join("gone.nss"), dev.join("gone.nss")).unwrap();
+        let c = DirContainer::open(&dev);
+        let mut keys: Vec<String> = c.keys().map(|k| k.to_string()).collect();
+        keys.sort();
+        assert_eq!(keys, ["linked.nss", "plain.nss"], "a link to a folder or to nothing: not");
+        let linked = ResKey::parse("linked", ResType::NSS).unwrap();
+        assert_eq!(&*c.read(&linked).unwrap(), b"void main() {}");
+        let before = Container::fingerprint(&c);
+        std::fs::write(outside.join("linked.nss"), b"void main() { int n; }").unwrap();
+        assert_ne!(Container::fingerprint(&c), before, "its file changed: the folder changed");
     }
 
     #[test]

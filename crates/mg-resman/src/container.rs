@@ -347,11 +347,8 @@ impl DirContainer {
     pub fn rescan(&mut self) {
         self.files.clear();
         let Ok(rd) = std::fs::read_dir(&self.path) else { return };
-        let mut entries: Vec<PathBuf> = rd
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-            .map(|e| e.path())
-            .collect();
+        let mut entries: Vec<PathBuf> =
+            rd.flatten().filter(is_file_or_link_to_one).map(|e| e.path()).collect();
         // Deterministic choice if two names differ only in case.
         entries.sort();
         for p in entries {
@@ -396,7 +393,8 @@ impl Container for DirContainer {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         if let Ok(rd) = std::fs::read_dir(&self.path) {
             let mut files: Vec<(std::ffi::OsString, std::fs::Metadata)> =
-                rd.flatten().filter_map(|e| Some((e.file_name(), e.metadata().ok()?))).collect();
+                // (A link by what it links to: its file changed is a change.)
+                rd.flatten().filter_map(|e| Some((e.file_name(), std::fs::metadata(e.path()).ok()?))).collect();
             files.sort_by(|a, b| a.0.cmp(&b.0));
             for (name, meta) in files {
                 name.hash(&mut h);
@@ -405,6 +403,15 @@ impl Container for DirContainer {
         }
         std::hash::Hasher::finish(&h).max(1)
     }
+}
+
+/// Whether a folder's entry is a file, or a link to one: the game reads a
+/// file linked into `development/` or `override/` as one copied there
+/// (`engine_linked_files`). A link to a folder is not followed.
+/// (`DirEntry::file_type` does not follow a link: a linked model or
+/// script was not in the load order, and Verify said it was missing.)
+pub fn is_file_or_link_to_one(e: &std::fs::DirEntry) -> bool {
+    e.file_type().is_ok_and(|t| t.is_file() || (t.is_symlink() && e.path().is_file()))
 }
 
 /// Resources held in memory (e.g. an open module's edited, unsaved files).

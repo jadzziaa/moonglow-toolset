@@ -311,7 +311,7 @@ impl Beside {
                             dirs.push(e.path());
                         }
                     }
-                    Ok(t) if t.is_file() => files.push(e.path()),
+                    Ok(_) if mg_resman::is_file_or_link_to_one(&e) => files.push(e.path()),
                     _ => {}
                 }
             }

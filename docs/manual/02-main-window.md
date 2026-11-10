@@ -630,7 +630,9 @@ blueprint in them ([Options](10-options.md#module-tree-and-palettes)).
 
 **Tools › Resource Browser** lists every resource the game sees in its
 load order (the game's files, haks, override, the module), with the layer
-each one comes from. Open one to view it (GFF files as a field tree, 2DA
+each one comes from. A file linked into `override` or `development`
+(a symbolic link) is read as the game reads it, as a file copied there; a
+link to a folder is not followed. Open one to view it (GFF files as a field tree, 2DA
 tables, scripts and other text; models, and blueprints with **Preview**,
 in the model viewer), copy it into the module, or save it to a file
 (**Save As…**, also on its right-click menu in the list; a compiled

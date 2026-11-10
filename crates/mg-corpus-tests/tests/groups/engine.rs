@@ -55,6 +55,8 @@ mod engine_item_flags;
 mod engine_journal;
 #[path = "../engine_light_state.rs"]
 mod engine_light_state;
+#[path = "../engine_linked_files.rs"]
+mod engine_linked_files;
 #[path = "../engine_local_variables.rs"]
 mod engine_local_variables;
 #[path = "../engine_locked.rs"]
