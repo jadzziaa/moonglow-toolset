@@ -460,7 +460,7 @@ fn unique_common(a: &[&str], b: &[&str]) -> Vec<(usize, usize)> {
 
 /// A localized string with its text in the editing language replaced (or
 /// set; English unless Options › Language chooses another).
-pub(crate) fn with_english(mut s: LocString, text: &str) -> LocString {
+pub(crate) fn with_edited_text(mut s: LocString, text: &str) -> LocString {
     let language = edit_language();
     if text.is_empty() {
         s.remove(language, Gender::Male);
@@ -734,12 +734,12 @@ mod tests {
     fn round_trip_and_fallback() {
         assert_eq!(decode(&encode("Épée")), "Épée");
         assert_eq!(encode("a→b"), b"a?b");
-        let s = with_english(LocString::default(), "Hi");
+        let s = with_edited_text(LocString::default(), "Hi");
         assert_eq!(s.text(Language::ENGLISH, Gender::Male).unwrap(), "Hi");
-        assert!(with_english(s, "").strings.is_empty());
+        assert!(with_edited_text(s, "").strings.is_empty());
         // Another language's text in its own codepage.
         set_edit_language(Language::POLISH);
-        let s = with_english(LocString::default(), "Kryształowa czaszka");
+        let s = with_edited_text(LocString::default(), "Kryształowa czaszka");
         set_edit_language(Language::ENGLISH);
         assert_eq!(s.text(Language::POLISH, Gender::Male).unwrap(), "Kryształowa czaszka");
     }
@@ -753,7 +753,7 @@ mod tests {
         assert_eq!(encode("dağ"), b"da\xf0");
         assert_eq!(decode(b"da\xf0 \xe9"), "dağ é");
         assert_eq!(encode("ð"), b"?");
-        let s = with_english(LocString::default(), "Dağ");
+        let s = with_edited_text(LocString::default(), "Dağ");
         assert_eq!(s.get(Language::ENGLISH, Gender::Male).unwrap(), b"Da\xf0");
         assert_eq!(edited_text(&s), "Dağ");
         // Another language's text is read by it too.
@@ -785,7 +785,7 @@ mod tests {
         assert_eq!(for_windows_1252("Dağ é ð"), "Dağ é ð");
         assert_eq!(decode(b"da\xf0"), "dað");
         set_edit_language(Language::POLISH);
-        let s = with_english(LocString::default(), "Kryształowa czaszka");
+        let s = with_edited_text(LocString::default(), "Kryształowa czaszka");
         assert_eq!(edited_text(&s), "Kryształowa czaszka");
         assert_eq!(s.get(Language::POLISH, Gender::Male).unwrap(), b"Kryszta\xb3owa czaszka");
         set_edit_language(Language::ENGLISH);

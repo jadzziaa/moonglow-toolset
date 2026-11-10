@@ -188,7 +188,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                         f.set_typed(
                             what,
                             label,
-                            Value::LocString(crate::text::with_english(current, &n)),
+                            Value::LocString(crate::text::with_edited_text(current, &n)),
                         );
                     }
                 }

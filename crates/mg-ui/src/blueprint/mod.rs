@@ -14,7 +14,7 @@ use mg_resman::ResKey;
 use mg_rules::Choice;
 
 use crate::dialogs::FileKind;
-use crate::text::{decode, encode, with_english};
+use crate::text::{decode, encode, with_edited_text};
 use crate::widgets::{
     FieldTarget, LocStringEdit, VarTableEdit, commit_number, commit_text, resref_field,
 };
@@ -1110,12 +1110,16 @@ impl Form<'_> {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         ui.horizontal(|ui| {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
-                self.set_typed(what, label, Value::LocString(with_english(current.clone(), &v)));
+                self.set_typed(
+                    what,
+                    label,
+                    Value::LocString(with_edited_text(current.clone(), &v)),
+                );
             }
             let shown = crate::widgets::loc_shown(self.app, &current).0;
             let held = current.clone();
             self.hold_text(ui, what, label, &shown, true, move |text| {
-                Value::LocString(with_english(held.clone(), &text))
+                Value::LocString(with_edited_text(held.clone(), &text))
             });
             if crate::widgets::languages_button(ui) {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
@@ -1135,11 +1139,11 @@ impl Form<'_> {
         });
         self.mark_mixed(ui, label);
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
-            self.set_typed(what, label, Value::LocString(with_english(current.clone(), &v)));
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
         }
         let shown = crate::widgets::loc_shown(self.app, &current).0;
         self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_english(current.clone(), &text))
+            Value::LocString(with_edited_text(current.clone(), &text))
         });
     }
 

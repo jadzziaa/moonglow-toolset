@@ -18,7 +18,7 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_rules::rows::{Meaning, list_item_name, meaning};
 
-use crate::text::{decode, encode, to_editor, with_english};
+use crate::text::{decode, encode, to_editor, with_edited_text};
 use crate::{Action, Moonglow};
 
 struct Ctx<'a> {
@@ -369,13 +369,13 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
                     }
                 }
                 // The text in the language edited (Options › Language), which
-                // is the one `with_english` writes: the box showed the
+                // is the one `with_edited_text` writes: the box showed the
                 // English text whatever was edited, so with another
                 // language what was typed replaced that language's text
                 // and the box went back to the English, as if refused.
                 let current = crate::text::edited_text(ls);
                 if let Some(t) = ctx.loc_text(ui, id, &current) {
-                    ctx.set(path, label, Value::LocString(with_english(ls.clone(), &t)));
+                    ctx.set(path, label, Value::LocString(with_edited_text(ls.clone(), &t)));
                 }
             });
         }
