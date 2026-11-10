@@ -495,9 +495,10 @@ fn written(progress: &crate::jobs::Progress, done: u64, total: u64) -> bool {
 
 /// The hak editor's Save and Save As…, as a job: the hak is written on a
 /// thread of its own, with how far it is and Cancel (which leaves the
-/// file as it was), and taken as saved when it is written. A hak of
-/// gigabytes was written inside the frame, and the window stood still
-/// for the whole copy.
+/// file as it was), and taken as saved when it is written: also where
+/// Cancel came too late to stop it (the job runs to its end and says
+/// which). A hak of gigabytes was written inside the frame, and the
+/// window stood still for the whole copy.
 fn save_as_job(app: &mut Moonglow, id: u32, ask: bool) {
     let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
     let Ok(to) = save_to(app, i, ask) else { return };
@@ -506,17 +507,15 @@ fn save_as_job(app: &mut Moonglow, id: u32, ask: bool) {
         Err(e) => return app.log.error(format!("Could not save the hak: {e}")),
     };
     let total = saving.size();
-    app.start_job_anywhere(
+    app.start_job_to_its_end(
         "Save Hak",
         move |cx| saving.write(&mut |done| written(&cx.progress, done, total)),
         move |app, saved| {
             let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
-            let taken = saved.and_then(|s| match s {
-                Some(s) => app.haks[i].hak.saved(s),
-                None => Err("stopped".into()),
-            });
-            match taken {
-                Ok(()) => after_save(app, i),
+            match saved.and_then(|s| s.map(|s| app.haks[i].hak.saved(s)).transpose()) {
+                Ok(Some(())) => after_save(app, i),
+                // (Stopped: the file is as it was.)
+                Ok(None) => app.log.info("Save Hak: canceled"),
                 Err(e) => app.log.error(format!("Could not save the hak: {e}")),
             }
         },
