@@ -1510,6 +1510,48 @@ fn bound_slider_values_are_clamped_into_their_bound_range() {
     assert_eq!(h.state().settings.bindings["v"].value, json!(100));
 }
 
+/// A correction the simulation has nowhere to write (a combo or a slider
+/// bound to a bind the settings don't have, as a window imported without
+/// its settings; a list's row past what its bind holds) is not asked for:
+/// it was tried again every frame, the canvas repainting without end and
+/// the event line saying "Missing preview bind" over everything else.
+#[test]
+fn a_correction_with_nowhere_to_go_is_not_asked_for_every_frame() {
+    let mut settings = Settings::default();
+    settings.bindings.insert("short".into(), Binding { value: json!([5]), ..Default::default() });
+    let entries = json!([["First", 0], ["Second", 1]]);
+    for control in [
+        json!({"type":"combo","height":30,"elements":entries,"value":{"bind":"choice"}}),
+        json!({"type":"slider","height":30,"min":5,"max":9,"value":{"bind":"choice"}}),
+        json!({"type":"list","row_count":3,"row_height":30,"height":120,"row_template":[[
+            {"type":"combo","elements":entries,"value":{"bind":"short"}},0,true]]}),
+        json!({"type":"list","row_count":3,"row_height":30,"height":120,"row_template":[[
+            {"type":"slider","min":7,"max":9,"value":{"bind":"short"}},0,true]]}),
+    ] {
+        let mut h = harness(json!([control]), settings.clone());
+        h.state_mut().state.preview_interactive = true;
+        // (The first frames: the session made, the skin looked for.)
+        for _ in 0..3 {
+            h.step();
+        }
+        let runtime = h.state().state.runtime.as_ref().unwrap();
+        // (The row the bind does hold was corrected: 5 is no entry's, and
+        // under the slider's 7.)
+        let held = &runtime.settings.bindings["short"].value;
+        assert!(control["type"] != "list" || *held != json!([5]), "{control}: {held}");
+        let before = (runtime.settings.clone(), runtime.doc.clone());
+        for frame in 0..3 {
+            h.step();
+            let runtime = h.state().state.runtime.as_ref().unwrap();
+            assert_eq!(runtime.last_event.find("Missing preview"), None, "{control}");
+            assert!(before == (runtime.settings.clone(), runtime.doc.clone()));
+            let root = h.output().viewport_output.get(&egui::ViewportId::ROOT);
+            let again = root.is_some_and(|v| v.repaint_delay.is_zero());
+            assert!(!again, "{control}: frame {frame} asks for the next");
+        }
+    }
+}
+
 #[test]
 fn native_dropdown_corrects_missing_selection_without_clicking_or_editing_source() {
     // GUI-created nui_choices_s, NWN EE89.8193.37-17: empty retains -1,

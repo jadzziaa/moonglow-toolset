@@ -51,6 +51,16 @@ pub(super) fn set(value: &mut Value, key: &str, new: Value) {
     }
 }
 
+/// Whether the simulation has where to write a value of control `node`
+/// (in list row `row`): the control's own `value`, or its bind's first
+/// value, and that row of it for a list's. [`Session::apply`] writes
+/// nowhere else, and says what is missing.
+pub(super) fn has_place(node: &Value, s: &Settings, row: Option<usize>) -> bool {
+    let Some(bind) = node["value"]["bind"].as_str() else { return true };
+    let Some(binding) = s.bindings.get(bind) else { return false };
+    row.is_none_or(|row| binding.value.as_array().is_some_and(|rows| row < rows.len()))
+}
+
 impl WindowMove {
     pub(super) fn update(&mut self, pointer: Pos2) {
         self.position =

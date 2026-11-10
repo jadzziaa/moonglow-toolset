@@ -438,8 +438,14 @@ impl Renderer<'_> {
     /// gets its outline and tooltip.
     fn finish(&mut self, ui: &mut Ui, c: Control<'_>, rect: Rect, selected: bool, live: bool) {
         let Control { s, a, node, path, row, disabled, .. } = c;
+        // The client's own correction of a value (a combo's first entry, a
+        // slider's range) is asked for only where the simulation can write
+        // it: with no such bind, or no such row of it, it was asked for
+        // again every frame, each one saying "Missing preview bind" over
+        // whatever the event line showed, and asking for the next.
         if let Some(value) = c.changed
             && value.as_ref().is_none_or(|v| v != val(&node["value"], s, row))
+            && (!c.normalization || interaction::has_place(node, s, row))
         {
             self.changes.push(interaction::Change {
                 path: path.into(),
