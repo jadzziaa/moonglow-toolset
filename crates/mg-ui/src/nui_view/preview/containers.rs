@@ -398,9 +398,17 @@ impl Renderer<'_> {
                 .min(((offset + inner.height() + 4.0 * scale) / stride).floor().max(0.0) as usize);
             // Where it goes asked for (`mg nui layout`): the rows out of
             // its view too, laid out where scrolling brings them, drawn
-            // clipped to nothing.
+            // clipped to nothing. A list in another list's row keeps to
+            // the rows in its view, as it is drawn (its rows are there
+            // once for each row of the other), and all a window's lists
+            // together to what `record_rows` gives them.
             if a.recording() {
-                (first, end) = (0, count);
+                if row.is_none() {
+                    (first, end) = (0, count);
+                }
+                let wanted = end.saturating_sub(first).min(ROWS_DRAWN);
+                let taken = a.record_rows(source_path, row.is_some(), wanted, count);
+                end = first.saturating_add(taken);
             }
             for r in first..end.min(first.saturating_add(ROWS_DRAWN)) {
                 let mut x = inner.left();

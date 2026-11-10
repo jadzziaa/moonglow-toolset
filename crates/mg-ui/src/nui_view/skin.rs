@@ -318,7 +318,17 @@ pub(super) struct Record {
     pub title_cut: bool,
     /// The controls being drawn, innermost last: whose text a cut belongs to.
     current: Vec<usize>,
+    /// The list rows laid out so far ([`Assets::record_rows`]).
+    rows: usize,
+    /// The lists with rows that were not laid out: what is said of each.
+    pub rows_left_out: Vec<String>,
 }
+
+/// The most rows of all a window's lists together that a layout asked for
+/// holds: each list's rows are a number its file gives, and a list in a
+/// list's row has them once for each row of that (three lists of a
+/// thousand rows inside each other were 134 million controls).
+pub(super) const LAYOUT_ROWS: usize = 4096;
 
 /// A control as the canvas laid it out.
 #[derive(Debug, Clone)]
@@ -327,6 +337,8 @@ pub(super) struct Placed {
     pub path: String,
     /// The list row it was drawn in, for a list's row template.
     pub row: Option<usize>,
+    /// The control's own fields: not the controls in it (`children`, a
+    /// list's `row_template`), which are placed themselves.
     pub node: Value,
     /// Its rectangle, inside its margin.
     pub rect: Rect,
@@ -353,7 +365,23 @@ impl Default for Record {
             title: None,
             title_cut: false,
             current: Vec::new(),
+            rows: 0,
+            rows_left_out: Vec::new(),
         }
+    }
+}
+
+/// A control without the controls in it: what [`Placed`] keeps of it (a
+/// copy of the whole for each control placed was the window once a level,
+/// and a list's row template once a row).
+fn own_fields(node: &Value) -> Value {
+    match node {
+        Value::Object(o) => Value::Object(
+            (o.iter().filter(|(k, _)| !matches!(k.as_str(), "children" | "row_template")))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -387,7 +415,7 @@ impl Assets {
         r.placed.push(Placed {
             path: path.into(),
             row,
-            node: node.clone(),
+            node: own_fields(node),
             rect,
             clip,
             parent,
@@ -397,6 +425,39 @@ impl Assets {
         });
         r.current.push(r.placed.len() - 1);
         true
+    }
+
+    /// How many of the `wanted` rows of the list at `path` (which has
+    /// `count`; `in_row`: it is in another list's row) the layout asked
+    /// for takes: all of them while the frame has rows left of
+    /// [`LAYOUT_ROWS`]. Rows left out are said once a list.
+    pub(super) fn record_rows(
+        &self,
+        path: &str,
+        in_row: bool,
+        wanted: usize,
+        count: usize,
+    ) -> usize {
+        let mut record = self.record.borrow_mut();
+        let Some(r) = record.as_mut() else { return wanted };
+        let taken = wanted.min(LAYOUT_ROWS.saturating_sub(r.rows));
+        r.rows += taken;
+        // (A list in a row is laid out as the row shows it: of its rows
+        // only those the frame had no room for are left out.)
+        let said = match in_row {
+            false if taken < count => {
+                Some(format!("{path}: only the first {taken} of its {count} rows are laid out"))
+            }
+            true if taken < wanted => Some(format!(
+                "{path}: not all its rows in view are laid out ({LAYOUT_ROWS} rows of a \
+                 window's lists together are, at most)"
+            )),
+            _ => None,
+        };
+        if let Some(said) = said.filter(|said| !r.rows_left_out.contains(said)) {
+            r.rows_left_out.push(said);
+        }
+        taken
     }
 
     pub(super) fn leave(&self, entered: bool) {
