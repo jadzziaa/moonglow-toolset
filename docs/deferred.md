@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T04:44:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T07:02:36Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -38,18 +38,31 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Tests of the review of November 2026 not seen failing before their
   fix:** each of its fixes came with a test, but these were not run
   against the code before the fix, and rest on the review's trace or
-  the fixer's reading: plugins and the NUI Creator's X3, X9, X17, X18
-  and X19, and the unit tests of X5, X11, X14, X20 and X22 to X25; the
-  blueprint editors' fixer's tests but B15's and B19's; the command line's and
-  plugin host's C1 to C28 but C7 (C4's timed before the fix); the
-  formats' timed tests (F9, F13 to F15) and hostile-file tests (F2,
-  F8), whose old code would take gigabytes or minutes; opening and
-  saving's P2 to P23 but P7, P16, P20 and P21. D28's test passed
-  before its change too, as did the test of a rename's list made
-  through a set (seen on the way): both findings were suspected. Each
-  test run at its fix's parent commit would show which fail there. (S,
-  waits on the reviewer's run against the code before the fixes) (the
-  review of November 2026, [its fixes](review-2026-11/fixes.md))
+  the fixer's reading: the command line's and plugin host's C1 to C28
+  but C7 (C4's timed before the fix); the formats' timed tests (F9, F13
+  to F15) and hostile-file tests (F2, F8), whose old code would take
+  gigabytes or minutes; opening and saving's P2 to P23 but P7, P16, P20
+  and P21. D28's test passed before its change too, as did the test of
+  a rename's list made through a set (seen on the way): both findings
+  were suspected. Each test run at its fix's parent commit would show
+  which fail there. The X and B parts were run on 10 November: each
+  test of X3 to X25 and of the blueprint editors' fixer (but B15's and
+  B19's) that can run at its fix's parent failed there for its
+  finding's reason; those of X11, X18, X20, X22 and X23 cannot run
+  there, as they call functions their fixes added (`found`,
+  `spans_lines` and `lines_text`, the `reads` counter, `binds_uses`
+  and the new `element`, `holds`), and X25's commit has no test of its
+  own. (S, waits on the reviewer's run against the code before the
+  fixes) (the review of November 2026, [its
+  fixes](review-2026-11/fixes.md))
+- **Tests that write under the real cache folder:** since the last
+  pass of the review of November 2026 (its item 24), several tests make
+  a run folder through `mg_module::build::own_scratch_dir()` under the
+  real `~/.cache/moonglow/scratch`, as `mg lsp`'s tests already wrote
+  to the real cache, where the rest of the suite's scratch folders are
+  under `target/test-output`. Seen on the way by that pass's fixer, not
+  changed: beyond what was asked. (S) (the review of November 2026, the
+  last pass)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
@@ -126,6 +139,14 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Steam hidden. With Steam running, the test then shows in Steam as the
   game being played. (needs a builder's word)
   (from builders' reports after 1.14.1)
+- **`mg serve`'s run folders under a shared, guessable parent:** `mg
+  serve` and `mg test` make a module's user directory under
+  `/tmp/moonglow-serve/<stem>-<hash>` (`apps/mg/src/serve.rs`,
+  `run_dir`), the class of what the review's last pass moved out of the
+  system's temporary folder (its item 24). Not changed: outside that
+  item's list, and the names are stable on purpose so that a module's
+  run reuses its folder; whether to move them is the owner's call. (S)
+  (what the fixers of the review of November 2026 saw on the way)
 
 ## Persistent-world scale
 
@@ -268,7 +289,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     with `refresh = "selection"` over a large selection (C3), a plugin
     check of many fixes in Verify Module (C4); `mg haks --usage` on a
     module of many part-based creatures (M17); opening a large nasher
-    project (P19).
+    project (P19);
+  - the review's last pass (its item 17): the Blueprint Wizard's
+    category page, the Variables window on a variable with a large
+    `rows` table, the module tree with an area opened out, and a hak
+    saved with a large module open.
   (M, waiting on the reviewer's timing run) (the review of November
   2026, [its fixes](review-2026-11/fixes.md))
 
@@ -310,18 +335,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `item_clip` hold one item each place; carrying the selection is a
     drag of many rows, and where each lands (slots, grid places). (M)
   (a second builder's review, October 2026)
-- **The Levelup Wizard's spells where Aurora was not captured:** a
-  class new to a creature gets no spells of a level whose slots are
-  bonus slots alone (a paladin's and a ranger's first: the review's
-  G8), as the level-up and the spell warnings count bonus slots two
-  ways; which way is Aurora's isn't known, for the captures in
-  `levelup/` (Fighter, Wizard 1, Rogue 3, Cleric 5) have no level whose
-  gain cell is 0. Nor is a class that knows its spells captured (a
-  sorcerer's or a bard's first level). The module comment of
-  `crates/mg-rules/src/levelup.rs` names both. (S, waits on an Aurora
-  capture: the Levelup Wizard adding Paladin 4 to a creature of Wisdom
-  14, and a sorcerer's and a bard's first level) (the review of
-  November 2026, G8)
+- **The feats' order in the Levelup Wizard's spell capture, the
+  owner's call:** the capture that settled the review's G8
+  (`levelup/spells-after.mod`) was made through Aurora's creature
+  Properties window, whose OK writes the FeatList sorted by name, so
+  `levelling_up_matches_aurora` sorts Moonglow's feats the same way for
+  that capture alone. Whether Moonglow's Properties window should sort
+  them so too is not checked; the choice is to confirm. (S) (the review
+  of November 2026, G8)
 - **A preview shown twice in a frame, the owner's call:** a 3D view
   shown in two places in one frame (the Preview window over the
   model's tab) is drawn in the first, and the second says "The preview
@@ -756,22 +777,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   own them, a restructure of the casters' path that the measurement of
   the review's Z2 would have to cover. (M, waits on that measurement)
   (the review of November 2026, R5)
-- **Read in the client, not yet** (no client was run in the fixes of
-  the review of November 2026):
-  - chunk particles' spin (R18): quads are read as `particlerot`
-    radians a second, chunks still as turns (the module doc says so); a
-    chunk emitter (`chunkName` an asymmetric model, `particlerot 1`,
-    velocity 0) beside `reading_particle_spin_and_order`'s quads, two
-    shots a second apart, would tell one radian from one turn;
-  - a mesh's tangents where its UVs are one point (R29's last part):
-    `reading_tangents` with such a card;
+- **Read in the client, not yet** (the review of November 2026's
+  fixes; the client run of 10 November read R18's chunks and R29's
+  tangents, not these):
   - a body part of a two-digit phenotype, its own textures (M10: the
     name is read as `skeleton` writes it);
   - a creature holding an item that names no model, drawn without it
     (M13), and the sandboxed client's CD key copy removed when its run
     ends (F22, held by its guard's own test).
-  (S, waits on a client run) (the review of November 2026, R18, R29,
-  M10, M13, F22)
+  (S, waits on a client run) (the review of November 2026, M10, M13,
+  F22)
+- **The area view never draws chunk emitters:** only the model viewer
+  (`model_view.rs`) calls `Particles::chunks`, so an area's chunk
+  emitters are not drawn, and `reading_chunk_spin`'s Moonglow picture
+  of an area is empty. Seen on the way by the client reading that
+  settled the review's R18, not changed: beyond what was asked. (M)
+  (the review of November 2026, R18)
 - **The model viewer's ground shadow, the owner's call:** it is drawn
   as a shadow map always (`shadow_volumes = false` before its draw),
   since stencil volumes cast no skins: the renderer's fixer's choice in
@@ -783,13 +804,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   data changes, a module closes, or a texture, MTR or TXI of the
   module's own files changes outside (the review's B15), but not when
   the model viewer draws a hak's model from the hak's own load order
-  through the same renderer, nor after an Import
-  (`refresh_module_layer`, which also runs after every build). Clearing
-  them at every such change would read every texture again, and a
-  hak's model drawn beside an area view would clear them twice a frame:
-  a real unintended consequence. Caches per source in the renderer, or
-  a clear only where a texture's key changed, would do. (M) (the
-  review of November 2026, B15, and what its fixers saw on the way)
+  through the same renderer. Since the review's last pass (its item 6)
+  an Import forgets them where a DDS, TGA, PLT, MTR or TXI of the
+  module changed, was added or was removed (`refresh_module_layer`).
+  Clearing them at every change of source would read every texture
+  again, and a hak's model drawn beside an area view would clear them
+  twice a frame: a real unintended consequence. Caches per source in the
+  renderer would do. (M) (the review of November 2026, B15, and what its
+  fixers saw on the way)
 - **PLT palettes read in two places:** mg-render reads them once
   (`Palettes`, `Assets::texture_kept`: the review's R13); mg-ui's
   `images.rs` keeps its own, as before, and the two loaders are not
@@ -971,14 +993,19 @@ contribution itself states as not done or not checked.
     average without the tree, 0.97 with it, the most 0.55 ms more (a
     long script, 0.73 to 1.28); none over the budget. Without one,
     nothing. (S, waits on a screen reader's user)
-- **A scroll bar's end button:** a scrolled list shows the same rows at
-  any zoom or UI scale, a group, a list and a text scrolling through one
-  function (the review's N9); what a click on a bar's end button
-  scrolls by still differs by kind (a group 20 points, a text a font's
-  height, a list to the track's end). A client run clicking the end
-  buttons of a list's, a group's and a NuiText's bar would say what the
-  game does. The combo popup's own scrolling is untouched. (S, waits on
-  a client run) (the review of November 2026, N9)
+- **A scroll bar's end button held, the owner's call:** the client
+  scrolls a bar every frame its end button is held, by 1% of the bar's
+  length in whole pixels (`reading_scrollbar_end_buttons`), and the
+  preview's list, group and text bars now do too (the review's N9).
+  Three choices of the client reading's to confirm:
+  - the rate is the client's at 60 frames a second: the client's speed
+    follows its frame rate, so no one value matches every player;
+  - some presses on the client's text control moved nothing, for a
+    reason not settled, so the text scrolls at the rate of a group of
+    its height;
+  - the list scrolls by pixels at the same rate, where the client moves
+    one in whole rows: snapping to rows was left out.
+  (S) (the review of November 2026, N9)
 - **The NUI Creator's lesser copies:** the Design page copies the window
   and its settings once a frame (the review's N13); not done: `check`'s
   own copy a frame, Interact's two whole comparisons of its session,
@@ -1099,17 +1126,6 @@ contribution itself states as not done or not checked.
   object when it saves the story is not checked. Where a story says
   nothing, `mg dialog-import` keeps the replaced conversation's
   settings. (S, waits on Twine) (the review of November 2026, V7)
-- **`mg gff`'s JSON as serde lays it out, the owner's call:** the
-  command writes its file and plain print with `serde_json`'s pretty
-  printer, where `mg_gff::to_json_text` writes JSON as neverwinter.nim
-  does (the nasher save, `mg merge-gff` and the prefabs use it): the
-  values are the same, the spelling of small and large floats and of
-  control characters in strings is not (12 of 404 random floats
-  differed in notation from `nwn_gff`'s), and the help says
-  "neverwinter.nim / nasher format". Taking `to_json_text`, or saying in
-  the help that the notation is serde's, is the owner's call, as the
-  review's page says; not taken up in its fixes. (S) (the review of
-  November 2026, Z4)
 
 ## Tileset authoring
 

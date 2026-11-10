@@ -1,9 +1,9 @@
 ---
 type: Report
 title: The fixes of the review of November 2026
-description: 'What became of the 349 findings of the code review of 2026-11-09 in the fix pass of the same day, for 4.0.0: a table a part (fixed whole, fixed in part, found fixed by another finding''s commit, does not hold, left), then every finding not fixed whole with what is left and why, the findings fixed with a choice for the owner or a check that could not be made here, and the owner''s word on S15. Hand-written from the fixers'' reports and the commits; the part pages beside it are the record of what was found.'
+description: 'What became of the 349 findings of the code review of 2026-11-09 in the fix pass of 9 and 10 November, for 4.0.0: a table a part (fixed whole, fixed in part, found fixed by another finding''s commit, does not hold, left), every finding not fixed whole with what is left and why, those fixed on 10 November (four settled by the game client and Aurora), the findings fixed with a choice for the owner or a check that could not be made here, the last pass''s 24 items seen on the way, and the owner''s word on S15. Hand-written from the fixers'' reports and the commits; the part pages beside it are the record of what was found.'
 tags: [review, code-review, fixes, deferred]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T04:33:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T07:02:36Z }
 sources:
   - id: overview
     resource: overview.md
@@ -15,11 +15,14 @@ sources:
     resource: 'develop: the reviewer''s 20 commits between 325b07ea and 0991dd04 (git log --no-merges 325b07ea..0991dd04), E1, S1 to S13, S16 to S18, S22, S28, P1, A2, A3, D4, D7, D13, B6 in part, B7, B8, B16, B17'
     title: The reviewer's own fixes, before the fixers began
   - id: reports
-    resource: 'target/review/reports/*.md of the main checkout (the fourteen fixers'' final reports) and target/review/fix-notes.md (the reviewer''s running notes), not kept in the repository'
+    resource: target/review/reports/*.md of the main checkout (the fourteen fixers' final reports) and target/review/fix-notes.md (the reviewer's running notes), not kept in the repository
     title: The fixers' reports and the reviewer's notes
+  - id: later
+    resource: 'develop: the merge commits 27924c61 (the last pass''s items 1 to 8, 2026-11-09), bfe949ac (R18, R29, N9, G8, settled by the client and Aurora, 2026-11-10) and d82e6390 (items 9 to 24, Z3 to Z6, 2026-11-10); their reports in target/review/reports/ of the main checkout (a79b65aac5ec49eff.md, abad2bb7134eaad26.md, ab3b479dd6ddc02fd.md)'
+    title: The last pass and the client and Aurora readings, merged on 9 and 10 November
   - id: owner
     resource: human:august
-    title: 'The owner (2026-11-09): fix the findings; the release is 4.0.0; S15 settled'
+    title: 'The owner (2026-11-09 and 10): fix the findings; the release is 4.0.0; S15 settled; Z4 and the last pass''s item 11 decided'
 ---
 
 # The fixes of the review of November 2026
@@ -34,7 +37,10 @@ Each fixer read a finding's place again before changing it, wrote a
 test with each fix that could have one, and made about a commit a
 finding; each branch was merged into develop.[^merges] What follows
 counts the findings of [the overview](overview.md)[^overview] by what
-the fixers' reports and the commits say became of them.[^reports]
+the fixers' reports and the commits say became of them.[^reports] On
+10 November the game client and Aurora settled four findings left
+waiting on them, a last pass fixed the finders' Z3 to Z6 and what the
+fixers had seen on the way, and the counts below are as of then.[^later]
 
 The counts: **fixed whole**, the finding's fix made and tested (by its
 part's fixer or the reviewer); **in part**, a part its fixer names as
@@ -47,9 +53,9 @@ finding's commit; **does not hold**; **left**, nothing changed.
 | --- | --- | --- | --- | --- | --- | --- |
 | [Formats and core](formats-core.md) (F) | 25 | 25 | 0 | 0 | 0 | 0 |
 | [Models, shaders and previews](models-shaders-previews.md) (M) | 17 | 17 | 0 | 0 | 0 | 0 |
-| [The renderer](renderer.md) (R) | 30 | 26 | 2 | 0 | 0 | 2 |
+| [The renderer](renderer.md) (R) | 30 | 28 | 1 | 0 | 0 | 1 |
 | [The workspace, areas, tiles, rules and NUI documents](edit-area-tiles-rules-nui.md) (E) | 24 | 23 | 0 | 1 | 0 | 0 |
-| [The rules data and what the first pass left](rules-leftovers.md) (G) | 11 | 9 | 1 | 0 | 0 | 1 |
+| [The rules data and what the first pass left](rules-leftovers.md) (G) | 11 | 10 | 1 | 0 | 0 | 0 |
 | [Verify, search, rename and the module's queries](module-checks.md) (V) | 25 | 23 | 2 | 0 | 0 | 0 |
 | [Opening, saving and the project's files](module-project.md) (P) | 23 | 22 | 1 | 0 | 0 | 0 |
 | [The plugin host and the command line](plugins-cli.md) (C) | 28 | 28 | 0 | 0 | 0 | 0 |
@@ -58,9 +64,9 @@ finding's commit; **does not hold**; **left**, nothing changed.
 | [The blueprint editors, palettes and pictures](ui-blueprints.md) (B) | 30 | 28 | 0 | 2 | 0 | 0 |
 | [The 2DA, conversation, talk table and hak editors and the module-wide tools](ui-editors.md) (D) | 30 | 28 | 2 | 0 | 0 | 0 |
 | [Plugins in the window, the NUI Creator's editor side and the script editor](ui-plugins-nui-scripts.md) (X) | 25 | 25 | 0 | 0 | 0 | 0 |
-| [The NUI Creator's drawing side, the Script Wizard's window, the manual and the icons](ui-nui-drawing.md) (N) | 18 | 14 | 3 | 1 | 0 | 0 |
-| [The finders and the timing runs](mechanical.md) (Z) | 6 | 1 | 0 | 0 | 0 | 5 |
-| **All** | **349** | **324** | **11** | **5** | **1** | **8** |
+| [The NUI Creator's drawing side, the Script Wizard's window, the manual and the icons](ui-nui-drawing.md) (N) | 18 | 15 | 2 | 1 | 0 | 0 |
+| [The finders and the timing runs](mechanical.md) (Z) | 6 | 5 | 0 | 0 | 0 | 1 |
+| **All** | **349** | **332** | **9** | **5** | **1** | **2** |
 
 Found fixed by another finding's commit: E6 by D2 (`e0a9f0f7`, Advanced
 Search and Retag act only in the module as they found it), A4 by V1
@@ -76,29 +82,46 @@ fixer, its recovery half by the shell's).
 | --- | --- | --- |
 | R4 | Light Shadows ticked with Creature Shadows unticked draws no light shadows | the owner's decision: should Light Shadows cast with Creature Shadows off, or be grayed out while it is off |
 | R5 | (d): the shadow volume buffers kept in each `GpuMesh` for the model's life; (a) to (c) fixed | waits on the reviewer's measurement: freeing them is a restructure of the casters' path that Z2's measurement would have to cover |
-| R18 | chunk particles still read `particlerot` as turns (the module doc says so) | waits on a client run: a chunk emitter beside `reading_particle_spin_and_order`'s quads |
-| R29 | the tangents of a mesh whose UVs are one point; the rest fixed | waits on a client run: `reading_tangents` with such a card |
 | G4 | the "only when the header is open" half: while the search has text, the Properties page matches every subtype row each frame | not done by its fixer; filed with the views for the reviewer's timing run |
-| G8 | a class new to a creature gets no spells of a level of bonus slots alone | waits on an Aurora capture (Paladin 4 at Wisdom 14; with it a sorcerer's and a bard's first level) |
 | V5 | whether the CSV export should begin with a byte order mark (Import Lines reads one now) | the owner's decision |
 | V14 | a hak rebuilt with the same time, size and layout, only its data changed, is taken for the old one | the owner's decision: hashing a hak's data means reading it each run |
 | P4 | (c): no bound on how far past its end an import may grow a table | the owner's decision: refuse or ask past some number of empty lines |
 | D19 | the module's Save and the NUI picture hak still write a hak at once; Add Haks has no byte progress or Cancel mid-copy | a real unintended consequence: what follows those saves in the same step reads the files written |
 | D26 | the half that remembers the editor's own edits as `renumbered: None` | not done: its fixer judged it would save little after the fix; not filed |
-| N9 | what a click on a scroll bar's end button scrolls by still differs by kind | waits on a client run |
 | N13 | `check`'s own copy a frame, Interact's two whole comparisons of its session, a variant's context document cached | waits on the reviewer's timing run (suspected, not measured) |
 | N16 | Options' and Tabs' entries, named only in the entry's confidence line | bounded by the file's size; filed with N13 |
 | Z2 | a dense scene's draws encoded a fifth to a third slower than on 27 October | waits on the reviewer's profile of the encoding at both builds |
-| Z3 | a folder's linked files are not in the load order | not assigned to a fixer in this pass; an engine test here would settle whether the game reads them |
-| Z4 | `mg gff` writes JSON as serde lays it out, not as `to_json_text` does | the owner's decision (the page's own word); not taken up |
-| Z5 | the code written more than once that the clone finder found | not assigned to a fixer in this pass |
-| Z6 | what clippy's stricter lints leave | not assigned to a fixer in this pass |
 
-Each of these but D26, Z3, Z5 and Z6 is on [the deferred
-list](../deferred.md) with its reason (G4's and N16's in the entries of
-the timing run and of N13; Z2's in the entry of a dense area seen
-whole). D26's half was judged not worth doing; Z3, Z5 and Z6 were given
-to no fixer and wait on the reviewer's word.
+Each of these but D26 is on [the deferred list](../deferred.md) with
+its reason (G4's and N16's in the entries of the timing run and of N13;
+Z2's in the entry of a dense area seen whole). D26's half was judged
+not worth doing.
+
+## Fixed on 10 November
+
+Eight findings counted as left or in part on 9 November were fixed the
+next day.[^later] The game client (on the off-screen display) and
+Aurora settled four of them, each with a new reading or capture:
+
+| Id | Fixed by | How it was settled |
+| --- | --- | --- |
+| R18 | `1aec9e42` | the client: a chunk turns `particlerot` radians a second about its emitter's z, born facing as the emitter does (`reading_chunk_spin`); Moonglow turned chunks 6.28 times faster about a random axis |
+| R29 | `ece0fe7a` | the client: a face flat in its texture coordinates takes the compiler's tangent, the normals' mean turned (`reading_tangents_flat_in_uv`); the renderer now calls `mg_mdl::compile::triangle_tangent`, one rule instead of two |
+| N9 | `2f4d8c4b` | the client: an end button scrolls every frame it is held, by 1% of the bar, not by a step a click (`reading_scrollbar_end_buttons`) |
+| G8 | `c9830f12` | Aurora: its Levelup Wizard, captured adding Paladin 4 at Wisdom 14, Sorcerer 1 and Bard 1 (`levelup/spells-after.mod`), gives the paladin its first-level spell; the sorcerer's and bard's were already Aurora's |
+
+The finders' four, given to the last pass's fixer:
+
+| Id | Fixed by | What is left |
+| --- | --- | --- |
+| Z3 | `69262a8b` | nothing: the engine test `engine_linked_files` shows the game reads linked files in `development/` and `override/`, and Moonglow's load order now has them |
+| Z4 | `fdd28e9d` | nothing: by the owner's decision of 10 November ("mg gff should write in neverwinter.nim's notation"), its file and plain print go through `to_json_text`, checked against `nwn_gff`; `--json` keeps the value |
+| Z5 | fifteen commits, `b3e77f32` to `2e52cbf3` | three pairs found not to be true copies: `outside_found` (its times kept in different places), `hold_save` (each reads its own state and asks its own question), `light_colors` (different columns and types); the blueprint pages' ResRef row was already gone |
+| Z6 | `9d3fba98` | collects that are needed (in `bulk.rs`, `lib.rs`'s fixes, `follow.rs`'s pages and `situated.rs`) and dx12's `load` off Windows; `assets.rs:131` was already clean |
+
+What Z5 and Z6 leave does not hold as a finding, so they count as fixed
+whole and nothing of them is on the deferred list. Choices the client
+reading and the capture made are in the next table (N9, G8).
 
 ## Fixed, with a choice or a check left
 
@@ -111,7 +134,9 @@ to no fixer and wait on the reviewer's word.
 | R (the renderer's page) | the model viewer's ground shadow is always a shadow map | the owner's decision |
 | B19 | a preview shown twice in a frame says "The preview is shown elsewhere in the window." in the second place | the owner's decision (its wording and behavior) |
 | A12 | a drag is dropped, not committed, when a key changes the mode | the owner's decision |
-| A14 | in Paint, Select Tiles and with a tile brush, Alt + drag always moves the view | the owner's decision |
+| A14 | in Paint, Select Tiles and with a tile brush, Alt + drag always moves the view, whatever is selected | the owner's decision |
+| N9 | the preview's end buttons scroll at the client's rate for 60 frames a second; the text control at a group's rate; the list by pixels, not whole rows | the owner's decision (the client's rate follows its frame rate; why some presses on its text control moved nothing is not settled) |
+| G8 | the capture's FeatList is compared sorted by name, as Aurora's Properties window writes it, for that capture alone | the owner's decision; whether Moonglow's Properties window should sort them is not checked |
 | F19, F23 | `hdiutil` and `ditto` by full path; the copied-out app's seal checked before the swap | not on this machine: macOS |
 | F20, P21, R8, D16, C27 | the game looked for before drive letters (not timed); a hak named `D:evil.hak` not written; a real driver reset; `cmd /S /C`; the recovery lock's Windows branch | not on this machine: Windows (compiled; D16's test runs on CI) |
 | R25, S16 | `SystemVersion.plist`; Option with a key that types kept for a text field | not on this machine: macOS (from reading) |
@@ -129,10 +154,52 @@ finding: whether Verify should report every mistake of a table's
 description or the first, and what `mg-set` should do with a junk
 `Count`; both are on the deferred list.
 
+## The last pass: what the fixers saw on the way
+
+After the fourteen branches, a last pass took up 24 things the fixers
+had seen in passing, outside any finding: items 1 to 8 by one fixer
+(merged on 9 November), 9 to 24 by another (merged on 10 November,
+with Z3 to Z6 above).[^later]
+
+| Item | What | Outcome |
+| --- | --- | --- |
+| 1 | the creature page's sound-set sample name | fixed `1628dfe0`: named by its field up to the first NUL |
+| 2 | an update downloaded into the system's temporary folder | fixed `4e6b9729`: never; with no cache folder only the release page is offered |
+| 3 | a name with a letter outside ASCII spelled in a script (Find References, the rename's count and warning, a delete's message) | fixed `4934c416`: looked for by the name's bytes (`mentions_of`) |
+| 4 | a module's kept pipelines after the resources change | fixed `a104c93b`: those made since a mark that holds |
+| 5 | Remove Unused Data not stopping at Cancel | fixed `84804e30`: it stops and says what it had removed |
+| 6 | the renderer's textures after an Import | fixed `44621f99`: forgotten where the module's DDS, TGA, PLT, MTR or TXI changed; the rest of B15's entry stays on the deferred list (a hak's model from its own load order) |
+| 7 | `mg rename` of a NUI window whose opener does not compile | fixed `6a7e7afc`: the command fails, the rename saved |
+| 8 | unit tests' scratch folders in the system's temporary folder | fixed `344e9f17` (about 45 places), and `f3b8e27a` for the scratch name it made twice |
+| 9 | Move Name to Talk Table and a table's New Line adding a line at the click | fixed `bbadd43d`: lines kept pending and added at OK or the module's Save |
+| 10 | the hak editor's game-folder check by the path as written | fixed `bdb1b4b9`: through a link too |
+| 11 | an installed plugin's grants held by id and version, not its code | decided by the owner on 10 November 2026: yes (held to its code's digest, the old grants carried over once); fixed in the commit that follows this page |
+| 12 | a draw layer's open header kept by index | fixed `8c8d2627`: it follows the layer through Up, Down and Remove |
+| 13 | String Edit of a conversation's line behind another tab | fixed `599d12be` (not in `follow.rs`: the dialog view's renumbering run each frame) |
+| 14 | `--state` asking for a row past those laid out | fixed `1665c94b`: the list's real row count is said |
+| 15 | a combo popup's wheel and bar; five scroll maps cleared by hand | fixed `50c63cc4` |
+| 16 | the parameter sets' Save Set replacing a set silently | fixed `fd569757` |
+| 17 | four things made every frame or every job (the wizard's categories, row notes, the tree's row order, a hak-only job's module) | fixed `b7b6bb6c`; its views wait on the timing run (deferred list) |
+| 18 | blueprint-page state kept by document, not window | fixed `a0afbbf4` (no new test) |
+| 19 | `view.drag` and `app.area_select` not followed | `view.drag` does not hold (a spawn-point drag is already dropped; the others act on the selection); `app.area_select` and `area_focus` fixed `c9569be4` |
+| 20 | the visual transforms' engine test's step name | fixed `fd0e41ca` |
+| 21 | `Watch::restart` warm-up on the Shaders switch; `particle_depth` one slot | `Watch::restart` does not hold (`judge` resets its warm-up while the game's programs are pending); `particle_depth` fixed `d3602354`, per view |
+| 22 | a failed shader cache write leaving its temporary file | fixed `8e65e9ba` |
+| 23 | text naming the release "3.18.2" or "the release after" | does not hold: no such text of the fixers'; `Cargo.toml` says 4.0.0 |
+| 24 | backups, Print, Round-Trip copies, the external editor's script and `mg lsp`'s fallback under guessable names in the temporary folder | fixed `4f419d47`: the data folder's `conversation-backups` and a per-run folder of the user's own (`own_scratch_dir`) |
+
+Of the 24: 20 fixed whole, 2 fixed in part with the rest not holding
+(19, 21), 1 does not hold (23), and 1 decided by the owner and being
+fixed (11). Seen on the way and filed on the deferred list, beyond
+what was asked: `mg serve`'s run folders under `/tmp/moonglow-serve`,
+tests that write under the real `~/.cache/moonglow/scratch`, and the
+area view never drawing chunk emitters.
+
 S15: settled by the owner on 9 November 2026: the deferred list's account of the behavior is correct; nothing changed.
 
 [^overview]: Code review of November 2026: what was read, measured and found
 [^merges]: The fourteen fixers' branches, merged into develop on 2026-11-09
 [^reviewer]: The reviewer's own fixes, before the fixers began
 [^reports]: The fixers' reports and the reviewer's notes
-[^owner]: The owner (2026-11-09): fix the findings; the release is 4.0.0; S15 settled
+[^later]: The last pass and the client and Aurora readings, merged on 9 and 10 November
+[^owner]: The owner (2026-11-09 and 10): fix the findings; the release is 4.0.0; S15 settled; Z4 and the last pass's item 11 decided
