@@ -493,6 +493,11 @@ fn reload_resources_reads_an_area_again_on_a_thread() {
         h.run_steps(1);
     }
     h.run_steps(6);
+    // (The textures too: the renderer kept those it had by name, so one
+    // repainted in the override, or missing and now there, was drawn as
+    // before. The review's B15.)
+    let read = h.state().viewport.as_ref().unwrap().renderer.textures_read();
+    assert!(read > 0, "the area's textures are read again");
     h.state_mut().background_jobs = false;
     assert_eq!(h.state().area_views[&area].orbit, camera, "the camera stays");
     let again = view_picture(&mut h, area);

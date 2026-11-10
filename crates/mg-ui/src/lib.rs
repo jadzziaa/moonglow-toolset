@@ -3597,6 +3597,7 @@ impl Moonglow {
         self.pictures = Default::default();
         self.palettes = Default::default();
         self.model_views.clear();
+        self.forget_drawn_textures();
         self.area_names = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
@@ -3664,6 +3665,12 @@ impl Moonglow {
         } else if keys.iter().any(|k| k.restype == ResType::MDL) {
             // (The Appearance lists mark the rows whose model is missing.)
             game.forget_appearance_marks();
+        }
+        // (A texture of the module's own, or what says how one is drawn,
+        // changed outside: the views draw with it as it is now.)
+        let drawn_with = [ResType::DDS, ResType::TGA, ResType::PLT, ResType::MTR, ResType::TXI];
+        if keys.iter().any(|k| drawn_with.contains(&k.restype)) {
+            self.forget_drawn_textures();
         }
         self.load_order_changed();
     }
@@ -5272,10 +5279,24 @@ impl Moonglow {
         self.area_contents.clear();
         self.let_go_of_view_targets();
         self.model_views.clear();
+        self.forget_drawn_textures();
         for view in self.area_views.values_mut() {
             view.reload();
         }
         self.load_order_changed();
+    }
+
+    /// The renderer's textures, which it keeps by name (one found nowhere
+    /// too), forgotten: read again as the views are next drawn. For when
+    /// the resources of those names may be others: a texture repainted in
+    /// the override, one that was missing put there, another module's hak.
+    fn forget_drawn_textures(&mut self) {
+        if let Some(vp) = self.viewport.as_mut() {
+            vp.renderer.clear_textures();
+        }
+        for view in self.area_views.values_mut() {
+            view.redraw_picture();
+        }
     }
 
     /// Makes the placeables of `areas` static, as one command, where
