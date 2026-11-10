@@ -293,6 +293,59 @@ fn a_gff_s_json_has_no_notes_among_its_fields() {
     assert!(ok && info["notes"][0].as_str().unwrap().contains("module folder beside it"), "{info}");
 }
 
+/// `mg gff` writes its JSON in neverwinter.nim's notation, as `nwn_gff -p`
+/// does: floats as Nim spells them (2.5e-7 and 1.5e16 as FLOATs, single
+/// precision, are `0.0000002499999993688107` and `15000000408846336.0`, where
+/// serde wrote `2.499999993688107e-7` and `1.5000000408846336e16`), the
+/// same values (the review's Z4, the owner's call). `--json` gives the
+/// value itself.
+#[test]
+fn mg_gff_writes_json_in_neverwinter_nim_s_notation() {
+    use mg_gff::{Gff, Value as Field};
+    let dir = mg_testkit::scratch_dir("mg-gff-notation");
+    let mut g = Gff::new(*b"UTP ");
+    g.root.set("Small", Field::Float(2.5e-7));
+    g.root.set("Large", Field::Float(1.5e16));
+    g.root.set("Tag", Field::String(b"a\x01b".to_vec()));
+    let file = dir.join("thing.utp");
+    std::fs::write(&file, g.to_bytes().unwrap()).unwrap();
+    let f = file.to_str().unwrap();
+    let out = crate::mg_alone().args(["gff", f]).output().unwrap();
+    assert!(out.status.success());
+    let printed = String::from_utf8(out.stdout).unwrap();
+    let file_out = dir.join("thing.json");
+    let wrote = crate::mg_alone().args(["gff", f, "-o", file_out.to_str().unwrap()]).output();
+    assert!(wrote.unwrap().status.success());
+    let written = std::fs::read_to_string(&file_out).unwrap();
+    assert_eq!(written, printed, "the file and the print alike");
+    for spelled in ["0.0000002499999993688107", "15000000408846336.0"] {
+        assert!(written.contains(spelled), "{spelled} in {written}");
+    }
+    assert!(!written.contains("e-7") && !written.contains("e16"), "{written}");
+    // As nwn_gff writes it, where it is installed (its field order aside:
+    // compared as values, and its floats' spelling).
+    if let Some(nwn_gff) = mg_testkit::nwn_tool("nwn_gff") {
+        let theirs = std::process::Command::new(nwn_gff)
+            .args(["-i", f, "-k", "json", "-p"])
+            .output()
+            .unwrap();
+        if theirs.status.success() {
+            let theirs = String::from_utf8_lossy(&theirs.stdout).into_owned();
+            for spelled in ["0.0000002499999993688107", "15000000408846336.0"] {
+                assert!(theirs.contains(spelled), "nwn_gff: {spelled} in {theirs}");
+            }
+            let (a, b): (Value, Value) =
+                (serde_json::from_str(&theirs).unwrap(), serde_json::from_str(&written).unwrap());
+            assert_eq!(a, b);
+        }
+    } else {
+        eprintln!("nwn_gff not found: its spelling is not compared");
+    }
+    // --json: the value.
+    let (ok, value) = crate::json_out(crate::mg_alone().args(["--json", "gff", f]));
+    assert!(ok && value["Small"]["value"].as_f64() == Some(2.5e-7f32 as f64), "{value}");
+}
+
 /// `mg tlk-import --json` says `saved` when the table was written, not
 /// whenever it was not a dry run: a table's own export changes no line,
 /// and a pipeline that commits or signs what was saved has nothing to.

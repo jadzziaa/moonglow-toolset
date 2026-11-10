@@ -82,7 +82,8 @@ enum Cmd {
         #[arg(long)]
         compile_models: bool,
     },
-    /// Convert GFF to JSON (neverwinter.nim / nasher format), or JSON to GFF.
+    /// Convert GFF to JSON (neverwinter.nim / nasher format, written in
+    /// `nwn_gff`'s notation), or JSON to GFF.
     Gff {
         input: PathBuf,
         /// Output file (default: stdout for JSON).
@@ -5970,16 +5971,20 @@ fn gff(
         let file_type = String::from_utf8_lossy(&gff.file_type).into_owned();
         name_rows(root, game, factions, &file_type, &mut Vec::new());
     }
+    // (Written as neverwinter.nim's nwn_gff writes it, its notation of
+    // floats and its string escapes: serde's spelled 2.5e-7 and 1.5e16
+    // otherwise, the same values. --json gives the value itself.)
+    let text = || mg_gff::to_json_text(&value, mg_gff::TextStyle::default());
     match output {
         Some(o) => {
-            write_bytes_whole(o, (serde_json::to_string_pretty(&value)? + "\n").as_bytes())?;
+            write_bytes_whole(o, text().as_bytes())?;
             Ok(Output::new(serde_json::json!({ "written": path_text(o) })))
         }
         // The GFF as JSON is the output, with --json or without.
         None if json => Ok(Output { json: value, document: true, ..Default::default() }),
         None => {
             let mut out = Output::default();
-            out.line(serde_json::to_string_pretty(&value)?);
+            out.line(text().trim_end_matches('\n'));
             Ok(out)
         }
     }
