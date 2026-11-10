@@ -8509,6 +8509,15 @@ fn held_places(app: &Moonglow) -> Vec<crate::blueprint::follow::Place> {
     if let Some(d) = &app.light_draft {
         out.extend(d.change.iter().map(|&(k, i)| place_of(d.area, k, i)));
     }
+    // (The module tree's Go To or Adjust Location on several, waiting for
+    // the area's view to be ready: an edit meanwhile renumbers them.)
+    if let Some((area, objects)) = &app.area_select {
+        out.extend(objects.iter().map(|&(k, i)| place_of(*area, k, i)));
+    }
+    // (And the object the camera goes to, likewise.)
+    if let Some((area, kind, index)) = app.area_focus {
+        out.push(place_of(area, kind, index));
+    }
     out
 }
 
@@ -8605,11 +8614,59 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
             app.light_draft = None;
         }
     }
+    if let Some((area, objects)) = &mut app.area_select {
+        follow(*area, objects);
+    }
+    if let Some((area, kind, index)) = app.area_focus {
+        app.area_focus = object_now(moved, area, (kind, index)).map(|(k, i)| (area, k, i));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The module tree's Go To (or Adjust Location) on several objects
+    /// holds them by their places until the area's view is ready, which
+    /// its first reading, on a thread of its own, takes a while: an Undo
+    /// key or a plugin's edit meanwhile left them on the objects that took
+    /// their places. They follow them now (the last pass's item 19).
+    #[test]
+    fn objects_to_select_follow_their_objects_until_the_view_takes_them() {
+        use mg_module::{Module, ModuleLocation};
+        let dir = mg_testkit::scratch_dir("ui-area-select-follows");
+        let mut m = Module::new();
+        let area = ResRef::from_str("yard").unwrap();
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        let creature = |tag: &str| {
+            let mut s = mg_gff::Struct::new(4);
+            s.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+            s
+        };
+        let list = vec![creature("first"), creature("second"), creature("third")];
+        git.root.set("Creature List", mg_gff::Value::List(list));
+        m.set(ResKey::new(area, ResType::GIT), git.to_bytes().unwrap());
+        m.save_as(&ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir.join("m.mod"));
+        app.area_select = Some((area, vec![(ObjectKind::Creature, 1), (ObjectKind::Creature, 2)]));
+        app.area_focus = Some((area, ObjectKind::Creature, 1));
+        let remove = |index| mg_edit::Edit::RemoveItem {
+            key: ResKey::new(area, ResType::GIT),
+            path: mg_edit::GffPath::root(),
+            list: "Creature List".into(),
+            index,
+        };
+        app.apply(Command::new("Delete", vec![remove(0)])).unwrap();
+        let held = app.area_select.as_ref().map(|(_, o)| o.clone());
+        assert_eq!(held, Some(vec![(ObjectKind::Creature, 0), (ObjectKind::Creature, 1)]));
+        assert_eq!(app.area_focus, Some((area, ObjectKind::Creature, 0)));
+        // One of them gone: the other stays, and the camera goes nowhere.
+        app.apply(Command::new("Delete", vec![remove(0)])).unwrap();
+        let held = app.area_select.as_ref().map(|(_, o)| o.clone());
+        assert_eq!(held, Some(vec![(ObjectKind::Creature, 0)]));
+        assert_eq!(app.area_focus, None);
+    }
 
     /// The review's A29: which tile a ground point is in is one rule
     /// (the tile tools', the ground's level, the corner's readout): the
