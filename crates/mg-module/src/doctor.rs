@@ -968,7 +968,10 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
 /// parts.
 ///
 /// The checks of each custom tileset, 2DA, material and model run in
-/// parallel; the findings are in the order one after another would make.
+/// parallel, and so do those of the module's areas, objects and
+/// blueprints, each of which is read once for all of them
+/// ([`resources_once`]); the findings are in the order one after another
+/// would make.
 /// With a `cache` (the user's: `mg verify`'s and the window's,
 /// [`Cache::user`]) the shader programs that compiled are kept, and not
 /// compiled again by the next run, and so is what was found of each model
