@@ -134,7 +134,7 @@ fn published_as_nwn_nwsync_write_publishes() {
                 .unwrap();
             assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
             // neverwinter.nim unpacks Moonglow's data files (zstd frames of
-            // ruzstd's making).
+            // the reference library's making).
             let unpack = oracle_tool!("nwn_compressedbuf");
             for (name, bytes) in data(&ours).iter().step_by(97).take(25) {
                 let file = ours.join("data/sha1").join(&name[..2]).join(&name[2..4]).join(name);
