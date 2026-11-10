@@ -6,7 +6,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use mg_edit::Workspace;
-use mg_module::Module;
 use mg_nui::import::{Found, command, gather, incoming};
 use mg_resman::ResKey;
 use serde_json::json;
@@ -25,7 +24,7 @@ pub(crate) fn import(
     for source in sources {
         gather(source, &mut found).with_context(|| path_text(source))?;
     }
-    let mut ws = Workspace::new(Module::open(module)?);
+    let mut ws = Workspace::new(crate::open_module(module)?);
     let windows = incoming(&ws.module, &found)
         .with_context(|| sources.iter().map(|s| path_text(s)).collect::<Vec<_>>().join(", "))?;
     let mut out = Output::default();

@@ -574,6 +574,24 @@ fn schema_prints_the_settings_form_and_the_controls() {
     assert_eq!(layout["window"]["version"], 1);
 }
 
+/// `mg nui import` on a `.mod` with its module folder beside it says, as
+/// every other command does, that it is the `.mod` it reads and changes
+/// (it opened the module its own way, and said nothing).
+#[test]
+fn import_says_a_module_folder_beside_the_mod() {
+    let jui = crier_files("mg-nui-import-beside-files");
+    let path = module("mg-nui-import-beside");
+    let folder = path.with_file_name("Keep");
+    Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let (p, j) = (path.to_str().unwrap(), jui.to_str().unwrap());
+    let out = output(None, &["nui", "import", p, j]);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{said}");
+    assert!(said.contains("has its module folder beside it"), "{said}");
+    assert!(Module::open(&path).unwrap().contains(&key("crier.jui")));
+    assert!(!Module::open(&folder).unwrap().contains(&key("crier.jui")), "the folder is left");
+}
+
 /// The town crier's window (`crates/mg-nui/tests/data`), as files in a
 /// scratch folder of its own: `crier.jui` and `crier.txt`.
 pub(crate) fn crier_files(test: &str) -> PathBuf {

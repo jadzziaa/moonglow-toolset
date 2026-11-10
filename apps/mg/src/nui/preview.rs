@@ -159,7 +159,7 @@ impl Shown {
                  or the file alone",
                 path_text(path)
             ),
-            (false, Some(name)) => (Module::open(path)?, name.to_owned()),
+            (false, Some(name)) => (crate::open_module(path)?, name.to_owned()),
             (false, None) => {
                 bail!("{}: which window? Give its name after the module", path_text(path))
             }
