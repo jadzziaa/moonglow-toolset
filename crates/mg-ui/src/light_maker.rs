@@ -284,7 +284,7 @@ fn made(app: &mut Moonglow, d: &LightDraft, plan: &Plan) {
     let Some(mut view) = app.area_views.remove(&d.area) else { return };
     if !d.change.is_empty() {
         view.selection = d.change.clone();
-        crate::area_view::set_appearance(app, &view, "Change light", plan.row);
+        crate::area_view::set_appearance(app, &view, "Change Light", plan.row);
     } else if let Some(at) = d.at {
         crate::area_view::add_light_row(app, &mut view, plan.row, &plan.spec.label(), at);
     } else {

@@ -550,7 +550,7 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
         }
     }
     if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Adjust location", edits)));
+        app.actions.push(Action::Apply(Command::new("Adjust Location", edits)));
     }
 }
 

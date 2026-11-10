@@ -196,10 +196,10 @@ fn pages(
     Some(shown.inner_rect)
 }
 
-/// The fields of a page shared by several areas: in the area (`false`),
 /// The Visual page's fields ([`mg_module::lighting::VISUAL_FIELDS`]).
 pub(crate) use mg_module::lighting::VISUAL_FIELDS;
 
+/// The fields of a page shared by several areas: in the area (`false`),
 /// or in its GIT's `AreaProperties` (`true`).
 fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
     match page {
@@ -483,8 +483,6 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     });
 }
 
-/// Applies an environment.2da scheme: the area's lighting and weather, and
-/// each tile's lights picked anew from the scheme's colours (one command).
 /// Under the schemes: another area's lighting given to this one (and to
 /// those edited with it), and lighting kept under a name, saved from here
 /// or given from it (dansen9191's ask: the colors of one area in another,
@@ -750,7 +748,7 @@ fn make_scheme(app: &mut Moonglow, name: &str, home: crate::browser::EditTable) 
     let key = ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
     let Some(id) = crate::browser::open_table(app, key, home) else { return };
     let cells = saved.environment_row(&mg_module::lighting::row_label(name));
-    let label = format!("Lighting scheme {name}");
+    let label = format!("Lighting Scheme {name}");
     if let Some(row) = crate::table_view::add_row_of(app, id, &label, &cells) {
         app.log.info(format!(
             "Lighting '{name}' is row {row} of environment.2da: save the table where it is (a \
@@ -760,6 +758,8 @@ fn make_scheme(app: &mut Moonglow, name: &str, home: crate::browser::EditTable) 
     }
 }
 
+/// Applies an environment.2da scheme: the area's lighting and weather, and
+/// each tile's lights picked anew from the scheme's colours (one command).
 fn apply_scheme(f: &mut Form<'_>, row: usize) {
     let Some(game) = f.app.game.as_deref() else { return };
     let scheme = match mg_module::new::Scheme::read(game, row) {
@@ -787,7 +787,7 @@ fn apply_scheme(f: &mut Form<'_>, row: usize) {
         }));
         edits.extend(tile_light_edits(&scheme.tile_colors(), key, tiles, &mut rng));
     }
-    f.app.actions.push(Action::Apply(Command::new("Lighting scheme", edits)));
+    f.app.actions.push(Action::Apply(Command::new("Lighting Scheme", edits)));
 }
 
 /// The edits that give the `tiles` tiles of area `key` (its ARE) the
@@ -1088,7 +1088,7 @@ fn move_variables(f: &mut Form<'_>, moved: &[(ResRef, Vec<mg_gff::Struct>, bool)
             edits.len() / 2
         )
     });
-    f.app.actions.push(Action::Apply(Command::new("Move area variables", edits)));
+    f.app.actions.push(Action::Apply(Command::new("Move Area Variables", edits)));
     true
 }
 

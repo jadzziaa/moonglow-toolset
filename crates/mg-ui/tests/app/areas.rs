@@ -463,7 +463,7 @@ fn area_properties_edit_the_area() {
     let a = are(&mut h);
     assert_eq!(a.integer("LightingScheme"), Some(game_row as i64));
     assert_eq!(a.integer("SunAmbientColor"), Some(0x32_3A_3C), "ExteriorDark's 60, 58, 50");
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting scheme"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting Scheme"));
     // Always dark.
     h.get_by_label("Always Dark").click();
     h.run_steps(2);

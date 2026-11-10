@@ -3,19 +3,23 @@
 //! delete, and blueprints from the palette to place, each change one
 //! undoable command on the area's GIT.
 //!
-//! Aurora's bindings: a click selects, a drag on the ground selects what is
-//! in the box, a drag moves the selection over the ground, Shift + right
-//! drag turns it and Alt + drag raises or lowers it; Ctrl + drag moves the
-//! camera, a right (or Ctrl + right) or middle drag turns it, the wheel zooms (Shift or
-//! Ctrl: slowly), numpad 4, 6, 8, 2 (or W, A, S, D) move it, 7, 9, 1, 3 turn it and 5
-//! looks straight down. With a blueprint chosen in the palette, a click
-//! places it (Shift + click keeps it chosen; right click or Escape lets it
-//! go); triggers and encounters are drawn point by point, a double click
-//! closing the outline. Also: a middle drag turns the camera (Shift:
-//! moves it), the arrow keys move it, Z and C (or Ctrl + Shift + the wheel
-//! or a middle drag) move it up and down, Alt + middle click (Blender's)
-//! puts its focus on the ground clicked, Ctrl + click adds to the
-//! selection and Delete deletes it.
+//! The bindings (`input` for what the pointer does to the area,
+//! `camera_input` for the camera), Aurora's where it has them: a click
+//! selects, a drag on the ground selects what is in the box, a drag
+//! moves the selection over the ground, Alt + right drag turns it and
+//! Alt + drag raises or lowers it (with nothing selected, and in every
+//! other mode, Alt + drag moves the camera); Ctrl + drag moves the
+//! camera, a right or a middle drag turns it and Alt + middle drag moves
+//! it (the two middle drags swapped by Options › Area), the wheel zooms
+//! (Shift or Ctrl: slowly), numpad 4, 6, 8, 2 (or W, A, S, D) and the
+//! arrow keys move it, 7, 9, 1, 3 turn it and 5 looks straight down, Z
+//! and C (or Ctrl + Shift + the wheel or a middle drag) move it up and
+//! down, and Alt + middle click (Blender's) puts its focus on the ground
+//! clicked. With a blueprint chosen in the palette, a click places it
+//! (Shift + click keeps it chosen; right click or Escape lets it go);
+//! triggers and encounters are drawn point by point, a double click
+//! closing the outline. Ctrl + click adds to the selection and Delete
+//! deletes it.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -1234,7 +1238,8 @@ impl AreaView {
     }
 
     /// The selection as a set: the overlays look up every object in it
-    /// each frame (thousands selected, by Ctrl+A).
+    /// each frame (thousands selected, by a box over the area or the
+    /// module tree's Go To).
     fn selected_set(&self) -> std::collections::HashSet<(ObjectKind, usize)> {
         self.selection.iter().copied().collect()
     }
@@ -1412,11 +1417,6 @@ impl AreaView {
         g.height(p.truncate(), near).unwrap_or(near)
     }
 
-    /// A shape's corners laid on the ground ([`ground_height`](Self::ground_height),
-    /// a little above it): each corner's height taken a little inside the
-    /// shape, so that at a cliff's edge it takes this side's. Some
-    /// tilesets build their ground above the tiles' heights, and slopes and
-    /// cliffs are not at a corner's.
     /// A tile-sized square ([`tile_square`]) as it lies on the ground the
     /// pointer picks, on screen; `None` where a corner is out of view.
     pub(crate) fn square_on_screen(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
@@ -1478,6 +1478,11 @@ impl AreaView {
         out
     }
 
+    /// A shape's corners laid on the ground ([`ground_height`](Self::ground_height),
+    /// a little above it): each corner's height taken a little inside the
+    /// shape, so that at a cliff's edge it takes this side's. Some
+    /// tilesets build their ground above the tiles' heights, and slopes and
+    /// cliffs are not at a corner's.
     pub(crate) fn on_ground(&self, points: &[Vec3]) -> Vec<Vec3> {
         let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
         points
@@ -4330,9 +4335,6 @@ impl Fits {
     }
 }
 
-/// The toolbar's one button for the walkmeshes: a click shows or hides
-/// the ground's (or hides whichever are shown); held, or right-clicked,
-/// it opens the two to choose from, the ground's and the objects'.
 /// The area toolbar's buttons to show, ticked (its right-click menu, one
 /// to a line, and Options › Area › Toolbar, `wrapped` in rows): `hidden`,
 /// those left out, by name.
@@ -4383,6 +4385,9 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
     }
 }
 
+/// The toolbar's one button for the walkmeshes: a click shows or hides
+/// the ground's (or hides whichever are shown); held, or right-clicked,
+/// it opens the two to choose from, the ground's and the objects'.
 fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
     let on = view.walkmesh || view.object_walkmesh;
     let label = tools.label(crate::icons::WALKMESH, "Walkmesh…");
@@ -7516,7 +7521,7 @@ fn editing_items(
                     set_on_selection(
                         app,
                         view,
-                        "Initial state",
+                        "Initial State",
                         "AnimationState",
                         Value::Byte(state),
                     );
@@ -7539,7 +7544,7 @@ fn editing_items(
                     set_on_selection(
                         app,
                         view,
-                        "Initial state",
+                        "Initial State",
                         "AnimationState",
                         Value::Byte(state),
                     );
@@ -7554,7 +7559,7 @@ fn editing_items(
             ui.close();
         }
         if ui.button("Turn On").clicked() {
-            set_on_selection(app, view, "Turn on", "Active", Value::Byte(1));
+            set_on_selection(app, view, "Turn On", "Active", Value::Byte(1));
             ui.close();
         }
     }
@@ -7648,7 +7653,7 @@ fn editing_items(
                 for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         let row = Value::Dword(light.row as u32);
-                        set_on_selection(app, view, "Light color", "Appearance", row);
+                        set_on_selection(app, view, "Light Color", "Appearance", row);
                         ui.close();
                     }
                 }
@@ -7840,7 +7845,7 @@ fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing:
     let mut edits = vec![start_field("Mod_Entry_Area", Value::resref(view.area))];
     edits.extend(start_at(at));
     edits.extend(start_facing(facing));
-    app.actions.push(Action::Apply(Command::new("Set start location", edits)));
+    app.actions.push(Action::Apply(Command::new("Set Start Location", edits)));
     if !view.show_start {
         view.show_start = true;
         share_shown(app, view);
@@ -8064,7 +8069,7 @@ fn reverse_doors(app: &mut Moonglow, view: &AreaView) {
             Some((at, o.position, turned))
         })
         .collect();
-    commit_moves(app, view, &moved, "Reverse door");
+    commit_moves(app, view, &moved, "Reverse Door");
 }
 
 /// Adds a spawn point to encounter `index` at `at` (Aurora's Add Spawn
@@ -8083,7 +8088,7 @@ fn add_spawn_point(app: &mut Moonglow, view: &AreaView, index: usize, at: Vec3) 
         point.set(label, Value::Float(v));
     }
     let edit = mg_edit::Edit::insert_item(view.git(), path, "SpawnPointList", count, point);
-    app.actions.push(Action::Apply(Command::new("Add spawn point", vec![edit])));
+    app.actions.push(Action::Apply(Command::new("Add Spawn Point", vec![edit])));
 }
 
 /// Replaces a trigger's or encounter's outline with `outline` (relative to
@@ -8119,7 +8124,7 @@ fn redraw_outline(
         label: "Geometry".into(),
         value: Some(Value::List(points)),
     };
-    app.actions.push(Action::Apply(Command::new("Redraw polygon", vec![edit])));
+    app.actions.push(Action::Apply(Command::new("Redraw Polygon", vec![edit])));
 }
 
 /// The waypoints' tags of the module's areas, kept area by area: an area
@@ -8199,7 +8204,7 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
     let placed =
         mg_plugin::Selected::Object { area: git.resref, kind: ObjectKind::Waypoint, index };
     let made = crate::plugin_events::Made::objects("create-waypoint", vec![placed], false);
-    app.actions.push(Action::ApplyMade(Command::new("Create waypoint", vec![edit]), made));
+    app.actions.push(Action::ApplyMade(Command::new("Create Waypoint", vec![edit]), made));
     view.selection = vec![(ObjectKind::Waypoint, index)];
 }
 
@@ -8209,7 +8214,7 @@ fn create_set(app: &mut Moonglow, view: &AreaView, name: &str) {
     let tags = waypoint_tags(app);
     let edits = set_edits(view.git(), &view.selection, name, tags);
     if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Create set", edits)));
+        app.actions.push(Action::Apply(Command::new("Create Set", edits)));
     }
 }
 
@@ -8349,7 +8354,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let keys = added.blueprints.iter().map(|(k, _)| *k).collect();
     let made = crate::plugin_events::Made::resources("add-to-palette", keys);
     // (With what the plugins do on what is made, in the same command.)
-    let cmd = crate::plugin_events::with_plugins(app, Command::new("Add to palette", edits), &made);
+    let cmd = crate::plugin_events::with_plugins(app, Command::new("Add to Palette", edits), &made);
     // Its window opens on it, whose Cancel takes it back, as Aurora's Add
     // to Palette makes it only at OK.
     crate::blueprint::note_made(app, first, &[(git, at)], &cmd);

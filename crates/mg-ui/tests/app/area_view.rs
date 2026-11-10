@@ -1076,7 +1076,7 @@ fn adjust_location_and_find_instance() {
     assert_eq!(after.float("YPosition"), before.float("YPosition"));
     assert!((after.float("XOrientation").unwrap() + 1.0).abs() < 1e-5, "facing west");
     assert!(h.state().adjust.is_none());
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust Location"));
 
     // Find Instance: waypoints by tag, then go to one.
     let tag = String::from_utf8_lossy(waypoint(&mut h, 1).string("Tag").unwrap()).into_owned();
@@ -3446,7 +3446,7 @@ fn adjust_location_shows_speed_lerps_and_other_scopes() {
     let e = entry(&mut h);
     assert_eq!(e.child("AnimationSpeed").and_then(|x| x.float("ValueTo")), Some(0.5));
     assert_eq!(e.child("RotateX"), Some(&lerp), "the lerp kept");
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust Location"));
 }
 
 /// Placed objects edited together have their pages of lists, as several
@@ -3836,7 +3836,7 @@ fn the_start_location_is_set_from_the_area_s_menu() {
     let (in_area, x, y) = entry(&mut h);
     assert_eq!(in_area, area);
     assert!((x - 12.0).abs() < 0.1 && (y - 31.0).abs() < 0.1, "at {x}, {y}");
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set start location"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set Start Location"));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     let (_, x, y) = entry(&mut h);
@@ -3975,7 +3975,7 @@ fn the_palette_s_start_location_is_placed_with_a_click() {
     let (in_area, x, y) = entry(&mut h);
     assert_eq!(in_area, area);
     assert!((x - 14.0).abs() < 0.1 && (y - 26.0).abs() < 0.1, "at {x}, {y}");
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set start location"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set Start Location"));
     assert!(!h.state().palette.placing_start, "let go once placed");
     assert!(h.state().area_views[&area].start_selected, "and selected");
 }
@@ -5127,7 +5127,7 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     let ws = h.state_mut().ws.as_mut().unwrap();
     let placed = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
     assert_eq!(placed[0].integer("Appearance"), Some(row as i64 + 1), "the next row");
-    assert_eq!(ws.can_undo(), Some("Change light"));
+    assert_eq!(ws.can_undo(), Some("Change Light"));
 }
 
 /// With Shift held, a selected placeable has a handle that scales its
@@ -6616,7 +6616,7 @@ fn adjust_location_moves_the_object_as_its_numbers_change() {
     h.run_steps(3);
     h.get_by_label("Apply").click();
     h.run_steps(4);
-    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust Location"));
     let model = h.state().area_views[&area].model.as_ref().unwrap();
     let x = model.object(ObjectKind::Placeable, 0).unwrap().position.x;
     assert!((x - 8.0).abs() < 1e-3, "{x}");

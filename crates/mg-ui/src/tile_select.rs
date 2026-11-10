@@ -1013,7 +1013,6 @@ fn tile_model(app: &Moonglow, props: &TileProps) -> Option<(String, Option<Strin
     Some((tile.model.clone(), tools.set.general.env_map.clone()))
 }
 
-/// Tile Properties, in its tab, and its colour picker.
 /// Whether Tile Properties' tiles may have left their places in the list
 /// since it opened (Rotate Area, Resize Area, their undo, the list set
 /// whole, the file read again): if so it closes, writing nothing, for its
@@ -1030,6 +1029,7 @@ fn tiles_moved(app: &mut Moonglow, props: &TileProps) -> bool {
     moved
 }
 
+/// Tile Properties, in its tab, and its colour picker.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
     let Some(props) = app.tile_props.take() else { return };
