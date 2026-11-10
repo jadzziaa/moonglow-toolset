@@ -7,9 +7,14 @@
 //! as text (1.9 GB) and 32,000 tile models (3.8 GB): reading and linting
 //! them was most of a Verify's work.
 //!
-//! An archive is the same while its time and size are
-//! ([`mg_resman::Layer::fingerprint`]); its file names it with them and
-//! the release, so a changed hak or another Moonglow reads it again.
+//! An archive is the same while its time and size
+//! ([`mg_resman::Layer::fingerprint`]) and what it lists (each entry's
+//! name, place and size: [`mg_resman::Container::listing`]) are; its
+//! file names it with them, with the folder it is in and with the
+//! release, so a changed hak or another Moonglow reads it again, and a
+//! hak of the same name in another checkout has a file of its own. (A
+//! hak written again with the same time, size and layout, only its data
+//! other, is not told apart: that would take reading it.)
 //! Folders (`override`, `development`, the module's) are always read.
 //! What each run learns is handed back from the workers and saved once
 //! at the end, a file an archive, written whole and renamed into place.
@@ -66,19 +71,56 @@ pub(crate) struct Memo {
     layers: Vec<Option<(PathBuf, HashMap<ResKey, Facts>)>>,
 }
 
-/// The file an archive's facts are kept in: its label and fingerprint.
-fn file_name(label: &str, fingerprint: u64) -> String {
-    let name: String = (label.chars())
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .collect();
-    format!("{name}-{fingerprint:016x}.json")
+/// What tells an archive from another of its label, and from itself
+/// written again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Print {
+    /// The folder it is in (a number of its path; 0: none known).
+    folder: u32,
+    /// Its time and size, and what it lists.
+    version: u64,
 }
 
-/// The words a file's name begins with, for an archive of this label.
-fn file_stem(label: &str) -> String {
-    let name = file_name(label, 0);
-    name[..name.len() - "0000000000000000.json".len()].to_string()
+impl Print {
+    fn of(layer: &mg_resman::Layer) -> Print {
+        use std::hash::{Hash, Hasher};
+        let hashed = |of: &dyn Fn(&mut std::collections::hash_map::DefaultHasher)| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            of(&mut h);
+            h.finish()
+        };
+        let folder = layer.container.watched().and_then(Path::parent).map_or(0, |dir| {
+            // (As it is on the disk, where that can be told: one folder
+            // reached by two paths is one.)
+            let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+            hashed(&|h| dir.hash(h)) as u32
+        });
+        let listing = layer.container.listing();
+        Print { folder, version: hashed(&|h| (layer.fingerprint, listing).hash(h)) }
+    }
 }
+
+/// The file an archive's facts are kept in: its label, its folder and its
+/// version.
+fn file_name(label: &str, print: Print) -> String {
+    format!("{}{:016x}.json", file_stem(label, print.folder), print.version)
+}
+
+/// A label as a file's name has it.
+fn label_name(label: &str) -> String {
+    (label.chars())
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect()
+}
+
+/// The words a file's name begins with, for an archive of this label in
+/// this folder: its other versions' files begin so too.
+fn file_stem(label: &str, folder: u32) -> String {
+    format!("{}-{folder:08x}-", label_name(label))
+}
+
+/// What follows the stem in a file's name: the version and `.json`.
+const VERSION_LEN: usize = "0000000000000000.json".len();
 
 fn severity_word(s: Severity) -> &'static str {
     match s {
@@ -180,7 +222,7 @@ impl Memo {
         let kept: Vec<Option<PathBuf>> = (layers.iter().enumerate())
             .map(|(i, l)| {
                 (custom(i) && l.class == LayerClass::Erf && l.fingerprint != 0)
-                    .then(|| dir.join(file_name(&l.label, l.fingerprint)))
+                    .then(|| dir.join(file_name(&l.label, Print::of(l))))
             })
             .collect();
         let layers =
@@ -213,7 +255,13 @@ impl Memo {
         if changed.is_empty() || std::fs::create_dir_all(&self.dir).is_err() {
             return;
         }
-        let labels: Vec<&str> = resman.layers().iter().map(|l| l.label.as_str()).collect();
+        // (Each archive's files' stem: its label's and its folder's, and the
+        // one its files had before the folder was in their names.)
+        let stems: Vec<[String; 2]> = (resman.layers().iter())
+            .map(|l| {
+                [file_stem(&l.label, Print::of(l).folder), format!("{}-", label_name(&l.label))]
+            })
+            .collect();
         // (The folder's files listed once, for the earlier versions'.)
         let there: Vec<String> = (std::fs::read_dir(&self.dir).into_iter().flatten().flatten())
             .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -235,14 +283,15 @@ impl Memo {
                 let _ = std::fs::remove_file(&tmp);
                 return;
             }
-            // (The archive's earlier versions' facts are of no use now.)
-            let stem = labels.get(layer).map(|l| file_stem(l)).unwrap_or_default();
+            // (The archive's earlier versions' facts are of no use now: its
+            // own, not those of an archive of its name in another folder.)
+            let Some(stems) = stems.get(layer) else { return };
             let ours = path.file_name().map(|n| n.to_string_lossy().into_owned());
             for name in &there {
-                if name.starts_with(&stem)
-                    && name.len() == stem.len() + "0000000000000000.json".len()
-                    && Some(name) != ours.as_ref()
-                {
+                let earlier = |stem: &String| {
+                    name.starts_with(stem.as_str()) && name.len() == stem.len() + VERSION_LEN
+                };
+                if stems.iter().any(earlier) && Some(name) != ours.as_ref() {
                     let _ = std::fs::remove_file(self.dir.join(name));
                 }
             }
@@ -281,8 +330,96 @@ mod tests {
     }
 
     #[test]
-    fn an_archive_s_file_is_named_by_its_label_and_fingerprint() {
-        assert_eq!(file_name("hak:tdod_tiles01", 0xab), "hak_tdod_tiles01-00000000000000ab.json");
-        assert_eq!(file_stem("hak:tdod_tiles01"), "hak_tdod_tiles01-");
+    fn an_archive_s_file_is_named_by_its_label_folder_and_version() {
+        let print = Print { folder: 0xc0de, version: 0xab };
+        assert_eq!(
+            file_name("hak:tdod_tiles01", print),
+            "hak_tdod_tiles01-0000c0de-00000000000000ab.json"
+        );
+        assert_eq!(file_stem("hak:tdod_tiles01", 0xc0de), "hak_tdod_tiles01-0000c0de-");
+    }
+
+    /// A hak of `models` (each a name and its text) at `path`, its time
+    /// set to a fixed one, as a reproducible build stamps it.
+    fn hak(path: &Path, models: &[(&str, &str)]) {
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        for (name, text) in models {
+            let name = mg_core::ResRef::from_str(name).unwrap();
+            w.add(name, mg_core::ResType::MDL, text.as_bytes().to_vec()).unwrap();
+        }
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, w.to_bytes().unwrap()).unwrap();
+        let stamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(stamp).unwrap();
+    }
+
+    fn game(path: &Path) -> ResMan {
+        let mut rm = ResMan::new();
+        let c = mg_resman::ErfContainer::open(path).unwrap();
+        rm.add(mg_resman::priority::HAK_USER, "hak:kz", LayerClass::Erf, c);
+        rm
+    }
+
+    /// Two archives of one name, time and size whose entries differ (one
+    /// built again with a fixed time) are two versions, each with its own
+    /// file; and two of one name in two folders (two checkouts of a
+    /// project) each keep theirs, where each Verify took the other's away
+    /// as "the archive's earlier version" (the review's V14).
+    #[test]
+    fn archives_of_one_name_time_and_size_are_told_apart() {
+        let dir = mg_testkit::scratch_dir("verify-cache-names");
+        let (a, b) = (dir.join("a/kz.hak"), dir.join("b/kz.hak"));
+        hak(&a, &[("one", "12345"), ("two", "123")]);
+        hak(&b, &[("one", "1234"), ("two", "1234")]);
+        let (rm_a, rm_b) = (game(&a), game(&b));
+        let (la, lb) = (&rm_a.layers()[0], &rm_b.layers()[0]);
+        assert_eq!(la.fingerprint, lb.fingerprint, "one time and size");
+        assert_ne!(Print::of(la).version, Print::of(lb).version, "other entries");
+        assert_ne!(Print::of(la).folder, Print::of(lb).folder);
+        // The same entries in another folder: the same version, another file.
+        let c = dir.join("c/kz.hak");
+        hak(&c, &[("one", "12345"), ("two", "123")]);
+        let rm_c = game(&c);
+        let lc = &rm_c.layers()[0];
+        assert_eq!(Print::of(la).version, Print::of(lc).version);
+        assert_ne!(file_name(&la.label, Print::of(la)), file_name(&lc.label, Print::of(lc)));
+
+        // Each checkout's Verify keeps its own file, and takes away its
+        // archive's earlier version alone (and a file named as before the
+        // folder was in the name).
+        let cache = dir.join("cache");
+        let key = ResKey::parse("one", mg_core::ResType::MDL).unwrap();
+        let learn = |rm: &ResMan| {
+            let memo = Memo::load(&cache, rm, |_| true);
+            let facts = Facts { read: Some(None), ..Facts::default() };
+            memo.save(vec![(0, key, facts)], rm);
+        };
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("hak_kz-00000000000000ab.json"), "{}").unwrap();
+        learn(&rm_a);
+        learn(&rm_c);
+        let files = || {
+            let mut names: Vec<String> = (std::fs::read_dir(&cache).unwrap().flatten())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let mut both =
+            vec![file_name(&la.label, Print::of(la)), file_name(&lc.label, Print::of(lc))];
+        both.sort();
+        assert_eq!(files(), both);
+        assert!(Memo::load(&cache, &rm_a, |_| true).get(0, &key).is_some(), "a's is still there");
+        // a's hak built again, its entries other: its earlier file goes,
+        // c's stays.
+        hak(&a, &[("one", "1234"), ("two", "1234")]);
+        let rm_a2 = game(&a);
+        assert!(Memo::load(&cache, &rm_a2, |_| true).get(0, &key).is_none(), "read again");
+        learn(&rm_a2);
+        let la2 = &rm_a2.layers()[0];
+        let mut both =
+            vec![file_name(&la2.label, Print::of(la2)), file_name(&lc.label, Print::of(lc))];
+        both.sort();
+        assert_eq!(files(), both);
     }
 }
