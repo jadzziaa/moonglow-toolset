@@ -225,6 +225,95 @@ impl Missing {
     }
 }
 
+/// What Verify checks a module by: what [`run`] is given, by the window
+/// (Build › Verify Module) and by `mg verify` alike.
+pub struct Verify<'a> {
+    /// The module the custom content's checks look at.
+    pub module: &'a Module,
+    /// The module its references are looked for in, where that is another:
+    /// a copy with a project's scripts compiled
+    /// ([`crate::build::compiled_for_checks`]: its compiled scripts are
+    /// build output, and a source that compiles satisfies a reference).
+    pub compiled: Option<&'a Module>,
+    /// The game data, the module's haks and the module layered in.
+    pub resman: &'a ResMan,
+    /// How many strings the talk tables have.
+    pub tlk: crate::doctor::TalkTables,
+    /// The module's custom talk table, where it was found: the lines
+    /// typed text takes are held to it.
+    pub custom_tlk: Option<&'a mg_tlk::Tlk>,
+    /// The game's codepage: the tables' text is read in it.
+    pub codepage: mg_core::Codepage,
+    /// A palette's name as the palette shows it (a talk-table string
+    /// looked up).
+    pub palette_name: &'a dyn Fn(&crate::palette::PaletteName) -> String,
+    /// What is left out: not checked where that can be told beforehand.
+    pub skip: &'a crate::doctor::Skip,
+    /// Where the shader programs that compiled and what was found of the
+    /// haks' models are kept between runs.
+    pub cache: Option<&'a crate::doctor::Cache>,
+    /// The references of the module they are looked for in, where the
+    /// caller gathered them already (for the unused resources too:
+    /// [`module_references`]); else they are gathered here.
+    pub references: Option<Vec<Reference>>,
+}
+
+impl std::fmt::Debug for Verify<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Verify").field("tlk", &self.tlk).finish_non_exhaustive()
+    }
+}
+
+/// Verify, put together once for every tool that runs it: the references
+/// nothing satisfies ([`missing_of`]), then the custom content's problems
+/// in the order they are reported in (the doctor's
+/// [`crate::doctor::examine_groups`], the lines typed text takes, the
+/// walkmesh bake's rules and rows, the palettes' groupings), each part
+/// timed. A group left out is not run. What a caller adds of its own (the
+/// plugins' findings) goes after these, and [`crate::doctor::Skip::leave_out`]
+/// is its to call once it has: it takes out what could not be told
+/// beforehand.
+///
+/// `step` is told each part as it starts ("Looking for what is missing",
+/// "Checking the custom content") and says whether to go on: `None` where
+/// it said no.
+pub fn run(
+    asked: Verify<'_>,
+    timings: &mut crate::doctor::Timings,
+    step: &mut dyn FnMut(&str) -> bool,
+) -> Option<(Vec<Missing>, Vec<crate::doctor::Finding>)> {
+    use crate::doctor::{self, Group};
+    let Verify { module, resman, skip, .. } = asked;
+    let missing = match skip.group(Group::References) {
+        true => Vec::new(),
+        false => {
+            if !step("Looking for what is missing") {
+                return None;
+            }
+            let of = asked.compiled.unwrap_or(module);
+            let references = match asked.references {
+                Some(references) => references,
+                None => timings.time("the module's references", || module_references(of)),
+            };
+            timings.time("missing references", || missing_of(of, resman, references))
+        }
+    };
+    if !step("Checking the custom content") {
+        return None;
+    }
+    let mut findings =
+        doctor::examine_groups(module, resman, asked.tlk, skip, timings, asked.cache);
+    // (The lines typed text takes, held to the table.)
+    findings.extend(doctor::talk_range(module, asked.custom_tlk, skip));
+    // (The walkmesh bake's rules, rows and leftovers.)
+    findings.extend(doctor::bake(module, resman, asked.codepage, skip));
+    // (The palettes' groupings, held to the palettes.)
+    findings.extend(timings.time("palette groupings", || {
+        doctor::palette_groups(module, resman, asked.palette_name, skip)
+    }));
+    Some((missing, findings))
+}
+
 /// Every reference in the module, in its resources' order: each resource
 /// read on a core of its own.
 pub fn module_references(module: &Module) -> Vec<Reference> {

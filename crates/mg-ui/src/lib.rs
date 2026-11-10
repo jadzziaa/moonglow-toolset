@@ -5691,60 +5691,39 @@ impl Moonglow {
             move |job| {
                 use mg_module::doctor::Group;
                 let game = job.game.as_deref()?;
-                // (A group left out isn't checked.)
-                let missing = if skip.group(Group::References) {
-                    Vec::new()
-                } else {
-                    job.progress.say("Looking for what is missing");
-                    // (A project's scripts compiled, in a copy: its
-                    // compiled scripts are build output.)
-                    let compiled = (job.module.project.is_some()).then(|| {
+                // (A project's scripts compiled, in a copy, for the
+                // references: its compiled scripts are build output. A
+                // group left out isn't checked.)
+                let compiled = (job.module.project.is_some() && !skip.group(Group::References))
+                    .then(|| {
                         let mut m = job.module.clone();
                         mg_module::build::compiled_for_checks(&mut m, &game.resman);
                         m
                     });
-                    let module = compiled.as_ref().unwrap_or(&job.module);
-                    mg_module::verify::missing(module, &game.resman)
-                };
-                if job.progress.cancelled() {
-                    return None;
-                }
-                // The custom content: tilesets, 2DAs, materials, objects
-                // naming rows that don't exist.
-                job.progress.say("Checking the custom content");
                 let tlk = mg_module::doctor::TalkTables {
                     base: game.tlk().entries.len(),
                     custom: game.custom_tlk().map(|t| t.entries.len()),
                 };
-                let mut times = mg_module::doctor::Timings::default();
-                let mut findings = mg_module::doctor::examine_groups(
-                    &job.module,
-                    &game.resman,
+                // What is missing, and the custom content's problems: put
+                // together where `mg verify` puts them together.
+                let asked = mg_module::verify::Verify {
+                    module: &job.module,
+                    compiled: compiled.as_ref(),
+                    resman: &game.resman,
                     tlk,
-                    &skip,
-                    &mut times,
-                    cache.as_ref(),
-                );
-                // (The lines typed text takes, held to the table.)
-                findings.extend(mg_module::doctor::talk_range(
-                    &job.module,
-                    game.custom_tlk(),
-                    &skip,
-                ));
-                // (The walkmesh bake's rules, rows and leftovers.)
-                findings.extend(mg_module::doctor::bake(
-                    &job.module,
-                    &game.resman,
-                    game.codepage(),
-                    &skip,
-                ));
-                // (The palettes' groupings, held to the palettes.)
-                findings.extend(mg_module::doctor::palette_groups(
-                    &job.module,
-                    &game.resman,
-                    &|n| n.text(game),
-                    &skip,
-                ));
+                    custom_tlk: game.custom_tlk(),
+                    codepage: game.codepage(),
+                    palette_name: &|n| n.text(game),
+                    skip: &skip,
+                    cache: cache.as_ref(),
+                    references: None,
+                };
+                let mut times = mg_module::doctor::Timings::default();
+                let (missing, mut findings) =
+                    mg_module::verify::run(asked, &mut times, &mut |part| {
+                        job.progress.say(part);
+                        !job.progress.cancelled()
+                    })?;
                 // (What the plugins would say of themselves goes with them.)
                 let (theirs, said) = if skip.group(Group::Plugins) {
                     (Vec::new(), Vec::new())

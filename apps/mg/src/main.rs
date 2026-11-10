@@ -5394,24 +5394,18 @@ fn verify(
              names them is said not compiled"
         ));
     }
-    // (Every GFF of the module read once for both.)
-    let references = if show_unused || !skip.group(Group::References) {
+    // (Every GFF of the module read once for the unused and the missing.)
+    let references = show_unused.then(|| {
         times.time("the module's references", || mg_module::verify::module_references(&m))
-    } else {
-        Vec::new()
-    };
+    });
     // (The scripts the game's tables run, as the module sees them, count
     // as used, and what the module reaches in its haks and the game names.)
-    let unused = if show_unused {
-        let also = mg_module::verify::also_used(&m, &references, &rm);
-        mg_module::verify::unused_of(&m, &references, &also)
-    } else {
-        Vec::new()
-    };
-    let mut missing = if skip.group(Group::References) {
-        Vec::new()
-    } else {
-        times.time("missing references", || mg_module::verify::missing_of(&m, &rm, references))
+    let unused = match &references {
+        Some(references) => {
+            let also = mg_module::verify::also_used(&m, references, &rm);
+            mg_module::verify::unused_of(&m, references, &also)
+        }
+        None => Vec::new(),
     };
     let read_tlk = |data: Vec<u8>| mg_tlk::Tlk::read(&data).ok();
     let (base_table, custom_table) = times.time("the talk tables", || {
@@ -5429,13 +5423,8 @@ fn verify(
     // (The shader programs that compiled, and what was found of the haks'
     // models, kept for the next run, where the window keeps its own.)
     let cache = mg_module::doctor::Cache::user();
-    let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
-    // (The lines typed text takes, held to the table.)
-    findings.extend(mg_module::doctor::talk_range(&m, custom_table.as_ref(), skip));
-    // (The walkmesh bake's rules, rows and leftovers.)
-    findings.extend(mg_module::doctor::bake(&m, &rm, Codepage::default(), skip));
-    // (The palettes' groupings, held to the palettes: their names as the
-    // palettes show them, in the game's letters.)
+    // (The palettes' names as the palettes show them, in the game's
+    // letters.)
     let game_codepage = mg_rules::text_codepage(&rm, game_language(gi));
     let palette_name = |n: &mg_module::palette::PaletteName| match n {
         mg_module::palette::PaletteName::StrRef(r) => {
@@ -5445,9 +5434,22 @@ fn verify(
         }
         mg_module::palette::PaletteName::Text(t) => mg_module::palette::text_of(t, game_codepage),
     };
-    findings.extend(times.time("palette groupings", || {
-        mg_module::doctor::palette_groups(&m, &rm, &palette_name, skip)
-    }));
+    // What is missing, and the custom content's problems: put together
+    // where the window's Verify Module puts them together.
+    let checked = mg_module::verify::Verify {
+        module: &m,
+        compiled: None,
+        resman: &rm,
+        tlk,
+        custom_tlk: custom_table.as_ref(),
+        codepage: game_codepage,
+        palette_name: &palette_name,
+        skip,
+        cache: cache.as_ref(),
+        references,
+    };
+    let (mut missing, mut findings) =
+        mg_module::verify::run(checked, times, &mut |_| true).context("Verify was stopped")?;
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
     let mut declared = Vec::new();
