@@ -458,6 +458,33 @@ fn an_update_is_installed_from_the_notice_and_a_restart_asked() {
     assert!(steps.is_empty());
 }
 
+/// Install Now that cannot replace the image (here the image's place is
+/// a folder) asks for no restart: the question was set after the failed
+/// install had cleared it, and showed once a later download of the same
+/// release, asked for as Later, was ready.
+#[test]
+fn install_now_that_fails_to_replace_the_image_asks_for_no_restart() {
+    let dir = mg_testkit::scratch_dir("ui-update-install-fails");
+    let key = mg_testkit::signing::TestKey::new();
+    let server = serve_release(&key, "v99.0.0", false, b"Moonglow 99.0.0's AppImage");
+    let (app, image) = app_updating(&dir, &server, Some(key.public()));
+    std::fs::remove_file(&image).unwrap();
+    std::fs::create_dir_all(image.join("in the way")).unwrap();
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    close_window(&mut h);
+    h.get_by_label("Install Now").click();
+    h.run_steps(2);
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains(what))
+    };
+    assert!(said(&h, "checksum and signature verified"), "{:?}", h.state().log.entries);
+    assert!(said(&h, "Moonglow 99.0.0 isn't installed: "), "{:?}", h.state().log.entries);
+    assert!(image.is_dir(), "the image's place as it was");
+    assert!(!h.state().updates.ask_restart, "nothing to restart for");
+    assert!(h.query_by_label("Restart Moonglow now?").is_none());
+}
+
 /// Restart Now with unsaved work asks about it first, as Exit does.
 #[test]
 fn restart_now_asks_about_unsaved_work_first() {
