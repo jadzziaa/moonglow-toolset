@@ -393,7 +393,7 @@ and without anything that changes in the window while it runs.
 
 | | |
 | --- | --- |
-| `ctx.module:resources(kind?)` | The names (`name.ext`) of the module's resources, sorted; with `kind` (`"utc"`, `"nss"`…) those of one type. |
+| `ctx.module:resources(kind?)` | The names (`name.ext`) of the module's resources, sorted; with `kind` (`"utc"`, `"nss"`…) those of one type. A byte of a name outside ASCII is listed as the character of its number; where a name is asked for (`gff`, `text`, `ctx.edit`), that spelling is taken, and so is the name as a ResRef field reads, in the module's codepage. |
 | `ctx.module:has(name)` | Whether the module has the resource. |
 | `ctx.module:gff(name)` | A GFF resource as a table of plain values (below). |
 | `ctx.module:raw(name, path?)` | A GFF resource with every field's type, as `mg gff` writes it: fields as `{ type = "…", value = … }`, structs with `__struct_id`, the root with `__data_type`. With `path`, the struct there alone. |
