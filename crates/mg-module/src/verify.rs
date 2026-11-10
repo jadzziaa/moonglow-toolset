@@ -225,9 +225,14 @@ impl Missing {
     }
 }
 
-/// Every reference in the module.
+/// Every reference in the module, in its resources' order: each resource
+/// read on a core of its own.
 pub fn module_references(module: &Module) -> Vec<Reference> {
-    module.keys().flat_map(|k| references(*k, module.get(k).unwrap_or_default())).collect()
+    use rayon::prelude::*;
+    let keys: Vec<&ResKey> = module.keys().collect();
+    let of_each: Vec<Vec<Reference>> =
+        keys.par_iter().map(|k| references(**k, module.get(k).unwrap_or_default())).collect();
+    of_each.into_iter().flatten().collect()
 }
 
 /// References that neither the module nor `resman` (the game, haks, and
@@ -254,7 +259,8 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
     // to it, so each is looked for in the layers once, however many
     // creatures name the script (a quarter of a million placed creatures
     // each name the same dozen default scripts, found under every hak).
-    let verdict = |kind: RefKind, target: mg_core::ResRef| -> Option<(bool, Option<Local>)> {
+    type Wrong = Option<(bool, Option<Local>)>;
+    let verdict = |kind: RefKind, target: mg_core::ResRef| -> Wrong {
         let candidates = kind.candidates(target);
         // The game runs compiled scripts; a source alone does not satisfy a
         // script reference (but is reported as uncompiled, not missing).
@@ -277,8 +283,7 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
             && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
         Some((uncompiled, local_only))
     };
-    let mut verdicts: HashMap<(RefKind, mg_core::ResRef), Option<(bool, Option<Local>)>> =
-        HashMap::new();
+    let mut verdicts: HashMap<(RefKind, mg_core::ResRef), Wrong> = HashMap::new();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for r in references {

@@ -835,9 +835,13 @@ struct Doctor<'a> {
     out: Vec<Finding>,
     tables: HashMap<String, Option<std::sync::Arc<TwoDa>>>,
     /// Why each model an object names couldn't be read (`None`: it was,
-    /// or it is the game's own), read once a run.
-    models_read: HashMap<ResKey, Option<String>>,
+    /// or it is the game's own), read once a run: shared by the doctors
+    /// beside this one, which look at the module's objects on other cores.
+    models_read: ModelsRead,
 }
+
+/// [`Doctor::models_read`].
+type ModelsRead = std::sync::Arc<std::sync::Mutex<HashMap<ResKey, Option<String>>>>;
 
 /// Nothing left out.
 static NOTHING: Skip = Skip::NONE;
@@ -854,7 +858,7 @@ impl<'a> Doctor<'a> {
             skip: self.skip,
             out: Vec::new(),
             tables: HashMap::new(),
-            models_read: HashMap::new(),
+            models_read: self.models_read.clone(),
         }
     }
 
@@ -917,8 +921,9 @@ impl<'a> Doctor<'a> {
     /// not again while its archive is as it was.
     fn unreadable(&mut self, name: &str) -> Option<String> {
         let key = ResKey::parse(name, ResType::MDL)?;
-        if let Some(known) = self.models_read.get(&key) {
-            return known.clone();
+        let known = self.models_read.lock().ok().and_then(|read| read.get(&key).cloned());
+        if let Some(known) = known {
+            return known;
         }
         let why = self.rm.find(&key).and_then(|layer| {
             let l = &self.rm.layers()[layer];
@@ -937,7 +942,9 @@ impl<'a> Doctor<'a> {
             self.learn(layer, key, Facts { read: Some(read.clone()), ..Facts::default() });
             read
         });
-        self.models_read.insert(key, why.clone());
+        if let Ok(mut read) = self.models_read.lock() {
+            read.insert(key, why.clone());
+        }
         why
     }
 
@@ -994,7 +1001,7 @@ pub fn examine_groups(
         skip,
         out: Vec::new(),
         tables: HashMap::new(),
-        models_read: HashMap::new(),
+        models_read: ModelsRead::default(),
     };
     // (Looked up in parallel: a module with a hundred haks has hundreds of
     // thousands, each looked for in the layers above its own. A hak left
@@ -1061,7 +1068,7 @@ pub fn examine_groups(
                 skip,
                 out: Vec::new(),
                 tables: std::mem::take(tables),
-                models_read: HashMap::new(),
+                models_read: ModelsRead::default(),
             };
             let source = &layers[layer].label;
             match key.restype {
@@ -1097,45 +1104,34 @@ pub fn examine_groups(
     if runs(&[ShaderCompile, ShaderPair]) {
         timings.time("shaders", || self::shaders(&mut d, &custom));
     }
-    if runs(&[ObjectRow]) {
-        timings.time("objects' rows", || objects(&mut d, module));
-    }
-    if runs(&[PcFaction]) {
-        timings.time("the PC faction", || pc_faction(&mut d, module));
-    }
-    if runs(&[StaticTransform]) {
-        timings.time("static placeables' transforms", || static_transforms(&mut d, module));
-    }
-    if runs(&[StaticTint]) {
-        timings.time("static placeables' tints", || static_tints(&mut d, module));
-    }
-    if runs(&[TintStored]) {
-        timings.time("tints stored and set", || tints_stored(&mut d, module));
-    }
-    if runs(&[AppearanceRange]) {
-        timings.time("placeables' rows past 65535", || appearance_range(&mut d, module));
-    }
-    if runs(&[AreaVariables]) {
-        timings.time("areas' variables", || area_variables(&mut d, module));
-    }
-    if runs(&[TileReplace]) {
-        timings.time("tiles' replacement textures", || tile_replacements(&mut d, module));
-    }
-    if runs(&[TileSeam]) {
-        timings.time("tiles' seams", || tile_seams(&mut d, module));
-    }
+    // The module's areas, objects and blueprints: each read once, on
+    // every core, and handed to every check that reads its type
+    // ([`resources_once`]). What the checks after the unique tags and the
+    // merged areas found is said after those, as it was when each check
+    // read the module for itself.
+    let reads = match runs(&[VarScript]) {
+        true => {
+            timings.time("the variables the scripts name", || crate::var_desc::script_reads(module))
+        }
+        false => Default::default(),
+    };
+    let wanted = Once::ALL.map(|o| {
+        runs(o.checks())
+            && match o {
+                Once::Tags => module.project_file.tags.any_unique(),
+                Once::Described => !module.project_file.variables.is_empty(),
+                Once::Read => !reads.is_empty(),
+                _ => true,
+            }
+    });
+    let once = resources_once(&mut d, module, wanted, &reads, timings);
     if runs(&[TagUnique]) {
-        timings.time("unique tags", || unique_tags(&mut d, module));
+        timings.time("unique tags", || unique_tags(&mut d, module, once.tags.as_ref()));
     }
     if runs(&[ClaimsMerged, ClaimsTag]) {
         timings.time("merged areas", || merged_areas(&mut d, module));
     }
-    if runs(&[VarType, VarValue, VarObject, VarName, VarRuntime, VarRequires]) {
-        timings.time("described variables", || described_variables(&mut d, module));
-    }
-    if runs(&[VarScript]) {
-        timings.time("variables the scripts read", || variables_read(&mut d, module));
-    }
+    once.say_the_rest(&mut d);
     if runs(&[TwoDaDescribed]) {
         timings.time("described 2DAs", || described_tables(&mut d, module));
     }
@@ -1512,7 +1508,7 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         skip: &NOTHING,
         out: Vec::new(),
         tables: HashMap::new(),
-        models_read: HashMap::new(),
+        models_read: ModelsRead::default(),
     };
     tileset_data(&mut d, "tileset", key, data);
     d.out
@@ -3089,51 +3085,311 @@ fn described_tables(d: &mut Doctor, module: &Module) {
     }
 }
 
-/// The module's objects: 2DA rows they name that don't exist (a creature
-/// with a class that isn't there crashes Aurora and the game). A
-/// waypoint's (its flag, which the toolset alone draws) is a warning
-/// wherever it is.
-fn objects(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| {
-            matches!(
-                k.restype,
-                ResType::UTC
-                    | ResType::UTP
-                    | ResType::UTI
-                    | ResType::UTD
-                    | ResType::UTM
-                    | ResType::UTW
-                    | ResType::GIT
-            )
-        })
+/// The checks that read the module's areas, objects and blueprints, in
+/// the order they are made in: of one resource, each is handed the tree
+/// it was read into once ([`resources_once`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Once {
+    Objects,
+    PcFaction,
+    StaticTransforms,
+    StaticTints,
+    TintsStored,
+    AppearanceRange,
+    AreaVariables,
+    TileReplacements,
+    TileSeams,
+    /// The tags of the areas and their objects, for `tag-unique`.
+    Tags,
+    Described,
+    Read,
+}
+
+impl Once {
+    const ALL: [Once; 12] = [
+        Once::Objects,
+        Once::PcFaction,
+        Once::StaticTransforms,
+        Once::StaticTints,
+        Once::TintsStored,
+        Once::AppearanceRange,
+        Once::AreaVariables,
+        Once::TileReplacements,
+        Once::TileSeams,
+        Once::Tags,
+        Once::Described,
+        Once::Read,
+    ];
+
+    /// What the timings call it.
+    fn name(self) -> &'static str {
+        match self {
+            Once::Objects => "objects' rows",
+            Once::PcFaction => "the PC faction",
+            Once::StaticTransforms => "static placeables' transforms",
+            Once::StaticTints => "static placeables' tints",
+            Once::TintsStored => "tints stored and set",
+            Once::AppearanceRange => "placeables' rows past 65535",
+            Once::AreaVariables => "areas' variables",
+            Once::TileReplacements => "tiles' replacement textures",
+            Once::TileSeams => "tiles' seams",
+            Once::Tags => "areas' and objects' tags",
+            Once::Described => "described variables",
+            Once::Read => "variables the scripts read",
+        }
+    }
+
+    /// The checks it makes the findings of: left out with all of them.
+    fn checks(self) -> &'static [Check] {
+        use Check::*;
+        match self {
+            Once::Objects => &[ObjectRow],
+            Once::PcFaction => &[PcFaction],
+            Once::StaticTransforms => &[StaticTransform],
+            Once::StaticTints => &[StaticTint],
+            Once::TintsStored => &[TintStored],
+            Once::AppearanceRange => &[AppearanceRange],
+            Once::AreaVariables => &[AreaVariables],
+            Once::TileReplacements => &[TileReplace],
+            Once::TileSeams => &[TileSeam],
+            Once::Tags => &[TagUnique],
+            Once::Described => &[VarType, VarValue, VarObject, VarName, VarRuntime, VarRequires],
+            Once::Read => &[VarScript],
+        }
+    }
+
+    /// Whether it reads resources of this type.
+    fn reads(self, t: ResType) -> bool {
+        use ResType as T;
+        match self {
+            Once::Objects => {
+                matches!(t, T::UTC | T::UTP | T::UTI | T::UTD | T::UTM | T::UTW | T::GIT)
+            }
+            Once::PcFaction => matches!(t, T::UTC | T::UTP | T::UTD | T::UTE | T::GIT),
+            Once::StaticTransforms => t == T::GIT,
+            Once::StaticTints | Once::TintsStored | Once::AppearanceRange => {
+                matches!(t, T::GIT | T::UTP)
+            }
+            Once::AreaVariables | Once::TileReplacements | Once::TileSeams => t == T::ARE,
+            Once::Tags => matches!(t, T::ARE | T::GIT),
+            Once::Described | Once::Read => crate::var_desc::Owner::of_restype(t).is_some(),
+        }
+    }
+
+    /// Whether what it finds is said after the unique tags and the merged
+    /// areas (it was made after them when each check read the module for
+    /// itself, and findings of one resource and severity keep that order).
+    fn said_after(self) -> bool {
+        matches!(self, Once::Described | Once::Read)
+    }
+}
+
+/// A list of a described variable's values that can't be read: said once
+/// a run, at the first variable of it in the first resource. Each
+/// resource's first is noted (where among its later findings it goes),
+/// and the first of them all is said ([`SeenOnce::say_the_rest`]).
+struct Unlisted {
+    before: usize,
+    name: String,
+    at: String,
+    message: String,
+}
+
+/// What [`resources_once`] found of one resource.
+struct OfOne {
+    key: ResKey,
+    /// Of the checks made before the unique tags and the merged areas,
+    /// and of those after ([`Once::said_after`]).
+    first: Vec<Finding>,
+    after: Vec<Finding>,
+    unlisted: Vec<Unlisted>,
+    tags: Option<crate::tags::TagIndex>,
+    learned: Learned,
+    /// How long each check took, and the read (the last).
+    took: [Duration; Once::ALL.len() + 1],
+}
+
+/// What a worker of [`resources_once`] keeps from one resource to the
+/// next: the tables it read, the tile models it looked into, and the
+/// described variables' lists.
+#[derive(Default)]
+struct KeptOnce<'a> {
+    tables: HashMap<String, Option<std::sync::Arc<TwoDa>>>,
+    replaced: HashMap<String, bool>,
+    choices: HashMap<String, crate::var_desc::Choices>,
+    lookup: Option<crate::var_desc::ModuleLookup<'a>>,
+}
+
+/// Each tileset's tiles by the cells they fit, made once a run for the
+/// areas of every worker.
+type TileIndexes = std::sync::Mutex<HashMap<ResRef, Option<std::sync::Arc<mg_tiles::TileIndex>>>>;
+
+/// What is left of [`resources_once`] for after it.
+struct SeenOnce {
+    /// Every area's and placed object's tag, where `tag-unique` runs.
+    tags: Option<crate::tags::TagIndex>,
+    after: Vec<(ResKey, Vec<Finding>, Vec<Unlisted>)>,
+}
+
+impl SeenOnce {
+    /// Says what the checks after the unique tags and the merged areas
+    /// found, a resource after another, and each list that can't be read
+    /// once: at the first variable of it.
+    fn say_the_rest(self, d: &mut Doctor) {
+        let mut unread: HashSet<String> = HashSet::new();
+        for (key, said, unlisted) in self.after {
+            let mut unlisted = unlisted.into_iter().peekable();
+            let mut say = |d: &mut Doctor, u: Unlisted| {
+                if unread.insert(u.name) {
+                    d.push(Severity::Warning, Check::VarValue, "module", key, u.at, u.message);
+                }
+            };
+            for (i, finding) in said.into_iter().enumerate() {
+                while let Some(u) = unlisted.next_if(|u| u.before == i) {
+                    say(d, u);
+                }
+                d.out.push(finding);
+            }
+            for u in unlisted {
+                say(d, u);
+            }
+        }
+    }
+}
+
+/// The checks of the module's areas, objects and blueprints (`wanted`: by
+/// [`Once::ALL`]'s order, those that run): each resource one of them reads
+/// is read once, on every core, and its tree handed to every check that
+/// reads its type, where each check read every resource again, one after
+/// another (a persistent world's Verify parsed each area's GIT a dozen
+/// times on one core). The findings are in the order those made: a
+/// resource's in the checks' order, the resources in their keys'.
+fn resources_once(
+    d: &mut Doctor,
+    module: &Module,
+    wanted: [bool; Once::ALL.len()],
+    reads: &std::collections::BTreeMap<String, Vec<crate::var_desc::Read>>,
+    timings: &mut Timings,
+) -> SeenOnce {
+    use crate::var_desc;
+    let asked = |o: Once, t: ResType| wanted[o as usize] && o.reads(t);
+    let mut keys: Vec<ResKey> = (module.keys())
+        .filter(|k| Once::ALL.iter().any(|o| asked(*o, k.restype)))
         .copied()
         .collect();
     keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let mut found = Vec::new();
-        let kind = match key.restype {
-            ResType::GIT => None,
-            t => Some(t),
-        };
-        walk_objects(d, &gff.root, kind, &GffPath::root(), &mut found);
-        // Placed, it breaks the area (Aurora's area view crashes on it); a
-        // blueprint breaks only when placed, and a waypoint's flag nothing
-        // the game shows. A part with no model (an item's piece, a body's
-        // part) leaves the rest drawn: a warning wherever it is.
-        for (path, message, part) in found {
-            let in_list =
-                |list: &str| path.first().and_then(Step::item).is_some_and(|(l, _)| l == list);
-            let waypoint = in_list("WaypointList") || key.restype == ResType::UTW;
-            let severity = match key.restype == ResType::GIT && !waypoint && !part {
-                true => Severity::Error,
-                false => Severity::Warning,
+    let indexes = TileIndexes::default();
+    let (rm, beside) = (d.rm, &*d);
+    let started = Instant::now();
+    let found: Vec<Option<OfOne>> = keys
+        .par_iter()
+        .map_init(KeptOnce::default, |kept, &key| {
+            let t = key.restype;
+            let mut took = [Duration::ZERO; Once::ALL.len() + 1];
+            let reading = Instant::now();
+            let Some(Ok(gff)) = module.gff(&key) else { return None };
+            took[Once::ALL.len()] = reading.elapsed();
+            let mut w = beside.beside();
+            w.tables = std::mem::take(&mut kept.tables);
+            // (Timed where it runs.)
+            let mut run = |o: Once, check: &mut dyn FnMut()| {
+                if asked(o, t) {
+                    let started = Instant::now();
+                    check();
+                    took[o as usize] += started.elapsed();
+                }
             };
-            let place = crate::rename::describe(key, Some(&gff), &path);
-            d.push(severity, Check::ObjectRow, "module", key, place, message);
+            run(Once::Objects, &mut || objects(&mut w, key, &gff));
+            run(Once::PcFaction, &mut || pc_faction(&mut w, key, &gff));
+            run(Once::StaticTransforms, &mut || static_transforms(&mut w, key, &gff));
+            run(Once::StaticTints, &mut || static_tints(&mut w, key, &gff));
+            run(Once::TintsStored, &mut || tints_stored(&mut w, key, &gff));
+            run(Once::AppearanceRange, &mut || appearance_range(&mut w, key, &gff));
+            run(Once::AreaVariables, &mut || area_variables(&mut w, key, &gff));
+            run(Once::TileReplacements, &mut || {
+                tile_replacements(&mut w, key, &gff, &mut kept.replaced)
+            });
+            run(Once::TileSeams, &mut || tile_seams(&mut w, key, &gff, &indexes));
+            let mut tags = None;
+            run(Once::Tags, &mut || {
+                let index = tags.insert(crate::tags::TagIndex::default());
+                match t {
+                    ResType::ARE => index.add_area(key.resref, &gff.root),
+                    _ => index.add_git(key.resref, &gff.root),
+                }
+            });
+            let first = std::mem::take(&mut w.out);
+            // (A resource's variables, found once for both checks of them.)
+            let variables = (Once::ALL.iter())
+                .any(|o| o.said_after() && asked(*o, t))
+                .then(|| var_desc::variables_of(key, &gff));
+            let variables = variables.as_deref().unwrap_or(&[]);
+            let mut unlisted = Vec::new();
+            run(Once::Described, &mut || {
+                let lookup = (kept.lookup)
+                    .get_or_insert_with(|| var_desc::ModuleLookup::new(module, Some(rm)));
+                let lists = (lookup as &var_desc::ModuleLookup, &mut kept.choices);
+                described_variables(&mut w, module, key, &gff, variables, lists, &mut unlisted);
+            });
+            run(Once::Read, &mut || variables_read(&mut w, module, key, &gff, variables, reads));
+            kept.tables = std::mem::take(&mut w.tables);
+            Some(OfOne { key, first, after: w.out, unlisted, tags, learned: w.learned, took })
+        })
+        .collect();
+    let wall = started.elapsed();
+    let mut seen = SeenOnce {
+        tags: wanted[Once::Tags as usize].then(crate::tags::TagIndex::default),
+        after: Vec::new(),
+    };
+    let mut took = [Duration::ZERO; Once::ALL.len() + 1];
+    let mut read = 0;
+    for one in found.into_iter().flatten() {
+        d.out.extend(one.first);
+        d.learned.extend(one.learned);
+        if let (Some(all), Some(own)) = (seen.tags.as_mut(), &one.tags) {
+            all.absorb(own);
         }
+        for (all, own) in took.iter_mut().zip(one.took) {
+            *all += own;
+        }
+        read += 1;
+        if !one.after.is_empty() || !one.unlisted.is_empty() {
+            seen.after.push((one.key, one.after, one.unlisted));
+        }
+    }
+    timings.add("the module's areas, objects and blueprints, each read once (in parallel)", wall);
+    timings.add(format!("  read: {read}, added up"), took[Once::ALL.len()]);
+    for o in Once::ALL.into_iter().filter(|o| wanted[*o as usize]) {
+        timings.add(format!("  {}, added up", o.name()), took[o as usize]);
+    }
+    seen
+}
+
+/// A module's object's (a blueprint's, or an area's placed ones'): 2DA
+/// rows they name that don't exist (a creature with a class that isn't
+/// there crashes Aurora and the game). A waypoint's (its flag, which the
+/// toolset alone draws) is a warning wherever it is.
+fn objects(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
+    let mut found = Vec::new();
+    let kind = match key.restype {
+        ResType::GIT => None,
+        t => Some(t),
+    };
+    walk_objects(d, &gff.root, kind, &GffPath::root(), &mut found);
+    // Placed, it breaks the area (Aurora's area view crashes on it); a
+    // blueprint breaks only when placed, and a waypoint's flag nothing
+    // the game shows. A part with no model (an item's piece, a body's
+    // part) leaves the rest drawn: a warning wherever it is.
+    for (path, message, part) in found {
+        let in_list =
+            |list: &str| path.first().and_then(Step::item).is_some_and(|(l, _)| l == list);
+        let waypoint = in_list("WaypointList") || key.restype == ResType::UTW;
+        let severity = match key.restype == ResType::GIT && !waypoint && !part {
+            true => Severity::Error,
+            false => Severity::Warning,
+        };
+        let place = crate::rename::describe(key, Some(gff), &path);
+        d.push(severity, Check::ObjectRow, "module", key, place, message);
     }
 }
 
@@ -3146,58 +3402,44 @@ fn objects(d: &mut Doctor, module: &Module) {
 /// measured. Triggers are left out (the owner's decision): Aurora writes
 /// 0 for a trigger whose blueprint has no faction, so the warning would
 /// fall on ordinary triggers. The rule is `mg_rules::objects::pc_faction`.
-fn pc_faction(d: &mut Doctor, module: &Module) {
+fn pc_faction(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
     use mg_rules::ObjectKind;
     let of_pc = |kind: ObjectKind, s: &Struct| {
         mg_rules::objects::pc_faction(kind, s).map(|field| (field, s.get(field).is_none()))
     };
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| {
-            matches!(
-                k.restype,
-                ResType::UTC | ResType::UTP | ResType::UTD | ResType::UTE | ResType::GIT
-            )
-        })
-        .copied()
-        .collect();
-    keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let mut found = Vec::new();
-        if key.restype == ResType::GIT {
-            for f in &gff.root.fields {
-                let label = f.label.to_string_lossy();
-                let (Value::List(objects), Some(kind)) = (&f.value, ObjectKind::from_list(&label))
-                else {
-                    continue;
-                };
-                for (i, s) in objects.iter().enumerate() {
-                    if let Some((field, none)) = of_pc(kind, s) {
-                        found.push((kind, GffPath::root().item(&label, i).field(field), none));
-                    }
+    let mut found = Vec::new();
+    if key.restype == ResType::GIT {
+        for f in &gff.root.fields {
+            let label = f.label.to_string_lossy();
+            let (Value::List(objects), Some(kind)) = (&f.value, ObjectKind::from_list(&label))
+            else {
+                continue;
+            };
+            for (i, s) in objects.iter().enumerate() {
+                if let Some((field, none)) = of_pc(kind, s) {
+                    found.push((kind, GffPath::root().item(&label, i).field(field), none));
                 }
             }
-        } else if let Some(kind) = ObjectKind::from_restype(key.restype)
-            && let Some((field, none)) = of_pc(kind, &gff.root)
-        {
-            found.push((kind, GffPath::root().field(field), none));
         }
-        for (kind, path, none) in found {
-            let place = crate::rename::describe(key, Some(&gff), &path);
-            let what = match kind {
-                ObjectKind::Creature => "the game puts a creature of it in Hostile",
-                ObjectKind::Encounter => "an encounter's own faction",
-                _ => "creatures regard it as they regard players",
-            };
-            let of = match none {
-                true => "has no faction, which the game reads as the PC faction (0)",
-                false => "of the PC faction (0)",
-            };
-            let message =
-                format!("{of}, which is the players' alone ({what}): give it another faction");
-            d.push(Severity::Warning, Check::PcFaction, "module", key, place, message);
-        }
+    } else if let Some(kind) = ObjectKind::from_restype(key.restype)
+        && let Some((field, none)) = of_pc(kind, &gff.root)
+    {
+        found.push((kind, GffPath::root().field(field), none));
+    }
+    for (kind, path, none) in found {
+        let place = crate::rename::describe(key, Some(gff), &path);
+        let what = match kind {
+            ObjectKind::Creature => "the game puts a creature of it in Hostile",
+            ObjectKind::Encounter => "an encounter's own faction",
+            _ => "creatures regard it as they regard players",
+        };
+        let of = match none {
+            true => "has no faction, which the game reads as the PC faction (0)",
+            false => "of the PC faction (0)",
+        };
+        let message =
+            format!("{of}, which is the players' alone ({what}): give it another faction");
+        d.push(Severity::Warning, Check::PcFaction, "module", key, place, message);
     }
 }
 
@@ -3208,25 +3450,19 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
 /// Aurora takes a placeable's transform off when Static is ticked, and so
 /// do Moonglow's Properties and Make Static: such a file was made
 /// elsewhere (another tool, by hand, or an older Moonglow).
-fn static_transforms(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> =
-        module.keys().filter(|k| k.restype == ResType::GIT).copied().collect();
-    keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let list = gff.root.list("Placeable List").unwrap_or(&[]);
-        for (i, s) in list.iter().enumerate() {
-            if s.integer("Static").unwrap_or(0) == 0 || !crate::placement::is_transformed(s) {
-                continue;
-            }
-            let static_at = GffPath::root().item("Placeable List", i).field("Static");
-            let place = crate::rename::describe(key, Some(&gff), &static_at);
-            let message = "static, so the game draws it without its visual transform (its scale, \
+fn static_transforms(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
+    let list = gff.root.list("Placeable List").unwrap_or(&[]);
+    for (i, s) in list.iter().enumerate() {
+        if s.integer("Static").unwrap_or(0) == 0 || !crate::placement::is_transformed(s) {
+            continue;
+        }
+        let static_at = GffPath::root().item("Placeable List", i).field("Static");
+        let place = crate::rename::describe(key, Some(gff), &static_at);
+        let message = "static, so the game draws it without its visual transform (its scale, \
                            rotation and translation): untick Static (Properties) to have it drawn \
                            transformed (ticking it again takes the transform off, as Aurora does)"
-                .to_string();
-            d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
-        }
+            .to_string();
+        d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
     }
 }
 
@@ -3235,34 +3471,24 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
 /// the object, and the game client draws a static placeable merged into
 /// the area's tiles as made, untinted (seen in the client, that project's
 /// trial of 2026-11-06). Placed ones and blueprints.
-fn static_tints(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| matches!(k.restype, ResType::GIT | ResType::UTP))
-        .copied()
-        .collect();
-    keys.sort();
+fn static_tints(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
     let message = "static, so the game draws it as made, without the tint its tdod_tint \
                    variables give: untick Static (Properties) to have it tinted"
         .to_string();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let tinted =
-            |s: &Struct| !mg_rules::tint::takes_tint(s) && !mg_rules::tint::of_object(s).is_empty();
-        if key.restype == ResType::UTP {
-            if tinted(&gff.root) {
-                let place =
-                    crate::rename::describe(key, Some(&gff), &GffPath::root().field("Static"));
-                d.push(Severity::Warning, Check::StaticTint, "module", key, place, message.clone());
-            }
-            continue;
+    let tinted =
+        |s: &Struct| !mg_rules::tint::takes_tint(s) && !mg_rules::tint::of_object(s).is_empty();
+    if key.restype == ResType::UTP {
+        if tinted(&gff.root) {
+            let place = crate::rename::describe(key, Some(gff), &GffPath::root().field("Static"));
+            d.push(Severity::Warning, Check::StaticTint, "module", key, place, message);
         }
-        let list = gff.root.list("Placeable List").unwrap_or(&[]);
-        for (i, _) in list.iter().enumerate().filter(|(_, s)| tinted(s)) {
-            let at = GffPath::root().item("Placeable List", i).field("Static");
-            let place = crate::rename::describe(key, Some(&gff), &at);
-            d.push(Severity::Warning, Check::StaticTint, "module", key, place, message.clone());
-        }
+        return;
+    }
+    let list = gff.root.list("Placeable List").unwrap_or(&[]);
+    for (i, _) in list.iter().enumerate().filter(|(_, s)| tinted(s)) {
+        let at = GffPath::root().item("Placeable List", i).field("Static");
+        let place = crate::rename::describe(key, Some(gff), &at);
+        d.push(Severity::Warning, Check::StaticTint, "module", key, place, message.clone());
     }
 }
 
@@ -3272,13 +3498,7 @@ fn static_tints(d: &mut Doctor, module: &Module) {
 /// sets the locals' over it as the module loads, so the stored one is
 /// never seen (The Domains of Dread's scripts: the locals are the
 /// source, [`mg_rules::tint`]).
-fn tints_stored(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| matches!(k.restype, ResType::GIT | ResType::UTP))
-        .copied()
-        .collect();
-    keys.sort();
+fn tints_stored(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
     let mut check = |key: ResKey, gff: &mg_gff::Gff, s: &Struct, at: GffPath| {
         let tints = mg_rules::tint::of_object(s);
         if tints.is_empty() {
@@ -3305,15 +3525,12 @@ fn tints_stored(d: &mut Doctor, module: &Module) {
             d.push(Severity::Warning, Check::TintStored, "module", key, place, message);
         }
     };
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        if key.restype == ResType::UTP {
-            check(key, &gff, &gff.root, GffPath::root());
-            continue;
-        }
-        for (i, s) in gff.root.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
-            check(key, &gff, s, GffPath::root().item("Placeable List", i));
-        }
+    if key.restype == ResType::UTP {
+        check(key, gff, &gff.root, GffPath::root());
+        return;
+    }
+    for (i, s) in gff.root.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
+        check(key, gff, s, GffPath::root().item("Placeable List", i));
     }
 }
 
@@ -3321,7 +3538,7 @@ fn tints_stored(d: &mut Doctor, module: &Module) {
 /// 65535: the engine and the network carry the row as a 16-bit number, so
 /// the game draws row 65536 as row 0 and 65537 as row 1 (measured by The
 /// Domains of Dread on its server; nwn.wiki's 2DA limits say the same).
-fn appearance_range(d: &mut Doctor, module: &Module) {
+fn appearance_range(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
     let past = |s: &Struct| {
         s.integer("Appearance").filter(|&a| a > i64::from(crate::bake::LAST_ROW) || a < 0)
     };
@@ -3332,28 +3549,19 @@ fn appearance_range(d: &mut Doctor, module: &Module) {
              carry: it draws row {wraps}'s model instead"
         )
     };
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| matches!(k.restype, ResType::GIT | ResType::UTP))
-        .copied()
-        .collect();
-    keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        if key.restype == ResType::UTP {
-            if let Some(a) = past(&gff.root) {
-                let at = "Appearance".to_string();
-                d.push(Severity::Error, Check::AppearanceRange, "module", key, at, said(a));
-            }
-            continue;
+    if key.restype == ResType::UTP {
+        if let Some(a) = past(&gff.root) {
+            let at = "Appearance".to_string();
+            d.push(Severity::Error, Check::AppearanceRange, "module", key, at, said(a));
         }
-        let list = gff.root.list("Placeable List").unwrap_or(&[]);
-        for (i, s) in list.iter().enumerate() {
-            let Some(a) = past(s) else { continue };
-            let at = GffPath::root().item("Placeable List", i).field("Appearance");
-            let place = crate::rename::describe(key, Some(&gff), &at);
-            d.push(Severity::Error, Check::AppearanceRange, "module", key, place, said(a));
-        }
+        return;
+    }
+    let list = gff.root.list("Placeable List").unwrap_or(&[]);
+    for (i, s) in list.iter().enumerate() {
+        let Some(a) = past(s) else { continue };
+        let at = GffPath::root().item("Placeable List", i).field("Appearance");
+        let place = crate::rename::describe(key, Some(gff), &at);
+        d.push(Severity::Error, Check::AppearanceRange, "module", key, place, said(a));
     }
 }
 
@@ -3459,27 +3667,21 @@ pub fn bake(module: &Module, rm: &ResMan, codepage: Codepage, skip: &Skip) -> Ve
 /// Areas with variables in their ARE: the game reads an area's from its
 /// GIT's root and none from the ARE (`engine_area_variables`), where
 /// Moonglow wrote them before 1.34.3, so a script read 0 for them.
-fn area_variables(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> =
-        module.keys().filter(|k| k.restype == ResType::ARE).copied().collect();
-    keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let Some(vars) = gff.root.list("VarTable").filter(|v| !v.is_empty()) else { continue };
-        let names: Vec<String> = vars
-            .iter()
-            .filter_map(|v| v.string("Name"))
-            .map(|n| String::from_utf8_lossy(n).into_owned())
-            .collect();
-        let message = format!(
-            "{} variable{} in the area's ARE, which the game does not read ({}): open the \
-             area's Variables (Area Properties, Advanced) to move them to its GIT",
-            names.len(),
-            if names.len() == 1 { "" } else { "s" },
-            names.join(", ")
-        );
-        d.push(Severity::Error, Check::AreaVariables, "module", key, "VarTable", message);
-    }
+fn area_variables(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
+    let Some(vars) = gff.root.list("VarTable").filter(|v| !v.is_empty()) else { return };
+    let names: Vec<String> = vars
+        .iter()
+        .filter_map(|v| v.string("Name"))
+        .map(|n| String::from_utf8_lossy(n).into_owned())
+        .collect();
+    let message = format!(
+        "{} variable{} in the area's ARE, which the game does not read ({}): open the \
+         area's Variables (Area Properties, Advanced) to move them to its GIT",
+        names.len(),
+        if names.len() == 1 { "" } else { "s" },
+        names.join(", ")
+    );
+    d.push(Severity::Error, Check::AreaVariables, "module", key, "VarTable", message);
 }
 
 /// Tiles whose `Tile_ReplaceTex` the game crashes on as it loads the
@@ -3488,58 +3690,57 @@ fn area_variables(d: &mut Doctor, module: &Module) {
 /// replacetexture.2da ([`mg_rules::rows::replacement_row`]), on a tile
 /// whose model has a mesh drawn with `replace_tex` (no other is replaced).
 /// Only tiles with the field are looked at, and their models read once
-/// each (the field is seldom written: the game's own tiles but one have
-/// no `replace_tex`).
-fn tile_replacements(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> =
-        module.keys().filter(|k| k.restype == ResType::ARE).copied().collect();
-    keys.sort();
-    let mut replaced: HashMap<String, bool> = HashMap::new();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let tiles = gff.root.list("Tile_List").unwrap_or(&[]);
-        let rows = d.table("replacetexture").map_or(0, TwoDa::len);
-        let crashing: Vec<(usize, i64, i64)> = (tiles.iter().enumerate())
-            .filter_map(|(i, t)| {
-                let v = t.integer("Tile_ReplaceTex")?;
-                mg_rules::rows::replacement_row(Some(v), rows)
-                    .is_none()
-                    .then(|| (i, v, t.integer("Tile_ID").unwrap_or(0)))
-            })
-            .collect();
-        if crashing.is_empty() {
+/// each (`replaced`: whether each draws one, kept from area to area; the
+/// field is seldom written: the game's own tiles but one have no
+/// `replace_tex`).
+fn tile_replacements(
+    d: &mut Doctor,
+    key: ResKey,
+    gff: &mg_gff::Gff,
+    replaced: &mut HashMap<String, bool>,
+) {
+    let tiles = gff.root.list("Tile_List").unwrap_or(&[]);
+    let rows = d.table("replacetexture").map_or(0, TwoDa::len);
+    let crashing: Vec<(usize, i64, i64)> = (tiles.iter().enumerate())
+        .filter_map(|(i, t)| {
+            let v = t.integer("Tile_ReplaceTex")?;
+            mg_rules::rows::replacement_row(Some(v), rows)
+                .is_none()
+                .then(|| (i, v, t.integer("Tile_ID").unwrap_or(0)))
+        })
+        .collect();
+    if crashing.is_empty() {
+        return;
+    }
+    let Ok(set) = crate::minimap::tileset(d.rm, &gff.root) else { return };
+    for (i, value, id) in crashing {
+        let Some(model) = usize::try_from(id).ok().and_then(|id| set.tiles.get(id)) else {
+            continue;
+        };
+        let model = model.model.to_ascii_lowercase();
+        let rm = d.rm;
+        let has = *replaced.entry(model.clone()).or_insert_with(|| {
+            (ResKey::parse(&model, ResType::MDL))
+                .and_then(|k| rm.get(&k).ok())
+                .and_then(|data| mg_mdl::Model::read(&data).ok())
+                .is_some_and(|m| m.draws_texture("replace_tex"))
+        });
+        if !has {
             continue;
         }
-        let Ok(set) = crate::minimap::tileset(d.rm, &gff.root) else { continue };
-        for (i, value, id) in crashing {
-            let Some(model) = usize::try_from(id).ok().and_then(|id| set.tiles.get(id)) else {
-                continue;
-            };
-            let model = model.model.to_ascii_lowercase();
-            let rm = d.rm;
-            let has = *replaced.entry(model.clone()).or_insert_with(|| {
-                (ResKey::parse(&model, ResType::MDL))
-                    .and_then(|k| rm.get(&k).ok())
-                    .and_then(|data| mg_mdl::Model::read(&data).ok())
-                    .is_some_and(|m| m.draws_texture("replace_tex"))
-            });
-            if !has {
-                continue;
-            }
-            let width = gff.root.integer("Width").unwrap_or(1).max(1) as usize;
-            let place = format!("tile ({}, {}), Tile_ReplaceTex", i % width, i / width);
-            let why = if value == 0 {
-                "0, which names no row (a row's value is one past it)".to_string()
-            } else {
-                format!("past replacetexture.2da's {rows} rows (row {} by it)", value - 1)
-            };
-            let message = format!(
-                "the tile's Tile_ReplaceTex is {value}, {why}: the game crashes as it loads the \
+        let width = gff.root.integer("Width").unwrap_or(1).max(1) as usize;
+        let place = format!("tile ({}, {}), Tile_ReplaceTex", i % width, i / width);
+        let why = if value == 0 {
+            "0, which names no row (a row's value is one past it)".to_string()
+        } else {
+            format!("past replacetexture.2da's {rows} rows (row {} by it)", value - 1)
+        };
+        let message = format!(
+            "the tile's Tile_ReplaceTex is {value}, {why}: the game crashes as it loads the \
                  area. Its model, {model}, draws a replace_tex texture: choose a row in Tile \
                  Properties' Replacement Texture"
-            );
-            d.push(Severity::Error, Check::TileReplace, "module", key, place, message);
-        }
+        );
+        d.push(Severity::Error, Check::TileReplace, "module", key, place, message);
     }
 }
 
@@ -3552,34 +3753,33 @@ fn tile_replacements(d: &mut Doctor, module: &Module) {
 /// (`tiles.rs` `shipped_tile_grids_are_consistent`). A tile the tileset
 /// lacks, or a hole in it, is the area's problems' to name, not this
 /// check's.
-fn tile_seams(d: &mut Doctor, module: &Module) {
-    let mut keys: Vec<ResKey> =
-        module.keys().filter(|k| k.restype == ResType::ARE).copied().collect();
-    keys.sort();
-    let mut indexes: HashMap<ResRef, Option<mg_tiles::TileIndex>> = HashMap::new();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let Some(name) = gff.root.resref("Tileset") else { continue };
-        let rm = d.rm;
-        let index = indexes.entry(name).or_insert_with(|| {
-            let set = crate::minimap::tileset(rm, &gff.root).ok()?;
-            Some(mg_tiles::TileIndex::new(&set))
-        });
-        let Some(index) = index else { continue };
-        let int = |s: &Struct, label: &str| s.integer(label).unwrap_or(0);
-        let width = u32::try_from(int(&gff.root, "Width")).unwrap_or(0).min(1024);
-        let height = u32::try_from(int(&gff.root, "Height")).unwrap_or(0).min(1024);
-        let tiles: Vec<mg_tiles::Placement> = (gff.root.list("Tile_List").unwrap_or(&[]).iter())
-            .map(|t| mg_tiles::Placement {
-                tile: u32::try_from(int(t, "Tile_ID")).unwrap_or(u32::MAX),
-                orientation: int(t, "Tile_Orientation").rem_euclid(4) as u8,
-                height: int(t, "Tile_Height").clamp(-1024, 1024) as i32,
-            })
-            .collect();
-        for seam in mg_tiles::seams(index, width, height, &tiles).area {
-            let (place, message) = seam_said(index, &seam);
-            d.push(Severity::Warning, Check::TileSeam, "module", key, place, message);
+fn tile_seams(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff, indexes: &TileIndexes) {
+    let Some(name) = gff.root.resref("Tileset") else { return };
+    // (Made outside the lock: two workers may make one at once, and
+    // the first kept is the one both use.)
+    let known = indexes.lock().ok().and_then(|made| made.get(&name).cloned());
+    let index = known.unwrap_or_else(|| {
+        let made = (crate::minimap::tileset(d.rm, &gff.root).ok())
+            .map(|set| std::sync::Arc::new(mg_tiles::TileIndex::new(&set)));
+        match indexes.lock() {
+            Ok(mut all) => all.entry(name).or_insert(made).clone(),
+            Err(_) => made,
         }
+    });
+    let Some(index) = index.as_deref() else { return };
+    let int = |s: &Struct, label: &str| s.integer(label).unwrap_or(0);
+    let width = u32::try_from(int(&gff.root, "Width")).unwrap_or(0).min(1024);
+    let height = u32::try_from(int(&gff.root, "Height")).unwrap_or(0).min(1024);
+    let tiles: Vec<mg_tiles::Placement> = (gff.root.list("Tile_List").unwrap_or(&[]).iter())
+        .map(|t| mg_tiles::Placement {
+            tile: u32::try_from(int(t, "Tile_ID")).unwrap_or(u32::MAX),
+            orientation: int(t, "Tile_Orientation").rem_euclid(4) as u8,
+            height: int(t, "Tile_Height").clamp(-1024, 1024) as i32,
+        })
+        .collect();
+    for seam in mg_tiles::seams(index, width, height, &tiles).area {
+        let (place, message) = seam_said(index, &seam);
+        d.push(Severity::Warning, Check::TileSeam, "module", key, place, message);
     }
 }
 
@@ -3637,12 +3837,21 @@ fn seam_said(index: &mg_tiles::TileIndex, seam: &mg_tiles::Seam) -> (String, Str
 /// `moonglow.toml`) that are on more than one object: `GetObjectByTag`
 /// gives a script only one of them (the one placed later, of two in an
 /// area: `engine_static_placeables`).
-fn unique_tags(d: &mut Doctor, module: &Module) {
+fn unique_tags(d: &mut Doctor, module: &Module, index: Option<&crate::tags::TagIndex>) {
     let rules = &module.project_file.tags;
     if !rules.any_unique() {
         return;
     }
-    let index = crate::tags::TagIndex::of_module(module);
+    // (The tags as the module's areas were read for the other checks;
+    // read for this one where they were not.)
+    let read;
+    let index = match index {
+        Some(index) => index,
+        None => {
+            read = crate::tags::TagIndex::of_module(module);
+            &read
+        }
+    };
     for b in index.breaches(rules) {
         let tag = String::from_utf8_lossy(b.tag);
         let (n, pattern) = (b.places.len(), b.pattern);
@@ -3720,148 +3929,151 @@ fn merged_areas(d: &mut Doctor, module: &Module) {
 /// what it is on, and names that look like a described one's but are
 /// not (in another case, which the game tells apart, or named as the
 /// project's are and described nowhere).
-fn described_variables(d: &mut Doctor, module: &Module) {
-    use crate::var_desc::{self, Choices, ModuleLookup, Unknown, type_label};
+///
+/// Of one resource: `found` are its variables, `lists` what reads a
+/// description's values and those read so far, and `unlisted` takes a
+/// list that can't be read, which is said once a run
+/// ([`SeenOnce::say_the_rest`]).
+fn described_variables(
+    d: &mut Doctor,
+    module: &Module,
+    key: ResKey,
+    gff: &mg_gff::Gff,
+    found: &[crate::var_desc::Found],
+    lists: (&crate::var_desc::ModuleLookup, &mut HashMap<String, crate::var_desc::Choices>),
+    unlisted: &mut Vec<Unlisted>,
+) {
+    use crate::var_desc::{self, Unknown, type_label};
     let vars = &module.project_file.variables;
     if vars.is_empty() {
         return;
     }
     let file = vars.file();
-    let lookup = ModuleLookup::new(module, Some(d.rm));
-    let mut choices: HashMap<String, Choices> = HashMap::new();
-    let mut unread: HashSet<String> = HashSet::new();
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| var_desc::Owner::of_restype(k.restype).is_some())
-        .copied()
-        .collect();
-    keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        let found = var_desc::variables_of(key, &gff);
-        // What each object (by its path) has without what one of its
-        // variables needs beside it. (An object's variables are found
-        // together, `variables_of` walking each table once: a run of one
-        // path is an object's, with no look through the file's others.)
-        for object in found.chunk_by(|a, b| a.path == b.path) {
-            let path = &object[0].path;
-            let here: Vec<(&str, &str)> =
-                object.iter().map(|f| (f.name.as_str(), f.value.as_str())).collect();
-            for n in vars.missing(&here) {
-                let table = var_desc::table_path(path);
-                let place = crate::rename::describe(key, Some(&gff), &table);
-                let why = match &n.is {
-                    Some(is) => format!("where {} is {is}", n.by),
-                    None => "beside it".to_string(),
-                };
-                let message = format!(
-                    "{} is set here and {} isn't: {file}:{} says it is needed {why}",
-                    n.by, n.require, n.line
-                );
-                let at = format!("{place} › {}", n.by);
-                d.push(Severity::Warning, Check::VarRequires, "module", key, at, message);
-            }
-        }
-        for f in found {
-            let place = crate::rename::describe(key, Some(&gff), &var_desc::table_path(&f.path));
-            let at = format!("{place} › {}", f.name);
-            let Some(desc) = vars.describe(&f.name) else {
-                let message = match vars.unknown(&f.name) {
-                    Some(Unknown::OtherCase(o)) => format!(
-                        "{} is described as {} ({file}:{}): the game tells names apart by \
-                         their case, and a script that reads {} finds nothing here",
-                        f.name, o.name, o.line, o.name
-                    ),
-                    Some(Unknown::Undescribed { pattern, nearest }) => {
-                        let near = nearest.map(|n| format!(": {n}?")).unwrap_or_default();
-                        format!(
-                            "{} is named as the project's variables are ({pattern}), and {file} \
-                             describes no such variable{near}",
-                            f.name
-                        )
-                    }
-                    None => continue,
-                };
-                d.push(Severity::Warning, Check::VarName, "module", key, at, message);
-                continue;
+    let (lookup, choices) = lists;
+    let mut unread: HashSet<&str> = HashSet::new();
+    // What each object (by its path) has without what one of its
+    // variables needs beside it. (An object's variables are found
+    // together, `variables_of` walking each table once: a run of one
+    // path is an object's, with no look through the file's others.)
+    for object in found.chunk_by(|a, b| a.path == b.path) {
+        let path = &object[0].path;
+        let here: Vec<(&str, &str)> =
+            object.iter().map(|f| (f.name.as_str(), f.value.as_str())).collect();
+        for n in vars.missing(&here) {
+            let table = var_desc::table_path(path);
+            let place = crate::rename::describe(key, Some(gff), &table);
+            let why = match &n.is {
+                Some(is) => format!("where {} is {is}", n.by),
+                None => "beside it".to_string(),
             };
-            // One the scripts alone set, kept here: it is there from the
-            // start, on every server (a test's hook fixing every roll).
-            if desc.runtime {
-                let how = if desc.is_pattern() {
-                    format!(" ({})", desc.quoted_for(&f.name))
-                } else {
-                    String::new()
-                };
-                // (A typo of a name of its own entry, a builder's, that
-                // one of the scripts' patterns takes: said as var-name
-                // says one.)
-                let near = vars
-                    .runtime_typo(&f.name)
-                    .map(|n| format!(": {}? ({file}:{})", n.name, n.line))
-                    .unwrap_or_default();
-                let message = format!(
-                    "{}{how} is set by the scripts while the server runs ({file}:{} says runtime \
+            let message = format!(
+                "{} is set here and {} isn't: {file}:{} says it is needed {why}",
+                n.by, n.require, n.line
+            );
+            let at = format!("{place} › {}", n.by);
+            d.push(Severity::Warning, Check::VarRequires, "module", key, at, message);
+        }
+    }
+    for f in found {
+        let place = crate::rename::describe(key, Some(gff), &var_desc::table_path(&f.path));
+        let at = format!("{place} › {}", f.name);
+        let Some(desc) = vars.describe(&f.name) else {
+            let message = match vars.unknown(&f.name) {
+                Some(Unknown::OtherCase(o)) => format!(
+                    "{} is described as {} ({file}:{}): the game tells names apart by \
+                         their case, and a script that reads {} finds nothing here",
+                    f.name, o.name, o.line, o.name
+                ),
+                Some(Unknown::Undescribed { pattern, nearest }) => {
+                    let near = nearest.map(|n| format!(": {n}?")).unwrap_or_default();
+                    format!(
+                        "{} is named as the project's variables are ({pattern}), and {file} \
+                             describes no such variable{near}",
+                        f.name
+                    )
+                }
+                None => continue,
+            };
+            d.push(Severity::Warning, Check::VarName, "module", key, at, message);
+            continue;
+        };
+        // One the scripts alone set, kept here: it is there from the
+        // start, on every server (a test's hook fixing every roll).
+        if desc.runtime {
+            let how = if desc.is_pattern() {
+                format!(" ({})", desc.quoted_for(&f.name))
+            } else {
+                String::new()
+            };
+            // (A typo of a name of its own entry, a builder's, that
+            // one of the scripts' patterns takes: said as var-name
+            // says one.)
+            let near = vars
+                .runtime_typo(&f.name)
+                .map(|n| format!(": {}? ({file}:{})", n.name, n.line))
+                .unwrap_or_default();
+            let message = format!(
+                "{}{how} is set by the scripts while the server runs ({file}:{} says runtime \
                      = true), and is never to be kept in a file: one kept here is there from the \
                      start, on every server{near}",
-                    f.name, desc.line
-                );
-                d.push(Severity::Error, Check::VarRuntime, "module", key, at, message);
-                continue;
-            }
-            if let (Some(want), Some(have)) = (desc.var_type, f.var_type)
-                && want != have
-            {
-                let message = format!(
-                    "{} is {} {} here, and {file}:{} says it is {} {}: the scripts read {}",
-                    f.name,
-                    if have == crate::vars::VarType::Int { "an" } else { "a" },
-                    type_label(have),
-                    desc.line,
-                    if want == crate::vars::VarType::Int { "an" } else { "a" },
-                    type_label(want),
-                    empty(want)
-                );
-                d.push(Severity::Error, Check::VarType, "module", key, at, message);
-                continue;
-            }
-            if !desc.belongs_on(f.owner) {
-                let on: Vec<&str> = desc.on.iter().map(|o| o.name()).collect();
-                let message = format!(
-                    "{} is on {} {}, and {file}:{} says it goes on {}",
-                    f.name,
-                    if f.owner.name().starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" },
-                    f.owner.name(),
-                    desc.line,
-                    on.join(", ")
-                );
-                d.push(Severity::Warning, Check::VarObject, "module", key, at.clone(), message);
-            }
-            let typed = matches!(
-                f.var_type,
-                Some(
-                    crate::vars::VarType::Int
-                        | crate::vars::VarType::Float
-                        | crate::vars::VarType::String
-                )
+                f.name, desc.line
             );
-            if !typed || !(desc.has_list() || desc.min.is_some() || desc.max.is_some()) {
-                continue;
-            }
-            let c = choices.entry(desc.name.clone()).or_insert_with(|| desc.choices(&lookup));
-            if let Some(problem) = &c.problem
-                && unread.insert(desc.name.clone())
-            {
-                let message = format!(
-                    "{}'s values ({file}:{}) can't be listed: {problem}",
-                    desc.name, desc.line
-                );
-                d.push(Severity::Warning, Check::VarValue, "module", key, at.clone(), message);
-            }
-            if let Some(problem) = desc.value_problem(&f.value, c) {
-                let message = format!("{}: {problem} ({file}:{})", f.name, desc.line);
-                d.push(Severity::Warning, Check::VarValue, "module", key, at, message);
-            }
+            d.push(Severity::Error, Check::VarRuntime, "module", key, at, message);
+            continue;
+        }
+        if let (Some(want), Some(have)) = (desc.var_type, f.var_type)
+            && want != have
+        {
+            let message = format!(
+                "{} is {} {} here, and {file}:{} says it is {} {}: the scripts read {}",
+                f.name,
+                if have == crate::vars::VarType::Int { "an" } else { "a" },
+                type_label(have),
+                desc.line,
+                if want == crate::vars::VarType::Int { "an" } else { "a" },
+                type_label(want),
+                empty(want)
+            );
+            d.push(Severity::Error, Check::VarType, "module", key, at, message);
+            continue;
+        }
+        if !desc.belongs_on(f.owner) {
+            let on: Vec<&str> = desc.on.iter().map(|o| o.name()).collect();
+            let message = format!(
+                "{} is on {} {}, and {file}:{} says it goes on {}",
+                f.name,
+                if f.owner.name().starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" },
+                f.owner.name(),
+                desc.line,
+                on.join(", ")
+            );
+            d.push(Severity::Warning, Check::VarObject, "module", key, at.clone(), message);
+        }
+        let typed = matches!(
+            f.var_type,
+            Some(
+                crate::vars::VarType::Int
+                    | crate::vars::VarType::Float
+                    | crate::vars::VarType::String
+            )
+        );
+        if !typed || !(desc.has_list() || desc.min.is_some() || desc.max.is_some()) {
+            continue;
+        }
+        let c = choices.entry(desc.name.clone()).or_insert_with(|| desc.choices(lookup));
+        if let Some(problem) = &c.problem
+            && unread.insert(desc.name.as_str())
+        {
+            let message =
+                format!("{}'s values ({file}:{}) can't be listed: {problem}", desc.name, desc.line);
+            // (Said once a run, at the first of them: this resource's
+            // first is noted, in its place among its findings.)
+            let (before, name) = (d.out.len(), desc.name.clone());
+            unlisted.push(Unlisted { before, name, at: at.clone(), message });
+        }
+        if let Some(problem) = desc.value_problem(&f.value, c) {
+            let message = format!("{}: {problem} ({file}:{})", f.name, desc.line);
+            d.push(Severity::Warning, Check::VarValue, "module", key, at, message);
         }
     }
 }
@@ -3871,9 +4083,18 @@ fn described_variables(d: &mut Doctor, module: &Module) {
 /// script reads that type's empty value (`engine_local_variables`). A
 /// variable the project describes with a type is held to that
 /// (`var-type`) instead; one no script names by its name is left.
-fn variables_read(d: &mut Doctor, module: &Module) {
+///
+/// Of one resource: `found` are its variables, `reads` what the module's
+/// scripts read or set by name ([`crate::var_desc::script_reads`]).
+fn variables_read(
+    d: &mut Doctor,
+    module: &Module,
+    key: ResKey,
+    gff: &mg_gff::Gff,
+    found: &[crate::var_desc::Found],
+    reads: &std::collections::BTreeMap<String, Vec<crate::var_desc::Read>>,
+) {
     use crate::var_desc::{self, type_label};
-    let reads = var_desc::script_reads(module);
     if reads.is_empty() {
         return;
     }
@@ -3882,43 +4103,34 @@ fn variables_read(d: &mut Doctor, module: &Module) {
         crate::vars::VarType::Int => "an",
         _ => "a",
     };
-    let mut keys: Vec<ResKey> = module
-        .keys()
-        .filter(|k| var_desc::Owner::of_restype(k.restype).is_some())
-        .copied()
-        .collect();
-    keys.sort();
-    for key in keys {
-        let Some(Ok(gff)) = module.gff(&key) else { continue };
-        for f in var_desc::variables_of(key, &gff) {
-            let (Some(have), Some(read)) = (f.var_type, reads.get(&f.name)) else { continue };
-            if read.iter().any(|r| r.var_type == have)
-                || vars.describe(&f.name).is_some_and(|x| x.var_type.is_some() || x.runtime)
-            {
-                continue;
-            }
-            let first = &read[0];
-            let more = match read.len() {
-                1 => String::new(),
-                n => format!(" and {} more", n - 1),
-            };
-            let place = crate::rename::describe(key, Some(&gff), &var_desc::table_path(&f.path));
-            let message = format!(
-                "{} is {} {} here, and the scripts read it as {} {} ({} in {}.nss line {}{more}): \
-                 they read {}",
-                f.name,
-                article(have),
-                type_label(have),
-                article(first.var_type),
-                type_label(first.var_type),
-                first.function,
-                first.script.resref,
-                first.line,
-                empty(first.var_type)
-            );
-            let at = format!("{place} › {}", f.name);
-            d.push(Severity::Warning, Check::VarScript, "module", key, at, message);
+    for f in found {
+        let (Some(have), Some(read)) = (f.var_type, reads.get(&f.name)) else { continue };
+        if read.iter().any(|r| r.var_type == have)
+            || vars.describe(&f.name).is_some_and(|x| x.var_type.is_some() || x.runtime)
+        {
+            continue;
         }
+        let first = &read[0];
+        let more = match read.len() {
+            1 => String::new(),
+            n => format!(" and {} more", n - 1),
+        };
+        let place = crate::rename::describe(key, Some(gff), &var_desc::table_path(&f.path));
+        let message = format!(
+            "{} is {} {} here, and the scripts read it as {} {} ({} in {}.nss line {}{more}): \
+                 they read {}",
+            f.name,
+            article(have),
+            type_label(have),
+            article(first.var_type),
+            type_label(first.var_type),
+            first.function,
+            first.script.resref,
+            first.line,
+            empty(first.var_type)
+        );
+        let at = format!("{place} › {}", f.name);
+        d.push(Severity::Warning, Check::VarScript, "module", key, at, message);
     }
 }
 

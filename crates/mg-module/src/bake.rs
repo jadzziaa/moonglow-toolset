@@ -829,21 +829,25 @@ pub fn rows_held(rules: &Rows, table: &TwoDa, rows: &RowsFile) -> Vec<u32> {
 /// Each `Appearance` the module's placeables have, placed and blueprints,
 /// with how many have it.
 pub fn appearances(module: &Module) -> BTreeMap<u32, usize> {
+    use rayon::prelude::*;
+    // (Each file read on a core of its own: a persistent world's areas
+    // are thousands, and the count is the same in any order.)
+    let keys: Vec<&ResKey> =
+        module.keys_of(ResType::UTP).chain(module.keys_of(ResType::GIT)).collect();
+    let of_each: Vec<Vec<u32>> = keys
+        .par_iter()
+        .map(|key| {
+            let Some(Ok(g)) = module.gff(key) else { return Vec::new() };
+            let placed = match key.restype {
+                ResType::UTP => std::slice::from_ref(&g.root),
+                _ => g.root.list("Placeable List").unwrap_or(&[]),
+            };
+            placed.iter().filter_map(|p| p.integer("Appearance")).map(|a| a as u32).collect()
+        })
+        .collect();
     let mut out = BTreeMap::new();
-    for key in module.keys_of(ResType::UTP) {
-        if let Some(Ok(g)) = module.gff(key)
-            && let Some(a) = g.root.integer("Appearance")
-        {
-            *out.entry(a as u32).or_default() += 1;
-        }
-    }
-    for key in module.keys_of(ResType::GIT) {
-        let Some(Ok(g)) = module.gff(key) else { continue };
-        for p in g.root.list("Placeable List").unwrap_or(&[]) {
-            if let Some(a) = p.integer("Appearance") {
-                *out.entry(a as u32).or_default() += 1;
-            }
-        }
+    for a in of_each.into_iter().flatten() {
+        *out.entry(a).or_default() += 1;
     }
     out
 }
