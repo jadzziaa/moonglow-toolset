@@ -62,6 +62,9 @@ pub struct TypedState {
     /// is answered. The one slot held the last of them alone, and the
     /// edit asked about before it was dropped without a word.
     waiting: std::collections::VecDeque<(Command, Vec<(String, Answer)>)>,
+    /// The lines of the project's `[talk] map` ([`map_lines`]), kept
+    /// while its file is as it was read.
+    map: std::cell::RefCell<Option<MapKept>>,
     /// Why typed text stayed in the file, each said once.
     said: BTreeSet<String>,
 }
@@ -138,6 +141,42 @@ fn note(app: &mut Moonglow, why: String) {
     }
 }
 
+/// The map's file as it was when its lines were read: where it is, its
+/// time and its size (none: not there), and what was read.
+type MapKept = (
+    std::path::PathBuf,
+    Option<(std::time::SystemTime, u64)>,
+    Result<std::sync::Arc<BTreeSet<u32>>, String>,
+);
+
+/// The lines of the project's `[talk] map` (`mg tlk-alloc`'s, which typed
+/// text never takes; none where the project names no map), or why the
+/// map can't be read. Read again when the file's time or size changes,
+/// and kept between: Module Properties › Custom Content read and parsed
+/// it twice every frame it showed, a megabyte of JSON for a map of
+/// 20,000 lines.
+pub(crate) fn map_lines(app: &Moonglow) -> Result<std::sync::Arc<BTreeSet<u32>>, String> {
+    let path = app.ws.as_ref().and_then(|ws| ws.module.project_file.talk_map_path());
+    let Some(path) = path else {
+        *app.typed.map.borrow_mut() = None;
+        return Ok(Default::default());
+    };
+    let stamp = std::fs::metadata(&path).ok().map(|m| (m.modified().ok(), m.len()));
+    let stamp = stamp.and_then(|(time, len)| Some((time?, len)));
+    let mut kept = app.typed.map.borrow_mut();
+    if let Some((of, was, lines)) = &*kept
+        && *of == path
+        && *was == stamp
+    {
+        return lines.clone();
+    }
+    let read = app.ws.as_ref().map_or(Ok(None), |ws| ws.module.project_file.talk_map());
+    let lines =
+        read.map(|m| std::sync::Arc::new(m.map(|m| talk_range::map_lines(&m)).unwrap_or_default()));
+    *kept = Some((path, stamp, lines.clone()));
+    lines
+}
+
 /// The next line text typed (or Move to Talk Table) takes: in the
 /// builder's lines of the project's range, past lines with text, `mg
 /// tlk-alloc`'s and those Redo would put back; the table's end without a
@@ -146,7 +185,7 @@ pub(crate) fn next_line(app: &Moonglow, t: &Table) -> Result<usize, String> {
     let Some(ws) = &app.ws else { return Ok(t.len()) };
     let pf = &ws.module.project_file;
     let allowed = pf.talk_allowed();
-    let map = pf.talk_map()?.map(|m| talk_range::map_lines(&m)).unwrap_or_default();
+    let map = map_lines(app)?;
     let held = app.typed.held();
     let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
     let row = talk_range::next_free(
@@ -528,5 +567,46 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         for (cmd, answers) in std::mem::take(&mut app.typed.waiting) {
             app.actions.push(Action::ApplyTypedWith(cmd, answers));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_module::{Module, ModuleLocation};
+
+    /// The lines of the project's `[talk] map` are read once and kept
+    /// while the file is as it was (Module Properties read and parsed it
+    /// twice a frame: the review of November 2026, D25), read again when
+    /// it changes, and none where the project names no map.
+    #[test]
+    fn the_talk_map_s_lines_are_kept_while_its_file_is_as_it_was() {
+        let dir = mg_testkit::scratch_dir("ui-talk-map-kept").join("project");
+        Module::new().save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(dir.join("moonglow.toml"), "[talk]\nmap = \"lines.json\"\n").unwrap();
+        let map = |lines: &str| {
+            format!("{{\"version\": 1, \"lines\": {{{lines}}}, \"retired\": {{\"old\": 7}}}}")
+        };
+        std::fs::write(dir.join("lines.json"), map("\"a\": 3")).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir);
+        let first = map_lines(&app).unwrap();
+        assert_eq!(first.iter().copied().collect::<Vec<u32>>(), [3, 7], "in use and retired");
+        let again = map_lines(&app).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &again), "kept: not read again");
+        // Changed (another line: another size): read again.
+        std::fs::write(dir.join("lines.json"), map("\"a\": 3, \"b\": 12")).unwrap();
+        let next = map_lines(&app).unwrap();
+        assert_eq!(next.iter().copied().collect::<Vec<u32>>(), [3, 7, 12]);
+        // One that does not read is said, and gone is none.
+        std::fs::write(dir.join("lines.json"), "not a map").unwrap();
+        assert!(map_lines(&app).is_err());
+        std::fs::remove_file(dir.join("lines.json")).unwrap();
+        assert!(map_lines(&app).unwrap().is_empty());
+        // No map named: none, and nothing kept.
+        std::fs::write(dir.join("moonglow.toml"), "").unwrap();
+        app.reload_project_files();
+        assert!(map_lines(&app).unwrap().is_empty());
+        assert!(app.typed.map.borrow().is_none());
     }
 }

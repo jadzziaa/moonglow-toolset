@@ -687,7 +687,8 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
     let file = place
         .as_ref()
         .map_or_else(|| mg_module::project_file::FILE_NAME.to_string(), |p| p.team_name());
-    let map = pf.talk_map();
+    // (Its lines as kept while the file is as it was: not read again.)
+    let map = crate::talk_typed::map_lines(app);
     let id = egui::Id::new("typed-lines");
     let shown = |l: Option<Lines>| {
         l.map_or((String::new(), String::new()), |l| (l.from.to_string(), l.to.to_string()))
@@ -764,12 +765,7 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
         (_, None) => None,
         (_, Some(t)) => {
             let next = crate::talk_typed::next_line(app, t);
-            let map_lines = map
-                .as_ref()
-                .ok()
-                .and_then(|m| m.as_ref())
-                .map(talk_range::map_lines)
-                .unwrap_or_default();
+            let map_lines = map.clone().unwrap_or_default();
             let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
             let left =
                 talk_range::free_lines(&allowed, len, |l| t.is_blank(l as usize), &map_lines);

@@ -1717,11 +1717,18 @@ impl ProjectFile {
         self.place.as_ref()
     }
 
+    /// Where `[talk] map` is read from, beside the team's file (none
+    /// where `[talk]` names none): for a caller that keeps what
+    /// [`ProjectFile::talk_map`] reads while the file is as it was.
+    pub fn talk_map_path(&self) -> Option<PathBuf> {
+        let dir = self.path.as_deref().and_then(Path::parent)?;
+        self.talk.map_path(dir)
+    }
+
     /// `[talk] map`: `mg tlk-alloc`'s map, read from beside the team's
     /// file (none where `[talk]` names none, or the file isn't there yet).
     pub fn talk_map(&self) -> Result<Option<crate::tlk_alloc::Map>, String> {
-        let Some(dir) = self.path.as_deref().and_then(Path::parent) else { return Ok(None) };
-        let Some(path) = self.talk.map_path(dir) else { return Ok(None) };
+        let Some(path) = self.talk_map_path() else { return Ok(None) };
         match std::fs::read_to_string(&path) {
             Ok(text) => crate::tlk_alloc::Map::read(&text)
                 .map(Some)
