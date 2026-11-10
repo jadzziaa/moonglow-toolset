@@ -281,9 +281,7 @@ pub(super) fn images(
             .hint("Find a picture…")
             .width(width)
             .show(ui);
-        let query = mg_core::text::Needle::new(&state.asset_search);
-        let names: Vec<_> =
-            assets.catalog.iter().filter(|n| query.finds(n)).take(24).cloned().collect();
+        let names = assets.found(&state.asset_search, 24).to_vec();
         assets.request_images(ui.ctx(), names.iter().cloned().collect());
         ui.small("First 24 matches from the current module and content stack");
         let row_array = node[field]["bind"]
