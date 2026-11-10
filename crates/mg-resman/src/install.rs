@@ -1121,8 +1121,10 @@ mod install_tests {
         assert_eq!(found, [("high".into(), Some(patches.join("high.hak")))]);
         // A name's bytes are its file's, as a module's hak's are: on Linux
         // `se\xF1or` is the file with the byte 0xF1, not the one named in
-        // UTF-8; and a name with a folder in it is no file's.
-        #[cfg(unix)]
+        // UTF-8; and a name with a folder in it is no file's. Linux only:
+        // macOS refuses a file name that isn't UTF-8 ("Illegal byte
+        // sequence"), Windows names are UTF-16.
+        #[cfg(target_os = "linux")]
         {
             use std::os::unix::ffi::OsStrExt;
             let byte = patches.join(std::ffi::OsStr::from_bytes(b"se\xF1or.hak"));
