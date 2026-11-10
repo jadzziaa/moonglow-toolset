@@ -1713,9 +1713,17 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
         app.thumbnails.flushed = revision;
     }
     app.thumbnails.take_read();
-    // (Read apart and no longer asked for: let go of.)
+    // (Read apart and no longer asked for: let go of; and those waiting
+    // to be read, taken out of the readers' queue. Left in it, first in,
+    // first out, a gallery of thousands dragged to its end had every row
+    // seen for a frame read, uploaded and dropped before those in sight.)
     let asked: std::collections::HashSet<Kept> = wanted.iter().copied().collect();
     app.thumbnails.ready.retain(|k, _| asked.contains(k));
+    if let Some(reader) = &app.thumbnails.reader {
+        for kept in reader.keep(&asked) {
+            app.thumbnails.loading.remove(&kept);
+        }
+    }
     let (mut made, mut waiting) = (0, Vec::new());
     for key in wanted {
         let current = app
@@ -2015,6 +2023,27 @@ impl PictureReader {
         if let Ok(mut q) = self.queue.0.lock() {
             q.jobs.clear();
         }
+    }
+
+    /// Takes the jobs waiting whose pictures are not `asked` for any more
+    /// out of the queue: those pictures.
+    fn keep(&self, asked: &std::collections::HashSet<Kept>) -> Vec<Kept> {
+        self.queue.0.lock().map(|mut q| q.keep(asked)).unwrap_or_default()
+    }
+}
+
+impl PictureQueue {
+    /// [`PictureReader::keep`].
+    fn keep(&mut self, asked: &std::collections::HashSet<Kept>) -> Vec<Kept> {
+        let mut gone = Vec::new();
+        self.jobs.retain(|job| {
+            let kept = asked.contains(&job.kept);
+            if !kept {
+                gone.push(job.kept);
+            }
+            kept
+        });
+        gone
     }
 }
 
@@ -2521,6 +2550,37 @@ pub(crate) fn render_tile_from_above(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pictures scrolled past are not made before those in sight (the
+    /// review's B25): a thousand asked for in one frame and ten others in
+    /// the next, the ten are served first, the thousand taken out of what
+    /// waits (they are asked for again if shown again).
+    #[test]
+    fn pictures_no_longer_asked_for_are_taken_out_of_the_queue() {
+        let game = Arc::new(mg_rules::GameData::new(
+            mg_resman::ResMan::new(),
+            mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+        ));
+        let job = |i: u64| PictureJob {
+            kept: (Pictured::Item(i), false),
+            era: 0,
+            parts: Vec::new(),
+            module: Arc::default(),
+            game: game.clone(),
+        };
+        let mut queue = PictureQueue::default();
+        queue.jobs.extend((0..1000).map(job));
+        // The next frame asks for ten others, and two of the thousand.
+        let next: Vec<Kept> =
+            [998, 999].into_iter().chain(1000..1010).map(|i| (Pictured::Item(i), false)).collect();
+        let asked: std::collections::HashSet<Kept> = next.iter().copied().collect();
+        let gone = queue.keep(&asked);
+        assert_eq!(gone.len(), 998);
+        assert!(gone.iter().all(|k| !asked.contains(k)));
+        queue.jobs.extend((1000..1010).map(job));
+        let served: Vec<Kept> = queue.jobs.iter().map(|j| j.kept).collect();
+        assert_eq!(served, next, "those asked for, in their order");
+    }
 
     /// A creature pictured in another appearance (its Appearance list,
     /// the Appearance Gallery) wears what it wears: the bandit's armor
