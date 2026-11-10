@@ -45,6 +45,23 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="4.0.0" date="2026-11-10">
+      <description>
+        <p>The fixes of a review of the whole codebase: of its 349
+        findings, 340 are fixed whole or in part. Work is no longer lost
+        after an Undo past a save, by the module's Undo in a script's
+        unsaved text, or by an open window writing to the object that
+        took its object's place. Crafted tilesets, models, archives,
+        windows and plugins are bounded, and the window is faster in
+        long lists, large selections and Verify.</p>
+        <p>Some behavior changes on purpose: mg dialog-import replaces a
+        conversation only with --force; mg compile and mg nui generate
+        fail on a compile error; a recovery copy belongs to its window,
+        and a second Moonglow keeps its own; Alt + drag moves the view
+        in Paint, Select Tiles and with a tile brush; the built-in
+        manual follows its links.</p>
+      </description>
+    </release>
     <release version="3.18.1" date="2026-11-09">
       <description>
         <p>Exact Tile places tile groups as they are and replaces a group
