@@ -38,8 +38,7 @@ pub const LEVELS: [&str; 4] = ["1-5", "6-10", "11-15", "16-20"];
 /// The qualities, as the wizard names them.
 pub const QUALITIES: [&str; 4] = ["Low", "Medium", "High", "Godly"];
 
-/// Use Limitation: Class (itempropdef.2da row).
-const USE_LIMITATION_CLASS: u16 = 63;
+use crate::items::USE_LIMITATION_CLASS;
 
 /// The charges of staves, rods and wands.
 pub const CHARGES: u8 = 50;
@@ -171,8 +170,10 @@ impl ItemMagic {
     /// The tier the first property is of: the step `3 × level + quality`
     /// of 12, as far up the table's tiers.
     pub fn tier(&self, level: u8, quality: u8) -> i32 {
-        let step = 3 * i32::from(level.min(3)) + i32::from(quality.min(3));
-        (step * self.top * 2 + 12) / 24
+        let step = 3 * i64::from(level.min(3)) + i64::from(quality.min(3));
+        // (No higher than the top tier, a table's `Value`: in 64 bits, so
+        // that one past 89 million does not wrap on the way.)
+        ((step * i64::from(self.top) * 2 + 12) / 24) as i32
     }
 
     /// The tiers the properties after the first are of: one or two
@@ -249,9 +250,12 @@ impl ItemMagic {
         let at = |tier: i32| -> Vec<ItemProperty> {
             self.rows.iter().filter(|r| r.1 == tier).map(|r| r.0).collect()
         };
-        let Some(rows) =
-            (0..=first).rev().chain(first + 1..=self.top).map(at).find(|r| !r.is_empty())
-        else {
+        // (Of the tiers the rows have, not every number up to the top one:
+        // a table whose tiers are 0 and 100,000,000 went through each.)
+        let tiers = || self.rows.iter().map(|r| r.1).filter(|t| (0..=self.top).contains(t));
+        let nearest = (tiers().filter(|t| *t <= first).max())
+            .or_else(|| tiers().filter(|t| *t > first).min());
+        let Some(rows) = nearest.map(at) else {
             return Magic::default();
         };
         v.properties.push(rows[rng.usize(..rows.len())]);
@@ -494,5 +498,39 @@ mod tests {
         assert_eq!(most_worth(&game, 0, 1), Some(2500));
         assert_eq!(most_worth(&game, 0, 3), Some(5000));
         assert_eq!(most_worth(&game, 3, 3), None, "a short table");
+    }
+
+    /// A table whose tiers are 0 and 100,000,000 (its `Value` column is
+    /// any number): the first property is of the nearest tier the rows
+    /// have, found among them, not by going through every number between;
+    /// and the tier of a level and quality is worked out without wrapping.
+    #[test]
+    fn tiers_far_apart_are_found_among_the_rows() {
+        let game = data();
+        let top = 100_000_000;
+        let (low, high) = (
+            ItemProperty { property: 1, ..Default::default() },
+            ItemProperty { property: 0, cost_table: 1, cost_value: 5, ..Default::default() },
+        );
+        let magic = ItemMagic {
+            kind: Kind::Other,
+            table: "itmwizmelee",
+            rows: vec![(low, 0), (high, top)],
+            top,
+            classes: Vec::new(),
+            charges: 0,
+        };
+        assert_eq!(magic.tier(3, 3), top);
+        assert_eq!(magic.tier(0, 0), 0);
+        assert_eq!(magic.tier(1, 2), top * 5 / 12 + 1, "five twelfths up, rounded");
+        let item = ItemValue { base_item: 0, stack_size: 1, ..Default::default() };
+        let started = std::time::Instant::now();
+        // (Godly 16-20: the top tier's; Medium 6-10, between the two: the
+        // one below; and with none below, the one above.)
+        assert_eq!(magic.generate(&game, &item, 3, 3, 1).properties[0], high);
+        assert_eq!(magic.generate(&game, &item, 1, 1, 1).properties[0], low);
+        let above = ItemMagic { rows: vec![(high, top)], ..magic };
+        assert_eq!(above.generate(&game, &item, 0, 0, 1).properties[0], high);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 }

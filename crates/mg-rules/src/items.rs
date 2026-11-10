@@ -201,12 +201,11 @@ impl GameData {
 
     /// Whether a base item is armor (its parts make its model).
     pub fn is_armor(&self, base_item: u32) -> bool {
-        self.table("baseitems").ok().and_then(|t| t.get_int(base_item as usize, "ModelType"))
-            == Some(3)
+        self.table("baseitems").is_ok_and(|t| is_armor_row(&t, base_item as usize))
     }
 
     /// The feats an item needs to be equipped, any one of them: its base
-    /// item's `ReqFeat0`–`5`, or for armor the proficiency its armor class
+    /// item's `ReqFeat0`–`4` (the columns baseitems.2da has), or for armor the proficiency its armor class
     /// takes (hardcoded: 1–3 Light, 4–5 Medium, 6 and up Heavy Armor
     /// Proficiency, feats 3, 4 and 2). Aurora checks them as an item is
     /// equipped (`docs/research/notes_creature_spells.md`).
@@ -214,7 +213,7 @@ impl GameData {
         let base = item.integer("BaseItem").unwrap_or(-1);
         let Ok(row) = usize::try_from(base) else { return Vec::new() };
         let table = self.table("baseitems").ok();
-        let listed: Vec<u16> = (0..6)
+        let listed: Vec<u16> = (0..5)
             .filter_map(|i| table.as_ref()?.get_int(row, &format!("ReqFeat{i}")))
             .filter_map(|f| u16::try_from(f).ok())
             .collect();
@@ -424,6 +423,13 @@ pub fn wide_label(label: &str) -> String {
 /// BYTE field's.
 pub fn part_number(s: &mg_gff::Struct, label: &str) -> Option<i64> {
     s.integer(&wide_label(label)).or_else(|| s.integer(label))
+}
+
+/// Whether row `row` of baseitems.2da is armor: its `ModelType` is 3, as
+/// the game reads the cell. The one reading of it
+/// ([`GameData::is_armor`], an appearance's parts, an item's icon).
+pub fn is_armor_row(baseitems: &mg_2da::TwoDa, row: usize) -> bool {
+    baseitems.get_int(row, "ModelType") == Some(3)
 }
 
 /// An armor's torso, its parts_chest.2da row: [`part_number`]'s, so one
@@ -712,15 +718,14 @@ impl GameData {
             Some((column, unset)) => t.get_int(row, column).unwrap_or(unset) != 0,
             None => true,
         };
+        let (name, label) = (t.column("Name"), t.column("Label"));
         (0..t.len())
             .filter(|&row| keep(row))
             .filter_map(|row| {
-                let name = t.get_int(row, "Name")?;
-                let text = self
-                    .string(mg_core::StrRef(name as u32))
-                    .filter(|s| !s.is_empty())
-                    .or_else(|| t.get(row, "Label").map(str::to_string))?;
-                Some(crate::Choice { row, text })
+                // (A row without a `Name` number is no choice: the
+                // "Random" rows. The others by the one naming of a row.)
+                t.get_int(row, "Name")?;
+                Some(crate::Choice { row, text: self.named_row(&t, row, name, None, label)? })
             })
             .collect()
     }
@@ -859,9 +864,10 @@ impl GameData {
                 .or_else(|| string(defs.get_int(r, "Name")))
                 .unwrap_or_else(|| format!("({})", p.property)),
         ];
+        // (A row's name as the lists of them have it: `named_row`.)
         let name_of = |table: Option<String>, row: usize| {
             let t = self.table(&table?.to_lowercase()).ok()?;
-            string(t.get_int(row, "Name")).or_else(|| t.get(row, "Label").map(str::to_string))
+            self.named_row(&t, row, t.column("Name"), None, t.column("Label"))
         };
         let Some(t) = self.property_type(p.property) else { return parts.remove(0) };
         if t.subtypes.is_some() {

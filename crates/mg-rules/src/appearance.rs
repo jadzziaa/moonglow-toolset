@@ -297,10 +297,9 @@ impl AppearanceRow {
         // DefaultModel (not armor: a body wears it).
         let item = self.table == "baseitems";
         let armor = item
-            && usize::try_from(self.row)
-                .ok()
-                .and_then(|r| tables("baseitems")?.get(r, "ModelType"))
-                == Some("3");
+            && usize::try_from(self.row).is_ok_and(|r| {
+                tables("baseitems").is_some_and(|t| crate::items::is_armor_row(t, r))
+            });
         let drawn_instead = (item && !armor && out.found.is_empty())
             .then(|| {
                 let r = usize::try_from(self.row).ok()?;

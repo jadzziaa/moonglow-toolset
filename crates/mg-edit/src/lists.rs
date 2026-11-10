@@ -488,10 +488,16 @@ pub const STORE_PANEL_PAGE: [u32; 5] = {
 /// `width` wide, row by row, among `taken` rectangles (x, y, w, h).
 pub fn place(taken: &[(u32, u32, u32, u32)], width: u32, w: u32, h: u32) -> (u32, u32) {
     let w = w.clamp(1, width);
+    // (A place and a size are numbers a file gives: added in 64 bits, an
+    // item at the far end of what a field holds wraps onto no row.)
+    let end = |at: u32, size: u32| u64::from(at) + u64::from(size);
     let free = |x: u32, y: u32| {
-        taken
-            .iter()
-            .all(|&(tx, ty, tw, th)| x + w <= tx || tx + tw <= x || y + h <= ty || ty + th <= y)
+        taken.iter().all(|&(tx, ty, tw, th)| {
+            end(x, w) <= u64::from(tx)
+                || end(tx, tw) <= u64::from(x)
+                || end(y, h) <= u64::from(ty)
+                || end(ty, th) <= u64::from(y)
+        })
     };
     (0..)
         .find_map(|y| (0..=width - w).find(|&x| free(x, y)).map(|x| (x, y)))
@@ -693,5 +699,10 @@ mod tests {
         assert_eq!(place(&[(0, 0, 2, 3)], 10, 2, 3), (2, 0));
         let row: Vec<_> = (0..5).map(|i| (i * 2, 0, 2, 1)).collect();
         assert_eq!(place(&row, 10, 1, 1), (0, 1));
+        // An item at the far end of what a field holds (a file's numbers)
+        // is in no one's way, and adds up to no wrapped place.
+        let far = [(u32::MAX, u32::MAX, 10, 255), (u32::MAX - 3, 0, 10, 255)];
+        assert_eq!(place(&far, 10, 2, 3), (0, 0));
+        assert_eq!(STORE_PANEL_PAGE, [0, 4, 2, 3, 1], "the pages of the panels, in their order");
     }
 }

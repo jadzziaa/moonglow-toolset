@@ -57,6 +57,11 @@ pub(crate) fn byte(v: i64) -> u8 {
     u8::try_from(v).unwrap_or(u8::MAX)
 }
 
+/// A number held to `lo..=hi`, a field's range.
+pub(crate) fn held(v: i64, lo: i32, hi: i32) -> i32 {
+    v.clamp(i64::from(lo), i64::from(hi)) as i32
+}
+
 #[derive(Debug, Error)]
 pub enum RulesError {
     #[error(transparent)]
@@ -477,6 +482,20 @@ impl GameData {
         self.choices.write().expect("choice cache poisoned").insert(key, out.clone());
         Ok(out)
     }
+}
+
+/// The game's data with only `tables` (each a name and what follows a
+/// 2DA's header), for the tests of what is worked out of them.
+#[cfg(test)]
+pub(crate) fn test_game(tables: &[(&str, &str)]) -> GameData {
+    let mut mem = mg_resman::MemContainer::new();
+    for (name, body) in tables {
+        let text = format!("2DA V2.0\n\n{body}");
+        mem.insert(ResKey::parse(name, ResType::TWODA).unwrap(), text.as_bytes());
+    }
+    let mut rm = ResMan::new();
+    rm.add(mg_resman::priority::KEY, "mem", mg_resman::LayerClass::Key, mem);
+    GameData::new(rm, Tlk::new(Language::ENGLISH))
 }
 
 #[cfg(test)]

@@ -114,7 +114,8 @@ impl GameData {
             .get(row, "SpellcastingAbil")
             .and_then(|a| ABILITIES.iter().position(|x| x.eq_ignore_ascii_case(a)))
             .unwrap_or(3);
-        let score = creature.integer(ABILITIES[ability]).unwrap_or(0) as i32 + racial[ability];
+        let own = crate::held(creature.integer(ABILITIES[ability]).unwrap_or(0), 0, 255);
+        let score = own.saturating_add(racial[ability]);
         let (base, m) =
             if prepares { (gain, modifier(score)) } else { (table("SpellKnownTable"), 0) };
         let max = std::array::from_fn(|l| {
@@ -124,7 +125,7 @@ impl GameData {
                 .unwrap_or(0)
                 .max(0) as usize;
             let bonus = if m >= l as i32 { (m - l as i32) / 4 + 1 } else { 0 };
-            n + bonus as usize
+            n.saturating_add(bonus as usize)
         });
         Some(SpellSlots { prepares, levels, ability, score, max })
     }

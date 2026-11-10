@@ -107,13 +107,10 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
         // lays the game's armors of each (captured 2026-10-30,
         // `captures/wave2/before.mod`); the base item's `DefaultModel`
         // where one is not there.
-        let torso = mg_rules::items::part_number(uti, "ArmorPart_Torso").unwrap_or(0);
-        let parts = game.table("parts_chest")?;
-        let ac = usize::try_from(torso)
-            .ok()
-            .and_then(|row| crate::cell_f32(&parts, row, "ACBONUS"))
-            .unwrap_or(0.0);
-        let by_weight = match ac as i32 {
+        // (Its armor class by the one working of it, rounded: the one its
+        // cost and its proficiency go by.)
+        game.table("parts_chest")?;
+        let by_weight = match game.armor_class(mg_rules::items::torso(uti)) {
             ..=1 => "gi_armor01",
             2..=3 => "gi_armor04",
             4..=5 => "gi_armor03",

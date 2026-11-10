@@ -119,36 +119,44 @@ fn great_abilities(feats: &[u16]) -> [i32; 6] {
 
 /// An ability score's modifier.
 pub fn modifier(score: i32) -> i32 {
-    (score - 10).div_euclid(2)
+    score.saturating_sub(10).div_euclid(2)
 }
 
+/// The most levels a class entry is read as having (`ClassLevel` is a
+/// SHORT).
+const MOST_LEVELS: i32 = i16::MAX as i32;
+
 impl CreatureSheet {
-    /// The fields of a creature (a UTC, or a creature in an area).
+    /// The fields of a creature (a UTC, or a creature in an area). Each
+    /// number is held to what its field holds (an ability a BYTE, a level
+    /// and a save bonus a SHORT), whatever type a file gives it: an
+    /// ability of 2,147,483,647 in a file some tool wrote is 255, and a
+    /// feat or spell past a WORD is none (not the feat its low bits spell).
     pub fn from_gff(s: &mg_gff::Struct) -> CreatureSheet {
         let int = |label: &str| s.integer(label).unwrap_or(0);
+        let short = |v: i64| crate::held(v, i32::from(i16::MIN), i32::from(i16::MAX));
         CreatureSheet {
-            race: int("Race").max(0) as u32,
-            appearance: int("Appearance_Type").max(0) as u32,
-            abilities: ABILITIES.map(|a| int(a) as i32),
+            race: crate::row(int("Race")),
+            appearance: crate::row(int("Appearance_Type")),
+            abilities: ABILITIES.map(|a| crate::held(int(a), 0, 255)),
             classes: s
                 .list("ClassList")
                 .unwrap_or(&[])
                 .iter()
                 .map(|c| {
-                    let n = |l: &str| c.integer(l).unwrap_or(0).max(0) as u32;
-                    (n("Class"), n("ClassLevel"))
+                    let n = |l: &str| c.integer(l).unwrap_or(0);
+                    (crate::row(n("Class")), crate::held(n("ClassLevel"), 0, MOST_LEVELS) as u32)
                 })
                 .collect(),
             feats: s
                 .list("FeatList")
                 .unwrap_or(&[])
                 .iter()
-                .filter_map(|f| f.integer("Feat"))
-                .map(|f| f as u16)
+                .filter_map(|f| u16::try_from(f.integer("Feat")?).ok())
                 .collect(),
-            natural_ac: int("NaturalAC") as i32,
-            save_bonus: ["fortbonus", "refbonus", "willbonus"].map(|l| int(l) as i32),
-            hit_points: int("HitPoints") as i32,
+            natural_ac: crate::held(int("NaturalAC"), 0, 255),
+            save_bonus: ["fortbonus", "refbonus", "willbonus"].map(|l| short(int(l))),
+            hit_points: short(int("HitPoints")),
             special_abilities: spell_ids(s.list("SpecAbilityList")),
             spells: s
                 .list("ClassList")
@@ -159,13 +167,13 @@ impl CreatureSheet {
                         (0..10).flat_map(|l| spell_ids(c.list(&format!("{list}{l}")))).collect()
                     };
                     ClassSpells {
-                        class: c.integer("Class").unwrap_or(0).max(0) as u32,
+                        class: crate::row(c.integer("Class").unwrap_or(0)),
                         known: all("KnownList"),
                         memorized: all("MemorizedList"),
                     }
                 })
                 .collect(),
-            cr_adjust: int("CRAdjust") as i32,
+            cr_adjust: crate::held(int("CRAdjust"), i32::MIN, i32::MAX),
             gear_value: 0,
         }
     }
@@ -181,9 +189,15 @@ pub struct ClassSpells {
     pub memorized: Vec<u16>,
 }
 
-/// The `Spell` of each entry of a spell list.
+/// The `Spell` of each entry of a spell list (one past a WORD is none).
 fn spell_ids(list: Option<&[mg_gff::Struct]>) -> Vec<u16> {
-    list.unwrap_or(&[]).iter().filter_map(|e| e.integer("Spell")).map(|s| s as u16).collect()
+    let spell = |e: &mg_gff::Struct| u16::try_from(e.integer("Spell")?).ok();
+    list.unwrap_or(&[]).iter().filter_map(spell).collect()
+}
+
+/// Numbers added up without wrapping: a table's cell may be any number.
+fn sum(parts: impl IntoIterator<Item = i32>) -> i32 {
+    parts.into_iter().fold(0, i32::saturating_add)
 }
 
 impl GameData {
@@ -218,68 +232,74 @@ impl GameData {
         .unwrap_or(0)
     }
 
-    /// The Statistics page's numbers.
-    pub fn creature_stats(&self, c: &CreatureSheet) -> CreatureStats {
-        let racial = self.racial_adjustments(c.race);
-        // (The epic Great Strength… feats, each a point: the game counts
-        // them into the score itself, `engine_saves.rs`.)
-        let great = great_abilities(&c.feats);
-        let totals: [i32; 6] = std::array::from_fn(|i| c.abilities[i] + racial[i] + great[i]);
-        let modifiers = totals.map(modifier);
-        let level: u32 = c.classes.iter().map(|&(_, l)| l).sum();
-        let has = |f: u16| c.feats.contains(&f);
-
-        // The classes' tables for the first 20 levels, in the classes'
-        // order; past them every two levels are a point on each save,
-        // whatever the classes (measured in the game: `engine_saves.rs`;
-        // Aurora adds each class's table at its full level, nwn-issues
-        // 816).
-        let mut saves_base = [0; 3];
+    /// The base saves (Fortitude, Reflex, Will) of a creature of `classes`
+    /// (class, level), as the game has them: the classes' tables for the
+    /// first 20 levels, in the classes' order; past them every two levels
+    /// are a point on each save, whatever the classes (measured in the
+    /// game: `engine_saves.rs`; Aurora adds each class's table at its full
+    /// level, nwn-issues 816). The one working of them: the Statistics
+    /// page's, and what a feat's `MinFortSave` is held against.
+    pub fn base_saves(&self, classes: &[(u32, u32)]) -> [i32; 3] {
+        let mut saves = [0; 3];
         let mut left = EPIC_FROM;
-        for &(class, lvl) in &c.classes {
+        for &(class, lvl) in classes {
             let counted = lvl.min(left);
             left -= counted;
             if counted > 0 {
                 let s = self.class_saves(class, counted);
                 for i in 0..3 {
-                    saves_base[i] += s[i];
+                    saves[i] = sum([saves[i], s[i]]);
                 }
             }
         }
-        let epic = (level.saturating_sub(EPIC_FROM) / 2) as i32;
-        for s in &mut saves_base {
-            *s += epic;
-        }
+        let level = classes.iter().fold(0u32, |all, &(_, l)| all.saturating_add(l));
+        let epic = i32::try_from(level.saturating_sub(EPIC_FROM) / 2).unwrap_or(i32::MAX);
+        saves.map(|s| sum([s, epic]))
+    }
+
+    /// The Statistics page's numbers. (A sheet's numbers and the tables'
+    /// are added up without wrapping: [`sum`].)
+    pub fn creature_stats(&self, c: &CreatureSheet) -> CreatureStats {
+        let racial = self.racial_adjustments(c.race);
+        // (The epic Great Strength… feats, each a point: the game counts
+        // them into the score itself, `engine_saves.rs`.)
+        let great = great_abilities(&c.feats);
+        let totals: [i32; 6] = std::array::from_fn(|i| sum([c.abilities[i], racial[i], great[i]]));
+        let modifiers = totals.map(modifier);
+        let level = c.classes.iter().fold(0u32, |all, &(_, l)| all.saturating_add(l));
+        let has = |f: u16| c.feats.contains(&f);
+        let saves_base = self.base_saves(&c.classes);
+        let levels = i32::try_from(level).unwrap_or(i32::MAX);
         // Constitution, Dexterity, Wisdom; the save feats ([`SAVE_FEATS`]);
         // and the Charisma modifier for Divine Grace, and again for Dark
         // Blessing (a paladin turned blackguard has both).
         let mut saves_modifier = [modifiers[2], modifiers[1], modifiers[4]];
         for (_, adds) in SAVE_FEATS.iter().filter(|(f, _)| has(*f)) {
             for i in 0..3 {
-                saves_modifier[i] += adds[i];
+                saves_modifier[i] = sum([saves_modifier[i], adds[i]]);
             }
         }
         let charisma = modifiers[5].max(0);
         let graces = i32::from(has(feat::DIVINE_GRACE)) + i32::from(has(feat::DARK_BLESSING));
         for m in &mut saves_modifier {
-            *m += charisma * graces;
+            *m = sum([*m, charisma.saturating_mul(graces)]);
         }
         let saves: [i32; 3] =
-            std::array::from_fn(|i| saves_base[i] + saves_modifier[i] + c.save_bonus[i]);
+            std::array::from_fn(|i| sum([saves_base[i], saves_modifier[i], c.save_bonus[i]]));
 
         let ac_dex = modifiers[1];
         let ac_size = self.size_modifier(c.appearance);
-        let ac = 10 + ac_dex + ac_size + c.natural_ac;
+        let ac = sum([10, ac_dex, ac_size, c.natural_ac]);
 
-        let levels = level as i32;
         // Epic Toughness is the engine's to add: the toolset's maximum
         // leaves it out.
         let toughness = if has(feat::TOUGHNESS) { levels } else { 0 };
         // (Nor does it count the Great Constitution feats: the stored
         // maximum is Aurora's, by the Constitution the blueprint has.)
-        let con = c.abilities[2] + racial[2];
-        let hp_bonus = modifier(con) * levels + toughness;
-        let great_hit_points = (modifier(con + great[2]) - modifier(con)) * levels;
+        let con = sum([c.abilities[2], racial[2]]);
+        let hp_bonus = sum([modifier(con).saturating_mul(levels), toughness]);
+        let with_great = modifier(sum([con, great[2]]));
+        let great_hit_points = with_great.saturating_sub(modifier(con)).saturating_mul(levels);
         CreatureStats {
             racial,
             totals,
@@ -292,9 +312,104 @@ impl GameData {
             saves_modifier,
             saves,
             hp_bonus,
-            max_hit_points: (c.hit_points + hp_bonus).max(1),
+            max_hit_points: sum([c.hit_points, hp_bonus]).max(1),
             great_hit_points,
-            current_hit_points: c.hit_points + great_hit_points,
+            current_hit_points: sum([c.hit_points, great_hit_points]),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_gff::{Struct, Value};
+
+    use super::*;
+
+    const TABLES: [(&str, &str); 6] = [
+        ("racialtypes", "Label StrAdjust ConAdjust CRModifier\n0 Odd 2147483647 -2147483648 1\n"),
+        ("classes", "Label HitDie SavingThrowTable\n0 Fighter 2147483647 cls_savthr_a\n"),
+        ("cls_savthr_a", "FortSave RefSave WillSave\n0 2147483647 2147483647 -2147483648\n"),
+        ("appearance", "LABEL SIZECATEGORY MOVERATE\n0 Odd 0 NORM\n"),
+        ("creaturesize", "LABEL ACATTACKMOD\n0 Odd 2147483647\n"),
+        // (The PC's row has no walk rate.)
+        (
+            "creaturespeed",
+            "Label 2DAName WALKRATE\n0 PC_Movement PLAYER ****\n1 Normal NORM 1.75\n",
+        ),
+    ];
+
+    /// A creature whose every number is the largest a file can hold, in
+    /// tables whose cells are the largest a table can: a sheet held to
+    /// its fields, statistics added up without wrapping (a test build
+    /// panicked, a release showed wrapped numbers), and a challenge rating
+    /// that is a number, with a PC's walk rate the table does not give.
+    #[test]
+    fn numbers_at_their_ends_wrap_nothing() {
+        let game = crate::test_game(&TABLES);
+        let mut c = Struct::new(0);
+        for label in ABILITIES.into_iter().chain(["NaturalAC", "HitPoints", "CRAdjust"]) {
+            c.set(label, Value::Int64(i64::MAX));
+        }
+        for label in ["fortbonus", "refbonus", "willbonus"] {
+            c.set(label, Value::Int64(i64::MIN));
+        }
+        let mut class = Struct::new(2);
+        class.set("Class", Value::Int(0));
+        class.set("ClassLevel", Value::Int64(i64::MAX));
+        c.set("ClassList", Value::List(vec![class.clone(), class]));
+        let feat = |f: i64| {
+            let mut s = Struct::new(1);
+            s.set("Feat", Value::Int64(f));
+            s
+        };
+        c.set("FeatList", Value::List(vec![feat(40), feat(70_000 + 40), feat(-1)]));
+        let sheet = CreatureSheet::from_gff(&c);
+        assert_eq!(sheet.abilities, [255; 6]);
+        assert_eq!(sheet.classes, [(0, 32_767), (0, 32_767)]);
+        assert_eq!(sheet.feats, [40], "a feat past a WORD is none, not the one its low bits spell");
+        assert_eq!((sheet.natural_ac, sheet.hit_points), (255, 32_767));
+        assert_eq!(sheet.save_bonus, [-32_768; 3]);
+        let stats = game.creature_stats(&sheet);
+        assert_eq!(stats.level, 65_534);
+        assert_eq!(stats.totals[0], i32::MAX);
+        assert_eq!(stats.saves_base[0], 32_757, "the epic levels' points alone");
+        assert_eq!(game.base_saves(&[(0, 1), (0, 1)]), [i32::MAX, i32::MAX, i32::MIN]);
+        assert_eq!(stats.ac, i32::MAX);
+        assert!(stats.max_hit_points >= 1);
+        let cr = game.challenge(&sheet);
+        assert!(cr.calculated.is_finite() && cr.rating.is_finite(), "{cr:?}");
+        // The same creature at a level a creature has: its hit points'
+        // term left out for the walk rate the PC's row lacks, not
+        // infinite.
+        let mut class = Struct::new(2);
+        class.set("Class", Value::Int(0));
+        class.set("ClassLevel", Value::Short(5));
+        c.set("ClassList", Value::List(vec![class]));
+        c.set("CRAdjust", Value::Int(1));
+        let cr = game.challenge(&CreatureSheet::from_gff(&c));
+        assert!(cr.calculated.is_finite() && cr.rating.is_finite(), "{cr:?}");
+        assert!(cr.rating < 1.0e6, "{cr:?}");
+    }
+
+    /// The base saves are one working, the game's: the classes' tables
+    /// for the first 20 levels in the classes' order, then a point every
+    /// two levels.
+    #[test]
+    fn base_saves_are_the_first_twenty_levels_and_a_point_every_two_after() {
+        let mut rows = String::from("FortSave RefSave WillSave\n");
+        for level in 1..=40 {
+            rows += &format!("{} {level} 0 0\n", level - 1);
+        }
+        let game = crate::test_game(&[
+            ("classes", "Label SavingThrowTable\n0 A cls_savthr_a\n1 B cls_savthr_a\n"),
+            ("cls_savthr_a", &rows),
+        ]);
+        assert_eq!(game.base_saves(&[(0, 10)]), [10, 0, 0]);
+        assert_eq!(game.base_saves(&[(0, 10), (1, 5)]), [15, 0, 0]);
+        // (20 of the first class, then ten epic levels: five points.)
+        assert_eq!(game.base_saves(&[(0, 30)]), [25, 5, 5]);
+        assert_eq!(game.base_saves(&[(0, 15), (1, 15)]), [15 + 5 + 5, 5, 5]);
+        let sheet = CreatureSheet { classes: vec![(0, 15), (1, 15)], ..Default::default() };
+        assert_eq!(game.creature_stats(&sheet).saves_base, game.base_saves(&sheet.classes));
     }
 }

@@ -63,7 +63,9 @@ impl GameData {
     pub fn challenge(&self, c: &CreatureSheet) -> Challenge {
         let classes: Vec<(u32, u32)> =
             c.classes.iter().take(8).copied().filter(|&(_, l)| l > 0).collect();
-        let level: u32 = classes.iter().map(|&(_, l)| l).sum();
+        // (Sums of numbers a file or a table gives are taken without
+        // wrapping: a sheet made by hand may hold any.)
+        let level = classes.iter().fold(0u32, |sum, &(_, l)| sum.saturating_add(l));
         if level == 0 {
             let rating = self.fraction(0.0);
             return Challenge { calculated: 0.0, rating };
@@ -87,13 +89,18 @@ impl GameData {
                 .and_then(|t| t.get_int(class as usize, "HitDie"))
                 .unwrap_or(0)
                 .max(0);
-            let sum = expected as f64 + f64::from(lvl * (die as u32 + 1)) / 2.0;
+            let dice = u64::from(lvl) * (u64::from(die.unsigned_abs()) + 1);
+            let sum = expected as f64 + dice as f64 / 2.0;
             expected = sum.trunc() as i64;
         }
-        if expected > 0 {
+        // (Against the PC's walk rate, creaturespeed.2da row 0's: with
+        // none there, or 0, there is nothing to hold the speed against and
+        // the term is left out. The quotient was infinite or no number,
+        // and Build's Creature CR wrote every creature 1/8 or 9.2e18.)
+        let (walk, pc) = self.walk_rates(c);
+        if expected > 0 && pc > 0.0 {
             let hp = f64::from(c.hit_points as i16);
             let term = (hp / expected as f64 * W20 * l) as f32;
-            let (walk, pc) = self.walk_rates(c);
             add(f64::from(term) * f64::from(walk) / f64::from(pc));
         }
 
@@ -104,9 +111,12 @@ impl GameData {
         let innate = |s: u16| {
             spells_2da.as_ref().and_then(|t| t.get_int(usize::from(s), "Innate")).unwrap_or(0)
         };
-        let specials: i32 = c.special_abilities.iter().map(|&s| innate(s)).sum();
+        // (Each cell as it is here, and at least 0 in the spells' term
+        // below: no table of the game's has a negative `Innate`, and which
+        // of the two Aurora does with one was not captured.)
+        let specials: i64 = c.special_abilities.iter().map(|&s| i64::from(innate(s))).sum();
         if specials > 0 {
-            add(f64::from(specials) / (l * (l + 1.0) + l * 5.0) * W15 * l);
+            add(specials as f64 / (l * (l + 1.0) + l * 5.0) * W15 * l);
         }
         // The spells a class casts from (memorized for the classes that
         // memorize, known for the others), and the special abilities again.
@@ -118,27 +128,30 @@ impl GameData {
             .spells
             .iter()
             .flat_map(|s| if memorizes(s.class) { s.memorized.iter() } else { s.known.iter() });
-        let spells: i32 = c.special_abilities.iter().chain(cast).map(|&s| innate(s).max(0)).sum();
+        let spells: i64 =
+            c.special_abilities.iter().chain(cast).map(|&s| i64::from(innate(s).max(0))).sum();
         if spells > 0 {
-            add(f64::from(spells) / (l * (l + 1.0)) * W15 * l);
+            add(spells as f64 / (l * (l + 1.0)) * W15 * l);
         }
 
-        let mut base: i32 = classes.iter().flat_map(|&(cl, lv)| self.class_saves(cl, lv)).sum();
+        let saves = classes.iter().flat_map(|&(cl, lv)| self.class_saves(cl, lv));
+        let mut base: i64 = saves.map(i64::from).sum();
         if base == 0 {
             base = 1;
         }
-        let bonus: i32 = c.save_bonus.iter().map(|&b| i32::from(b as i16)).sum();
-        add(f64::from(base + bonus) / f64::from(base) * W15 * l);
+        let bonus: i64 = c.save_bonus.iter().map(|&b| i64::from(b as i16)).sum();
+        add((base + bonus) as f64 / base as f64 * W15 * l);
 
         let feat_2da = table("feat");
-        let feats: i32 = c
+        let feats: i64 = c
             .feats
             .iter()
             .map(|&f| {
                 feat_2da.as_ref().and_then(|t| t.get_int(usize::from(f), "CRValue")).unwrap_or(1)
             })
+            .map(i64::from)
             .sum();
-        add(f64::from(feats) / (l * 0.5 + 7.0) * W10 * l);
+        add(feats as f64 / (l * 0.5 + 7.0) * W10 * l);
 
         if let Some(m) =
             table("racialtypes").and_then(|t| t.get_float((c.race & 0xff) as usize, "CRModifier"))
@@ -161,7 +174,7 @@ impl GameData {
         let calculated = value;
         let adjusted = (f64::from(value) + f64::from(c.cr_adjust)) as f32;
         let rating = if adjusted > 0.75 {
-            (rounded + i64::from(c.cr_adjust)) as f32
+            rounded.saturating_add(i64::from(c.cr_adjust)) as f32
         } else {
             self.fraction(adjusted)
         };

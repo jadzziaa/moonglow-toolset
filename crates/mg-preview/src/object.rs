@@ -5,8 +5,7 @@ use mg_gff::Struct;
 use mg_rules::{GameData, ObjectKind};
 
 use crate::{
-    Lookup, Part, Preview, PreviewError, PreviewLight, appearance, cell, cell_f32, cell_int,
-    env_map,
+    Lookup, Part, Preview, PreviewError, PreviewLight, appearance, cell, cell_f32, env_map,
 };
 
 /// The map a placeable whose appearance's `Reflection` is `default`
@@ -50,9 +49,9 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
     }
     let mut lights = Vec::new();
     let illuminated = utp.integer("LightState").is_none_or(|v| v != 0);
-    if let Some(c) = cell_int(&table, r, "LightColor").filter(|&c| c > 0) {
+    if let Some(c) = mg_rules::placeables::light_color(&table, r) {
         let colors = game.table("lightcolor")?;
-        let ch = |col| cell_f32(&colors, c as usize, col).unwrap_or(0.0);
+        let ch = |col| cell_f32(&colors, c, col).unwrap_or(0.0);
         let offset = |col| cell_f32(&table, r, col).unwrap_or(0.0);
         lights.push(PreviewLight {
             offset: Vec3::new(
