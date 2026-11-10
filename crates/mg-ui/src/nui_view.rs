@@ -1377,6 +1377,15 @@ struct SourceDraft {
     text: String,
     /// Typed in since it was last set.
     typed: bool,
+    /// What `text` reads as, for the canvas beside it ([`typed_source`]):
+    /// read once for a text (`None`: not since it changed), not every frame.
+    read: Option<Option<TypedSource>>,
+}
+
+/// A source field's text, read.
+enum TypedSource {
+    Window(Value),
+    Settings(Box<Settings>),
 }
 
 /// A source field that isn't shown any more (another page, another view,
@@ -1413,6 +1422,7 @@ fn source_field(
         of,
         text: current.to_owned(),
         typed: false,
+        read: None,
     });
     let draft = held.insert(draft);
     let field = egui::TextEdit::multiline(&mut draft.text)
@@ -1423,6 +1433,9 @@ fn source_field(
     let field = crate::widgets::text_area(ui, id, field).response.response;
     crate::widgets::leaves_at_a_press(ui.ctx(), &field);
     draft.typed |= field.changed();
+    if field.changed() {
+        draft.read = None;
+    }
     if crate::widgets::has_keys(&field) {
         return None;
     }
@@ -1430,6 +1443,7 @@ fn source_field(
     if !typed && draft.text != current {
         // Changed underneath (Undo, the form): show it.
         draft.text = current.to_owned();
+        draft.read = None;
     }
     typed.then(|| draft.text.clone())
 }
@@ -1437,22 +1451,26 @@ fn source_field(
 /// What Split source's field `of` holds while it is typed in, where it
 /// reads: the window to show (`v` with the variant typed in its place, for
 /// the settings' source) and the settings typed (`None`: the module's).
-/// `None` where nothing is typed or it doesn't read yet.
-fn typed_source(state: &State, of: SourceOf, v: &Value) -> Option<(Value, Option<Settings>)> {
-    let draft = state.source_draft.as_ref().filter(|d| d.of == of && d.typed)?;
-    match of {
-        SourceOf::SplitWindow => {
-            let window = mg_nui::parse(draft.text.as_bytes()).ok()?;
-            window.get("root").is_some().then_some((window, None))
-        }
-        SourceOf::Variants => {
-            let settings = Settings::parse(draft.text.as_bytes()).ok()?;
+/// `None` where nothing is typed or it doesn't read yet. The text is read
+/// when it changes, not every frame it is shown.
+fn typed_source(state: &mut State, of: SourceOf, v: &Value) -> Option<(Value, Option<Settings>)> {
+    let draft = state.source_draft.as_mut().filter(|d| d.of == of && d.typed)?;
+    let read = draft.read.get_or_insert_with(|| match of {
+        SourceOf::SplitWindow => (mg_nui::parse(draft.text.as_bytes()).ok())
+            .filter(|window| window.get("root").is_some())
+            .map(TypedSource::Window),
+        SourceOf::Variants => (Settings::parse(draft.text.as_bytes()).ok())
+            .map(|settings| TypedSource::Settings(Box::new(settings))),
+        SourceOf::Window | SourceOf::Settings => None,
+    });
+    match read.as_ref()? {
+        TypedSource::Window(window) => Some((window.clone(), None)),
+        TypedSource::Settings(settings) => {
             let variant = settings.variants.get(state.edit_view.as_ref()?)?.clone();
             let mut shown = v.clone();
             shown["root"] = variant;
-            Some((shown, Some(settings)))
+            Some((shown, Some((**settings).clone())))
         }
-        SourceOf::Window | SourceOf::Settings => None,
     }
 }
 
