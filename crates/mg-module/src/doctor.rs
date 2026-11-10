@@ -3720,14 +3720,13 @@ fn described_variables(d: &mut Doctor, module: &Module) {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
         let found = var_desc::variables_of(key, &gff);
         // What each object (by its path) has without what one of its
-        // variables needs beside it.
-        let mut objects: Vec<&mg_gff::GffPath> = found.iter().map(|f| &f.path).collect();
-        objects.dedup();
-        for path in objects {
-            let here: Vec<(&str, &str)> = (found.iter())
-                .filter(|f| f.path == *path)
-                .map(|f| (f.name.as_str(), f.value.as_str()))
-                .collect();
+        // variables needs beside it. (An object's variables are found
+        // together, `variables_of` walking each table once: a run of one
+        // path is an object's, with no look through the file's others.)
+        for object in found.chunk_by(|a, b| a.path == b.path) {
+            let path = &object[0].path;
+            let here: Vec<(&str, &str)> =
+                object.iter().map(|f| (f.name.as_str(), f.value.as_str())).collect();
             for n in vars.missing(&here) {
                 let table = var_desc::table_path(path);
                 let place = crate::rename::describe(key, Some(&gff), &table);
