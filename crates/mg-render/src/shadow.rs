@@ -105,8 +105,14 @@ pub(crate) fn camera_fade_point(camera: &Camera, limit: f32) -> f32 {
 /// ghost or grass); `alpha` is its alpha as it is drawn now. A skinned
 /// mesh casts as its bones pose it ([`Caster::bones`]).
 pub(crate) fn casts(inst: &Instance, mesh: &GpuMesh, alpha: f32) -> bool {
-    inst.casts_shadows
-        && !inst.unlit
+    inst.casts_shadows && mesh_casts(inst, mesh, alpha)
+}
+
+/// [`casts`] but for the instance's own switch: what a mesh of an instance
+/// that casts the lights' shadows ([`Instance::casts_light_shadows`],
+/// which the scene's maker sets alone) casts from a light.
+fn mesh_casts(inst: &Instance, mesh: &GpuMesh, alpha: f32) -> bool {
+    !inst.unlit
         && !inst.grass
         && inst.opacity >= 1.0
         && mesh.casts
@@ -562,7 +568,10 @@ pub(crate) fn light_plan<'a>(
             for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
                 let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
                 let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
-                if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 })
+                // (Not `casts`: whether a creature casts the sun's shadows is
+                // another switch, Creature Shadows, which the scene's maker
+                // reads for both: `mg_area::View::light_shadows_cast`.)
+                if !mesh_casts(inst, mesh, if j.is_some() { alpha } else { 1.0 })
                     || (mesh.skin.is_some() && !skins)
                 {
                     continue;

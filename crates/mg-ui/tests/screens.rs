@@ -8827,7 +8827,8 @@ fn appearance_dropdown_frames() {
 
 /// The area view's toolbar with the Shadows button's menu open (held or
 /// right-clicked: Sun and Moon Shadows, Creature Shadows, Light Shadows),
-/// with the buttons labelled and as icons only, in
+/// with the buttons labelled and as icons only, and with Creature Shadows
+/// unticked (Light Shadows grayed out, its tooltip shown), in
 /// `target/test-output/screens-area/shadows-menu-*.png`.
 #[test]
 #[ignore]
@@ -8874,6 +8875,15 @@ fn area_shadows_menu() {
         h.get_by_label(label).click_secondary();
         let name = if icons_only { "shadows-menu-icons" } else { "shadows-menu" };
         shoot(&mut h, &dir, name);
+        if !icons_only {
+            // Creature Shadows unticked: Light Shadows grayed out, its tick
+            // kept, the tooltip saying why.
+            h.get_by_label("Creature Shadows").click();
+            h.run_steps(3);
+            h.get_by_label("Light Shadows").hover();
+            h.run_steps(60);
+            shoot(&mut h, &dir, "shadows-menu-no-creatures");
+        }
     }
 }
 

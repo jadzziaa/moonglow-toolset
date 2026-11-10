@@ -318,6 +318,110 @@ fn the_area_view_is_lit_by_objects_lights_and_illumination() {
     assert!(!greener(g), "no lamp with the lighting off: {g:?}");
 }
 
+/// Light Shadows are cast only where Creature Shadows are on (the
+/// review's R4, the owner's decision of 10 November 2026; the client's
+/// Creature Shadow Detail Off takes the lights' shadows away too,
+/// `docs/research/notes_shaders.md`): in a tic01 room without the sun's
+/// or moon's shadows, an ogre beside a lamp post (placeables.2da row 73)
+/// casts one from the lamp with both ticked, none with Creature Shadows
+/// unticked and Light Shadows left ticked, and casts it again, Light
+/// Shadows as they were, when Creature Shadows are ticked again. The
+/// pictures go to `target/test-output/ui-area-light-shadows-shots/`.
+#[test]
+fn light_shadows_are_cast_only_with_creature_shadows() {
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        for (label, v) in [("SunShadows", 0u8), ("MoonShadows", 0), ("ShadowOpacity", 100)] {
+            are.root.set(label, mg_gff::Value::Byte(v));
+        }
+        // (Dim, as the client's reading's room: the shadow shows.)
+        for label in ["SunAmbientColor", "SunDiffuseColor", "MoonAmbientColor", "MoonDiffuseColor"]
+        {
+            are.root.set(label, mg_gff::Value::Dword(0x30_3030));
+        }
+        m.set_gff(key, &are).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let ogre = ResKey::parse("nw_ogre01", ResType::UTC).unwrap();
+        let ogre = Gff::read(&game.resman.get(&ogre).unwrap()).unwrap();
+        let at = Placement { position: [20.0, 22.0, 0.0], rotation: 270f32.to_radians() };
+        let mut c = instance(&placing, ResType::UTC, &ogre.root, at, &[]).unwrap();
+        // (Standing still: no scripts.)
+        let scripts: Vec<String> = c
+            .fields
+            .iter()
+            .map(|f| f.label.to_string_lossy())
+            .filter(|l| l.starts_with("Script"))
+            .collect();
+        for label in scripts {
+            c.set(&label, mg_gff::Value::resref(ResRef::EMPTY));
+        }
+        git.root.set("Creature List", mg_gff::Value::List(vec![c]));
+        let mut lamp = mg_module::blueprints::placeable(ResRef::EMPTY, "Lamp Post", 0);
+        lamp.root.set("Appearance", mg_gff::Value::Dword(73));
+        lamp.root.set("Static", mg_gff::Value::Byte(0));
+        let at = Placement { position: [22.5, 22.0, 0.0], rotation: 0.0 };
+        let lamp = instance(&placing, ResType::UTP, &lamp.root, at, &[]).unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(vec![lamp]));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("light-shadows", "tic01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = glam::Vec3::new(20.0, 22.0, 0.0);
+        (o.distance, o.pitch, o.yaw) = (14.0, 0.9, (-90f32).to_radians());
+    }
+    let dir = mg_testkit::scratch_dir("ui-area-light-shadows-shots");
+    let cast = |h: &Harness<'_, Moonglow>| {
+        h.state().viewport.as_ref().map_or(0, |v| v.renderer.drawn.light_shadows)
+    };
+    // Frames until `done` holds of what was drawn (three at least, so that
+    // one is drawn after the change), within a deadline.
+    let until = |h: &mut Harness<'_, Moonglow>, what: &str, done: &dyn Fn(usize) -> bool| {
+        let started = std::time::Instant::now();
+        let mut frames = 0;
+        loop {
+            h.run_steps(1);
+            frames += 1;
+            if frames >= 3 && done(cast(h)) {
+                return;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(60), "{what}: {}", cast(h));
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    let kinds = |h: &Harness<'_, Moonglow>| {
+        let v = &h.state().area_views[&area];
+        (v.creature_shadows, v.light_shadows)
+    };
+    assert_eq!(kinds(&h), (true, true), "both at first");
+    until(&mut h, "the ogre's shadow from the lamp", &|n| n == 1);
+    // The floor west of the ogre, away from the lamp: where its shadow
+    // falls.
+    let ppp = h.ctx.pixels_per_point();
+    let behind = screen(&h, area, glam::Vec3::new(18.8, 22.0, 0.0));
+    let floor = |img: &image::RgbaImage| mean_around(img, ppp, behind, 6.0).iter().sum::<f32>();
+    let both = h.render().unwrap();
+    both.save(dir.join("both.png")).unwrap();
+    h.state_mut().area_views.get_mut(&area).unwrap().creature_shadows = false;
+    until(&mut h, "no light shadow without creature shadows", &|n| n == 0);
+    let none = h.render().unwrap();
+    none.save(dir.join("no-creature-shadows.png")).unwrap();
+    eprintln!("the floor behind the ogre: {} with both, {} without", floor(&both), floor(&none));
+    assert!(floor(&both) < floor(&none) * 0.9, "{} {}", floor(&both), floor(&none));
+    assert_eq!(kinds(&h), (false, true), "Light Shadows kept as left");
+    assert!(!h.state().settings.no_light_shadows, "and stored so");
+    h.state_mut().area_views.get_mut(&area).unwrap().creature_shadows = true;
+    until(&mut h, "the lamp's shadow again", &|n| n == 1);
+    h.render().unwrap().save(dir.join("both-again.png")).unwrap();
+}
+
 /// Opens `area` again as the desktop app opens one (the window kept going:
 /// read on a thread of its own, its textures apart, read anew), and runs
 /// frames until it is drawn whole: whether a frame went by before it was

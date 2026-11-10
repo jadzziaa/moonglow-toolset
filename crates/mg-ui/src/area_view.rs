@@ -514,7 +514,9 @@ pub struct AreaView {
     /// Creatures, dynamic placeables and doors cast the sun's or moon's
     /// shadows too.
     pub creature_shadows: bool,
-    /// Point lights flagged `shadow` cast shadows.
+    /// Point lights flagged `shadow` cast shadows, where creature shadows
+    /// are on too (`mg_area::View::light_shadows_cast`): kept as ticked
+    /// while they are off.
     pub light_shadows: bool,
     /// The kinds of shadow the Shadows button turned off (sun and moon,
     /// creatures, lights), which a click turns on again.
@@ -4443,7 +4445,9 @@ fn shadows_button(
     quality: &mut crate::settings::ShadowQuality,
 ) {
     let kinds = [view.shadows, view.creature_shadows, view.light_shadows];
-    let on = kinds.iter().any(|&k| k);
+    // (Light Shadows alone draw none: `View::light_shadows_cast`.)
+    let lights = mg_area::View::light_shadows_cast(view.creature_shadows, view.light_shadows);
+    let on = view.shadows || view.creature_shadows || lights;
     let r = tools.add(
         ui,
         egui::Button::selectable(on, tools.label(crate::icons::SHADOWS, "Shadows")),
@@ -4466,9 +4470,14 @@ fn shadows_button(
         ui.checkbox(&mut view.creature_shadows, "Creature Shadows").on_hover_text(
             "Creatures, doors and dynamic placeables cast shadows too, as at the game's best detail",
         );
-        ui.checkbox(&mut view.light_shadows, "Light Shadows").on_hover_text(
-            "Creatures cast shadows from the nearest light that casts them, without sun or moon",
-        );
+        // (Grayed out without Creature Shadows, its tick kept: the lights'
+        // shadows are the creatures', as in the game.)
+        let creatures = view.creature_shadows;
+        ui.add_enabled(creatures, egui::Checkbox::new(&mut view.light_shadows, "Light Shadows"))
+            .on_hover_text(
+                "Creatures cast shadows from the nearest light that casts them, without sun or moon",
+            )
+            .on_disabled_hover_text("Tick Creature Shadows first: creatures cast these");
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("Quality");

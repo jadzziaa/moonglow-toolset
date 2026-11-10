@@ -97,7 +97,8 @@ pub struct View {
     pub shadows: bool,
     /// Creatures cast the sun's or moon's shadows too.
     pub creature_shadows: bool,
-    /// Point lights flagged `shadow` cast shadows (`mg_render::LightShadows`).
+    /// Point lights flagged `shadow` cast shadows (`mg_render::LightShadows`),
+    /// where [`View::creature_shadows`] are on too ([`View::light_shadows_cast`]).
     pub light_shadows: bool,
     /// The tile border is drawn past the area's edge, as the game client
     /// draws it ([`crate::border`]), the fog's color past it; else nothing
@@ -142,19 +143,29 @@ impl View {
         })
     }
 
+    /// Whether lights cast shadows with Creature Shadows `creature_shadows`
+    /// and Light Shadows `light_shadows`: only where both are on, as the
+    /// client's Creature Shadow Detail Off takes the lights' shadows away
+    /// too (`docs/research/notes_shaders.md`, the lights' reading of
+    /// 2026-10-28). The one rule the scene ([`View::light_shadows_of`]) and
+    /// the area view's Shadows menu (Light Shadows grayed out) read.
+    pub const fn light_shadows_cast(creature_shadows: bool, light_shadows: bool) -> bool {
+        creature_shadows && light_shadows
+    }
+
     /// The lights' shadows an area lit as `l` shows in this view: where
-    /// [`View::light_shadows`] asks for them and the area has no sun or moon
+    /// [`View::light_shadows`] asks for them, [`View::creature_shadows`] are
+    /// on ([`View::light_shadows_cast`]) and the area has no sun or moon
     /// shadows at the time (as the client: each creature then casts one
     /// from the nearest light that casts them, `mg_render::PointLight::casts_shadows`;
     /// with the sun's or moon's, it casts that alone), as opaque as its
     /// Shadow Opacity (measured in `shadows_look`).
     pub fn light_shadows_of(&self, l: &Lighting) -> Option<mg_render::SunShadows> {
         let sky = l.sky(self.night).shadows;
-        (self.light_shadows && self.lit && !sky && l.shadow_opacity > 0).then(|| {
-            mg_render::SunShadows {
-                opacity: f32::from(l.shadow_opacity) / 100.0,
-                fade_limit: l.fog_clip,
-            }
+        let asked = Self::light_shadows_cast(self.creature_shadows, self.light_shadows);
+        (asked && self.lit && !sky && l.shadow_opacity > 0).then(|| mg_render::SunShadows {
+            opacity: f32::from(l.shadow_opacity) / 100.0,
+            fade_limit: l.fog_clip,
         })
     }
 
@@ -1964,5 +1975,52 @@ mod tests {
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
         assert!(lamps.light_shadows_of(&moonlit).is_some());
         assert_eq!(View { lit: false, ..lamps }.light_shadows_of(&moonlit), None);
+    }
+
+    /// Light Shadows are cast only where Creature Shadows are on, as the
+    /// client's Creature Shadow Detail Off takes the lights' shadows away
+    /// too (the review's R4, the owner's decision): with Creature Shadows
+    /// off, no scene asks for them and no creature casts one, Light
+    /// Shadows left as they were.
+    #[test]
+    fn light_shadows_are_on_only_where_creature_shadows_are() {
+        for (creature, light, cast) in
+            [(true, true, true), (true, false, false), (false, true, false), (false, false, false)]
+        {
+            assert_eq!(View::light_shadows_cast(creature, light), cast, "{creature} {light}");
+        }
+        let l = Lighting {
+            sun: crate::Sky::default(),
+            moon: crate::Sky::default(),
+            is_night: true,
+            day_night_cycle: false,
+            fog_clip: 60.0,
+            sky_box: 0,
+            env_map: None,
+            shadow_opacity: 50,
+            flags: 0,
+            wind_power: 0,
+            sun_direction: None,
+            moon_direction: None,
+            wallpaper: None,
+        };
+        let both = View {
+            time: 0.0,
+            night: true,
+            fog: false,
+            lit: true,
+            show: [true; 9],
+            animate: false,
+            fade: false,
+            grass: None,
+            shadows: true,
+            creature_shadows: true,
+            light_shadows: true,
+            border: false,
+        };
+        assert!(both.light_shadows_of(&l).is_some());
+        let lights_alone = View { creature_shadows: false, ..both };
+        assert_eq!(lights_alone.light_shadows_of(&l), None);
+        assert!(lights_alone.light_shadows, "kept as the builder left it");
     }
 }
