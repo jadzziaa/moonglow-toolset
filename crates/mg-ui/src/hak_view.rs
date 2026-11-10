@@ -44,6 +44,9 @@ pub struct HakDoc {
     /// Files chosen to add, some of which the hak has already: asked
     /// about before anything is replaced.
     pub adding: Option<Adding>,
+    /// Resources about to be extracted over files a folder has already:
+    /// asked about before anything is written.
+    pub extracting: Option<Extracting>,
 }
 
 /// A hak's resource as it is shown under the list: a picture (a TGA, DDS
@@ -201,6 +204,7 @@ impl HakDoc {
             viewing: None,
             folder: None,
             adding: None,
+            extracting: None,
         }
     }
 
@@ -399,53 +403,67 @@ fn hak_dir(app: &Moonglow) -> Option<PathBuf> {
     app.install.as_ref()?.user_hak_dir()
 }
 
-/// Saves a hak (asking where for a new one, or with `ask`). A hak the
-/// module uses is read again.
-pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
-    let Some(i) = app.haks.iter().position(|d| d.id == id) else { return false };
+/// Where a save of hak `i` goes: its own file (`Ok(None)`), or the one
+/// chosen (asked for a new hak, one of the game's, or with `ask`). `Err`:
+/// nowhere (the dialog canceled, or the game's folder chosen: said).
+fn save_to(app: &mut Moonglow, i: usize, ask: bool) -> Result<Option<PathBuf>, ()> {
     let in_game = app.haks[i]
         .hak
         .path
         .as_ref()
         .zip(app.install.as_ref())
         .is_some_and(|(p, gi)| p.starts_with(&gi.root));
-    let to = if ask || in_game || app.haks[i].hak.path.is_none() {
-        let suggested = app
-            .suggested_hak
-            .take()
-            .or_else(|| app.haks[i].hak.path.clone())
-            .or_else(|| hak_dir(app).map(|d| d.join("new.hak")));
-        match app.dialogs.save_file(FileKind::Hak, suggested.as_deref()) {
-            Some(p) if app.install.as_ref().is_some_and(|gi| p.starts_with(&gi.root)) => {
-                app.log
-                    .error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
-                return false;
-            }
-            Some(p) => Some(p),
-            None => return false,
+    if !(ask || in_game || app.haks[i].hak.path.is_none()) {
+        return Ok(None);
+    }
+    let suggested = app
+        .suggested_hak
+        .take()
+        .or_else(|| app.haks[i].hak.path.clone())
+        .or_else(|| hak_dir(app).map(|d| d.join("new.hak")));
+    match app.dialogs.save_file(FileKind::Hak, suggested.as_deref()) {
+        Some(p) if app.install.as_ref().is_some_and(|gi| p.starts_with(&gi.root)) => {
+            app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
+            Err(())
         }
-    } else {
-        None
-    };
+        Some(p) => Ok(Some(p)),
+        None => Err(()),
+    }
+}
+
+/// After hak `i` was saved: its views made again, the folder it was
+/// built from remembered, the log, and the module's haks read again.
+fn after_save(app: &mut Moonglow, i: usize) {
     let doc = &mut app.haks[i];
-    match doc.hak.save(to.as_deref()) {
+    doc.changed();
+    let path = doc.hak.path.clone().expect("saved");
+    if let Some(folder) = &doc.folder {
+        app.settings.remember_hak_folder(&path, folder);
+    }
+    let past = doc.hak.past_read_limit();
+    app.log.info(format!("Saved {} ({} resources)", path.display(), doc.hak.items().len()));
+    if let Some(first) = past.first() {
+        app.log.warn(format!(
+            "{} resources from {first} on start past 2 GiB into the hak, where the game stops \
+             reading: split it into two",
+            past.len()
+        ));
+    }
+    // The module's haks are read again if this is one.
+    app.reload_resources(false);
+}
+
+/// Saves a hak (asking where for a new one, or with `ask`), here and
+/// now: whether it was. For what goes on with the answer at once (a
+/// tab's OK and its question on closing, the module's Save, a NUI
+/// window's pictures); the hak editor's own Save is a job
+/// ([`save_as_job`]). A hak the module uses is read again.
+pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
+    let Some(i) = app.haks.iter().position(|d| d.id == id) else { return false };
+    let Ok(to) = save_to(app, i, ask) else { return false };
+    match app.haks[i].hak.save(to.as_deref()) {
         Ok(()) => {
-            doc.changed();
-            let path = doc.hak.path.clone().expect("saved");
-            if let Some(folder) = &doc.folder {
-                app.settings.remember_hak_folder(&path, folder);
-            }
-            let past = doc.hak.past_read_limit();
-            app.log.info(format!("Saved {} ({} resources)", path.display(), doc.hak.items().len()));
-            if let Some(first) = past.first() {
-                app.log.warn(format!(
-                    "{} resources from {first} on start past 2 GiB into the hak, where the game \
-                     stops reading: split it into two",
-                    past.len()
-                ));
-            }
-            // The module's haks are read again if this is one.
-            app.reload_resources(false);
+            after_save(app, i);
             true
         }
         Err(e) => {
@@ -453,6 +471,119 @@ pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
             false
         }
     }
+}
+
+/// How far a job that writes `total` bytes is, `done` of them written:
+/// the bar by megabytes (none for less than one), and the sizes said.
+/// Whether to go on (not canceled).
+fn written(progress: &crate::jobs::Progress, done: u64, total: u64) -> bool {
+    progress.step((done >> 20) as usize, (total >> 20) as usize);
+    progress.say(format!("{} of {}", size(done), size(total)));
+    !progress.cancelled()
+}
+
+/// The hak editor's Save and Save As…, as a job: the hak is written on a
+/// thread of its own, with how far it is and Cancel (which leaves the
+/// file as it was), and taken as saved when it is written. A hak of
+/// gigabytes was written inside the frame, and the window stood still
+/// for the whole copy.
+fn save_as_job(app: &mut Moonglow, id: u32, ask: bool) {
+    let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
+    let Ok(to) = save_to(app, i, ask) else { return };
+    let saving = match app.haks[i].hak.saving(to.as_deref()) {
+        Ok(s) => s,
+        Err(e) => return app.log.error(format!("Could not save the hak: {e}")),
+    };
+    let total = saving.size();
+    app.start_job_anywhere(
+        "Save Hak",
+        move |cx| saving.write(&mut |done| written(&cx.progress, done, total)),
+        move |app, saved| {
+            let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
+            let taken = saved.and_then(|s| match s {
+                Some(s) => app.haks[i].hak.saved(s),
+                None => Err("stopped".into()),
+            });
+            match taken {
+                Ok(()) => after_save(app, i),
+                Err(e) => app.log.error(format!("Could not save the hak: {e}")),
+            }
+        },
+    );
+}
+
+/// Resources of a hak about to be extracted into a folder that has files
+/// of some of them: asked about before any is written over.
+#[derive(Debug, Clone)]
+pub struct Extracting {
+    plan: std::sync::Arc<mg_module::hak_edit::Extraction>,
+    pub dir: PathBuf,
+    /// Those the folder has a file of already.
+    pub there: Vec<ResKey>,
+}
+
+/// Extract… and Extract All…: the folder asked for, then the files there
+/// already asked about (they were written over without a word: the
+/// hak's older copies over the files it was built from, edited since),
+/// and the rest written as a job.
+fn extract(app: &mut Moonglow, i: usize, keys: &[ResKey]) {
+    let Some(dir) = app.dialogs.pick_folder("Extract to", None) else { return };
+    let plan = std::sync::Arc::new(app.haks[i].hak.extraction(keys));
+    let there = plan.there(&dir);
+    if there.is_empty() {
+        extract_as_job(app, plan, dir, Vec::new());
+    } else {
+        app.haks[i].extracting = Some(Extracting { plan, dir, there });
+    }
+}
+
+/// Writes `plan`'s files into `dir`, but for `skip`, as a job: with how
+/// far it is and Cancel (the files written by then stay, none cut short).
+fn extract_as_job(
+    app: &mut Moonglow,
+    plan: std::sync::Arc<mg_module::hak_edit::Extraction>,
+    dir: PathBuf,
+    skip: Vec<ResKey>,
+) {
+    let total = plan.size();
+    let to = dir.clone();
+    app.start_job_anywhere(
+        "Extract Files",
+        move |cx| {
+            let skip = skip.into_iter().collect();
+            plan.write(&dir, &skip, &mut |done| written(&cx.progress, done, total))
+        },
+        move |app, wrote| match wrote {
+            Ok(n) => app.log.info(format!("Extracted {n} files to {}", to.display())),
+            Err(e) => app.log.error(format!("Extract: {e}")),
+        },
+    );
+}
+
+/// Asks about the files an extraction would write over.
+fn extracting_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(i) = app.haks.iter().position(|d| d.extracting.is_some()) else { return };
+    let extracting = app.haks[i].extracting.clone().expect("found");
+    let (n, all) = (extracting.there.len(), extracting.plan.len());
+    let said = format!("{} already has {n} of the {all} files:", extracting.dir.display());
+    let files: Vec<_> = extracting.there.iter().map(|k| (k.to_string(), None)).collect();
+    let tips = [
+        "Write all the files: the hak's take the place of the folder's",
+        "Write the other files and leave the folder's as they are",
+    ];
+    use crate::widgets::Already;
+    let there = &mut app.settings.files_there;
+    let Some(answer) = crate::widgets::files_already(ctx, there, "Folder", &said, &files, tips)
+    else {
+        return;
+    };
+    app.haks[i].extracting = None;
+    let skip = match answer {
+        Already::Replace => Vec::new(),
+        Already::Skip => extracting.there,
+        Already::Cancel => return,
+    };
+    extract_as_job(app, extracting.plan, extracting.dir, skip);
 }
 
 fn size(n: u64) -> String {
@@ -821,17 +952,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             let id = app.haks[i].id;
             crate::table_view::open_in_hak(app, id, key);
         }
-        Some(Do::Extract(keys)) => {
-            if let Some(dir) = app.dialogs.pick_folder("Extract to", None) {
-                match app.haks[i].hak.extract(&keys, &dir) {
-                    Ok(n) => app.log.info(format!("Extracted {n} files to {}", dir.display())),
-                    Err(e) => app.log.error(format!("Extract: {e}")),
-                }
-            }
-        }
-        Some(Do::Save(ask)) => {
-            save(app, id, ask);
-        }
+        Some(Do::Extract(keys)) => extract(app, i, &keys),
+        Some(Do::Save(ask)) => save_as_job(app, id, ask),
         Some(Do::View(key)) => match app.haks[i].hak.data(key) {
             Ok(data) => {
                 let view = viewing(app, ui.ctx(), i, key, data);
@@ -936,6 +1058,8 @@ fn add(app: &mut Moonglow, i: usize, files: Vec<PathBuf>) {
 /// Asks about files being added that a hak has already: replace them,
 /// leave those out, or add nothing.
 pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
+    // (And the files an extraction would write over, the other way.)
+    extracting_window(app, ctx);
     let Some(i) = app.haks.iter().position(|d| d.adding.is_some()) else { return };
     let adding = app.haks[i].adding.clone().expect("found");
     let title = app.haks[i].title();

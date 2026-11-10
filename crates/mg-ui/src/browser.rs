@@ -79,6 +79,9 @@ pub struct Browser {
     /// How many views have been made (their grids' ids are counted down
     /// from the highest, apart from the editor's).
     made_views: u32,
+    /// An Export as Files into a folder that has some of the files: asked
+    /// about before any is written over.
+    pub(crate) exporting: Option<Exporting>,
 }
 
 /// A 2DA's read-only view.
@@ -159,6 +162,8 @@ impl Browser {
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     use crate::palette_view::{Keys, give_keys, keys_are};
     let pane = ui.max_rect();
+    // (The files an Export as Files would write over, asked about.)
+    exporting_window(app, ui.ctx());
     let Moonglow { browser, game, ws, actions, .. } = app;
     browser.refresh(game.as_ref().map(|g| &g.resman));
     if game.is_none() {
@@ -503,45 +508,148 @@ fn layer_folder(layer: &str) -> String {
 /// layer has it, in a folder of the layer's under that one
 /// ([`layer_folder`]).
 pub(crate) fn export(app: &mut Moonglow, keys: &[(ResKey, Option<String>)]) {
-    let Some(game) = &app.game else { return };
+    if app.game.is_none() {
+        return;
+    }
     let Some(dir) = app.dialogs.pick_folder("Export as files into", app.export_dir.as_deref())
     else {
         return;
     };
-    let (mut written, mut as_text, mut copies) = (0, 0, 0);
-    for (key, layer) in keys {
-        let Some(data) = read_copy(&game.resman, key, layer.as_deref()) else { continue };
-        // (Asked for: a compiled model as its text; one that can't be
-        // read so goes out as it is.)
-        let text = (app.browser.models_as_text)
-            .then(|| model_text(*key, &data, Some(&game.resman)))
-            .flatten();
-        as_text += usize::from(text.is_some());
-        let data = text.map_or(data, |t| t.into_bytes().into());
-        let into = match layer {
-            Some(layer) => dir.join(layer_folder(layer)),
-            None => dir.clone(),
-        };
-        let wrote = std::fs::create_dir_all(&into)
-            .and_then(|()| key.path_in(&into))
-            .and_then(|path| std::fs::write(path, &data));
-        if let Err(e) = wrote {
-            app.log.error(format!("Could not write to {}: {e}", into.display()));
-            return;
-        }
-        written += 1;
-        copies += usize::from(layer.is_some());
+    // The files the folder has already: asked about before they are
+    // written over (they were replaced without a word).
+    let exporting = Exporting {
+        there: (keys.iter())
+            .filter(|(key, layer)| {
+                export_path(&dir, key, layer.as_deref()).is_ok_and(|p| p.exists())
+            })
+            .cloned()
+            .collect(),
+        keys: keys.to_vec(),
+        dir,
+    };
+    if exporting.there.is_empty() {
+        export_as_job(app, exporting, false);
+    } else {
+        app.browser.exporting = Some(exporting);
     }
-    let models = match as_text {
-        0 => String::new(),
-        n => format!(" ({n} compiled models as text)"),
+}
+
+/// Where Export as Files writes a resource under `dir`: an overridden
+/// copy in its layer's folder ([`layer_folder`]).
+fn export_path(
+    dir: &std::path::Path,
+    key: &ResKey,
+    layer: Option<&str>,
+) -> std::io::Result<PathBuf> {
+    match layer {
+        Some(layer) => key.path_in(&dir.join(layer_folder(layer))),
+        None => key.path_in(dir),
+    }
+}
+
+/// An Export as Files into a folder that has some of its files already.
+#[derive(Debug, Clone)]
+pub(crate) struct Exporting {
+    keys: Vec<(ResKey, Option<String>)>,
+    dir: PathBuf,
+    /// Those the folder has a file of.
+    there: Vec<(ResKey, Option<String>)>,
+}
+
+/// Asks about the files an Export as Files would write over.
+fn exporting_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(exporting) = app.browser.exporting.clone() else { return };
+    let (n, all) = (exporting.there.len(), exporting.keys.len());
+    let said = format!("{} already has {n} of the {all} files:", exporting.dir.display());
+    let files: Vec<_> = (exporting.there.iter())
+        .map(|(key, layer)| (key.to_string(), layer.as_ref().map(|l| format!("as {l} has it"))))
+        .collect();
+    let tips = [
+        "Write all the files: these take the place of the folder's",
+        "Write the other files and leave the folder's as they are",
+    ];
+    use crate::widgets::Already;
+    let there = &mut app.settings.files_there;
+    let Some(answer) = crate::widgets::files_already(ctx, there, "Folder", &said, &files, tips)
+    else {
+        return;
     };
-    let copies = match copies {
-        0 => String::new(),
-        n => format!(", {n} overridden copies in folders of their layers"),
-    };
-    app.log.info(format!("Exported {written} resources to {}{models}{copies}", dir.display()));
-    app.export_dir = Some(dir);
+    app.browser.exporting = None;
+    match answer {
+        Already::Replace => export_as_job(app, exporting, false),
+        Already::Skip => export_as_job(app, exporting, true),
+        Already::Cancel => {}
+    }
+}
+
+/// What an Export as Files wrote.
+#[derive(Debug, Default)]
+struct Exported {
+    written: usize,
+    as_text: usize,
+    copies: usize,
+    /// Stopped by a file that could not be written.
+    failed: Option<String>,
+}
+
+/// Writes an export's files (but for those there already, with `skip`)
+/// as a job, with how far it is and Cancel: every listed resource was
+/// read, a compiled model decompiled, and written inside one frame.
+fn export_as_job(app: &mut Moonglow, exporting: Exporting, skip: bool) {
+    let as_text = app.browser.models_as_text;
+    let Exporting { keys, dir, there } = exporting;
+    let to = dir.clone();
+    app.start_job_anywhere(
+        "Export as Files",
+        move |cx| {
+            let mut out = Exported::default();
+            let Some(game) = cx.game.as_deref() else { return out };
+            let there: std::collections::HashSet<&(ResKey, Option<String>)> =
+                there.iter().filter(|_| skip).collect();
+            let all = keys.len();
+            for (at, entry) in keys.iter().enumerate() {
+                if cx.progress.cancelled() {
+                    break;
+                }
+                cx.progress.step(at, all);
+                let (key, layer) = entry;
+                if there.contains(entry) {
+                    continue;
+                }
+                let Some(data) = read_copy(&game.resman, key, layer.as_deref()) else { continue };
+                // (Asked for: a compiled model as its text; one that can't
+                // be read so goes out as it is.)
+                let text = as_text.then(|| model_text(*key, &data, Some(&game.resman))).flatten();
+                out.as_text += usize::from(text.is_some());
+                let data = text.map_or(data, |t| t.into_bytes().into());
+                let wrote = export_path(&dir, key, layer.as_deref())
+                    .and_then(|path| mg_module::write_replacing_one_of_many(&path, &data));
+                if let Err(e) = wrote {
+                    out.failed = Some(format!("Could not write {key} to {}: {e}", dir.display()));
+                    break;
+                }
+                out.written += 1;
+                out.copies += usize::from(layer.is_some());
+            }
+            out
+        },
+        move |app, out: Exported| {
+            let models = match out.as_text {
+                0 => String::new(),
+                n => format!(" ({n} compiled models as text)"),
+            };
+            let copies = match out.copies {
+                0 => String::new(),
+                n => format!(", {n} overridden copies in folders of their layers"),
+            };
+            let n = out.written;
+            app.log.info(format!("Exported {n} resources to {}{models}{copies}", to.display()));
+            if let Some(e) = out.failed {
+                app.log.error(format!("{e} (the rest were not written)"));
+            }
+            app.export_dir = Some(to);
+        },
+    );
 }
 
 /// A resource read and parsed once for its viewer.

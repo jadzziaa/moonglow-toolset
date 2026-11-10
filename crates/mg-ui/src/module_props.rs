@@ -851,11 +851,23 @@ fn start_attach(app: &mut Moonglow) {
     if files.is_empty() {
         return;
     }
-    match mg_module::attach::placements(&hak_dir, &tlk_dir, &files) {
-        Ok(placements) => app.attach = Some(AttachDraft { placements, replace: false }),
-        Err(e) => app.log.error(format!("Add Haks and Talk Table: {e}")),
-    }
+    // (As a job: an archive's haks are listed, and each file is compared
+    // with the one of its name in the user folder, gigabytes of them.)
+    app.start_job(
+        ATTACH,
+        move |cx| {
+            cx.progress.say("Looking at the files chosen");
+            mg_module::attach::placements(&hak_dir, &tlk_dir, &files)
+        },
+        |app, placements| match placements {
+            Ok(placements) => app.attach = Some(AttachDraft { placements, replace: false }),
+            Err(e) => app.log.error(format!("{ATTACH}: {e}")),
+        },
+    );
 }
+
+/// Add Haks and Talk Table's name, its window's and its jobs'.
+const ATTACH: &str = "Add Haks and Talk Table";
 
 /// The Add Haks and Talk Table window: the haks in their order (highest
 /// first), the talk table, and what's copied where.
@@ -931,16 +943,29 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
-/// Copies the files and attaches them, as one undoable step (the copies
-/// stay).
+/// Copies the files (as a job: haks of gigabytes were copied inside the
+/// frame) and attaches them, as one undoable step (the copies stay).
+/// Canceled, the module is as it was; what was copied by then stays in
+/// the user folder.
 fn attach(app: &mut Moonglow, draft: &AttachDraft) {
-    let copied = match mg_module::attach::copy(&draft.placements, draft.replace) {
-        Ok(n) => n,
-        Err(e) => {
-            app.log.error(format!("Add Haks and Talk Table: {e}"));
-            return;
-        }
-    };
+    let draft = draft.clone();
+    let copying = draft.clone();
+    app.start_job(
+        ATTACH,
+        move |cx| {
+            cx.progress.say("Copying into the user folder");
+            mg_module::attach::copy(&copying.placements, copying.replace)
+        },
+        move |app, copied| match copied {
+            Ok(copied) => attached(app, &draft, copied),
+            Err(e) => app.log.error(format!("{ATTACH}: {e}")),
+        },
+    );
+}
+
+/// The files copied: the module's hak list and talk table set, as one
+/// undoable step.
+fn attached(app: &mut Moonglow, draft: &AttachDraft, copied: usize) {
     let Some(ws) = &mut app.ws else { return };
     let Ok(info) = ws.doc(&info_key()) else { return };
     let haks: Vec<String> =

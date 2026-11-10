@@ -383,8 +383,9 @@ outside Moonglow) always ask.
   [Modules](03-modules.md#import-and-export).
 - **Files there already** (Ask: replace or skip them): files of the same
   names where Moonglow writes: files added to a hak (the hak editor's
-  Add Files), a model's **Export Files**, conversations or minimaps
-  exported into a folder, NUI windows imported. Asked each time
+  Add Files), files a hak is extracted into, the resource browser's
+  **Export as Files**, a model's **Export Files**, conversations or
+  minimaps exported into a folder, NUI windows imported. Asked each time
   (**Replace**, **Skip Those**, Cancel), or always replaced, or always
   left as they are, the others written.
 - **Equipping without the feats** (Ask, as Aurora): equipping a creature

@@ -95,6 +95,47 @@ fn browse_view_and_copy_a_game_resource() {
     );
 }
 
+/// The browser's Export as Files asks before it writes over files the
+/// folder has (it replaced them unasked), as a model's Export Files and
+/// the hak editor do (the review of November 2026, D19).
+#[test]
+fn export_as_files_asks_about_files_there() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-browser-export-there");
+    let path = sample_module(&dir);
+    let out = dir.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let dialogs =
+        NoDialogs { folders: vec![out.clone(), out.clone(), out.clone()], ..Default::default() };
+    let mut app = game_app_with(&root, None, dialogs);
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run();
+    h.state_mut().browser.filter = "nw_it_torch00".into();
+    h.run();
+    h.get_by_label_contains("as Files…").click();
+    settle(&mut h);
+    let torch = out.join("nw_it_torch001.uti");
+    let exported = std::fs::read(&torch).expect("written, nothing asked");
+    assert!(h.query_by_label("Files Already in the Folder").is_none());
+    // Changed since, and exported again: asked, and left with Skip Those.
+    std::fs::write(&torch, "mine").unwrap();
+    h.get_by_label_contains("as Files…").click();
+    settle(&mut h);
+    h.get_by_label("Files Already in the Folder");
+    assert_eq!(std::fs::read(&torch).unwrap(), b"mine", "nothing written before the answer");
+    h.get_by_label("Skip Those").click();
+    settle(&mut h);
+    assert_eq!(std::fs::read(&torch).unwrap(), b"mine");
+    // Replaced when told to.
+    h.get_by_label_contains("as Files…").click();
+    settle(&mut h);
+    h.get_by_label_contains("Replace ").click();
+    settle(&mut h);
+    assert_eq!(std::fs::read(&torch).unwrap(), exported);
+}
+
 /// A module with two haks of our own in `user`'s hak folder, each with a
 /// portraits.2da (its one row's label the hak's name), the first over
 /// the second.
@@ -1233,6 +1274,86 @@ fn a_hak_row_s_remove_takes_that_row_alone() {
     h.get_by_label("Undo").click();
     h.run();
     assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
+}
+
+/// Extract wrote the hak's copies over files the folder had, unasked:
+/// into the folder a hak was built from, its older copies over the files
+/// edited since. It asks as adding files does (Replace, Skip Those,
+/// Cancel), and the files are written as a job, as the hak's own Save is:
+/// a hak of gigabytes was written inside the frame (the review of
+/// November 2026, D19).
+#[test]
+fn a_hak_s_extract_asks_about_files_there_and_runs_as_a_job() {
+    let dir = mg_testkit::scratch_dir("ui-hak-extract");
+    let table = |text: &str| format!("2DA V2.0\n\n   Label\n0  {text}\n");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let files: Vec<_> = ["mg_a", "mg_b"]
+        .iter()
+        .map(|n| {
+            let file = src.join(format!("{n}.2da"));
+            std::fs::write(&file, table("the hak's")).unwrap();
+            file
+        })
+        .collect();
+    let (out, fresh) = (dir.join("out"), dir.join("fresh"));
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("mg_a.2da"), "mine").unwrap();
+    let saved = dir.join("saved.hak");
+    // (Asked for in turn, the last first.)
+    let dialogs = NoDialogs {
+        open_many: vec![files],
+        folders: vec![fresh.clone(), out.clone(), out.clone(), out.clone()],
+        save: vec![saved.clone()],
+        ..Default::default()
+    };
+    let app = Moonglow::new(None, Box::new(dialogs));
+    let mut h = harness(app, 1100.0, 760.0);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run();
+    h.get_by_label("Add Files…").click();
+    h.run();
+    let read = |name: &str| std::fs::read_to_string(out.join(name)).ok();
+    // One of the two is there: asked, and nothing written before the
+    // answer. Cancel writes nothing.
+    h.get_by_label("Extract All…").click();
+    settle(&mut h);
+    h.get_by_label("Files Already in the Folder");
+    assert!(h.query_by_label_contains("already has 1 of the 2 files").is_some());
+    assert_eq!((read("mg_a.2da").as_deref(), read("mg_b.2da")), (Some("mine"), None));
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert_eq!((read("mg_a.2da").as_deref(), read("mg_b.2da")), (Some("mine"), None));
+    // Skip Those: the other is written, the folder's own stays.
+    h.get_by_label("Extract All…").click();
+    settle(&mut h);
+    h.get_by_label("Skip Those").click();
+    settle(&mut h);
+    assert_eq!(read("mg_a.2da").as_deref(), Some("mine"));
+    assert_eq!(read("mg_b.2da"), Some(table("the hak's")));
+    // Replace: the hak's take their place.
+    h.get_by_label("Extract All…").click();
+    settle(&mut h);
+    h.get_by_label("Replace 2").click();
+    settle(&mut h);
+    assert_eq!(read("mg_a.2da"), Some(table("the hak's")));
+
+    // With jobs on their own thread, as the application runs them: the
+    // window goes on while the files are written, and so for Save.
+    h.state_mut().background_jobs = true;
+    h.get_by_label("Extract All…").click();
+    h.step();
+    assert!(h.state().busy(), "written off the window's thread");
+    settle(&mut h);
+    assert!(fresh.join("mg_a.2da").is_file() && fresh.join("mg_b.2da").is_file());
+    assert!(h.query_by_label("Files Already in the Folder").is_none(), "none there: not asked");
+    h.get_by_label("Save").click();
+    h.step();
+    assert!(h.state().busy(), "saved off the window's thread");
+    assert!(h.state().haks[0].hak.is_dirty(), "not saved before it is written");
+    settle(&mut h);
+    assert!(!h.state().haks[0].hak.is_dirty() && saved.is_file(), "{:?}", h.state().log.entries);
+    assert_eq!(mg_module::hak_edit::Hak::open(&saved).unwrap().items().len(), 2);
 }
 
 /// The side editors (a hak's, a 2DA's, a tileset's) ask of unsaved changes

@@ -1906,13 +1906,19 @@ folder's files, subfolders included, to look over and save.
   tools silently cut it short), or a type the game doesn't know. Hidden
   files, `Thumbs.db` and `desktop.ini` are skipped.
 - **Extracting:** **Extract…** and **Extract All…** write resources as
-  files into a folder.
+  files into a folder. Where the folder has some of the files already
+  (the folder the hak was built from, its files edited since), it asks
+  first, listing them: **Replace** them, **Skip Those** and write the
+  rest, or **Cancel**. The files are written while a window shows how
+  far it is, with **Cancel** (those written by then stay).
 - **Undo** and **Redo** in its toolbar, and Undo's and Redo's keys
   with the pointer over the editor (the hak's steps, not the module's).
   **Description** is the hak's own note, for people.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
-  in memory, and a failed save leaves the old one whole. It warns when
+  in memory, and a failed save leaves the old one whole. The hak
+  editor's Save and Save As… show how far the save is, with **Cancel**,
+  which leaves the old one as it was. It warns when
   resources would start past 2 GiB, which the game can't read. The hak
   editor itself reads all of such a hak: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.
