@@ -446,7 +446,9 @@ pub fn line_moved(text: &str, at: usize, lines: isize) -> usize {
 
 /// The character index of a byte index.
 pub fn char_index(text: &str, bytes: usize) -> usize {
-    text[..bytes.min(text.len())].chars().count()
+    // (A byte inside a character, as a place of another text may be:
+    // that character's index.)
+    text.char_indices().take_while(|(b, _)| *b < bytes).count()
 }
 
 /// The character index where a line (0-based) starts.

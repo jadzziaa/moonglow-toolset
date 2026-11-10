@@ -1540,6 +1540,115 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     assert!(top(&h) < before, "and no line kept for one");
 }
 
+/// Two scripts for the tests of Rename Symbol's places: `inc_a` (CRLF,
+/// with a character of two bytes) declares `Twice` and uses it near its
+/// end, `main_a` includes it. The harness, the two keys and `inc_a`'s
+/// text.
+fn rename_harness(name: &str) -> (Harness<'static, Moonglow>, ResKey, ResKey, String) {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let inc = ResKey::parse("inc_a", ResType::NSS).unwrap();
+    let main = ResKey::parse("main_a", ResType::NSS).unwrap();
+    let inc_text = "// caf\u{e9}\r\nint Twice(int n) { return n * 2; }\r\n\
+                    int Four() { return Twice(2); }\r\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(inc, mg_core::Codepage::WINDOWS_1252.encode_lossy(inc_text));
+    m.set(main, b"#include \"inc_a\"\r\nvoid main() { int x = Twice(2); }\r\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    (harness(app, 1280.0, 800.0), inc, main, inc_text.to_string())
+}
+
+/// A script as the module has it.
+fn module_script(h: &Harness<'_, Moonglow>, key: ResKey) -> String {
+    let bytes = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
+    mg_core::Codepage::WINDOWS_1252.decode(&bytes).into_owned()
+}
+
+/// Where `Twice` is used in `main_a`, as the editor counts (characters).
+const TWICE_IN_MAIN: usize = 41;
+
+/// References and Rename Symbol take their places in the text the module
+/// has: an include whose editor was closed with Don't Save is read from
+/// the module again (the places were those of the text dropped, 200
+/// characters further on: References cut the module's text past its end
+/// and Rename wrote the new name over other bytes), and one never opened,
+/// with CRLF line ends, is read with plain newlines as an editor has it.
+#[test]
+fn rename_symbol_s_places_are_the_module_s_after_an_editor_is_canceled() {
+    let (mut h, inc, main, inc_text) = rename_harness("ui-script-rename-canceled");
+    let open = |h: &mut Harness<'_, Moonglow>, key: ResKey| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+    };
+    // A script never opened: its places are an editor's, its bytes kept.
+    open(&mut h, main);
+    let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
+    assert_eq!(d.at.file, "inc_a");
+    h.state_mut().rename_symbol(&d, "Thrice");
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), inc_text.replace("Twice", "Thrice"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), inc_text);
+
+    // The include typed into, the name looked up from the other script,
+    // then the include's editor canceled.
+    open(&mut h, inc);
+    let typed = format!("{}\n// caf\u{e9}\nint Twice(int n);\n", "/".repeat(200));
+    h.state_mut().scripts_mut_for_test(inc, &typed);
+    assert!(h.state_mut().declaration_at(main, TWICE_IN_MAIN).is_some());
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(4);
+    h.get_by_label("Don't Save").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(inc)).is_none(), "closed");
+    let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
+    h.state_mut().show_references(&d);
+    let results: Vec<String> = (h.state().script_tools.search.results.iter())
+        .map(|(k, l, text)| format!("{}:{l} {text}", k.resref))
+        .collect();
+    assert_eq!(
+        results,
+        [
+            "inc_a:1 int Twice(int n) { return n * 2; }",
+            "inc_a:2 int Four() { return Twice(2); }",
+            "main_a:1 void main() { int x = Twice(2); }"
+        ]
+    );
+    h.state_mut().rename_symbol(&d, "Double");
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), inc_text.replace("Twice", "Double"));
+    assert!(module_script(&h, main).contains("int x = Double(2);"));
+}
+
+/// A script open in a tab behind another, unchanged, that a command
+/// rewrote in the module (the NUI Creator's, a plugin's, Undo): its
+/// editor is not drawn, so it had the text of before, and Rename Symbol
+/// from another script wrote the places of that text into the new one.
+#[test]
+fn rename_symbol_reads_a_script_a_command_rewrote_behind_another_tab() {
+    let (mut h, inc, main, inc_text) = rename_harness("ui-script-rename-hidden-tab");
+    for key in [inc, main] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+    }
+    assert!(h.state().script_text(inc).is_some(), "the include's editor is open");
+    // (The include is behind the other script's tab from here on.)
+    let rewritten = format!("// A line a command put first.\r\n{inc_text}");
+    let edit = mg_edit::Edit::SetResource {
+        key: inc,
+        data: Some(mg_core::Codepage::WINDOWS_1252.encode_lossy(&rewritten)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Rewrite", vec![edit])));
+    h.run_steps(3);
+    let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
+    h.state_mut().rename_symbol(&d, "Double");
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), rewritten.replace("Twice", "Double"));
+}
+
 /// A script's copy takes its compiled script along.
 #[test]
 fn a_script_is_copied_with_its_compiled_script() {

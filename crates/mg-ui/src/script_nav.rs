@@ -57,6 +57,25 @@ fn source<'a>(
     }
 }
 
+/// `text` with `new` at each of `spans` (byte ranges, in order), each of
+/// which holds `old`; `None` where one does not (it overlaps the one
+/// before, lies past the text's end or inside a character, or holds
+/// something else): the spans are another text's.
+fn renamed(text: &str, spans: &[std::ops::Range<usize>], old: &str, new: &str) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for s in spans {
+        if text.get(s.clone()) != Some(old) {
+            return None;
+        }
+        out.push_str(text.get(at..s.start)?);
+        out.push_str(new);
+        at = s.end;
+    }
+    out.push_str(text.get(at..)?);
+    Some(out)
+}
+
 impl Nav {
     /// Every script's live check but `but`'s to be made again when next
     /// shown: an include of theirs may have changed.
@@ -79,7 +98,24 @@ impl Moonglow {
             self.script_nav.texts.clear();
             self.script_nav.revision = Some(ws.revision());
         }
-        for (k, b) in &self.scripts {
+        // An editor closed without saving (Cancel), or its script renamed
+        // or gone: the index had its text, places in which are no places
+        // in the module's. Read again from the module when next needed.
+        let (scripts, nav) = (&self.scripts, &mut self.script_nav);
+        nav.texts.retain(|k, _| {
+            let open = scripts.contains_key(k);
+            if !open {
+                nav.index.forget(&k.resref.to_string());
+            }
+            open
+        });
+        for (k, b) in &mut self.scripts {
+            // (An editor behind another tab is not drawn, and follows the
+            // module only when it is: a script the NUI Creator, a plugin
+            // or Undo wrote meanwhile is read here as the module has it.)
+            if let Some(bytes) = ws.module.get(k) {
+                b.follow_module(bytes);
+            }
             let h = crate::script_tools::hash(&b.text);
             if self.script_nav.texts.get(k) != Some(&h) {
                 self.script_nav.index.set(&k.resref.to_string(), Arc::from(b.text.as_str()));
@@ -137,7 +173,8 @@ impl Moonglow {
         let mut results = Vec::new();
         for r in &refs {
             let (Some(k), Some(text)) = (tools::nss(&r.file), src(&r.file)) else { continue };
-            let line = text[..r.span.start].matches('\n').count();
+            let Some(before) = text.get(..r.span.start) else { continue };
+            let line = before.matches('\n').count();
             let shown = text.lines().nth(line).unwrap_or("").trim().to_string();
             results.push((k, line, shown));
         }
@@ -179,14 +216,15 @@ impl Moonglow {
             // plain newlines: written back with the file's line ends.)
             let text = crate::text::to_editor(&raw).0;
             spans.sort_by_key(|s| s.start);
-            let mut out = String::with_capacity(text.len());
-            let mut at = 0;
-            for s in spans {
-                out.push_str(&text[at..s.start]);
-                out.push_str(new);
-                at = s.end;
-            }
-            out.push_str(&text[at..]);
+            // (A place that does not hold the old name is a place in
+            // another text than the module's: nothing is written.)
+            let Some(out) = renamed(&text, &spans, &d.name, new) else {
+                self.log.error(format!(
+                    "Rename {}: {file} is not as it was read: nothing was renamed, try again",
+                    d.name
+                ));
+                return;
+            };
             let out = crate::text::with_line_ends(&out, &raw);
             edits.push(Edit::SetResource { key: k, data: Some(encode(&out)) });
         }

@@ -177,6 +177,27 @@ impl ScriptBuffer {
         self.raw = raw;
     }
 
+    /// Follows the module's script (`bytes`) where it changed underneath
+    /// (undo, import, a command of the NUI Creator or a plugin) and the
+    /// text has no unsaved changes: its line ends too. Another language
+    /// chosen in Options: a script without unsaved changes is read again
+    /// in its codepage. An editor does so as it is drawn, and whatever
+    /// takes places in every open script's text (References, Rename
+    /// Symbol) before it does: a tab behind another is not drawn.
+    pub(crate) fn follow_module(&mut self, bytes: &[u8]) {
+        let source = (bytes.as_ptr() as usize, bytes.len());
+        let codepage = script_codepage();
+        let recoded = self.codepage != codepage && !self.is_dirty();
+        if self.source != source || recoded {
+            self.source = source;
+            if !self.is_dirty() {
+                let module_text = codepage.decode(bytes).into_owned();
+                self.codepage = codepage;
+                self.follow(module_text);
+            }
+        }
+    }
+
     pub(crate) fn is_dirty(&self) -> bool {
         self.text != self.saved
     }
@@ -566,23 +587,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let Some(ws) = &app.ws else { return };
     let Some(bytes) = ws.module.get(&key) else { return };
-    {
-        let buf = app.scripts.get_mut(&key).expect("just inserted");
-        // (Another language chosen in Options: a script without unsaved
-        // changes is read again in its codepage.)
-        let codepage = script_codepage();
-        let recoded = buf.codepage != codepage && !buf.is_dirty();
-        if buf.source != source || recoded {
-            buf.source = source;
-            if !buf.is_dirty() {
-                let module_text = codepage.decode(bytes).into_owned();
-                buf.codepage = codepage;
-                // Changed underneath (undo, import): follow the module,
-                // its line ends too.
-                buf.follow(module_text);
-            }
-        }
-    }
+    app.scripts.get_mut(&key).expect("just inserted").follow_module(bytes);
     let ctx = ui.ctx().clone();
 
     // This script edited, or the module changed: what other scripts found
