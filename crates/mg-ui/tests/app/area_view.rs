@@ -7323,3 +7323,77 @@ fn the_next_dab_is_worked_out_once_and_drawn_in_part() {
     let laid = git.root.list("Placeable List").map_or(0, <[_]>::len);
     assert!(laid > 500, "{laid} laid");
 }
+
+/// The review's A25: Create Set (and Create Waypoint) and Find Instance
+/// read every area's GIT into the workspace, where they stayed until the
+/// next save. They read the areas not open from the module's copy, and
+/// keep no document of them: another area's waypoint still counts (the
+/// set goes on from its `Patrol_01`), and is found, and its GIT is not
+/// among the workspace's documents after either.
+#[test]
+fn create_set_and_find_instance_keep_no_other_area_s_document() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let other = ResRef::from_str("elsewhere").unwrap();
+    let prepare = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::new::{AreaSpec, add_area};
+        let spec = AreaSpec {
+            name: "Elsewhere".into(),
+            tileset: ResRef::from_str("ttr01").unwrap(),
+            width: 2,
+            height: 2,
+        };
+        let made = add_area(m, game, &spec, &mut fastrand::Rng::with_seed(3)).unwrap();
+        // (The first area's waypoint, tagged, as the other area's.)
+        let from = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+        let mut waypoint = from.root.list("WaypointList").unwrap()[0].clone();
+        waypoint.set("Tag", mg_gff::Value::String(b"Patrol_01".to_vec()));
+        let key = ResKey::new(made, ResType::GIT);
+        let mut git = m.gff(&key).unwrap().unwrap();
+        git.root.set("WaypointList", mg_gff::Value::List(vec![waypoint]));
+        m.set_gff(key, &git).unwrap();
+        assert_eq!(made, ResRef::from_str("elsewhere").unwrap());
+    };
+    let Some((mut h, area)) = area_harness_with("other-areas", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let other_git = ResKey::new(other, ResType::GIT);
+    let kept =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().loaded(&other_git).is_some();
+    assert!(!kept(&h));
+    // Create Set on the first waypoint: Patrol_02, after the other area's.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    let over = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(over);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: over,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Create Set…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "set name", "Patrol");
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert_eq!(waypoint_tags(&mut h, area)[0], "Patrol_02");
+    assert!(!kept(&h), "the other area's GIT read, not kept");
+    // Find Instance finds both, in both areas.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Find Instance…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "tag", "patrol");
+    h.run_steps(2);
+    h.get_by_label("Search").click();
+    h.run_steps(2);
+    let found = h.state().find_instance.as_ref().unwrap().results.clone();
+    let places: Vec<(ResRef, &str)> = found.iter().map(|f| (f.area, f.tag.as_str())).collect();
+    assert_eq!(places, [(other, "Patrol_01"), (area, "Patrol_02")]);
+    assert!(!kept(&h), "nor by the search");
+}

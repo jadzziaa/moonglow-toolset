@@ -847,6 +847,9 @@ pub struct Moonglow {
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
+    /// The waypoints' tags of the areas not open, for Create Waypoint and
+    /// Create Set.
+    pub(crate) waypoint_tags: area_view::WaypointTags,
     /// The interface size was set from the settings (to set it back).
     scaled: bool,
     /// The models' windows open as the frame began.
@@ -1241,6 +1244,7 @@ impl Moonglow {
             placeable_gallery: None,
             script_nav: Default::default(),
             prefab_save: None,
+            waypoint_tags: Default::default(),
             update_draft: None,
             export_dir: None,
             model_export: None,

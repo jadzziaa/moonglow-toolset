@@ -7975,20 +7975,54 @@ fn redraw_outline(
     app.actions.push(Action::Apply(Command::new("Redraw polygon", vec![edit])));
 }
 
+/// The waypoints' tags of the module's areas, kept area by area: an area
+/// not open is read from the module's copy of its GIT, once for each
+/// copy of its bytes the module holds, and not kept as a document (as
+/// `mg_module::tags::TagCache` reads tags). Create Waypoint and Create
+/// Set read every area's GIT into the workspace at each click, where
+/// they stayed until the next save: seconds, in a world of thousands of
+/// areas.
+#[derive(Debug, Default)]
+pub(crate) struct WaypointTags {
+    parts: std::collections::HashMap<ResRef, (std::sync::Arc<[u8]>, Vec<Vec<u8>>)>,
+}
+
+impl WaypointTags {
+    /// Every waypoint's tag in the module as it is now (the documents
+    /// the workspace holds as they are edited, the module's bytes for
+    /// the rest), as the game's codepage reads them.
+    fn of(&mut self, ws: &mg_edit::Workspace) -> Vec<String> {
+        let tags_of = |git: &mg_gff::Struct| -> Vec<Vec<u8>> {
+            let waypoints = git.list(ObjectKind::Waypoint.list()).unwrap_or(&[]);
+            waypoints.iter().filter_map(|w| w.string("Tag").map(<[u8]>::to_vec)).collect()
+        };
+        let git = |area: ResRef| ResKey::new(area, ResType::GIT);
+        // (Those gone, or held by the workspace now, are let go.)
+        self.parts.retain(|a, _| ws.module.contains(&git(*a)) && ws.loaded(&git(*a)).is_none());
+        let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+        areas.sort();
+        let mut tags = Vec::new();
+        for area in areas {
+            if let Some(doc) = ws.loaded(&git(area)) {
+                tags.extend(tags_of(&doc.root).iter().map(|t| crate::text::decode(t)));
+                continue;
+            }
+            let Some(bytes) = ws.module.shared(&git(area)) else { continue };
+            let kept = self.parts.get(&area).filter(|(b, _)| std::sync::Arc::ptr_eq(b, bytes));
+            if kept.is_none() {
+                let read = Gff::read(bytes).map(|g| tags_of(&g.root)).unwrap_or_default();
+                self.parts.insert(area, (bytes.clone(), read));
+            }
+            tags.extend(self.parts[&area].1.iter().map(|t| crate::text::decode(t)));
+        }
+        tags
+    }
+}
+
 /// Every waypoint tag in the module's areas.
 fn waypoint_tags(app: &mut Moonglow) -> Vec<String> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
-    let areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
-    let mut tags = Vec::new();
-    for a in areas {
-        let Ok(git) = ws.doc(&ResKey::new(a, ResType::GIT)) else { continue };
-        for w in git.root.list(ObjectKind::Waypoint.list()).unwrap_or(&[]) {
-            if let Some(t) = w.string("Tag") {
-                tags.push(crate::text::decode(t));
-            }
-        }
-    }
-    tags
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
+    app.waypoint_tags.of(ws)
 }
 
 /// Aurora's Create Waypoint: one of the creature's walk waypoints
@@ -8025,24 +8059,38 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
 /// Aurora's Create Set: the selected waypoints named `<name>_01`,
 /// `<name>_02`, … in the order they were selected.
 fn create_set(app: &mut Moonglow, view: &AreaView, name: &str) {
-    let mut tags = waypoint_tags(app);
+    let tags = waypoint_tags(app);
+    let edits = set_edits(view.git(), &view.selection, name, tags);
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new("Create set", edits)));
+    }
+}
+
+/// [`create_set`]'s edits: the waypoints of `selection` (in `git`) each
+/// given the next tag of the set `name` that is not among `tags` (the
+/// module's waypoints'), written as the game reads text, as Create
+/// Waypoint writes its tag.
+fn set_edits(
+    git: ResKey,
+    selection: &[(ObjectKind, usize)],
+    name: &str,
+    mut tags: Vec<String>,
+) -> Vec<mg_edit::Edit> {
     let mut edits = Vec::new();
-    for &(kind, index) in &view.selection {
+    for &(kind, index) in selection {
         if kind != ObjectKind::Waypoint {
             continue;
         }
         let tag = mg_module::instances::set_tag(name, &tags);
-        tags.push(tag.clone());
         edits.push(mg_edit::Edit::SetField {
-            key: view.git(),
+            key: git,
             path: mg_edit::GffPath::root().item(kind.list(), index),
             label: "Tag".into(),
-            value: Some(Value::String(tag.into_bytes())),
+            value: Some(Value::String(crate::text::encode(&tag))),
         });
+        tags.push(tag);
     }
-    if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Create set", edits)));
-    }
+    edits
 }
 
 /// The Create Set window.
@@ -8370,6 +8418,36 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The review's A10: Create Set wrote its tags as UTF-8, where Create
+    /// Waypoint and every reader use the game's codepage: a set named
+    /// `Straße` in a Central European module read back as `StraÃŸe_01`,
+    /// and a second set of the name was numbered from 01 again.
+    #[test]
+    fn create_set_writes_its_tags_in_the_game_s_codepage() {
+        crate::text::set_game_codepage(Some(mg_core::Codepage::WINDOWS_1250));
+        let git = ResKey::parse("area", ResType::GIT).unwrap();
+        let selection =
+            [(ObjectKind::Waypoint, 0), (ObjectKind::Placeable, 3), (ObjectKind::Waypoint, 2)];
+        let tag = |e: &mg_edit::Edit| match e {
+            mg_edit::Edit::SetField { label, value: Some(Value::String(b)), .. }
+                if label == "Tag" =>
+            {
+                b.clone()
+            }
+            other => panic!("{other:?}"),
+        };
+        let first = set_edits(git, &selection, "Straße", Vec::new());
+        let tags: Vec<Vec<u8>> = first.iter().map(tag).collect();
+        assert_eq!(tags, [b"Stra\xdfe_01".to_vec(), b"Stra\xdfe_02".to_vec()]);
+        // Read back as the module's waypoints' tags, the next set of the
+        // name goes on from them.
+        let read: Vec<String> = tags.iter().map(|t| crate::text::decode(t)).collect();
+        assert_eq!(read, ["Straße_01", "Straße_02"]);
+        let next = set_edits(git, &selection[..1], "Straße", read);
+        assert_eq!(tag(&next[0]), b"Stra\xdfe_03");
+        crate::text::set_game_codepage(None);
+    }
 
     /// The review's A16: the model with a drag applied is a copy kept
     /// from frame to frame, the objects posed set back and posed again.

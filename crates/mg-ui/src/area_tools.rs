@@ -614,7 +614,7 @@ pub struct Found {
 /// The objects placed in the module's areas that match `f`'s criteria
 /// (tag and blueprint: case-insensitive parts).
 pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
     let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
     areas.sort();
     areas.retain(|a| f.area.is_none_or(|only| only == *a));
@@ -623,13 +623,27 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
         (mg_core::text::Needle::new(&f.tag), mg_core::text::Needle::new(&f.template));
     let mut out = Vec::new();
     for area in areas {
-        let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
+        // (An area not open is read from the module's copy and not kept
+        // as a document: a search of a world left every area's GIT in the
+        // workspace until the next save.)
+        let key = ResKey::new(area, ResType::GIT);
+        let read;
+        let git = match ws.loaded(&key) {
+            Some(doc) => &doc.root,
+            None => match ws.module.get(&key).and_then(|b| mg_gff::Gff::read(b).ok()) {
+                Some(gff) => {
+                    read = gff;
+                    &read.root
+                }
+                None => continue,
+            },
+        };
         for kind in ObjectKind::ALL {
             if !f.kinds[kind.index()] {
                 continue;
             }
             let field = kind.resref_field();
-            for (index, s) in git.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
+            for (index, s) in git.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
                 if tag.finds(&t) && template.finds(&bp) {
