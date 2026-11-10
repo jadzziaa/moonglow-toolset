@@ -2784,7 +2784,6 @@ dependencies = [
  "mg-tiles",
  "mg-tlk",
  "notify",
- "png",
  "rars",
  "rayon",
  "regex-lite",

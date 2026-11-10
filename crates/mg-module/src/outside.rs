@@ -89,6 +89,23 @@ pub struct OutsideFound {
 }
 
 impl OutsideScan {
+    /// A look at `paths` alone, the files the system said changed: the
+    /// known file (by `known`) of each resource their names are (by
+    /// `key_of`), each once, in order.
+    pub(crate) fn of_paths(
+        paths: &[PathBuf],
+        kind: Kind,
+        key_of: impl Fn(&str) -> Option<ResKey>,
+        known: impl FnMut(&ResKey) -> Option<Known>,
+    ) -> OutsideScan {
+        let mut keys: Vec<ResKey> =
+            paths.iter().filter_map(|p| key_of(&p.file_name()?.to_string_lossy())).collect();
+        keys.sort();
+        keys.dedup();
+        let files = keys.iter().filter_map(known).collect();
+        OutsideScan { files, kind, only: Some(paths.iter().cloned().collect()) }
+    }
+
     /// The files known.
     pub fn len(&self) -> usize {
         self.files.len()

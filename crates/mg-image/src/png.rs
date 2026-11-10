@@ -53,6 +53,19 @@ pub fn read_picture(data: &[u8], max_pixels: u64) -> Result<Rgba, ImageError> {
     Ok(Rgba { width, height, data: rgba })
 }
 
+/// A PNG of RGBA8 pixels, `width` by `height`, rows from the top as
+/// `data` has them. It fails only where `data` is not that many pixels.
+pub fn write_rgba(width: u32, height: u32, data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut enc = ::png::Encoder::new(&mut out, width, height);
+    enc.set_color(::png::ColorType::Rgba);
+    enc.set_depth(::png::BitDepth::Eight);
+    let mut w = enc.write_header().map_err(|e| e.to_string())?;
+    w.write_image_data(data).map_err(|e| e.to_string())?;
+    w.finish().map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use ::png::{BitDepth, ColorType};
@@ -119,6 +132,19 @@ mod tests {
 
     /// Too many pixels is refused before they are unpacked; a file cut
     /// anywhere, or not a PNG, is an error, never a panic.
+    #[test]
+    fn rgba_written_reads_back_and_a_wrong_size_is_an_error() {
+        let data = [1, 2, 3, 4, 5, 6, 7, 8];
+        let png = write_rgba(2, 1, &data).unwrap();
+        assert_eq!(
+            read_picture(&png, 16).unwrap(),
+            Rgba { width: 2, height: 1, data: data.to_vec() }
+        );
+        assert!(write_rgba(2, 2, &data).is_err(), "too few pixels");
+        assert!(write_rgba(1, 1, &data).is_err(), "too many");
+        assert!(write_rgba(0, 0, &[]).is_err(), "none: no PNG is empty");
+    }
+
     #[test]
     fn a_png_too_large_or_cut_short_is_an_error() {
         let rgb = png_of(ColorType::Rgb, BitDepth::Eight, None, &[1, 2, 3, 4, 5, 6]);

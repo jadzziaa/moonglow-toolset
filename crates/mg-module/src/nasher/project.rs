@@ -799,16 +799,10 @@ impl Project {
     /// the resources they are, by their names (a file moved is a known
     /// resource at a new path).
     pub(crate) fn outside_scan_of(&self, paths: &[PathBuf]) -> OutsideScan {
-        let mut keys: Vec<ResKey> = (paths.iter())
-            .filter_map(|p| resource_of(&p.file_name()?.to_string_lossy()).map(|(k, _)| k))
-            .collect();
-        keys.sort();
-        keys.dedup();
-        let files = (keys.iter())
-            .filter_map(|k| self.sources.get(k).map(|src| Self::known(*k, src)))
-            .collect();
-        let only = Some(paths.iter().cloned().collect());
-        OutsideScan { files, kind: self.scan_kind(), only }
+        let key_of = |name: &str| resource_of(name).map(|(k, _)| k);
+        OutsideScan::of_paths(paths, self.scan_kind(), key_of, |k| {
+            self.sources.get(k).map(|src| Self::known(*k, src))
+        })
     }
 
     /// Takes what [`OutsideScan::run`] found: the times of the files found

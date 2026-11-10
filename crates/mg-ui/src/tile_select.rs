@@ -1392,11 +1392,9 @@ pub const ALL_TILES: &str = "All Tiles (Ignore Fit)";
 /// The pictures' Size slider, beside their heading.
 fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui, side: f32) {
     // (Tiles much alike are told apart larger.)
-    let mut size = side;
-    let slider =
-        egui::Slider::new(&mut size, VARIANT_MIN..=VARIANT_MAX).show_value(false).text("Size");
-    if ui.add(slider).on_hover_text("How large the pictures are").changed() {
-        app.settings.tile_variant_side = Some(size.round() as u16);
+    let range = VARIANT_MIN..=VARIANT_MAX;
+    if let Some(side) = crate::widgets::picture_size_slider(ui, side, range, Some("Size")) {
+        app.settings.tile_variant_side = Some(side);
     }
 }
 

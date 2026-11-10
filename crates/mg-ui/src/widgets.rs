@@ -4531,6 +4531,23 @@ pub fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response
     ui.label(egui::RichText::new(text).strong())
 }
 
+/// How large a gallery's pictures are: a slider of their side in `range`
+/// (its value not shown, `text` beside it where given). The side moved
+/// to, rounded, when it is moved.
+pub(crate) fn picture_size_slider(
+    ui: &mut egui::Ui,
+    mut side: f32,
+    range: std::ops::RangeInclusive<f32>,
+    text: Option<&str>,
+) -> Option<u16> {
+    let mut slider = egui::Slider::new(&mut side, range).show_value(false);
+    if let Some(text) = text {
+        slider = slider.text(text);
+    }
+    let moved = ui.add(slider).on_hover_text("How large the pictures are").changed();
+    moved.then(|| side.round() as u16)
+}
+
 /// A PLT color (0 to 175) chosen among a palette's swatches (a TGA of
 /// `pal_*`, its rows the colours): its swatch, then a list showing
 /// `current` (or `text` in place of its number) that opens on all 176,

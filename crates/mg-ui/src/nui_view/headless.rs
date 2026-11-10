@@ -336,16 +336,10 @@ pub struct Picture {
 impl Picture {
     /// As a PNG.
     pub fn png(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut enc = png::Encoder::new(&mut out, self.width, self.height);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
         // (Writing to memory fails only on sizes that don't match.)
-        let written = enc
-            .write_header()
-            .and_then(|mut w| w.write_image_data(&self.rgba).and_then(|()| w.finish()));
+        let written = mg_image::png::write_rgba(self.width, self.height, &self.rgba);
         debug_assert!(written.is_ok(), "{written:?}");
-        out
+        written.unwrap_or_default()
     }
 }
 
