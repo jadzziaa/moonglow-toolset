@@ -1331,7 +1331,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             ui.strong("Spells");
-            let id = egui::Id::new(("utc-special-find", key));
+            let id = f.id("utc-special-find");
             let needle = filter(ui, id);
             let category = category_filter(ui, id.with("category"), &categories);
             let in_category = |row: usize| {

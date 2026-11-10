@@ -445,7 +445,7 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let own = |f: &Form<'_>, part: usize| {
         ArmorChannel::ALL.iter().any(|&c| armor_part_color(&f.root, part, c).is_some())
     };
-    let id = egui::Id::new(("uti-part-colors", f.key));
+    let id = f.id("uti-part-colors");
     let mut part: usize = ui.data(|d| d.get_temp(id)).unwrap_or(7);
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Part Colors");
@@ -720,7 +720,7 @@ fn armor_part_choices(game: &GameData, table: &str) -> Vec<Choice> {
 fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     const SIDE: f32 = 96.0;
     const GAP: f32 = 4.0;
-    let id = egui::Id::new(("uti-part-gallery", f.key));
+    let id = f.id("uti-part-gallery");
     let all: Vec<&(&str, &[&str], &str)> = ARMOR_PARTS.iter().chain(&LOWER_PARTS).collect();
     let mut at: usize = ui.data(|d| d.get_temp(id)).unwrap_or(1).min(all.len() - 1);
     ui.horizontal_wrapped(|ui| {
@@ -989,7 +989,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             // Search: the properties and their choices (a spell of Cast
             // Spell, a skill of Skill Bonus) that have every word typed,
             // their kinds opened out.
-            let search_id = egui::Id::new(("uti-search", key));
+            let search_id = f.id("uti-search");
             let mut search: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
             crate::widgets::SearchField::new(search_id.with("field"), &mut search)
                 .hint("🔍 Search properties")
