@@ -401,6 +401,9 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     }
                     if state.reveal && state.cursor == Some(i) {
                         name.scroll_to_me(None);
+                        // (Once: asked every frame after an arrow key, it
+                        // pulled the row back against the wheel.)
+                        state.reveal = false;
                     }
                     if name.clicked() {
                         let (command, shift) =
