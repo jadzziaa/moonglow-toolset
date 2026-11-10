@@ -500,6 +500,16 @@ pub const STORE_PANEL_PAGE: [u32; 5] = {
     [pages[0].0, pages[1].0, pages[2].0, pages[3].0, pages[4].0]
 };
 
+/// Where an inventory's entry is in its grid (`Repos_PosX`, `Repos_Posy`),
+/// for [`place`]: a number below 0 (a file's INT of -1) is 0, as a place
+/// left out is. The one reading of it: cast to an unsigned number, -1
+/// was the grid's far end, and a sum with it overflowed.
+pub fn placed_at(entry: &Struct) -> (u32, u32) {
+    let at =
+        |label: &str| u32::try_from(entry.integer(label).unwrap_or(0).max(0)).unwrap_or(u32::MAX);
+    (at("Repos_PosX"), at("Repos_Posy"))
+}
+
 /// The first free place for a `w`×`h` item in an inventory grid
 /// `width` wide, row by row, among `taken` rectangles (x, y, w, h).
 pub fn place(taken: &[(u32, u32, u32, u32)], width: u32, w: u32, h: u32) -> (u32, u32) {

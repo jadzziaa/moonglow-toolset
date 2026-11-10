@@ -4596,3 +4596,55 @@ fn an_armor_s_part_is_chosen_by_its_picture() {
     assert_eq!(s.integer("ArmorPart_LThigh"), Some(i64::from(other)));
     assert_eq!(s.integer("ArmorPart_RThigh"), Some(i64::from(other)), "both legs");
 }
+
+/// One creature's class is changed by the rule several creatures' are
+/// (`mg_edit::lists::change_class`): not to a class it has already, which
+/// its own Classes page let through (the review's B29).
+#[test]
+fn a_creature_s_class_is_not_made_one_it_has_already() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_twice", ResType::UTC) else {
+        return;
+    };
+    let (fighter, rogue, wizard) = (4, 8, 10);
+    let class = |row: i32, level: i16| {
+        let mut e = mg_gff::Struct::new(2);
+        e.set("Class", mg_gff::Value::Int(row));
+        e.set("ClassLevel", mg_gff::Value::Short(level));
+        e
+    };
+    let set = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "ClassList".into(),
+        value: Some(mg_gff::Value::List(vec![class(fighter, 3), class(rogue, 2)])),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("classes", vec![set])));
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    let classes = |h: &mut Harness<'_, Moonglow>| -> Vec<i64> {
+        let s = field(h, &key);
+        s.list("ClassList").unwrap().iter().map(|c| c.integer("Class").unwrap()).collect()
+    };
+    let pick = |h: &mut Harness<'_, Moonglow>, from: &str, to: &str| {
+        h.get_all_by_value(from).next().expect("the class's list").click();
+        h.run();
+        // (A long list, laid out where in sight: the row found by the
+        // filter.)
+        type_into_hint(h, "Filter", to);
+        h.get_by_label(to).click();
+        h.run();
+    };
+    // Class 2, the rogue's, to Fighter: refused, and said.
+    pick(&mut h, "Rogue", "Fighter");
+    assert_eq!(classes(&mut h), [i64::from(fighter), i64::from(rogue)]);
+    let said = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains("has that class already"))
+    };
+    assert!(said(&h), "{:?}", h.state().log.entries);
+    // To Wizard: changed, the field an INT still.
+    pick(&mut h, "Rogue", "Wizard");
+    assert_eq!(classes(&mut h), [i64::from(fighter), i64::from(wizard)]);
+    let s = field(&mut h, &key);
+    assert_eq!(s.list("ClassList").unwrap()[1].get("Class"), Some(&mg_gff::Value::Int(wizard)));
+}

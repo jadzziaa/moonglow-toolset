@@ -1513,6 +1513,13 @@ fn a_resref_typed_in_a_wizard_is_offered_the_builder_code() {
     h.run();
     assert_eq!(h.state().blueprint_wizard.as_ref().unwrap().resref, "ab_shop");
     assert!(h.query_by_label("Use ab_shop").is_none(), "it has the code now");
+    // (Its Tag takes as many characters as the game keeps of one, as a
+    // Properties window's Tag field does: it took any number, the
+    // review's B29.)
+    let tag = mg_module::blueprints::tag(h.state().blueprint_wizard.as_ref().unwrap().name.trim());
+    type_into_hint(&mut h, &tag, &"T".repeat(40));
+    h.run();
+    assert_eq!(h.state().blueprint_wizard.as_ref().unwrap().tag, "T".repeat(32));
     h.get_by_label("Finish").click();
     h.run();
     assert!(module_gff(&mut h, "ab_shop", ResType::UTM).is_some());

@@ -422,7 +422,8 @@ marked **≠** and shows the first one's.
 
 The rules still hold, and what one of them can't take is left, and
 said: a creature takes up to 8 classes, and keeps its last one; a class
-changed into one a creature has already leaves that creature; an item
+changed into one a creature has already leaves that creature (one
+creature's own Classes page refuses it too, and the log says so); an item
 property goes only to an item whose base item takes it. Item properties
 are told apart by their type, subtype and value: an Enhancement Bonus
 +1 and a +2 are two entries, and +1 added to an item with +2 gives it
@@ -593,8 +594,10 @@ Shared parts:
   file's text, to paste in another object's or blueprint's Variables, in
   any module, or into a message to another builder), and Paste Set adds
   what is there as Add Set adds a saved set (text that isn't a set is
-  said so in the log, and nothing is changed). As with Add Set, **OK**
-  writes them. In Add Set's menu, **Manage Sets…** opens the Variable
+  said so in the log, and nothing is changed). A set's values are read
+  as the Variables window reads them (an int may be typed `0x10`); a
+  value that is no number of its type isn't saved or copied, and the log
+  names it. As with Add Set, **OK** writes them. In Add Set's menu, **Manage Sets…** opens the Variable
   Sets window, where a saved set is renamed (**Rename…**: a name another
   set has, in any case, or one that can't name a file is refused) or
   deleted (**Delete**; **Undo Delete** puts the last one back while the

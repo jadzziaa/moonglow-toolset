@@ -437,10 +437,7 @@ fn add_item(
             .iter()
             .map(|e| {
                 let (ew, eh) = size(base_of(e));
-                let x =
-                    u32::try_from(e.integer("Repos_PosX").unwrap_or(0).max(0)).unwrap_or(u32::MAX);
-                let y =
-                    u32::try_from(e.integer("Repos_Posy").unwrap_or(0).max(0)).unwrap_or(u32::MAX);
+                let (x, y) = lists::placed_at(e);
                 (x, y, ew, eh)
             })
             .collect();

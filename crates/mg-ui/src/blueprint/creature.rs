@@ -632,6 +632,9 @@ fn class_list(
     let base = f.path.clone();
     let key = f.key;
     let picks = f.picks();
+    // (This one alone, as the rule for several takes them.)
+    let this = f.list_targets();
+    let mut refused = None;
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
     egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
@@ -639,7 +642,19 @@ fn class_list(
             ui.label(format!("Class {}", i + 1));
             let class = c.integer("Class").unwrap_or(0);
             if let Some(v) = situated::pick(ui, picks, &format!("class{i}"), all, class) {
-                edits.push(("Class", vec![set(key, &path, "Class", Value::Int(v as i32))]));
+                // By the rule several creatures' classes are changed by
+                // (`lists::change_class`): not to a class it has already,
+                // which this let through, and in the field's own type.
+                match i32::try_from(v) {
+                    Ok(to) => {
+                        let out = lists::change_class(&this, class, to);
+                        refused = out.left.first().cloned();
+                        if !out.edits.is_empty() {
+                            edits.push(("Class", out.edits));
+                        }
+                    }
+                    Err(_) => refused = Some(format!("classes.2da's row {v} is no class")),
+                }
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
             if let Some(v) = spin_number(ui, level, 1..=60) {
@@ -697,6 +712,9 @@ fn class_list(
             "Add class",
             vec![Edit::insert_item(key, base.clone(), "ClassList", list.len(), s)],
         ));
+    }
+    if let Some(why) = refused {
+        f.app.log.warn(format!("Class not changed: {why}"));
     }
     for (what, e) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, e)));

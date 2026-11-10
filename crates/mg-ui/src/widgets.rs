@@ -1592,7 +1592,10 @@ fn var_body(
             .on_hover_text("Copy these variables, for Paste Set on another object or blueprint")
             .clicked()
         {
-            ui.ctx().copy_text(crate::var_sets::to_text(&edit.rows));
+            match crate::var_sets::to_text(&edit.rows) {
+                Ok(text) => ui.ctx().copy_text(text),
+                Err(e) => app.log.error(format!("Copy Set: {e}")),
+            }
         }
         // (This list's own: with one id for all, the paste went to whichever
         // Variables list was drawn first, another object's.)

@@ -663,6 +663,7 @@ fn page(
                 ui.add(
                     egui::TextEdit::singleline(&mut w.tag)
                         .hint_text(blueprints::tag(&name))
+                        .char_limit(mg_module::tags::MAX_TAG)
                         .desired_width(180.0),
                 )
                 .on_hover_text("Left empty: made from the name");
@@ -678,7 +679,8 @@ fn page(
         }
         6 => {
             ui.label("Please select the category in the palette that you wish this blueprint to appear under.");
-            let nodes = crate::blueprint_wizard::categories(game, BlueprintKind::Creature);
+            let module = loader.ws.map(|ws| &ws.module);
+            let nodes = crate::blueprint_wizard::categories(game, module, BlueprintKind::Creature);
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 crate::blueprint_wizard::category_tree(ui, &nodes, game, &mut w.category);
             });
