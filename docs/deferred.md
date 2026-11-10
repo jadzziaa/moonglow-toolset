@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T07:02:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:19:23Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -230,72 +230,69 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     GPU's timestamps (not on every backend). (M)
   - **An area's opening to its last texture** is about 50 ms longer since
     3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
-- **The review of November 2026's performance fixes, not timed:** its
-  fixers ran no timing test; each named the views that would show its
-  change, for the reviewer to measure before and after (`frame_perf`,
-  `editor_perf`, `nui_perf`, `world_perf`):
+- **The review of November 2026's performance fixes without a timing
+  view:** its fixers ran no timing test and named the views that would
+  show each change. The reviewer's run of 10 November timed every view
+  the timing tests have against the review's figures (nothing slower
+  but where the builder's rebuilt haks changed what is drawn, and
+  world_perf's content doctor, fixed: V6, V10, V12), and gave views to
+  the five largest costs that grew with the module (D20, D23, B22, A18,
+  N16; [the log](log.md), 10 November). These have no view yet:
   - the area editor: every object selected and dragged, and so with
     Adjust Location or the context menu open (A16); Paint at radius 25
-    m and density 50, the pointer still (A17); Find Instance with
-    45,000 found, Update Instances with 30,000 listed, Edit Areas
-    Together with 3,000 areas (A18); 2,000 placeables with the Position
-    menu open (A20); a light placed with 30,000 more rows in
-    placeables.2da (A21); a 2,000-tile set's Tiles page, its last tile
-    chosen (A22); a hill tileset's 32 by 32 area all selected (A24);
+    m and density 50, the pointer still (A17); Update Instances with
+    30,000 listed, Edit Areas Together with 3,000 areas (A18's rest);
+    2,000 placeables with the Position menu open (A20); a light placed
+    with 30,000 more rows in placeables.2da (A21); a 2,000-tile set's
+    Tiles page, its last tile chosen (A22); a hill tileset's 32 by 32
+    area all selected (A24);
   - the blueprint editors: the Instances window of 100 creatures on its
     Inventory page (B20); Setup Area Transition in a module of hundreds
-    of areas (B21); the gallery, the Creature Wizard's appearance page
-    and a creature's Feats with long tables (B22); a large Custom
+    of areas (B21); the Creature Wizard's appearance page and a
+    creature's Feats with long tables (B22's rest); a large Custom
     palette, List and Gallery, a search typed (B23, B24); the gallery's
     scroll bar dragged to its end (B25); an item's Appearance page with
     a thousand icons, Select Portrait, Select Texture with a search
     (B26);
-  - the editors: a 15,000-row 2DA whose StrRef column is all faults, and
-    `spells.2da` at full width (D20); Choose Model open, and a described
-    table whose `Row` column names itself (D21); Advanced Search with
-    10,000 hits ticked (D23); the Claims Table of 1,400 areas, a
-    conversation's Search of 20,000 results, Build Module with 20,000, a
-    GIT of 3,000 placeables in the raw fields view (D24); Custom Content
-    with a 20,000-line map (D25); a typed line on a world-sized table
-    (D27); `nwscript.nss` read-only (D29);
-  - the window's shell: the module tree with a word in its Filter over
-    300 areas' objects, and Options › Folders (S19, S21: new views of
-    `frames_at_144_in_a_persistent_world`); the Variables window on a
-    variable with `rows = "placeables"` (S20);
+  - the editors: `spells.2da` at full width (D20's rest); Choose Model
+    open, and a described table whose `Row` column names itself (D21);
+    Advanced Search with a plugin menu command (D23's rest); the Claims
+    Table of 1,400 areas, a conversation's Search of 20,000 results,
+    Build Module with 20,000, an area's object list of 3,000 placeables
+    in the raw fields view (D24); Custom Content with a 20,000-line map
+    (D25); a typed line on a world-sized table (D27); `nwscript.nss`
+    read-only (D29); the Variables window on a variable with `rows =
+    "placeables"` (S20);
   - the NUI Creator and the script editor: two Creator tabs side by
     side, and Split source while a picture's name is typed (N3); a
     column of 1,000 rows (N12); the Design page with 300 controls and a
     list bound to 1,000 rows (N13); a combo of 10,000 entries, closed
-    (N14); 2,000 findings (N15); a chart of 1,000,000 samples (N16); a
-    docked panel's 2,000-option choice (X5); Search Results after Find
-    In Files (X8); Open Script with All Resources (X10); the end of a
-    huge script with completions open (X18); Choose Image with a name
-    typed (X11, X20); the Bindings page of many binds (X22); Design with
-    a deep window (X23); a list cell of thousands of rows (X24);
+    (N14); 2,000 findings (N15); a docked panel's 2,000-option choice
+    (X5); Search Results after Find In Files (X8); Open Script with All
+    Resources (X10); the end of a huge script with completions open
+    (X18); Choose Image with a name typed (X11, X20); the Bindings page
+    of many binds (X22); Design with a deep window (X23); a list cell of
+    thousands of rows (X24);
   - the renderer: a model view drawn beside the area, `FRAME_DETAIL=1`
     (R9); `FRAME_SHADOW_QUALITY=high FRAME_MEMORY=labels` after a view
     lets go (R5, R10); an animated cloaked NPC out of the map's region
     (R15); an interior with a flame on every tile (R16); a TDoD area of
-    tinted placeables (R22); area084 (R23 and the hasher); texture
-    memory and area opening with DDS heads and many colored NPCs (R12,
-    R13);
-  - the workspace and the rules: `tint_edits` and `refresh_parts` (E8),
-    `area_views` and `area_parts` (E19, E20), an item blueprint's
-    Properties page (G4, whose page still matches every subtype row a
-    frame while its search has text);
-  - Verify, the plugins and the models: `world_perf`'s content doctor
-    and verify steps (V6, V10, V12); a second Find with haks and game,
-    Delete's question and Rename in a large module (V15 to V17); a panel
-    with `refresh = "selection"` over a large selection (C3), a plugin
-    check of many fixes in Verify Module (C4); `mg haks --usage` on a
-    module of many part-based creatures (M17); opening a large nasher
-    project (P19);
+    tinted placeables (R22); texture memory and area opening with DDS
+    heads and many colored NPCs (R12, R13);
+  - Verify, the plugins and the models: a second Find with haks and
+    game, Delete's question and Rename in a large module (V15 to V17); a
+    panel with `refresh = "selection"` over a large selection (C3), a
+    plugin check of many fixes in Verify Module (C4); `mg haks --usage`
+    on a module of many part-based creatures (M17); opening a large
+    nasher project (P19);
   - the review's last pass (its item 17): the Blueprint Wizard's
     category page, the Variables window on a variable with a large
     `rows` table, the module tree with an area opened out, and a hak
     saved with a large module open.
-  (M, waiting on the reviewer's timing run) (the review of November
-  2026, [its fixes](review-2026-11/fixes.md))
+  Each is a view to build in its timing test, timed before and after
+  its fix's commit: left as beyond what the reviewer's run was asked
+  (at most eight new views, the largest costs). (M) (the review of
+  November 2026, [its fixes](review-2026-11/fixes.md))
 
 ## Blueprint editors and inventories
 
@@ -593,8 +590,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     2026 measured the woods' draws encoded a fifth to a third slower
     than on 27 October, in steps of 1 and 2 November (its Z2, [the
     finders' page](review-2026-11/mechanical.md)); the figures above are
-    27 October's, and a profile of the encoding at both builds is
-    pending, the reviewer's. (M)
+    27 October's. Profiled on 10 November (shadows off, The Domains of
+    Dread's haks as rebuilt on 9 November, three runs, the lowest): half
+    the draws seen whole bound another of the meshes' 13 chunks than the
+    draw before (12,621 of 24,965), and Moonglow's own see-through draws
+    now go in runs of one chunk too (2,159 changes); the game's keep
+    their runs by material, whose pipelines cost more to set again.
+    Draws encoded, seen whole: 12.6 ms with the switch off (14.8 before,
+    10.2 for the build of 27 October with the same haks), 16.1 on (16.4,
+    13.4); turned 17.9 off (19.7, 15.6), 27.4 on (27.7, 22.3). The whole
+    frame with the wheel turning: 14.3 ms seen whole and 22.2 turned off,
+    16.9 and 29.9 on. What is left against 27 October (2.4 ms seen whole
+    off, 2.7 on, 5 turned on) is no one thing in the profile: wgpu's
+    encoding of the pass (29% of the frame's samples), placing the draws
+    in batches (16% with its look for draws met), writing the frame's
+    values (12%), sorting (9%), the reach of the lights (8%); the game's
+    see-through draws still change chunk at 13,900 draws seen whole. (M)
   - A program whose uniforms can't be split falls back to Moonglow's
     shader, reported. Since 2026-11-02 a block a program names besides
     its loose uniforms (`uniform Name { … };`) is split with them; what
@@ -766,17 +777,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
-- **Light Shadows with Creature Shadows unticked, the owner's call:**
-  they draw no light shadows (the review's R4), where the menu and the
-  manual present the two as independent. Should Light Shadows cast with
-  Creature Shadows off, or be grayed out while it is off? Asked. (S)
-  (the review of November 2026, R4)
 - **Shadow volumes kept with a mesh:** the volume buffers are kept in
   each `GpuMesh` for the model's life (the review's R5, its fourth
   part; the other three are done). Freeing them needs the renderer to
-  own them, a restructure of the casters' path that the measurement of
-  the review's Z2 would have to cover. (M, waits on that measurement)
-  (the review of November 2026, R5)
+  own them, a restructure of the casters' path. The measurement it
+  waited on (the review's Z2) was made on 10 November and found the
+  encoding's time elsewhere (the dense area's entry); the restructure is
+  beyond what that pass was asked. (M) (the review of November 2026, R5)
 - **Read in the client, not yet** (the review of November 2026's
   fixes; the client run of 10 November read R18's chunks and R29's
   tangents, not these):
@@ -1012,9 +1019,13 @@ contribution itself states as not done or not checked.
   and a cache of a variant's context document, suspected in the review
   and not measured. Charts and polylines are drawn by what their pixels
   show (N16); Options' and Tabs' entries, named only in the entry's
-  confidence line, are unchanged, bounded by the file's size. (S, waits
-  on the reviewer's timing run: `nui_perf`, the Design page of 300
-  controls) (the review of November 2026, N13, N16)
+  confidence line, are unchanged, bounded by the file's size. A chart of
+  a million samples (`nui_perf`, `a_chart_of_a_million_samples`, 10
+  November) still takes 28.5 ms a frame: each frame copies the bound
+  array out of the document and walks each series for its least and
+  most value, beyond N16's points and shapes. (S, beyond what the
+  timing run was asked; the Design page of 300 controls has no view:
+  the timing entry) (the review of November 2026, N13, N16)
 - **A font of a sliver of a line, not reproduced:** a font whose line is
   a sliver of its em is refused and the skin's numbers are held to a
   range (the review's N17), but the gigabyte glyph itself was not

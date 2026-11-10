@@ -1,9 +1,9 @@
 ---
 type: Report
 title: The fixes of the review of November 2026
-description: 'What became of the 349 findings of the code review of 2026-11-09 in the fix pass of 9 and 10 November, for 4.0.0: a table a part (fixed whole, fixed in part, found fixed by another finding''s commit, does not hold, left), every finding not fixed whole with what is left and why, those fixed on 10 November (four settled by the game client and Aurora), the findings fixed with a choice for the owner or a check that could not be made here, the last pass''s 24 items seen on the way, and the owner''s word on S15. Hand-written from the fixers'' reports and the commits; the part pages beside it are the record of what was found.'
+description: 'What became of the 349 findings of the code review of 2026-11-09 in the fix pass of 9 and 10 November, for 4.0.0: a table a part (fixed whole, fixed in part, found fixed by another finding''s commit, does not hold, left), every finding not fixed whole with what is left and why, those fixed on 10 November (four settled by the game client and Aurora, R4 by the owner''s decision, Z2 in part after the reviewer''s timing run, which also found and fixed a slowdown of the content doctor), the findings fixed with a choice for the owner or a check that could not be made here, the last pass''s 24 items seen on the way, and the owner''s word on S15. Hand-written from the fixers'' reports and the commits; the part pages beside it are the record of what was found.'
 tags: [review, code-review, fixes, deferred]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T07:02:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:19:23Z }
 sources:
   - id: overview
     resource: overview.md
@@ -20,6 +20,9 @@ sources:
   - id: later
     resource: 'develop: the merge commits 27924c61 (the last pass''s items 1 to 8, 2026-11-09), bfe949ac (R18, R29, N9, G8, settled by the client and Aurora, 2026-11-10) and d82e6390 (items 9 to 24, Z3 to Z6, 2026-11-10); their reports in target/review/reports/ of the main checkout (a79b65aac5ec49eff.md, abad2bb7134eaad26.md, ab3b479dd6ddc02fd.md)'
     title: The last pass and the client and Aurora readings, merged on 9 and 10 November
+  - id: timing
+    resource: 'crates/mg-ui/tests: frame_perf.rs, editor_perf.rs, nui_perf.rs, world_perf.rs, campaign_perf.rs, three runs each, the lowest figure, on the development machine, 2026-11-10; the commits 26cf02cc, e8c4b049, 6b26e702 and 452bba34'
+    title: The reviewer's timing run of 10 November and the fixes it led to
   - id: owner
     resource: human:august
     title: 'The owner (2026-11-09 and 10): fix the findings; the release is 4.0.0; S15 settled; Z4 and the last pass''s item 11 decided'
@@ -40,7 +43,8 @@ counts the findings of [the overview](overview.md)[^overview] by what
 the fixers' reports and the commits say became of them.[^reports] On
 10 November the game client and Aurora settled four findings left
 waiting on them, a last pass fixed the finders' Z3 to Z6 and what the
-fixers had seen on the way, and the counts below are as of then.[^later]
+fixers had seen on the way, and the reviewer's timing run measured
+the fixes and Z2; the counts below are as of then.[^later][^timing]
 
 The counts: **fixed whole**, the finding's fix made and tested (by its
 part's fixer or the reviewer); **in part**, a part its fixer names as
@@ -53,7 +57,7 @@ finding's commit; **does not hold**; **left**, nothing changed.
 | --- | --- | --- | --- | --- | --- | --- |
 | [Formats and core](formats-core.md) (F) | 25 | 25 | 0 | 0 | 0 | 0 |
 | [Models, shaders and previews](models-shaders-previews.md) (M) | 17 | 17 | 0 | 0 | 0 | 0 |
-| [The renderer](renderer.md) (R) | 30 | 28 | 1 | 0 | 0 | 1 |
+| [The renderer](renderer.md) (R) | 30 | 29 | 1 | 0 | 0 | 0 |
 | [The workspace, areas, tiles, rules and NUI documents](edit-area-tiles-rules-nui.md) (E) | 24 | 23 | 0 | 1 | 0 | 0 |
 | [The rules data and what the first pass left](rules-leftovers.md) (G) | 11 | 10 | 1 | 0 | 0 | 0 |
 | [Verify, search, rename and the module's queries](module-checks.md) (V) | 25 | 23 | 2 | 0 | 0 | 0 |
@@ -65,8 +69,8 @@ finding's commit; **does not hold**; **left**, nothing changed.
 | [The 2DA, conversation, talk table and hak editors and the module-wide tools](ui-editors.md) (D) | 30 | 28 | 2 | 0 | 0 | 0 |
 | [Plugins in the window, the NUI Creator's editor side and the script editor](ui-plugins-nui-scripts.md) (X) | 25 | 25 | 0 | 0 | 0 | 0 |
 | [The NUI Creator's drawing side, the Script Wizard's window, the manual and the icons](ui-nui-drawing.md) (N) | 18 | 15 | 2 | 1 | 0 | 0 |
-| [The finders and the timing runs](mechanical.md) (Z) | 6 | 5 | 0 | 0 | 0 | 1 |
-| **All** | **349** | **332** | **9** | **5** | **1** | **2** |
+| [The finders and the timing runs](mechanical.md) (Z) | 6 | 5 | 1 | 0 | 0 | 0 |
+| **All** | **349** | **333** | **10** | **5** | **1** | **0** |
 
 Found fixed by another finding's commit: E6 by D2 (`e0a9f0f7`, Advanced
 Search and Retag act only in the module as they found it), A4 by V1
@@ -80,7 +84,6 @@ fixer, its recovery half by the shell's).
 
 | Id | What is left | Why |
 | --- | --- | --- |
-| R4 | Light Shadows ticked with Creature Shadows unticked draws no light shadows | the owner's decision: should Light Shadows cast with Creature Shadows off, or be grayed out while it is off |
 | R5 | (d): the shadow volume buffers kept in each `GpuMesh` for the model's life; (a) to (c) fixed | waits on the reviewer's measurement: freeing them is a restructure of the casters' path that Z2's measurement would have to cover |
 | G4 | the "only when the header is open" half: while the search has text, the Properties page matches every subtype row each frame | not done by its fixer; filed with the views for the reviewer's timing run |
 | V5 | whether the CSV export should begin with a byte order mark (Import Lines reads one now) | the owner's decision |
@@ -90,17 +93,17 @@ fixer, its recovery half by the shell's).
 | D26 | the half that remembers the editor's own edits as `renumbered: None` | not done: its fixer judged it would save little after the fix; not filed |
 | N13 | `check`'s own copy a frame, Interact's two whole comparisons of its session, a variant's context document cached | waits on the reviewer's timing run (suspected, not measured) |
 | N16 | Options' and Tabs' entries, named only in the entry's confidence line | bounded by the file's size; filed with N13 |
-| Z2 | a dense scene's draws encoded a fifth to a third slower than on 27 October | waits on the reviewer's profile of the encoding at both builds |
+| Z2 | in part: Moonglow's own see-through draws are drawn chunk by chunk (`6b26e702`, `452bba34`); against the build of 27 October with the same haks, TDoD's woods seen whole still take 2.4 ms more to encode with the Shaders switch off (12.6 against 10.2) and 2.7 more on, 5 ms more turned with it on | profiled on 10 November: no one cause is left (wgpu's encoding of the pass, the batches, the frame's values, sorting, the lights' reach); the game's see-through draws keep their runs by material, as splitting them by chunk cost the GPU more than it saved |
 
 Each of these but D26 is on [the deferred list](../deferred.md) with
-its reason (G4's and N16's in the entries of the timing run and of N13;
-Z2's in the entry of a dense area seen whole). D26's half was judged
-not worth doing.
+its reason (G4's and N16's in the entries of the timing views and of
+N13; Z2's in the entry of a dense area seen whole). D26's half was
+judged not worth doing.
 
 ## Fixed on 10 November
 
-Eight findings counted as left or in part on 9 November were fixed the
-next day.[^later] The game client (on the off-screen display) and
+Ten findings counted as left or in part on 9 November were fixed the
+next day, Z2 of them in part.[^later] The game client (on the off-screen display) and
 Aurora settled four of them, each with a new reading or capture:
 
 | Id | Fixed by | How it was settled |
@@ -122,6 +125,20 @@ The finders' four, given to the last pass's fixer:
 What Z5 and Z6 leave does not hold as a finding, so they count as fixed
 whole and nothing of them is on the deferred list. Choices the client
 reading and the capture made are in the next table (N9, G8).
+
+The two left at the end of 10 November's first documents, the owner's
+decision and the reviewer's measurement:[^timing]
+
+| Id | Fixed by | How |
+| --- | --- | --- |
+| R4 | `07e71245` | by the owner's decision of 10 November ("I'm fine with also disabling light shadows when creature shadows are off."): Light Shadows need Creature Shadows, and are grayed out without them, the tick kept; one rule, `mg_area::View::light_shadows_cast`, read by the scene and the menu |
+| Z2 | `6b26e702`, `452bba34` (in part) | the reviewer's timing run: half the draws of TDoD's woods seen whole bound another of its 13 mesh chunks than the draw before; Moonglow's own see-through draws now go in runs of one chunk too where nothing they meet is between, the same picture (the frame tests' views compared pixel by pixel): 12,621 chunk changes to 2,159, draws encoded 14.8 ms to 12.6 seen whole and 19.7 to 17.9 turned (Shaders off; lowest of three) |
+
+The same run found world_perf's content doctor ten times slower than on
+9 November (16.9 s, its budget 3 s), since V6 had each worker parse the
+2DAs again at every split of the module's resources; fixed (`26cf02cc`,
+0.51 s), with Advanced Search's frame over the budget with 8,805 hits
+ticked (`e8c4b049`, 7.8 ms to 4.3).
 
 ## Fixed, with a choice or a check left
 
@@ -173,7 +190,7 @@ with Z3 to Z6 above).[^later]
 | 8 | unit tests' scratch folders in the system's temporary folder | fixed `344e9f17` (about 45 places), and `f3b8e27a` for the scratch name it made twice |
 | 9 | Move Name to Talk Table and a table's New Line adding a line at the click | fixed `bbadd43d`: lines kept pending and added at OK or the module's Save |
 | 10 | the hak editor's game-folder check by the path as written | fixed `bdb1b4b9`: through a link too |
-| 11 | an installed plugin's grants held by id and version, not its code | decided by the owner on 10 November 2026: yes (held to its code's digest, the old grants carried over once); fixed in the commit that follows this page |
+| 11 | an installed plugin's grants held by id and version, not its code | decided by the owner on 10 November 2026: yes; fixed `cdc2feac`: held to its code's digest, the old grants carried over once |
 | 12 | a draw layer's open header kept by index | fixed `8c8d2627`: it follows the layer through Up, Down and Remove |
 | 13 | String Edit of a conversation's line behind another tab | fixed `599d12be` (not in `follow.rs`: the dialog view's renumbering run each frame) |
 | 14 | `--state` asking for a row past those laid out | fixed `1665c94b`: the list's real row count is said |
@@ -188,9 +205,8 @@ with Z3 to Z6 above).[^later]
 | 23 | text naming the release "3.18.2" or "the release after" | does not hold: no such text of the fixers'; `Cargo.toml` says 4.0.0 |
 | 24 | backups, Print, Round-Trip copies, the external editor's script and `mg lsp`'s fallback under guessable names in the temporary folder | fixed `4f419d47`: the data folder's `conversation-backups` and a per-run folder of the user's own (`own_scratch_dir`) |
 
-Of the 24: 20 fixed whole, 2 fixed in part with the rest not holding
-(19, 21), 1 does not hold (23), and 1 decided by the owner and being
-fixed (11). Seen on the way and filed on the deferred list, beyond
+Of the 24: 21 fixed whole (11 by the owner's decision), 2 fixed in part
+with the rest not holding (19, 21), and 1 does not hold (23). Seen on the way and filed on the deferred list, beyond
 what was asked: `mg serve`'s run folders under `/tmp/moonglow-serve`,
 tests that write under the real `~/.cache/moonglow/scratch`, and the
 area view never drawing chunk emitters.
@@ -202,4 +218,5 @@ S15: settled by the owner on 9 November 2026: the deferred list's account of the
 [^reviewer]: The reviewer's own fixes, before the fixers began
 [^reports]: The fixers' reports and the reviewer's notes
 [^later]: The last pass and the client and Aurora readings, merged on 9 and 10 November
+[^timing]: The reviewer's timing run of 10 November and the fixes it led to
 [^owner]: The owner (2026-11-09 and 10): fix the findings; the release is 4.0.0; S15 settled; Z4 and the last pass's item 11 decided
