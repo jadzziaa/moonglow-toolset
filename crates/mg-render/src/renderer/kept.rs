@@ -207,6 +207,7 @@ impl Renderer {
         }
         // What binds them goes with them (else the GPU holds them still).
         self.materials.clear();
+        self.particle_materials.clear();
         self.groups.clear();
         self.material_keys.clear();
         self.kept.materials.clear();

@@ -19,14 +19,17 @@
 //!   segment, the end within `lightningradius` of the target.
 //! - `Linked` particles are drawn as one strip through them in birth order.
 //! - Chunk emitters throw models (`chunkName`) instead of quads, scaled by
-//!   the size, tumbling at `particlerot` turns a second: [`Particles::chunks`].
+//!   the size, tumbling at `particlerot` turns a second (not read in the
+//!   client, as the quads' spin was: [`Particles::chunks`]).
 //! - Particles live `lifeexp` seconds, fall with `mass` (× 9.8 m/s²; negative
-//!   rises), spin `particlerot` turns a second, and go from `colorstart`,
+//!   rises), spin `particlerot` radians a second (read in the client:
+//!   `reading_particle_spin_and_order`), and go from `colorstart`,
 //!   `alphastart` and `sizestart` (metres) to the end values. Textures are
 //!   `xgrid` × `ygrid` flip-books played from `framestart` to `frameend` at
 //!   `fps` (from a random frame with the `random` flag).
 //! - `inherit`/`inherit_local` particles move with the emitter; others stay
-//!   where they were born.
+//!   where they were born, but a looping Single emitter's one particle,
+//!   which never dies and stays at its emitter.
 //! - `bounce` particles bounce off the ground ([`Particles::ground`]),
 //!   keeping 0.8 of their speed along it and 0.8 × `bounce_co` of their
 //!   speed off it, until they come to rest.
@@ -41,7 +44,8 @@
 //! whose particles show only their front without it
 //! (`local_z_particles_lie_as_the_client_lays_them`). The drag and Bezier details and the
 //! lightning shape are guesses from the wiki's descriptions; wind
-//! (`affectedByWind`), `splat` and `deadspace` are not simulated.
+//! (`affectedByWind`), `splat`, `deadspace`, `inheritvel` and
+//! `inherit_part` are not simulated.
 
 use glam::{Mat4, Quat, Vec2, Vec3};
 use mg_mdl::{AnimNode, Animation, Model, NodeKind};
@@ -51,7 +55,8 @@ use crate::anim::sample;
 /// How a batch of particles blends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParticleBlend {
-    /// Alpha blending, drawn back to front.
+    /// Alpha blending, an emitter's particles in the order they were
+    /// born (as the client draws them).
     Normal,
     /// Added to what is behind ("Lighten"): black is transparent.
     Lighten,
@@ -108,13 +113,148 @@ pub struct ParticleBatch {
 /// mode (`soft_particles_in_the_client`: 40 at 0.25 m, 20 at 0.5, 10 at
 /// 1, 5 at 2; a growing or shrinking emitter's by its larger size).
 pub fn softness(size_start: f32, size_end: f32, render: &str) -> f32 {
+    soft(size_start, size_end, Render::of(render))
+}
+
+/// [`softness`], of a render mode read already.
+fn soft(size_start: f32, size_end: f32, render: Render) -> f32 {
     let size = size_start.max(size_end);
-    let laid = matches!(
-        render.to_ascii_lowercase().as_str(),
-        "billboard_to_local_z" | "billboard_to_world_z"
-    );
+    let laid = matches!(render, Render::BillboardToLocalZ | Render::BillboardToWorldZ);
     if laid || size <= 0.0 { 0.0 } else { 10.0 / size }
 }
+
+/// How an emitter makes its particles (`update`, any case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Update {
+    Fountain,
+    Single,
+    Explosion,
+    Lightning,
+    /// A word that is none of them: no particles.
+    Other,
+}
+
+impl Update {
+    fn of(word: &str) -> Update {
+        match word.to_ascii_lowercase().as_str() {
+            "fountain" => Update::Fountain,
+            "single" => Update::Single,
+            "explosion" => Update::Explosion,
+            "lightning" => Update::Lightning,
+            _ => Update::Other,
+        }
+    }
+}
+
+/// How an emitter's particles are drawn (`render`, any case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Render {
+    /// Facing the camera (`Normal`, and any word that is none of the
+    /// others).
+    Normal,
+    Linked,
+    MotionBlur,
+    AlignedToWorldZ,
+    BillboardToLocalZ,
+    BillboardToWorldZ,
+    AlignedToParticleDir,
+}
+
+impl Render {
+    fn of(word: &str) -> Render {
+        match word.to_ascii_lowercase().as_str() {
+            "linked" => Render::Linked,
+            "motion_blur" => Render::MotionBlur,
+            "aligned_to_world_z" => Render::AlignedToWorldZ,
+            "billboard_to_local_z" => Render::BillboardToLocalZ,
+            "billboard_to_world_z" => Render::BillboardToWorldZ,
+            "aligned_to_particle_dir" => Render::AlignedToParticleDir,
+            _ => Render::Normal,
+        }
+    }
+}
+
+/// An emitter's blend (`blend`, any case).
+fn blend_of(word: &str) -> ParticleBlend {
+    match word.to_ascii_lowercase().as_str() {
+        "lighten" => ParticleBlend::Lighten,
+        "punch-through" | "punchthrough" => ParticleBlend::PunchThrough,
+        _ => ParticleBlend::Normal,
+    }
+}
+
+/// An emitter's parameters of one number, by their place in [`NAMES`]:
+/// each one's rest value is found once, as the simulation is made
+/// ([`EmitterSim::rest`]), not by its name thirty times an emitter a
+/// frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+enum P {
+    BounceCo,
+    LifeExp,
+    Mass,
+    LightningDelay,
+    LightningRadius,
+    LightningSubdiv,
+    Birthrate,
+    LightningScale,
+    Bezier2,
+    Bezier3,
+    CombineTime,
+    Grav,
+    Drag,
+    Threshold,
+    XSize,
+    YSize,
+    Spread,
+    Velocity,
+    RandVel,
+    SizeStart,
+    SizeEnd,
+    AlphaStart,
+    AlphaEnd,
+    SizeStartY,
+    SizeEndY,
+    ParticleRot,
+    BlurLength,
+    Fps,
+    FrameStart,
+    FrameEnd,
+}
+
+/// The parameters' names, as a model and its animations have them.
+const NAMES: [&str; 30] = [
+    "bounce_co",
+    "lifeexp",
+    "mass",
+    "lightningdelay",
+    "lightningradius",
+    "lightningsubdiv",
+    "birthrate",
+    "lightningscale",
+    "p2p_bezier2",
+    "p2p_bezier3",
+    "combinetime",
+    "grav",
+    "drag",
+    "threshold",
+    "xsize",
+    "ysize",
+    "spread",
+    "velocity",
+    "randvel",
+    "sizestart",
+    "sizeend",
+    "alphastart",
+    "alphaend",
+    "sizestart_y",
+    "sizeend_y",
+    "particlerot",
+    "blurlength",
+    "fps",
+    "framestart",
+    "frameend",
+];
 
 #[derive(Debug, Clone)]
 struct Particle {
@@ -134,6 +274,19 @@ struct EmitterSim {
     node: usize,
     /// The reference child that point-to-point and lightning emitters aim at.
     target: Option<usize>,
+    /// What the emitter's words say, read once.
+    update: Update,
+    render: Render,
+    blend: ParticleBlend,
+    /// A chunk emitter's model, lower case.
+    chunk: Option<String>,
+    /// Each parameter's value at rest (its first; `None`: the model has
+    /// none), by its place in [`NAMES`]; and the start and end colors.
+    rest: [Option<f32>; NAMES.len()],
+    colors: [Option<Vec3>; 2],
+    /// Where the emitter was at the last update (a looping Single
+    /// emitter's particle goes with it).
+    last_world: Option<Mat4>,
     particles: Vec<Particle>,
     /// Fractional particles owed.
     owed: f32,
@@ -202,59 +355,97 @@ fn anim_node<'a>(
     Some((a.nodes.iter().find(|x| x.name.eq_ignore_ascii_case(name))?, t))
 }
 
-fn param(
-    model: &Model,
-    node: usize,
-    anim: Option<(&AnimNode, f32)>,
-    name: &str,
-    default: f32,
-) -> f32 {
+/// A parameter now: keyed by the animation's node (`anim`, and the time
+/// in it), else its rest value, else `default`.
+fn param(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, which: P, default: f32) -> f32 {
+    param_opt(e, anim, which).unwrap_or(default)
+}
+
+/// [`param`], `None` where neither the animation nor the model has it (or
+/// the animation's key has no value).
+fn param_opt(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, which: P) -> Option<f32> {
+    if let Some((an, t)) = anim
+        && let Some(c) = an.controllers.iter().find(|c| c.name == NAMES[which as usize])
+    {
+        return sample(c, t).first().copied();
+    }
+    e.rest[which as usize]
+}
+
+/// The emitter's start (`end` false) or end color now, else `default`.
+fn color(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, end: bool, default: Vec3) -> Vec3 {
+    let name = if end { "colorend" } else { "colorstart" };
     if let Some((an, t)) = anim
         && let Some(c) = an.controllers.iter().find(|c| c.name == name)
     {
-        return sample(c, t).first().copied().unwrap_or(default);
+        return color3(Some(&sample(c, t))).unwrap_or(default);
     }
-    model.nodes[node].value(name).and_then(|v| v.first().copied()).unwrap_or(default)
+    e.colors[usize::from(end)].unwrap_or(default)
 }
 
-fn param_v(
-    model: &Model,
-    node: usize,
-    anim: Option<(&AnimNode, f32)>,
-    name: &str,
-) -> Option<Vec<f32>> {
-    if let Some((an, t)) = anim
-        && let Some(c) = an.controllers.iter().find(|c| c.name == name)
-    {
-        return Some(sample(c, t));
-    }
-    model.nodes[node].value(name).map(<[f32]>::to_vec)
-}
-
-fn color3(v: Option<Vec<f32>>, default: Vec3) -> Vec3 {
-    match v.as_deref() {
-        Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
-        _ => default,
+fn color3(v: Option<&[f32]>) -> Option<Vec3> {
+    match v {
+        Some([r, g, b, ..]) => Some(Vec3::new(*r, *g, *b)),
+        _ => None,
     }
 }
 
 /// The most particles one emitter keeps.
 const MAX_PARTICLES: usize = 2000;
 
+/// The seed every simulation made with [`Particles::new`] starts from.
+const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
 impl Particles {
+    /// The particles of `model` (the model every later call is given),
+    /// none yet. Every simulation made so draws the same random numbers:
+    /// for a picture that is the same each time. Emitters of one model
+    /// that stand together are made with [`Particles::new_seeded`].
     pub fn new(model: &Model) -> Particles {
+        Particles::with_rng(model, Rng(SEED))
+    }
+
+    /// [`Particles::new`], drawing its own random numbers, by `seed`:
+    /// where many of one model run side by side (an area's torches, a
+    /// row of fountains), each made with its own seed (its object's or
+    /// its tile's number) moves by itself. With one seed, each flame of a
+    /// row was a copy of the others, moved over. The same seed gives the
+    /// same particles each time.
+    pub fn new_seeded(model: &Model, seed: u64) -> Particles {
+        // (SplitMix64 of the seed: seeds one apart share no bits. Never
+        // zero, where the generator would stay.)
+        let mut z = seed.wrapping_add(SEED);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        Particles::with_rng(model, Rng((z ^ (z >> 31)) | 1))
+    }
+
+    fn with_rng(model: &Model, rng: Rng) -> Particles {
+        fn emitter(n: &mg_mdl::Node) -> Option<&mg_mdl::Emitter> {
+            match &n.kind {
+                NodeKind::Emitter(em) => Some(em),
+                _ => None,
+            }
+        }
         let emitters = model
             .nodes
             .iter()
             .enumerate()
-            .filter(|(_, n)| matches!(n.kind, NodeKind::Emitter(_)))
-            .map(|(node, n)| EmitterSim {
+            .filter_map(|(node, n)| Some((node, n, emitter(n)?)))
+            .map(|(node, n, em)| EmitterSim {
                 node,
                 target: n
                     .children
                     .iter()
                     .copied()
                     .find(|&c| matches!(model.nodes[c].kind, NodeKind::Reference(_))),
+                update: Update::of(&em.update),
+                render: Render::of(&em.render),
+                blend: blend_of(&em.blend),
+                chunk: em.chunk.as_ref().map(|c| c.to_ascii_lowercase()),
+                rest: NAMES.map(|name| n.value(name).and_then(|v| v.first().copied())),
+                colors: ["colorstart", "colorend"].map(|name| color3(n.value(name))),
+                last_world: None,
                 particles: Vec::new(),
                 owed: 0.0,
                 last_time: None,
@@ -263,7 +454,7 @@ impl Particles {
                 bolt_age: 0.0,
             })
             .collect();
-        Particles { emitters, rng: Rng(0x9E37_79B9_7F4A_7C15), ground: 0.0 }
+        Particles { emitters, rng, ground: 0.0 }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -295,43 +486,62 @@ impl Particles {
             let node = &model.nodes[e.node];
             let NodeKind::Emitter(em) = &node.kind else { continue };
             let at = anim_node(model, e.node, at);
-            let p = |name, default| param(model, e.node, at, name, default);
+            let (rest, update) = (e.rest, e.update);
+            let p = |which: P, default: f32| -> f32 {
+                if let Some((an, t)) = at
+                    && let Some(c) = an.controllers.iter().find(|c| c.name == NAMES[which as usize])
+                {
+                    return sample(c, t).first().copied().unwrap_or(default);
+                }
+                rest[which as usize].unwrap_or(default)
+            };
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;
-            let bounce = (em.flags & 0x10 != 0 && !inherit).then(|| p("bounce_co", 0.0));
-            let life = p("lifeexp", 1.0);
+            // (A looping Single emitter's particle never dies: it goes
+            // with its emitter where that moved, an object dragged or
+            // turned in the area; it stayed where it was born until the
+            // area was read again.)
+            if let Some(last) = e.last_world.filter(|last| !inherit && *last != world) {
+                let moved = world * last.inverse();
+                for q in e.particles.iter_mut().filter(|q| q.life < 0.0) {
+                    q.pos = moved.transform_point3(q.pos);
+                    q.origin = moved.transform_point3(q.origin);
+                    q.vel = moved.transform_vector3(q.vel);
+                }
+            }
+            e.last_world = Some(world);
+            let bounce = (em.flags & 0x10 != 0 && !inherit).then(|| p(P::BounceCo, 0.0));
+            let life = p(P::LifeExp, 1.0);
             // (Down is the world's: particles kept in the emitter's own
             // space fall its way, not along the emitter's axis. A waterfall's
             // emitter points down the fall, and its water rose.)
-            let down = Vec3::new(0.0, 0.0, -9.8 * p("mass", 0.0));
+            let down = Vec3::new(0.0, 0.0, -9.8 * p(P::Mass, 0.0));
             let gravity = if inherit { world.inverse().transform_vector3(down) } else { down };
-            let update = em.update.to_ascii_lowercase();
             let target_world = e.target.map(|t| {
                 transform.transform_point3(pose.get(t).map_or(Vec3::ZERO, |m| m.w_axis.truncate()))
             });
             let here = world.w_axis.truncate();
 
             // Lightning: a new bolt now and then.
-            if update == "lightning" {
+            if update == Update::Lightning {
                 e.bolt_age += dt;
-                let delay = p("lightningdelay", 0.0).max(0.0);
+                let delay = p(P::LightningDelay, 0.0).max(0.0);
                 if let Some(target) = target_world
                     && (e.bolt.is_empty() || e.bolt_age >= delay)
                 {
                     e.bolt_age = 0.0;
                     let rng = &mut self.rng;
-                    let radius = p("lightningradius", 0.0).max(0.0);
+                    let radius = p(P::LightningRadius, 0.0).max(0.0);
                     let end = target
                         + Vec3::new(
                             rng.range(-1.0, 1.0),
                             rng.range(-1.0, 1.0),
                             rng.range(-1.0, 1.0),
                         ) * radius;
-                    let subdiv = param_v(model, e.node, at, "lightningsubdiv")
-                        .and_then(|v| v.first().copied())
-                        .unwrap_or_else(|| p("birthrate", 0.0))
+                    let subdiv = param_opt(e, at, P::LightningSubdiv)
+                        .unwrap_or_else(|| p(P::Birthrate, 0.0))
                         .clamp(0.0, 9.0) as u32;
-                    let scale = p("lightningscale", 0.0).max(0.0);
+                    let scale = p(P::LightningScale, 0.0).max(0.0);
                     let mut bolt = vec![here, end];
                     for _ in 0..subdiv.max(1) {
                         let mut next = Vec::with_capacity(bolt.len() * 2);
@@ -365,9 +575,10 @@ impl Particles {
             } else {
                 world.transform_vector3(Vec3::Z).normalize_or(Vec3::Z)
             };
-            let (src, trg) = (p("p2p_bezier2", 0.0), p("p2p_bezier3", 0.0));
-            let travel = if p("combinetime", 0.0) > 0.0 { p("combinetime", 0.0) } else { life };
-            let (grav, drag, threshold) = (p("grav", 0.0), p("drag", 1.0), p("threshold", 0.0));
+            let (src, trg) = (p(P::Bezier2, 0.0), p(P::Bezier3, 0.0));
+            let combine = p(P::CombineTime, 0.0);
+            let travel = if combine > 0.0 { combine } else { life };
+            let (grav, drag, threshold) = (p(P::Grav, 0.0), p(P::Drag, 1.0), p(P::Threshold, 0.0));
 
             // Age and move.
             e.particles.retain_mut(|q| {
@@ -405,30 +616,27 @@ impl Particles {
             let moved = e.last_pos.map_or(0.0, |last| last.distance(here));
             e.last_pos = Some(here);
             let trail = em.spawntype == 1;
-            let count = match update.as_str() {
-                "single" => usize::from(e.particles.is_empty()),
-                "explosion" => {
+            let count = match update {
+                Update::Single => usize::from(e.particles.is_empty()),
+                Update::Explosion => {
                     // A detonate key between the last time and now.
-                    let keys = anim
-                        .and_then(|a| {
-                            a.nodes.iter().find(|x| x.name.eq_ignore_ascii_case(&node.name))
-                        })
-                        .and_then(|an| an.controllers.iter().find(|c| c.name == "detonate"));
+                    let keys =
+                        at.and_then(|(an, _)| an.controllers.iter().find(|c| c.name == "detonate"));
                     let fired = match (keys, e.last_time) {
                         (Some(c), Some(last)) => c.times.iter().any(|&k| {
                             if last <= t { last < k && k <= t } else { k > last || k <= t }
                         }),
                         _ => false,
                     };
-                    if fired { p("birthrate", 0.0).max(0.0) as usize } else { 0 }
+                    if fired { p(P::Birthrate, 0.0).max(0.0) as usize } else { 0 }
                 }
-                "fountain" => {
+                Update::Fountain => {
                     // (A birthrate under 1 a second makes none: the client
                     // drew no particle of 0.5 or 0.667 in ten seconds,
                     // ASCII or compiled, and 1.5 a second of 1.5;
                     // `reading_particle_turn_and_birth`. None of the
                     // game's 9,530 emitters has such a birthrate.)
-                    let rate = p("birthrate", 0.0);
+                    let rate = p(P::Birthrate, 0.0);
                     let rate = if !trail && rate < 1.0 { 0.0 } else { rate.max(0.0) };
                     e.owed += rate * if trail { moved } else { dt };
                     let n = e.owed.floor();
@@ -438,9 +646,9 @@ impl Particles {
                 _ => 0,
             };
             e.last_time = Some(t);
-            let (xs, ys) = (p("xsize", 0.0) / 100.0, p("ysize", 0.0) / 100.0);
-            let spread = p("spread", 0.0);
-            let (v0, rv) = (p("velocity", 0.0), p("randvel", 0.0));
+            let (xs, ys) = (p(P::XSize, 0.0) / 100.0, p(P::YSize, 0.0) / 100.0);
+            let spread = p(P::Spread, 0.0);
+            let (v0, rv) = (p(P::Velocity, 0.0), p(P::RandVel, 0.0));
             let rng = &mut self.rng;
             for _ in 0..count.min(MAX_PARTICLES.saturating_sub(e.particles.len())) {
                 let local = Vec3::new(rng.range(-0.5, 0.5) * xs, rng.range(-0.5, 0.5) * ys, 0.0);
@@ -461,9 +669,9 @@ impl Particles {
                 e.particles.push(Particle {
                     pos,
                     origin: pos,
-                    vel: if update == "single" { Vec3::ZERO } else { vel },
+                    vel: if update == Update::Single { Vec3::ZERO } else { vel },
                     age: 0.0,
-                    life: if update == "single" && em.looping { -1.0 } else { life },
+                    life: if update == Update::Single && em.looping { -1.0 } else { life },
                     rot: rng.range(0.0, std::f32::consts::TAU),
                     frame0,
                 });
@@ -488,32 +696,28 @@ impl Particles {
         let eye = inv_view.w_axis.truncate();
         let (cam_right, cam_up) = (inv_view.x_axis.truncate(), inv_view.y_axis.truncate());
         let mut out = Vec::new();
-        let blend_of = |em: &mg_mdl::Emitter| match em.blend.to_ascii_lowercase().as_str() {
-            "lighten" => ParticleBlend::Lighten,
-            "punch-through" | "punchthrough" => ParticleBlend::PunchThrough,
-            _ => ParticleBlend::Normal,
-        };
         for e in &self.emitters {
             let node = &model.nodes[e.node];
             let NodeKind::Emitter(em) = &node.kind else { continue };
             if e.bolt.len() >= 2 {
                 let at = anim_node(model, e.node, at);
-                let p = |name, default| param(model, e.node, at, name, default);
-                let width = if p("sizestart", 0.0) > 0.0 { p("sizestart", 0.0) } else { 0.1 };
-                let c = color3(param_v(model, e.node, at, "colorstart"), Vec3::ONE);
-                let color = [c.x, c.y, c.z, p("alphastart", 1.0)];
+                let p = |which, default| param(e, at, which, default);
+                let size = p(P::SizeStart, 0.0);
+                let width = if size > 0.0 { size } else { 0.1 };
+                let c = color(e, at, false, Vec3::ONE);
+                let color = [c.x, c.y, c.z, p(P::AlphaStart, 1.0)];
                 let points: Vec<(Vec3, f32, [f32; 4])> =
                     e.bolt.iter().map(|&q| (q, width, color)).collect();
                 out.push(ParticleBatch {
                     texture: em.texture.clone(),
-                    blend: blend_of(em),
+                    blend: e.blend,
                     render_order: em.render_order,
                     vertices: strip(&points, None, eye),
                     tint: None,
                     // (Soft as other particles, by its size: the client
                     // gave a bolt of size 0.5 a softness of 20;
                     // `reading_soft_particles_of_lightning_and_linked`.)
-                    softness: softness(p("sizestart", 0.0), p("sizeend", 0.0), &em.render),
+                    softness: soft(size, p(P::SizeEnd, 0.0), e.render),
                 });
                 continue;
             }
@@ -521,30 +725,27 @@ impl Particles {
                 continue;
             }
             let at = anim_node(model, e.node, at);
-            let p = |name, default| param(model, e.node, at, name, default);
-            let softness = softness(p("sizestart", 1.0), p("sizeend", 1.0), &em.render);
+            let p = |which, default| param(e, at, which, default);
+            let (s0, s1) = (p(P::SizeStart, 1.0), p(P::SizeEnd, 1.0));
+            let softness = soft(s0, s1, e.render);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let tint = (em.flags & 0x8 != 0).then(|| world.w_axis.truncate());
             let inherit = em.flags & (0x40 | 0x100) != 0;
-            let (c0, c1) = (
-                color3(param_v(model, e.node, at, "colorstart"), Vec3::ONE),
-                color3(param_v(model, e.node, at, "colorend"), Vec3::ONE),
-            );
-            let (a0, a1) = (p("alphastart", 1.0), p("alphaend", 1.0));
-            let (s0, s1) = (p("sizestart", 1.0), p("sizeend", 1.0));
-            let (sy0, sy1) = (p("sizestart_y", 0.0), p("sizeend_y", 0.0));
+            let (c0, c1) = (color(e, at, false, Vec3::ONE), color(e, at, true, Vec3::ONE));
+            let (a0, a1) = (p(P::AlphaStart, 1.0), p(P::AlphaEnd, 1.0));
+            let (sy0, sy1) = (p(P::SizeStartY, 0.0), p(P::SizeEndY, 0.0));
             // (Radians a second: the client turned a 0.25 particle a
             // quarter turn in about 7 s; `reading_particle_spin_and_order`.)
-            let rot_speed = p("particlerot", 0.0);
+            let rot_speed = p(P::ParticleRot, 0.0);
             // (Absent, 10, as compilers write it; every one of the game's
             // 332 motion-blurred emitters has its own. Not read in the
             // client: a hand-written ASCII model without one.)
-            let blur = p("blurlength", 10.0);
-            let (fps, f0, f1) = (p("fps", 0.0), p("framestart", 0.0), p("frameend", 0.0));
+            let blur = p(P::BlurLength, 10.0);
+            let (fps, f0, f1) = (p(P::Fps, 0.0), p(P::FrameStart, 0.0), p(P::FrameEnd, 0.0));
             let (gx, gy) = (em.xgrid.max(1), em.ygrid.max(1));
             let frames = (f1 - f0 + 1.0).max(1.0);
-            let render = em.render.to_ascii_lowercase();
-            if render == "linked" {
+            let render = e.render;
+            if render == Render::Linked {
                 // One strip through the particles, oldest first.
                 let mut order: Vec<&Particle> = e.particles.iter().collect();
                 order.sort_by(|a, b| b.age.total_cmp(&a.age));
@@ -570,7 +771,7 @@ impl Particles {
                     .collect();
                 out.push(ParticleBatch {
                     texture: em.texture.clone(),
-                    blend: blend_of(em),
+                    blend: e.blend,
                     render_order: em.render_order,
                     vertices: strip(&points, Some(&cells), eye),
                     tint,
@@ -578,7 +779,11 @@ impl Particles {
                 });
                 continue;
             }
-            let mut quads: Vec<(f32, [ParticleVertex; 6])> = Vec::new();
+            // (Six vertices a particle, in the order they were born, the
+            // newest over the older, as the client draws them, whichever
+            // is nearer the eye: a rising and a falling column alike;
+            // `reading_particle_spin_and_order`.)
+            let mut vertices: Vec<ParticleVertex> = Vec::with_capacity(e.particles.len() * 6);
             for q in &e.particles {
                 let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
                 let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
@@ -594,7 +799,7 @@ impl Particles {
                 // spinning one starts upright too, turning anticlockwise as
                 // seen: `reading_particle_spin_and_order`.)
                 let angle = rot_speed * q.age;
-                if render == "motion_blur" {
+                if render == Render::MotionBlur {
                     let quad = motion_blur(
                         q,
                         inherit,
@@ -606,19 +811,17 @@ impl Particles {
                         color,
                         alpha,
                     );
-                    if let Some(quad) = quad {
-                        quads.push((pos.distance_squared(eye), quad));
-                    }
+                    vertices.extend(quad.into_iter().flatten());
                     continue;
                 }
-                let (right, up) = match render.as_str() {
+                let (right, up) = match render {
                     // Upright, turned about the world's Z to the eye (a
                     // shaft of light); `billboard_to_world_z` lies flat,
                     // facing up (the glow at the shaft's foot). Seen in
                     // the client: `particles_look`, `MG_PARTICLES=worldz`;
                     // turned to the eye from every side, however the
                     // emitter is turned: `upright_particles_look`.
-                    "aligned_to_world_z" => {
+                    Render::AlignedToWorldZ => {
                         let to_eye = (eye - pos) * Vec3::new(1.0, 1.0, 0.0);
                         let r = Vec3::Z.cross(to_eye).normalize_or(Vec3::X);
                         (r, Vec3::Z)
@@ -628,7 +831,7 @@ impl Particles {
                     // seen from behind, the client draws nothing of it
                     // unless the emitter is two-sided (`twosidedtex`):
                     // `local_z_particles_lie_as_the_client_lays_them`.
-                    "billboard_to_local_z" => {
+                    Render::BillboardToLocalZ => {
                         let r = world.transform_vector3(Vec3::X).normalize_or(Vec3::X);
                         let u = world.transform_vector3(Vec3::Y).normalize_or(Vec3::Y);
                         if !em.two_sided && r.cross(u).dot(eye - pos) <= 0.0 {
@@ -636,15 +839,15 @@ impl Particles {
                         }
                         (r, u)
                     }
-                    "billboard_to_world_z" => (Vec3::X, Vec3::Y),
-                    "aligned_to_particle_dir" => {
+                    Render::BillboardToWorldZ => (Vec3::X, Vec3::Y),
+                    Render::AlignedToParticleDir => {
                         let world_vel =
                             if inherit { world.transform_vector3(q.vel) } else { q.vel };
                         let d = world_vel.normalize_or(Vec3::Z);
                         let r = d.cross(eye - pos).normalize_or(Vec3::X);
                         (r, d)
                     }
-                    _ => {
+                    Render::Normal | Render::Linked | Render::MotionBlur => {
                         let rot = Quat::from_axis_angle((eye - pos).normalize_or(Vec3::Z), angle);
                         (rot * cam_right, rot * cam_up)
                     }
@@ -658,25 +861,20 @@ impl Particles {
                     softness: 0.0,
                 };
                 let (bl, br, tr, tl) = (pos - hx - hy, pos + hx - hy, pos + hx + hy, pos - hx + hy);
-                let quad = [
+                vertices.extend([
                     v(bl, Vec2::new(uv0.x, uv0.y)),
                     v(br, Vec2::new(uv1.x, uv0.y)),
                     v(tr, Vec2::new(uv1.x, uv1.y)),
                     v(bl, Vec2::new(uv0.x, uv0.y)),
                     v(tr, Vec2::new(uv1.x, uv1.y)),
                     v(tl, Vec2::new(uv0.x, uv1.y)),
-                ];
-                quads.push((pos.distance_squared(eye), quad));
+                ]);
             }
-            // (In the order they were born, the newest over the older, as
-            // the client draws them, whichever is nearer the eye: a rising
-            // and a falling column alike; `reading_particle_spin_and_order`.)
-            let blend = blend_of(em);
             out.push(ParticleBatch {
                 texture: em.texture.clone(),
-                blend,
+                blend: e.blend,
                 render_order: em.render_order,
-                vertices: quads.into_iter().flat_map(|(_, q)| q).collect(),
+                vertices,
                 tint,
                 softness,
             });
@@ -698,13 +896,15 @@ impl Particles {
         let mut out = Vec::new();
         for e in &self.emitters {
             let NodeKind::Emitter(em) = &model.nodes[e.node].kind else { continue };
-            let Some(chunk) = &em.chunk else { continue };
+            let Some(chunk) = &e.chunk else { continue };
             let at = anim_node(model, e.node, at);
-            let p = |name, default| param(model, e.node, at, name, default);
+            let p = |which, default| param(e, at, which, default);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;
-            let (s0, s1) = (p("sizestart", 1.0), p("sizeend", 1.0));
-            let spin = p("particlerot", 0.0) * std::f32::consts::TAU;
+            let (s0, s1) = (p(P::SizeStart, 1.0), p(P::SizeEnd, 1.0));
+            // (Turns a second, as the wiki has it; the quads' spin was
+            // read in the client as radians, a chunk's tumble was not.)
+            let spin = p(P::ParticleRot, 0.0) * std::f32::consts::TAU;
             for q in &e.particles {
                 let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
                 let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
@@ -712,7 +912,7 @@ impl Particles {
                 let axis = Vec3::new(q.rot.cos(), q.rot.sin(), 0.5).normalize();
                 let rot = Quat::from_axis_angle(axis, q.rot + spin * q.age);
                 out.push(Chunk {
-                    model: chunk.to_ascii_lowercase(),
+                    model: chunk.clone(),
                     transform: Mat4::from_scale_rotation_translation(
                         Vec3::splat(s0 + (s1 - s0) * k),
                         rot,
@@ -1317,6 +1517,142 @@ mod tests {
             } else if q.age > 0.0 {
                 assert!(q.pos.z > -2.0 && q.pos.distance(target) > 1e-4, "on the way");
             }
+        }
+    }
+
+    /// The parameters found once as the simulation is made are the model's
+    /// by their names (as they were looked up, by name, each frame), an
+    /// animation's key of one decides over them, and the emitter's words
+    /// are read whatever their case.
+    #[test]
+    fn parameters_found_once_are_the_model_s_by_name() {
+        let e = Emitter {
+            update: "FOUNTAIN".into(),
+            render: "Billboard_To_Local_Z".into(),
+            blend: "Punch-Through".into(),
+            chunk: Some("Plc_Chunk_W01".into()),
+            ..Default::default()
+        };
+        // Every parameter its own value (its place among the names, and a
+        // half), but two the model has none of.
+        let absent = [P::LightningSubdiv as usize, P::Drag as usize];
+        let values: Vec<(&str, f32)> = (NAMES.iter().enumerate())
+            .filter(|(i, _)| !absent.contains(i))
+            .map(|(i, name)| (*name, i as f32 + 0.5))
+            .collect();
+        let mut m = emitter(e, &values);
+        m.nodes[1].controllers.push(Controller::constant("colorstart", &[0.1, 0.2, 0.3]));
+        m.nodes[1].controllers.push(Controller::constant("colorend", &[0.4, 0.5]));
+        let p = Particles::new(&m);
+        let sim = &p.emitters[0];
+        assert_eq!(
+            (sim.update, sim.render, sim.blend),
+            (Update::Fountain, Render::BillboardToLocalZ, ParticleBlend::PunchThrough)
+        );
+        assert_eq!(sim.chunk.as_deref(), Some("plc_chunk_w01"));
+        for (i, name) in NAMES.iter().enumerate() {
+            let by_name = m.nodes[1].value(name).and_then(|v| v.first().copied());
+            assert_eq!(sim.rest[i], by_name, "{name}");
+            assert_eq!(by_name.is_none(), absent.contains(&i), "{name}");
+        }
+        assert_eq!(param(sim, None, P::Velocity, 9.0), P::Velocity as usize as f32 + 0.5);
+        assert_eq!(param(sim, None, P::Drag, 1.0), 1.0, "the default where the model has none");
+        assert_eq!(param_opt(sim, None, P::LightningSubdiv), None);
+        assert_eq!(color(sim, None, false, Vec3::ONE), Vec3::new(0.1, 0.2, 0.3));
+        assert_eq!(color(sim, None, true, Vec3::ONE), Vec3::ONE, "two values are no color");
+        // An animation's key decides, at its time.
+        let key = Controller {
+            name: "velocity".into(),
+            times: vec![0.0, 1.0],
+            values: vec![2.0, 4.0],
+            columns: 1,
+            ..Default::default()
+        };
+        let node = AnimNode { name: "EM".into(), controllers: vec![key], ..Default::default() };
+        assert_eq!(param(sim, Some((&node, 0.5)), P::Velocity, 9.0), 3.0);
+        assert_eq!(param(sim, Some((&node, 0.5)), P::Mass, 9.0), P::Mass as usize as f32 + 0.5);
+        // (Words that are none of them: no particles; facing the camera.)
+        assert_eq!((Update::of("Fountains"), Render::of("")), (Update::Other, Render::Normal));
+        assert_eq!(blend_of("LIGHTEN"), ParticleBlend::Lighten);
+    }
+
+    /// A looping Single emitter's one particle never dies: it goes with
+    /// its emitter when the object is moved or turned (it stayed where it
+    /// was born until the area was read again). A fountain's particles
+    /// stay where they were born, as before.
+    #[test]
+    fn a_looping_single_particle_goes_with_its_emitter() {
+        let single = Emitter {
+            update: "Single".into(),
+            render: "Normal".into(),
+            looping: true,
+            ..Default::default()
+        };
+        let m = emitter(single, &[("sizestart", 0.5), ("xsize", 200.0)]);
+        let pose = crate::rest_pose(&m);
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -20.0, 1.0), Vec3::ZERO, Vec3::Z);
+        let middle = |p: &Particles, at: Mat4| {
+            let b = p.batches(&m, None, 0.0, &pose, at, view);
+            assert_eq!(b[0].vertices.len(), 6, "one particle");
+            // (A quad's two triangles: its corners 0, 1, 2 and 5.)
+            let v = |i: usize| Vec3::from(b[0].vertices[i].pos);
+            (v(0) + v(1) + v(2) + v(5)) / 4.0
+        };
+        let here = Mat4::from_translation(Vec3::new(1.0, 2.0, 0.0));
+        let mut p = Particles::new(&m);
+        p.update(&m, None, 0.0, 0.1, &pose, here);
+        let born = middle(&p, here);
+        // (Somewhere along its emitter's two meters of X.)
+        let local = born - Vec3::new(1.0, 2.0, 0.0);
+        assert!(local.x.abs() <= 1.0 && local.y.abs() < 1e-4 && local.z.abs() < 1e-4, "{local}");
+        // Dragged 5 m and turned a quarter: the particle where its emitter
+        // has it now.
+        let there = Mat4::from_translation(Vec3::new(6.0, 2.0, 0.0))
+            * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        p.update(&m, None, 0.0, 0.1, &pose, there);
+        let moved = middle(&p, there);
+        let want = there.transform_point3(local);
+        assert!(moved.abs_diff_eq(want, 1e-4), "{moved} for {want}");
+        // And still, where the emitter stays.
+        p.update(&m, None, 0.0, 0.1, &pose, there);
+        assert!(middle(&p, there).abs_diff_eq(want, 1e-4));
+        // A fountain's stay where they were born.
+        let f = fountain_with("Normal", &[("velocity", 0.0)]);
+        let pose = crate::rest_pose(&f);
+        let mut p = Particles::new(&f);
+        p.update(&f, None, 0.0, 0.2, &pose, here);
+        let before: Vec<Vec3> = p.emitters[0].particles.iter().map(|q| q.pos).collect();
+        assert!(!before.is_empty());
+        p.update(&f, None, 0.0, 0.0, &pose, there);
+        let after: Vec<Vec3> = p.emitters[0].particles.iter().map(|q| q.pos).collect();
+        assert_eq!(after[..before.len()], before[..]);
+    }
+
+    /// Simulations of one model made with different seeds move each by
+    /// itself (with the one seed, an area's torches were copies of one
+    /// another, moved over); the same seed repeats, and a simulation made
+    /// without one is the same each time, as the pictures' tests need.
+    #[test]
+    fn a_seed_gives_a_simulation_its_own_particles() {
+        let m = fountain_with("Normal", &[("spread", 3.0), ("randvel", 2.0), ("xsize", 50.0)]);
+        let pose = crate::rest_pose(&m);
+        let run = |mut p: Particles| -> Vec<Vec3> {
+            for _ in 0..10 {
+                p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            }
+            p.emitters[0].particles.iter().map(|q| q.pos).collect()
+        };
+        let (a, b) = (run(Particles::new_seeded(&m, 1)), run(Particles::new_seeded(&m, 2)));
+        assert_eq!(a.len(), b.len());
+        assert!(a.iter().zip(&b).all(|(p, q)| !p.abs_diff_eq(*q, 1e-3)), "each its own");
+        assert_eq!(run(Particles::new_seeded(&m, 1)), a, "the same seed repeats");
+        assert_eq!(run(Particles::new(&m)), run(Particles::new(&m)));
+        assert_ne!(run(Particles::new_seeded(&m, 0)), a);
+        // (Seeds one apart, as objects' numbers are: no two alike.)
+        let firsts: Vec<Vec3> =
+            (0..64).map(|seed| run(Particles::new_seeded(&m, seed))[0]).collect();
+        for (i, p) in firsts.iter().enumerate() {
+            assert!(firsts[..i].iter().all(|q| !q.abs_diff_eq(*p, 1e-4)), "seed {i}");
         }
     }
 

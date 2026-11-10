@@ -554,11 +554,15 @@ pub struct Renderer {
     valued: HashMap<(usize, u32), Arc<Slots>>,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
-    /// A frame's uniforms, bones and replaced vertices: kept from frame
-    /// to frame, for their room.
+    /// A frame's uniforms, bones, replaced vertices and particles' vertices:
+    /// kept from frame to frame, for their room.
     uniforms: Vec<DrawUniform>,
     bones: Vec<[[f32; 4]; 4]>,
     dynamic: Vec<Vertex>,
+    particle_vertices: Vec<ParticleVertex>,
+    /// The particles' materials, by their texture's name: a batch's is
+    /// found by that alone (kept while the materials are).
+    particle_materials: HashMap<Option<String>, u32>,
     /// How many draws the last frame made: Moonglow's, the game's solid
     /// ones and its others.
     made: (usize, usize, usize),
@@ -1443,6 +1447,8 @@ impl Renderer {
             uniforms: Vec::new(),
             bones: Vec::new(),
             dynamic: Vec::new(),
+            particle_vertices: Vec::new(),
+            particle_materials: HashMap::new(),
             made: (0, 0, 0),
             reader: None,
             textures_apart: false,
@@ -1460,6 +1466,7 @@ impl Renderer {
         self.slots.clear();
         self.valued.clear();
         self.materials.clear();
+        self.particle_materials.clear();
         self.kept.materials.clear();
         self.groups.clear();
         self.material_keys.clear();
@@ -3093,7 +3100,8 @@ impl Renderer {
             };
             (rank, b.render_order)
         });
-        let mut particle_vertices: Vec<ParticleVertex> = Vec::new();
+        let mut particle_vertices = std::mem::take(&mut self.particle_vertices);
+        particle_vertices.clear();
         let mut particle_draws = Vec::new();
         // (Particles whose texture is being read apart: drawn once it is.)
         if self.textures_apart && self.reader.is_some() {
@@ -3110,10 +3118,17 @@ impl Renderer {
         // `soft_particles`.)
         let mut particle_softness: Vec<f32> = Vec::new();
         for b in &batches {
-            let mut names: [Option<String>; SLOTS] = Default::default();
-            names[0] = b.texture.clone();
-            let key: MaterialKey = (names, "chrome1".into(), (false, false));
-            let group = self.material_group(gpu, assets, &key);
+            let group = match self.particle_materials.get(&b.texture) {
+                Some(group) => *group,
+                None => {
+                    let mut names: [Option<String>; SLOTS] = Default::default();
+                    names[0] = b.texture.clone();
+                    let key: MaterialKey = (names, "chrome1".into(), (false, false));
+                    let group = self.material_group(gpu, assets, &key);
+                    self.particle_materials.insert(b.texture.clone(), group);
+                    group
+                }
+            };
             let start = particle_vertices.len() as u32;
             match b.tint {
                 Some(at) => {
@@ -3547,6 +3562,7 @@ impl Renderer {
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
+        self.particle_vertices = particle_vertices;
         kept_view.reach = reach_cache;
         self.views.put(view_key, kept_view);
     }
