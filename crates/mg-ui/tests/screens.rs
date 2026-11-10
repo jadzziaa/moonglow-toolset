@@ -3686,6 +3686,20 @@ fn user_manual() {
     shoot(&mut h, &dir, "manual-areas-camera");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
+    // A chapter's picture, built in as the chapters are.
+    h.get_all_by_label("Modules").find(|n| listed(n)).unwrap().click();
+    h.run();
+    h.get_by_label("A table's description").scroll_to_me();
+    shoot(&mut h, &dir, "manual-modules-picture");
+    // A link to a heading of another chapter: the chapter, at the heading.
+    h.get_all_by_label("The main window").rfind(|n| listed(n)).unwrap().click();
+    h.run();
+    h.get_by_label("whose each area is").scroll_to_me();
+    h.run();
+    h.get_by_label("whose each area is").click();
+    // (Until it has scrolled there.)
+    h.run();
+    shoot(&mut h, &dir, "manual-link-to-a-heading");
     // (The menu bar has a Plugins too: the chapter is the later one.)
     for (chapter, shot) in [
         ("The main window", "manual-main-window"),

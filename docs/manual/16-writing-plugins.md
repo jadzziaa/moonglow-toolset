@@ -624,7 +624,7 @@ The two project scopes need a project: a module folder or a nasher
 project, whose files they are kept in. With a module kept in one file
 (`.mod`) they read their defaults, and can't be set. A team can write its
 values into `moonglow.toml` by hand, as
-[the project file](03-modules.md#the-project-file) shows.
+[the project file](03-modules.md#the-project-file-moonglowtoml) shows.
 
 The plugin reads them as `ctx.settings`, each by its id; `for id, value
 in ctx.settings` goes through them in the manifest's order. A value is

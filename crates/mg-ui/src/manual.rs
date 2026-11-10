@@ -53,20 +53,54 @@ pub(crate) fn title(text: &str) -> &str {
     body(text).lines().find_map(|l| l.strip_prefix("# ")).unwrap_or_default()
 }
 
+/// The pictures the chapters show, by the name they are given there, built
+/// in as the chapters are (the viewer has no loader for a file beside the
+/// chapter: a picture was a failed image).
+const PICTURES: [(&str, &[u8]); 1] = [(
+    "../images/2da-table-described.png",
+    include_bytes!("../../../docs/images/2da-table-described.png"),
+)];
+
 /// The manual tab's state.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Manual {
     pub(crate) chapter: usize,
     cache: CommonMarkCache,
-    /// The chapter as shown ([`blocks`]), and the chapter and width it
-    /// was made for.
-    shown: Option<(usize, u32, Vec<Block>)>,
+    /// The chapter as shown ([`blocks`]) with each block's heading
+    /// ([`anchors`]), and the chapter and width it was made for.
+    shown: Option<(usize, u32, Vec<Block>, Vec<Option<String>>)>,
+    /// The heading a link asked for: scrolled to as the chapter is shown.
+    scroll_to: Option<ScrollTo>,
+    /// The [`PICTURES`] shown so far (`None`: one that does not read).
+    pictures: std::collections::HashMap<usize, Option<egui::TextureHandle>>,
+}
+
+/// A heading being scrolled to.
+#[derive(Debug)]
+struct ScrollTo {
+    /// Its name in links ([`slug`]).
+    heading: String,
+    /// How far down the page it was when it was last scrolled to.
+    at: Option<f32>,
+    /// The frames it was scrolled to in so far.
+    frames: u8,
+}
+
+impl std::fmt::Debug for Manual {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Manual { chapter, scroll_to, .. } = self;
+        f.debug_struct("Manual")
+            .field("chapter", chapter)
+            .field("scroll_to", scroll_to)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A stretch of a chapter as the viewer shows it: Markdown, drawn by
-/// `egui_commonmark`, or a table, drawn here with its cells wrapped (the
-/// viewer draws a cell on one line, so a table wider than the page was
-/// cut off at its edge, and the text after it too).
+/// `egui_commonmark` (from a heading to the next, so that a link can
+/// scroll to it), a table, drawn here with its cells wrapped (the viewer
+/// draws a cell on one line, so a table wider than the page was cut off
+/// at its edge, and the text after it too), or a picture.
 #[derive(Debug, Clone, PartialEq)]
 enum Block {
     Text(String),
@@ -76,6 +110,103 @@ enum Block {
         /// Each column's width, in points.
         widths: Vec<f32>,
     },
+    /// One of [`PICTURES`], and what it shows in words.
+    Picture {
+        at: usize,
+        alt: String,
+    },
+}
+
+/// A heading's text, if `line` is one (`## Tiles`).
+fn heading(line: &str) -> Option<&str> {
+    let text = line.trim_start_matches('#');
+    let level = line.len() - text.len();
+    ((1..=6).contains(&level) && text.starts_with(' ')).then(|| text.trim())
+}
+
+/// A heading's name in a link (`#the-camera`), as the manual's links are
+/// written (GitHub's rule): lower case, letters, digits, `-` and `_` kept,
+/// a space a `-`, everything else left out.
+fn slug(heading: &str) -> String {
+    heading
+        .chars()
+        .filter_map(|c| match c {
+            ' ' => Some('-'),
+            '-' | '_' => Some(c),
+            c if c.is_alphanumeric() => Some(c),
+            _ => None,
+        })
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// A chapter's headings by their names in links, in order (a name a
+/// second heading has too is numbered: `keys-1`), outside its code blocks.
+fn heading_slugs(text: &str) -> Vec<String> {
+    let mut seen = std::collections::HashMap::<String, usize>::new();
+    let mut fenced = false;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+        }
+        if let Some(heading) = heading(line).filter(|_| !fenced) {
+            let name = slug(heading);
+            let n = seen.entry(name.clone()).or_insert(0);
+            out.push(if *n == 0 { name } else { format!("{name}-{n}") });
+            *n += 1;
+        }
+    }
+    out
+}
+
+/// The heading each block opens with, by its name in links: what a link
+/// to it scrolls to.
+fn anchors(blocks: &[Block]) -> Vec<Option<String>> {
+    let opens =
+        |b: &Block| matches!(b, Block::Text(t) if t.lines().next().and_then(heading).is_some());
+    let text: String = (blocks.iter())
+        .filter_map(|b| match b {
+            Block::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut slugs = heading_slugs(&text).into_iter();
+    // (A block holds one heading, its first line: `blocks` cuts at each.)
+    blocks.iter().map(|b| opens(b).then(|| slugs.next()).flatten()).collect()
+}
+
+/// Where a link of the manual leads: the chapter, and the heading in it
+/// (`03-modules.md`, `03-modules.md#claimed-areas`, or `#tiles` in the
+/// chapter `shown`). `None` for a link that leaves the manual.
+fn destination(link: &str, shown: usize) -> Option<(usize, Option<&str>)> {
+    let (file, heading) = match link.split_once('#') {
+        Some((file, heading)) => (file, Some(heading).filter(|h| !h.is_empty())),
+        None => (link, None),
+    };
+    let chapter = match file {
+        "" => shown,
+        file => CHAPTERS.iter().position(|(f, _)| *f == file)?,
+    };
+    Some((chapter, heading))
+}
+
+/// Every link the chapters hold, as written (what follows `](`).
+fn links(text: &str) -> impl Iterator<Item = &str> {
+    text.split("](").skip(1).filter_map(|rest| rest.split_once(')')).map(|(link, _)| link)
+}
+
+/// The links that stay in the manual, each once: the viewer is told of
+/// them, and hands the others to the system's browser.
+fn own_links() -> &'static [&'static str] {
+    static LINKS: std::sync::LazyLock<Vec<&'static str>> = std::sync::LazyLock::new(|| {
+        let own: std::collections::BTreeSet<&str> = (CHAPTERS.iter())
+            .flat_map(|(_, text)| links(text))
+            .filter(|link| destination(link, 0).is_some())
+            .collect();
+        own.into_iter().collect()
+    });
+    &LINKS
 }
 
 /// The narrowest a table's column is drawn, its words wrapped: a table
@@ -227,6 +358,24 @@ fn blocks(text: &str, width: f32, measure: &dyn Fn(&str) -> f32) -> Vec<Block> {
             fenced = !fenced;
         }
         let table = !fenced && is_row(line) && lines.get(i + 1).is_some_and(|l| is_rule(l));
+        // A heading opens a block of its own, which a link scrolls to.
+        if !fenced && heading(line).is_some() {
+            if !out.trim().is_empty() {
+                blocks.push(Block::Text(std::mem::take(&mut out)));
+            }
+            out.clear();
+        }
+        // A picture on a line of its own, where it is built in (one that
+        // is not stays as written).
+        if !fenced && let Some((at, alt)) = picture(line) {
+            if !out.trim().is_empty() {
+                blocks.push(Block::Text(std::mem::take(&mut out)));
+            }
+            out.clear();
+            blocks.push(Block::Picture { at, alt: alt.into() });
+            i += 1;
+            continue;
+        }
         if !table {
             out.push_str(line);
             out.push('\n');
@@ -280,10 +429,51 @@ fn blocks(text: &str, width: f32, measure: &dyn Fn(&str) -> f32) -> Vec<Block> {
     blocks
 }
 
-/// The chapter `go` names, if a link to it was clicked in what was just
-/// shown (the viewer forgets a click as it shows the next block).
-fn link_clicked(cache: &CommonMarkCache) -> Option<usize> {
-    CHAPTERS.iter().position(|(file, _)| cache.get_link_hook(file) == Some(true))
+/// A line that is a picture and nothing else (`![what it shows](file)`),
+/// where the file is one of [`PICTURES`]: which, and what it shows.
+fn picture(line: &str) -> Option<(usize, &str)> {
+    let (alt, file) = line.trim().strip_prefix("![")?.strip_suffix(')')?.split_once("](")?;
+    Some((PICTURES.iter().position(|(name, _)| *name == file)?, alt))
+}
+
+/// Where a link clicked in what was just shown leads (the viewer forgets
+/// a click as it shows the next block): the chapter, and the heading.
+fn link_clicked(ui: &Ui, cache: &CommonMarkCache, shown: usize) -> Option<(usize, Option<String>)> {
+    // (No click, the pointer's or a screen reader's, no link clicked: the
+    // links are not gone through after each block of every frame.)
+    let asked = |e: &egui::Event| matches!(e, egui::Event::AccessKitActionRequest(_));
+    if !ui.input(|i| i.pointer.any_click() || i.events.iter().any(asked)) {
+        return None;
+    }
+    let (link, _) = cache.link_hooks().iter().find(|(_, clicked)| **clicked)?;
+    let (chapter, heading) = destination(link, shown)?;
+    Some((chapter, heading.map(str::to_owned)))
+}
+
+/// A picture of the manual, as wide as the page at most.
+fn picture_ui(
+    ui: &mut Ui,
+    kept: &mut std::collections::HashMap<usize, Option<egui::TextureHandle>>,
+    at: usize,
+    alt: &str,
+) {
+    let texture = kept.entry(at).or_insert_with(|| {
+        let (name, bytes) = PICTURES.get(at)?;
+        let rgba = mg_image::png::read_picture(bytes, 4096 * 4096).ok()?;
+        let size = [rgba.width as usize, rgba.height as usize];
+        let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba.data);
+        Some(ui.ctx().load_texture(format!("manual/{name}"), image, egui::TextureOptions::LINEAR))
+    });
+    match texture {
+        Some(texture) => {
+            let image = egui::Image::new(&*texture).max_width(ui.available_width());
+            ui.add(image.alt_text(alt));
+        }
+        None => {
+            ui.weak(alt);
+        }
+    }
+    ui.add_space(8.0);
 }
 
 /// A table, its cells wrapped to its columns' widths, every other row
@@ -294,7 +484,8 @@ fn table_ui(
     head: &[String],
     rows: &[Vec<String>],
     widths: &[f32],
-    go: &mut Option<usize>,
+    shown: usize,
+    go: &mut Option<(usize, Option<String>)>,
 ) {
     let shade = ui.visuals().faint_bg_color;
     egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -314,7 +505,9 @@ fn table_ui(
                         ui.push_id((r, c), |ui| {
                             CommonMarkViewer::new().show(ui, cache, cell);
                         });
-                        *go = go.or_else(|| link_clicked(cache));
+                        if go.is_none() {
+                            *go = link_clicked(ui, cache, shown);
+                        }
                     });
                 }
             });
@@ -335,14 +528,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             for (i, (_, text)) in CHAPTERS.iter().enumerate() {
                 let name = if i == 0 { "Contents" } else { title(text) };
                 if ui.selectable_label(m.chapter == i, name).clicked() {
-                    go = Some(i);
+                    go = Some((i, None));
                 }
             }
         });
         ui.separator();
         let chapter = m.chapter.min(CHAPTERS.len() - 1);
-        for (file, _) in CHAPTERS {
-            m.cache.add_link_hook(file);
+        // Every link that stays in the manual, to a chapter or to a heading
+        // (of another chapter or of this one): the viewer hands a link it
+        // was not told of to the system's browser, which was asked to open
+        // `03-modules.md#claimed-areas`.
+        if m.cache.link_hooks().is_empty() {
+            for link in own_links() {
+                m.cache.add_link_hook(*link);
+            }
         }
         ui.vertical(|ui| {
             egui::ScrollArea::vertical().id_salt(("manual", m.chapter)).auto_shrink(false).show(
@@ -352,31 +551,72 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.set_max_width(width);
                     // (Made again when the page is wider or narrower by a step.)
                     let step = (width / 20.0) as u32;
-                    if !matches!(&m.shown, Some((c, s, _)) if (*c, *s) == (chapter, step)) {
+                    if !matches!(&m.shown, Some((c, s, ..)) if (*c, *s) == (chapter, step)) {
                         let (ctx, style) = (ui.ctx().clone(), ui.style().clone());
                         let measure = |cell: &str| measured(&ctx, &style, cell);
                         let shown = blocks(body(CHAPTERS[chapter].1), step as f32 * 20.0, &measure);
-                        m.shown = Some((chapter, step, shown));
+                        let anchors = anchors(&shown);
+                        m.shown = Some((chapter, step, shown, anchors));
                     }
-                    let Some((_, _, shown)) = &m.shown else { return };
+                    let Some((_, _, shown, anchors)) = &m.shown else { return };
+                    // (A heading the chapter doesn't have: its top.)
+                    let scroll_to = m.scroll_to.as_ref().map(|to| to.heading.clone());
+                    let mut heading_at = None;
                     for (i, block) in shown.iter().enumerate() {
+                        // (A heading is as far under the text before it as
+                        // when one block held both.)
+                        if i > 0 && anchors.get(i).is_some_and(Option::is_some) {
+                            ui.add_space(-ui.spacing().item_spacing.y);
+                        }
+                        if scroll_to.is_some() && anchors.get(i) == Some(&scroll_to) {
+                            heading_at = Some(ui.cursor().top());
+                        }
                         ui.push_id(("block", i), |ui| match block {
                             Block::Text(text) => {
                                 CommonMarkViewer::new().show(ui, &mut m.cache, text);
-                                go = go.or_else(|| link_clicked(&m.cache));
+                                if go.is_none() {
+                                    go = link_clicked(ui, &m.cache, chapter);
+                                }
                             }
                             Block::Table { head, rows, widths } => {
-                                table_ui(ui, &mut m.cache, head, rows, widths, &mut go);
+                                table_ui(ui, &mut m.cache, head, rows, widths, chapter, &mut go);
                                 ui.add_space(8.0);
                             }
+                            Block::Picture { at, alt } => picture_ui(ui, &mut m.pictures, *at, alt),
                         });
+                    }
+                    // Asked for after the blocks (a code block is a scroll
+                    // area of its own, and one shown after the heading takes
+                    // what was asked for before it), and again until the
+                    // heading stays where it is in the page: a chapter new
+                    // to the window is laid out a little higher or lower in
+                    // its first frame than after.
+                    let Some(to) = &mut m.scroll_to else { return };
+                    let Some(top) = heading_at else {
+                        m.scroll_to = None;
+                        return;
+                    };
+                    let across = ui.max_rect().x_range();
+                    let heading = egui::Rect::from_x_y_ranges(across, top..=top);
+                    ui.scroll_to_rect(heading, Some(egui::Align::TOP));
+                    let in_page = top - ui.min_rect().top();
+                    to.frames += 1;
+                    if to.at.is_some_and(|at| (at - in_page).abs() < 0.5) || to.frames >= 6 {
+                        m.scroll_to = None;
+                    } else {
+                        to.at = Some(in_page);
+                        ui.ctx().request_repaint();
                     }
                 },
             );
         });
     });
-    if let Some(i) = go {
-        m.chapter = i;
+    if let Some((chapter, heading)) = go {
+        // (Another chapter is shown from its top, in a scroll area of its
+        // own; a heading of this one is scrolled to.)
+        m.chapter = chapter;
+        m.scroll_to = heading.map(|heading| ScrollTo { heading, at: None, frames: 0 });
+        ui.ctx().request_repaint();
     }
 }
 
@@ -433,8 +673,9 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Block, CHAPTERS, COLUMN_PADDING, NARROWEST, TABLE_FRAME, blocks, body, cells,
-        column_widths, drawn_width, title,
+        Block, CHAPTERS, COLUMN_PADDING, NARROWEST, PICTURES, TABLE_FRAME, anchors, blocks, body,
+        cells, column_widths, destination, drawn_width, heading, heading_slugs, links, own_links,
+        picture, slug, title,
     };
 
     /// A chapter is shown from its heading, not from its frontmatter.
@@ -527,7 +768,7 @@ mod tests {
             }
             let listed = blocks(body(text), 680.0, &drawn_width).iter().any(|b| match b {
                 Block::Text(t) => t.lines().any(|l| l.trim_start().starts_with("| ---")),
-                Block::Table { .. } => false,
+                Block::Table { .. } | Block::Picture { .. } => false,
             });
             assert!(!listed, "{file}: a table left in the text");
         }
@@ -548,16 +789,100 @@ mod tests {
         let mut built: Vec<String> = CHAPTERS.iter().map(|(f, _)| f.to_string()).collect();
         built.sort();
         assert_eq!(files, built, "chapters in docs/manual and in CHAPTERS");
-        for (file, text) in CHAPTERS {
-            for link in text.split("](").skip(1) {
-                let target = &link[..link.find(')').unwrap()];
-                if target.ends_with(".md") && !target.contains("://") {
-                    assert!(
-                        CHAPTERS.iter().any(|(f, _)| *f == target),
-                        "{file} links to {target}, which isn't a chapter"
-                    );
+        // Every link is the web's or the manual's own: a chapter, or a
+        // heading of one (of the chapter it is in, for `#heading`), which
+        // the viewer is told of and the window follows. And every picture
+        // is built in.
+        let mut own = 0;
+        let mut lost = Vec::new();
+        // (Each chapter's headings as shown, made once.)
+        let headings: Vec<Vec<String>> = (CHAPTERS.iter())
+            .map(|(_, text)| {
+                let shown = blocks(body(text), 680.0, &drawn_width);
+                let named: Vec<String> = anchors(&shown).into_iter().flatten().collect();
+                assert_eq!(named, heading_slugs(body(text)), "a block opens with each heading");
+                named
+            })
+            .collect();
+        for (at, (file, text)) in CHAPTERS.iter().enumerate() {
+            for link in links(text) {
+                if link.contains("://") {
+                    continue;
+                }
+                if let Some((n, _)) =
+                    PICTURES.iter().enumerate().find(|(_, (name, _))| *name == link)
+                {
+                    let line = text.lines().find(|l| l.contains(link)).unwrap();
+                    assert_eq!(picture(line).map(|(n, _)| n), Some(n), "{file}: {line}");
+                    continue;
+                }
+                let Some((chapter, heading)) = destination(link, at) else {
+                    panic!("{file} links to {link}, which isn't a chapter");
+                };
+                assert!(own_links().contains(&link), "{file}: {link} is not hooked");
+                own += 1;
+                let Some(heading) = heading else { continue };
+                if !headings[chapter].iter().any(|s| s == heading) {
+                    lost.push(format!(
+                        "{file} links to {link}: {} has no such heading",
+                        CHAPTERS[chapter].0
+                    ));
                 }
             }
         }
+        assert!(lost.is_empty(), "{}", lost.join("\n"));
+        assert!(own > 250, "{own} links within the manual");
+    }
+
+    /// A heading's name in a link, as the chapters' links write it.
+    #[test]
+    fn a_heading_is_named_as_its_links_name_it() {
+        assert_eq!(slug("Tabs and windows"), "tabs-and-windows");
+        assert_eq!(slug("The area viewer says \"No GPU\""), "the-area-viewer-says-no-gpu");
+        assert_eq!(slug("`ctx.selection`, `ctx.open`"), "ctxselection-ctxopen");
+        assert_eq!(slug("Build, verify and test"), "build-verify-and-test");
+        assert_eq!(heading("## Tiles"), Some("Tiles"));
+        assert_eq!(heading("#hashtag"), None);
+        assert_eq!(heading("####### seven"), None);
+        let page = "# A\n\none\n\n## Keys\n\n```sh\n# not a heading\n```\n\n## Keys\n\ntwo\n";
+        assert_eq!(heading_slugs(page), ["a", "keys", "keys-1"]);
+        // A block from each heading to the next; a code block's `#` opens none.
+        let shown = blocks(page, 600.0, &drawn_width);
+        assert_eq!(
+            shown,
+            [
+                text("# A\n\none\n\n"),
+                text("## Keys\n\n```sh\n# not a heading\n```\n\n"),
+                text("## Keys\n\ntwo\n")
+            ]
+        );
+        let named: Vec<Option<String>> = anchors(&shown);
+        assert_eq!(named, [Some("a".into()), Some("keys".into()), Some("keys-1".into())]);
+        assert_eq!(destination("03-modules.md#claimed-areas", 0), Some((3, Some("claimed-areas"))));
+        assert_eq!(destination("#tiles", 4), Some((4, Some("tiles"))));
+        assert_eq!(destination("07-scripts.md", 4), Some((7, None)));
+        assert_eq!(destination("https://luau.org", 4), None);
+        assert_eq!(destination("../images/x.png", 4), None);
+    }
+
+    /// A picture on a line of its own is shown from the program, between
+    /// the text before it and after.
+    #[test]
+    fn a_chapter_s_picture_is_built_in() {
+        let (name, bytes) = PICTURES[0];
+        assert!(bytes.starts_with(b"\x89PNG"), "{name}");
+        assert!(mg_image::png::read_picture(bytes, 4096 * 4096).is_ok(), "{name}");
+        let page = format!("Before.\n\n![What it shows]({name})\n\nAfter.\n");
+        assert_eq!(
+            blocks(&page, 600.0, &drawn_width),
+            [
+                text("Before.\n\n"),
+                Block::Picture { at: 0, alt: "What it shows".into() },
+                text("\nAfter.\n")
+            ]
+        );
+        // One the program doesn't have stays as written.
+        let other = "![x](../images/none.png)\n";
+        assert_eq!(blocks(other, 600.0, &drawn_width), [text(other)]);
     }
 }
