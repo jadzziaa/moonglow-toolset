@@ -1101,6 +1101,57 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
 /// Undo and Redo in a 2DA's grid go through the keymap: a key given to
 /// Undo in Options › Keyboard reaches the grid that has the keys (the
 /// pointer elsewhere), and takes the table's step back, not the module's.
+/// Under a Find, what is cut from the rows shown goes back into them:
+/// the lines of a paste were counted on from the cursor's row number,
+/// into the rows between that the Find hides, where nothing showed it
+/// (the review of November 2026, D8). A paste with more lines than the
+/// Find shows rows for is refused, and says so.
+#[test]
+fn a_paste_under_a_find_goes_into_the_rows_shown() {
+    let dir = mg_testkit::scratch_dir("ui-table-paste-find");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mypeople", ResType::TWODA).unwrap();
+    let table =
+        b"2DA V2.0\r\n\r\n   Label  Race\r\n0  Ann    elf\r\n1  Bob    orc\r\n2  Cid    elf\r\n";
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(table.to_vec()) }],
+    )));
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    settle(&mut h);
+    h.state_mut().tables[0].filter = "elf".into();
+    settle(&mut h);
+    assert!(h.query_by_label("Bob").is_none(), "hidden by the Find");
+    // Ann's and Cid's names selected (the rows shown), and cut.
+    h.get_by_label("Ann").click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(h.state().tables[0].area(), Some((0, 2, 0, 0)));
+    h.event(egui::Event::Cut);
+    settle(&mut h);
+    let labels = |h: &Harness<'_, Moonglow>| -> Vec<Option<String>> {
+        let t = table_of(h, id);
+        (0..t.len()).map(|r| t.get(r, "Label").map(str::to_string)).collect()
+    };
+    assert_eq!(labels(&h), [None, Some("Bob".into()), None]);
+    // Pasted on the same selection: back where they were, Bob as he was.
+    h.event(egui::Event::Paste("Ann\nCid".into()));
+    settle(&mut h);
+    assert_eq!(labels(&h), [Some("Ann".into()), Some("Bob".into()), Some("Cid".into())]);
+    // Three lines, and the Find shows two rows: nothing pasted, and said.
+    h.event(egui::Event::Paste("x\ny\nz".into()));
+    settle(&mut h);
+    assert_eq!(labels(&h), [Some("Ann".into()), Some("Bob".into()), Some("Cid".into())]);
+    let problem = h.state().tables[0].problem.clone().unwrap_or_default();
+    assert!(problem.contains("Not pasted: 3 lines"), "{problem}");
+}
+
 #[test]
 fn a_rebound_undo_key_reaches_a_table_s_grid() {
     let dir = mg_testkit::scratch_dir("ui-table-undo-key");

@@ -1962,7 +1962,11 @@ numbers at the left as it scrolls.
   them, so rows go from one table to another (or to and from a
   spreadsheet). Rows are added at the end where the paste runs past it;
   where the table has fewer columns than what is pasted, the first ones
-  that fit are taken.
+  that fit are taken. While **Find** narrows the rows, a paste goes into
+  the rows shown, a line each from the cursor's row on (what was cut
+  from them goes back into them, and the rows between are left alone);
+  one with more lines than there are rows shown from there is not
+  pasted, and says so: clear Find first.
 - **Add Row** puts an empty row at the end, or as many as the number
   beside it says (padding, up to the row your own begin at), in one
   step. No row is put between others.

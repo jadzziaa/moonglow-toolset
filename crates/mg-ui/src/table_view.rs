@@ -1707,10 +1707,27 @@ pub(crate) fn keys_in(doc: &mut TableDoc, ui: &mut Ui, read_only: bool) {
             })
         });
         if let Some(text) = text {
-            match doc.edit.paste(row, column, &text) {
-                Ok(0) => {}
-                Ok(_) => doc.changed(),
-                Err(e) => doc.problem = Some(e.to_string()),
+            // Under a Find the lines go into the rows shown, from the
+            // cursor's on (what was copied or cut there is of those rows):
+            // counted on from the cursor's number, they went into the rows
+            // between that the Find hides. A paste of more lines than the
+            // Find shows rows for is refused: where the rest would go is
+            // not in sight.
+            let at = rows.iter().position(|r| *r == row).unwrap_or(place);
+            let narrowed = rows.len() < doc.edit.table().len();
+            let (lines, room) = (Editing::pasted_lines(&text), rows.len() - at);
+            if narrowed && lines > room {
+                doc.problem = Some(format!(
+                    "Not pasted: {lines} lines, and the rows shown have room for {room} from \
+                     here. Clear Find to paste past them."
+                ));
+            } else {
+                let into: &[usize] = if narrowed { &rows[at..] } else { &[row] };
+                match doc.edit.paste_into(into, column, &text) {
+                    Ok(0) => {}
+                    Ok(_) => doc.changed(),
+                    Err(e) => doc.problem = Some(e.to_string()),
+                }
             }
         }
     }

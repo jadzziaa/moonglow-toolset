@@ -318,18 +318,43 @@ impl Editing {
     /// (`row`, `column`) on, adding rows at the end as needed; cells past
     /// the last column are left out. How many cells changed.
     pub fn paste(&mut self, row: usize, column: usize, text: &str) -> Result<usize, TwoDaError> {
+        self.paste_into(&[row], column, text)
+    }
+
+    /// How many rows a text pasted would go into: its lines that have
+    /// text.
+    pub fn pasted_lines(text: &str) -> usize {
+        text.lines().filter(|l| !l.is_empty()).count()
+    }
+
+    /// [`paste`](Self::paste) into the rows given, a line each in their
+    /// order (the rows an editor shows under a Find, from the cursor on:
+    /// what is copied or cut there is of those rows, and goes back into
+    /// them, not into the rows between that the Find hides); lines past
+    /// the last of them go into the rows after it. With no row, nothing
+    /// is pasted.
+    pub fn paste_into(
+        &mut self,
+        rows: &[usize],
+        column: usize,
+        text: &str,
+    ) -> Result<usize, TwoDaError> {
+        let Some(&end) = rows.last() else { return Ok(0) };
         let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        let row_of =
+            |dr: usize| rows.get(dr).copied().unwrap_or_else(|| end + (dr + 1 - rows.len()));
         let mut cells = Vec::new();
         for (dr, line) in lines.iter().enumerate() {
             for (dc, value) in line.split('\t').enumerate() {
                 let value = Some(value.trim().to_string()).filter(|v| !v.is_empty());
-                cells.push((row + dr, column + dc, value));
+                cells.push((row_of(dr), column + dc, value));
             }
         }
         if cells.iter().any(|(_, _, v)| v.as_ref().is_some_and(|v| v.contains('"'))) {
             return Err(TwoDaError::Unquotable);
         }
-        let added = (row + lines.len()).saturating_sub(self.table.len());
+        let past = cells.iter().map(|c| c.0 + 1).max().unwrap_or(0);
+        let added = past.saturating_sub(self.table.len());
         for _ in 0..added {
             self.table.add_row();
         }
@@ -593,6 +618,27 @@ mod tests {
         assert_eq!(e.table().len(), 2);
         assert_eq!(e.table().get(1, "Label"), Some("b"));
         assert_eq!(e.paste(0, 0, "a \"b\""), Err(TwoDaError::Unquotable));
+    }
+
+    /// Pasted into the rows an editor shows under a Find, a line goes into
+    /// each of those rows, not into the rows between them that the Find
+    /// hides (the review of November 2026, D8); lines past the last row
+    /// given go on after it.
+    #[test]
+    fn cells_are_pasted_into_the_rows_given() {
+        let mut e = Editing::new(table("  Label\n0 a\n1 b\n2 c\n3 d\n"));
+        assert_eq!(Editing::pasted_lines("x\n\ny\n"), 2);
+        assert_eq!(e.paste_into(&[1, 3], 0, "x\ny\n").unwrap(), 2);
+        let labels = |e: &Editing| -> Vec<String> {
+            (0..e.table().len()).map(|r| e.table().get(r, "Label").unwrap_or("").into()).collect()
+        };
+        assert_eq!(labels(&e), ["a", "x", "c", "y"]);
+        assert!(e.undo());
+        assert_eq!(labels(&e), ["a", "b", "c", "d"]);
+        // More lines than rows: on from the last, a row added at the end.
+        assert_eq!(e.paste_into(&[0, 2], 0, "p\nq\nr\ns\n").unwrap(), 4);
+        assert_eq!(labels(&e), ["p", "b", "q", "r", "s"]);
+        assert_eq!(e.paste_into(&[], 0, "p\n").unwrap(), 0);
     }
 
     #[test]
