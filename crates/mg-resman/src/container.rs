@@ -425,6 +425,12 @@ impl MemContainer {
     pub fn remove(&mut self, key: &ResKey) -> bool {
         self.files.remove(key).is_some()
     }
+
+    /// A resource's bytes as the container holds them: the same `Arc` as
+    /// was put in, so what holds another can tell that it changed.
+    pub fn shared(&self, key: &ResKey) -> Option<&Arc<[u8]>> {
+        self.files.get(key)
+    }
 }
 
 impl Container for MemContainer {
