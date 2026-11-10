@@ -965,6 +965,35 @@ fn input_text_adds_under_its_line_after_a_delete_behind_it() {
     assert!(dialog_lines(&mut h, key).is_empty());
 }
 
+/// String Edit of a line's text holds the line by its number too: it
+/// goes where its line goes, and closes when the line is deleted.
+#[test]
+fn string_edit_of_a_line_follows_the_line() {
+    use mg_edit::GffPath;
+    use mg_module::dialog::{Kind, Parent, remove};
+    use mg_ui::widgets::{FieldTarget, LocStringEdit};
+    let (mut h, key) = dialog_from_tree("ui-dialog-string-edit-follows", &replies_dialog());
+    let delete = |h: &mut Harness<'_, Moonglow>, parent: Parent| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let mut g = ws.doc(&key).unwrap().clone();
+        remove(&mut g, parent, 0);
+        let edit = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+        ws.apply(mg_edit::Command::new("Delete line", vec![edit])).unwrap();
+        h.run();
+        h.run();
+    };
+    // Of "Kept two." (reply 2), then "Gone." (reply 0) deleted behind it.
+    let path = |i: usize| GffPath::root().item(Kind::Reply.list(), i);
+    let target = FieldTarget::new(key, path(2), "Text");
+    h.state_mut().loc_edit = Some(LocStringEdit::new(target, "Line text", &LocString::default()));
+    h.run();
+    delete(&mut h, Parent::Node(Kind::Entry, 0));
+    assert_eq!(h.state().loc_edit.as_ref().map(|w| w.target.path.clone()), Some(path(1)));
+    // The greeting deleted, and its replies with it: the window closes.
+    delete(&mut h, Parent::Root);
+    assert!(h.state().loc_edit.is_none(), "its line is gone");
+}
+
 /// How a line is deleted.
 #[derive(Debug, Clone, Copy)]
 enum DeleteBy {
