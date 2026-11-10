@@ -492,6 +492,11 @@ pub struct Renderer {
     /// the slots (their place), what chooses its stock pair, its
     /// `NO_DISCARD`, whether it is skinned, and its pass.
     game_pipelines: crate::game::Fast<GamePipelinesKey, Option<GamePipelines>>,
+    /// The program pair's key of each of a mesh's slots whose pipeline is
+    /// still being made: asked for with it each frame until it is, not
+    /// worked out again (its two names, written anew for every such mesh
+    /// of every frame while an area's programs compile).
+    game_keys_pending: crate::game::Fast<GamePipelinesKey, crate::game::PipelineKey>,
     /// Each material's key, by its place among [`Renderer::groups`].
     material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
@@ -1417,6 +1422,7 @@ impl Renderer {
             water_now: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: Default::default(),
+            game_keys_pending: Default::default(),
             material_keys: Vec::new(),
             instancing: true,
             color_format,
@@ -1498,6 +1504,7 @@ impl Renderer {
         self.surfaces.clear();
         self.game.clear();
         self.game_pipelines.clear();
+        self.game_keys_pending.clear();
     }
 
     /// Whether a mesh is one the game's shaders draw (with them on): one
@@ -1538,24 +1545,31 @@ impl Renderer {
         if let Some(p) = self.game_pipelines.get(&at) {
             return p.clone();
         }
-        let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
-        let twosided = slots.twosided;
-        let key = PipelineKey { vs, fs, no_discard, skinned, tangents, twosided, pass };
+        // (As worked out when it was first asked for, while it is made.)
+        let key = self.game_keys_pending.remove(&at).unwrap_or_else(|| {
+            let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
+            let twosided = slots.twosided;
+            PipelineKey { vs, fs, no_discard, skinned, tangents, twosided, pass }
+        });
         let (format, samples, wait) = (self.color_format, self.sample_count, !self.game_background);
         use crate::game::Ready;
-        let p = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
+        let made = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
             Ready::Yes(p) if pass == GamePass::Solid => {
-                let fringe = PipelineKey { pass: GamePass::Fringe, ..key };
+                let fringe = PipelineKey { pass: GamePass::Fringe, ..key.clone() };
                 match self.game.pipeline(gpu, assets, &fringe, format, samples, wait) {
-                    Ready::Yes(q) => Some((p, Some(q))),
-                    Ready::No => None,
-                    Ready::Pending => return None,
+                    Ready::Yes(q) => Some(Some((p, Some(q)))),
+                    Ready::No => Some(None),
+                    Ready::Pending => None,
                 }
             }
-            Ready::Yes(p) => Some((p, None)),
-            Ready::No => None,
-            // (Drawn with Moonglow's own until it is made; not kept.)
-            Ready::Pending => return None,
+            Ready::Yes(p) => Some(Some((p, None))),
+            Ready::No => Some(None),
+            Ready::Pending => None,
+        };
+        // (Drawn with Moonglow's own until it is made; not kept.)
+        let Some(p) = made else {
+            self.game_keys_pending.insert(at, key);
+            return None;
         };
         self.game_pipelines.insert(at, p.clone());
         p
@@ -3049,13 +3063,18 @@ impl Renderer {
             0,
         );
 
-        // Bones.
+        // Bones: those Moonglow's own shader reads (each skinned draw its
+        // first's place among all of them). With every skinned mesh drawn
+        // by the game's programs, which take theirs to their own buffer,
+        // none is sent here.
+        let own_skinned =
+            !bones.is_empty() && draws.iter().any(|d| d.game.is_none() && d.mesh.skin.is_some());
         upload(
             gpu,
             &mut self.bone_buffer,
             "bones",
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            &bones,
+            if own_skinned { &bones[..] } else { &[] },
             64,
         );
 
