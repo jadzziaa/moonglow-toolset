@@ -1100,7 +1100,7 @@ mod tests {
 
     #[test]
     fn csv_goes_out_and_comes_back_as_one_undoable_import() {
-        let dir = std::env::temp_dir();
+        let dir = mg_testkit::test_output();
         let mut t = Table::create("csv", &dir, Language::ENGLISH, true);
         let line = |text: &str, feminine: &str, sound: &str| Line {
             text: text.into(),
@@ -1145,7 +1145,7 @@ mod tests {
     /// back.
     #[test]
     fn an_import_far_past_the_end_is_one_step() {
-        let dir = std::env::temp_dir();
+        let dir = mg_testkit::test_output();
         for feminine in [false, true] {
             let mut t = Table::create("far", &dir, Language::ENGLISH, feminine);
             assert_eq!(t.import_csv("StrRef,Text\n500000,x\n500003,y\n"), Ok((0, 2)));
@@ -1271,7 +1271,7 @@ mod tests {
     /// save; one of a hak's is not edited here.
     #[test]
     fn a_module_s_table_is_saved_into_it() {
-        let dir = std::env::temp_dir().join(format!("mg-talk-module-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-talk-module");
         let mut t = Table::create("mine", &dir, Language::ENGLISH, true);
         t.source = Source::Module;
         assert!(t.editable());
@@ -1310,7 +1310,7 @@ mod tests {
 
     #[test]
     fn haks_then_the_module_then_the_folder() {
-        let dir = std::env::temp_dir().join(format!("mg-talk-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-talk");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("mine.tlk"), b"folder").unwrap();
         std::fs::write(dir.join("minef.tlk"), b"folder f").unwrap();
@@ -1427,7 +1427,7 @@ mod tests {
 
     #[test]
     fn a_new_table_edited_undone_and_saved() {
-        let dir = std::env::temp_dir().join(format!("mg-talk-edit-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-talk-edit");
         let mut t = Table::create("mine", &dir, Language::ENGLISH, true);
         assert!(t.editable() && t.is_dirty());
         assert_eq!(t.add_line(&line("Hello")).unwrap(), 0);
@@ -1483,7 +1483,7 @@ mod tests {
     /// them again.
     #[test]
     fn a_typed_line_is_taken_back_and_put_back_outside_the_history() {
-        let mut t = Table::create("typed", &std::env::temp_dir(), Language::ENGLISH, true);
+        let mut t = Table::create("typed", &mg_testkit::test_output(), Language::ENGLISH, true);
         t.add_line(&text_line("Own")).unwrap();
         t.saved = Some(t.undo.len());
         assert!(!t.is_dirty());

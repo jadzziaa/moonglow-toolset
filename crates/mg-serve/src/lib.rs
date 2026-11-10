@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn a_tail_gives_whole_lines_as_they_come() {
-        let dir = std::env::temp_dir().join(format!("mg-serve-tail-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-serve-tail");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("log.txt");
         let mut tail = Tail::new(&path);

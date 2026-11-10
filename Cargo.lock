@@ -2707,6 +2707,7 @@ dependencies = [
  "mg-rules",
  "mg-schema",
  "mg-set",
+ "mg-testkit",
  "mg-tiles",
  "proptest",
  "serde_json",
@@ -2892,6 +2893,7 @@ dependencies = [
  "mg-core",
  "mg-erf",
  "mg-key",
+ "mg-testkit",
  "serde_json",
  "thiserror 2.0.21",
 ]
@@ -2931,6 +2933,9 @@ dependencies = [
 [[package]]
 name = "mg-serve"
 version = "0.0.0"
+dependencies = [
+ "mg-testkit",
+]
 
 [[package]]
 name = "mg-set"
@@ -3144,6 +3149,7 @@ dependencies = [
  "egui-wgpu",
  "mg-audio",
  "mg-core",
+ "mg-testkit",
  "mg-ui",
  "mg-update",
  "rfd",

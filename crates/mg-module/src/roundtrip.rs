@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn a_module_comes_back_and_a_bad_file_is_said() {
-        let dir = std::env::temp_dir().join(format!("mg-roundtrip-unit-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-roundtrip-unit");
         std::fs::create_dir_all(&dir).unwrap();
         let key = |name: &str| ResKey::from_filename(name).unwrap();
         let mut m = Module::new();

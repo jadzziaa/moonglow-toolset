@@ -9,5 +9,8 @@ publish.workspace = true
 
 [dependencies]
 
+[dev-dependencies]
+mg-testkit.workspace = true
+
 [lints]
 workspace = true

@@ -1449,7 +1449,7 @@ mod tests {
             eprintln!("skipped: no game install");
             return;
         };
-        let dir = std::env::temp_dir();
+        let dir = mg_testkit::test_output();
         let s = Settings {
             game_root: Some(root),
             user_dir: Some(dir.join("options-folder")),

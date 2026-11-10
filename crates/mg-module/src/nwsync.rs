@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn a_repository_written_and_read() {
-        let dir = std::env::temp_dir().join(format!("mg-nwsync-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-nwsync");
         let _ = std::fs::remove_dir_all(&dir);
         let contents = vec![
             (key("one", ResType::TWODA), Source::Bytes(Arc::from(&b"first"[..]))),
@@ -710,7 +710,7 @@ mod tests {
     /// what it can't mend.
     #[test]
     fn canceled_and_pruned() {
-        let dir = std::env::temp_dir().join(format!("mg-nwsync-prune-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-nwsync-prune");
         let _ = std::fs::remove_dir_all(&dir);
         let bytes = |b: &'static [u8]| Source::Bytes(Arc::from(b));
         let o = Options { latest: true, ..Default::default() };
@@ -796,7 +796,7 @@ mod tests {
     /// command for each, the folder quoted where it needs to be.
     #[test]
     fn an_upload_s_parts_and_commands() {
-        let dir = std::env::temp_dir().join(format!("mg-nwsync-up {}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-nwsync-up dir");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(upload_parts(&dir, &AFTER_PUBLISHING).unwrap_err().contains("no manifests"));
         let contents = vec![(key("a", ResType::TXT), Source::Bytes(Arc::from(&b"one"[..])))];

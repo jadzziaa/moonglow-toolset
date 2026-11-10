@@ -2646,7 +2646,7 @@ keeper_variable = "tdod_store"
 
     #[test]
     fn the_builder_s_own_file_is_read_beside_the_team_s_and_kept_out_of_git() {
-        let dir = std::env::temp_dir().join(format!("mg-project-file-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-project-file");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let none = ProjectFile::read(&dir);
@@ -2879,7 +2879,7 @@ keeper_variable = "tdod_store"
         let c = p.nwsync_upload.unwrap();
         assert_eq!((c.run.as_deref(), c.own), (Some("mine {part}"), true));
         // Beside a .mod: not read.
-        let dir = std::env::temp_dir().join(format!("mg-pf-nwsync-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-pf-nwsync");
         std::fs::create_dir_all(&dir).unwrap();
         let module = dir.join("krezk.mod");
         std::fs::write(dir.join("krezk.moonglow.toml"), "[nwsync]\nupload = \"x\"\n").unwrap();

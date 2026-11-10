@@ -4287,7 +4287,7 @@ mod tests {
         }
         let mut rm = ResMan::new();
         rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
-        let dir = std::env::temp_dir().join(format!("mg-doctor-shaders-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-doctor-shaders");
         let _ = std::fs::remove_dir_all(&dir);
         let cache = Cache::new(&dir);
         let run = |cache: Option<&Cache>| {
@@ -4420,7 +4420,7 @@ mod tests {
     /// the line that takes them in. Once the line is there, nothing.
     #[test]
     fn a_window_s_files_a_nasher_include_leaves_out() {
-        let root = std::env::temp_dir().join(format!("mg-doctor-nui-{}", std::process::id()));
+        let root = mg_testkit::scratch_dir("mg-doctor-nui");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).unwrap();
         let cfg = "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \

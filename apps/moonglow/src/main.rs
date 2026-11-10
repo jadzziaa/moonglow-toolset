@@ -995,7 +995,7 @@ mod tests {
     #[test]
     fn a_start_that_ended_in_the_check_is_known_at_the_next() {
         use super::{DIED_CHECKING, died_checking};
-        let dir = std::env::temp_dir().join(format!("moonglow-check-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("moonglow-check");
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("graphics-check.txt");
         assert_eq!(died_checking(Some(&marker)), None, "no marker");
