@@ -290,6 +290,8 @@ pub struct ModelView {
     /// end, as its icon shows it; all else as it is.
     stand: Mat4,
     targets: Option<(Targets, egui::TextureId)>,
+    /// The pass it was last shown in ([`show`]: once a pass).
+    shown_in: Option<u64>,
     last_frame: Option<f64>,
     particles: Option<Particles>,
     dangly: Option<Dangly>,
@@ -898,6 +900,7 @@ impl ModelView {
             // Models face +Y: from the front, a little to the side.
             orbit: Orbit { target: Vec3::ZERO, yaw, pitch, distance: 5.0 },
             targets: None,
+            shown_in: None,
             last_frame: None,
             particles: None,
             dangly: None,
@@ -1098,6 +1101,18 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         app.model_views.insert(key.clone(), view);
     }
     let mut view = app.model_views.remove(&key).expect("just inserted");
+    // (Shown in another place in this pass already: the Preview window's
+    // blueprint and its Properties' page, a tile's view and its model's
+    // tab. A view has one camera and one set of targets: drawn here too,
+    // they were made twice a frame at two sizes, and both pictures showed
+    // the last.)
+    let pass = ui.ctx().cumulative_pass_nr();
+    if view.shown_in == Some(pass) {
+        ui.weak("The preview is shown elsewhere in the window.");
+        app.model_views.insert(key, view);
+        return false;
+    }
+    view.shown_in = Some(pass);
     view.refresh(app, &source);
     let model = match &view.model {
         Ok(m) => m.clone(),
