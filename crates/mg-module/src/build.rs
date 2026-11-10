@@ -425,6 +425,7 @@ fn new_private_dir(base: &std::path::Path) -> std::io::Result<std::path::PathBuf
         h.write_u32(attempt);
         h.write_u128(std::time::UNIX_EPOCH.elapsed().map_or(0, |d| d.as_nanos()));
         let dir = base.join(format!("moonglow-{:016x}", h.finish()));
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);

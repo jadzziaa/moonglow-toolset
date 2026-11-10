@@ -1,6 +1,8 @@
 //! A file linked into the user folder's `development/` (and `override/`)
 //! rather than copied there: whether the game reads it, and that Moonglow
-//! lists it as the game does (the review's Z3).
+//! lists it as the game does (the review's Z3). Unix only: the links are
+//! symbolic links.
+#![cfg(unix)]
 
 use std::time::Duration;
 
@@ -15,7 +17,6 @@ use crate::common::probe_module;
 /// a folder outside the user directory: the engine finds both there
 /// (`ResManGetAliasFor`) and reads them (`Get2DAString`), and Moonglow's
 /// load order has them where the engine does.
-#[cfg(unix)]
 #[test]
 fn the_engine_reads_a_file_linked_into_development_and_override() {
     let root = corpus!();
