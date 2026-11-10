@@ -510,6 +510,16 @@ pub(super) fn editor(
         let mut remove = None;
         let mut move_item = None;
         let total = items.len();
+        // Each layer's header (whether it is open) and its thumbnail's
+        // gesture are kept by a key of the layer's own, which Up, Down and
+        // Remove Drawing take along: by its number, the open header stayed
+        // at the place, on the layer that came there.
+        let keys_id = ui.id().with("draw-layer-keys");
+        let mut keys: Vec<u64> = ui.data(|d| d.get_temp(keys_id)).unwrap_or_default();
+        keys.truncate(total);
+        while keys.len() < total {
+            keys.push(keys.iter().max().map_or(0, |k| k + 1));
+        }
         for (i, item) in items.iter_mut().enumerate() {
             let name =
                 KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
@@ -517,7 +527,7 @@ pub(super) fn editor(
             let reveal =
                 ui.ctx().data_mut(|d| d.remove_temp::<usize>(egui::Id::new("nui-reveal-draw")));
             let header = egui::CollapsingHeader::new(format!("{} · {name}", i + 1))
-                .id_salt(i)
+                .id_salt(("draw-layer", keys[i]))
                 .open((reveal == Some(i)).then_some(true));
             if let Some(other) = reveal.filter(|r| *r != i) {
                 ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), other));
@@ -705,13 +715,16 @@ pub(super) fn editor(
         }
         if let Some(i) = remove {
             items.remove(i);
+            keys.remove(i);
             moved = Some(Moved::Removed(i));
         } else if let Some((a, b)) = move_item
             && b < items.len()
         {
             items.swap(a, b);
+            keys.swap(a, b);
             moved = Some(Moved::Swapped(a, b));
         }
+        ui.data_mut(|d| d.insert_temp(keys_id, keys));
     });
     moved
 }
@@ -853,11 +866,16 @@ mod tests {
         h.run();
         assert_eq!((x(&h, 1), x(&h, 2)), (json!(20.0), json!(10.0)));
         assert_eq!(h.state().chosen, chosen(1), "the layer chosen went up with it");
-        // (The third header is still the open one: the layer that came down.)
+        // The open header went up with its layer (it stayed at the third
+        // place, on the layer that came down: the last pass's item 12).
+        let open = h.get_by_label("Remove Drawing").rect().center().y;
+        let (second, third) =
+            (h.get_by_label("2 · Rectangle").rect().center().y, h.get_by_label("3 · Rectangle"));
+        assert!(second < open && open < third.rect().center().y, "the second is open");
         h.get_by_label("Remove Drawing").click();
         h.run();
-        assert_eq!(h.state().node["draw_list"].as_array().map(Vec::len), Some(2));
-        assert_eq!(h.state().chosen, chosen(1), "another layer was removed");
+        assert_eq!((x(&h, 0), x(&h, 1)), (json!(0.0), json!(10.0)), "the layer moved went");
+        assert_eq!(h.state().chosen, None, "the layer chosen was removed");
     }
 
     /// A drag on the canvas of what is no longer the layer there (Undo
