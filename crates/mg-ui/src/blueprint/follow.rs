@@ -347,13 +347,24 @@ pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
 
 /// The places in areas' GITs that windows other than the Properties tabs
 /// hold: the Variables window's and String Edit's objects (opened from a
-/// Properties window or from the module tree, and not closed with it).
-/// They wrote to whatever stood at their place once an object before it
-/// was deleted, or an Undo put one back.
+/// Properties window or from the module tree, and not closed with it),
+/// the Appearance Gallery's, the Levelup Wizard's creature, Setup Store's
+/// shopkeeper and Add Popup Text's placeable. They wrote to whatever
+/// stood at their place once an object before it was deleted, or an Undo
+/// put one back.
 fn held(app: &Moonglow) -> Vec<Place> {
     let targets =
         [app.var_edit.as_ref().map(|w| &w.target), app.loc_edit.as_ref().map(|w| &w.target)];
     let mut out = Vec::new();
+    let gallery = app.placeable_gallery.as_ref().and_then(|g| g.target.as_ref());
+    let levelup = app.levelup.as_ref().map(|w| (&w.key, &w.path));
+    for (key, path) in gallery.map(|(k, p)| (k, p)).into_iter().chain(levelup) {
+        if key.restype == ResType::GIT {
+            out.push((key.resref, path.clone()));
+        }
+    }
+    out.extend(app.store_wizard.as_ref().map(|w| (w.area, w.keeper())));
+    out.extend(app.popup_text.as_ref().map(|w| (w.area, w.object())));
     for t in targets.into_iter().flatten() {
         for (key, path) in
             std::iter::once((&t.key, &t.path)).chain(t.also.iter().map(|(k, p)| (k, p)))
@@ -529,6 +540,48 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
     }
     if app.loc_edit.as_mut().is_some_and(|w| !moved_target(&mut w.target, &now)) {
         app.loc_edit = None;
+    }
+    // The gallery opened for one object (without it, it gives the area's
+    // selection its appearances), and the wizards on one object: gone
+    // with it, as is one whose object went to another list or area (they
+    // hold it by its place in its own).
+    if let Some(g) = &mut app.placeable_gallery
+        && let Some((key, path)) = g.target.take()
+    {
+        g.target = match now(&key, &path) {
+            Some(to) => to,
+            None => Some((key, path)),
+        };
+    }
+    if let Some(w) = &mut app.levelup {
+        match now(&w.key, &w.path) {
+            Some(Some((key, path))) => (w.key, w.path) = (key, path),
+            Some(None) => app.levelup = None,
+            None => {}
+        }
+    }
+    // (Where the object at index `i` of `list` in `area` is now, if
+    // still an object of that list and area: `Some(None)` if not.)
+    let index = |area: ResRef, list: &str, path: GffPath| -> Option<Option<usize>> {
+        let to = now(&ResKey::new(area, ResType::GIT), &path)?;
+        Some(to.and_then(|(key, p)| match &p.0[..] {
+            [Step::Item(l, i)] if key.resref == area && l == list => Some(*i),
+            _ => None,
+        }))
+    };
+    if let Some(w) = &mut app.store_wizard {
+        match index(w.area, w.list, w.keeper()) {
+            Some(Some(i)) => w.creature = i,
+            Some(None) => app.store_wizard = None,
+            None => {}
+        }
+    }
+    if let Some(w) = &mut app.popup_text {
+        match index(w.area, crate::store_wizard::PopupText::LIST, w.object()) {
+            Some(Some(i)) => w.placeable = i,
+            Some(None) => app.popup_text = None,
+            None => {}
+        }
     }
 }
 

@@ -67,6 +67,14 @@ pub struct StoreWizard {
     pub tag: Option<String>,
 }
 
+impl StoreWizard {
+    /// Where the shopkeeper is in its area's GIT (for
+    /// `blueprint::follow`, which keeps `creature` its index).
+    pub(crate) fn keeper(&self) -> GffPath {
+        GffPath::root().item(self.list, self.creature)
+    }
+}
+
 fn factions(app: &mut Moonglow) -> Option<Factions> {
     let key = ResKey::parse("repute", ResType::FAC)?;
     let ws = app.ws.as_mut()?;
@@ -434,7 +442,7 @@ fn build(
             Err(e) => app.log.warn(format!("Setup Store: {script}: {}", e.message)),
         }
     }
-    let path = GffPath::root().item(w.list, w.creature);
+    let path = w.keeper();
     let set = |label: &str, value: Value| Edit::SetField {
         key: git,
         path: path.clone(),
@@ -494,6 +502,15 @@ pub struct PopupText {
 }
 
 impl PopupText {
+    /// The list of an area's GIT its object is in.
+    pub(crate) const LIST: &'static str = "Placeable List";
+
+    /// Where the placeable is in its area's GIT (for
+    /// `blueprint::follow`, which keeps `placeable` its index).
+    pub(crate) fn object(&self) -> GffPath {
+        GffPath::root().item(Self::LIST, self.placeable)
+    }
+
     /// The window for a placeable of an area (its right-click menu's Add
     /// Popup Text…): no text yet, and the conversation's name starting
     /// with the builder's code.
@@ -544,7 +561,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
                     Edit::SetResource { key: ResKey::new(name, ResType::DLG), data: Some(data) },
                     Edit::SetField {
                         key: git,
-                        path: GffPath::root().item("Placeable List", p.placeable),
+                        path: p.object(),
                         label: "Conversation".into(),
                         value: Some(Value::resref(name)),
                     },
