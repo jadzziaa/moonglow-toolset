@@ -229,6 +229,16 @@ fn hostile_documents() -> Vec<Value> {
         }
         docs.push(window);
     }
+    // A million samples in a chart (a line and columns) and a million
+    // points in a polyline: a log a script fills a bind with.
+    let samples: Vec<Value> = (0..1_000_000_u64).map(|i| json!((i * 7919) % 1000)).collect();
+    docs.push(window_of(json!([
+        {"type": "chart", "height": 150.0, "value": [
+            {"type": 0, "legend": "line", "data": samples},
+            {"type": 1, "legend": "columns", "data": samples}]},
+        {"type": "spacer", "height": 100.0,
+            "draw_list": [{"type": 0, "points": samples, "line_thickness": 1.0}]},
+    ])));
     docs
 }
 

@@ -61,6 +61,25 @@ fn rect(v: &Value, s: &Settings, row: Option<usize>, origin: Pos2, scale: f32) -
     )
 }
 
+/// The most points of a polyline the preview draws: of one with more it
+/// draws every nth, and the last.
+const POLYLINE_POINTS: usize = 8192;
+
+/// A polyline's points (`x, y, x, y…`) on the canvas, from `origin`: all
+/// of them up to [`POLYLINE_POINTS`], and of more as many, evenly taken,
+/// with the last. (A polyline of a million points, a bind's array a script
+/// fills, was a path of a million every frame.)
+fn polyline(points: &[Value], origin: Pos2, scale: f32) -> Vec<Pos2> {
+    let pairs = points.as_chunks::<2>().0;
+    let every = pairs.len().div_ceil(POLYLINE_POINTS).max(1);
+    let last = pairs.len().saturating_sub(1);
+    let number = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    (pairs.iter().enumerate())
+        .filter(|(i, _)| i % every == 0 || *i == last)
+        .map(|(_, xy)| origin + vec2(number(&xy[0]), number(&xy[1])) * scale)
+        .collect()
+}
+
 /// Keep bind formatting metadata while resolving one repeated drawing's array values.
 fn instance_settings(item: &Value, settings: &Settings, index: usize) -> Settings {
     let bindings = mg_nui::bind_names(item)
@@ -150,21 +169,7 @@ pub(super) fn paint(
         match item["type"].as_u64().unwrap_or(99) {
             0 => {
                 if let Some(points) = val(&item["points"], s, row).as_array() {
-                    shape(
-                        points
-                            .as_chunks::<2>()
-                            .0
-                            .iter()
-                            .map(|xy| {
-                                bounds.min
-                                    + vec2(
-                                        xy[0].as_f64().unwrap_or(0.0) as f32,
-                                        xy[1].as_f64().unwrap_or(0.0) as f32,
-                                    ) * scale
-                            })
-                            .collect(),
-                        fill != Color32::TRANSPARENT,
-                    );
+                    shape(polyline(points, bounds.min, scale), fill != Color32::TRANSPARENT);
                 }
             }
             1 => {
@@ -756,6 +761,29 @@ mod tests {
                 assert!((bounds.width() - 100.0).abs() < 0.01);
                 assert!((bounds.height() - 50.0).abs() < 0.01);
             }
+        }
+    }
+
+    /// A polyline of more points than the preview draws is drawn by as
+    /// many of them, evenly taken, its first and last among them.
+    #[test]
+    fn a_polyline_is_drawn_by_a_bounded_number_of_its_points() {
+        let origin = pos2(10.0, 20.0);
+        let line = |n: usize| -> Vec<Value> {
+            (0..n).flat_map(|i| [json!(i as f64), json!((i % 7) as f64)]).collect()
+        };
+        let few = polyline(&line(5), origin, 2.0);
+        assert_eq!(few.len(), 5);
+        assert_eq!((few[0], few[4]), (pos2(10.0, 20.0), pos2(18.0, 28.0)));
+        // (An odd number left over is no point; what is no number is 0.)
+        assert_eq!(polyline(&[json!(1), json!("a"), json!(3)], origin, 1.0), [pos2(11.0, 20.0)]);
+        assert_eq!(polyline(&line(POLYLINE_POINTS), origin, 1.0).len(), POLYLINE_POINTS);
+        for n in [POLYLINE_POINTS + 1, 100_000, 1_000_000] {
+            let drawn = polyline(&line(n), origin, 1.0);
+            assert!(drawn.len() <= POLYLINE_POINTS + 1 && drawn.len() > POLYLINE_POINTS / 2);
+            assert_eq!(drawn[0], origin);
+            assert_eq!(drawn.last().unwrap().x, 10.0 + (n - 1) as f32);
+            assert!(drawn.windows(2).all(|p| p[0].x < p[1].x));
         }
     }
 

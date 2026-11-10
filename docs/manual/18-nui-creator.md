@@ -626,7 +626,10 @@ and the preview follow them.
   every value is above zero they hang from the top of the chart, and a column
   can reach past the chart, up to what the window or a group cuts. Columns
   stand a point apart. The column under the pointer turns white and shows its
-  value (2.00). With no width, a chart stretches like a label.
+  value (2.00). With no width, a chart stretches like a label. The preview
+  draws a line of more samples than twice its pixels by the lowest and
+  highest sample of each pixel, and a polyline of more than 8,192 points by
+  as many of them, evenly taken: the same picture, of fewer shapes.
 - **Progress bars** stretch like a label when they have no width. A value over 1
   draws past the bar's frame.
 - **Options and tabs** place their entries 150 apart whatever the control's
