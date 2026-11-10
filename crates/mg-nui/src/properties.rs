@@ -146,8 +146,11 @@ impl Kind {
             Self::Rect => object(&["x", "y", "w", "h"], &number),
             Self::Color => object(&["r", "g", "b", "a"], &int),
             Self::Array => json!({"type": "array"}),
-            Self::RowCount => json!({"oneOf": [int.clone(), {"type": "array",
-                "description": "From a bind: its length is the row count"}]}),
+            // (Written in the layout it is a number: the array is a
+            // bind's value, in the settings, whose length is the count.)
+            Self::RowCount => json!({"type": "integer", "minimum": i32::MIN,
+                "maximum": i32::MAX, "description": "The rows, as a number; from a bind, \
+                 the bind's value may be an array, whose length is the row count"}),
             Self::Labels => json!({"type": "array", "items": {"type": "string"}}),
             Self::Entries => json!({"type": "array", "items": {"type": "array",
                 "prefixItems": [{"type": "string"}, {"type": "integer"}], "minItems": 2,
@@ -398,8 +401,14 @@ pub const DRAW: &[Property] = &[
     nullable(bound("amax", Kind::Number, "An arc's end, in radians")),
     bound("rect", Kind::Rect, "Where it is drawn, in the control's points"),
     bound("image_region", Kind::Rect, "The part of the picture drawn"),
-    bound("a", Kind::Vec2, "A line's or curve's start; an arc's center"),
+    bound("a", Kind::Vec2, "A line's or curve's start"),
     bound("b", Kind::Vec2, "A line's or curve's end"),
+    // (nw_inc_nui documents it as a rectangle; the game draws the arc the
+    // same with a point: either has an `x` and a `y`, which is the kind.)
+    of(
+        bound("c", Kind::Vec2, "An arc's center: a point, or a rectangle whose x and y are it"),
+        &["3"],
+    ),
     bound("ctrl0", Kind::Vec2, "A curve's first control point"),
     bound("ctrl1", Kind::Vec2, "A curve's second control point"),
     bound("text", Kind::Text, "The text drawn"),

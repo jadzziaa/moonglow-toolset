@@ -471,6 +471,35 @@ mod tests {
         for p in properties::DRAW {
             assert!(defs["draw"]["properties"].get(p.name).is_some(), "{}", p.name);
         }
+        // Every key nw_inc_nui's `NuiDrawList*` constructors write (read
+        // from the game's include), by the layer's type: a program that
+        // writes a layer from the schema writes what the game reads. (An
+        // arc's center is `c`: the table had none, and called `a` it.)
+        const COMMON: [&str; 7] =
+            ["enabled", "color", "fill", "line_thickness", "order", "render", "arrayBinds"];
+        const WRITTEN: [&[&str]; 8] = [
+            &["points"],
+            &["a", "b", "ctrl0", "ctrl1"],
+            &["rect"],
+            &["c", "radius", "amin", "amax"],
+            &["rect", "text", "font"],
+            &["image", "rect", "image_aspect", "image_halign", "image_valign", "image_region"],
+            &["a", "b"],
+            &["rect"],
+        ];
+        for (ty, keys) in WRITTEN.iter().enumerate() {
+            for key in COMMON.iter().chain(keys.iter()) {
+                let known =
+                    properties::DRAW.iter().any(|p| p.name == *key && p.of(&ty.to_string()));
+                assert!(known, "{}: {key} is not in the table", properties::DRAW_TYPES[ty]);
+                assert!(defs["draw"]["properties"].get(*key).is_some(), "{key}");
+            }
+        }
+        let about = |key: &str| defs["draw"]["properties"][key].to_string();
+        assert!(about("c").contains("center") && !about("a").contains("center"));
+        // A row count written in a layout is a number: the array is a
+        // bind's value, which the settings hold.
+        assert_eq!(defs["row_count"]["type"], "integer", "{}", defs["row_count"]);
         // Every reference is to a definition there.
         let text = s.to_string();
         for reference in text.split("\"$ref\":\"#/$defs/").skip(1) {
