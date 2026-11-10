@@ -116,28 +116,8 @@ impl Renderer<'_> {
                     )
                 });
                 if !disabled && editable {
-                    if ui.rect_contains_pointer(body) {
-                        offset -= ui.input_mut(|i| {
-                            let delta = i.smooth_scroll_delta[axis];
-                            i.smooth_scroll_delta[axis] = 0.0;
-                            delta
-                        });
-                    }
-                    if (scroll_response.clicked() || scroll_response.dragged())
-                        && let Some(pointer) = scroll_response.interact_pointer_pos()
-                    {
-                        let start = strip.min[axis] + thick;
-                        let end = strip.max[axis] - thick;
-                        if pointer[axis] < start {
-                            offset -= 20.0 * scale;
-                        } else if pointer[axis] > end {
-                            offset += 20.0 * scale;
-                        } else {
-                            offset = ((pointer[axis] - start) / (end - start).max(1.0))
-                                .clamp(0.0, 1.0)
-                                * max;
-                        }
-                    }
+                    let bar = Bar { strip, axis, button: thick, max, step: Some(20.0 * scale) };
+                    offset = scroll_by(ui, &scroll_response, body, &bar, offset);
                 }
                 offset = offset.clamp(0.0, max);
                 self.scrollbar(
@@ -327,8 +307,10 @@ impl Renderer<'_> {
         let fit = ((inner.height() - 36.0 * scale) / stride).floor().max(0.0);
         let max_scroll = ((count as f32 - fit).max(0.0) * stride).max(0.0);
         let scroll_key = format!("{path}/{row:?}");
-        let mut offset =
-            self.state.list_scroll.get(&scroll_key).copied().unwrap_or(0.0).clamp(0.0, max_scroll);
+        // (Kept in points, as a group's and a text's: the same rows show
+        // at another zoom or UI scale.)
+        let kept = self.state.list_scroll.get(&scroll_key).copied().unwrap_or(0.0);
+        let mut offset = (kept * scale).clamp(0.0, max_scroll);
         if scrolling {
             let width = a.number("window.scrollbar_size_x", 18.0) * scale;
             inner.max.x -= width;
@@ -349,23 +331,11 @@ impl Renderer<'_> {
                 )
             });
             if !disabled && editable {
-                if ui.rect_contains_pointer(body) {
-                    offset -= ui.input_mut(|i| {
-                        let d = i.smooth_scroll_delta.y;
-                        i.smooth_scroll_delta.y = 0.0;
-                        d
-                    });
-                }
-                if (scroll_response.clicked() || scroll_response.dragged())
-                    && let Some(pointer) = scroll_response.interact_pointer_pos()
-                {
-                    // Map against the usable track between the native
-                    // end buttons so its bottom reaches the final row.
-                    offset = ((pointer.y - track.top() - width)
-                        / (track.height() - 2.0 * width).max(1.0))
-                    .clamp(0.0, 1.0)
-                        * max_scroll;
-                }
+                // (The track is what is between the native end buttons, so
+                // that its bottom reaches the final row; a click on a
+                // button is one on the track's end.)
+                let bar = Bar { strip: track, axis: 1, button: width, max: max_scroll, step: None };
+                offset = scroll_by(ui, &scroll_response, body, &bar, offset);
             }
             offset = offset.clamp(0.0, max_scroll);
             self.scrollbar(
@@ -378,7 +348,7 @@ impl Renderer<'_> {
         } else {
             offset = 0.0;
         }
-        self.state.list_scroll.insert(scroll_key, offset);
+        self.state.list_scroll.insert(scroll_key, offset / scale);
         if let Some(cells) = node["row_template"].as_array() {
             if cells.is_empty() && self.state.guides() {
                 c.label(

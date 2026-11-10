@@ -158,28 +158,9 @@ impl Renderer<'_> {
                 )
             });
             if !disabled && editable {
-                if ui.rect_contains_pointer(body) {
-                    offset[axis] -= ui.input_mut(|i| {
-                        let delta = i.smooth_scroll_delta[axis];
-                        i.smooth_scroll_delta[axis] = 0.0;
-                        delta
-                    });
-                }
-                if (response.clicked() || response.dragged())
-                    && let Some(pointer) = response.interact_pointer_pos()
-                {
-                    let start = strip.min[axis] + size;
-                    let end = strip.max[axis] - size;
-                    if pointer[axis] < start {
-                        offset[axis] -= a.font_height(font) * scale;
-                    } else if pointer[axis] > end {
-                        offset[axis] += a.font_height(font) * scale;
-                    } else {
-                        offset[axis] = ((pointer[axis] - start) / (end - start).max(1.0))
-                            .clamp(0.0, 1.0)
-                            * maximum;
-                    }
-                }
+                let step = Some(a.font_height(font) * scale);
+                let bar = Bar { strip, axis, button: size, max: maximum, step };
+                offset[axis] = scroll_by(ui, &response, body, &bar, offset[axis]);
             }
             offset[axis] = offset[axis].clamp(0.0, maximum);
             let length = if axis == 1 { galley.size().y + extra } else { content.width() + extra };
