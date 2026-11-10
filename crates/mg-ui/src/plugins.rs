@@ -1593,6 +1593,16 @@ impl Moonglow {
         plugin: Option<Plugin>,
         run: impl FnOnce(Input, Rc<dyn Host>) -> Result<Outcome, PluginError> + Send + 'static,
     ) {
+        let heading = title.trim_end_matches('…').trim_end_matches("...").trim().to_string();
+        // Another job under way: this one does not start, and what the
+        // running one waits on (its question, its form, the answers
+        // given for it) is left as it is. (They were let go of first: a
+        // plugin's job waiting for an answer was never shown its
+        // question again, and waited until it was called off.)
+        if let Some(job) = &self.job {
+            self.log.warn(format!("{name}: {heading}: waiting for {} to finish", job.title));
+            return;
+        }
         // (An event's job that changes nothing says nothing.)
         let quiet = granted.is_some();
         // Its questions are answered in the job's window; where there is
@@ -1604,9 +1614,6 @@ impl Moonglow {
         let job_name = name.clone();
         self.plugins.form = None;
         self.plugins.ask = ask;
-        // (Another job under way: this one does not start.)
-        let starts = self.job.is_none();
-        let heading = title.trim_end_matches('…').trim_end_matches("...").trim().to_string();
         let plugin_name = name.clone();
         self.start_job(
             format!("{name}: {heading}"),
@@ -1635,7 +1642,7 @@ impl Moonglow {
         );
         // Its window is headed by the command's title, the plugin's name
         // on hover (the log names both).
-        if let Some(job) = self.job.as_mut().filter(|_| starts) {
+        if let Some(job) = self.job.as_mut() {
             job.plugin = Some((heading, plugin_name));
         }
         if !self.busy() {
@@ -3040,6 +3047,37 @@ pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A plugin's job asked to start while another job runs does not
+    /// start, and lets what the running one waits on alone: its
+    /// question's place was replaced first, so the job waiting there was
+    /// never shown its question again.
+    #[test]
+    fn a_plugin_s_job_refused_leaves_the_running_one_its_question() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.background_jobs = true;
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        app.start_job_anywhere(
+            "Another job",
+            move |_| {
+                let _ = wait.recv_timeout(Duration::from_secs(20));
+            },
+            |_, ()| {},
+        );
+        assert!(app.job.is_some(), "a job runs");
+        let asking = Arc::new(Ask::default());
+        app.plugins.ask = Some(asking.clone());
+        app.plugins.answers.push_back(Some(Answer::Yes));
+        app.run_plugin("Probe".into(), "Apply…".into(), false, None, None, |_, _| {
+            panic!("it does not start")
+        });
+        let kept = app.plugins.ask.as_ref().expect("the question's place is kept");
+        assert!(Arc::ptr_eq(kept, &asking), "and it is the running job's");
+        assert_eq!(app.plugins.answers.len(), 1, "the answers given are not taken");
+        let said = "Probe: Apply: waiting for Another job to finish";
+        assert!(app.log.entries.iter().any(|(_, m)| m == said), "{:?}", app.log.entries);
+        let _ = release.send(());
+    }
 
     /// A number field whose value lies outside its limits (one kept from
     /// a render with other limits) is held to them as it is drawn, and
