@@ -5,6 +5,21 @@ use super::*;
 /// laid out off the screen (from its first).
 const ROWS_DRAWN: usize = 512;
 
+/// For each of `children`, the largest width any control after it has of
+/// its own (-1: none has one): what a row's last button stretches to
+/// (`Renderer::children`). One pass from the end. (Each child looked at
+/// all those after it, every frame: 300 rows in a column were 45,000
+/// lookups, each with its bind's.)
+pub(super) fn widths_after(children: &[Value], s: &Settings, row: Option<usize>) -> Vec<f32> {
+    let mut after = vec![-1.0; children.len()];
+    let mut widest = -1.0_f32;
+    for (i, child) in children.iter().enumerate().rev() {
+        after[i] = widest;
+        widest = widest.max(num(&child["width"], s, row, -1.0));
+    }
+    after
+}
+
 impl Renderer<'_> {
     /// A row, a column or a group: its children side by side or one under
     /// another, in what the group's bars leave.
@@ -172,13 +187,11 @@ impl Renderer<'_> {
             Some((path, right)) if ty == "row" && path == source_path => Some(*right),
             _ => None,
         };
-        let widths_after: Vec<f32> = (0..children.len())
-            .map(|i| {
-                (children[i + 1..].iter())
-                    .map(|n| num(&n["width"], s, row, -1.0))
-                    .fold(-1.0, f32::max)
-            })
-            .collect();
+        // (A column's alone: the rows that reach are a column's.)
+        let widths_after = match ty {
+            "col" => widths_after(children, s, row),
+            _ => Vec::new(),
+        };
         let fixed: f32 = children
             .iter()
             .zip(&sizes)
@@ -241,11 +254,11 @@ impl Renderer<'_> {
             // scrollbar as long.)
             size = size.min(self.scaled(Vec2::splat(LARGEST)));
             let child_path = format!("{source_path}/children/{i}");
-            self.reach =
-                (ty == "col" && child["type"] == "row" && widths_after[i] >= 0.0).then(|| {
-                    let padding = layout_padding(child, s, row) * scale;
-                    (child_path.clone(), cursor.x + self.px(widths_after[i]) - padding)
-                });
+            let after = widths_after.get(i).copied().unwrap_or(-1.0);
+            self.reach = (ty == "col" && child["type"] == "row" && after >= 0.0).then(|| {
+                let padding = layout_padding(child, s, row) * scale;
+                (child_path.clone(), cursor.x + self.px(after) - padding)
+            });
             self.node(ui, child, &child_path, Rect::from_min_size(cursor, size), row, depth + 1);
             self.reach = None;
             if ty == "row" {

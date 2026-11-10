@@ -38,6 +38,43 @@ fn numbers_in_text_are_the_client_s() {
     assert_eq!(text, "0.333333343267440795898437500000");
 }
 
+/// The widest width after each child, in one pass from the end, is what
+/// looking at every later child for each gave.
+#[test]
+fn the_widths_after_each_child_are_those_of_every_later_child() {
+    let mut s = Settings::default();
+    s.bindings.insert("wide".into(), Binding { value: json!(400.0), ..Default::default() });
+    let widths = [
+        json!(null),
+        json!(150.0),
+        json!({"bind": "wide"}),
+        json!(-5.0),
+        json!("x"),
+        json!(90.0),
+        json!(1e308),
+        json!(null),
+        json!(20.0),
+        json!({"bind": "missing"}),
+    ];
+    for take in 0..=widths.len() {
+        for skip in 0..=take {
+            let children: Vec<Value> = widths[skip..take]
+                .iter()
+                .map(|w| json!({"type": "row", "width": w, "children": []}))
+                .collect();
+            let slow: Vec<f32> = (0..children.len())
+                .map(|i| {
+                    (children[i + 1..].iter())
+                        .map(|n| num(&n["width"], &s, None, -1.0))
+                        .fold(-1.0, f32::max)
+                })
+                .collect();
+            assert_eq!(containers::widths_after(&children, &s, None), slow, "{skip}..{take}");
+        }
+    }
+    assert_eq!(containers::widths_after(&[], &s, Some(3)), Vec::<f32>::new());
+}
+
 #[test]
 fn native_text_flags_change_ascii_case_and_preserve_unicode() {
     let mut s = Settings::default();
