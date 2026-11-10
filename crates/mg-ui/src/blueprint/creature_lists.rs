@@ -831,7 +831,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     // The spellcasting classes any of them has, in the first one's order,
     // then the others', with how many have each.
     let mut caster_classes: Vec<(i64, usize)> = Vec::new();
-    for t in &targets {
+    for t in targets.iter() {
         for c in t.list("ClassList") {
             let Some(row) = lists::class(c) else { continue };
             if game.spell_slots(&t.at, c).is_none() {
@@ -858,7 +858,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     if !f.app.settings.no_spell_warning {
         let color = ui.visuals().warn_fg_color;
         let mut any = false;
-        for t in &targets {
+        for t in targets.iter() {
             for w in game.spell_warnings(&t.at) {
                 let text = statement(&game.spell_warning_text(&w)).to_string();
                 ui.colored_label(color, format!("{}: {text}", t.name));
@@ -1317,7 +1317,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         if described(r, game, "spells", "SpellDesc", c.row).clicked() {
                             // A use more on each, at its own level.
                             let mut out = lists::Outcome::default();
-                            for t in &targets {
+                            for t in targets.iter() {
                                 let mut s = Struct::new(SPECIAL_ID);
                                 s.set("Spell", Value::Word(c.row as u16));
                                 let level = creature_level(&t.at).min(255) as u8;

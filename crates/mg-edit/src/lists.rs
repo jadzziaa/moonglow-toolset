@@ -75,9 +75,25 @@ pub fn merge<K: PartialEq + Clone>(
     lists: &[&[Struct]],
     key: impl Fn(&Struct) -> Option<K>,
 ) -> Vec<Merged<K>> {
+    merge_each(lists.iter().map(|l| l.iter()), key)
+}
+
+/// [`merge`] of entries borrowed from where they are: each object's, of
+/// several lists of its (a store's pages) in one.
+pub fn merge_refs<K: PartialEq + Clone>(
+    lists: &[Vec<&Struct>],
+    key: impl Fn(&Struct) -> Option<K>,
+) -> Vec<Merged<K>> {
+    merge_each(lists.iter().map(|l| l.iter().copied()), key)
+}
+
+fn merge_each<'a, K: PartialEq + Clone>(
+    lists: impl Iterator<Item = impl Iterator<Item = &'a Struct>>,
+    key: impl Fn(&Struct) -> Option<K>,
+) -> Vec<Merged<K>> {
     let mut out: Vec<Merged<K>> = Vec::new();
-    for (n, list) in lists.iter().enumerate() {
-        for entry in *list {
+    for (n, list) in lists.enumerate() {
+        for entry in list {
             let Some(k) = key(entry) else { continue };
             match out.iter_mut().find(|m| m.key == k) {
                 Some(m) => {

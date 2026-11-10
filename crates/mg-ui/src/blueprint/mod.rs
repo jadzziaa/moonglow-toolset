@@ -4,6 +4,7 @@
 //! type they are stored with, and fields the editor does not show are kept.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::{LocString, ResRef, ResType};
@@ -960,8 +961,20 @@ impl Form<'_> {
     }
 
     /// The objects edited (this one first) as the list rules take them
-    /// (`mg_edit::lists`), each as it is now.
-    pub(crate) fn list_targets(&mut self) -> Vec<lists::Target> {
+    /// (`mg_edit::lists`), each as it is now. Kept while the module is as
+    /// it was read (its revision) and the window's objects are the same:
+    /// read every frame, a hundred creatures selected were copied whole,
+    /// with all they carry, each frame a list page was shown.
+    pub(crate) fn list_targets(&mut self) -> Arc<Vec<lists::Target>> {
+        let revision = self.app.ws.as_ref().map(mg_edit::Workspace::revision);
+        if let Some(((at, key, path, also), kept)) = &self.app.palette.kept.targets
+            && (*at, *key) == (revision, self.key)
+            && *path == self.path
+            && *also == self.also
+            && kept.first().is_some_and(|t| t.at == self.root)
+        {
+            return kept.clone();
+        }
         let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
         if let Some(ws) = self.app.ws.as_mut() {
             for (key, path) in &self.also {
@@ -970,6 +983,9 @@ impl Form<'_> {
                 }
             }
         }
+        let out = Arc::new(out);
+        let read_for = (revision, self.key, self.path.clone(), self.also.clone());
+        self.app.palette.kept.targets = Some((read_for, out.clone()));
         out
     }
 
