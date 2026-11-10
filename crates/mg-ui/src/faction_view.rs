@@ -387,7 +387,22 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
     }
 
     if let Some(id) = remove {
-        let users = app.ws.as_ref().map(|w| faction_users(&w.module, id)).unwrap_or_default();
+        // (Asked of the module with the open documents written into it:
+        // an object given the faction a moment ago is one of them.)
+        let users = (app.ws.as_mut())
+            .map(|w| match w.flush() {
+                Ok(_) => Ok(faction_users(&w.module, id)),
+                Err(e) => Err(e.to_string()),
+            })
+            .unwrap_or(Ok(Vec::new()));
+        let users = match users {
+            Ok(users) => users,
+            Err(e) => {
+                app.log.error(e);
+                app.faction_view = view;
+                return;
+            }
+        };
         if users.is_empty() {
             let name = f.factions[id as usize].name.clone();
             if let Some(map) = f.remove(id) {
