@@ -854,6 +854,56 @@ pub(crate) fn tile_command_with(
     }
 }
 
+/// What a cell's tile keeps of the struct it comes from, after
+/// `mg_area::terrain::tile_edits` gave it fresh lights: the lights, the
+/// animation loops and the replacement texture of the struct kept for it
+/// (`kept`: a tile pasted, stepped or turned), by the one list of them
+/// ([`crate::tile_select::FIELDS`]). The replacement texture is a row of
+/// the tileset's table that goes with the tile it was set on: a cell
+/// whose kept struct has none loses the one its old tile had, and so
+/// does a cell given another tile with nothing kept for it (one painted
+/// over). `root` is the ARE's as it is, `width` its tiles across.
+fn kept_edits(
+    key: ResKey,
+    root: &mg_gff::Struct,
+    width: u32,
+    changes: &[((u32, u32), Placement)],
+    kept: &[((u32, u32), mg_gff::Struct)],
+) -> Vec<mg_edit::Edit> {
+    const REPLACE: &str = "Tile_ReplaceTex";
+    let place = |(x, y): (u32, u32)| (y * width + x) as usize;
+    let now = |cell: (u32, u32)| root.list("Tile_List").and_then(|l| l.get(place(cell)));
+    let set =
+        |cell: (u32, u32), label: &str, value: Option<mg_gff::Value>| mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root().item("Tile_List", place(cell)),
+            label: label.into(),
+            value,
+        };
+    let mut edits = Vec::new();
+    for (cell, copied) in kept {
+        for label in crate::tile_select::FIELDS {
+            match copied.get(label) {
+                Some(v) => edits.push(set(*cell, label, Some(v.clone()))),
+                None if label == REPLACE && now(*cell).is_some_and(|t| t.get(label).is_some()) => {
+                    edits.push(set(*cell, label, None));
+                }
+                None => {}
+            }
+        }
+    }
+    for &(cell, p) in changes {
+        if kept.iter().any(|(k, _)| *k == cell) {
+            continue;
+        }
+        let Some(tile) = now(cell).filter(|t| t.get(REPLACE).is_some()) else { continue };
+        if tile.integer("Tile_ID") != Some(i64::from(p.tile)) {
+            edits.push(set(cell, REPLACE, None));
+        }
+    }
+    edits
+}
+
 /// The command [`tile_command_with`] applies, made against the area as
 /// the workspace has it now, for a caller that applies it at once (Tile
 /// Properties, whose own step goes over it); `None` when nothing changes.
@@ -885,27 +935,7 @@ pub(crate) fn tile_command_made(
     let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut lights_rng));
     let mut edits = tile_edits(key, &root, &tools.set, changes, &mut lights);
     let width = root.integer("Width").unwrap_or(0).max(0) as u32;
-    for ((x, y), copied) in kept {
-        let path = mg_edit::GffPath::root().item("Tile_List", (y * width + x) as usize);
-        for label in [
-            "Tile_MainLight1",
-            "Tile_MainLight2",
-            "Tile_SrcLight1",
-            "Tile_SrcLight2",
-            "Tile_AnimLoop1",
-            "Tile_AnimLoop2",
-            "Tile_AnimLoop3",
-        ] {
-            if let Some(v) = copied.get(label) {
-                edits.push(mg_edit::Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: label.into(),
-                    value: Some(v.clone()),
-                });
-            }
-        }
-    }
+    edits.extend(kept_edits(key, &root, width, changes, kept));
     let git_key = ResKey::new(view.area, ResType::GIT);
     if let Ok(git) = ws.doc(&git_key) {
         let git = git.root.clone();
@@ -2244,6 +2274,59 @@ mod tests {
         for exact in [false, true] {
             assert!(stroke(&tools, &grid, &brush(1, exact), at, false, false, 0).0.is_none());
         }
+    }
+
+    /// The review's A9: what a cell keeps of a tile's struct was a list
+    /// of seven fields here and of eight in Tile Properties: a pasted
+    /// tile lost its Replacement Texture (and took the old tile's), and a
+    /// tile painted over another inherited the old one's row.
+    #[test]
+    fn a_tile_keeps_the_replacement_texture_of_the_struct_kept_for_it() {
+        use mg_gff::{Struct, Value};
+        let tile = |id: i32, replace: Option<u8>| {
+            let mut t = Struct::new(1);
+            t.set("Tile_ID", Value::Int(id));
+            t.set("Tile_MainLight1", Value::Byte(3));
+            if let Some(r) = replace {
+                t.set("Tile_ReplaceTex", Value::Byte(r));
+            }
+            t
+        };
+        let mut root = Struct::new(u32::MAX);
+        let tiles = vec![tile(0, Some(2)), tile(0, None), tile(5, Some(7)), tile(5, Some(9))];
+        root.set("Tile_List", Value::List(tiles));
+        let key = ResKey::parse("area", ResType::ARE).unwrap();
+        let p = |tile: u32| Placement { tile, orientation: 0, height: 0 };
+        // Cells (0, 0) and (1, 0) pasted from structs with row 4 and with
+        // none; (0, 1) painted with another tile, (1, 1) turned (its own).
+        let changes = [((0, 0), p(8)), ((1, 0), p(8)), ((0, 1), p(6)), ((1, 1), p(5))];
+        let kept = [((0, 0), tile(8, Some(4))), ((1, 0), tile(8, None))];
+        let edits = kept_edits(key, &root, 2, &changes, &kept);
+        let replace: Vec<(usize, Option<Value>)> = edits
+            .iter()
+            .filter_map(|e| match e {
+                mg_edit::Edit::SetField { path, label, value, .. }
+                    if label == "Tile_ReplaceTex" =>
+                {
+                    let [mg_edit::Step::Item(_, i)] = path.0.as_slice() else { panic!("{path:?}") };
+                    Some((*i, value.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        // (The pasted one's row; the old tile's taken off where the new
+        // one has none; nothing to take off cell (1, 0); the turned tile
+        // keeps its own.)
+        assert_eq!(replace, [(0, Some(Value::Byte(4))), (2, None)]);
+        // The lights of the kept structs are written as before.
+        let lights = edits.iter().filter(
+            |e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Tile_MainLight1"),
+        );
+        assert_eq!(lights.count(), 2);
+        // A cell with the row and a struct kept without it: taken off.
+        let edits = kept_edits(key, &root, 2, &changes[..1], &[((0, 0), tile(8, None))]);
+        assert!(edits.iter().any(|e| matches!(e,
+            mg_edit::Edit::SetField { label, value: None, .. } if label == "Tile_ReplaceTex")));
     }
 
     /// The quarters a crosser drag through `points` (metres) takes, as the

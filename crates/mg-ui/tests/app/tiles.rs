@@ -1583,6 +1583,17 @@ fn tiles_copy_and_paste() {
         press(h, at, false, egui::Modifiers::NONE);
         h.run_steps(2);
     };
+    // (Its Replacement Texture row 4, and another on the tile it will be
+    // pasted over: the review's A9, the pasted tile took the old one's.)
+    let replace = |i: usize, row: u8| mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root().item("Tile_List", i),
+        label: "Tile_ReplaceTex".into(),
+        value: Some(mg_gff::Value::Byte(row)),
+    };
+    let rows = mg_edit::Command::new("Rows", vec![replace(5, 4), replace(0, 2)]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(rows));
+    h.run_steps(3);
     // Tile (1, 1): the room's south-west quarter, a Stone corner at its
     // north-east. Copied, pasted with its south-west tile at (0, 0).
     click(&mut h, Vec3::new(15.0, 15.0, 0.0));
@@ -1601,6 +1612,7 @@ fn tiles_copy_and_paste() {
     {
         assert_eq!(pasted.get(label), copied.get(label), "{label}");
     }
+    assert_eq!(pasted.integer("Tile_ReplaceTex"), Some(4), "the copied tile's row");
     // The tiles around fit it: the area's tiles make one lattice.
     let game = h.state().game.as_deref().unwrap();
     let set = mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap();
