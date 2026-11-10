@@ -351,9 +351,37 @@ fn extended_additional(c: char) -> Option<&'static str> {
     Some(run[0].1).filter(|l| !l.is_empty())
 }
 
+/// The line (from 1) that byte offset `at` of `text` is on: one more than
+/// the line ends before it. An offset past the end is on the last line.
+/// (Counted nine ways in the workspace before; a counter that goes on
+/// from where it was counts with [`line_ends`].)
+pub fn line_of(text: &[u8], at: usize) -> usize {
+    line_ends(&text[..at.min(text.len())]) + 1
+}
+
+/// How many line ends (`\n`) `bytes` holds.
+pub fn line_ends(bytes: &[u8]) -> usize {
+    bytes.iter().filter(|&&b| b == b'\n').count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A byte offset's line: at the text's start, at a line end and just
+    /// after it, at the end and past it.
+    #[test]
+    fn a_byte_offset_s_line_is_one_more_than_the_line_ends_before_it() {
+        let text = b"one\ntwo\r\n\nfour";
+        assert_eq!(line_of(text, 0), 1);
+        assert_eq!(line_of(text, 3), 1, "on its line end");
+        assert_eq!(line_of(text, 4), 2);
+        assert_eq!(line_of(text, 9), 3);
+        assert_eq!(line_of(text, text.len()), 4);
+        assert_eq!(line_of(text, usize::MAX), 4, "past the end: the last line");
+        assert_eq!(line_of(b"", 0), 1);
+        assert_eq!(line_ends(text), 3);
+    }
 
     #[test]
     fn case_and_accents_are_folded() {

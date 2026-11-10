@@ -36,9 +36,7 @@ struct Facts {
 fn facts(src: &[u8]) -> Facts {
     let text = String::from_utf8_lossy(src);
     let o = outline(src);
-    let line = |at: usize| {
-        text.as_bytes()[..at.min(text.len())].iter().filter(|&&b| b == b'\n').count() + 1
-    };
+    let line = |at: usize| mg_core::text::line_of(text.as_bytes(), at);
     let functions = (o.functions.into_iter())
         .map(|f| Signature {
             line: line(f.name_span.start),

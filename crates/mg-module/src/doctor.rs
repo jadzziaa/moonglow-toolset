@@ -1582,7 +1582,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
              that uses it (save it with Windows line ends)",
         );
     } else if let Some(at) = first {
-        let line = data[..at].iter().filter(|&&b| b == b'\n').count() + 1;
+        let line = mg_core::text::line_of(data, at);
         d.push(
             Warning,
             Check::SetLineEnds,

@@ -572,7 +572,7 @@ impl ScriptStrings {
                 if text.is_empty() {
                     continue;
                 }
-                line += src[counted..t.span.start].iter().filter(|&&b| b == b'\n').count();
+                line += mg_core::text::line_ends(&src[counted..t.span.start]);
                 counted = t.span.start;
                 out.entry(text.to_vec()).or_insert((name, line));
             }

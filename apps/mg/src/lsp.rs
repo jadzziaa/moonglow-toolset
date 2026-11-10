@@ -101,7 +101,7 @@ fn script_name(path: &Path) -> Option<String> {
 fn position(text: &str, offset: usize) -> Value {
     let offset = offset.min(text.len());
     let line_start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
-    let line = text[..offset].matches('\n').count();
+    let line = mg_core::text::line_of(text.as_bytes(), offset) - 1;
     let character: usize = text[line_start..offset].chars().map(char::len_utf16).sum();
     json!({ "line": line, "character": character })
 }

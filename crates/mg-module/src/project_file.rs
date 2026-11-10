@@ -717,7 +717,7 @@ fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
 
 /// The line (from 1) a byte of `source` is on.
 pub(crate) fn line_of(source: &str, at: usize) -> usize {
-    source.as_bytes()[..at.min(source.len())].iter().filter(|b| **b == b'\n').count() + 1
+    mg_core::text::line_of(source.as_bytes(), at)
 }
 
 /// What reads one file: its name, as messages give it, and its text.
@@ -1875,7 +1875,7 @@ impl ProjectFile {
 /// character typed in Windows-1252, say); `None` for text that is.
 pub(crate) fn not_utf8_at(bytes: &[u8]) -> Option<usize> {
     let e = std::str::from_utf8(bytes).err()?;
-    Some(1 + bytes[..e.valid_up_to()].iter().filter(|b| **b == b'\n').count())
+    Some(mg_core::text::line_of(bytes, e.valid_up_to()))
 }
 
 /// The text of a project's file (`name`, as messages name it) that a

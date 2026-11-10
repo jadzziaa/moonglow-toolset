@@ -173,8 +173,10 @@ impl Moonglow {
         let mut results = Vec::new();
         for r in &refs {
             let (Some(k), Some(text)) = (tools::nss(&r.file), src(&r.file)) else { continue };
-            let Some(before) = text.get(..r.span.start) else { continue };
-            let line = before.matches('\n').count();
+            if text.get(..r.span.start).is_none() {
+                continue;
+            }
+            let line = mg_core::text::line_of(text.as_bytes(), r.span.start) - 1;
             let shown = text.lines().nth(line).unwrap_or("").trim().to_string();
             results.push((k, line, shown));
         }

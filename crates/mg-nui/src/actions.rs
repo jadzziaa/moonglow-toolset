@@ -728,7 +728,7 @@ pub fn fit_returns(script: &str, function: bool) -> (String, Vec<Refit>) {
         out.push_str(now);
         refits.push(Refit {
             section: key.clone(),
-            line: script[..t.span.start].matches('\n').count() + 1,
+            line: mg_core::text::line_of(script.as_bytes(), t.span.start),
             was: script[t.span.start..end].to_owned(),
             now: now.to_owned(),
         });
