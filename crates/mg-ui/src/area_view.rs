@@ -397,6 +397,20 @@ pub struct AreaView {
     /// asked thousands of times a frame (an overlay's every face).
     projection: std::cell::Cell<Option<(Orbit, f32, glam::Mat4, f32)>>,
     scene: Option<AreaScene>,
+    /// Where each object is in `model.objects`, by kind and place in its
+    /// GIT list: made as the model is shown ([`show`]). The selection is
+    /// looked up in it, each object of thousands every frame of a drag.
+    places: std::collections::HashMap<(ObjectKind, usize), usize>,
+    /// How high above the ground each object being moved stood as its
+    /// drag began ([`AreaView::lift_of`]): asked of the walkmesh once a
+    /// drag, not every frame of it.
+    lifts: std::cell::RefCell<std::collections::HashMap<(ObjectKind, usize), f32>>,
+    /// The model with a drag, Q and E's turning or Adjust Location
+    /// applied to what they move, as the last frame drew it, and which of
+    /// its objects were posed: kept from frame to frame, those objects
+    /// alone set back and posed again ([`pose_kept`]), where the whole
+    /// model was copied every frame.
+    posed: Option<(AreaModel, Vec<usize>)>,
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
     /// The ARE and GIT `model` was read from: what an edit changed of
@@ -996,6 +1010,9 @@ impl AreaView {
             model: None,
             projection: std::cell::Cell::new(None),
             scene: None,
+            places: Default::default(),
+            lifts: Default::default(),
+            posed: None,
             reading: None,
             textures_drawn: 0,
             revision: None,
@@ -1216,7 +1233,18 @@ impl AreaView {
 
     /// The position of object (kind, index) in `model.objects`.
     fn object_at(&self, kind: ObjectKind, index: usize) -> Option<usize> {
-        self.model.as_ref()?.objects.iter().position(|o| o.kind == kind && o.index == index)
+        self.place_in(self.model.as_ref()?, kind, index)
+    }
+
+    /// [`AreaView::object_at`] in `model`: the view's own, or a copy of
+    /// it with objects posed. By the places kept as the model was shown;
+    /// where an object is not at its place (the model changed since, by
+    /// a reading of one object), by going through them.
+    fn place_in(&self, model: &AreaModel, kind: ObjectKind, index: usize) -> Option<usize> {
+        let is = |o: &mg_area::AreaObject| o.kind == kind && o.index == index;
+        let kept = self.places.get(&(kind, index)).copied();
+        kept.filter(|&i| model.objects.get(i).is_some_and(is))
+            .or_else(|| model.objects.iter().position(is))
     }
 
     /// The placed object `index` of `kind` as a light with nothing to see
@@ -1386,7 +1414,8 @@ impl AreaView {
         let to = o.position.truncate() + offset;
         let ground = self.ground.as_ref().filter(|_| !o.kind.has_outline());
         let Some(g) = ground else { return to.extend(o.position.z) };
-        let lift = self.lift_of(o);
+        let lift =
+            *(self.lifts.borrow_mut()).entry((o.kind, o.index)).or_insert_with(|| self.lift_of(o));
         let near = o.position.z - lift;
         g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
     }
@@ -1529,7 +1558,7 @@ impl AreaView {
     fn chosen<'a>(&'a self, model: &'a AreaModel) -> impl Iterator<Item = &'a mg_area::AreaObject> {
         self.selection
             .iter()
-            .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
+            .filter_map(|&(k, i)| self.place_in(model, k, i).map(|at| &model.objects[at]))
             .filter(|o| self.show[o.kind.index()] && !o.locked)
             .take(TOOLS_MAX)
     }
@@ -2056,6 +2085,10 @@ impl AreaView {
         };
         // (No drag: Q and E's turning under way, if any.)
         let Some(mut drag) = self.drag.filter(moves) else {
+            // (And nothing stands at a height kept for a drag.)
+            if !self.lifts.borrow().is_empty() {
+                self.lifts.borrow_mut().clear();
+            }
             return self.key_turned();
         };
         if let Drag::Spin { angle, .. } = drag {
@@ -2097,12 +2130,12 @@ impl AreaView {
         // it would turn where it stands, carried along (a turn's drag
         // turns it already). Seen as it goes, and part of the drag's
         // command: an owner's report, it waited until the keys rested.
-        let turning: Vec<(usize, Vec3, f32)> = match drag {
-            Drag::Turn { .. } | Drag::Spin { .. } => Vec::new(),
-            _ => self.key_turned(),
+        let turning: std::collections::HashMap<usize, (Vec3, f32)> = match drag {
+            Drag::Turn { .. } | Drag::Spin { .. } => Default::default(),
+            _ => self.key_turned().into_iter().map(|(i, p, r)| (i, (p, r))).collect(),
         };
-        let with_turn = |(i, p, r): (usize, Vec3, f32)| match turning.iter().find(|t| t.0 == i) {
-            Some(&(_, tp, tr)) => (i, p + (tp - model.objects[i].position), tr),
+        let with_turn = |(i, p, r): (usize, Vec3, f32)| match turning.get(&i) {
+            Some(&(tp, tr)) => (i, p + (tp - model.objects[i].position), tr),
             None => (i, p, r),
         };
         self.selected_indices()
@@ -2253,6 +2286,7 @@ fn preview_variables(app: &mut Moonglow, view: &mut AreaView) {
         }
         read.push(model.read_object(&game, kind, *index, &s));
     }
+    view.posed = None;
     if let (Some(scene), Some(vp)) = (&mut view.scene, &app.viewport) {
         scene.update_objects(&vp.gpu, &game, model, &read);
     }
@@ -2545,6 +2579,9 @@ fn show(
     }
     view.error = None;
     view.drawn = None;
+    view.places = model.objects.iter().enumerate().map(|(at, o)| ((o.kind, o.index), at)).collect();
+    view.lifts.borrow_mut().clear();
+    view.posed = None;
     view.model = Some(model);
 }
 
@@ -3520,37 +3557,37 @@ fn viewport(
 
     // The scene, with the drag (or Adjust Location) applied to what it
     // moves.
-    let dragged = view.dragged();
-    let mut shown = std::borrow::Cow::Borrowed(model);
-    for &(i, p, r) in adjusting.0.iter().chain(&dragged) {
-        pose(&mut shown.to_mut().objects[i], p, r);
+    let mut poses = adjusting.0;
+    poses.extend(view.dragged());
+    let mut visuals = adjusting.1;
+    visuals.extend(view.tilted());
+    visuals.extend(view.scaled());
+    let spawn = match view.drag {
+        Some(Drag::FaceSpawn { object, point, facing, .. }) => Some((object, point, Err(facing))),
+        Some(Drag::MoveSpawn { object, point, at, .. }) => Some((object, point, Ok(at))),
+        _ => None,
+    };
+    // (A copy of the model kept from frame to frame, the objects posed
+    // set back and posed again: not the whole model copied every frame.)
+    let mut copy = view.posed.take();
+    if poses.is_empty() && visuals.is_empty() && spawn.is_none() {
+        copy = None;
+    } else {
+        let (posed, last) = copy.get_or_insert_with(|| (model.clone(), Vec::new()));
+        pose_kept(&mut posed.objects, last, &model.objects, &poses, &visuals, spawn);
     }
-    for (i, v) in adjusting.1.into_iter().chain(view.tilted()).chain(view.scaled()) {
-        shown.to_mut().objects[i].visual = Some(v);
-    }
-    if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
-        && let Some(o) = shown.to_mut().objects.get_mut(object)
-        && let Some(f) = o.spawn_facings.get_mut(point)
-    {
-        *f = facing;
-    }
-    if let Some(Drag::MoveSpawn { object, point, at, .. }) = view.drag
-        && let Some(o) = shown.to_mut().objects.get_mut(object)
-        && let Some(p) = o.spawn_points.get_mut(point)
-    {
-        *p = at;
-    }
+    let shown: &AreaModel = copy.as_ref().map_or(model, |(posed, _)| posed);
     vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
-        let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+        let mut frame = scene.scene_hiding(shown, &settings, &hidden);
         frame.environment.clock = clock;
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {
             let camera = orbit.camera().view();
             let step = since.map_or(dt, |s| s.clamp(0.0, 0.25));
-            frame.particles = scene.particles(&shown, &settings, &mut view.particles, step, camera);
+            frame.particles = scene.particles(shown, &settings, &mut view.particles, step, camera);
         } else {
             view.particles.clear();
         }
@@ -3559,7 +3596,7 @@ fn viewport(
         frame.instances.extend(ghost_instances);
         frame.instances.extend(preview_instances);
         if view.grid {
-            frame.lines = grid_lines(view, &shown);
+            frame.lines = grid_lines(view, shown);
         }
         let placed: Vec<(usize, Vec3)> = (shown.objects.iter())
             .filter(|o| o.kind == ObjectKind::Sound)
@@ -3592,7 +3629,7 @@ fn viewport(
         // game's `fswater`.)
         vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
         // (The watch: a look at what was drawn, now and then.)
-        let failed = scene.failed_tiles(&shown, &hidden);
+        let failed = scene.failed_tiles(shown, &hidden);
         view.watching.after_drawing(vp, &frame, &failed, &camera, targets, now);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
@@ -3638,8 +3675,9 @@ fn viewport(
             None => start,
         },
     };
-    overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
-    sound_range_overlay(app, ui, view, &shown);
+    overlays(ui, view, shown, start, app.object_clip.as_ref(), door_brush, marks);
+    sound_range_overlay(app, ui, view, shown);
+    view.posed = copy;
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
     view.pointer = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
     if let Some(p) = view.pointer {
@@ -4429,6 +4467,9 @@ fn overlays(
     };
     let scene = view.scene.as_ref();
     let chosen = view.selected_set();
+    // (The boxes' edges, painted together after the objects are gone
+    // through.)
+    let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
@@ -4585,13 +4626,17 @@ fn overlays(
                 _ => Color32::from_rgb(230, 70, 70),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
-            // (Painted together: one at a time, each of thousands took
-            // the window's lock.)
-            let edges = box_edges(transform, min, max).filter_map(|(a, b)| {
-                segment(a, b).map(|points| egui::Shape::LineSegment { points, stroke })
-            });
-            painter.extend(edges.collect::<Vec<_>>());
+            let edges = box_edges(transform, min, max);
+            boxes.extend(edges.filter_map(|(a, b)| segment(a, b).map(|points| (points, stroke))));
         }
+    }
+    // (Painted together: one at a time, each of thousands took the
+    // window's lock; and past some eighty boxes as one mesh.)
+    if boxes.len() > BOXES_MESHED {
+        painter.add(egui::Shape::mesh(lines_mesh(&boxes)));
+    } else {
+        let lines = boxes.into_iter();
+        painter.extend(lines.map(|(points, stroke)| egui::Shape::LineSegment { points, stroke }));
     }
     if view.pasting
         && let Some(clip) = clip
@@ -6705,6 +6750,102 @@ fn pose(o: &mut mg_area::AreaObject, p: Vec3, r: f32) {
     o.position = p;
 }
 
+/// A spawn point being dragged: its encounter's place in the model, its
+/// place among the encounter's points, and where it is led (`Ok`) or the
+/// way it is turned to face (`Err`).
+type SpawnPosed = (usize, usize, Result<Vec3, f32>);
+
+/// Poses `posed`, a copy of the model's objects `base` kept from frame
+/// to frame: the objects posed last time (`last`) and those posed now are
+/// set back to where `base` has them, then stood at `poses` (place in
+/// the model, position, turn), given `visuals` and the spawn point led.
+/// `last` becomes those posed now. The same as posing a fresh copy of
+/// `base`, without copying it: a selection of thousands dragged copied
+/// the whole area every frame.
+fn pose_kept(
+    posed: &mut [mg_area::AreaObject],
+    last: &mut Vec<usize>,
+    base: &[mg_area::AreaObject],
+    poses: &[(usize, Vec3, f32)],
+    visuals: &[(usize, mg_area::VisualTransform)],
+    spawn: Option<SpawnPosed>,
+) {
+    let now: Vec<usize> = (poses.iter().map(|p| p.0))
+        .chain(visuals.iter().map(|v| v.0))
+        .chain(spawn.map(|s| s.0))
+        .collect();
+    // (What a pose changes of an object, set back; the lists only where
+    // they differ: most objects have none.)
+    for &i in last.iter().chain(&now) {
+        let (Some(o), Some(was)) = (posed.get_mut(i), base.get(i)) else { continue };
+        (o.position, o.rotation, o.visual) = (was.position, was.rotation, was.visual);
+        if o.outline != was.outline {
+            o.outline.clone_from(&was.outline);
+        }
+        if o.spawn_points != was.spawn_points {
+            o.spawn_points.clone_from(&was.spawn_points);
+        }
+        if o.spawn_facings != was.spawn_facings {
+            o.spawn_facings.clone_from(&was.spawn_facings);
+        }
+    }
+    for &(i, p, r) in poses {
+        if let Some(o) = posed.get_mut(i) {
+            pose(o, p, r);
+        }
+    }
+    for &(i, v) in visuals {
+        if let Some(o) = posed.get_mut(i) {
+            o.visual = Some(v);
+        }
+    }
+    if let Some((object, point, to)) = spawn
+        && let Some(o) = posed.get_mut(object)
+    {
+        match to {
+            Ok(at) => {
+                if let Some(p) = o.spawn_points.get_mut(point) {
+                    *p = at;
+                }
+            }
+            Err(facing) => {
+                if let Some(f) = o.spawn_facings.get_mut(point) {
+                    *f = facing;
+                }
+            }
+        }
+    }
+    *last = now;
+}
+
+/// Many lines as one mesh, a quad a line (its edges not smoothed): the
+/// boxes of a selection of hundreds, which as shapes of their own egui
+/// lays out one by one, twelve an object.
+fn lines_mesh(lines: &[([Pos2; 2], Stroke)]) -> egui::Mesh {
+    let mut mesh = egui::Mesh::default();
+    mesh.reserve_vertices(lines.len() * 4);
+    mesh.reserve_triangles(lines.len() * 2);
+    for &([a, b], stroke) in lines {
+        let along = b - a;
+        let length = along.length();
+        if length <= 0.0 || !length.is_finite() {
+            continue;
+        }
+        let side = egui::vec2(-along.y, along.x) / length * (stroke.width / 2.0);
+        let first = mesh.vertices.len() as u32;
+        for p in [a + side, b + side, b - side, a - side] {
+            mesh.colored_vertex(p, stroke.color);
+        }
+        mesh.add_triangle(first, first + 1, first + 2);
+        mesh.add_triangle(first, first + 2, first + 3);
+    }
+    mesh
+}
+
+/// From how many lines on the boxes of the objects selected or marked
+/// are drawn as one mesh ([`lines_mesh`]): some eighty boxes.
+const BOXES_MESHED: usize = 1000;
+
 /// Makes Q and E's turning under way one command, and turns the view's
 /// model with it at once: what is done after it before the area is read
 /// again (G, a drag, another command) starts from where it left them.
@@ -6728,6 +6869,8 @@ fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
             pose(&mut model.objects[i], p, r);
         }
     }
+    view.posed = None;
+    view.lifts.borrow_mut().clear();
 }
 
 /// Q and E's turning, each frame: made a command when the keys rest, the
@@ -8219,6 +8362,82 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The review's A16: the model with a drag applied is a copy kept
+    /// from frame to frame, the objects posed set back and posed again.
+    /// Whatever is posed from one frame to the next (a drag, then Q and
+    /// E's turning with it, then another selection scaled, a spawn point
+    /// led, nothing), it is as a fresh copy of the model posed.
+    #[test]
+    fn a_kept_copy_posed_again_is_as_a_fresh_copy_posed() {
+        let placed = |kind: ObjectKind, index: usize, x: f32| {
+            let mut s = mg_gff::Struct::new(0);
+            for (label, v) in [("X", x), ("Y", 20.0), ("Z", 0.0), ("Bearing", 0.5)] {
+                s.set(label, Value::Float(v));
+            }
+            mg_area::AreaObject::placed(kind, index, &s)
+        };
+        let mut base: Vec<mg_area::AreaObject> =
+            (0..6).map(|i| placed(ObjectKind::Placeable, i, 10.0 + i as f32)).collect();
+        let mut encounter = placed(ObjectKind::Encounter, 0, 30.0);
+        encounter.position = Vec3::new(30.0, 20.0, 0.0);
+        encounter.outline = vec![
+            Vec3::new(29.0, 19.0, 0.0),
+            Vec3::new(31.0, 19.0, 0.0),
+            Vec3::new(30.0, 21.0, 0.0),
+        ];
+        encounter.spawn_points = vec![Vec3::new(30.0, 20.0, 0.0), Vec3::new(30.5, 20.0, 0.0)];
+        encounter.spawn_facings = vec![0.0, 1.0];
+        base.push(encounter);
+        let v = |s: f32| mg_area::VisualTransform { scale: Vec3::splat(s), ..Default::default() };
+        type Frame =
+            (Vec<(usize, Vec3, f32)>, Vec<(usize, mg_area::VisualTransform)>, Option<SpawnPosed>);
+        let frames: Vec<Frame> = vec![
+            (vec![(0, Vec3::new(1.0, 2.0, 3.0), 1.0), (2, Vec3::ONE, 2.0)], vec![], None),
+            (vec![(2, Vec3::new(5.0, 5.0, 0.0), 0.2)], vec![(3, v(2.0))], None),
+            (vec![(6, Vec3::new(40.0, 22.0, 1.0), 1.2)], vec![], None),
+            (vec![], vec![], Some((6, 1, Ok(Vec3::new(33.0, 20.0, 0.0))))),
+            (vec![], vec![(4, v(0.5)), (5, v(3.0))], Some((6, 0, Err(2.5)))),
+            (vec![(1, Vec3::ZERO, 0.0)], vec![(1, v(1.5))], None),
+            (vec![], vec![], None),
+        ];
+        let (mut kept, mut last) = (base.clone(), Vec::new());
+        for (n, (poses, visuals, spawn)) in frames.iter().enumerate() {
+            pose_kept(&mut kept, &mut last, &base, poses, visuals, *spawn);
+            let (mut fresh, mut none) = (base.clone(), Vec::new());
+            pose_kept(&mut fresh, &mut none, &base, poses, visuals, *spawn);
+            assert!(kept == fresh, "frame {n}");
+            // (And a pose is one: the copy differs from the model where
+            // something was posed.)
+            let posed = !(poses.is_empty() && visuals.is_empty() && spawn.is_none());
+            assert_eq!(kept != base, posed, "frame {n}");
+        }
+        assert!(kept == base && last.is_empty(), "nothing posed at the end");
+    }
+
+    /// Lines as one mesh: a quad a line, as wide as its stroke, in its
+    /// color; a line of no length left out.
+    #[test]
+    fn lines_are_meshed_a_quad_each() {
+        let red = Stroke::new(2.0, Color32::RED);
+        let lines = [
+            ([Pos2::new(0.0, 0.0), Pos2::new(10.0, 0.0)], red),
+            ([Pos2::new(5.0, 5.0), Pos2::new(5.0, 5.0)], red),
+            ([Pos2::new(0.0, 0.0), Pos2::new(0.0, 4.0)], Stroke::new(4.0, Color32::BLUE)),
+        ];
+        let mesh = lines_mesh(&lines);
+        assert_eq!((mesh.vertices.len(), mesh.indices.len()), (8, 12));
+        assert!(mesh.is_valid());
+        let bounds = |v: &[egui::epaint::Vertex]| {
+            v.iter().fold(Rect::NOTHING, |r, v| r.union(Rect::from_min_max(v.pos, v.pos)))
+        };
+        let first = bounds(&mesh.vertices[..4]);
+        assert_eq!(first, Rect::from_min_max(Pos2::new(0.0, -1.0), Pos2::new(10.0, 1.0)));
+        let second = bounds(&mesh.vertices[4..]);
+        assert_eq!(second, Rect::from_min_max(Pos2::new(-2.0, 0.0), Pos2::new(2.0, 4.0)));
+        assert!(mesh.vertices[..4].iter().all(|v| v.color == Color32::RED));
+        assert!(mesh.vertices[4..].iter().all(|v| v.color == Color32::BLUE));
+    }
 
     /// The toolbar's hidden kinds, saved in the settings by name: Stores
     /// were saved as Merchants before they were renamed, and stay hidden.

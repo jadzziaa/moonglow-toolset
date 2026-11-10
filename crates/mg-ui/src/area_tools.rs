@@ -446,10 +446,18 @@ pub(crate) fn previewed(a: &AdjustLocation, objects: &[mg_area::AreaObject]) -> 
     if a.start {
         return (moved, visual);
     }
+    // (Where each is among the area's objects: looked up, not found by
+    // going through them for every object of a large selection.)
+    let places: std::collections::HashMap<(ObjectKind, usize), usize> = match a.objects.len() {
+        0..=4 => Default::default(),
+        _ => objects.iter().enumerate().map(|(at, o)| ((o.kind, o.index), at)).collect(),
+    };
     for &(kind, index) in &a.objects {
-        let Some(i) = objects.iter().position(|o| o.kind == kind && o.index == index) else {
-            continue;
+        let at = match places.is_empty() {
+            true => objects.iter().position(|o| o.kind == kind && o.index == index),
+            false => places.get(&(kind, index)).copied(),
         };
+        let Some(i) = at else { continue };
         let o = &objects[i];
         // (As `apply_location` sets them.)
         let mut p = o.position;

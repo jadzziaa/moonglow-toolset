@@ -7195,3 +7195,78 @@ fn find_instance_lays_out_the_results_in_sight() {
     let rows = h.query_all_by_label("mg_tree").count();
     assert!((5..60).contains(&rows), "{rows} rows laid out");
 }
+
+/// The review's A16: the boxes of a large selection are drawn as one
+/// mesh (twelve shapes an object before), and a drag of it poses a copy
+/// of the model kept from frame to frame. A hundred and twenty chests
+/// selected show their yellow boxes; dragged a step at a time, each is
+/// drawn where the drag has it, and let go, each has moved by as much.
+#[test]
+fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("large-selection") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let at = |i: usize| Vec3::new(6.0 + (i % 12) as f32 * 2.5, 6.0 + (i / 12) as f32 * 2.5, 0.0);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let edits = (0..120)
+            .map(|index| {
+                let p = at(index);
+                let place = Placement { position: [p.x, p.y, 0.0], rotation: 0.0 };
+                let item = instance(&placing, ResType::UTP, &chest, place, &[]).unwrap();
+                mg_edit::Edit::InsertItem {
+                    key: git_key,
+                    path: mg_edit::GffPath::root(),
+                    list: "Placeable List".into(),
+                    index,
+                    item,
+                }
+            })
+            .collect();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let all: Vec<_> = (0..120).map(|i| (ObjectKind::Placeable, i)).collect();
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = all;
+    // (No turning rings: the press below is on a chest, to move them.)
+    h.state_mut().settings.no_turn_ring = true;
+    settle(&mut h);
+    let dir = mg_testkit::scratch_dir("ui-area-large-selection-shots");
+    let yellow = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let image = h.render().expect("render");
+        image.save(dir.join(name)).unwrap();
+        image.pixels().filter(|p| p.0[0] > 200 && p.0[1] > 200 && p.0[2] < 90).count()
+    };
+    let boxed = yellow(&mut h, "selected.png");
+    assert!(boxed > 3000, "the boxes of 120 chests: {boxed} yellow pixels");
+    // Dragged 5 m east by the first chest's foot, a step a frame.
+    let on = screen(&h, area, at(0) + Vec3::Z * 0.02);
+    let to = screen(&h, area, at(0) + Vec3::new(5.0, 0.0, 0.02));
+    h.hover_at(on);
+    h.run_steps(2);
+    press(&h, on, true, egui::Modifiers::NONE);
+    for k in 1..=5 {
+        h.hover_at(on + (to - on) * (k as f32 / 5.0));
+        h.run_steps(1);
+        let posed = h.state().area_views[&area].dragged();
+        assert_eq!(posed.len(), 120, "step {k}");
+    }
+    assert!(yellow(&mut h, "dragged.png") > 3000);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+    for (i, chest) in list.iter().enumerate() {
+        let (x, y) = (chest.float("X").unwrap(), chest.float("Y").unwrap());
+        let was = at(i);
+        assert!((x - was.x - 5.0).abs() < 0.1 && (y - was.y).abs() < 0.1, "chest {i}: {x}, {y}");
+    }
+}
