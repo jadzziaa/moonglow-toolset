@@ -1385,7 +1385,9 @@ Choosing one:
    A command with `writes = false` leaves the haks open, so the open
    areas aren't drawn again after it.
 4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
-   Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
+   Linux and macOS, `cmd /S /C` on Windows, so that a text beginning
+   with a quoted program, `"%MOONGLOW_MG%" tlk-alloc "my module"`, runs
+   as written), with `MOONGLOW_PROJECT` (the
    folder), `MOONGLOW_BUILDER` (your code, where you have one) and
    `MOONGLOW_MG` set. `MOONGLOW_MG` is the whole path of the `mg` that
    came with Moonglow (`mg.exe` in its folder on Windows, whose installer

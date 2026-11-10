@@ -11,7 +11,7 @@
 //! file another program has open); a command that writes none of the
 //! module's files (`writes = false`, a submit) keeps them open, and the
 //! open areas aren't drawn again after. The command runs in the project's
-//! folder, by the system's shell (`sh -c` on Linux and macOS, `cmd /C` on
+//! folder, by the system's shell (`sh -c` on Linux and macOS, `cmd /S /C` on
 //! Windows), its output in the log as it comes, and its exit code said;
 //! Cancel stops the shell and what it started (its process group, or
 //! tree of processes on Windows). Then the haks are opened again and the
@@ -280,8 +280,13 @@ pub(crate) fn shell(text: &str, root: &Path, input: bool) -> Command {
     let mut c = {
         use std::os::windows::process::CommandExt;
         let mut c = Command::new("cmd");
-        // (As typed: cmd reads its own quotes. No console window.)
-        c.arg("/C").raw_arg(text).creation_flags(0x0800_0000);
+        // (As typed: cmd reads its own quotes. Given after /C alone, a
+        // text that begins with a quoted program and has another quoted
+        // argument lost its first and last quote, cmd's rule for /C:
+        // `"C:\Program Files\Moonglow\mg.exe" tlk-alloc "my module"` ran
+        // `C:\Program`. With /S, cmd takes off exactly the pair the text
+        // is put in here, and reads the rest as typed. No console window.)
+        c.arg("/S").arg("/C").raw_arg(format!("\"{text}\"")).creation_flags(0x0800_0000);
         c
     };
     #[cfg(not(windows))]
@@ -1028,6 +1033,30 @@ mod tests {
     fn a_program_the_shell_started() {
         println!("started {}", std::process::id());
         std::thread::sleep(Duration::from_secs(60));
+    }
+
+    /// A command that begins with a quoted program and has another quoted
+    /// argument (`"%MOONGLOW_MG%" tlk-alloc "my module"`) runs as typed:
+    /// `cmd /C` alone took its first and last quote off, and ran the
+    /// program's path up to its first space (the review of November 2026,
+    /// D16).
+    #[test]
+    fn a_quoted_program_with_a_quoted_argument_runs_as_typed() {
+        let dir = mg_testkit::scratch_dir("project command quotes");
+        let script = dir.join("say it.cmd");
+        std::fs::write(&script, "@echo off\r\necho %~1\r\n").unwrap();
+        let text = format!("\"{}\" \"a b\"", script.display());
+        let out = shell(&text, &dir, false).output().unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        let errors = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(0), "{said} {errors}");
+        assert_eq!(said.trim(), "a b", "{errors}");
+        // (One without quotes, and one with a single quoted argument, as
+        // before.)
+        let out = shell("echo plain", &dir, false).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "plain");
+        let out = shell("echo \"one two\"", &dir, false).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "\"one two\"");
     }
 
     /// Cancel stops what the shell started, not the shell alone: a

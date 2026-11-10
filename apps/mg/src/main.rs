@@ -1897,8 +1897,13 @@ fn nwsync_upload(
         let mut c = {
             use std::os::windows::process::CommandExt;
             let mut c = std::process::Command::new("cmd");
-            // (As typed: cmd reads its own quotes.)
-            c.arg("/C").raw_arg(&text);
+            // (As typed: cmd reads its own quotes. With /S it takes off
+            // exactly the pair the text is put in here: after /C alone, a
+            // text beginning with a quoted program that has another quoted
+            // argument, `"C:\My Tools\send.cmd" "{folder}"`, lost its first
+            // and last quote. The window's commands are run the same way:
+            // `mg_ui::project_commands::shell`.)
+            c.arg("/S").arg("/C").raw_arg(format!("\"{text}\""));
             c
         };
         #[cfg(not(windows))]
