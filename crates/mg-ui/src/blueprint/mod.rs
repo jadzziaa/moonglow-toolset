@@ -1154,10 +1154,26 @@ impl Form<'_> {
         self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc });
     }
 
+    /// The type the game's files give field `label` of the struct the
+    /// form edits: a blueprint's or a placed object's own field, or a
+    /// journal category's or entry's (the form edits one in its list, and
+    /// the journal's root has neither's fields: a category's XP the file
+    /// lacked was written as a BYTE, 255 for 500, and an entry's End as
+    /// one where the game reads a WORD).
+    fn schema_type(&self, label: &str) -> Option<FieldType> {
+        use mg_gff::Step::Item;
+        let fields = match (self.key.restype, &self.path.0[..]) {
+            (ResType::JRL, [Item(..)]) => mg_schema::jrl::categories::FIELDS,
+            (ResType::JRL, [Item(..), Item(..)]) => mg_schema::jrl::categories::entry_list::FIELDS,
+            _ => return mg_schema::root_field_type(self.restype(), label),
+        };
+        fields.iter().find(|f| f.label == label).map(|f| f.field_type)
+    }
+
     /// Sets an integer field, keeping its stored type (for a field the
     /// blueprint lacks: the type the game's files give it, else `default`).
     pub(crate) fn set_int(&mut self, what: &str, label: &str, v: i64, default: FieldType) {
-        let default = mg_schema::root_field_type(self.restype(), label).unwrap_or(default);
+        let default = self.schema_type(label).unwrap_or(default);
         let value = integer(self.root.get(label), v, default);
         self.set(what, label, value);
     }
@@ -1263,7 +1279,7 @@ impl Form<'_> {
         let values: Vec<(&str, Value)> = fields
             .iter()
             .map(|(label, v, t)| {
-                let t = mg_schema::root_field_type(self.restype(), label).unwrap_or(*t);
+                let t = self.schema_type(label).unwrap_or(*t);
                 (*label, integer(self.root.get(label), *v, t))
             })
             .collect();
@@ -1400,7 +1416,7 @@ impl Form<'_> {
         if !ui.checkbox(&mut v, text).changed() {
             return v;
         }
-        let default = mg_schema::root_field_type(self.restype(), label).unwrap_or(FieldType::Byte);
+        let default = self.schema_type(label).unwrap_or(FieldType::Byte);
         let value = integer(self.root.get(label), i64::from(v), default);
         let mut command = self.setting(text, label, Some(value));
         if v {
