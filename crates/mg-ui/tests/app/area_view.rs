@@ -6303,6 +6303,61 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     assert_eq!(kinds(&h), [true, false, false]);
 }
 
+/// With Creature Shadows unticked, the Shadows menu's Light Shadows is
+/// grayed out, its tooltip saying why, and keeps its tick (in the view and
+/// the settings); ticking Creature Shadows again brings it back as it was
+/// (the review's R4, the owner's decision: the game's lights' shadows are
+/// the creatures'). Light Shadows alone leave the button up.
+#[test]
+fn light_shadows_are_grayed_out_without_creature_shadows() {
+    let Some((mut h, area)) = area_harness("light-shadows-gray") else { return };
+    let kinds = |h: &Harness<'_, Moonglow>| {
+        let v = &h.state().area_views[&area];
+        [v.shadows, v.creature_shadows, v.light_shadows]
+    };
+    let disabled =
+        |h: &Harness<'_, Moonglow>| h.get_by_label("Light Shadows").accesskit_node().is_disabled();
+    settle(&mut h);
+    h.get_by_label("◑ Shadows").click_secondary();
+    settle(&mut h);
+    assert!(!disabled(&h), "with Creature Shadows");
+    h.get_by_label("Creature Shadows").click();
+    settle(&mut h);
+    assert_eq!(kinds(&h), [true, false, true], "Light Shadows kept");
+    assert!(disabled(&h), "grayed out without Creature Shadows");
+    assert!(!h.state().settings.no_light_shadows, "and kept in the settings");
+    h.get_by_label("Light Shadows").hover();
+    settle(&mut h);
+    let why = "Tick Creature Shadows first: creatures cast these";
+    let started = std::time::Instant::now();
+    while h.query_by_label(why).is_none() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "the tooltip says why");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // (A click on it changes nothing.)
+    h.get_by_label("Light Shadows").click();
+    settle(&mut h);
+    assert_eq!(kinds(&h), [true, false, true]);
+    h.get_by_label("Creature Shadows").click();
+    settle(&mut h);
+    assert_eq!(kinds(&h), [true; 3], "back as it was");
+    assert!(!disabled(&h));
+    // Light Shadows alone draw nothing: the button is up, and a click
+    // turns every kind on.
+    h.get_by_label("Sun and Moon Shadows").click();
+    settle(&mut h);
+    h.get_by_label("Creature Shadows").click();
+    settle(&mut h);
+    assert_eq!(kinds(&h), [false, false, true]);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!h.get_by_label("◑ Shadows").accesskit_node().is_selected().unwrap_or(false));
+    h.get_by_label("◑ Shadows").click();
+    settle(&mut h);
+    assert_eq!(kinds(&h), [true; 3]);
+}
+
 /// The shadows' quality: Fast (the shadow map) unless chosen; High in the
 /// Shadows button's menu (as in Options › Area) is kept in the settings,
 /// and the view is drawn again with the stencil volumes; Fast again, with

@@ -5950,6 +5950,14 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
         let sunlit_dark = 1.0 - at(&sunlit, east) / at(&sunlit_off, east);
         eprintln!("{context}: in the sun the shadow darkens by {sunlit_dark:.3}");
         assert!(sunlit_dark > 0.02 && sunlit_dark < 0.35, "{context}: {sunlit_dark}");
+        // A caster of the lights' shadows alone (`casts_shadows` off) casts
+        // its shadow from the lamp all the same: whether it does is the
+        // scene's maker's (`mg_area::View::light_shadows_cast`, the
+        // review's R4), not a second rule here.
+        let mut alone = scene(true, true, 0.02);
+        alone.instances[1].casts_shadows = false;
+        let alone = draw(&alone);
+        assert!((at(&alone, east) - at(&cast, east)).abs() <= 1.0, "{context}: lights' alone");
     }
 }
 

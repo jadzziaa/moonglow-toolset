@@ -64,7 +64,9 @@ pub struct Instance {
     pub casts_shadows: bool,
     /// It casts a shadow from the nearest light that casts them
     /// ([`Scene::light_shadows`]): a creature, as the client's do where
-    /// the area has no sun or moon shadows at the time.
+    /// the area has no sun or moon shadows at the time. Its own switch,
+    /// whatever [`Instance::casts_shadows`] says (its meshes flagged
+    /// `shadow`, solid, cast).
     pub casts_light_shadows: bool,
     /// The object it is a part of, where an object is drawn as several
     /// instances (a creature made of body parts, with what it wears and

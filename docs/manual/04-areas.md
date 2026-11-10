@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T12:36:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T07:23:20Z }
 ---
 
 # Areas
@@ -199,6 +199,11 @@ palette's Gallery is 🖼, the Grid ⊞.
     light with `shadow 1` and a radius of 10 m or more (a placeable's
     light, a lamp post; the tiles' torches, 7 m, cast none), from a little
     above it (its `verticaldisplacement`: a placeable's light 3 m).
+    They are the creatures' shadows, so they need **Creature Shadows**
+    too, as the game's Creature Shadow Detail Off takes them away: with
+    Creature Shadows unticked, Light Shadows is grayed out and no light
+    casts, its tick kept, and ticking Creature Shadows again brings them
+    back as you left them.
   - **Quality**: **Fast** or **High**, as in Options › Area (and kept
     there): Fast, a shadow map standing in for the game's shadows; High,
     the game's own stencil shadow volumes, their edges sharp up close,
