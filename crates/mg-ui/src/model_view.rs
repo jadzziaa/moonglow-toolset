@@ -227,16 +227,28 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
     if unseen.is_empty() {
         return;
     }
+    // (A Properties window's page shows its object, the first of several;
+    // a tile's tab its tile's model, whichever that is.)
+    let mut tiles = false;
     let shown: Vec<Source> = (app.dock.iter_all_tabs())
         .filter_map(|(_, tab)| match tab {
             crate::Tab::Blueprint(key) => Some(Source::Resource(*key)),
+            crate::Tab::Blueprints(keys) => keys.first().map(|key| Source::Resource(*key)),
             crate::Tab::Instance { area, path } => {
                 Some(Source::Instance { area: *area, path: path.clone() })
+            }
+            crate::Tab::Instances { area, paths } => {
+                paths.first().map(|path| Source::Instance { area: *area, path: path.clone() })
+            }
+            crate::Tab::Tile { .. } => {
+                tiles = true;
+                None
             }
             tab => Source::of_tab(tab),
         })
         .collect();
-    for source in unseen.into_iter().filter(|s| !shown.contains(s)) {
+    let a_tile_s = |s: &Source| tiles && matches!(s, Source::Resource(_)) && s.is_model();
+    for source in unseen.into_iter().filter(|s| !shown.contains(s) && !a_tile_s(s)) {
         app.model_views.remove(&source);
     }
 }
