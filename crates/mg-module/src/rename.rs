@@ -692,10 +692,17 @@ const TAG_FIELDS: [&str; 4] = ["Tag", "LinkedTo", "KeyName", "Quest"];
 /// exactly, as the game's tag lookups do): a question of a
 /// [`UsageIndex`] of the GFF resources, read for it.
 pub fn tag_usages(module: &Module, tag: &str) -> Vec<Usage> {
+    tag_usages_of(module, tag.as_bytes())
+}
+
+/// [`tag_usages`] of a tag given as the module's files have it, in the
+/// module's codepage ([`UsageIndex::tag_usages_of`]): how a tag with a
+/// letter outside ASCII is asked for.
+pub fn tag_usages_of(module: &Module, tag: &[u8]) -> Vec<Usage> {
     if tag.is_empty() {
         return Vec::new();
     }
-    UsageIndex::of_where(module, &|k| k.restype.is_gff()).tag_usages(tag)
+    UsageIndex::of_where(module, &|k| k.restype.is_gff()).tag_usages_of(tag)
 }
 
 /// The strings in the module's scripts that spell `name`: ignoring case for
@@ -708,7 +715,18 @@ pub fn mentions(
     ignore_case: bool,
     codepage: Codepage,
 ) -> Vec<Mention> {
-    UsageIndex::of_where(module, &|k| k.restype == ResType::NSS).mentions(
+    mentions_of(module, name.as_bytes(), ignore_case, codepage)
+}
+
+/// [`mentions`] of a name given as the scripts' files have it, in their
+/// codepage ([`UsageIndex::mentions_of`]).
+pub fn mentions_of(
+    module: &Module,
+    name: &[u8],
+    ignore_case: bool,
+    codepage: Codepage,
+) -> Vec<Mention> {
+    UsageIndex::of_where(module, &|k| k.restype == ResType::NSS).mentions_of(
         name,
         ignore_case,
         codepage,

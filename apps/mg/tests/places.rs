@@ -341,6 +341,33 @@ fn a_rename_to_a_name_with_other_characters_is_refused() {
     assert!(names.contains(&"sentry".to_string()), "lowered: {names:?}");
 }
 
+/// A tag with a letter outside ASCII is found as the files have it: an
+/// object's in the module's codepage, a script's string in the scripts'
+/// (`Se\xF1or` in Windows-1252). Asked as the command line's UTF-8 it was
+/// found nowhere, as in the window before the review's D17.
+#[test]
+fn a_tag_with_a_letter_outside_ascii_is_found() {
+    let dir = mg_testkit::scratch_dir("mg-refs-tag");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let guard = gff(b"UTC ", vec![("Tag", Value::String(b"Se\xf1or".to_vec()))]);
+    m.set_gff(ResKey::parse("guard", ResType::UTC).unwrap(), &guard).unwrap();
+    let script = b"void main() { GetObjectByTag(\"Se\xf1or\"); }\n";
+    m.set(ResKey::parse("find", ResType::NSS).unwrap(), script.to_vec());
+    let path = dir.join("tags.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let out = crate::mg_on(dir.join("no-game"), None)
+        .args(["--json", "refs", path.to_str().unwrap(), "--tag", "Se\u{f1}or"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let found: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(found["uses"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["uses"][0]["from"], "guard.utc", "{found}");
+    assert_eq!(found["script_strings"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["script_strings"][0]["script"], "find.nss", "{found}");
+}
+
 /// A script's rename follows into the module's own `spells.2da`: the cell
 /// that named it names the new one, and the command says so (the review's
 /// V4: the cell kept the name of a script that was gone).

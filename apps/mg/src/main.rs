@@ -3299,9 +3299,15 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut out = Output::default();
             let codepage = scripts_codepage(cli, &m);
             let (usages, mentions, run) = if *tag {
+                // (A tag as the files have it: an object's in the module's
+                // codepage, a script's string in the scripts'. Asked as
+                // UTF-8, a tag with a letter outside ASCII was found
+                // nowhere: as the window's Find References asks.)
+                let tag = module_codepage(cli, &m).encode_lossy(name);
+                let spelled = codepage.encode_lossy(name);
                 (
-                    mg_module::rename::tag_usages(&m, name),
-                    mg_module::rename::mentions(&m, name, false, codepage),
+                    mg_module::rename::tag_usages_of(&m, &tag),
+                    mg_module::rename::mentions_of(&m, &spelled, false, codepage),
                     Vec::new(),
                 )
             } else {
@@ -3325,7 +3331,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 };
                 (
                     mg_module::rename::usages(&m, key),
-                    mg_module::rename::mentions(&m, &key.resref.to_string(), true, codepage),
+                    // (The name's own bytes: as text, a byte above 0x7F
+                    // was two.)
+                    mg_module::rename::mentions_of(&m, key.resref.as_bytes(), true, codepage),
                     run,
                 )
             };
@@ -3386,7 +3394,7 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             save_asked(cli, &was, &mut m, &mut out)?;
             let codepage = scripts_codepage(cli, &m);
-            let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true, codepage);
+            let left = mg_module::rename::mentions_of(&m, from.resref.as_bytes(), true, codepage);
             for x in &left {
                 out.note(format!(
                     "warning: {} line {} still spells {}: {}",
