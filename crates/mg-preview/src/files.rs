@@ -171,9 +171,15 @@ impl<'a> Gatherer<'a> {
         };
         // (The game draws no waypoint, store or sound: those are Aurora's.)
         use ObjectKind as K;
+        // (What the part models read say, kept for the area: a body's
+        // parts are the same few models on every creature placed, and
+        // each was read and parsed again for each.)
+        let kept = crate::Remembered::default();
+        let shown = crate::Shown::Placed;
         for kind in [K::Creature, K::Placeable, K::Door, K::Item] {
             for s in git.list(kind.list()).unwrap_or_default() {
-                if let Some(Ok(p)) = crate::of_object(game, kind, s, &items, crate::Shown::Placed) {
+                let preview = crate::of_object_with(game, kind, s, &items, shown, Some(&kept));
+                if let Some(Ok(p)) = preview {
                     self.preview(&p);
                 }
             }
@@ -511,6 +517,46 @@ mod tests {
             ["tst01.set", "mg_sky.tga", "tst01_a01.mdl", "tst01_a01.wok", "mg_wood.tga"]
         );
         assert!(g.missing().contains(&"tst01_gone.mdl".to_string()), "{:?}", g.missing());
+    }
+
+    /// An area's files have what is placed in it, each object's as its
+    /// blueprint's preview alone gathers them, however many are placed
+    /// (what their models say is read once for the area).
+    #[test]
+    fn an_area_brings_what_is_placed_in_it() {
+        let key = |name: &str| ResKey::from_filename(name).unwrap();
+        let mut hak = MemContainer::new();
+        hak.insert(key("mg_fog.mdl"), MODEL.as_bytes());
+        hak.insert(key("mg_chunk.mdl"), MODEL.replace("mg_fog", "mg_chunk").as_bytes());
+        for n in ["mg_wood.tga", "fxpa_smoke.tga"] {
+            hak.insert(key(n), &b"tga"[..]);
+        }
+        let table = "2DA V2.0\n\n Label ModelName\n0 Chest plc_c01\n1 Fog mg_fog\n";
+        hak.insert(key("placeables.2da"), table.as_bytes());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:mg", LayerClass::Erf, hak);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let placed = |row: u32| {
+            let mut s = Struct::default();
+            s.set("Appearance", mg_gff::Value::Dword(row));
+            s
+        };
+        let items = |_: ResRef| -> Option<mg_gff::Gff> { None };
+        let alone = |row: u32| {
+            let kind = ObjectKind::Placeable;
+            let p = crate::of_object(&game, kind, &placed(row), &items, crate::Shown::Placed);
+            let mut g = Gatherer::new(&game.resman);
+            g.preview(&p.expect("a placeable").expect("its preview"));
+            g.files().iter().map(|f| f.key.to_string()).collect::<Vec<_>>()
+        };
+        let mut git = Struct::default();
+        let list = ObjectKind::Placeable.list();
+        git.set(list, mg_gff::Value::List(vec![placed(1), placed(1), placed(1)]));
+        let mut g = Gatherer::new(&game.resman);
+        g.area(&game, &Struct::default(), None, Some(&git));
+        let names: Vec<String> = g.files().iter().map(|f| f.key.to_string()).collect();
+        assert_eq!(names, alone(1));
+        assert!(names.contains(&"mg_fog.mdl".to_string()), "{names:?}");
     }
 
     /// An area's files have what the area view draws past its edge and on
