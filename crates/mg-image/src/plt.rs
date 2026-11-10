@@ -65,8 +65,8 @@ pub struct Plt {
     /// (grey, layer) per pixel.
     pub pixels: Vec<[u8; 2]>,
     /// The header's bytes 8 to 15, which nwn.wiki calls unused: 10 and 0
-    /// in most of the game's files, another number under 10 in some (an
-    /// eighth of its `pmh0_` parts), not their layer count. Kept as read,
+    /// in most of the game's files, another from 1 to 11 in some (62 of
+    /// its 500 `pmh0_` parts), not their layer count. Kept as read,
     /// so a file written back is the same bytes.
     pub header: [u8; 8],
 }

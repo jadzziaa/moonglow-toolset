@@ -526,6 +526,18 @@ pub(crate) fn decode(l: &Loaded) -> Result<Texture> {
     }
 }
 
+/// A texture's largest level as a conversion carries it over: the alpha
+/// its data holds ([`Texture::stored_rgba`]: a standard DXT1's one bit,
+/// as NWN2's cut-outs keep it), but BioWare's DXT1 opaque, as its header
+/// says (three channels) and the game draws it (two of the game's own,
+/// `tdt01_wood04` and `05`, hold transparent texels it draws black).
+pub(crate) fn source_rgba(tex: &Texture) -> Rgba {
+    match tex.format == Format::Bc1 && tex.alpha_mean.is_some() {
+        true => tex.to_rgba(),
+        false => tex.stored_rgba(),
+    }
+}
+
 /// A format's name, as the reports give it.
 pub(crate) fn format_name(f: Format) -> &'static str {
     match f {
@@ -578,7 +590,7 @@ fn info_one(l: &Loaded, headers: bool) -> Result<(Value, String)> {
         }
         Kind::Png => {
             let (w, h, format, has_alpha) = mg_image::png::info(&l.data).map_err(fail)?;
-            let alpha = alpha_use(&decode(l)?.stored_rgba());
+            let alpha = alpha_use(&source_rgba(&decode(l)?));
             (w, h, format, 1, has_alpha, Some(alpha))
         }
         Kind::Dds | Kind::Tga => {
@@ -592,7 +604,7 @@ fn info_one(l: &Loaded, headers: bool) -> Result<(Value, String)> {
                 facts["container"] = container.into();
                 facts["alpha_mean"] = t.alpha_mean.into();
             }
-            let alpha = (!headers).then(|| alpha_use(&t.stored_rgba()));
+            let alpha = (!headers).then(|| alpha_use(&source_rgba(&t)));
             (t.width, t.height, format, t.mips.len(), t.has_alpha, alpha)
         }
     };
@@ -693,7 +705,7 @@ fn convert_one(l: &Loaded, a: &Convert, kind: OutKind) -> Result<Made> {
     let mut notes = Vec::new();
     // The picture as it will be written (for an encode).
     let prepared = || {
-        let mut rgba = tex.stored_rgba();
+        let mut rgba = source_rgba(&tex);
         if let Some(below) = a.bleed {
             rgba = adjust::bleed(&rgba, below);
         }
@@ -718,7 +730,7 @@ fn convert_one(l: &Loaded, a: &Convert, kind: OutKind) -> Result<Made> {
             }
             .map_err(|e| anyhow!("{}: {e}", l.given))?;
             let container = if a.standard { "standard" } else { "bioware" };
-            let alpha = t.alpha_used();
+            let alpha = if a.standard { t.alpha_used() } else { source_rgba(&t).alpha_used() };
             (bytes, format_name(t.format), t.mips.len(), alpha, reencoded, Some(container))
         }
         OutKind::Tga => {
@@ -785,7 +797,7 @@ fn dds_texture(
             match t.format {
                 Format::Bc1 | Format::Bc3 => {
                     // The levels it lacks, made from its largest.
-                    let rgba = t.stored_rgba();
+                    let rgba = source_rgba(&t);
                     let punch = t.format == Format::Bc1 && rgba.alpha_used();
                     let full = encode::compress(&rgba, t.format, true, punch);
                     let have = t.mips.len();
@@ -806,6 +818,13 @@ fn dds_texture(
             t.alpha_mean = Some(mean);
         }
         return Ok((t, false));
+    }
+    if let f @ (Format::Bc4 | Format::Bc5) = tex.format {
+        bail!(
+            "{} holds one or two channels (a normal map's, a height's): it is only copied, into a \
+             standard DDS at its own size (--standard, without --max-size, --pow2 or --bleed)",
+            format_name(f)
+        );
     }
     let rgba = prepared();
     let alpha = rgba.alpha_used();

@@ -18,9 +18,7 @@ sources:
     resource: https://nwn.wiki/spaces/NWN1/pages/3473496/DDS
     title: "nwn.wiki: DDS (both headers)"
 verified:
-  - by: claude-code/claude-opus-5-5
-    at: 2026-11-10T16:01:14Z
-    how: "Ran encode_quality and a scratch script encoding the same PNGs with write_dds (bpy stubbed), both decoded by _decode_dxt and by a decoder rounding down as bc::decode does"
+  - { by: claude-code/claude-opus-5-5, at: 2026-11-10T16:01:14Z }
 ---
 
 # The DXT1 and DXT5 encoder measured against Neverblender's

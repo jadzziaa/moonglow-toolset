@@ -385,3 +385,59 @@ fn a_plt_split_into_pngs_joins_back_to_the_same_bytes() {
     assert!(!ok && json["error"].as_str().unwrap().contains("one size"), "{json}");
     assert!(!dir.join("x.plt").exists());
 }
+
+/// BioWare's DXT1 is opaque as its header says (the game draws its
+/// one-bit texels black), a standard DXT1 keeps its bit (NWN2's
+/// cut-outs); ATI1 and ATI2 are only copied.
+#[test]
+fn dxt1_alpha_is_carried_as_the_header_says_and_ati_is_only_copied() {
+    let dir = mg_testkit::scratch_dir("mg-texture-dxt1");
+    let mut cut = Rgba::new(8, 8);
+    for (i, p) in cut.data.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        *p = if i % 2 == 0 { [200, 50, 50, 255] } else { [0, 0, 0, 0] };
+    }
+    let t = mg_image::encode::compress(&cut, mg_image::Format::Bc1, true, true);
+    let (bio, std) = (dir.join("bio.dds"), dir.join("std.dds"));
+    std::fs::write(&bio, mg_image::dds::write_bioware(&t).unwrap()).unwrap();
+    std::fs::write(&std, mg_image::dds::write_standard(&t).unwrap()).unwrap();
+    let (ok, json) = convert(&[s(&bio), "-o", s(&dir.join("bio.tga"))]);
+    assert!(ok && json["files"][0]["format"] == "rgb8", "opaque: {json}");
+    let (ok, json) = convert(&[s(&std), "-o", s(&dir.join("std.tga"))]);
+    assert!(ok && json["files"][0]["format"] == "rgba8", "its bit kept: {json}");
+    let (ok, json) = convert(&[s(&bio), "-o", s(&dir.join("small.dds")), "--max-size", "4"]);
+    assert!(ok && json["files"][0]["format"] == "dxt1", "{json}");
+    let (ok, json) = convert(&[s(&std), "-o", s(&dir.join("small_std.dds")), "--max-size", "4"]);
+    assert!(ok && json["files"][0]["format"] == "dxt5", "{json}");
+    // An ATI2 (a normal map's two channels), made by hand: copied into a
+    // standard DDS, refused where it would be encoded.
+    let mut ati = b"DDS ".to_vec();
+    let mut h = [0u32; 31];
+    h[0] = 124;
+    h[2] = 8;
+    h[3] = 8;
+    h[6] = 1;
+    h[18] = 32;
+    h[19] = 0x4;
+    h[20] = u32::from_le_bytes(*b"ATI2");
+    h.iter().for_each(|v| ati.extend_from_slice(&v.to_le_bytes()));
+    ati.extend(std::iter::repeat_n(0x55, 64));
+    let normal = dir.join("normal_n.dds");
+    std::fs::write(&normal, ati).unwrap();
+    let (ok, json) = convert(&[s(&normal), "-o", s(&dir.join("copy.dds")), "--standard"]);
+    assert!(
+        ok && json["files"][0]["reencoded"] == false && json["files"][0]["format"] == "ati2",
+        "{json}"
+    );
+    for args in [vec!["--standard", "--max-size", "4"], vec![]] {
+        let mut all = vec![s(&normal), "-o", "unused.dds"];
+        let out = dir.join("refused.dds");
+        all[2] = s(&out);
+        all.extend(args);
+        let (ok, json) = convert(&all);
+        assert!(
+            !ok && json["failed"][0]["error"].as_str().unwrap().contains("only copied"),
+            "{json}"
+        );
+        assert!(!out.exists());
+    }
+}
