@@ -1710,6 +1710,44 @@ fn an_area_the_filter_opens_out_closes_again() {
     assert_eq!(kinds(&h), 1, "typed again");
 }
 
+/// What the Filter finds in an area is kept between frames, and follows
+/// what is placed there: a placed object deleted is no longer listed under
+/// it, the area found for its objects alone goes with the last of them,
+/// and both are back with Undo.
+#[test]
+fn the_filter_follows_what_is_placed_as_it_changes() {
+    let Some((mut h, _)) = area_harness("tree-filter-follows") else { return };
+    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    filter.click();
+    h.run_steps(2);
+    filter_type(&mut h, "nw_waypoint001");
+    settle(&mut h);
+    h.run_steps(30);
+    h.get_by_label("Areas (1)");
+    h.get_by_label("Waypoints (2 of 2)");
+    let delete_one = |h: &mut Harness<'_, Moonglow>| {
+        h.query_all_by_label("NW_WAYPOINT001").next().unwrap().click_secondary();
+        h.run_steps(3);
+        h.get_by_label("Delete").click();
+        settle(h);
+        h.run_steps(4);
+    };
+    delete_one(&mut h);
+    h.get_by_label("Waypoints (1 of 1)");
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 1);
+    delete_one(&mut h);
+    h.get_by_label("Areas (0)");
+    assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "the area is found no more");
+    for (left, kinds) in [(1, "Waypoints (1 of 1)"), (2, "Waypoints (2 of 2)")] {
+        h.state_mut().actions.push(mg_ui::Action::Undo);
+        settle(&mut h);
+        h.run_steps(30);
+        h.get_by_label("Areas (1)");
+        h.get_by_label(kinds);
+        assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), left);
+    }
+}
+
 /// A plugin whose command is for every kind the module tree lists
 /// ("Each Kind"), in a folder of installed plugins of its own.
 fn each_kind_plugin(name: &str) -> std::path::PathBuf {

@@ -1598,6 +1598,17 @@ fn frames_at_144_in_a_persistent_world() {
     click(&mut h, "⏷");
     view(&mut h, &mut r, "module tree, all 25,000 resources listed", None);
     click(&mut h, "⏶");
+    // A word in the tree's Filter: every area's placed objects are read
+    // for it (over some frames), and what it finds is then kept, not
+    // looked for each frame (the review's S19).
+    let field = h.query_all_by_role(egui::accesskit::Role::TextInput).next().map(|n| n.click());
+    if field.is_some() {
+        h.run_steps(2);
+        h.event(egui::Event::Text("door".into()));
+        h.run_steps(300);
+        view(&mut h, &mut r, "module tree, a word in the Filter (300 areas' objects)", None);
+        click(&mut h, "×");
+    }
 
     palette(&mut h, BlueprintKind::Item, true, "");
     tab(&mut h, &mut r, "custom item palette (8,000)", Tab::Palette);
