@@ -67,8 +67,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List the contents of an ERF archive (mod, hak, erf, nwm, sav).
-    Ls { archive: PathBuf },
+    /// List the contents of an ERF archive (mod, hak, erf, nwm, sav): each
+    /// resource's size and name.
+    Ls {
+        archive: PathBuf,
+        /// Each resource's SHA-256 too (read whole: a hak of gigabytes
+        /// takes seconds).
+        #[arg(long)]
+        sha256: bool,
+    },
     /// Unpack an ERF archive into a directory.
     Unpack { archive: PathBuf, out: PathBuf },
     /// Pack a directory's files into an ERF archive (type from the extension).
@@ -2296,18 +2303,35 @@ fn remember(out: &mut Output, module: &Path, now: &mg_module::build::Remembered)
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
-        Cmd::Ls { archive } => {
+        Cmd::Ls { archive, sha256 } => {
             // (Mapped, not read: a hak is gigabytes, and its names are in
             // its first pages.)
             let data = mg_key::map_file(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
+            // (Each resource's hash, asked for: its bytes read once.)
+            let hashes: Vec<Option<String>> = (erf.entries.iter())
+                .map(|e| match sha256 {
+                    true => erf
+                        .data(e)
+                        .map(|d| Some(mg_core::sha1::hex(&mg_core::sha256::sha256(&d))))
+                        .with_context(|| format!("{}: {}", archive.display(), e.filename())),
+                    false => Ok(None),
+                })
+                .collect::<Result<_>>()?;
+            let resources = (erf.entries.iter().zip(&hashes)).map(|(e, hash)| match hash {
+                Some(hash) => json!({ "name": e.filename(), "size": e.size, "sha256": hash }),
+                None => json!({ "name": e.filename(), "size": e.size }),
+            });
             let mut out = Output::new(json!({
                 "archive": path_text(archive),
                 "type": String::from_utf8_lossy(&erf.file_type).trim(),
-                "resources": erf.entries.iter().map(|e| json!({ "name": e.filename(), "size": e.size })).collect::<Vec<_>>(),
+                "resources": resources.collect::<Vec<_>>(),
             }));
-            for e in &erf.entries {
-                out.line(format!("{:>10}  {}", e.size, e.filename()));
+            for (e, hash) in erf.entries.iter().zip(&hashes) {
+                match hash {
+                    Some(hash) => out.line(format!("{:>10}  {hash}  {}", e.size, e.filename())),
+                    None => out.line(format!("{:>10}  {}", e.size, e.filename())),
+                }
             }
             out
         }

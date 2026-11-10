@@ -30,6 +30,8 @@ mod haks;
 mod import_files;
 #[path = "../json.rs"]
 mod json;
+#[path = "../ls.rs"]
+mod ls;
 #[path = "../lsp.rs"]
 mod lsp;
 #[path = "../merge_claims.rs"]
