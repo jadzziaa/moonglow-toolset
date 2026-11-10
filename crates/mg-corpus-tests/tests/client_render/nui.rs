@@ -521,3 +521,263 @@ fn nui_readings_in_the_client() {
     eprintln!("pictures: {}", dir.display());
     assert!(done.iter().all(|d| *d), "not every window was seen: {done:?}");
 }
+
+/// The mouse button pressed at (x, y) of the client's window and held
+/// `secs` seconds (`xdrive.py hold`).
+fn hold_in_window(x: u32, y: u32, secs: f32) {
+    let xdrive = common::repo().join("tools/aurora/xdrive.py");
+    let out = Command::new("python3").arg(&xdrive).arg("windows").output().unwrap();
+    let listed = String::from_utf8_lossy(&out.stdout).into_owned();
+    let line = listed.lines().find(|l| l.contains("Neverwinter Nights")).unwrap();
+    let at = line.split('\t').nth(1).unwrap().split(' ').next().unwrap();
+    let (ox, oy) = at.split_once(',').unwrap();
+    let (px, py) = (ox.parse::<u32>().unwrap() + x, oy.parse::<u32>().unwrap() + y);
+    let ok = Command::new("python3")
+        .arg(&xdrive)
+        .args(["hold", &px.to_string(), &py.to_string(), &secs.to_string()])
+        .status()
+        .unwrap();
+    assert!(ok.success(), "the press");
+}
+
+/// The width of each scrolled control of [`scrolled`].
+const SCROLLED_WIDTH: u32 = 150;
+
+/// A scrolled control of [`scrolled`]: its name, its JUI and its height.
+struct Scrolled {
+    name: &'static str,
+    control: Json,
+    height: u32,
+}
+
+/// A list of 40 rows `row` high, `height` high.
+fn scrolled_list(name: &'static str, row: f64, height: u32) -> Scrolled {
+    let mut list = mg_nui::template("list");
+    list["row_template"] = json!([[{"type":"label","label":null,
+        "value":{"bind":"rows"},"text_halign":0,"text_valign":1},150.0,true]]);
+    list["row_count"] = 40.into();
+    list["row_height"] = json!(row);
+    list["scrollbars"] = 2.into();
+    list["width"] = f64::from(SCROLLED_WIDTH).into();
+    list["height"] = f64::from(height).into();
+    Scrolled { name, control: list, height }
+}
+
+/// A group of 40 labels `row` high, `height` high.
+fn scrolled_group(name: &'static str, row: f64, height: u32) -> Scrolled {
+    let labels: Vec<Json> = (0..40)
+        .map(|i| {
+            json!({"type":"label","label":null,"value":format!("Group {i}"),
+            "text_halign":0,"text_valign":1,"height":row})
+        })
+        .collect();
+    let group = json!({"type":"group","label":null,"value":null,"border":true,"scrollbars":2,
+        "children":[{"type":"col","label":null,"value":null,"children":labels}],
+        "width":f64::from(SCROLLED_WIDTH),"height":f64::from(height)});
+    Scrolled { name, control: group, height }
+}
+
+/// A text of 40 lines, `height` high.
+fn scrolled_text(name: &'static str, height: u32) -> Scrolled {
+    let lines: Vec<String> = (0..40).map(|i| format!("Text {i}")).collect();
+    let mut text = mg_nui::template("text");
+    text["value"] = lines.join("\n").into();
+    text["scrollbars"] = 2.into();
+    text["width"] = f64::from(SCROLLED_WIDTH).into();
+    text["height"] = f64::from(height).into();
+    Scrolled { name, control: text, height }
+}
+
+/// The window of [`reading_scrollbar_end_buttons`] and its controls, side
+/// by side, each marked at its top-left corner (colors 0, 1...):
+/// `kinds` (a list of rows 30 high, a group of labels 30 high, a text, a
+/// list of rows 50 high, a group of labels 50 high, each 300 high) or
+/// `heights` (groups 150, 300 and 600 high, then a text 300 high).
+fn scrolled(set: &str) -> (Win, Vec<(&'static str, u32)>) {
+    let controls = match set {
+        "heights" => vec![
+            scrolled_group("group150", 30.0, 150),
+            scrolled_group("group300", 30.0, 300),
+            scrolled_group("group600", 30.0, 600),
+            scrolled_text("text", 300),
+        ],
+        _ => vec![
+            scrolled_list("list", 30.0, 300),
+            scrolled_group("group", 30.0, 300),
+            scrolled_text("text", 300),
+            scrolled_list("list50", 50.0, 300),
+            scrolled_group("group50", 50.0, 300),
+        ],
+    };
+    let tallest = controls.iter().map(|c| c.height).max().unwrap_or(0);
+    let shown = controls.iter().map(|c| (c.name, c.height)).collect();
+    let n = controls.len();
+    let children: Vec<Json> =
+        controls.into_iter().enumerate().map(|(i, c)| marked(c.control, i)).collect();
+    let root = json!({"type":"row","label":null,"value":null,"children":children});
+    let width = (SCROLLED_WIDTH as usize + 5) * n + 40;
+    let mut win = win("mgscroll", root, width as f64, f64::from(tallest) + 80.0, n);
+    let rows: Vec<String> = (0..40).map(|i| format!("Row {i}")).collect();
+    win.settings
+        .bindings
+        .insert("rows".into(), Binding { value: json!(rows), ..Default::default() });
+    (win, shown)
+}
+
+/// How far the pixels in `area` (left, top, right, bottom) of `after`
+/// are those of `before` moved up: the shift (up to the area's height
+/// less 20) that matches them best, and how well (the mean difference a
+/// pixel).
+fn moved_up(before: &Rgba, after: &Rgba, area: [u32; 4]) -> (u32, f64) {
+    let px = |img: &Rgba, x: u32, y: u32| {
+        let i = ((y * img.width + x) * 4) as usize;
+        [img.data[i] as i32, img.data[i + 1] as i32, img.data[i + 2] as i32]
+    };
+    let [l, t, r, b] = area;
+    let mut best = (0, f64::MAX);
+    for shift in 0..(b - t).saturating_sub(20) {
+        let (mut sum, mut n) = (0i64, 0i64);
+        for y in t..b - shift {
+            for x in l..r {
+                let (p, q) = (px(before, x, y + shift), px(after, x, y));
+                sum += (0..3).map(|k| (p[k] - q[k]).abs() as i64).sum::<i64>();
+                n += 1;
+            }
+        }
+        let mean = sum as f64 / n.max(1) as f64;
+        if mean < best.1 {
+            best = (shift, mean);
+        }
+    }
+    best
+}
+
+/// What a click on a scrollbar's end button scrolls by in the client (the
+/// review's N9: the NUI Creator's preview scrolled a group 20 points, a
+/// text a font's height, and took a list's as a click on the track's
+/// end): [`scrolled`]'s controls (`MG_SCROLL_SET`), each one's down
+/// button pressed and held for each of `MG_HOLDS` seconds (default 0.3,
+/// 0.3, 1, 2) and its up button for the first, a picture after each
+/// (`<name>_<n>.png`), and how far its content stands from where it
+/// started (`before.png`), by matching pixels, at `MG_SCROLL_FPS` frames
+/// a second (default 10). The end button is found `MG_END_BUTTON`
+/// (`dx,dy`, default 15,15) up and left of the control's bottom-right
+/// corner.
+///
+/// Seen (2026-11-10): no step a click. An end button scrolls each frame it
+/// is held (Nuklear's repeating button), and a press and release between
+/// two frames scrolls nothing. Groups 150, 300 and 600 high scrolled 1, 2
+/// and 5 pixels a frame down and 2, 3 and 6 up (a hundredth of the bar,
+/// the offset kept in whole pixels: 30, 60 and 150 pixels a second at 30
+/// frames a second, 20 at 10 for the one 300 high), whatever the rows'
+/// height; a text 300 high 2 a frame down and 3 up, as the group of its
+/// height (some of its presses moved nothing: not settled why); a list a
+/// whole row (row and spacing, 34) at a time, about 4 rows a second held
+/// at 30 frames a second. The pictures run seconds behind the client: the
+/// offsets are read against `before.png`, and a run's later presses are
+/// the surer.
+#[test]
+#[ignore]
+fn reading_scrollbar_end_buttons() {
+    let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
+    let set = std::env::var("MG_SCROLL_SET").unwrap_or_else(|_| "kinds".into());
+    let dir = scratch_dir(&format!("client_reading_nui_scroll_{set}"));
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+    let (win, shown) = scrolled(&set);
+    let mut wins = vec![win];
+    tagged(&mut wins);
+    let w = &wins[0];
+    let mut rng = fastrand::Rng::with_seed(11);
+    let mut m = new_module(&game, "MgNui", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Scene".into(),
+        tileset: ResRef::from_str("tic01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = |n: &str, t| ResKey::parse(n, t).unwrap();
+    let opener = mg_nui::opener_source(&w.name, &w.window, &w.settings).unwrap();
+    m.set(key("mgscroll_o", ResType::NSS), opener.into_bytes());
+    let enter = format!(
+        "#include \"mgscroll_o\"\nvoid Log(string s) {{ WriteTimestampedLogEntry(s); }}\n\
+         void Open(object pc) {{ Open_mgscroll(pc); Log(\"MG_SHOW mgscroll .\"); }}\n\
+         void main()\n{{\n    object pc = GetEnteringObject();\n    if (!GetIsPC(pc)) return;\n    \
+         ApplyEffectToObject(DURATION_TYPE_PERMANENT, \
+         EffectVisualEffect(VFX_DUR_CUTSCENE_INVISIBILITY), pc);\n    \
+         DelayCommand({FIRST:.1}, Open(pc));\n}}\n"
+    );
+    m.set(key("mg_enter", ResType::NSS), enter.into_bytes());
+    for r in compile_scripts(&mut m, &game.resman, ScriptSelection::All) {
+        assert!(r.result.is_ok(), "{}: {:?}", r.script, r.result);
+    }
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ON_CLIENT_ENTR, ResRef::from_str("mg_enter").unwrap());
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgNui.mod"))).unwrap();
+    let fps: u32 = std::env::var("MG_SCROLL_FPS").ok().and_then(|v| v.parse().ok()).unwrap_or(10);
+    let holds: Vec<f32> = std::env::var("MG_HOLDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|h| h.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![0.3, 0.3, 1.0, 2.0]);
+    let frames = FRAMES.replace("target-fps = 30", &format!("target-fps = {fps}"));
+    std::fs::write(dir.join("user/settings.tml"), format!("{SETTINGS}{frames}")).unwrap();
+    let (dx, dy) = std::env::var("MG_END_BUTTON")
+        .ok()
+        .and_then(|v| {
+            let (x, y) = v.split_once(',')?;
+            Some((x.trim().parse::<u32>().ok()?, y.trim().parse::<u32>().ok()?))
+        })
+        .unwrap_or((15, 15));
+    eprintln!("{fps} frames a second, the down button held {holds:?} s");
+
+    let mut child = Command::new(common::repo().join("tools/nwclient/run-client.sh"))
+        .arg(&dir)
+        .args(["+TestNewModule", "MgNui"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let begun = Instant::now();
+    let mut found = None;
+    while begun.elapsed() < Duration::from_secs(240) && found.is_none() {
+        std::thread::sleep(Duration::from_millis(500));
+        let Some(img) = winshot(&dir.join("last.png")) else { continue };
+        if tag_of(&img) == Some(0) {
+            let marks = boxes(&img, shown.len());
+            if marks.iter().all(Option::is_some) {
+                found = Some(marks);
+            }
+        }
+    }
+    let Some(marks) = found else {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("the window was not seen (see {})", dir.display());
+    };
+    // (The picture runs behind the client: settle, then the one before.)
+    std::thread::sleep(Duration::from_secs(3));
+    let start = winshot(&dir.join("before.png")).unwrap();
+    for (k, &(name, height)) in shown.iter().enumerate() {
+        let [l, t, ..] = marks[k].unwrap();
+        // (The content beside the scrollbar, under the corner's mark.)
+        let area = [l + 12, t + 12, l + SCROLLED_WIDTH - 30, t + height - 12];
+        let (right, bottom) = (l + SCROLLED_WIDTH - dx, t + height - dy);
+        let mut presses: Vec<(u32, u32, f32)> = holds.iter().map(|&h| (right, bottom, h)).collect();
+        presses.push((right, t + dy, holds[0]));
+        for (n, (x, y, hold)) in presses.into_iter().enumerate() {
+            hold_in_window(x, y, hold);
+            // (The picture runs behind: taken a few seconds after.)
+            std::thread::sleep(Duration::from_secs(4));
+            let after = winshot(&dir.join(format!("{name}_{n}.png"))).unwrap();
+            let (at, miss) = moved_up(&start, &after, area);
+            eprintln!(
+                "{name}: press {n} held {hold} s: {at} px from the start (mean difference {miss:.2})"
+            );
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    eprintln!("pictures: {}", dir.display());
+}
