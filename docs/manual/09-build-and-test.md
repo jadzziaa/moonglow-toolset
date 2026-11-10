@@ -146,7 +146,9 @@ with `-nwsynchash`: delete the manifests you no longer serve
 Data takes their data. What it can't mend it says, in the window and the
 log: `latest` naming a manifest that isn't there, a manifest without its
 `.json`, a data file a manifest needs that is missing (publish that
-module again). `mg nwsync-prune` does the same from the command line.
+module again). **Cancel** stops it before the next data file: the window
+and the log say how many it had removed by then, and the rest stay for
+the next time. `mg nwsync-prune` does the same from the command line.
 
 ### Uploading to the web server
 

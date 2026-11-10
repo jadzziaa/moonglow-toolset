@@ -373,6 +373,10 @@ pub struct Pruned {
     /// What is wrong and left as it is: `latest` naming a manifest that
     /// isn't there, a manifest without its metadata.
     pub problems: Vec<String>,
+    /// It was called off ([`prune_until`]) before every data file was
+    /// looked at: what is said removed is removed, the rest is as it was,
+    /// and `missing` is not known (empty).
+    pub stopped: bool,
 }
 
 fn is_sha1(name: &str) -> bool {
@@ -391,6 +395,18 @@ fn is_sha1(name: &str) -> bool {
 /// needs that is missing. A manifest that can't be read stops it before
 /// anything is removed (the data it names would be taken for unused).
 pub fn prune(root: &Path, min_age: u64, dry_run: bool) -> Result<Pruned, String> {
+    prune_until(root, min_age, dry_run, &|| false)
+}
+
+/// [`prune`], called off when `stop` says so (asked before each data
+/// file): what was removed by then is said ([`Pruned::stopped`]), and
+/// nothing more is.
+pub fn prune_until(
+    root: &Path,
+    min_age: u64,
+    dry_run: bool,
+    stop: &dyn Fn() -> bool,
+) -> Result<Pruned, String> {
     let manifests_dir = root.join("manifests");
     let read_dir = |d: &Path| -> Result<Vec<PathBuf>, String> {
         let mut v: Vec<PathBuf> = std::fs::read_dir(d)
@@ -457,14 +473,22 @@ pub fn prune(root: &Path, min_age: u64, dry_run: bool) -> Result<Pruned, String>
         visit: &mut dyn FnMut(&Path) -> Result<bool, String>,
         folders: &mut usize,
         dry_run: bool,
+        stopped: &std::cell::Cell<bool>,
     ) -> Result<bool, String> {
         let Ok(rd) = std::fs::read_dir(dir) else { return Ok(false) };
         let mut paths: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
         paths.sort();
         let mut empty = true;
         for p in paths {
-            let gone =
-                if p.is_dir() { walk(&p, false, visit, folders, dry_run)? } else { visit(&p)? };
+            // (Called off: what is left stays, and so does its folder.)
+            if stopped.get() {
+                return Ok(false);
+            }
+            let gone = if p.is_dir() {
+                walk(&p, false, visit, folders, dry_run, stopped)?
+            } else {
+                visit(&p)?
+            };
             empty &= gone;
         }
         if empty && !top {
@@ -477,10 +501,15 @@ pub fn prune(root: &Path, min_age: u64, dry_run: bool) -> Result<Pruned, String>
     }
     let mut folders = 0;
     let (mut removed, mut removed_bytes, mut kept_young) = (Vec::new(), 0u64, 0usize);
+    let stopped = std::cell::Cell::new(false);
     walk(
         &root.join("data").join("sha1"),
         true,
         &mut |p| {
+            if stop() {
+                stopped.set(true);
+                return Ok(false);
+            }
             let name = file_name(p).unwrap_or_default().to_ascii_lowercase();
             if named.contains_key(&name) {
                 present.insert(name);
@@ -505,12 +534,18 @@ pub fn prune(root: &Path, min_age: u64, dry_run: bool) -> Result<Pruned, String>
         },
         &mut folders,
         dry_run,
+        &stopped,
     )?;
+    out.stopped = stopped.get();
     out.removed = removed;
     out.removed_bytes = removed_bytes;
     out.kept_young = kept_young;
     out.folders = folders;
-    out.missing = named.into_iter().filter(|(sha, _)| !present.contains(sha)).collect();
+    // (Called off, not every data file was seen: which are missing is
+    // not known.)
+    if !out.stopped {
+        out.missing = named.into_iter().filter(|(sha, _)| !present.contains(sha)).collect();
+    }
     Ok(out)
 }
 
@@ -712,7 +747,32 @@ mod tests {
         let p = prune(&dir, PRUNE_MIN_AGE, true).unwrap();
         assert_eq!((p.removed.clone(), p.folders), (vec![two.clone()], 2), "a dry run says");
         assert!(two.is_file(), "and leaves it");
+        // Called off before the first data file: nothing goes, and it
+        // says so; after the first that goes, the next stays.
+        let other = dir.join("data/sha1/ff/ff").join("ff".repeat(20));
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        std::fs::write(&other, b"no manifest's").unwrap();
+        age_file(&other, 15);
+        let p = prune_until(&dir, PRUNE_MIN_AGE, false, &|| true).unwrap();
+        assert!(p.stopped && p.removed.is_empty() && p.folders == 0 && p.missing.is_empty());
+        assert!(two.is_file() && other.is_file(), "called off: {p:?}");
+        let gone = std::cell::Cell::new(false);
+        let p = prune_until(&dir, PRUNE_MIN_AGE, false, &|| {
+            gone.get() || {
+                gone.set(!two.exists() || !other.exists());
+                gone.get()
+            }
+        })
+        .unwrap();
+        assert!(p.stopped, "{p:?}");
+        assert_eq!(p.removed.len(), 1, "{p:?}");
+        assert!(two.exists() != other.exists(), "one of the two went: {p:?}");
+        std::fs::create_dir_all(two.parent().unwrap()).unwrap();
+        std::fs::write(&two, b"two").unwrap();
+        age_file(&two, 15);
+        std::fs::remove_file(&other).ok();
         let p = prune(&dir, PRUNE_MIN_AGE, false).unwrap();
+        assert!(!p.stopped);
         assert_eq!(p.removed, vec![two.clone()]);
         assert!(!two.exists() && !two.parent().unwrap().exists());
         assert!(data_path(&dir, b"one").is_file() && data_path(&dir, b"three").is_file());
