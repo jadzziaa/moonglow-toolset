@@ -3,6 +3,8 @@
 //! everything else knows it by), and rows taken from another copy of the
 //! table (a lower hak's, which this one hides).
 
+use std::sync::Arc;
+
 use mg_2da::{TwoDa, TwoDaError};
 
 /// A cell as it was and as it is: its row and column, the two values.
@@ -29,7 +31,9 @@ enum Change {
 /// A table being edited.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Editing {
-    table: TwoDa,
+    /// (Shared with those who read it beside the editor:
+    /// [`Editing::shared`].)
+    table: Arc<TwoDa>,
     undo: Vec<(String, Change)>,
     redo: Vec<(String, Change)>,
     /// How many steps were done when it was last saved (`None`: a step
@@ -126,11 +130,27 @@ pub fn candidates(ours: &TwoDa, other: &TwoDa, base: Option<&TwoDa>) -> Vec<Cand
 
 impl Editing {
     pub fn new(table: TwoDa) -> Editing {
+        let table = Arc::new(table);
         Editing { table, undo: Vec::new(), redo: Vec::new(), saved: Some(0), changes: 0 }
     }
 
     pub fn table(&self) -> &TwoDa {
         &self.table
+    }
+
+    /// The table as it is now, to hold beside the editor (another table's
+    /// editor, whose description names this one's rows): not a copy. A
+    /// change made while it is held leaves it as it was (the editor then
+    /// goes on in a copy of its own); with nothing holding it, a change
+    /// copies nothing.
+    pub fn shared(&self) -> Arc<TwoDa> {
+        self.table.clone()
+    }
+
+    /// The table to change: the editor's own (copied first where
+    /// [`shared`](Self::shared) handed it out and it is still held).
+    fn table_mut(&mut self) -> &mut TwoDa {
+        Arc::make_mut(&mut self.table)
     }
 
     /// Whether it differs from what was last saved.
@@ -174,7 +194,7 @@ impl Editing {
     /// Takes a column out, with its cells; whether it was there.
     pub fn remove_column(&mut self, column: usize) -> bool {
         let Some(name) = self.table.columns().get(column).cloned() else { return false };
-        let Some(cells) = self.table.remove_column(column) else { return false };
+        let Some(cells) = self.table_mut().remove_column(column) else { return false };
         self.done(format!("Remove column {name}"), Change::ColumnOut(column, name, cells));
         true
     }
@@ -182,7 +202,7 @@ impl Editing {
     /// Moves a column to another place among the columns; whether it moved.
     pub fn move_column(&mut self, from: usize, to: usize) -> bool {
         let Some(name) = self.table.columns().get(from).cloned() else { return false };
-        if !self.table.move_column(from, to) {
+        if !self.table_mut().move_column(from, to) {
             return false;
         }
         self.done(format!("Move column {name}"), Change::ColumnMoved(from, to));
@@ -195,7 +215,7 @@ impl Editing {
         if old == name {
             return Ok(false);
         }
-        self.table.rename_column(column, name)?;
+        self.table_mut().rename_column(column, name)?;
         let label = format!("Rename column {old} to {name}");
         self.done(label, Change::ColumnNamed(column, old, name.to_string()));
         Ok(true)
@@ -219,7 +239,7 @@ impl Editing {
             let before = self.table.cell(row, column).map(str::to_string);
             let there = row < self.table.len() && column < self.table.columns().len();
             if there && before != value {
-                self.table.set(row, column, value.clone())?;
+                self.table_mut().set(row, column, value.clone())?;
                 changed.push((row, column, before, value));
             }
         }
@@ -246,7 +266,7 @@ impl Editing {
     pub fn add_rows(&mut self, count: usize) -> usize {
         let first = self.table.len();
         for _ in 0..count {
-            self.table.add_row();
+            self.table_mut().add_row();
         }
         if count > 0 {
             let label =
@@ -261,7 +281,7 @@ impl Editing {
     /// one step named `label`; the row's number.
     pub fn add_row_of(&mut self, label: &str, cells: &[(String, String)]) -> usize {
         let row = self.table.len();
-        self.table.add_row();
+        self.table_mut().add_row();
         let cells = (cells.iter())
             .filter_map(|(name, value)| Some((row, self.table.column(name)?, Some(value.clone()))))
             .filter(|(_, _, v)| !v.as_ref().is_some_and(|v| v.contains('"')))
@@ -303,13 +323,13 @@ impl Editing {
         if row >= self.table.len() {
             return false;
         }
-        let cells = self.table.rows.remove(row);
+        let cells = self.table_mut().rows.remove(row);
         self.done(format!("Delete row {row}"), Change::Dropped(row, cells));
         true
     }
 
     pub fn add_column(&mut self, name: &str) -> Result<(), TwoDaError> {
-        self.table.add_column(name)?;
+        self.table_mut().add_column(name)?;
         self.done(format!("Add column {name}"), Change::Column(name.to_string()));
         Ok(())
     }
@@ -356,7 +376,7 @@ impl Editing {
         let past = cells.iter().map(|c| c.0 + 1).max().unwrap_or(0);
         let added = past.saturating_sub(self.table.len());
         for _ in 0..added {
-            self.table.add_row();
+            self.table_mut().add_row();
         }
         let changed = self.put(cells)?;
         let n = changed.len();
@@ -402,7 +422,7 @@ impl Editing {
         let Some(last) = last else { return (0, 0) };
         let added = (last + 1).saturating_sub(self.table.len());
         for _ in 0..added {
-            self.table.add_row();
+            self.table_mut().add_row();
         }
         let mut put = Vec::new();
         for &row in &rows {
@@ -438,29 +458,29 @@ impl Editing {
         match change {
             Change::Cells(cells) => {
                 for (row, column, before, _) in cells.iter().rev() {
-                    let _ = self.table.set(*row, *column, before.clone());
+                    let _ = self.table_mut().set(*row, *column, before.clone());
                 }
             }
             Change::Rows(count, cells) => {
                 for (row, column, before, _) in cells.iter().rev() {
-                    let _ = self.table.set(*row, *column, before.clone());
+                    let _ = self.table_mut().set(*row, *column, before.clone());
                 }
                 let left = self.table.len().saturating_sub(*count);
-                self.table.rows.truncate(left);
+                self.table_mut().rows.truncate(left);
             }
-            Change::Dropped(row, cells) => self.table.rows.insert(*row, cells.clone()),
+            Change::Dropped(row, cells) => self.table_mut().rows.insert(*row, cells.clone()),
             Change::ColumnOut(column, name, cells) => {
-                let _ = self.table.insert_column(*column, name, cells.clone());
+                let _ = self.table_mut().insert_column(*column, name, cells.clone());
             }
-            Change::ColumnMoved(from, to) => _ = self.table.move_column(*to, *from),
-            Change::ColumnNamed(column, old, _) => _ = self.table.rename_column(*column, old),
+            Change::ColumnMoved(from, to) => _ = self.table_mut().move_column(*to, *from),
+            Change::ColumnNamed(column, old, _) => _ = self.table_mut().rename_column(*column, old),
             Change::Column(_) => {
                 let mut columns = self.table.columns().to_vec();
                 columns.pop();
-                for row in &mut self.table.rows {
+                for row in &mut self.table_mut().rows {
                     row.pop();
                 }
-                let _ = self.table.set_columns(columns);
+                let _ = self.table_mut().set_columns(columns);
             }
         }
     }
@@ -469,22 +489,22 @@ impl Editing {
         match change {
             Change::Cells(cells) => {
                 for (row, column, _, after) in cells {
-                    let _ = self.table.set(*row, *column, after.clone());
+                    let _ = self.table_mut().set(*row, *column, after.clone());
                 }
             }
             Change::Rows(count, cells) => {
                 for _ in 0..*count {
-                    self.table.add_row();
+                    self.table_mut().add_row();
                 }
                 for (row, column, _, after) in cells {
-                    let _ = self.table.set(*row, *column, after.clone());
+                    let _ = self.table_mut().set(*row, *column, after.clone());
                 }
             }
-            Change::Dropped(row, _) => _ = self.table.rows.remove(*row),
-            Change::ColumnOut(column, ..) => _ = self.table.remove_column(*column),
-            Change::ColumnMoved(from, to) => _ = self.table.move_column(*from, *to),
-            Change::ColumnNamed(column, _, new) => _ = self.table.rename_column(*column, new),
-            Change::Column(name) => _ = self.table.add_column(name),
+            Change::Dropped(row, _) => _ = self.table_mut().rows.remove(*row),
+            Change::ColumnOut(column, ..) => _ = self.table_mut().remove_column(*column),
+            Change::ColumnMoved(from, to) => _ = self.table_mut().move_column(*from, *to),
+            Change::ColumnNamed(column, _, new) => _ = self.table_mut().rename_column(*column, new),
+            Change::Column(name) => _ = self.table_mut().add_column(name),
         }
     }
 
@@ -514,6 +534,37 @@ mod tests {
 
     fn table(text: &str) -> TwoDa {
         TwoDa::parse(format!("2DA V2.0\n\n{text}").as_bytes(), Codepage::default()).unwrap()
+    }
+
+    /// The table handed out beside the editor ([`Editing::shared`]) is
+    /// the editor's own, not a copy: a change with nothing holding it
+    /// copies nothing (it was copied whole once a change for a description
+    /// that names its rows: the review of November 2026, D21), and one
+    /// made while it is held leaves what is held as it was, an Undo too.
+    #[test]
+    fn the_table_is_shared_and_copied_only_where_it_is_held() {
+        let mut e = Editing::new(table("  Label Cost\n0 a 1\n1 b 2\n"));
+        let at = |e: &Editing| Arc::as_ptr(&e.shared());
+        let first = at(&e);
+        assert_eq!(first, at(&e), "the same table each time");
+        e.set(0, 0, Some("changed".into())).unwrap();
+        e.add_rows(2);
+        e.undo();
+        e.redo();
+        assert_eq!(at(&e), first, "not held: changed where it is");
+        assert_eq!((e.table().cell(0, 0), e.table().len()), (Some("changed"), 4));
+        // Held (another editor reads it): the change is made in a copy.
+        let held = e.shared();
+        e.set(1, 0, Some("other".into())).unwrap();
+        assert_ne!(at(&e), Arc::as_ptr(&held));
+        assert_eq!((held.cell(1, 0), e.table().cell(1, 0)), (Some("b"), Some("other")));
+        e.undo();
+        assert_eq!(*held, *e.table(), "as it was held, and as Undo has it again");
+        // Let go of: changed where it is again.
+        drop(held);
+        let now = at(&e);
+        e.set(1, 1, Some("9".into())).unwrap();
+        assert_eq!(at(&e), now);
     }
 
     /// A row added with its cells (by column name) is one step: a column

@@ -123,10 +123,6 @@ pub struct TableDoc {
     /// open tables' changes (a table the description names may be one).
     #[allow(clippy::type_complexity)]
     faults: Option<((u64, u64), Arc<Vec<CellFault>>)>,
-    /// The table as it was when another table's editor last asked for it
-    /// ([`TableDoc::shared`]), for its revision and changes then.
-    #[allow(clippy::type_complexity)]
-    shared: std::cell::RefCell<Option<((u64, u64), Arc<TwoDa>)>>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -199,7 +195,6 @@ impl TableDoc {
             within: None,
             shown: None,
             faults: None,
-            shared: Default::default(),
             add_count: 1,
             new_column: None,
             renaming: None,
@@ -210,21 +205,12 @@ impl TableDoc {
     }
 
     /// The table as it is now, to hand to another table's editor (a
-    /// description that names its rows): copied when it has changed since
-    /// it was last asked for, not each time. It was copied whole every
-    /// frame a cell naming its rows was selected, a million cells for a
-    /// table of 20,000 rows.
+    /// description that names its rows): the editor's own, shared, not a
+    /// copy (`Editing::shared`). It was copied whole every frame a cell
+    /// naming its rows was selected, a million cells for a table of
+    /// 20,000 rows, and then once a change.
     fn shared(&self) -> Arc<TwoDa> {
-        let mark = (self.revision, self.edit.changes());
-        let mut kept = self.shared.borrow_mut();
-        match &*kept {
-            Some((m, table)) if *m == mark => table.clone(),
-            _ => {
-                let table = Arc::new(self.edit.table().clone());
-                *kept = Some((mark, table.clone()));
-                table
-            }
-        }
+        self.edit.shared()
     }
 
     pub fn name(&self) -> String {
