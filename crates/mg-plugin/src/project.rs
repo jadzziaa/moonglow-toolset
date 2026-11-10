@@ -110,21 +110,16 @@ impl Answers {
         }
     }
 
-    /// Writes them to `path` (its folder made), whole, by way of a file
-    /// beside it.
+    /// Writes them to `path` (its folder made), whole or not at all
+    /// (`mg_module::write_replacing`).
     pub fn write(&self, path: &Path) -> Result<(), String> {
-        let shown = |e: std::io::Error| format!("{}: {e}", path.display());
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(shown)?;
-        }
         let text = format!(
             "# Moonglow's answers: which of a project's own plugins may run, by the project,\n\
              # the plugin and its content. Yours alone, never in a project.\n{}",
             toml::to_string(self).map_err(|e| e.to_string())?
         );
-        let part = path.with_extension("toml.part");
-        std::fs::write(&part, text).map_err(shown)?;
-        std::fs::rename(&part, path).map_err(shown)
+        mg_module::write_replacing(path, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     /// The answer for a plugin of the project whose root is `root`.
