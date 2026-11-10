@@ -442,17 +442,19 @@ fn shown(app: &mut Moonglow) {
 
 /// Gives the game data the talk table as it is now, where it can be
 /// changed (nothing else reads it): whether it was (or there was nothing
-/// to give). Only what is made from the custom table's strings is
-/// forgotten (`GameData::set_custom_tlk`: the choice lists): the 2DAs
-/// read and the appearances judged have none of them, and every typed
-/// text made the open editors read `appearance.2da` and the rest again.
+/// to give). Only the lines that differ are copied
+/// (`GameData::update_custom_tlk`: the whole table was, 50,000 lines for
+/// one typed), and only what is made from the custom table's strings is
+/// forgotten (the choice lists): the 2DAs read and the appearances judged
+/// have none of them, and every typed text made the open editors read
+/// `appearance.2da` and the rest again.
 fn show(app: &mut Moonglow) -> bool {
     let Some(t) = app.talk.as_ref().filter(|_| !app.talk_view.outside) else {
         app.typed.unshown = false;
         return true;
     };
     let Some(game) = crate::exclusive(&mut app.game) else { return app.game.is_none() };
-    game.set_custom_tlk(Some(t.tlk.clone()));
+    game.update_custom_tlk(&t.tlk);
     app.typed.unshown = false;
     true
 }
