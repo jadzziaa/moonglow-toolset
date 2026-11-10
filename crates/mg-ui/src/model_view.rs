@@ -670,7 +670,10 @@ fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
             Exported::Text(text) => (Ok(dir.join(&f.name)), Some(text.clone().into_bytes())),
         };
         let Some(data) = data else { continue };
-        if let Err(e) = path.and_then(|path| std::fs::write(path, &data)) {
+        // (Whole or not at all, as every file Moonglow keeps: a model cut
+        // short by a full disk stood where a whole one had.)
+        let whole = |path: std::path::PathBuf| mg_module::write_replacing_one_of_many(&path, &data);
+        if let Err(e) = path.and_then(whole) {
             return app.log.error(format!("Could not write to {}: {e}", dir.display()));
         }
         written.push(format!("{} ({})", f.name, f.origin));

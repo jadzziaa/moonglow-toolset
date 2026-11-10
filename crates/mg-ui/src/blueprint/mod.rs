@@ -1705,7 +1705,8 @@ impl Form<'_> {
                 })
                 .collect();
             let pairs: Vec<(&str, &str)> = names.iter().map(|(k, v)| (*k, v.as_str())).collect();
-            if let Err(e) = std::fs::write(&path, encode(&script_set::write(&pairs))) {
+            let text = encode(&script_set::write(&pairs));
+            if let Err(e) = mg_module::write_replacing(&path, &text) {
                 self.app.log.error(format!("{}: {e}", path.display()));
             }
         }

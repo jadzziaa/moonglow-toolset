@@ -583,7 +583,8 @@ Shared parts:
   shown as you drag across the picker). A placed object's opens from its right-click menu too, in
   the area or the module tree. **Variable sets** carry variables from
   one object to another, in any module. **Save Set…** keeps them under a
-  name; **Save to File…** saves them as a set file (`.vars.json`)
+  name (a set of that name is replaced, which is said under the name);
+  **Save to File…** saves them as a set file (`.vars.json`)
   wherever you choose, to share or to keep beside a module. **Add Set**
   adds a set to the variables: a saved one, chosen by its name (with the
   pointer resting on it, what it holds), or a file's (**Add from

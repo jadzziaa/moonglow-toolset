@@ -231,7 +231,9 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     // (The feats to offer, told once for the table; the rows to show
     // picked each frame, and those in sight alone laid out.)
     let offer = super::kept_for(ui.ctx(), id.with("offered"), &all, &(), || {
-        let rows = all.iter().map(|c| c.row);
+        // (A feat is stored by its row in a WORD: one past what it holds
+        // is not offered.)
+        let rows = all.iter().map(|c| c.row).filter(|r| u16::try_from(*r).is_ok());
         let offer: std::collections::HashSet<usize> = match &feat_table {
             Some(t) => rows.filter(|&r| offered(t, r, "FEAT", "LABEL")).collect(),
             None => rows.collect(),
@@ -356,6 +358,9 @@ fn class_spells_of(game: &GameData, names: &[Choice], class: usize) -> Vec<(usiz
     let Ok(spells) = game.table("spells") else { return Vec::new() };
     mg_rules::by_name(names.to_vec())
         .into_iter()
+        // (A spell is stored by its row in a WORD: one past what it holds
+        // is not offered, where it was cut to another spell's row.)
+        .filter(|c| u16::try_from(c.row).is_ok())
         .filter(|c| offered(&spells, c.row, "Name", "Label"))
         .filter_map(|c| {
             let level = spells.get_int(c.row, &column)?;
@@ -757,7 +762,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     {
         let list: Vec<ListedSpell> = held.iter().map(|(_, s)| *s).collect();
         let text = mg_module::script_set::write_spells(class as u32, &list);
-        if let Err(e) = std::fs::write(&file, text) {
+        if let Err(e) = mg_module::write_replacing(&file, text.as_bytes()) {
             f.app.log.error(format!("{}: {e}", file.display()));
         }
     }
@@ -1337,8 +1342,10 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
-                    let offer =
-                        |row: usize| spell_table.as_ref().is_none_or(|t| special_ability(t, row));
+                    let offer = |row: usize| {
+                        u16::try_from(row).is_ok()
+                            && spell_table.as_ref().is_none_or(|t| special_ability(t, row))
+                    };
                     for c in names
                         .iter()
                         .filter(|c| needle.finds(&c.text) && in_category(c.row) && offer(c.row))

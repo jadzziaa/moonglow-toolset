@@ -190,7 +190,7 @@ pub fn save_file(path: &Path, rows: &[VarRow]) -> Result<PathBuf, String> {
         }
         None => path.to_path_buf(),
     };
-    std::fs::write(&path, to_text(rows)?).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::saved::write_whole(&path, &to_text(rows)?)?;
     Ok(path)
 }
 

@@ -1645,6 +1645,12 @@ fn var_body(
     }
     if let Some(name) = edit.set_name.as_mut() {
         let (save, cancel) = set_name_row(ui, name);
+        // (Said, as it isn't asked about.)
+        let kept = (app.var_set_dir.as_deref())
+            .and_then(|dir| crate::var_sets::SHELF.file(Some(dir), name).ok());
+        if kept.is_some_and(|file| file.exists()) {
+            ui.colored_label(ui.visuals().warn_fg_color, "A set of that name is replaced.");
+        }
         if save && let Some(dir) = app.var_set_dir.clone() {
             match crate::var_sets::save(&dir, name, &edit.rows) {
                 Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),

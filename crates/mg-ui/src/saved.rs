@@ -7,6 +7,15 @@ use std::path::{Path, PathBuf};
 
 use crate::recovery;
 
+/// Writes `text` to `path` whole or not at all (`mg_module::write_replacing`:
+/// beside it, then put in its place, its folder made where it is not
+/// there): a set, a script set or a spell list written in place was cut
+/// short by a full disk or a crash, where a whole one had stood.
+pub(crate) fn write_whole(path: &Path, text: &str) -> Result<(), String> {
+    mg_module::write_replacing(path, text.as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// A kind of thing kept under a name: its folder and its files' ending.
 #[derive(Debug, Clone, Copy)]
 pub struct Shelf {
@@ -47,10 +56,7 @@ impl Shelf {
     /// Keeps `text` as the one named `name` (in place of one of that name).
     pub fn write(&self, dir: Option<&Path>, name: &str, text: &str) -> Result<PathBuf, String> {
         let path = self.file(dir, name)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+        write_whole(&path, text)?;
         Ok(path)
     }
 
@@ -76,7 +82,7 @@ impl Shelf {
         if path.exists() {
             return Err(format!("there is a {} named '{}' again", self.what, name.trim()));
         }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+        write_whole(&path, text)
     }
 
     /// Gives the one named `from` another name. A name another has is
@@ -162,6 +168,36 @@ mod tests {
         assert_eq!(shelf.read(dir, "Alpha").unwrap(), "[]");
         assert!(shelf.write(dir, "../out", "x").is_err(), "not a name");
         assert!(shelf.read(None, "beta").is_err(), "no data folder");
+    }
+
+    /// A name written over is written whole beside the file it replaces,
+    /// then put in its place (the review's B30: written in place, a full
+    /// disk or a crash left it cut short where a whole one had stood). So
+    /// another name for the old file still has the old text, and nothing
+    /// of the writing is left in the folder.
+    #[test]
+    fn a_name_written_over_replaces_its_file_and_leaves_no_other() {
+        let dir = mg_testkit::scratch_dir("ui-saved-whole");
+        let shelf = Shelf { folder: "things", suffix: ".thing.json", what: "thing" };
+        let at = Some(dir.as_path());
+        let file = shelf.write(at, "Loot", "the first, a long one").unwrap();
+        #[cfg(unix)]
+        std::fs::hard_link(&file, dir.join("as-it-was")).unwrap();
+        assert_eq!(shelf.write(at, "Loot", "the second").unwrap(), file);
+        assert_eq!(shelf.read(at, "Loot").unwrap(), "the second");
+        #[cfg(unix)]
+        {
+            let was = std::fs::read_to_string(dir.join("as-it-was")).unwrap();
+            assert_eq!(was, "the first, a long one", "not written into");
+            std::fs::remove_file(dir.join("as-it-was")).unwrap();
+        }
+        let left: Vec<_> =
+            std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, ["Loot.thing.json"], "no temporary file");
+        // A file anywhere (Save to File…), its folder made.
+        let far = dir.join("made").join("set.json");
+        write_whole(&far, "{}").unwrap();
+        assert_eq!(std::fs::read_to_string(&far).unwrap(), "{}");
     }
 
     #[test]

@@ -648,12 +648,12 @@ fn class_list(
                 match i32::try_from(v) {
                     Ok(to) => {
                         let out = lists::change_class(&this, class, to);
-                        refused = out.left.first().cloned();
+                        refused = out.left.first().map(|why| format!("Class not changed: {why}"));
                         if !out.edits.is_empty() {
                             edits.push(("Class", out.edits));
                         }
                     }
-                    Err(_) => refused = Some(format!("classes.2da's row {v} is no class")),
+                    Err(_) => refused = Some(format!("Class not changed: row {v} is no class")),
                 }
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
@@ -681,10 +681,12 @@ fn class_list(
                         let name = format!("class{i}-domain{n}");
                         if let Some(v) = optional_pick(ui, picks, &name, domains, c.integer(label))
                         {
-                            edits.push((
-                                "Domain",
-                                vec![set(key, &path, label, Value::Byte(v as u8))],
-                            ));
+                            match byte_row(v, "domains.2da") {
+                                Ok(row) => {
+                                    edits.push(("Domain", vec![set(key, &path, label, row)]))
+                                }
+                                Err(why) => refused = Some(why),
+                            }
                         }
                     }
                 });
@@ -695,7 +697,10 @@ fn class_list(
                 if let Some(v) =
                     optional_pick(ui, picks, &format!("class{i}-school"), schools, current)
                 {
-                    edits.push(("School", vec![set(key, &path, "School", Value::Byte(v as u8))]));
+                    match byte_row(v, "spellschools.2da") {
+                        Ok(row) => edits.push(("School", vec![set(key, &path, "School", row)])),
+                        Err(why) => refused = Some(why),
+                    }
                 }
                 ui.end_row();
             }
@@ -714,7 +719,7 @@ fn class_list(
         ));
     }
     if let Some(why) = refused {
-        f.app.log.warn(format!("Class not changed: {why}"));
+        f.app.log.warn(why);
     }
     for (what, e) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, e)));
@@ -788,11 +793,19 @@ fn classes_together(
                 let differs = lists::differs(&targets, "ClassList", is, |e| e.integer(label));
                 f.mark_if(ui, &format!("{label}#{class}"), differs);
                 if let Some(v) = optional_pick(ui, picks, name, choices, c.integer(label)) {
-                    let out = lists::set(&targets, "ClassList", is, &[label], |_, _| {
-                        Some(Value::Byte(v as u8))
-                    });
-                    change =
-                        Some((if label == "School" { "School" } else { "Domain" }, out, "Set on"));
+                    let (what, table) = match label {
+                        "School" => ("School", "spellschools.2da"),
+                        _ => ("Domain", "domains.2da"),
+                    };
+                    match byte_row(v, table) {
+                        Ok(row) => {
+                            let out = lists::set(&targets, "ClassList", is, &[label], |_, _| {
+                                Some(row.clone())
+                            });
+                            change = Some((what, out, "Set on"));
+                        }
+                        Err(why) => f.app.log.warn(why),
+                    }
                 }
             };
             if class_int(class, "PickDomains") == Some(1) {
@@ -818,6 +831,19 @@ fn classes_together(
     }
     if let Some((what, out, done)) = change {
         f.apply_each(what, out, done);
+    }
+}
+
+/// Row `row` of `table` as a class's domain or school is stored, a BYTE;
+/// or why it can't be: a row past 255 (a server's domains.2da) was cut
+/// to the field's width, and another domain written than the one picked
+/// (row 300 as 44).
+fn byte_row(row: i64, table: &str) -> Result<Value, String> {
+    match u8::try_from(row) {
+        Ok(row) => Ok(Value::Byte(row)),
+        Err(_) => Err(format!(
+            "{table}'s row {row} is not set: the field holds a row up to 255, as the game reads it"
+        )),
     }
 }
 
@@ -1077,6 +1103,19 @@ fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A domain or a school is stored in a BYTE: a row past 255 is said,
+    /// not cut to the field's width (the review's B30: row 300 was
+    /// written as 44, another domain).
+    #[test]
+    fn a_domain_s_row_past_the_field_is_said_not_cut() {
+        assert_eq!(byte_row(44, "domains.2da"), Ok(Value::Byte(44)));
+        assert_eq!(byte_row(255, "domains.2da"), Ok(Value::Byte(255)));
+        for row in [300, 256, -1] {
+            let said = byte_row(row, "domains.2da").unwrap_err();
+            assert!(said.starts_with(&format!("domains.2da's row {row} is not set")), "{said}");
+        }
+    }
 
     #[test]
     fn every_right_body_part_has_its_left() {
