@@ -3,17 +3,7 @@
 // they meet what is behind them (soft) as the game's `fsparticle` fades
 // them: through the framebuffer's depth copy, by their draw's softness.
 
-struct Frame {
-    view: mat4x4<f32>,
-    proj: mat4x4<f32>,
-    area_ambient: vec4<f32>,
-    area_diffuse: vec4<f32>,
-    area_dir: vec4<f32>,
-    fog: vec4<f32>,
-    fog_color: vec4<f32>,
-    light_params: vec4<f32>,
-    scene_color: vec4<f32>,
-};
+// (`Frame`: `frame.wgsl`, put before this source.)
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(1) @binding(0) var tex0: texture_2d<f32>;

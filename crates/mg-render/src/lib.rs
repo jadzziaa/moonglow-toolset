@@ -46,9 +46,9 @@ pub use renderer::{
 #[doc(hidden)]
 pub fn wgsl_sources() -> Vec<(String, String)> {
     let mut out = vec![
-        ("shader".to_string(), include_str!("shader.wgsl").to_string()),
-        ("particle".into(), include_str!("particle.wgsl").into()),
-        ("line".into(), include_str!("line.wgsl").into()),
+        ("shader".to_string(), renderer::LIT_WGSL.to_string()),
+        ("particle".into(), renderer::PARTICLE_WGSL.into()),
+        ("line".into(), renderer::LINE_WGSL.into()),
         ("shadow_cast".into(), shadow::CAST.into()),
         ("shadow_volume".into(), volume::VOLUME.into()),
     ];

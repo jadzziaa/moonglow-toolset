@@ -33,6 +33,16 @@ pub struct Copies {
 /// The depth copy's format.
 pub(crate) const DEPTH_COPY: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 
+/// The vertex program of a draw over the whole target (one triangle, of
+/// three vertices and no buffer): the framebuffer's copy, the shadows'
+/// darkening, the shadow volumes' depth copy and the watch's look.
+pub(crate) const FULLSCREEN_VS: &str = "\
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+";
+
 impl Copies {
     pub(crate) fn new(
         device: &wgpu::Device,
@@ -83,15 +93,12 @@ pub(crate) fn source(samples: u32) -> String {
     } else {
         ("texture_2d<f32>", "texture_depth_2d", "let c = textureLoad(color, at, 0);".into())
     };
+    let vs = FULLSCREEN_VS;
     format!(
         "@group(0) @binding(0) var color: {color};
 @group(0) @binding(1) var depth: {depth};
 struct Out {{ @location(0) color: vec4<f32>, @location(1) depth: vec4<f32> }}
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
-    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}}
-@fragment fn fs(@builtin(position) p: vec4<f32>) -> Out {{
+{vs}@fragment fn fs(@builtin(position) p: vec4<f32>) -> Out {{
     // (OpenGL's rows: the copy's first row is the picture's last.)
     var at = vec2<i32>(p.xy);
     at.y = i32(textureDimensions(color).y) - 1 - at.y;

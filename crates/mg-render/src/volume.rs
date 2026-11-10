@@ -360,13 +360,10 @@ pub(crate) fn copy_source(samples: u32) -> String {
     } else {
         ("texture_depth_2d", "", "textureLoad(depth, vec2<i32>(frag.xy), 0)")
     };
+    let vs = crate::framebuffer::FULLSCREEN_VS;
     format!(
         "@group(0) @binding(0) var depth: {depth};
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
-    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}}
-@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @builtin(frag_depth) f32 {{
+{vs}@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @builtin(frag_depth) f32 {{
     return {load};
 }}
 "
@@ -608,16 +605,8 @@ fn upload(
         camera: [camera.eye.z.max(camera.target.z), camera.near, camera.far, 0.0],
     };
     gpu.queue.write_buffer(&set.frame, 0, bytemuck::bytes_of(&frame));
-    let bytes = std::mem::size_of_val(casters) as u64;
-    if set.casters.size() < bytes {
-        set.casters = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow volume casters"),
-            size: bytes.next_power_of_two(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-    }
-    gpu.queue.write_buffer(&set.casters, 0, bytemuck::cast_slice(casters));
+    let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
+    crate::renderer::upload(gpu, &mut set.casters, "shadow volume casters", usage, casters, 0);
 }
 
 impl Pipelines {
@@ -758,18 +747,7 @@ impl Pipelines {
             Some("shadow volume darkening"),
             &[uniform(0, wgpu::ShaderStages::FRAGMENT), depth_entry(1)],
         );
-        let blend = wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        };
+        let blend = crate::shadow::DARKEN_BLEND;
         let marked = wgpu::StencilFaceState {
             compare: wgpu::CompareFunction::NotEqual,
             fail_op: wgpu::StencilOperation::Keep,

@@ -1,17 +1,7 @@
 // Lines (the area's tile grid): unlit, in gamma space, hidden behind the
 // meshes in front of them but drawn over the ground they lie on.
 
-struct Frame {
-    view: mat4x4<f32>,
-    proj: mat4x4<f32>,
-    area_ambient: vec4<f32>,
-    area_diffuse: vec4<f32>,
-    area_dir: vec4<f32>,
-    fog: vec4<f32>,
-    fog_color: vec4<f32>,
-    light_params: vec4<f32>,
-    scene_color: vec4<f32>,
-};
+// (`Frame`: `frame.wgsl`, put before this source.)
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 

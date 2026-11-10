@@ -12,25 +12,7 @@
 // model has tangents, else from screen-space derivatives (the tangents made
 // for a mesh without, for the game's shaders, are left alone).
 
-struct Frame {
-    view: mat4x4<f32>,
-    proj: mat4x4<f32>,
-    // Area (sun/moon) light, linear.
-    area_ambient: vec4<f32>,
-    area_diffuse: vec4<f32>,
-    // View-space direction towards the sun/moon.
-    area_dir: vec4<f32>,
-    // enabled, start, end, 1 / (end - start)
-    fog: vec4<f32>,
-    // Gamma space.
-    fog_color: vec4<f32>,
-    // 1 / max intensity, falloff factor, light count, target height (pixels)
-    light_params: vec4<f32>,
-    // Minimum light (the GUI "scene colour"), linear.
-    scene_color: vec4<f32>,
-    // x = seconds, for what moves by itself (water).
-    time: vec4<f32>,
-};
+// (`Frame`: `frame.wgsl`, put before this source.)
 
 struct Light {
     // View-space position.

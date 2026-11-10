@@ -57,6 +57,15 @@ pub(crate) const SOLID_ALPHA: f32 = 0.95;
 pub(crate) const OVERLAY_DEPTH_BIAS: wgpu::DepthBiasState =
     wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 };
 
+/// Moonglow's own shaders, each as wgpu is given it: the frame's uniforms
+/// (`frame.wgsl`, [`FrameUniform`]'s fields, the one `Frame` of the three)
+/// and its own source.
+pub(crate) const LIT_WGSL: &str = concat!(include_str!("frame.wgsl"), include_str!("shader.wgsl"));
+pub(crate) const PARTICLE_WGSL: &str =
+    concat!(include_str!("frame.wgsl"), include_str!("particle.wgsl"));
+pub(crate) const LINE_WGSL: &str = concat!(include_str!("frame.wgsl"), include_str!("line.wgsl"));
+
+/// The frame's uniforms (`frame.wgsl`'s `Frame`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct FrameUniform {
@@ -957,8 +966,9 @@ impl TextureReader {
 
 /// Puts `data` into `buffer`, which is made anew, larger, where it is too
 /// small for it (or for `least` bytes, where a binding needs something
-/// to be there with no data).
-fn upload<T: bytemuck::Pod>(
+/// to be there with no data). The one place a frame's buffer is grown and
+/// written: the renderer's, the shadow maps' and the shadow volumes'.
+pub(crate) fn upload<T: bytemuck::Pod>(
     gpu: &Gpu,
     buffer: &mut wgpu::Buffer,
     label: &'static str,
@@ -996,7 +1006,7 @@ impl Renderer {
         let device = &gpu.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lit"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(LIT_WGSL.into()),
         });
         let uniform = |binding, dynamic| wgpu::BindGroupLayoutEntry {
             binding,
@@ -1190,7 +1200,7 @@ impl Renderer {
             });
         let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("particles"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(PARTICLE_WGSL.into()),
         });
         let particle_depth_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1288,7 +1298,7 @@ impl Renderer {
         // Lines.
         let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lines"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("line.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(LINE_WGSL.into()),
         });
         let line_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lines"),
@@ -4104,6 +4114,37 @@ mod tests {
         assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
     }
 
+    /// Each of Moonglow's own shaders declares the frame's uniforms as the
+    /// renderer writes them: one `Frame`, as large as `FrameUniform` (the
+    /// particles' and the lines' had a copy each, a field short).
+    #[test]
+    fn every_shader_s_frame_is_the_renderer_s() {
+        for (name, source) in [
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
+        ] {
+            assert_eq!(source.matches("struct Frame {").count(), 1, "{name}");
+            let module = naga::front::wgsl::parse_str(source).unwrap_or_else(|e| {
+                panic!("{name}: {}", e.emit_to_string(source));
+            });
+            let (_, frame) = module
+                .types
+                .iter()
+                .find(|(_, t)| t.name.as_deref() == Some("Frame"))
+                .unwrap_or_else(|| panic!("{name}: no Frame"));
+            let naga::TypeInner::Struct { members, span } = &frame.inner else {
+                panic!("{name}: Frame is no struct");
+            };
+            assert_eq!(*span as usize, std::mem::size_of::<super::FrameUniform>(), "{name}");
+            assert_eq!(members.len(), 10, "{name}");
+            // (The last field, which the copies lacked, where it is written.)
+            let time = members.last().unwrap();
+            assert_eq!((time.name.as_deref(), time.offset), (Some("time"), 240), "{name}");
+            assert_eq!(std::mem::offset_of!(super::FrameUniform, time), 240);
+        }
+    }
+
     /// The WGSL shaders' cube maps, by their names.
     fn cube_maps(source: &str) -> Vec<String> {
         source
@@ -4121,9 +4162,9 @@ mod tests {
     #[test]
     fn no_cube_map_is_read_with_gradients() {
         for (name, source) in [
-            ("shader.wgsl", include_str!("shader.wgsl")),
-            ("particle.wgsl", include_str!("particle.wgsl")),
-            ("line.wgsl", include_str!("line.wgsl")),
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
         ] {
             let cubes = cube_maps(source);
             for (i, line) in source.lines().enumerate() {
@@ -4135,7 +4176,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(cube_maps(include_str!("shader.wgsl")), ["tex_env_cube"]);
+        assert_eq!(cube_maps(super::LIT_WGSL), ["tex_env_cube"]);
     }
 
     /// The shaders as naga writes them for Metal: no cube map sampled with
@@ -4143,9 +4184,9 @@ mod tests {
     #[test]
     fn the_shaders_written_for_metal_sample_cube_maps_as_cubes() {
         for (name, source) in [
-            ("shader.wgsl", include_str!("shader.wgsl")),
-            ("particle.wgsl", include_str!("particle.wgsl")),
-            ("line.wgsl", include_str!("line.wgsl")),
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
         ] {
             let module =
                 naga::front::wgsl::parse_str(source).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -4190,9 +4231,9 @@ mod tests {
     #[test]
     fn a_shader_returns_where_it_discards() {
         for (name, source) in [
-            ("shader.wgsl", include_str!("shader.wgsl")),
-            ("particle.wgsl", include_str!("particle.wgsl")),
-            ("line.wgsl", include_str!("line.wgsl")),
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
         ] {
             let lines: Vec<&str> = source.lines().map(str::trim).collect();
             for (i, line) in lines.iter().enumerate() {

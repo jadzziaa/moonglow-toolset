@@ -325,14 +325,11 @@ pub const LOST: f64 = 5.0;
 
 pub(crate) fn source(samples: u32) -> String {
     let depth = if samples > 1 { "texture_depth_multisampled_2d" } else { "texture_depth_2d" };
+    let vs = crate::framebuffer::FULLSCREEN_VS;
     format!(
         "@group(0) @binding(0) var depth: {depth};
 @group(0) @binding(1) var color: texture_2d<f32>;
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
-    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}}
-@fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
+{vs}@fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
     let size = vec2<f32>(textureDimensions(depth));
     let at = vec2<i32>(p.xy / vec2<f32>({COLUMNS}.0, {ROWS}.0) * size);
     return vec4<f32>(textureLoad(depth, at, 0), textureLoad(color, at, 0).rgb);
