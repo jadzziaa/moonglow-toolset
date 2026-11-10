@@ -275,52 +275,9 @@ const ITEM_ORDER: &[&str] = &[
     "VarTable",
 ];
 
-const PLACEABLE_ORDER: &[&str] = &[
-    "Tag",
-    "LocName",
-    "Description",
-    "TemplateResRef",
-    "AutoRemoveKey",
-    "CloseLockDC",
-    "Conversation",
-    "Interruptable",
-    "Faction",
-    "Plot",
-    "KeyRequired",
-    "Lockable",
-    "Locked",
-    "OpenLockDC",
-    "PortraitId",
-    "TrapDetectable",
-    "TrapDetectDC",
-    "TrapDisarmable",
-    "DisarmDC",
-    "TrapFlag",
-    "TrapOneShot",
-    "TrapType",
-    "KeyName",
-    "AnimationState",
-    "Appearance",
-    "HP",
-    "CurrentHP",
-    "Hardness",
-    "Fort",
-    "Ref",
-    "Will",
-    "OnClosed",
-    "OnDamaged",
-    "OnDeath",
-    "OnDisarm",
-    "OnHeartbeat",
-    "OnLock",
-    "OnMeleeAttacked",
-    "OnOpen",
-    "OnSpellCastAt",
-    "OnTrapTriggered",
-    "OnUnlock",
-    "OnUserDefined",
-    "OnClick",
-    "VarTable",
+/// A placeable's fields after the situated ones and `VarTable`, in
+/// Aurora's order.
+const PLACEABLE_OWN_ORDER: &[&str] = &[
     "HasInventory",
     "BodyBag",
     "Static",
@@ -577,54 +534,9 @@ const DOOR: &[(&str, D)] = &[
     ("OnFailToOpen", D::ResRef),
 ];
 
-/// The order Aurora writes a door in (a placeable: the situated fields,
-/// then its own).
-const DOOR_ORDER: &[&str] = &[
-    "Tag",
-    "LocName",
-    "Description",
-    "TemplateResRef",
-    "AutoRemoveKey",
-    "CloseLockDC",
-    "Conversation",
-    "Interruptable",
-    "Faction",
-    "Plot",
-    "KeyRequired",
-    "Lockable",
-    "Locked",
-    "OpenLockDC",
-    "PortraitId",
-    "TrapDetectable",
-    "TrapDetectDC",
-    "TrapDisarmable",
-    "DisarmDC",
-    "TrapFlag",
-    "TrapOneShot",
-    "TrapType",
-    "KeyName",
-    "AnimationState",
-    "Appearance",
-    "HP",
-    "CurrentHP",
-    "Hardness",
-    "Fort",
-    "Ref",
-    "Will",
-    "OnClosed",
-    "OnDamaged",
-    "OnDeath",
-    "OnDisarm",
-    "OnHeartbeat",
-    "OnLock",
-    "OnMeleeAttacked",
-    "OnOpen",
-    "OnSpellCastAt",
-    "OnTrapTriggered",
-    "OnUnlock",
-    "OnUserDefined",
-    "OnClick",
-    "VarTable",
+/// A door's fields after the situated ones and `VarTable`, in Aurora's
+/// order.
+const DOOR_OWN_ORDER: &[&str] = &[
     "LinkedTo",
     "LinkedToFlags",
     "LoadScreenID",
@@ -1139,6 +1051,17 @@ pub fn instance(
     Some(s)
 }
 
+/// The order Aurora writes a placeable or a door in: the situated fields
+/// (as [`SITUATED`] lists them), `VarTable`, then the type's own.
+fn situated_order(own: &[&'static str]) -> Vec<&'static str> {
+    SITUATED
+        .iter()
+        .map(|(label, _)| *label)
+        .chain(["VarTable"])
+        .chain(own.iter().copied())
+        .collect()
+}
+
 /// Puts a placed object's fields in the order Aurora writes its type
 /// (items are written in order).
 fn arrange_as(restype: ResType, s: &mut Struct) {
@@ -1149,13 +1072,13 @@ fn arrange_as(restype: ResType, s: &mut Struct) {
             order.splice(after..after, CREATURE_COLORS);
             order
         }
-        ResType::UTP => PLACEABLE_ORDER.to_vec(),
+        ResType::UTP => situated_order(PLACEABLE_OWN_ORDER),
         ResType::UTM => STORE_ORDER.to_vec(),
         ResType::UTS => SOUND_ORDER.to_vec(),
         ResType::UTW => WAYPOINT_ORDER.to_vec(),
         ResType::UTT => TRIGGER_ORDER.to_vec(),
         ResType::UTE => ENCOUNTER_ORDER.to_vec(),
-        ResType::UTD => DOOR_ORDER.to_vec(),
+        ResType::UTD => situated_order(DOOR_OWN_ORDER),
         _ => return,
     };
     arrange(s, &order, &creature_parts());
