@@ -522,10 +522,7 @@ pub fn spans_lines(text: &str, from: usize, to: usize) -> bool {
 
 /// The text of each of `lines` (0-based) of `text`, trimmed, in one pass
 /// over it; a line it does not have is empty.
-pub fn lines_text<'a>(
-    text: &'a str,
-    lines: impl IntoIterator<Item = usize>,
-) -> HashMap<usize, &'a str> {
+pub fn lines_text(text: &str, lines: impl IntoIterator<Item = usize>) -> HashMap<usize, &str> {
     let mut found: HashMap<usize, &str> = lines.into_iter().map(|l| (l, "")).collect();
     let Some(last) = found.keys().copied().max() else { return found };
     for (i, line) in text.lines().enumerate().take(last.saturating_add(1)) {

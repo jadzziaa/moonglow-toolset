@@ -776,12 +776,7 @@ fn inspector(
     }
 }
 
-pub(super) fn bindings(
-    ui: &mut Ui,
-    s: &mut Settings,
-    mut v: Option<&mut Value>,
-    state: &mut State,
-) {
+pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, state: &mut State) {
     egui::ScrollArea::vertical().id_salt("nui-bindings").show(ui, |ui| {
         widgets::section_heading(ui, "Bindings");
         ui.label("A bind is a named value the event script can change.");
@@ -840,7 +835,7 @@ pub(super) fn bindings(
                     });
             }
         }
-        if let (Some(names), Some(doc)) = (renamed, v.as_deref_mut()) {
+        if let (Some(names), Some(doc)) = (renamed, v) {
             shortcuts::rename_binds(doc, &names);
         }
         egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
