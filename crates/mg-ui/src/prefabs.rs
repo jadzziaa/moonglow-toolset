@@ -172,6 +172,10 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some((mut name, clip)) = app.prefab_save.take() else { return };
     let mut open = true;
     let (mut save, mut cancel) = (false, false);
+    // (The prefabs kept, read from their folder as the window opens.)
+    let names = crate::area_tools::kept_while_shown(ctx, egui::Id::new("prefab-names"), || {
+        std::sync::Arc::new(list(app.prefab_dir.as_deref()))
+    });
     crate::widgets::dialog(ctx, "Save as Prefab", &mut open)
         .collapsible(false)
         .resizable(false)
@@ -192,7 +196,7 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
                     "Letters, digits, spaces, - and _ only",
                 );
             }
-            if list(app.prefab_dir.as_deref()).iter().any(|n| n.eq_ignore_ascii_case(name.trim())) {
+            if names.iter().any(|n| n.eq_ignore_ascii_case(name.trim())) {
                 ui.weak("A prefab of that name will be replaced");
             }
             ui.horizontal(|ui| {

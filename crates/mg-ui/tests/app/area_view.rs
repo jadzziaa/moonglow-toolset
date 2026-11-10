@@ -1092,8 +1092,9 @@ fn adjust_location_and_find_instance() {
     assert_eq!(found.len(), 2, "both waypoints share the blueprint's tag");
     assert!(found.iter().all(|f| f.kind == ObjectKind::Waypoint && f.area == area));
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
-    let second = h.get_all_by_label(&found[1].template).nth(1).expect("the second result").rect();
+    // (Where its row is once the window has taken the list's size.)
     h.run_steps(40);
+    let second = h.get_all_by_label(&found[1].template).nth(1).expect("the second result").rect();
     h.hover_at(second.center());
     for _ in 0..2 {
         press(&h, second.center(), true, egui::Modifiers::NONE);
@@ -7112,6 +7113,10 @@ fn results_found_before_the_module_changed_are_not_acted_on() {
     h.run_steps(2);
     assert_eq!(h.state().find_instance.as_ref().unwrap().results.len(), 3);
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    h.run_steps(3);
+    // (Both windows' lists, as they are laid out.)
+    let dir = mg_testkit::scratch_dir("ui-area-stale-results");
+    h.render().expect("render").save(dir.join("windows.png")).unwrap();
 
     // The first waypoint deleted elsewhere, the windows open.
     remove_waypoint(&mut h, area, 0);
@@ -7160,4 +7165,33 @@ fn results_found_before_the_module_changed_are_not_acted_on() {
     h.state_mut().area_focus = Some((area, ObjectKind::Waypoint, 7));
     h.run_steps(2);
     assert!(h.state().area_focus.is_none());
+}
+
+/// The review's A18: Find Instance laid out every result every frame
+/// (four labels a row: with nothing typed, every placed object of the
+/// module). Only the rows in sight are laid out, and the count still
+/// says how many were found.
+#[test]
+fn find_instance_lays_out_the_results_in_sight() {
+    let dir = mg_testkit::scratch_dir("ui-find-instance-rows");
+    let path = sample_module(&dir);
+    let mut app = app_with(vec![]);
+    app.open_module(&path);
+    let mut find = mg_ui::area_tools::FindInstance::default();
+    find.results = (0..5000)
+        .map(|index| mg_ui::area_tools::Found {
+            kind: mg_area::ObjectKind::Placeable,
+            index,
+            area: ResRef::from_str("start").unwrap(),
+            tag: format!("TREE_{index}"),
+            template: "mg_tree".into(),
+        })
+        .collect();
+    app.find_instance = Some(find);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run_steps(4);
+    h.get_by_label("5000 found; double click one to go to it");
+    h.get_by_label("TREE_0");
+    let rows = h.query_all_by_label("mg_tree").count();
+    assert!((5..60).contains(&rows), "{rows} rows laid out");
 }

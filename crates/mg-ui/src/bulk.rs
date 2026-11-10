@@ -294,8 +294,16 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
             }
         });
         let only = draft.only;
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            for o in draft.objects.iter_mut().filter(|o| in_scope(o, only)) {
+        // (The rows in sight alone are laid out: Update All Instances
+        // lists tens of thousands in a large module.)
+        let shown: Vec<usize> =
+            (0..draft.objects.len()).filter(|&i| in_scope(&draft.objects[i], only)).collect();
+        let height = ui.spacing().interact_size.y;
+        let rows = egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
+        rows.show_rows(ui, height, shown.len(), |ui, range| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            for &i in &shown[range] {
+                let o = &mut draft.objects[i];
                 ui.checkbox(&mut o.on, &o.label);
             }
         });
@@ -346,6 +354,9 @@ pub struct TextReplace {
     /// are in: one changed since may have another struct where a hit's
     /// path leads.
     found_at: (u64, Vec<ResKey>),
+    /// Why the text asked for is not a regular expression, if it is not
+    /// one, and what that was worked out for (not compiled every frame).
+    checked: Option<((String, mg_module::text::Options), Option<String>)>,
     /// Find again next frame (after a replace is applied).
     refind: bool,
 }
@@ -369,6 +380,7 @@ impl Default for TextReplace {
             hits: Vec::new(),
             searched: None,
             found_at: Default::default(),
+            checked: None,
             refind: false,
         }
     }
@@ -512,9 +524,16 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                     tick(ui, k, Some(hover));
                 }
             });
-            let bad = (draft.options.regex && !draft.find.is_empty())
-                .then(|| mg_module::text::Finder::new(&draft.find, draft.options).err())
-                .flatten();
+            let for_now = |(f, o): &(String, mg_module::text::Options)| {
+                *f == draft.find && *o == draft.options
+            };
+            if !draft.checked.as_ref().is_some_and(|(what, _)| for_now(what)) {
+                let bad = (draft.options.regex && !draft.find.is_empty())
+                    .then(|| mg_module::text::Finder::new(&draft.find, draft.options).err())
+                    .flatten();
+                draft.checked = Some(((draft.find.clone(), draft.options), bad));
+            }
+            let bad = draft.checked.as_ref().and_then(|(_, bad)| bad.clone());
             if let Some(e) = &bad {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
@@ -525,23 +544,38 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
             find &= can;
             find |= ui.add_enabled(can, egui::Button::new("Find")).clicked();
             // What was found, if it's still what's asked for.
-            let asked = draft.searched.as_ref() == Some(&(draft.find.clone(), draft.options));
+            let asked = draft.searched.as_ref().is_some_and(for_now);
             let stale = app.ws.as_ref().is_some_and(|ws| draft.stale(ws));
             if asked && stale {
                 ui.weak("The module changed since. Find again for what it has now.");
             } else if asked {
                 let times: usize = draft.hits.iter().filter(|h| h.1).map(|h| h.0.count).sum();
                 ui.label(format!("{} string(s), {times} time(s)", draft.hits.len()));
-                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                    for (i, (hit, on)) in draft.hits.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.checkbox(on, "");
-                            if ui.link(&hit.place).on_hover_text("Open it").clicked() {
-                                go = Some(i);
-                            }
+                // (The hits in sight alone are laid out, each two lines
+                // high, a long text cut: "the" is found tens of thousands
+                // of times.)
+                let line = ui.spacing().interact_size.y;
+                let tall = line
+                    + ui.spacing().item_spacing.y
+                    + ui.text_style_height(&egui::TextStyle::Body);
+                let rows =
+                    egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
+                rows.show_rows(ui, tall, draft.hits.len(), |ui, range| {
+                    for i in range {
+                        let (hit, on) = &mut draft.hits[i];
+                        let size = egui::vec2(ui.available_width(), tall);
+                        let down = egui::Layout::top_down(egui::Align::Min);
+                        ui.allocate_ui_with_layout(size, down, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                            ui.horizontal(|ui| {
+                                ui.checkbox(on, "");
+                                if ui.link(&hit.place).on_hover_text("Open it").clicked() {
+                                    go = Some(i);
+                                }
+                            });
+                            let text: String = hit.text.chars().take(120).collect();
+                            ui.indent(("hit", i), |ui| ui.weak(text));
                         });
-                        let text: String = hit.text.chars().take(120).collect();
-                        ui.indent(("hit", i), |ui| ui.weak(text));
                     }
                 });
                 let n = draft.hits.iter().filter(|h| h.1).count();
