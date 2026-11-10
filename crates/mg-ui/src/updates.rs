@@ -228,6 +228,16 @@ impl Updates {
         if self.http.is_none() {
             return Some("This copy of Moonglow doesn't download updates.".into());
         }
+        // (Never the system's temporary folder in its place: a download
+        // and its lock under names anyone can guess, in a folder every
+        // user of the machine writes to.)
+        if self.cache.is_none() {
+            return Some(
+                "Moonglow found no cache folder of yours to download an update into: download \
+                 the new release from its page."
+                    .into(),
+            );
+        }
         if release.asset(&package).is_none() {
             return Some(format!("The release has no {package} for this copy."));
         }
@@ -376,7 +386,7 @@ pub fn get(app: &mut Moonglow, release: Release, now: bool) {
     }
     let u = &app.updates;
     let (http, key) = (u.http.clone().expect("why_not"), u.key.clone().expect("why_not"));
-    let (kind, cache) = (u.kind.clone(), u.cache.clone().unwrap_or_else(std::env::temp_dir));
+    let (kind, cache) = (u.kind.clone(), u.cache.clone().expect("why_not"));
     crate::trace::note(format!("update: getting {} ({})", release.version, kind.what()));
     let work = move || {
         let mut said = |got, of| *progress.lock().unwrap_or_else(|e| e.into_inner()) = (got, of);
@@ -433,7 +443,8 @@ fn install_image_now(app: &mut Moonglow, staged: Staged) {
     if !matches!(staged.ready, mg_update::Ready::Image { .. }) {
         return;
     }
-    let cache = app.updates.cache.clone().unwrap_or_else(std::env::temp_dir);
+    // (What is staged was downloaded into the cache folder: there is one.)
+    let Some(cache) = app.updates.cache.clone() else { return };
     let outcome = mg_update::install::install(&staged, false, &cache);
     let Some(g) = &mut app.updates.getting else { return };
     match outcome {
@@ -457,7 +468,7 @@ fn install_image_now(app: &mut Moonglow, staged: Staged) {
 /// closes, installs what is ready, and starts again with the module.
 pub(crate) fn restart(app: &mut Moonglow) {
     let Some(staged) = app.updates.getting.as_ref().and_then(Getting::ready) else { return };
-    let cache = app.updates.cache.clone().unwrap_or_else(std::env::temp_dir);
+    let Some(cache) = app.updates.cache.clone() else { return };
     let start = mg_update::install::plan(staged, true, &cache).ok().map(|(_, again)| again);
     crate::trace::note(format!("update: restart to install {}", staged.version));
     let backend = app.renderer_check.adapter.as_ref().map_or(wgpu::Backend::Vulkan, |a| a.backend);

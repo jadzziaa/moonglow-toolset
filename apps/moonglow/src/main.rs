@@ -178,9 +178,10 @@ impl eframe::App for App {
                 if let Some(again) = self.moonglow.relaunch.take() {
                     left.relaunch = Some(again);
                 }
-                if let Some(staged) = self.moonglow.updates.at_close() {
-                    let cache =
-                        self.moonglow.updates.cache.clone().unwrap_or_else(std::env::temp_dir);
+                // (An update is only ever downloaded into the cache folder.)
+                if let Some(cache) = self.moonglow.updates.cache.clone()
+                    && let Some(staged) = self.moonglow.updates.at_close()
+                {
                     left.update = Some((staged, cache));
                 }
             }
