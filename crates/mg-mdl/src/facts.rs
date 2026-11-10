@@ -36,9 +36,11 @@ pub struct Facts {
     /// vertices lie in its own node. `None`: it draws no mesh. Emitters'
     /// particles, lights and walkmeshes are not in it.
     pub bounds: Option<(Vec3, Vec3)>,
-    /// Each skin mesh: its node's name and the bones its weights move (the
-    /// distinct nodes given a weight above zero).
-    pub skins: Vec<(String, usize)>,
+    /// Each skin mesh: its node's name, the bones its weights move (the
+    /// distinct nodes given a weight above zero) and its triangles.
+    pub skins: Vec<(String, usize, usize)>,
+    /// The bones of all its skins together (each node once).
+    pub bones: usize,
     /// The textures it names (lower case): its meshes' (`bitmap`,
     /// `texture0` to `texture3`), its emitters' and its lights' flares'.
     pub textures: BTreeSet<String>,
@@ -60,6 +62,7 @@ impl Facts {
             ..Default::default()
         };
         let rest = rest_places(model);
+        let mut bones_of_all = BTreeSet::new();
         for (i, node) in model.nodes.iter().enumerate() {
             *f.node_types.entry(node.kind.type_name()).or_default() += 1;
             match &node.kind {
@@ -89,7 +92,8 @@ impl Facts {
                             .filter(|(_, w)| *w > 0.0)
                             .filter_map(|(b, _)| skin.bones.get(usize::from(*b)).copied())
                             .collect();
-                        f.skins.push((node.name.clone(), bones.len()));
+                        f.skins.push((node.name.clone(), bones.len(), triangles));
+                        bones_of_all.extend(bones);
                     }
                 }
                 NodeKind::Emitter(e) => f.textures.extend(named(&e.texture).map(lower)),
@@ -101,6 +105,7 @@ impl Facts {
                 _ => {}
             }
         }
+        f.bones = bones_of_all.len();
         f.animations = (model.animations.iter())
             .map(|a| (a.name.clone(), a.length, a.transtime, a.events.len()))
             .collect();
@@ -192,7 +197,8 @@ donemodel mg_facts\n";
         // (at z -50) is not in it.
         let (lo, hi) = facts.bounds.unwrap();
         assert!(close(lo, [0.0, 0.0, 0.0]) && close(hi, [10.0, 4.0, 1.0]), "{lo:?} {hi:?}");
-        assert_eq!(facts.skins, [("body".to_string(), 2)]);
+        assert_eq!(facts.skins, [("body".to_string(), 2, 1)]);
+        assert_eq!(facts.bones, 2);
         let textures: Vec<&str> = facts.textures.iter().map(String::as_str).collect();
         assert_eq!(textures, ["fxpa_smoke", "mg_hidden", "mg_skin", "mg_tex"]);
         assert_eq!(facts.materials.iter().collect::<Vec<_>>(), ["mg_mat"]);

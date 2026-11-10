@@ -13,8 +13,9 @@ use crate::{Output, path_text};
 
 /// Where the archives and folders given with `--hak` sit in the load
 /// order: over every hak (the game's and the user's, a module's too),
-/// under the user folder's `development/` and what the game puts above
-/// that (`--no-user-dir` leaves the user folder out).
+/// under the portraits folders, the user folder's `development/` and the
+/// rest the game puts above that (`--no-user-dir` leaves the user
+/// folder's out).
 pub(crate) const PRIORITY: u32 = priority::HAK_USER + 1;
 
 /// `--hak PATH`: archives and folders over the game's resources.

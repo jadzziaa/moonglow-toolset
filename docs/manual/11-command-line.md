@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T15:37:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T15:46:23Z }
 ---
 
 # Command-line tools
@@ -45,7 +45,7 @@ JSON (below).
 | `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension), which takes the place of one that was there only once it is whole; warns when files would start past 2 GiB, where the game stops reading. `--compile-models` compiles the models kept as text (ASCII `.mdl`) on the way in, each against its supermodel from the folder or the game (which it then needs, as the other commands find it); a model that doesn't compile, has errors `mg verify` would name, or whose supermodel isn't found goes in as the text it is, and is named |
 | `mg model compile IN.mdl OUT.mdl` | compile one model kept as text into the binary model the game loads, as the game's own compiler makes it: its supermodel (whose part numbers its nodes take) and the materials (`.mtr`) its meshes name are looked for beside it, then in the game. The compiler's notes are printed (what it left out or made up, by line), among them a node with no `parent` line, which the game leaves out of the model with the nodes under it |
 | `mg model decompile IN.mdl OUT.mdl` | write a binary model as the text it compiles from, as `mg cat --text` does a game resource's. A body part's skin compiled against the creature's skeleton it is worn on (Beamdog's HD bodies) has its bones named from that skeleton (`pmh0` for `pmh0_neck001`), found beside it or in the game; without it the bones are left unnamed and the text says so |
-| `mg model info MODEL` | a model's facts, from its file (text or compiled) or by its name from the load order (`plc_a01`; `--module` and `--hak` as for `mg cat`): its nodes by kind, its faces (`faces`, every mesh's triangles; `faces_rendered`, those of the meshes the game draws: `render` on, not a walkmesh's `aabb`) and vertices, the box its drawn meshes fill (`bounds`, `min` and `max` in the model's space at rest: each node placed by its parents' positions, orientations and scales, a skin at its bind pose as its vertices lie; emitters' particles, lights, walkmeshes and meshes not drawn left out; `null` for a model that draws no mesh), its skins with the bones their weights move (`skins`, each `node` and `bones`), the textures it names (its meshes', emitters' and flares'), the materials, its supermodel (`null` for none) and its own animations, each with `length`, `transtime` and how many `events` (those its supermodel gives it are not listed). `--json` for scripts; the facts are the same for a model's text and the model compiled from it |
+| `mg model info MODEL` | a model's facts, from its file (text or compiled) or by its name from the load order (`plc_a01`; `--module` and `--hak` as for `mg cat`): its nodes by kind, its faces (`faces`, every mesh's triangles; `faces_rendered`, those of the meshes the game draws: `render` on, not a walkmesh's `aabb`) and vertices, the box its drawn meshes fill (`bounds`, `min` and `max` in the model's space at rest: each node placed by its parents' positions, orientations and scales, a skin at its bind pose as its vertices lie; emitters' particles, lights, walkmeshes and meshes not drawn left out; `null` for a model that draws no mesh), its skins with the bones their weights move and their triangles (`skins`, each `node`, `bones` and `faces`; `bones`, those of all of them, each once), the textures it names (its meshes', emitters' and flares'), the materials, its supermodel (`null` for none) and its own animations, each with `length`, `transtime` and how many `events` (those its supermodel gives it are not listed). `--json` for scripts; the facts are the same for a model's text and the model compiled from it |
 | `mg gff INPUT [-o OUTPUT] [--module PATH] [--names]` | a GFF file to JSON (the format of neverwinter.nim and nasher, written as `nwn_gff -p` writes it: its notation of floats, `0.0000002499999993688107` rather than `2.499999993688107e-7`, and its string escapes, the fields in the file's order), or JSON back to GFF; its text in Windows-1252, or by the `encoding.2da` table of the module given (in its haks). `--names` names what a field's number stands for, as the window's fields view does (read from the game's 2DAs): `"row": "Human"` beside a race's `"value"`, an item property's subtype and value by the tables its other fields name, a conversation line's animation, a talk-table string, a faction by the module's own (with `--module`), and `"__row"` on each of a creature's skills and a store's pages; JSON with them reads back as without |
 
 ## The game's resources
@@ -72,8 +72,9 @@ JSON (below).
 often as needed, adds a hak, ERF or module (`.hak`, `.erf`, `.mod`) or a
 folder of loose files (its own files, not its folders') to the load order:
 the first given wins over the next, and all of them over every hak (the
-game's, the user folder's, a `--module`'s), under the user folder's
-`development/` (`--no-user-dir` leaves that out). Its layer is named by its
+game's, the user folder's, a `--module`'s), under the portraits folders
+and the user folder's `development/` (`--no-user-dir` leaves the user
+folder's out). Its layer is named by its
 kind and the path as given: `hak:build/hak/top.hak`, `folder:assets/models`.
 
 ## Modules

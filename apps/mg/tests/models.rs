@@ -239,7 +239,8 @@ fn model_info_gives_a_model_s_facts_from_its_text_and_compiled() {
     assert_eq!((a["format"].as_str(), b["format"].as_str()), (Some("ascii"), Some("binary")));
     assert_eq!(a["from"], text.to_str().unwrap());
     let same = ["name", "supermodel", "classification", "nodes", "node_types", "faces"];
-    let also = ["faces_rendered", "bounds", "skins", "textures", "materials", "animations"];
+    let also =
+        ["faces_rendered", "bounds", "skins", "bones", "textures", "materials", "animations"];
     for field in same.iter().chain(&also) {
         assert_eq!(a[field], b[field], "{field}: {a} {b}");
     }

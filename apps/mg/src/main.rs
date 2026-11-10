@@ -1403,7 +1403,8 @@ enum ModelCmd {
     },
     /// A model's facts: its nodes by kind, faces (all, and those of the
     /// meshes the game draws), vertices, the box its drawn meshes fill at
-    /// rest, its skins and the bones their weights move, the textures and
+    /// rest, its skins with their faces and the bones their weights move
+    /// (and the bones of all of them), the textures and
     /// materials it names, its supermodel and its own animations with
     /// their lengths. Text or compiled alike.
     Info {
@@ -2219,8 +2220,9 @@ fn model_info(
         "vertices": f.vertices,
         "bounds": bounds,
         "skins": (f.skins.iter())
-            .map(|(node, bones)| json!({ "node": node, "bones": bones }))
+            .map(|(node, bones, faces)| json!({ "node": node, "bones": bones, "faces": faces }))
             .collect::<Vec<_>>(),
+        "bones": f.bones,
         "textures": f.textures,
         "materials": f.materials,
         "animations": (f.animations.iter())
@@ -2241,8 +2243,8 @@ fn model_info(
         Some((min, max)) => format!("Bounds\t{} to {}", shown(min), shown(max)),
         None => "Bounds\tnone (no mesh drawn)".to_string(),
     });
-    for (node, bones) in &f.skins {
-        out.line(format!("Skin\t{node}: {bones} bones"));
+    for (node, bones, faces) in &f.skins {
+        out.line(format!("Skin\t{node}: {bones} bones, {faces} faces"));
     }
     out.line(format!("Textures\t{}", list(&mut f.textures.iter().cloned())));
     out.line(format!("Materials\t{}", list(&mut f.materials.iter().cloned())));
