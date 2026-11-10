@@ -1152,6 +1152,11 @@ impl AreaView {
         Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
     }
 
+    /// The workspace's revision the area was read at.
+    pub(crate) fn read_at(&self) -> Option<u64> {
+        self.revision
+    }
+
     /// How far Q and E have turned what is about to be placed (radians).
     pub(crate) fn ghost_turn(&self) -> f32 {
         self.ghost_turn
@@ -3196,7 +3201,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
     let status = if let Some(paint) = crate::paint_mode::status(app) {
-        paint
+        match view.paint.more {
+            0 => paint,
+            more => format!("{paint} · {more} more are laid than are drawn"),
+        }
     } else if let Some(b) = crate::terrain_mode::active(app, view) {
         let how = match b.brush {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",

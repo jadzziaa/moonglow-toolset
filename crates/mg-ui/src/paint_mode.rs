@@ -82,7 +82,40 @@ pub struct PaintState {
     /// What the last frame showed see-through: the stroke's placeables
     /// and the next dab.
     pub shown: usize,
+    /// How many of those were not drawn (past [`GHOSTS_MAX`]): the status
+    /// line says so. They are laid all the same.
+    pub more: usize,
+    /// The next dab as last worked out, and what for: the pointer resting
+    /// on the view asks for the same one every frame.
+    next: Option<(DabKey, Vec<Painted>)>,
+    /// How many times the next dab was worked out (for tests: not every
+    /// frame the pointer rests).
+    pub worked: u64,
 }
+
+/// What the next dab under the pointer is worked out from: where, by
+/// which seed and settings, with which blueprints (and how many of their
+/// models are read), how turned and snapped, in the area as read at which
+/// revision (with its scene or without), over how much of a stroke.
+#[derive(Debug, Clone, PartialEq)]
+struct DabKey {
+    center: [u32; 3],
+    seed: u64,
+    settings: PaintSettings,
+    keys: Vec<ResKey>,
+    sized: usize,
+    turn: u32,
+    snap: Option<u32>,
+    area: (Option<u64>, bool, bool),
+    /// Whether the area's placeables are shown (those hidden are not kept
+    /// a distance from).
+    shows: bool,
+    pending: usize,
+}
+
+/// The most see-through placeables the brush draws: a dab of a forest at
+/// its widest is tens of thousands, each a model posed every frame.
+const GHOSTS_MAX: usize = 400;
 
 /// The circle's color, a dab's green.
 const CIRCLE: Color32 = Color32::from_rgb(110, 230, 110);
@@ -162,6 +195,49 @@ pub(crate) fn reach_of((min, max): (Vec3, Vec3), scale: f32) -> f32 {
     [min.x, max.x, min.y, max.y].into_iter().map(f32::abs).fold(0.0, f32::max) * scale
 }
 
+/// The places a dab keeps its distance from, each with how far its sides
+/// reach: asked whether a new one at a point would be too near any. In
+/// squares as wide as the farthest two can be and still be too near, so
+/// that a point is held against those of its square and the eight around
+/// it, not against every one (a thousand placeables a dab, thirty tries
+/// each).
+struct Taken {
+    /// The least gap between two, before their reaches.
+    spacing: f32,
+    /// A square's side: `spacing` and twice the longest reach.
+    cell: f32,
+    cells: HashMap<(i32, i32), Vec<(Vec2, f32)>>,
+}
+
+impl Taken {
+    /// `longest`: the longest reach any of them, or one asked about,
+    /// has.
+    fn new(spacing: f32, longest: f32) -> Taken {
+        let cell = (spacing + 2.0 * longest).max(0.01);
+        Taken { spacing, cell, cells: HashMap::new() }
+    }
+
+    fn square(&self, p: Vec2) -> (i32, i32) {
+        ((p.x / self.cell).floor() as i32, (p.y / self.cell).floor() as i32)
+    }
+
+    fn push(&mut self, p: Vec2, reach: f32) {
+        self.cells.entry(self.square(p)).or_default().push((p, reach));
+    }
+
+    /// Whether one at `p` reaching `reach` would be nearer than the
+    /// spacing to one of them.
+    fn too_near(&self, p: Vec2, reach: f32) -> bool {
+        let (x, y) = self.square(p);
+        (-1..=1).flat_map(|dx| (-1..=1).map(move |dy| (dx, dy))).any(|(dx, dy)| {
+            let at = (x.saturating_add(dx), y.saturating_add(dy));
+            self.cells.get(&at).is_some_and(|there| {
+                there.iter().any(|(q, rq)| q.distance(p) < self.spacing + rq + reach)
+            })
+        })
+    }
+}
+
 /// The ground's height at a point (`None`: none there).
 pub(crate) type Ground<'a> = &'a dyn Fn(Vec2) -> Option<f32>;
 
@@ -205,13 +281,17 @@ pub(crate) fn dab(
     let mut rng = fastrand::Rng::with_seed(seed);
     // (Each one's middle, and how far its sides reach: none, unless by size.)
     let sized = |reach: f32| if s.by_size { reach } else { 0.0 };
-    let mut taken: Vec<(Vec2, f32)> = around
-        .iter()
-        .filter(|n| n.at.distance(middle) <= radius + spacing + sized(n.reach))
-        .map(|n| (n.at, sized(n.reach)))
-        .collect();
-    let spread = f32::from(s.turn_spread.min(360)).to_radians();
     let (low, high) = (s.scale_min.min(s.scale_max), s.scale_max.max(s.scale_min));
+    let near =
+        || around.iter().filter(|n| n.at.distance(middle) <= radius + spacing + sized(n.reach));
+    // (The longest reach of those around and of what the dab may lay.)
+    let largest = keys.iter().map(|k| size(*k)).fold(0.0, f32::max) * f32::from(high) / 100.0;
+    let longest = near().map(|n| sized(n.reach)).fold(sized(largest), f32::max);
+    let mut taken = Taken::new(spacing, longest);
+    for n in near() {
+        taken.push(n.at, sized(n.reach));
+    }
+    let spread = f32::from(s.turn_spread.min(360)).to_radians();
     let lift = f32::from(s.lift_cm) / 100.0;
     let mut out = Vec::new();
     for _ in 0..count * TRIES {
@@ -224,12 +304,12 @@ pub(crate) fn dab(
         let key = keys[rng.usize(..keys.len())];
         let scale = f32::from(low + rng.u16(..=high - low)) / 100.0;
         let reach = sized(size(key) * scale);
-        if taken.iter().any(|(q, rq)| q.distance(p) < spacing + rq + reach) {
+        if taken.too_near(p, reach) {
             continue;
         }
         let Some(z) = ground(p) else { continue };
         let turn = mg_area::arrange::snap_rotation(turn + (rng.f32() - 0.5) * spread, snap);
-        taken.push((p, reach));
+        taken.push(p, reach);
         out.push(Painted { key, position: p.extend(z + lift), turn, scale });
     }
     out
@@ -493,7 +573,8 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
         // (Read anew when it is next on: the blueprints may have changed.)
         view.paint.templates.clear();
         view.paint.bounds.clear();
-        view.paint.shown = 0;
+        (view.paint.shown, view.paint.more) = (0, 0);
+        view.paint.next = None;
         return Vec::new();
     };
     view.read_walkable(app);
@@ -509,7 +590,7 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
     if app.settings.paint.erase {
         // (The eraser shows nothing see-through: what it takes out is
         // marked, `overlay`.)
-        view.paint.shown = 0;
+        (view.paint.shown, view.paint.more) = (0, 0);
         return Vec::new();
     }
     let at = pointer(ui, view);
@@ -523,15 +604,41 @@ pub(crate) fn ghosts(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> 
     let mut shown = view.paint.pending.clone();
     match at.filter(|_| !view.paint.painting) {
         Some(at) if row => shown.extend(row_to(app, view, &keys, at).0),
-        Some(at) => shown.extend(next_dab(app, view, &keys, at)),
+        Some(at) => {
+            // (The same dab while the pointer rests and nothing it is
+            // worked out from changes: not worked out every frame.)
+            let key = DabKey {
+                center: at.to_array().map(f32::to_bits),
+                seed: view.paint.seed,
+                settings: app.settings.paint,
+                sized: view.paint.bounds.len(),
+                turn: view.ghost_turn().to_bits(),
+                snap: view.snap_angle().map(f32::to_bits),
+                area: (view.read_at(), view.holds_scene(), view.ground().is_some()),
+                shows: view.show[ObjectKind::Placeable.index()],
+                pending: view.paint.pending.len(),
+                keys: keys.clone(),
+            };
+            if !view.paint.next.as_ref().is_some_and(|(k, _)| *k == key) {
+                let dab = next_dab(app, view, &keys, at);
+                view.paint.next = Some((key, dab));
+                view.paint.worked += 1;
+            }
+            shown.extend(view.paint.next.iter().flat_map(|(_, dab)| dab.iter().copied()));
+        }
         None => {}
     }
     let templates = &view.paint.templates;
+    let known = |p: &&Painted| templates.get(&p.key).is_some_and(|t| t.is_some());
+    let total = shown.iter().filter(known).count();
+    // (The first few hundred drawn: all of them are laid.)
     let objects: Vec<AreaObject> = shown
         .iter()
         .filter_map(|p| templates.get(&p.key)?.as_ref().map(|t| object(t, p)))
+        .take(GHOSTS_MAX)
         .collect();
-    view.paint.shown = objects.len();
+    view.paint.shown = total;
+    view.paint.more = total - objects.len();
     objects
 }
 
@@ -987,6 +1094,34 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The review's A17: a dab asks of each place it tries whether it is
+    /// too near what is there, of squares of them, not of every one. The
+    /// squares answer as going through them all does, whatever the
+    /// spacing and the reaches (none, small, larger than the spacing).
+    #[test]
+    fn the_places_taken_answer_by_squares_as_gone_through() {
+        let mut rng = fastrand::Rng::with_seed(11);
+        for (spacing, longest) in [(0.0, 0.0), (0.4, 0.0), (0.0, 1.5), (0.75, 2.0), (3.0, 0.3)] {
+            let mut taken = Taken::new(spacing, longest);
+            let mut all: Vec<(Vec2, f32)> = Vec::new();
+            let point = |rng: &mut fastrand::Rng| {
+                Vec2::new(rng.f32() * 40.0 - 20.0, rng.f32() * 40.0 - 20.0)
+            };
+            let mut near = 0;
+            for _ in 0..600 {
+                let (p, reach) = (point(&mut rng), rng.f32() * longest);
+                let scan = all.iter().any(|(q, rq)| q.distance(p) < spacing + rq + reach);
+                assert_eq!(taken.too_near(p, reach), scan, "{p} reaching {reach}");
+                near += usize::from(scan);
+                if !scan || rng.bool() {
+                    taken.push(p, reach);
+                    all.push((p, reach));
+                }
+            }
+            assert_eq!(near > 0, spacing + longest > 0.0, "spacing {spacing}, reach {longest}");
+        }
+    }
 
     fn key(name: &str) -> ResKey {
         ResKey::parse(name, ResType::UTP).unwrap()

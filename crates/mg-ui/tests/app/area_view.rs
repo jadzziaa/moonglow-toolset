@@ -7270,3 +7270,56 @@ fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
         assert!((x - was.x - 5.0).abs() < 0.1 && (y - was.y).abs() < 0.1, "chest {i}: {x}, {y}");
     }
 }
+
+/// The review's A17: the dab the brush would lay was worked out anew
+/// every frame the pointer rested on the view, and every one of its
+/// placeables posed see-through, hundreds or thousands of them. It is
+/// worked out once while nothing it comes of changes; the first few
+/// hundred are drawn, the status line says how many more are laid, and
+/// the click lays them all.
+#[test]
+fn the_next_dab_is_worked_out_once_and_drawn_in_part() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("paint-forest") else { return };
+    let shrub = ResKey::parse("plc_shrub", ResType::UTP).unwrap();
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(shrub);
+        app.paint = true;
+        app.settings.paint = mg_ui::settings::PaintSettings {
+            radius_cm: 1500,
+            density: 100,
+            spacing_cm: 10,
+            flow: 100,
+            ..Default::default()
+        };
+    }
+    let over = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(over);
+    settle(&mut h);
+    let paint = |h: &Harness<'_, Moonglow>| {
+        let p = &h.state().area_views[&area].paint;
+        (p.shown, p.more, p.worked)
+    };
+    let (shown, more, worked) = paint(&h);
+    assert!(shown > 500, "a dab of a forest: {shown}");
+    assert_eq!(more, shown - 400, "the first four hundred drawn");
+    h.get_by_label_contains(&format!("{more} more are laid than are drawn"));
+    // The pointer resting: the same dab, not worked out again.
+    h.run_steps(10);
+    assert_eq!(paint(&h), (shown, more, worked));
+    // Turned (Q), it is another: worked out once more.
+    h.key_press(egui::Key::Q);
+    h.run_steps(3);
+    assert_eq!(paint(&h).2, worked + 1);
+    // A click lays all of them.
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    let laid = git.root.list("Placeable List").map_or(0, <[_]>::len);
+    assert!(laid > 500, "{laid} laid");
+}

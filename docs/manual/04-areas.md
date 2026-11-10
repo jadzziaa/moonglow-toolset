@@ -990,7 +990,9 @@ shows see-through under the pointer, and a click lays exactly that. What
 a stroke lays shows see-through until you let go; then it goes into the area as one step,
 **Paint Placeables**, which one Undo takes away. Escape or a right click
 during a stroke drops it. Otherwise it turns Paint off, and the
-placeables stay chosen.
+placeables stay chosen. Of a very large dab or stroke the first four
+hundred show see-through, and the status line says how many more are
+laid than are drawn.
 
 ## Painting terrain
 
