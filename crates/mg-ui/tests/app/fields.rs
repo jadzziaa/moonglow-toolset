@@ -1826,6 +1826,55 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
 }
 
+/// The raw fields view showed a localized string's English text and
+/// wrote what was typed into the language edited: with another language
+/// chosen, the box went back to the English as if the edit were refused,
+/// and clearing it took the other language's text away (the review of
+/// November 2026, D14). It shows the text it writes.
+#[test]
+fn the_raw_fields_view_shows_the_language_it_writes() {
+    use mg_core::{Gender, Language};
+    let dir = mg_testkit::scratch_dir("ui-raw-fields-language");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("guard", ResType::UTC).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut utc = Gff::new(*b"UTC ");
+    let mut name = LocString::from_text(Language::ENGLISH, Gender::Male, "Guard");
+    name.set(Language::FRENCH, Gender::Male, b"Garde".to_vec());
+    utc.root.set("FirstName", mg_gff::Value::LocString(name));
+    m.set_gff(key, &utc).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 760.0);
+    mg_ui::set_edit_language(Language::FRENCH);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Gff(key)));
+    settle(&mut h);
+    let texts = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let name = ws.doc(&key).unwrap().root.locstring("FirstName").cloned().unwrap();
+        let text = |l| name.text(l, Gender::Male).map(std::borrow::Cow::into_owned);
+        (text(Language::ENGLISH), text(Language::FRENCH))
+    };
+    let field = |h: &Harness<'_, Moonglow>, value: &str| {
+        let is = |n: &egui_kittest::Node<'_>| {
+            n.accesskit_node().role() == egui::accesskit::Role::TextInput
+        };
+        h.query_all_by_value(value).find(is).map(|n| n.rect().center())
+    };
+    assert!(field(&h, "Guard").is_none(), "not the English text");
+    let at = field(&h, "Garde").expect("the text in the language edited");
+    click_pos(&h, at);
+    h.run();
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("s".into()));
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    mg_ui::set_edit_language(Language::ENGLISH);
+    assert_eq!(texts(&mut h), (Some("Guard".into()), Some("Gardes".into())));
+}
+
 #[test]
 fn text_is_edited_in_the_chosen_language() {
     use mg_core::{Gender, Language};

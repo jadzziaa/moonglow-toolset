@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use egui::Ui;
-use mg_core::{Gender, Language};
+
 use mg_edit::{Command, Edit, GffPath, Step};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
@@ -361,11 +361,12 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
                         ui.weak(shortened(&text, 48));
                     }
                 }
-                let english = crate::text::codepage_of(Language::ENGLISH);
-                let current = ls
-                    .text_in(Language::ENGLISH, Gender::Male, english)
-                    .map(|t| t.into_owned())
-                    .unwrap_or_default();
+                // The text in the language edited (Options › Language), which
+                // is the one `with_english` writes: the box showed the
+                // English text whatever was edited, so with another
+                // language what was typed replaced that language's text
+                // and the box went back to the English, as if refused.
+                let current = crate::text::edited_text(ls);
                 if let Some(t) = ctx.loc_text(ui, id, &current) {
                     ctx.set(path, label, Value::LocString(with_english(ls.clone(), &t)));
                 }
