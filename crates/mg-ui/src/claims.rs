@@ -42,6 +42,9 @@ pub(crate) struct ClaimsState {
     pub(crate) held: bool,
     /// The Claims Table window (Edit › Claims Table…).
     pub(crate) table: Option<TableWindow>,
+    /// The Claims Table window's listing, kept while the claims and the
+    /// module's areas are what it was made by ([`listing`]).
+    listed: Option<(ClaimsNow, Vec<ResRef>, std::sync::Arc<Vec<mg_module::claims::Listed>>)>,
 }
 
 /// The Claims Table window: what is being answered in it.
@@ -555,16 +558,36 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
 /// The Claims Table window: every area of the table and the module, whose
 /// each is, and what this builder may do with each (Claim, Release, Hand
 /// To…, Take Over…), as `mg claims` lists and changes them.
-fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(mut w) = app.claims.table.take() else { return };
-    let Some(p) = project(app).filter(|p| p.claim_table.is_some() || p.claims.file.is_some())
-    else {
-        return;
-    };
+/// Every area of the claims table and the module, whose each is
+/// (`ProjectFile::claims_listing`): made when the claims (the table, the
+/// rules, the builder's code) or the module's areas change, and kept
+/// between. It was made anew every frame the window showed, each area
+/// looked for in the table and the module's list: eight million
+/// comparisons a frame for a world of 1,400 areas.
+fn listing(app: &mut Moonglow) -> Option<std::sync::Arc<Vec<mg_module::claims::Listed>>> {
+    let p = project(app).filter(|p| p.claim_table.is_some() || p.claims.file.is_some())?;
     let areas: Vec<ResRef> = (app.ws.as_ref())
         .map(|ws| ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect())
         .unwrap_or_default();
-    let listed = p.claims_listing(Some(&areas));
+    let by = whose(p);
+    if let Some((was, of, listed)) = &app.claims.listed
+        && *was == by
+        && *of == areas
+    {
+        return Some(listed.clone());
+    }
+    let listed = std::sync::Arc::new(p.claims_listing(Some(&areas)));
+    app.claims.listed = Some((by, areas, listed.clone()));
+    Some(listed)
+}
+
+fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut w) = app.claims.table.take() else {
+        app.claims.listed = None;
+        return;
+    };
+    let Some(listed) = listing(app) else { return };
+    let Some(p) = project(app) else { return };
     let file = p.claims.file.clone().unwrap_or_default();
     let code = p.user.builder_code.clone();
     let mut open = true;
@@ -583,21 +606,43 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                 )),
             };
             ui.add_space(4.0);
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                egui::Grid::new("claims-table").striped(true).num_columns(4).show(ui, |ui| {
-                    for l in &listed {
+            // (The rows in sight alone are laid out: a world has 1,400
+            // areas. Columns of set widths, a long holder's name cut and
+            // whole on hover.)
+            let height = ui.spacing().interact_size.y;
+            let rows = egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]);
+            rows.show_rows(ui, height, listed.len(), |ui, range| {
+                ui.set_min_width(600.0);
+                let cell = |ui: &mut egui::Ui, width: f32, text: egui::RichText| {
+                    let layout = egui::Layout::left_to_right(egui::Align::Center);
+                    ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+                        ui.set_min_width(width);
+                        let said = text.text().to_string();
+                        ui.add(egui::Label::new(text).truncate()).on_hover_text(said);
+                    });
+                };
+                for at in range {
+                    let l = &listed[at];
+                    ui.horizontal(|ui| {
+                        if at % 2 == 1 {
+                            let mut stripe = ui.available_rect_before_wrap();
+                            stripe.set_height(height);
+                            ui.painter().rect_filled(stripe, 0.0, ui.visuals().faint_bg_color);
+                        }
                         let c = l.claim.as_ref();
-                        ui.label(l.area.to_string());
+                        cell(ui, 130.0, egui::RichText::new(l.area.to_string()));
                         let whose = match (l.whose, c.and_then(|c| c.holder())) {
                             (Whose::Mine, Some(h)) => format!("yours: {h}"),
                             (_, Some(h)) => h,
                             (_, None) => "free".to_string(),
                         };
-                        if l.whose == Whose::Others {
-                            ui.colored_label(ui.visuals().warn_fg_color, whose);
-                        } else {
-                            ui.label(whose);
-                        }
+                        let whose = match l.whose {
+                            Whose::Others => {
+                                egui::RichText::new(whose).color(ui.visuals().warn_fg_color)
+                            }
+                            _ => egui::RichText::new(whose),
+                        };
+                        cell(ui, 190.0, whose);
                         let mut notes = Vec::new();
                         if c.is_some_and(|c| c.merged()) {
                             notes.push("merged");
@@ -607,8 +652,8 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                         if !l.in_module {
                             notes.push("not in the module");
                         }
-                        ui.weak(notes.join(", "));
-                        ui.horizontal(|ui| match l.whose {
+                        cell(ui, 140.0, egui::RichText::new(notes.join(", ")).weak());
+                        match l.whose {
                             Whose::Mine => {
                                 if ui.button("Release").clicked() {
                                     chosen = Some((l.area, How::Release));
@@ -644,10 +689,9 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                                     chosen = Some((l.area, How::Claim));
                                 }
                             }
-                        });
-                        ui.end_row();
-                    }
-                });
+                        }
+                    });
+                }
             });
             if let Some(area) = w.take {
                 let who = listed

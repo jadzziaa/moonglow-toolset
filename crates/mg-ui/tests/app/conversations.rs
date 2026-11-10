@@ -334,6 +334,61 @@ fn conversation_search_bookmarks_and_test() {
     assert!(h.state().dialog_views[&key].test.is_none());
 }
 
+/// A conversation's Search lists what it found a line each, and lays out
+/// the lines in sight (every result was copied and drawn with its whole
+/// text every frame: the review of November 2026, D24); over all the
+/// module's conversations it reads the others without making them the
+/// workspace's documents. A result clicked selects its line.
+#[test]
+fn a_conversation_s_search_lays_out_the_results_in_sight() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-dialog-search-rows");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let other = ResKey::parse("talk_two", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    for i in 0..500 {
+        add_node(&mut g, Parent::Root, &format!("The road, line {i:03}.\nAnd a second line."));
+    }
+    let mut two = new_dialog();
+    add_node(&mut two, Parent::Root, "The road elsewhere.");
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.set_gff(other, &two).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = window_harness(app);
+    h.run();
+    {
+        let view = h.state_mut().dialog_views.get_mut(&key).unwrap();
+        view.bottom = mg_ui::dialog_view::Bottom::Search;
+        view.search.find = "road".into();
+        view.search.all_files = true;
+    }
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    let results = h.state().dialog_views[&key].search.results.clone();
+    assert_eq!(results.len(), 501, "this conversation's and the other's");
+    assert!(results.iter().any(|r| r.0 == other));
+    assert!(
+        h.state().ws.as_ref().unwrap().loaded(&other).is_none(),
+        "read for the look, not kept as a document"
+    );
+    // A line each, the first of its text; those in sight alone.
+    h.get_by_label("Entry 0: The road, line 000.");
+    let laid_out = h.query_all_by_label_contains(": The road, line ").count();
+    assert!((1..200).contains(&laid_out), "{laid_out} of 500 laid out");
+    assert!(h.query_by_label("Entry 499: The road, line 499.").is_none());
+    h.get_by_label("Entry 1: The road, line 001.").click();
+    h.run();
+    let selected = h.state().dialog_views[&key].selected.unwrap();
+    assert_eq!((selected.parent, selected.pos), (Parent::Root, 1));
+    let _ = Kind::Entry;
+}
+
 /// A link goes to the line it links to, where that is owned, its parents
 /// opened out: by a double click on it, as in Aurora, and by its menu's
 /// Go to Linked (a builder's report: nothing happened).

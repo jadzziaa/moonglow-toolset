@@ -921,6 +921,10 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
                     .show(ui, |ui| {
                         for (j, item) in items.iter().enumerate() {
                             let item_id = format!("{child_id}/{j}");
+                            // (Closed and out of sight: its header's room.)
+                            if crate::gff_view::closed_out_of_sight(ui, &item_id) {
+                                continue;
+                            }
                             egui::CollapsingHeader::new(format!("[{j}] struct {}", item.id))
                                 .id_salt(&item_id)
                                 .show(ui, |ui| gff_tree(ui, item, &item_id));

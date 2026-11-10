@@ -2497,14 +2497,25 @@ fn search_pane(
         };
         let mut results = Vec::new();
         for k in keys {
-            let doc = if k == key {
-                Some(g.clone())
+            // (Another conversation as an editor has it, else read from
+            // the module for this look and let go: each was made a
+            // document of the workspace and copied whole.)
+            let read;
+            let d: &Gff = if k == key {
+                g
+            } else if let Some(open) = app.ws.as_ref().and_then(|w| w.loaded(&k)) {
+                open
             } else {
-                app.ws.as_mut().and_then(|w| w.doc(&k).ok().cloned())
+                match app.ws.as_ref().and_then(|w| w.module.gff(&k)) {
+                    Some(Ok(other)) => {
+                        read = other;
+                        &read
+                    }
+                    _ => continue,
+                }
             };
-            let Some(d) = doc else { continue };
             for kind in [Kind::Entry, Kind::Reply] {
-                for (i, n) in mg_module::dialog::nodes(&d, kind).iter().enumerate() {
+                for (i, n) in mg_module::dialog::nodes(d, kind).iter().enumerate() {
                     let t = line_text(app.game.as_deref(), n);
                     if matches(&t, &s.find, s) {
                         results.push((k, kind, i as u32, t));
@@ -2537,20 +2548,37 @@ fn search_pane(
         app.log.info(format!("Replaced {n} in {key}"));
     }
     ui.separator();
-    for (k, kind, index, t) in s.results.clone() {
-        let label = if k == key {
-            format!("{kind:?} {index}: {t}")
+    // The results in sight are laid out, a line each (a line's first,
+    // its whole text on hover), the others taking a row's room: a search
+    // for "the" over a world's conversations is tens of thousands, and
+    // each was copied and drawn with its whole text every frame.
+    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    let mut clicked = None;
+    for (at, (k, kind, index, t)) in s.results.iter().enumerate() {
+        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+        if !ui.is_rect_visible(room) {
+            ui.add_space(row);
+            continue;
+        }
+        let line = t.lines().next().unwrap_or_default();
+        let label = if *k == key {
+            format!("{kind:?} {index}: {line}")
         } else {
-            format!("{k}: {kind:?} {index}: {t}")
+            format!("{k}: {kind:?} {index}: {line}")
         };
-        if ui.selectable_label(false, label).clicked() {
-            if k == key {
-                if let Some((parent, pos)) = mg_module::dialog::owner(g, kind, index) {
-                    view.selected = Some(Row { parent, pos });
-                }
-            } else {
-                actions.push(Action::OpenTab(Tab::Dialog(k)));
+        let found = ui.add(egui::Button::selectable(false, label).truncate());
+        let found = if line.len() < t.len() { found.on_hover_text(t) } else { found };
+        if found.clicked() {
+            clicked = Some(at);
+        }
+    }
+    if let Some((k, kind, index, _)) = clicked.and_then(|at| s.results.get(at)) {
+        if *k == key {
+            if let Some((parent, pos)) = mg_module::dialog::owner(g, *kind, *index) {
+                view.selected = Some(Row { parent, pos });
             }
+        } else {
+            actions.push(Action::OpenTab(Tab::Dialog(*k)));
         }
     }
 }

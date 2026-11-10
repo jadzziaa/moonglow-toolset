@@ -1635,11 +1635,16 @@ impl ProjectFile {
         use crate::claims::{Listed, Standing, Whose};
         let table = self.claim_table.clone().unwrap_or_default();
         let mut areas: Vec<ResRef> = table.rows.iter().map(|c| c.area).collect();
+        // (Looked up, not looked through: a world has 1,400 areas, and
+        // each was sought in both lists.)
+        let mut listed: std::collections::HashSet<ResRef> = areas.iter().copied().collect();
         for a in module.unwrap_or_default() {
-            if !areas.contains(a) {
+            if listed.insert(*a) {
                 areas.push(*a);
             }
         }
+        let in_module: Option<std::collections::HashSet<ResRef>> =
+            module.map(|m| m.iter().copied().collect());
         areas
             .into_iter()
             .map(|area| {
@@ -1653,7 +1658,7 @@ impl ProjectFile {
                     },
                     claim: standing.claim().cloned(),
                     protected: self.protected(area).is_some(),
-                    in_module: module.is_none_or(|m| m.contains(&area)),
+                    in_module: in_module.as_ref().is_none_or(|m| m.contains(&area)),
                 }
             })
             .collect()

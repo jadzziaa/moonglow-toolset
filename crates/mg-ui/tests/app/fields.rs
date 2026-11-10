@@ -1826,6 +1826,64 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
 }
 
+/// A list opened in the raw fields view lays out the items in sight and
+/// those opened (an area's thousands of placeables were a header each,
+/// every frame: the review of November 2026, D24): the first are there,
+/// the last is not until the list is scrolled to it, and an item opened
+/// stays as it is.
+#[test]
+fn a_list_in_the_raw_fields_view_lays_out_the_items_in_sight() {
+    let dir = mg_testkit::scratch_dir("ui-raw-fields-list");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("start", ResType::GIT).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut git = Gff::new(*b"GIT ");
+    let items: Vec<mg_gff::Struct> = (0..800)
+        .map(|i| {
+            let mut p = mg_gff::Struct::new(9);
+            p.set("Tag", mg_gff::Value::String(format!("CHEST_{i:03}").into_bytes()));
+            p
+        })
+        .collect();
+    git.root.set("Placeable List", mg_gff::Value::List(items));
+    m.set_gff(key, &git).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 760.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Gff(key)));
+    settle(&mut h);
+    h.get_by_label("800 items").click();
+    settle(&mut h);
+    h.get_by_label("[0] struct 9");
+    let laid_out = h.query_all_by_label_contains("] struct 9").count();
+    assert!((1..300).contains(&laid_out), "{laid_out} of 800 laid out");
+    assert!(h.query_by_label("[799] struct 9").is_none(), "out of sight");
+    // One opened shows its fields, and the list goes on under it.
+    h.get_by_label("[1] struct 9").click();
+    settle(&mut h);
+    let is =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    assert!(h.query_all_by_value("CHEST_001").any(|n| is(&n)), "its Tag shown");
+    h.get_by_label("[2] struct 9");
+    // Scrolled to its end: the last item.
+    let over = h.get_by_label("[2] struct 9").rect().center();
+    h.hover_at(over);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -1_000_000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while h.query_by_label("[799] struct 9").is_none() {
+        assert!(std::time::Instant::now() < deadline, "the list scrolls to its end");
+        h.step();
+    }
+    assert!(h.query_by_label("[0] struct 9").is_none());
+}
+
 /// The raw fields view showed a localized string's English text and
 /// wrote what was typed into the language edited: with another language
 /// chosen, the box went back to the English as if the edit were refused,
