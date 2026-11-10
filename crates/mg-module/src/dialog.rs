@@ -672,6 +672,39 @@ pub struct Branch {
     condition: Vec<(&'static str, Value)>,
 }
 
+impl Branch {
+    /// Has the branch follow the lines of the conversation it was copied
+    /// from across a change that numbered them anew (`map`): the links
+    /// out of it go on naming their lines, and one whose line was deleted
+    /// is dropped. Without it, a branch copied before a line was deleted
+    /// pasted its links at whatever lines had those numbers by then. (The
+    /// lines it copied are told from the conversation's by their numbers
+    /// too: they are numbered along, and one whose original is gone gets
+    /// a number no line has.)
+    pub fn renumber(&mut self, map: &Renumbering) {
+        let now: Vec<(Kind, u32)> = (self.origin.iter().enumerate())
+            .map(|(at, &(k, i))| (k, map.line(k, i).unwrap_or(u32::MAX - at as u32)))
+            .collect();
+        let inside: HashMap<(Kind, u32), u32> =
+            self.origin.iter().copied().zip(now.iter().map(|n| n.1)).collect();
+        for (k, line) in &mut self.lines {
+            let Some(l) = line.list_mut(k.links()) else { continue };
+            l.retain_mut(|link| {
+                let target = (k.child(), link_index(link));
+                let to = match inside.get(&target) {
+                    Some(n) => Some(*n),
+                    None => map.line(target.0, target.1),
+                };
+                if let Some(n) = to {
+                    link.set("Index", Value::Dword(n));
+                }
+                to.is_some()
+            });
+        }
+        self.origin = now;
+    }
+}
+
 /// Copies the branch a link under a parent points to (following owning
 /// links).
 pub fn copy_branch(g: &Gff, parent: Parent, pos: usize) -> Option<Branch> {
@@ -1067,5 +1100,47 @@ mod tests {
         assert_eq!(pasted.resref("Active").map(|r| r.to_string()).as_deref(), Some("cond_weapmod"));
         assert_eq!(pasted.get("ConditionParams"), Some(&params));
         assert!(!is_link(pasted) && link_index(pasted) != link_index(&links(&g, Parent::Root)[0]));
+    }
+
+    /// A branch copied with a link out of it keeps naming that line
+    /// across a delete that numbers the lines anew (the review of November
+    /// 2026, D11): pasted, its link leads to the line it led to, not to
+    /// the one that has its old number; a link whose line is gone is left
+    /// out, and the lines it copied stay its own.
+    #[test]
+    fn a_copied_branch_follows_the_lines_it_links_to() {
+        let mut g = new_dialog();
+        let first = add_node(&mut g, Parent::Root, "First.");
+        add_node(&mut g, Parent::Node(Kind::Entry, first), "Gone.");
+        let kept = add_node(&mut g, Parent::Node(Kind::Entry, first), "Kept.");
+        let second = add_node(&mut g, Parent::Root, "Second.");
+        let own = add_node(&mut g, Parent::Node(Kind::Entry, second), "Mine.");
+        assert!(add_link(&mut g, Parent::Node(Kind::Entry, second), kept));
+        let mut branch = copy_branch(&g, Parent::Root, 1).unwrap();
+        assert_eq!(branch.lines.len(), 2, "Second. and its own reply");
+        // "Gone." (reply 0) is deleted: "Kept." is reply 0 now, "Mine." 1.
+        let map = remove(&mut g, Parent::Node(Kind::Entry, first), 0);
+        assert_eq!((map.line(Kind::Reply, kept), map.line(Kind::Reply, own)), (Some(0), Some(1)));
+        branch.renumber(&map);
+        assert!(paste_branch(&mut g, Parent::Root, &branch, true));
+        let pasted = link_index(links(&g, Parent::Root).last().unwrap());
+        let under: Vec<(String, bool)> = links(&g, Parent::Node(Kind::Entry, pasted))
+            .iter()
+            .map(|l| (text(node(&g, Kind::Reply, link_index(l)).unwrap()), is_link(l)))
+            .collect();
+        assert_eq!(under, [("Mine.".to_string(), false), ("Kept.".to_string(), true)]);
+        // (Its own reply is a copy, not the original's line.)
+        let mine = link_index(&links(&g, Parent::Node(Kind::Entry, pasted))[0]);
+        assert_ne!(mine, 1);
+        // The line it links to deleted too: the link goes, its own stays.
+        let map = remove(&mut g, Parent::Node(Kind::Entry, first), 0);
+        branch.renumber(&map);
+        assert!(paste_branch(&mut g, Parent::Root, &branch, true));
+        let pasted = link_index(links(&g, Parent::Root).last().unwrap());
+        let under: Vec<String> = links(&g, Parent::Node(Kind::Entry, pasted))
+            .iter()
+            .map(|l| text(node(&g, Kind::Reply, link_index(l)).unwrap()))
+            .collect();
+        assert_eq!(under, ["Mine."]);
     }
 }

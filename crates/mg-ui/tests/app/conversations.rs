@@ -835,6 +835,136 @@ const BRANCHING: [&str; 7] = [
     "  Reply|Who are you?|link",
 ];
 
+/// A greeting with three replies, and a second greeting with none.
+fn replies_dialog() -> Gff {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello.");
+    for reply in ["Gone.", "Kept one.", "Kept two."] {
+        add_node(&mut g, Parent::Node(Kind::Entry, hello), reply);
+    }
+    add_node(&mut g, Parent::Root, "Other.");
+    g
+}
+
+/// The conversation clipboard names the copied line by its number, for
+/// Paste As Link. With an earlier line deleted since the Copy, the link
+/// went to whatever line had the number by then (the review of November
+/// 2026, D11): the clipboard follows its lines as the bookmarks do, and
+/// a line cut has none to link to.
+#[test]
+fn paste_as_link_goes_to_the_line_copied_after_a_delete() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-clip-follows", &replies_dialog());
+    let select = |h: &mut Harness<'_, Moonglow>, parent: Parent, pos: usize| {
+        h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(Row { parent, pos });
+        h.run();
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_all_by_label(label).next().unwrap().click();
+        h.run();
+        h.run();
+    };
+    let hello = Parent::Node(Kind::Entry, 0);
+    // "Kept one." copied, then "Gone." before it deleted: it is reply 0.
+    select(&mut h, hello, 1);
+    click(&mut h, "Copy");
+    select(&mut h, hello, 0);
+    click(&mut h, "Delete");
+    assert_eq!(
+        dialog_lines(&mut h, key),
+        ["Entry|Hello.|", "  Reply|Kept one.|", "  Reply|Kept two.|", "Entry|Other.|"]
+    );
+    // "Other." links to the line that was copied, not to reply 1.
+    select(&mut h, Parent::Root, 1);
+    click(&mut h, "Paste As Link");
+    assert_eq!(
+        dialog_lines(&mut h, key),
+        [
+            "Entry|Hello.|",
+            "  Reply|Kept one.|",
+            "  Reply|Kept two.|",
+            "Entry|Other.|",
+            "  Reply|Kept one.|link"
+        ]
+    );
+    // Undo twice (the link, the delete): the clipboard's line is reply 1
+    // again, and the link goes to it.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    h.run();
+    select(&mut h, Parent::Root, 1);
+    click(&mut h, "Paste As Link");
+    assert_eq!(
+        dialog_lines(&mut h, key).last().map(String::as_str),
+        Some("  Reply|Kept one.|link")
+    );
+    // A line cut is gone: nothing to link to, and the button is off.
+    select(&mut h, hello, 2);
+    click(&mut h, "Cut");
+    select(&mut h, Parent::Root, 1);
+    let button = h.get_all_by_label("Paste As Link").next().unwrap();
+    assert!(button.accesskit_node().is_disabled(), "the line cut is no line to link to");
+}
+
+/// Input Text asks for a new line's text under a line it kept by number,
+/// and doesn't stop the editor: with an earlier line deleted behind it,
+/// OK put the new line under whatever had the number, or under nothing
+/// (the review of November 2026, D15). Its line is followed, and the
+/// popup closes when the line is gone.
+#[test]
+fn input_text_adds_under_its_line_after_a_delete_behind_it() {
+    use mg_module::dialog::{Kind, Parent, remove};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-input-follows", &replies_dialog());
+    let other = Row { parent: Parent::Root, pos: 1 };
+    h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(other);
+    h.run();
+    h.get_all_by_label("Add").next().unwrap().click();
+    h.run();
+    h.get_by_label("Enter what the player says next:");
+    // The first greeting deleted behind the popup: "Other." is entry 0.
+    let delete_first = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let mut g = ws.doc(&key).unwrap().clone();
+        remove(&mut g, Parent::Root, 0);
+        let edit = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+        ws.apply(mg_edit::Command::new("Delete line", vec![edit])).unwrap();
+    };
+    delete_first(&mut h);
+    h.run();
+    assert_eq!(dialog_lines(&mut h, key), ["Entry|Other.|"]);
+    let role = egui::accesskit::Role::MultilineTextInput;
+    h.get_all_by_value("<< Enter text here >>")
+        .find(|n| n.accesskit_node().role() == role)
+        .expect("the Input Text field")
+        .type_text("Under it");
+    h.run();
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    h.run();
+    assert_eq!(dialog_lines(&mut h, key), ["Entry|Other.|", "  Reply|Under it|"]);
+    assert_eq!(
+        h.state().dialog_views[&key].input.as_ref().map(|i| i.parent),
+        None,
+        "answered: closed"
+    );
+    // Its line deleted behind it: the popup closes, and nothing is added.
+    h.state_mut().dialog_views.get_mut(&key).unwrap().selected =
+        Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 0 });
+    h.run();
+    h.get_all_by_label("Add").next().unwrap().click();
+    h.run();
+    h.get_by_label("Enter what the NPC says next:");
+    delete_first(&mut h);
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Enter what the NPC says next:").is_none(), "its line is gone");
+    assert!(dialog_lines(&mut h, key).is_empty());
+}
+
 /// How a line is deleted.
 #[derive(Debug, Clone, Copy)]
 enum DeleteBy {

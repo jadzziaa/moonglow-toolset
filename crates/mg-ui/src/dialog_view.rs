@@ -148,15 +148,20 @@ impl DialogView {
     /// last: by the changes between (a delete, its undo or redo, in any
     /// number of steps); a change it doesn't know (made elsewhere, or
     /// further back than it remembers) by the lines found again in it.
-    fn follow(&mut self, key: ResKey, g: &Gff, revision: u64) {
+    /// The Input Text popup's parent follows too (the popup closes when
+    /// its line is gone). Returns the renumberings it followed, in turn,
+    /// for what is kept by line number outside the view (the conversation
+    /// clipboard, an open String Edit of a line: [`follow_outside`]).
+    fn follow(&mut self, key: ResKey, g: &Gff, revision: u64) -> Vec<Renumbering> {
+        let mut followed = Vec::new();
         if self.seen.is_some_and(|(r, _)| r == revision) {
-            return;
+            return followed;
         }
         let now = fingerprint(g);
         let before = self.last.replace(g.clone());
-        let Some((_, was)) = self.seen.replace((revision, now)) else { return };
+        let Some((_, was)) = self.seen.replace((revision, now)) else { return followed };
         if was == now {
-            return;
+            return followed;
         }
         let steps = match self.steps(was, now) {
             Some(steps) => steps,
@@ -235,15 +240,29 @@ impl DialogView {
                 }
                 line((*kind, *index)).map(|(_, n)| *index = n).is_some()
             });
+            // (The line Input Text adds a line under: OK went by its
+            // number, under whatever line had it by then.)
+            if let Some(Parent::Node(k, i)) = self.input.as_ref().map(|n| n.parent) {
+                match line((k, i)) {
+                    Some((k, n)) => {
+                        if let Some(input) = &mut self.input {
+                            input.parent = Parent::Node(k, n);
+                        }
+                    }
+                    None => self.input = None,
+                }
+            }
+            followed.push(map);
         }
         if !renumbered {
-            return;
+            return followed;
         }
         self.selected = selection.and_then(|(parent, shown)| {
             let (_, index) = shown?;
             let pos = links(g, parent).iter().position(|l| link_index(l) == index)?;
             Some(Row { parent, pos })
         });
+        followed
     }
 
     /// The changes that lead from fingerprint `from` to `to`, each forward
@@ -784,13 +803,46 @@ pub struct DialogSearch {
 }
 
 /// What Copy and Cut put aside (shared by all conversations, like Aurora's
-/// Scrap).
+/// Scrap). It names lines of the conversation it was copied from by their
+/// numbers (the copied line, the branch's links out), and follows them as
+/// that conversation's bookmarks do ([`follow_outside`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DialogClip {
     pub from: ResKey,
     pub branch: Branch,
-    /// The copied line, for Paste As Link.
-    pub target: (Kind, u32),
+    /// The copied line, for Paste As Link; none once it is gone (cut, or
+    /// deleted since).
+    pub target: Option<(Kind, u32)>,
+}
+
+/// Has what is kept by a line's number outside conversation `key`'s view
+/// follow its lines across the renumberings the view followed
+/// ([`DialogView::follow`]): the conversation clipboard, where it was
+/// copied here (its line for Paste As Link, and its branch's links to
+/// lines outside it), and an open String Edit of a line's text, which
+/// closes when its line is gone. Each wrote to whatever line had the
+/// number once an earlier line was deleted, or an Undo put one back.
+fn follow_outside(app: &mut Moonglow, key: ResKey, followed: &[Renumbering]) {
+    for map in followed.iter().filter(|m| !m.is_identity()) {
+        if let Some(clip) = app.dialog_clip.as_mut().filter(|c| c.from == key) {
+            clip.target = clip.target.and_then(|(k, i)| Some((k, map.line(k, i)?)));
+            clip.branch.renumber(map);
+        }
+        let edited = app.loc_edit.as_mut().filter(|w| w.target.key == key);
+        let line = edited.as_ref().and_then(|w| match w.target.path.0.first() {
+            Some(mg_edit::Step::Item(list, i)) => {
+                let kind = [Kind::Entry, Kind::Reply].into_iter().find(|k| k.list() == list)?;
+                Some((kind, *i))
+            }
+            _ => None,
+        });
+        if let (Some(w), Some((kind, i))) = (edited, line) {
+            match u32::try_from(i).ok().and_then(|i| map.line(kind, i)) {
+                Some(n) => w.target.path.0[0] = mg_edit::Step::Item(kind.list().into(), n as usize),
+                None => app.loc_edit = None,
+            }
+        }
+    }
 }
 
 /// A line's own text: in the language edited (Options › Language), else,
@@ -892,7 +944,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut view = app.dialog_views.remove(&key).unwrap_or_default();
     // The bookmarks, folded lines and selection follow their lines, if a
     // delete (or its undo) numbered them anew since the last frame.
-    view.follow(key, &g, revision);
+    let followed = view.follow(key, &g, revision);
+    follow_outside(app, key, &followed);
     let folds = view.collapsed.len();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
@@ -1006,7 +1059,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             copy_branch(&g, r.parent, r.pos).map(|b| DialogClip {
                 from: key,
                 branch: b,
-                target: target_of(r),
+                target: Some(target_of(r)),
             })
         };
         if button(ui, sel.is_some(), glyph::COPY, "Copy", "").clicked()
@@ -1044,10 +1097,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // copied one (Link Destination To Source); the other way round,
         // the copied line gets a link to the selected one.
         let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
-        let pair = match (selected_line, clip.filter(|c| c.from == key)) {
-            (Some(dest), Some(c)) => {
-                let (from, to) =
-                    if paste_source_first { (c.target, dest) } else { (dest, c.target) };
+        let copied = clip.filter(|c| c.from == key).and_then(|c| c.target);
+        let pair = match (selected_line, copied) {
+            (Some(dest), Some(copied)) => {
+                let (from, to) = if paste_source_first { (copied, dest) } else { (dest, copied) };
                 (from.0.child() == to.0).then_some((from, to))
             }
             _ => None,

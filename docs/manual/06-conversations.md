@@ -80,7 +80,7 @@ selection stays in sight.
 | Add | a reply to the selected line (an NPC line under Root or a player line, a player line under an NPC line) |
 | Copy, Cut | the selected line and everything under it |
 | Paste | the copied lines as new lines under the selected one, appearing when the copied line did (its **Text Appears When** script and parameters) |
-| Paste As Link | a link to the copied line under the selected one |
+| Paste As Link | a link to the copied line under the selected one (the line copied, wherever deletes and Undo since have moved it; off once that line is gone, as after Cut) |
 | ⏶ and ⏷ (Alt+Up, Alt+Down) | move the selected line up or down among its parent's lines: the order the game tries a speaker's lines in and lists a player's replies in |
 | Delete | the selected line and everything under it (a link: just the link) |
 | Expand All, Collapse All | open or close the whole tree |

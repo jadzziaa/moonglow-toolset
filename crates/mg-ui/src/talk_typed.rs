@@ -57,6 +57,11 @@ pub struct TypedState {
     /// applied at.
     redo: Vec<(usize, Vec<Typed>)>,
     pub ask: Option<Ask>,
+    /// The commands typed while a question is asked (with what was
+    /// answered of their texts), in turn: each goes on once the question
+    /// is answered. The one slot held the last of them alone, and the
+    /// edit asked about before it was dropped without a word.
+    waiting: std::collections::VecDeque<(Command, Vec<(String, Answer)>)>,
     /// Why typed text stayed in the file, each said once.
     said: BTreeSet<String>,
 }
@@ -186,6 +191,15 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
     let loc = |e: &Edit| matches!(e, Edit::SetField { value: Some(Value::LocString(_)), .. });
     if !enabled(app) || app.ws.is_none() || !cmd.edits.iter().any(loc) {
         return plain(app, cmd);
+    }
+    // (A question is being asked: this one waits its turn behind it. Not
+    // the command asked about again, nor one that waits already: a field
+    // left with its text not yet set says so again.)
+    if let Some(ask) = &app.typed.ask {
+        if ask.cmd != cmd && !app.typed.waiting.iter().any(|(c, _)| *c == cmd) {
+            app.typed.waiting.push_back((cmd, answers));
+        }
+        return;
     }
     let (language, has_feminine) = match table_language(app) {
         Ok(l) => l,
@@ -437,15 +451,23 @@ pub(crate) fn stepped(app: &mut Moonglow, redo: bool, depth: usize) {
     }
 }
 
-/// The question asked of a text the table has a line with already.
+/// The question asked of a text the table has a line with already. It
+/// stops the editor until it is answered (an `egui::Modal`): it holds the
+/// command as it was typed, which for a conversation's new line is the
+/// conversation as it was then, and edits made behind the question were
+/// taken back when the answer applied it.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = app.typed.ask.clone() else { return };
     let mut answer = None;
-    let mut open = true;
     let mut always = false;
     let title = "Text in the Talk Table";
-    crate::widgets::modal(ctx, title).open(&mut open).show(ctx, |ui| {
+    // (Escape is this question's, as a dialog's is: the Properties window
+    // under it doesn't take it for its Cancel.)
+    let escape = crate::widgets::escape_closes(ctx, title);
+    let modal = egui::Modal::new(egui::Id::new("talk-typed-ask")).show(ctx, |ui| {
         ui.set_max_width(420.0);
+        ui.heading(title);
+        ui.add_space(4.0);
         ui.label(format!(
             "The talk table has this text already, at line {} (StrRef {}):",
             ask.row,
@@ -493,7 +515,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             Answer::File => TalkReuse::File,
         };
     }
-    if !open || crate::widgets::escape_closes(ctx, title) {
+    if escape || modal.should_close() {
         answer = answer.or(Some(Answer::File));
     }
     if let Some(answer) = answer {
@@ -501,5 +523,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         let mut answers = ask.answers;
         answers.push((ask.text, answer));
         app.actions.push(Action::ApplyTypedWith(ask.cmd, answers));
+        // (Then those typed while it was asked, each asked about in its
+        // turn where the table has its text.)
+        for (cmd, answers) in std::mem::take(&mut app.typed.waiting) {
+            app.actions.push(Action::ApplyTypedWith(cmd, answers));
+        }
     }
 }

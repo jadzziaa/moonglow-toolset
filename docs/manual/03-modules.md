@@ -1794,7 +1794,9 @@ the module's custom talk table and the field names it by its StrRef:
 - **A text the table has already:** Moonglow asks: **Use Line N** (the
   field names that line), **Add a Line**, or **Keep in the File**
   (Aurora's way, for this text). Options › Language can say Use that
-  line or Add a line without asking.
+  line or Add a line without asking. The question stops the editor
+  until it is answered (Escape keeps the text in the file), and a
+  second such text set meanwhile is asked about after it.
 - **Undo** takes the field and its line back together, and Redo puts
   both back. A line changed in the talk table editor since is left as it
   is; Redo whose line has been given another text since says so and

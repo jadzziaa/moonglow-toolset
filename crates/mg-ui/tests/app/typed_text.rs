@@ -183,6 +183,58 @@ fn a_text_the_talk_table_has_is_asked_about() {
     assert_eq!(h.state().talk.as_ref().unwrap().line(1).text, "The Keep");
 }
 
+/// The question held one command: a second text the table has, typed
+/// while the first was asked about, took its place, and the first field's
+/// edit was dropped without a word (the review of November 2026, D15).
+/// The second waits its turn and is asked about once the first is
+/// answered; the question stops the editor meanwhile, and Escape keeps
+/// the text in the file.
+#[test]
+fn two_texts_the_talk_table_has_are_each_asked_about() {
+    let Some((mut h, _, _)) = typed_harness("ui-typed-two-asks", true) else { return };
+    let key = ResKey::parse("module", ResType::IFO).unwrap();
+    let typed = |label: &str| {
+        let text = LocString::from_text(Language::ENGLISH, Gender::Male, "The Keep");
+        mg_ui::Action::ApplyTyped(mg_edit::Command::new(
+            label,
+            vec![mg_edit::Edit::SetField {
+                key,
+                path: mg_edit::GffPath::root(),
+                label: label.into(),
+                value: Some(mg_gff::Value::LocString(text)),
+            }],
+        ))
+    };
+    h.state_mut().actions.push(typed("Mod_Name"));
+    h.state_mut().actions.push(typed("Mod_Description"));
+    settle(&mut h);
+    let info = |h: &mut Harness<'_, Moonglow>| -> (LocString, LocString) {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&key).unwrap().root.clone();
+        (root.read(&ifo::MOD_NAME), root.read(&ifo::MOD_DESCRIPTION))
+    };
+    h.get_by_label("Text in the Talk Table");
+    assert_eq!(info(&mut h).0.strref, mg_core::StrRef::NONE, "nothing set before the answer");
+    // The first answered: its field set, and the second asked about.
+    h.get_by_label("Use Line 0").click();
+    settle(&mut h);
+    let (name, description) = info(&mut h);
+    assert_eq!(name.strref.0, BASE, "the first field's edit was not dropped");
+    assert_eq!(description.strref, mg_core::StrRef::NONE, "asked about in its turn");
+    h.get_by_label("Text in the Talk Table");
+    // Escape: kept in the file, as its Keep in the File.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.query_by_label("Text in the Talk Table").is_none());
+    let (name, description) = info(&mut h);
+    assert_eq!(name.strref.0, BASE);
+    assert_eq!(
+        (description.strref, english(&description)),
+        (mg_core::StrRef::NONE, Some(&b"The Keep"[..]))
+    );
+    assert_eq!(h.state().talk.as_ref().unwrap().len(), 1, "no line added");
+}
+
 /// Off (as by default), the text is the field's own, as Aurora writes it.
 #[test]
 fn off_by_default_typed_text_is_the_field_s_own() {
