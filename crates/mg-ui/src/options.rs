@@ -37,13 +37,13 @@ const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or copy gives a second objec
 const CLOSE_CANCELS_TIP: &str = "Closing a window with OK and Cancel sets back its changes, as \
                                  Cancel does";
 
-/// The Options window's pages and their names.
 /// The user folders `nwn.ini` may put elsewhere that Moonglow reads or
 /// writes (`GameInstall::user_folder`), said under the user folder where
 /// it does.
 const ALIASED: [&str; 7] =
     ["hak", "tlk", "override", "development", "modules", "portraits", "patch"];
 
+/// The Options window's pages and their names.
 pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::Folders, "Folders"),
     (OptionsPage::Area, "Area"),
@@ -602,6 +602,49 @@ pub(crate) const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
 /// The Options window's size when first opened.
 pub(crate) const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];
 
+/// What Options › Folders says of a user folder: whether it is there, and
+/// the folders its `nwn.ini` puts elsewhere ([`ALIASED`]), as the game
+/// finds them.
+#[derive(Debug, Clone, PartialEq)]
+struct UserFolder {
+    exists: bool,
+    aliased: Vec<(&'static str, std::path::PathBuf)>,
+}
+
+impl UserFolder {
+    /// Looks at the folder: reads its `nwn.ini` for each of [`ALIASED`].
+    fn look(user: &std::path::Path) -> UserFolder {
+        let gi = mg_resman::GameInstall::new("", Some(user.to_path_buf()), "en");
+        let aliased = (ALIASED.into_iter())
+            .filter_map(|sub| Some((sub, gi.user_folder(sub).filter(|f| *f != user.join(sub))?)))
+            .collect();
+        UserFolder { exists: user.is_dir(), aliased }
+    }
+}
+
+/// How long what was seen of a user folder is shown before it is looked
+/// at again (an `nwn.ini` edited meanwhile shows then).
+const USER_FOLDER_KEPT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// What a user folder is like ([`UserFolder::look`]), looked at when the
+/// folder typed changes and again every [`USER_FOLDER_KEPT`], not every
+/// frame: seven reads of `nwn.ini` and a look at the folder, which is
+/// often in a synced Documents or on a network share.
+fn user_folder_seen(ui: &Ui, user: &std::path::Path, now: std::time::Instant) -> UserFolder {
+    type Kept = (std::path::PathBuf, std::time::Instant, UserFolder);
+    let id = egui::Id::new("options-user-folder-seen");
+    let kept = ui.data(|d| d.get_temp::<Kept>(id));
+    if let Some((of, at, seen)) = kept
+        && of == user
+        && now.saturating_duration_since(at) < USER_FOLDER_KEPT
+    {
+        return seen;
+    }
+    let seen = UserFolder::look(user);
+    ui.data_mut(|d| d.insert_temp::<Kept>(id, (user.to_path_buf(), now, seen.clone())));
+    seen
+}
+
 enum Browse {
     Game,
     User,
@@ -749,8 +792,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 .clone()
                                 .or_else(|| path(&draft.user_dir))
                                 .or_else(|| detected.as_ref().and_then(|d| d.user_dir.clone()));
-                            if let Some(user) = &user
-                                && !user.is_dir()
+                            // (Looked at once a while for each folder: the
+                            // page read nwn.ini seven times a frame.)
+                            let seen = user
+                                .as_ref()
+                                .map(|user| user_folder_seen(ui, user, std::time::Instant::now()));
+                            if let (Some(user), Some(seen)) = (&user, &seen)
+                                && !seen.exists
                             {
                                 ui.colored_label(
                                     ui.visuals().warn_fg_color,
@@ -766,16 +814,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "Find haks, talk tables and override where nwn.ini's [Alias] \
                                      says, as the game does",
                                 );
-                            if let Some(user) = user.filter(|_| draft.aliases) {
-                                let gi = mg_resman::GameInstall::new("", Some(user.clone()), "en");
-                                for sub in ALIASED {
-                                    match gi.user_folder(sub) {
-                                        Some(f) if f != user.join(sub) => ui.weak(format!(
-                                            "{sub}: {} (nwn.ini's alias, as the game reads it)",
-                                            f.display()
-                                        )),
-                                        _ => continue,
-                                    };
+                            if let Some(seen) = seen.filter(|_| draft.aliases) {
+                                for (sub, f) in &seen.aliased {
+                                    ui.weak(format!(
+                                        "{sub}: {} (nwn.ini's alias, as the game reads it)",
+                                        f.display()
+                                    ));
                                 }
                             }
                             ui.add_space(crate::widgets::SECTION_GAP);
@@ -1236,7 +1280,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let suggested = std::path::Path::new("moonglow-keys.json");
             if let Some(p) = app.dialogs.save_file(crate::dialogs::FileKind::Keys, Some(suggested))
             {
-                match std::fs::write(&p, draft.keymap.to_file()) {
+                match mg_module::write_replacing(&p, draft.keymap.to_file().as_bytes()) {
                     Ok(()) => app.log.info(format!("Keys written to {}", p.display())),
                     Err(e) => app.log.error(format!("{}: {e}", p.display())),
                 }
@@ -1264,8 +1308,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
-/// Options › General › Toolbar buttons: Icons and text, or Icons only
-/// (the main toolbar's and the area view's, at once).
 /// The shadows' quality, Fast or High, to choose (Options › Area and the
 /// area view's Shadows menu): whether it changed.
 pub(crate) fn shadow_quality_choice(
@@ -1324,6 +1366,8 @@ fn area_resolution_choice(ui: &mut Ui, resolution: &mut Option<u8>) {
     });
 }
 
+/// Options › General › Toolbar buttons: Icons and text, or Icons only
+/// (the main toolbar's and the area view's, at once).
 fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
     let name = |icons_only: &bool| if *icons_only { "Icons only" } else { "Icons and text" };
     ui.horizontal(|ui| {
@@ -2017,6 +2061,45 @@ mod tests {
         assert_eq!(d.apply(&s).dialog_font_size, Some(18));
         d.game_root = "/games/nwn".into();
         assert!(d.moves_game(&s));
+    }
+
+    /// What Options › Folders says of a user folder is what a look at it
+    /// finds (it is there, and where its `nwn.ini` puts `hak` and `tlk`),
+    /// kept for a while: read again when another folder is typed and
+    /// when the time is up, not every frame.
+    #[test]
+    fn the_user_folder_is_looked_at_once_a_while() {
+        let user = mg_testkit::scratch_dir("ui-options-user-folder");
+        let other = user.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let ini = user.join("nwn.ini");
+        std::fs::write(&ini, "[Alias]\nHAK=haks-elsewhere\nTLK=/srv/nwn/tlk\n").unwrap();
+        let aliased = vec![
+            ("hak", user.join("haks-elsewhere")),
+            ("tlk", std::path::PathBuf::from("/srv/nwn/tlk")),
+        ];
+        let looked = UserFolder::look(&user);
+        if cfg!(not(windows)) {
+            assert_eq!(looked, UserFolder { exists: true, aliased });
+        }
+        let gone = user.join("not-there");
+        assert_eq!(UserFolder::look(&gone), UserFolder { exists: false, aliased: Vec::new() });
+        egui::__run_test_ui(|ui| {
+            let now = std::time::Instant::now();
+            assert_eq!(user_folder_seen(ui, &user, now), looked);
+            // (Kept: the file gone is not seen yet.)
+            std::fs::remove_file(&ini).unwrap();
+            let soon = now + USER_FOLDER_KEPT / 2;
+            assert_eq!(user_folder_seen(ui, &user, soon), looked);
+            // Another folder typed: looked at at once; and back.
+            assert_eq!(user_folder_seen(ui, &gone, soon), UserFolder::look(&gone));
+            let plain = UserFolder { exists: true, aliased: Vec::new() };
+            assert_eq!(user_folder_seen(ui, &user, soon), plain);
+            // The time up: looked at again.
+            std::fs::write(&ini, "[Alias]\nHAK=haks-elsewhere\nTLK=/srv/nwn/tlk\n").unwrap();
+            assert_eq!(user_folder_seen(ui, &user, soon + USER_FOLDER_KEPT / 2), plain);
+            assert_eq!(user_folder_seen(ui, &user, soon + USER_FOLDER_KEPT), looked);
+        });
     }
 
     /// Options › Language alone, OK: applied as a language is (text fields

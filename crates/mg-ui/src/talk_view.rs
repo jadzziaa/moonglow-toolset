@@ -64,9 +64,56 @@ pub struct TalkView {
     stamps: Option<Vec<(std::path::PathBuf, Option<std::time::SystemTime>)>>,
 }
 
+/// Whether a line has text or a sound (Only Lines with Text lists it).
+fn has_text(t: &Table, row: usize) -> bool {
+    let l = t.line(row);
+    !l.text.is_empty() || !l.sound.is_empty() || l.feminine.is_some_and(|f| !f.is_empty())
+}
+
+/// Puts `row` in a list of rows in order, or takes it out.
+fn keep_row(rows: &mut Vec<usize>, row: usize, listed: bool) {
+    match (rows.binary_search(&row), listed) {
+        (Err(at), true) => rows.insert(at, row),
+        (Ok(at), false) => _ = rows.remove(at),
+        _ => {}
+    }
+}
+
 impl TalkView {
     fn changed(&mut self) {
         self.revision += 1;
+    }
+
+    /// Line `row` of the table was set in the editor (a letter typed into
+    /// its text): what is kept of the table's lines is brought up to that
+    /// line alone. Each letter had every line looked at again, for Only
+    /// Lines with Text and for what the Filter finds, and the list made
+    /// anew: slow in a table that reaches into a range of a million lines.
+    fn line_changed(&mut self, t: &Table, row: usize) {
+        let before = self.revision;
+        self.revision += 1;
+        if let Some((of, texted)) = &mut self.texted
+            && *of == before
+        {
+            keep_row(texted, row, has_text(t, row));
+            *of = self.revision;
+        }
+        if let Some((query, of, found)) = &mut self.found
+            && *of == before
+        {
+            keep_row(found, row, t.finds(row, query));
+            *of = self.revision;
+        }
+        // (The list as it is: every line, or with Only Lines with Text
+        // those with text and the one selected, which is the one written.
+        // With something looked for it is made again, from what is found.)
+        if let Some(((of, len, query, selected), _)) = &mut self.shown
+            && (*of, *len) == (before, t.len())
+            && query.is_empty()
+            && selected.is_none_or(|s| s == Some(row))
+        {
+            *of = self.revision;
+        }
     }
 
     /// The table changed under the editor (a line typed for a field, or
@@ -319,15 +366,26 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     }
 }
 
-/// Adds a line to the module's talk table (String Edit › Move to Talk
-/// Table); returns its StrRef.
-pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String> {
+/// The line a text moved into the module's talk table would take now
+/// ([`add_line`]): the next free one of the project's range, as typed
+/// text takes one; the table's end without one.
+fn line_to_add(app: &mut Moonglow) -> Result<usize, String> {
     load(app);
     let own = !app.talk_view.outside;
     let t = app.talk.as_ref().filter(|t| own && t.editable()).ok_or("no talk table to add to")?;
-    // (At the next free line of the project's range, as typed text takes
-    // one; at the end without one.)
-    let row = crate::talk_typed::next_line(app, t)?;
+    crate::talk_typed::next_line(app, t)
+}
+
+/// The StrRef [`add_line`] would give a line added now (String Edit shows
+/// it from Move to Talk Table on, and adds the line at OK).
+pub(crate) fn next_strref(app: &mut Moonglow) -> Result<StrRef, String> {
+    line_to_add(app).map(Table::strref)
+}
+
+/// Adds a line to the module's talk table (String Edit › Move to Talk
+/// Table, at its OK); returns its StrRef.
+pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String> {
+    let row = line_to_add(app)?;
     let t = app.talk.as_mut().expect("checked");
     if row == t.len() {
         t.add_line(line)?;
@@ -882,11 +940,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     // those of them that have text or a sound.
     let query = v.filter.trim().to_string();
     if v.only_text && v.texted.as_ref().is_none_or(|(r, _)| *r != v.revision) {
-        let has = |row: &usize| {
-            let l = t.line(*row);
-            !l.text.is_empty() || !l.sound.is_empty() || l.feminine.is_some_and(|f| !f.is_empty())
-        };
-        v.texted = Some((v.revision, (0..t.len()).filter(has).collect()));
+        v.texted = Some((v.revision, (0..t.len()).filter(|row| has_text(t, *row)).collect()));
     }
     // (Kept while the table, what is looked for and the choices are what
     // they were made by: every line's number was listed anew each frame,
@@ -1132,7 +1186,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
             Ok(()) => {
                 *applied = t.line(row);
                 v.error = None;
-                v.revision += 1;
+                v.line_changed(t, row);
             }
             Err(e) => v.error = Some(e),
         }
@@ -1183,4 +1237,65 @@ fn split(ui: &mut Ui, editor: f32) -> Option<f32> {
     let from: f32 = ui.data(|d| d.get_temp(r.id))?;
     let (origin, at) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
     Some(from - (at?.y - origin?.y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the editor keeps of the table's lines (those with text, those
+    /// the Filter finds, the list) is, after a line is set, what a look
+    /// through every line makes of it: for a text typed, emptied, typed
+    /// to what is looked for and away from it, with and without Only
+    /// Lines with Text. The list of every line is not made again for a
+    /// letter.
+    #[test]
+    fn a_line_set_keeps_the_lists_as_a_look_through_makes_them() {
+        let dir = mg_testkit::scratch_dir("ui-talk-line-changed");
+        let mut t = Table::create("talk", &dir, mg_core::Language::ENGLISH, false);
+        let line = |text: &str| Line {
+            text: text.into(),
+            feminine: None,
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        for (row, text) in [(0, "The gate"), (2, "A goblin"), (5, "The gatehouse"), (9, "")] {
+            t.put_line(row, &line(text)).unwrap();
+        }
+        let texted = |t: &Table| (0..t.len()).filter(|r| has_text(t, *r)).collect::<Vec<_>>();
+        for query in ["", "gate", "5", "the gate"] {
+            let all: Vec<usize> = (0..t.len()).collect();
+            let listed = std::sync::Arc::new(all.clone());
+            let mut v = TalkView {
+                revision: 7,
+                texted: Some((7, texted(&t))),
+                found: Some((query.to_string(), 7, t.find(query))),
+                shown: Some(((7, t.len(), String::new(), None), listed.clone())),
+                ..Default::default()
+            };
+            for (row, text) in
+                [(3, "g"), (3, "ga"), (3, "gate"), (3, "gat"), (3, ""), (0, "The door"), (5, "")]
+            {
+                let before = t.line(row);
+                t.set_line(row, &line(text), Some(0)).unwrap();
+                v.line_changed(&t, row);
+                let (of, kept) = v.texted.as_ref().unwrap();
+                assert_eq!((*of, kept), (v.revision, &texted(&t)), "{query:?}, {row}: {text:?}");
+                let (_, of, found) = v.found.as_ref().unwrap();
+                assert_eq!((*of, found), (v.revision, &t.find(query)), "{query:?}, {row}: {text}");
+                // (Every line listed: the same list, not one made again.)
+                let ((of, ..), rows) = v.shown.as_ref().unwrap();
+                assert_eq!(*of, v.revision);
+                assert!(std::sync::Arc::ptr_eq(rows, &listed) && **rows == all);
+                t.set_line(row, &before, None).unwrap();
+                v.line_changed(&t, row);
+            }
+            // (What was kept of an older table is left for the next frame
+            // to make again.)
+            v.texted = Some((1, Vec::new()));
+            v.line_changed(&t, 0);
+            assert_eq!(v.texted, Some((1, Vec::new())));
+        }
+        assert!(t.finds(0, "gate") && !t.finds(2, "gate") && !t.finds(99, ""));
+    }
 }

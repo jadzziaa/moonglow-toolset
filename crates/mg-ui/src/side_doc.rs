@@ -175,6 +175,14 @@ pub(crate) fn ok_cancel(
         Pressed::Ok if read_only => app.may_close(tab),
         Pressed::Ok => {
             let unsaved = app.asked_about(tab).is_some_and(|(_, unsaved)| unsaved);
+            // (A hak is written as a job, which closes its tab once it is
+            // saved: gigabytes were written inside this frame.)
+            if let (true, Tab::Hak(id)) = (unsaved, tab) {
+                hak_view::save_then(app, *id, false, hak_view::Then::Close);
+                // (Saved and let go already, where jobs run at once:
+                // nothing more is drawn of it.)
+                return app.side_doc(tab).is_none();
+            }
             let saved = !unsaved || app.save_side(tab);
             if saved {
                 app.forget_side(tab);
@@ -428,6 +436,12 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         app.side_closing.pop_front();
     }
     let Some(tab) = app.side_closing.front().cloned() else { return };
+    // (A hak being saved for this question's Save: it closes once it is
+    // written, and is asked about again if it could not be.)
+    let saving = app.job.as_ref().is_some_and(|j| j.title == hak_view::SAVE_JOB);
+    if saving && matches!(tab, Tab::Hak(_)) {
+        return;
+    }
     let Some((title, _)) = app.asked_about(&tab) else { return };
     let more = app.side_closing.len() - 1;
     enum Answer {
@@ -459,6 +473,13 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     match answer {
         None => {}
         Some(Answer::Cancel) => app.side_closing.clear(),
+        // (A hak is written as a job, which closes its tab once it is
+        // saved; not saved, it stays, and is asked about again.)
+        Some(Answer::Save) if matches!(tab, Tab::Hak(_)) => {
+            if let Tab::Hak(id) = tab {
+                hak_view::save_then(app, id, false, hak_view::Then::Close);
+            }
+        }
         // (Not saved: it stays, and is asked about again.)
         Some(Answer::Save) if !app.save_side(&tab) => {}
         Some(Answer::Save | Answer::DontSave) => {

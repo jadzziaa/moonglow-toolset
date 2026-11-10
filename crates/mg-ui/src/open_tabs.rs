@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use crate::dialog_view::{DialogView, Row};
 use crate::references::Query;
 use crate::table_view::Home;
-use crate::{Action, Moonglow, Place, Side, Tab, tabs, trace};
+use crate::{Action, Moonglow, Place, Tab, tabs, trace};
 
 /// A module's tabs as they are kept.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -534,35 +534,6 @@ fn parse_tab(text: &str) -> Option<Want> {
     }))
 }
 
-fn place_text(place: Place) -> String {
-    match place {
-        Place::Window => "window".into(),
-        Place::Middle => "middle".into(),
-        Place::Palettes => "palettes".into(),
-        Place::Split(side, share) => format!("split {} {share}", side.name()),
-    }
-}
-
-fn parse_place(text: &str) -> Option<Place> {
-    let mut words = text.split_whitespace();
-    Some(match (words.next()?, words.next()) {
-        ("window", None) => Place::Window,
-        ("middle", None) => Place::Middle,
-        ("palettes", None) => Place::Palettes,
-        ("split", Some(side)) => {
-            let side = match side {
-                "left" => Side::Left,
-                "right" => Side::Right,
-                "above" => Side::Above,
-                "below" => Side::Below,
-                _ => return None,
-            };
-            Place::Split(side, words.next()?.parse::<u16>().ok()?.clamp(50, 950))
-        }
-        _ => return None,
-    })
-}
-
 /// A placed object as it is found again (`None`: a list of no kind of
 /// object, found by its place alone).
 fn placed(list: &str, index: usize, s: &mg_gff::Struct) -> Option<Placed> {
@@ -887,7 +858,7 @@ impl Moonglow {
                 .rect
                 .map(|[x, y, w, h]| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h)));
             let active = rename(&pane.active);
-            panes.push(Kept { place: parse_place(&pane.place), tabs, active, rect, split });
+            panes.push(Kept { place: Place::parse(&pane.place), tabs, active, rect, split });
         }
         if panes.is_empty() {
             return false;
@@ -1065,7 +1036,7 @@ impl Moonglow {
                 // not the order egui_dock's tree has its leaves in.)
                 let tabs = split.as_ref().map_or(tabs, Split::flat);
                 windows.push((path.surface, panes.len()));
-                panes.push(Pane { place: place_text(Place::Window), tabs, active, rect, split });
+                panes.push(Pane { place: Place::Window.text(), tabs, active, rect, split });
                 continue;
             }
             let place = if leaf.tabs.contains(&Tab::Palette) {
@@ -1073,7 +1044,7 @@ impl Moonglow {
             } else {
                 self.split_of(path.node).unwrap_or(Place::Middle)
             };
-            panes.push(Pane { place: place_text(place), tabs, active, ..Default::default() });
+            panes.push(Pane { place: place.text(), tabs, active, ..Default::default() });
         }
         // Tile Properties still waiting for its area's view (its tab not
         // shown since the module opened): kept as it was read, beside the
@@ -1085,7 +1056,7 @@ impl Moonglow {
             match panes.iter_mut().find(beside) {
                 Some(p) => p.tabs.push(text),
                 None => panes.push(Pane {
-                    place: place_text(w.place.unwrap_or(Place::Window)),
+                    place: w.place.unwrap_or(Place::Window).text(),
                     tabs: vec![text],
                     rect: w.rect.map(|r| [r.left(), r.top(), r.width(), r.height()]),
                     ..Default::default()
@@ -1118,10 +1089,7 @@ impl Moonglow {
             return;
         }
         // (Whole or not at all: written beside it, then put in its place.)
-        let partial = path.with_extension("json.partial");
-        let written = (path.parent().map_or(Ok(()), std::fs::create_dir_all))
-            .and_then(|()| std::fs::write(&partial, &text))
-            .and_then(|()| std::fs::rename(&partial, &path));
+        let written = mg_module::write_replacing_one_of_many(&path, text.as_bytes());
         match written {
             Ok(()) => trace::note(format!("open tabs written: {}", path.display())),
             Err(e) if !std::mem::replace(&mut self.open_tabs.told, true) => self.log.warn(format!(
@@ -1241,11 +1209,7 @@ impl Moonglow {
         active: Option<Tab>,
         split: Option<Laid>,
     ) {
-        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
-        let middle = |app: &Moonglow| {
-            (app.dock.iter_leaves().map(|(p, _)| p))
-                .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette)
-        };
+        let middle = |app: &Moonglow| app.middle_pane();
         let pane_of = |app: &Moonglow, tab: &Tab| {
             app.dock.find_tab(tab).map(|p| NodePath { surface: p.surface, node: p.node })
         };
@@ -1318,11 +1282,9 @@ impl Moonglow {
         front: Option<String>,
         mut views: BTreeMap<String, View>,
     ) {
-        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
         // (The pane that says no area is open keeps the middle's place
         // while they come, and goes once they have: `keep_middle`.)
-        let middle = (self.dock.iter_leaves().map(|(p, _)| p))
-            .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette);
+        let middle = self.middle_pane();
         if self.dock.find_tab(&Tab::NoArea).is_none()
             && let Some(at) = middle
         {
@@ -1476,6 +1438,7 @@ impl Moonglow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Side;
 
     #[test]
     fn tabs_are_named_and_read_back() {
@@ -1530,10 +1493,10 @@ mod tests {
     fn places_are_named_and_read_back() {
         for place in [Place::Window, Place::Middle, Place::Palettes, Place::Split(Side::Above, 300)]
         {
-            assert_eq!(parse_place(&place_text(place)), Some(place));
+            assert_eq!(Place::parse(&place.text()), Some(place));
         }
-        assert_eq!(parse_place("split sideways 300"), None);
-        assert_eq!(parse_place("split left 2000"), Some(Place::Split(Side::Left, 950)));
+        assert_eq!(Place::parse("split sideways 300"), None);
+        assert_eq!(Place::parse("split left 2000"), Some(Place::Split(Side::Left, 950)));
     }
 
     #[test]

@@ -47,10 +47,9 @@ impl Shelf {
     /// Keeps `text` as the one named `name` (in place of one of that name).
     pub fn write(&self, dir: Option<&Path>, name: &str, text: &str) -> Result<PathBuf, String> {
         let path = self.file(dir, name)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+        // (Whole or not at all: one of that name is not left cut short.)
+        mg_module::write_replacing(&path, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         Ok(path)
     }
 
@@ -76,7 +75,8 @@ impl Shelf {
         if path.exists() {
             return Err(format!("there is a {} named '{}' again", self.what, name.trim()));
         }
-        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+        mg_module::write_replacing(&path, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     /// Gives the one named `from` another name. A name another has is

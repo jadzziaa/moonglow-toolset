@@ -7,6 +7,16 @@
 //!
 //! A copy is the module as an archive (`<name>-<id>.mod`) and a note
 //! (`.json`): where the module lives, its name, when the copy was made.
+//! Each is written whole or not at all, the note first; an archive whose
+//! note is not there or does not read is offered all the same, named from
+//! its file, as a module never saved.
+//!
+//! The window that writes a copy holds a lock on a file beside it
+//! (`<name>-<id>.lock`) from its first writing until the copy is forgotten
+//! or the program ends, however it ends. A copy so held is a running
+//! Moonglow's, not a crashed session's: another window does not offer it,
+//! and one with the same module open keeps a copy of its own
+//! (`<name>-<id>-2`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -63,11 +73,132 @@ impl Copy {
         self.archive.with_extension("json")
     }
 
-    /// Removes the copy.
-    pub fn remove(&self) {
+    /// Removes the copy, unless a running Moonglow holds it (its window's
+    /// own, which it removes itself): whether it was removed.
+    pub fn remove(&self) -> bool {
+        match hold(&self.archive) {
+            Hold::Others => false,
+            Hold::Ours(lock) => {
+                self.remove_files();
+                lock.forgotten.store(true, Ordering::Release);
+                true
+            }
+            Hold::Unlocked => {
+                self.remove_files();
+                true
+            }
+        }
+    }
+
+    /// Removes the archive and its note (by the window that holds them).
+    fn remove_files(&self) {
         let _ = std::fs::remove_file(&self.archive);
         let _ = std::fs::remove_file(self.note_path());
     }
+}
+
+/// A recovery copy's lock: its file (`<name>-<id>.lock` beside the
+/// archive), locked for as long as this is kept. The system lets go of it
+/// when the program ends, a crash included: a copy left then is no
+/// longer held.
+#[derive(Debug)]
+struct Lock {
+    path: PathBuf,
+    /// (Kept open: the lock is the open file's.)
+    _file: std::fs::File,
+    /// The copy was removed: the lock's file goes too, when the last use
+    /// of the lock does (while it is still held, so that no other window
+    /// takes a file about to go).
+    forgotten: AtomicBool,
+}
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        if self.forgotten.load(Ordering::Acquire) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// What came of taking a copy's lock.
+enum Hold {
+    /// Held by this call's window from now on.
+    Ours(Lock),
+    /// A running Moonglow holds it (another window, or this one).
+    Others,
+    /// The folder takes no lock (read-only, a file system without them):
+    /// the copy is used unlocked, as every copy was.
+    Unlocked,
+}
+
+/// Takes the lock of the copy at `archive`, if no running Moonglow has it.
+fn hold(archive: &Path) -> Hold {
+    let path = archive.with_extension("lock");
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // (Written to, not appended to: Windows locks only a file opened for
+    // writing.)
+    let opened = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&path);
+    let Ok(file) = opened else { return Hold::Unlocked };
+    match file.try_lock() {
+        // (The file its holder removed as it let go, opened before it
+        // went: the lock is of a file no longer there, which holds
+        // nothing.)
+        Ok(()) if !same_file(&file, &path) => Hold::Others,
+        Ok(()) => Hold::Ours(Lock { path, _file: file, forgotten: AtomicBool::new(false) }),
+        Err(std::fs::TryLockError::WouldBlock) => Hold::Others,
+        Err(std::fs::TryLockError::Error(_)) => Hold::Unlocked,
+    }
+}
+
+/// Whether the open `file` is still the one at `path` (not one removed
+/// since it was opened, another made in its place).
+fn same_file(file: &std::fs::File, path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (file.metadata(), std::fs::metadata(path)) {
+            (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+            _ => false,
+        }
+    }
+    // (Elsewhere a file removed while open keeps its name from any new
+    // file until it is closed: the lock would not have been made.)
+    #[cfg(not(unix))]
+    {
+        let _ = file;
+        path.exists()
+    }
+}
+
+/// Whether a running Moonglow holds the copy at `archive` (its lock is
+/// taken): one without a lock file is nobody's.
+fn held(archive: &Path) -> bool {
+    let path = archive.with_extension("lock");
+    let Ok(file) = std::fs::OpenOptions::new().write(true).open(&path) else { return false };
+    matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+}
+
+/// The copy the window holds for the open module: the module's own place
+/// among the copies (`base`, [`Moonglow::recovery_archive`]), the archive
+/// held for it (`base`, or `-2`… beside another window's) and its lock
+/// (none where the folder takes none).
+#[derive(Debug)]
+struct Held {
+    base: PathBuf,
+    archive: PathBuf,
+    lock: Option<Arc<Lock>>,
+}
+
+/// The `n`th archive for a module whose copies are at `base`: `base`
+/// itself, then `<stem>-2.mod`, `<stem>-3.mod`…
+fn nth_archive(base: &Path, n: usize) -> PathBuf {
+    if n <= 1 {
+        return base.to_path_buf();
+    }
+    let stem = base.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    base.with_file_name(format!("{stem}-{n}.mod"))
 }
 
 /// How long ago, in words.
@@ -97,16 +228,55 @@ fn file_stem(module: Option<&Path>, name: &str) -> String {
     format!("{clean}-{:08x}", h as u32)
 }
 
-/// The copies in a folder, newest first.
+/// The note of an archive that has none that reads (the note was written
+/// in place after the archive: power lost between the two, or in the
+/// middle of the second, left unsaved work that was never offered, and
+/// never removed): the module's name from the file's (without the hash of
+/// its place), where it lives not known (recovered, it is saved where the
+/// builder says), made when the file was written.
+fn note_from_file(archive: &Path) -> Note {
+    let stem = archive.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    // (`<name>-<id>`, or a second window's `<name>-<id>-2`.)
+    let id = |s: &str| s.len() == 8 && s.bytes().all(|b| b.is_ascii_hexdigit());
+    let nth = |s: &str| !s.is_empty() && s.len() < 3 && s.bytes().all(|b| b.is_ascii_digit());
+    let whole = match stem.rsplit_once('-') {
+        Some((before, n)) if nth(n) && before.rsplit_once('-').is_some_and(|(_, h)| id(h)) => {
+            before
+        }
+        _ => stem.as_str(),
+    };
+    let name = match whole.rsplit_once('-') {
+        Some((name, hash)) if !name.is_empty() && id(hash) => name.to_string(),
+        _ => stem.clone(),
+    };
+    let time = (std::fs::metadata(archive).and_then(|m| m.modified()).ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    Note { module: None, folder: false, project_target: None, name, time }
+}
+
+/// The copies in a folder that no running Moonglow holds, newest first:
+/// those a session that did not end left. (One held is another window's
+/// work, still open there: offered as a crashed session's, it was opened
+/// a second time, and saved over what the first window went on to do.)
 pub fn find(dir: &Path) -> Vec<Copy> {
+    find_all(dir).into_iter().filter(|c| !held(&c.archive)).collect()
+}
+
+/// Every copy in a folder, held or not, newest first: each archive, with
+/// its note (one without a note that reads, named from its file:
+/// [`note_from_file`]).
+pub fn find_all(dir: &Path) -> Vec<Copy> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut out: Vec<Copy> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .filter_map(|p| {
-            let note: Note = serde_json::from_slice(&std::fs::read(&p).ok()?).ok()?;
-            let archive = p.with_extension("mod");
-            archive.is_file().then_some(Copy { archive, note })
+        .filter(|p| p.extension().is_some_and(|x| x == "mod") && p.is_file())
+        .map(|archive| {
+            let note = std::fs::read(archive.with_extension("json"))
+                .ok()
+                .and_then(|text| serde_json::from_slice::<Note>(&text).ok())
+                .unwrap_or_else(|| note_from_file(&archive));
+            Copy { archive, note }
         })
         .collect();
     out.sort_by_key(|c| std::cmp::Reverse(c.note.time));
@@ -118,21 +288,24 @@ struct Job {
     module: Module,
     archive: PathBuf,
     note: Note,
+    /// The copy's lock, held until it is written (a copy forgotten
+    /// meanwhile stays the window's until its files are gone).
+    lock: Option<Arc<Lock>>,
 }
 
 impl Job {
-    /// Writes the archive (through a temporary file), then the note.
+    /// Writes the note, then the archive, each whole or not at all
+    /// ([`mg_module::write_replacing`]). The note first: an archive is
+    /// never there without the note of where its module lives (a note
+    /// alone is no copy, and goes with the next one or when the copy is
+    /// forgotten).
     fn run(self) -> Result<PathBuf, String> {
-        let dir = self.archive.parent().unwrap_or(Path::new("."));
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let bytes = self.module.to_archive_bytes().map_err(|e| e.to_string())?;
-        let tmp = self.archive.with_extension("mod.tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.archive)
-            .map_err(|e| format!("{}: {e}", self.archive.display()))?;
         let note = serde_json::to_vec_pretty(&self.note).map_err(|e| e.to_string())?;
         let path = self.archive.with_extension("json");
-        std::fs::write(&path, note).map_err(|e| format!("{}: {e}", path.display()))?;
+        mg_module::write_replacing(&path, &note).map_err(|e| format!("{}: {e}", path.display()))?;
+        mg_module::write_replacing(&self.archive, &bytes)
+            .map_err(|e| format!("{}: {e}", self.archive.display()))?;
         Ok(self.archive)
     }
 }
@@ -152,6 +325,8 @@ pub(crate) struct Autosave {
     /// A copy was written as a frame panicked: the unwinding needs none
     /// again ([`Moonglow::keep_while_unwinding`]).
     kept_at_panic: bool,
+    /// The copy held for the open module, from its first writing.
+    held: Option<Held>,
 }
 
 impl Default for Autosave {
@@ -162,6 +337,7 @@ impl Default for Autosave {
             forgotten: Arc::default(),
             panics_seen: PANICS.load(Ordering::Acquire),
             kept_at_panic: false,
+            held: None,
         }
     }
 }
@@ -200,7 +376,33 @@ fn location_of(note: &Note, place: &Path) -> ModuleLocation {
 }
 
 impl Moonglow {
-    /// Where the open module's copy goes (with no folder: no copies).
+    /// Where the open module's copy is written, held by this window from
+    /// here on ([`Held`]): the module's own place among the copies, or
+    /// beside it (`-2`, `-3`…) where another window with the same module
+    /// open holds that.
+    fn held_archive(&mut self) -> Option<(PathBuf, Note, Option<Arc<Lock>>)> {
+        let (base, note) = self.recovery_archive()?;
+        if let Some(h) = self.autosave.held.as_ref().filter(|h| h.base == base) {
+            return Some((h.archive.clone(), note, h.lock.clone()));
+        }
+        let mut held = Held { base: base.clone(), archive: base.clone(), lock: None };
+        for n in 1..100 {
+            let archive = nth_archive(&base, n);
+            match hold(&archive) {
+                Hold::Others => continue,
+                Hold::Ours(lock) => held = Held { base, archive, lock: Some(Arc::new(lock)) },
+                Hold::Unlocked => {}
+            }
+            break;
+        }
+        let made = (held.archive.clone(), note, held.lock.clone());
+        self.autosave.held = Some(held);
+        Some(made)
+    }
+
+    /// The open module's own place among the copies (with no folder: no
+    /// copies). The copy this window writes is there, or beside it
+    /// ([`Moonglow::held_archive`]).
     pub(crate) fn recovery_archive(&self) -> Option<(PathBuf, Note)> {
         let dir = self.recovery_dir.as_ref()?;
         let ws = self.ws.as_ref()?;
@@ -224,12 +426,12 @@ impl Moonglow {
     /// The copy of the module as it is now: edits, and script editors'
     /// unsaved text.
     fn recovery_job(&mut self) -> Option<Job> {
-        let (archive, note) = self.recovery_archive()?;
+        let (archive, note, lock) = self.held_archive()?;
         let mut module = self.ws.as_mut()?.snapshot().ok()?;
         for (key, buf) in self.scripts.iter().filter(|(_, b)| b.is_dirty()) {
             module.set(*key, buf.bytes());
         }
-        Some(Job { module, archive, note })
+        Some(Job { module, archive, note, lock })
     }
 
     /// Writes the open module's recovery copy now; its archive.
@@ -320,6 +522,22 @@ impl Moonglow {
     /// saving).
     pub(crate) fn forget_recovery(&mut self) {
         self.autosave.forgotten.fetch_add(1, Ordering::AcqRel);
+        // The copy this window wrote, and its lock.
+        let own = self.autosave.held.take();
+        if let Some(held) = &own {
+            let _ = std::fs::remove_file(&held.archive);
+            let _ = std::fs::remove_file(held.archive.with_extension("json"));
+            match &held.lock {
+                Some(lock) => lock.forgotten.store(true, Ordering::Release),
+                None => {
+                    let _ = std::fs::remove_file(held.archive.with_extension("lock"));
+                }
+            }
+        }
+        drop(own);
+        // One a session that did not end left for this module (not
+        // recovered, and the module since saved or closed): not another
+        // window's.
         if let Some((archive, note)) = self.recovery_archive() {
             Copy { archive, note }.remove();
         }
@@ -392,14 +610,17 @@ impl Moonglow {
         std::thread::spawn(move || {
             let _done = Done(busy);
             let copy = Copy { archive: job.archive.clone(), note: job.note.clone() };
+            // (Its lock is held until the files are gone.)
+            let lock = job.lock.clone();
             if let Err(e) = job.run() {
                 eprintln!("recovery copy: {e}");
             }
             // (Written whole before this look: a forgetting after it
             // removes the files itself.)
             if forgotten.load(Ordering::Acquire) != started {
-                copy.remove();
+                copy.remove_files();
             }
+            drop(lock);
         });
     }
 
@@ -412,6 +633,25 @@ impl Moonglow {
     /// Opens a recovery copy as the module it came from: saving writes it
     /// there.
     pub fn recover(&mut self, copy: &Copy) {
+        // The copy is this window's from here on: written again as the
+        // work goes on, removed when it is saved or closed. (One this
+        // window holds already is its own, listed before it was.)
+        let own = self.autosave.held.take_if(|h| h.archive == copy.archive);
+        let lock = match own {
+            Some(held) => held.lock,
+            None => match hold(&copy.archive) {
+                Hold::Ours(lock) => Some(Arc::new(lock)),
+                Hold::Unlocked => None,
+                Hold::Others => {
+                    self.log.warn(format!(
+                        "The unsaved work on {} is open in another Moonglow window: not opened \
+                         here",
+                        copy.note.name
+                    ));
+                    return;
+                }
+            },
+        };
         let mut m = match Module::open(&copy.archive) {
             Ok(m) => m,
             Err(e) => {
@@ -455,6 +695,9 @@ impl Moonglow {
         self.use_module(m);
         if let Some(ws) = &mut self.ws {
             ws.mark_modified();
+        }
+        if let Some((base, _)) = self.recovery_archive() {
+            self.autosave.held = Some(Held { base, archive: copy.archive.clone(), lock });
         }
         // With the tabs it had, as opened from its file.
         self.read_open_tabs();
@@ -505,7 +748,13 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
         app.actions.push(crate::Action::Recover(app.recoveries[i].clone()));
     }
     if let Some(i) = discard {
-        app.recoveries.remove(i).remove();
+        let copy = app.recoveries.remove(i);
+        if !copy.remove() {
+            app.log.warn(format!(
+                "The unsaved work on {} is open in another Moonglow window: left as it is",
+                copy.note.name
+            ));
+        }
     }
     if later || !open {
         app.recoveries.clear();
@@ -533,12 +782,12 @@ mod tests {
         app.ws.as_mut().unwrap().apply(mg_edit::Command::new("edit", vec![edit])).unwrap();
         // The clock starts; five minutes later a copy is written.
         assert_eq!(app.autosave_tick(t0), Some(Duration::from_secs(300)));
-        assert!(find(&dir.join("recovery")).is_empty());
+        assert!(find_all(&dir.join("recovery")).is_empty());
         app.autosave_tick(t0 + Duration::from_secs(301));
         while app.autosave.busy.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(10));
         }
-        let copies = find(&dir.join("recovery"));
+        let copies = find_all(&dir.join("recovery"));
         assert_eq!(copies.len(), 1);
         let copy = Module::open(&copies[0].archive).unwrap();
         assert_eq!(copy.get(&key), Some(&b"// changed"[..]));
@@ -551,7 +800,7 @@ mod tests {
         app.ws.as_mut().unwrap().save().unwrap();
         app.forget_recovery();
         assert_eq!(app.autosave_tick(t0), None, "saved");
-        let source = (0, 0);
+        let source = (0, 0, 0);
         let mut buf = crate::script_view::ScriptBuffer::read(b"// changed", source);
         buf.text.push_str(" typed");
         app.scripts.insert(key, buf);
@@ -563,7 +812,7 @@ mod tests {
             }
         };
         let held = |dir: &Path| {
-            let copies = find(&dir.join("recovery"));
+            let copies = find_all(&dir.join("recovery"));
             assert_eq!(copies.len(), 1);
             Module::open(&copies[0].archive).unwrap().get(&key).map(<[u8]>::to_vec)
         };
@@ -586,7 +835,7 @@ mod tests {
         while app.autosave.busy.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(find(&dir.join("recovery")).is_empty());
+        assert!(find_all(&dir.join("recovery")).is_empty());
     }
 
     /// An application with a module open, a change unsaved, its copies in
@@ -606,7 +855,7 @@ mod tests {
 
     fn kept(dir: &Path) -> Option<Vec<u8>> {
         let key = mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
-        let copy = find(&dir.join("recovery")).into_iter().next()?;
+        let copy = find_all(&dir.join("recovery")).into_iter().next()?;
         Module::open(&copy.archive).ok()?.get(&key).map(<[u8]>::to_vec)
     }
 
@@ -638,6 +887,8 @@ mod tests {
         ];
         app.ws.as_mut().unwrap().apply(mg_edit::Command::new("edit", edits)).unwrap();
         app.write_recovery().unwrap();
+        // (Gone with the crash, and its hold on the copy with it.)
+        drop(app);
         let copy = find(&dir.join("recovery")).remove(0);
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         app.recovery_dir = Some(dir.join("recovery"));
@@ -658,10 +909,10 @@ mod tests {
         let dir = mg_testkit::scratch_dir("ui-recovery-save-as");
         let mut app = changed(&dir);
         app.write_recovery().unwrap();
-        assert_eq!(find(&dir.join("recovery")).len(), 1);
+        assert_eq!(find_all(&dir.join("recovery")).len(), 1);
         app.save(Some(ModuleLocation::Archive(dir.join("other.mod"))));
         assert!(dir.join("other.mod").is_file());
-        assert!(find(&dir.join("recovery")).is_empty(), "the work is saved");
+        assert!(find_all(&dir.join("recovery")).is_empty(), "the work is saved");
     }
 
     /// A panic in a thread of its own (a job's, an autosave's) leaves the
@@ -680,7 +931,7 @@ mod tests {
         assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
         assert!(app.log.entries.iter().any(|(_, m)| m.contains("kept in a recovery copy")));
         // Not again until another panic.
-        find(&dir.join("recovery"))[0].remove();
+        find_all(&dir.join("recovery"))[0].remove_files();
         app.recovering(|_| {});
         assert!(!app.autosave.busy.load(Ordering::Acquire) && kept(&dir).is_none());
     }
@@ -721,6 +972,150 @@ mod tests {
         })
         .join();
         assert!(!busy.load(Ordering::Acquire));
+    }
+
+    /// An archive whose note is not there, is empty or is cut short is
+    /// still offered (the note was written in place, after the archive:
+    /// the review of November 2026, S23), named from its file, and
+    /// recovered as a module never saved; removing it takes both files.
+    /// A note without an archive is no copy.
+    #[test]
+    fn an_archive_without_a_note_that_reads_is_still_found() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-no-note");
+        let mut app = changed(&dir);
+        let archive = app.write_recovery().unwrap();
+        let note = archive.with_extension("json");
+        let found = find_all(&dir.join("recovery"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].note.module.as_deref(), Some(dir.join("m.mod").as_path()));
+        let whole = std::fs::read(&note).unwrap();
+        for cut in [Some(&whole[..whole.len() / 2]), Some(&b""[..]), None] {
+            match cut {
+                Some(text) => std::fs::write(&note, text).unwrap(),
+                None => std::fs::remove_file(&note).unwrap(),
+            }
+            let found = find_all(&dir.join("recovery"));
+            assert_eq!(found.len(), 1, "{cut:?}");
+            assert_eq!(found[0].archive, archive);
+            let made = Note { time: found[0].note.time, ..note_from_file(&archive) };
+            assert_eq!(found[0].note, made);
+            assert_eq!((made.name.as_str(), made.module), ("m", None));
+            assert!(now().abs_diff(made.time) < 600, "made when the file was: {}", made.time);
+        }
+        assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
+        // (The window gone with the crash, and its hold on the copy.)
+        drop(app);
+        let copy = find(&dir.join("recovery")).remove(0);
+        let mut again = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        again.recover(&copy);
+        let ws = again.ws.as_ref().unwrap();
+        assert!(ws.is_modified() && ws.module.location.is_none(), "never saved");
+        drop(again);
+        assert!(copy.remove());
+        assert!(!archive.exists() && find_all(&dir.join("recovery")).is_empty());
+        // A note alone (the copy's first writing stopped after it).
+        std::fs::write(&note, &whole).unwrap();
+        assert!(find_all(&dir.join("recovery")).is_empty());
+        // Nothing is left beside a copy written but its lock.
+        let mut app = changed(&dir);
+        app.write_recovery().unwrap();
+        let mut files: Vec<String> = (std::fs::read_dir(dir.join("recovery")).unwrap())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        let stem = archive.file_stem().unwrap().to_string_lossy().into_owned();
+        assert_eq!(files, [format!("{stem}.json"), format!("{stem}.lock"), format!("{stem}.mod")]);
+    }
+
+    /// A copy a running Moonglow holds is its own work, still open: a
+    /// second window does not offer it as a crashed session's, keeps a
+    /// copy of its own beside it (`-2`) for the same module, and neither
+    /// its save nor its Discard touches the first one's. Once the first
+    /// window is gone without having saved, its copy is offered; the
+    /// window that recovers it holds it, and removes it with its lock
+    /// when the work is saved (the plugins and command line page's C27).
+    #[test]
+    fn a_copy_a_running_window_holds_is_its_own() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-held");
+        let recovery = dir.join("recovery");
+        let key = mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
+        let text = |archive: &Path| Module::open(archive).unwrap().get(&key).map(<[u8]>::to_vec);
+        let mut first = changed(&dir);
+        let one = first.write_recovery().unwrap();
+        assert!(one.with_extension("lock").is_file());
+        assert!(find(&recovery).is_empty(), "held by the window that wrote it");
+        assert_eq!(find_all(&recovery).len(), 1);
+        // A second window, the same module open and changed otherwise.
+        let mut second = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        second.recovery_dir = Some(recovery.clone());
+        second.find_recoveries();
+        assert!(second.recoveries.is_empty(), "not a crashed session's");
+        second.open_module(&dir.join("m.mod"));
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"// second".to_vec()) };
+        second.ws.as_mut().unwrap().apply(mg_edit::Command::new("edit", vec![edit])).unwrap();
+        let two = second.write_recovery().unwrap();
+        let stem = one.file_stem().unwrap().to_string_lossy().into_owned();
+        assert_eq!(two, recovery.join(format!("{stem}-2.mod")));
+        assert_eq!(second.write_recovery().unwrap(), two, "the same one again");
+        assert_eq!(text(&one).as_deref(), Some(&b"// changed"[..]), "the first one's, as it was");
+        assert_eq!(text(&two).as_deref(), Some(&b"// second"[..]));
+        // (Named from its file, were its note lost.)
+        assert_eq!(note_from_file(&two).name, "m");
+        // Its Discard of the first one's (listed by a start before the
+        // lock was held) leaves it; its save removes its own alone.
+        let theirs = find_all(&recovery).into_iter().find(|c| c.archive == one).unwrap();
+        assert!(!theirs.remove() && one.is_file());
+        second.save(None);
+        assert!(!two.exists() && !two.with_extension("lock").exists(), "saved: forgotten");
+        assert!(one.is_file() && one.with_extension("json").is_file());
+        assert!(find(&recovery).is_empty());
+        // The first window goes without saving: its copy is offered, and
+        // the window that recovers it holds it.
+        drop(first);
+        let mut third = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        third.recovery_dir = Some(recovery.clone());
+        third.find_recoveries();
+        assert_eq!(third.recoveries.len(), 1);
+        let copy = third.recoveries[0].clone();
+        assert_eq!(copy.archive, one);
+        third.recover(&copy);
+        assert!(third.has_unsaved_work());
+        assert!(one.is_file(), "kept until the work is saved");
+        assert!(find(&recovery).is_empty(), "the recovering window's now");
+        // (Another window that listed it too can't open it as well.)
+        let mut fourth = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        fourth.recovery_dir = Some(recovery.clone());
+        fourth.recover(&copy);
+        assert!(fourth.ws.is_none(), "{:?}", fourth.log.entries);
+        // Written again as the work goes on, in its place; gone when saved.
+        assert_eq!(third.write_recovery().unwrap(), one);
+        third.save(None);
+        assert!(!third.has_unsaved_work(), "{:?}", third.log.entries);
+        let left: Vec<_> =
+            std::fs::read_dir(&recovery).unwrap().map(|e| e.unwrap().path()).collect();
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(text(&dir.join("m.mod")).as_deref(), Some(&b"// changed"[..]));
+    }
+
+    /// A lock is taken once, let go with its file when its copy is
+    /// forgotten, and a folder that takes no lock file leaves the copy
+    /// used unlocked, as before.
+    #[test]
+    fn a_lock_is_held_once_and_goes_with_its_copy() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-lock");
+        let archive = dir.join("m-00000000.mod");
+        let Hold::Ours(lock) = hold(&archive) else { panic!("nobody holds it") };
+        assert!(held(&archive));
+        assert!(matches!(hold(&archive), Hold::Others));
+        lock.forgotten.store(true, Ordering::Release);
+        drop(lock);
+        assert!(!archive.with_extension("lock").exists());
+        assert!(!held(&archive));
+        assert_eq!(nth_archive(&archive, 1), archive);
+        assert_eq!(nth_archive(&archive, 3), dir.join("m-00000000-3.mod"));
+        // (A file where the folder would be: no lock can be made.)
+        std::fs::write(dir.join("file"), b"").unwrap();
+        assert!(matches!(hold(&dir.join("file").join("m.mod")), Hold::Unlocked));
     }
 
     #[test]

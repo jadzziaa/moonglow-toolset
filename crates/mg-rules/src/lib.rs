@@ -299,6 +299,40 @@ impl GameData {
         self.property_types.get_mut().expect("property type cache poisoned").clear();
     }
 
+    /// Brings the module's custom talk table up to `tlk`, the table as
+    /// its editor holds it now, a few lines of it changed: only the lines
+    /// that differ are copied (and those past its end added, those past
+    /// `tlk`'s taken off), where setting it anew copied every line's text
+    /// and sound for each text typed, 50,000 of them to change one. What
+    /// is made from its strings is forgotten if any line differed, as
+    /// [`set_custom_tlk`](Self::set_custom_tlk) forgets it. With no custom
+    /// table yet, or one of another language, `tlk` is copied whole.
+    /// Whether anything changed.
+    pub fn update_custom_tlk(&mut self, tlk: &Tlk) -> bool {
+        let Some(own) = self.custom_tlk.as_mut().filter(|own| own.language == tlk.language) else {
+            self.set_custom_tlk(Some(tlk.clone()));
+            return true;
+        };
+        let mut changed = own.entries.len() != tlk.entries.len();
+        own.entries.truncate(tlk.entries.len());
+        for (mine, theirs) in own.entries.iter_mut().zip(&tlk.entries) {
+            if mine != theirs {
+                mine.clone_from(theirs);
+                changed = true;
+            }
+        }
+        let had = own.entries.len();
+        own.entries.extend_from_slice(&tlk.entries[had..]);
+        if changed {
+            // (The lists name rows by its strings.)
+            self.choices.get_mut().expect("choice cache poisoned").clear();
+            self.marked.get_mut().expect("marked cache poisoned").clear();
+            self.named.get_mut().expect("named cache poisoned").clear();
+            self.property_types.get_mut().expect("property type cache poisoned").clear();
+        }
+        changed
+    }
+
     pub fn custom_tlk(&self) -> Option<&Tlk> {
         self.custom_tlk.as_ref()
     }
@@ -756,5 +790,57 @@ mod tests {
         assert_eq!(texts(&gd, cols), ["Longsword", "Axe", "From another"], "until forgotten");
         gd.invalidate();
         assert_eq!(texts(&gd, cols), ["Mace"]);
+    }
+
+    /// The custom talk table brought up to its editor's
+    /// ([`GameData::update_custom_tlk`]) is that table, line for line: a
+    /// line changed, lines added and lines taken off; the lines that are
+    /// as they were are not copied (their text stays where it was), the
+    /// lists made from its strings are made again only when a line
+    /// differed, and the 2DAs read are kept.
+    #[test]
+    fn the_custom_talk_table_is_brought_up_to_date_line_by_line() {
+        let mut gd = data();
+        let cols = ChoiceColumns { name: Some("name"), label: Some("label") };
+        let texts = |gd: &GameData| -> Vec<String> {
+            gd.choice_list("things", cols).unwrap().iter().map(|c| c.text.clone()).collect()
+        };
+        let table = gd.table("things").unwrap();
+        // The editor's table: the game data's, and 2,000 lines more.
+        let mut theirs = gd.custom_tlk().unwrap().clone();
+        for n in 1..2_000 {
+            theirs.entries.push(TlkEntry::text(format!("Line {n}")));
+        }
+        assert!(gd.update_custom_tlk(&theirs));
+        assert_eq!(gd.custom_tlk(), Some(&theirs));
+        let list = gd.choice_list("things", cols).unwrap();
+        let at = |gd: &GameData, row: usize| gd.custom_tlk().unwrap().entries[row].text.as_ptr();
+        let (first, last) = (at(&gd, 0), at(&gd, 1_999));
+        // Nothing changed: nothing forgotten, nothing copied.
+        assert!(!gd.update_custom_tlk(&theirs));
+        assert!(Arc::ptr_eq(&list, &gd.choice_list("things", cols).unwrap()));
+        // One line typed over: that line alone, and the lists made again.
+        theirs.entries[0] = TlkEntry::text("Typed since");
+        assert!(gd.update_custom_tlk(&theirs));
+        assert_eq!(gd.custom_tlk(), Some(&theirs));
+        assert_eq!(gd.string(StrRef(0x0100_0000)).as_deref(), Some("Typed since"));
+        assert_eq!(texts(&gd), ["Longsword", "Axe", "Typed since"]);
+        assert_eq!(at(&gd, 1_999), last, "a line as it was is not copied");
+        assert_ne!(at(&gd, 0), first);
+        // Lines taken back off the end.
+        theirs.entries.truncate(1);
+        assert!(gd.update_custom_tlk(&theirs));
+        assert_eq!(gd.custom_tlk(), Some(&theirs));
+        assert_eq!(gd.string(StrRef(0x0100_0001)), None);
+        // (The 2DAs read have none of its strings: kept.)
+        assert!(Arc::ptr_eq(&table, &gd.table("things").unwrap()));
+        // Another language's, or none before: the table whole.
+        let mut other = Tlk::new(Language::GERMAN);
+        other.entries.push(TlkEntry::text("Aus dem Modul"));
+        assert!(gd.update_custom_tlk(&other));
+        assert_eq!(gd.custom_tlk(), Some(&other));
+        gd.set_custom_tlk(None);
+        assert!(gd.update_custom_tlk(&theirs));
+        assert_eq!(texts(&gd), ["Longsword", "Axe", "Typed since"]);
     }
 }

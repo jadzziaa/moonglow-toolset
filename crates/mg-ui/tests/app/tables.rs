@@ -514,18 +514,28 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     let tab = h.state().dock.find_tab(&Tab::TalkTable).unwrap();
     h.state_mut().dock.remove_tab(tab);
     h.run();
-    h.get_by_label("…").click();
-    h.run();
-    h.get_by_label("Add Text").click();
-    h.run();
-    h.state_mut().loc_edit.as_mut().unwrap().entries[0].2 = "The Keep".into();
-    h.run();
-    h.get_by_label("Move to Talk Table").click();
-    h.run();
-    let edit = h.state().loc_edit.clone().unwrap();
-    assert_eq!((edit.strref.as_str(), edit.entries.len()), ("16777217", 0));
-    h.get_all_by_label("OK").last().unwrap().click();
-    h.run();
+    // (The line is added at OK: Cancel leaves the table as it was, with
+    // no line that nothing names. The review of November 2026, S27.)
+    for answer in ["Cancel", "OK"] {
+        h.get_by_label("…").click();
+        h.run();
+        h.get_by_label("Add Text").click();
+        h.run();
+        h.state_mut().loc_edit.as_mut().unwrap().entries[0].2 = "The Keep".into();
+        h.run();
+        h.get_by_label("Move to Talk Table").click();
+        h.run();
+        let edit = h.state().loc_edit.clone().unwrap();
+        assert_eq!((edit.strref.as_str(), edit.entries.len()), ("16777217", 0));
+        h.get_by_label("Talk table: The Keep (added with OK)");
+        let t = h.state().talk.as_ref().unwrap();
+        assert_eq!((t.len(), t.is_dirty()), (1, false), "not added yet");
+        h.get_all_by_label(answer).last().unwrap().click();
+        h.run();
+        assert!(h.state().loc_edit.is_none());
+        let t = h.state().talk.as_ref().unwrap();
+        assert_eq!(t.len(), if answer == "OK" { 2 } else { 1 }, "{answer}");
+    }
     let ws = h.state_mut().ws.as_mut().unwrap();
     let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().root.clone();
     let name: LocString = info.read(&ifo::MOD_NAME);

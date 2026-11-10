@@ -102,10 +102,14 @@ pub struct TableDoc {
     pub value_names: bool,
     /// The table's description, where a file beside it gives one.
     described: Option<Described>,
-    /// The folder a description names scripts and tables from, being
-    /// walked on a thread of its own (a repository may have a hundred
-    /// thousand files): the description, its file's time, and the walk.
-    walking: Option<(PathBuf, Option<std::time::SystemTime>, std::thread::JoinHandle<Beside>)>,
+    /// The table's description being looked for on a thread of its own
+    /// ([`look_for_description`]: a hak's source folder walked, a folder's
+    /// descriptions read), and where it is another than the one in hand,
+    /// the folder it names scripts and tables from walked too (a
+    /// repository may have a hundred thousand files): the look, and
+    /// whether it has come to that walk (which the editor says: it can
+    /// take a while).
+    walking: Option<(Arc<std::sync::atomic::AtomicBool>, std::thread::JoinHandle<Looked>)>,
     /// When the description's file was last looked at (the time egui
     /// gives): it is read again when it changes.
     described_at: f64,
@@ -123,10 +127,6 @@ pub struct TableDoc {
     /// open tables' changes (a table the description names may be one).
     #[allow(clippy::type_complexity)]
     faults: Option<((u64, u64), Arc<Vec<CellFault>>)>,
-    /// The table as it was when another table's editor last asked for it
-    /// ([`TableDoc::shared`]), for its revision and changes then.
-    #[allow(clippy::type_complexity)]
-    shared: std::cell::RefCell<Option<((u64, u64), Arc<TwoDa>)>>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -199,7 +199,6 @@ impl TableDoc {
             within: None,
             shown: None,
             faults: None,
-            shared: Default::default(),
             add_count: 1,
             new_column: None,
             renaming: None,
@@ -210,21 +209,12 @@ impl TableDoc {
     }
 
     /// The table as it is now, to hand to another table's editor (a
-    /// description that names its rows): copied when it has changed since
-    /// it was last asked for, not each time. It was copied whole every
-    /// frame a cell naming its rows was selected, a million cells for a
-    /// table of 20,000 rows.
+    /// description that names its rows): the editor's own, shared, not a
+    /// copy (`Editing::shared`). It was copied whole every frame a cell
+    /// naming its rows was selected, a million cells for a table of
+    /// 20,000 rows, and then once a change.
     fn shared(&self) -> Arc<TwoDa> {
-        let mark = (self.revision, self.edit.changes());
-        let mut kept = self.shared.borrow_mut();
-        match &*kept {
-            Some((m, table)) if *m == mark => table.clone(),
-            _ => {
-                let table = Arc::new(self.edit.table().clone());
-                *kept = Some((mark, table.clone()));
-                table
-            }
-        }
+        self.edit.shared()
     }
 
     pub fn name(&self) -> String {
@@ -718,28 +708,92 @@ fn save_as_file(app: &mut Moonglow, id: u32) {
     }
 }
 
-/// Where a table's description is: beside its file (a file's own, the
-/// module's table's in a project or a module folder), beside the module's
-/// file for a module kept in one, and for a hak's table in the folder the
-/// hak is built from (beside the table's file there), else beside the
-/// hak's file; or a family's in that folder (`tables = ["loot_*"]`).
-fn description_path(app: &Moonglow, doc: &TableDoc) -> Option<PathBuf> {
-    use mg_module::table_desc::{description_in_module, find_for};
-    match &doc.home {
-        Home::File(path) => find_for(path),
-        Home::Module => description_in_module(&app.ws.as_ref()?.module, &doc.key),
-        Home::Hak(id) => {
-            let hak = app.haks.iter().find(|d| d.id == *id)?;
-            let name = doc.key.to_string();
-            let in_folder = hak.folder.as_deref().and_then(|folder| {
-                mg_module::hak_edit::folder_files(folder).into_iter().find(|p| {
-                    p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&name))
-                })
-            });
-            let table = in_folder.or_else(|| Some(hak.hak.path.as_ref()?.with_file_name(&name)))?;
-            find_for(&table)
+/// Where a table is, for its description to be looked for: what the
+/// window's thread knows at once, the looking left to another.
+#[derive(Debug, Clone, PartialEq)]
+enum TableAt {
+    /// Its file, or where its file would be (a file's own, the module's
+    /// table's in a project or a module folder, beside the module's file
+    /// for a module kept in one).
+    File(PathBuf),
+    /// A hak's table, `name`: in the folder the hak is built from (beside
+    /// the table's file there), else beside the hak's file.
+    Hak { folder: Option<PathBuf>, beside: Option<PathBuf>, name: String },
+}
+
+impl TableAt {
+    fn of(app: &Moonglow, doc: &TableDoc) -> Option<TableAt> {
+        match &doc.home {
+            Home::File(path) => Some(TableAt::File(path.clone())),
+            Home::Module => {
+                let module = &app.ws.as_ref()?.module;
+                mg_module::table_desc::table_in_module(module, &doc.key).map(TableAt::File)
+            }
+            Home::Hak(id) => {
+                let hak = app.haks.iter().find(|d| d.id == *id)?;
+                let name = doc.key.to_string();
+                let beside = hak.hak.path.as_ref().map(|p| p.with_file_name(&name));
+                Some(TableAt::Hak { folder: hak.folder.clone(), beside, name })
+            }
         }
     }
+
+    /// Where the table's description is: `name.2da.toml` beside the
+    /// table, or a family's in that folder (`tables = ["loot_*"]`). It
+    /// walks a hak's source folder, and lists the table's folder and reads
+    /// every description in it for a family's: not for the window's
+    /// thread.
+    fn description(&self) -> Option<PathBuf> {
+        use mg_module::table_desc::find_for;
+        match self {
+            TableAt::File(path) => find_for(path),
+            TableAt::Hak { folder, beside, name } => {
+                let in_folder = folder.as_deref().and_then(|folder| {
+                    mg_module::hak_edit::folder_files(folder).into_iter().find(|p| {
+                        p.file_name()
+                            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+                    })
+                });
+                find_for(&in_folder.or_else(|| beside.clone())?)
+            }
+        }
+    }
+}
+
+/// What a look for a table's description found.
+#[derive(Debug)]
+enum Looked {
+    /// None of the builder's.
+    None,
+    /// The one in hand, its file as it was read.
+    Same,
+    /// Another, or the same changed: its file, the file's time, and the
+    /// files of its repository or project.
+    New(PathBuf, Option<std::time::SystemTime>, Beside),
+}
+
+/// Looks for the description of the table at `at` (`had`: the one in
+/// hand and its file's time): for a thread of its own. Once a second the
+/// window's thread walked a hak's source folder for it, or listed the
+/// table's folder and read and parsed every description there: a hitch a
+/// second, with a folder of 20,000 files, while the tab was in front.
+fn look_for_description(
+    at: Option<TableAt>,
+    had: Option<(PathBuf, Option<std::time::SystemTime>)>,
+    walking: &std::sync::atomic::AtomicBool,
+) -> Looked {
+    let Some(path) = at.and_then(|at| at.description()).filter(|p| p.is_file()) else {
+        return Looked::None;
+    };
+    let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    if had.is_some_and(|(p, m)| p == path && m == modified) {
+        return Looked::Same;
+    }
+    // (The description's folder: a repository's or project's, which may be
+    // large.)
+    walking.store(true, std::sync::atomic::Ordering::Relaxed);
+    let files = Beside::of(&Beside::root_of(&path.with_extension("")));
+    Looked::New(path, modified, files)
 }
 
 /// What the table was read from, as it is now: the module's resource (an
@@ -831,21 +885,39 @@ fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
 }
 
 /// Reads the table's description where there is one, and again when its
-/// file changes (looked at once a second); with none of the builder's,
-/// Moonglow's of the game's table of its name, if it has one. The folder
-/// the description names scripts and tables from is walked on a thread
-/// of its own first, the window going on meanwhile.
+/// file changes (looked for once a second); with none of the builder's,
+/// Moonglow's of the game's table of its name, if it has one. The look,
+/// and the walk of the folder the description names scripts and tables
+/// from, are on a thread of their own ([`look_for_description`]), the
+/// window going on meanwhile.
 fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
     use mg_module::table_desc::game_description;
-    // (A walk under way is looked at every frame.)
-    if let Some((_, _, walk)) = &app.tables[at].walking {
-        if !walk.is_finished() {
+    // (A look under way is looked at every frame.)
+    if let Some((_, look)) = &app.tables[at].walking {
+        if !look.is_finished() {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
             return;
         }
-        let (path, modified, walk) = app.tables[at].walking.take().expect("walking");
-        let files = Arc::new(walk.join().unwrap_or_default());
-        read_description(app, at, Some(path), modified, files);
+        let (_, look) = app.tables[at].walking.take().expect("looking");
+        match look.join().unwrap_or(Looked::Same) {
+            Looked::Same => {}
+            Looked::New(path, modified, files) => {
+                read_description(app, at, Some(path), modified, Arc::new(files));
+            }
+            Looked::None => {
+                // Moonglow's, of the game's table of the name.
+                let had = app.tables[at].described.as_ref().map(|d| d.path.is_none());
+                match game_description(&app.tables[at].name()) {
+                    Some(_) if had == Some(true) => {}
+                    Some(_) => read_description(app, at, None, None, Arc::default()),
+                    None if had.is_some() => {
+                        app.tables[at].described = None;
+                        app.tables[at].changed();
+                    }
+                    None => {}
+                }
+            }
+        }
         return;
     }
     let now = ctx.input(|i| i.time);
@@ -853,36 +925,16 @@ fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
         return;
     }
     app.tables[at].described_at = now;
-    let path = description_path(app, &app.tables[at]).filter(|p| p.is_file());
-    let Some(path) = path else {
-        // Moonglow's, of the game's table of the name.
-        let had = app.tables[at].described.as_ref().map(|d| d.path.is_none());
-        match game_description(&app.tables[at].name()) {
-            Some(_) if had == Some(true) => {}
-            Some(_) => read_description(app, at, None, None, Arc::default()),
-            None if had.is_some() => {
-                app.tables[at].described = None;
-                app.tables[at].changed();
-            }
-            None => {}
-        }
-        return;
-    };
-    let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    let table = TableAt::of(app, &app.tables[at]);
     let doc = &mut app.tables[at];
-    if doc
-        .described
-        .as_ref()
-        .is_some_and(|d| d.path.as_ref() == Some(&path) && d.modified == modified)
-    {
-        return;
-    }
-    // (The description's folder: a repository's or project's, which may be
-    // large.)
-    let root = Beside::root_of(&path.with_extension(""));
-    let walk = std::thread::spawn(move || Beside::of(&root));
-    doc.walking = Some((path, modified, walk));
-    ctx.request_repaint();
+    let had = (doc.described.as_ref()).and_then(|d| Some((d.path.clone()?, d.modified)));
+    let walking = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let look = {
+        let walking = walking.clone();
+        std::thread::spawn(move || look_for_description(table, had, &walking))
+    };
+    doc.walking = Some((walking, look));
+    ctx.request_repaint_after(std::time::Duration::from_millis(30));
 }
 
 /// Reads a description (`path`'s file; `None`: Moonglow's of the game's
@@ -1520,7 +1572,10 @@ fn header(
             );
         }
     });
-    if doc.walking.is_some() {
+    let walks = |w: &(Arc<std::sync::atomic::AtomicBool>, _)| {
+        w.0.load(std::sync::atomic::Ordering::Relaxed)
+    };
+    if doc.walking.as_ref().is_some_and(walks) {
         ui.weak("Reading the folder the table's description names scripts and tables from…");
     }
     if let Some(d) = &doc.described {
@@ -3582,6 +3637,71 @@ mod tests {
         assert!(row_faults(&[], 3).is_empty());
         assert_eq!(cells_of(&all).len(), 5);
         assert!(cells_of(&all).contains(&(7, 0)) && !cells_of(&all).contains(&(0, 7)));
+    }
+
+    /// The look for a table's description, as a thread of its own makes
+    /// it: the table's own beside its file, a family's in its folder, a
+    /// hak's table's in the folder the hak is built from (else beside the
+    /// hak); the one in hand, its file as it was, is not read again; and
+    /// none where there is none (the window's thread made this look once
+    /// a second: the editors' page's smaller line).
+    #[test]
+    fn a_table_s_description_is_looked_for_where_it_would_be() {
+        let dir = mg_testkit::scratch_dir("ui-table-description-look");
+        let (src, built) = (dir.join("src").join("tables"), dir.join("built"));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&built).unwrap();
+        let own = src.join("mg_t.2da.toml");
+        std::fs::write(&own, "[columns.Label]\nhelp = \"A label\"\n").unwrap();
+        let family = src.join("loot.2da.toml");
+        std::fs::write(&family, "tables = [\"loot_*\"]\n").unwrap();
+        let file = |name: &str| TableAt::File(src.join(name));
+        let walked = std::sync::atomic::AtomicBool::new(false);
+        assert!(matches!(
+            look_for_description(Some(file("other.2da")), None, &walked),
+            Looked::None
+        ));
+        assert!(!walked.load(std::sync::atomic::Ordering::Relaxed), "no folder walked for none");
+        let found = |at: TableAt| match look_for_description(Some(at), None, &walked) {
+            Looked::New(path, modified, _) => Some((path, modified)),
+            _ => None,
+        };
+        let (path, modified) = found(file("mg_t.2da")).expect("its own");
+        assert_eq!(path, own);
+        assert!(modified.is_some());
+        assert_eq!(found(file("loot_gems.2da")).map(|f| f.0), Some(family.clone()));
+        assert!(matches!(
+            look_for_description(Some(file("other.2da")), None, &walked),
+            Looked::None
+        ));
+        assert!(matches!(look_for_description(None, None, &walked), Looked::None));
+        // The one in hand, as it was: not read again; changed, it is.
+        let had = Some((own.clone(), modified));
+        assert!(matches!(look_for_description(Some(file("mg_t.2da")), had, &walked), Looked::Same));
+        let earlier = modified.map(|m| m - std::time::Duration::from_secs(60));
+        let had = Some((own.clone(), earlier));
+        assert!(matches!(
+            look_for_description(Some(file("mg_t.2da")), had, &walked),
+            Looked::New(..)
+        ));
+        let had = Some((family.clone(), modified));
+        assert!(matches!(
+            look_for_description(Some(file("mg_t.2da")), had, &walked),
+            Looked::New(..)
+        ));
+        // A hak's table: in the folder it is built from, beside the
+        // table's file there, in any case of its name; else beside the hak.
+        std::fs::write(src.join("mg_t.2da"), "2DA V2.0\n\n  Label\n0 a\n").unwrap();
+        let hak = |folder: Option<&std::path::Path>| TableAt::Hak {
+            folder: folder.map(|f| f.to_path_buf()),
+            beside: Some(built.join("mg_t.2da")),
+            name: "MG_T.2da".into(),
+        };
+        assert_eq!(found(hak(Some(&dir.join("src")))).map(|f| f.0), Some(own.clone()));
+        assert_eq!(found(hak(None)), None, "none beside the hak");
+        let beside = built.join("mg_t.2da.toml");
+        std::fs::write(&beside, "[columns.Label]\nhelp = \"A label\"\n").unwrap();
+        assert_eq!(found(hak(None)).map(|f| f.0), Some(beside));
     }
 
     /// A table open in the editor is handed to another table's (whose

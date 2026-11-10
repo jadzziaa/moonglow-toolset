@@ -65,6 +65,9 @@ pub struct TypedState {
     /// The lines of the project's `[talk] map` ([`map_lines`]), kept
     /// while its file is as it was read.
     map: std::cell::RefCell<Option<MapKept>>,
+    /// Where the next line goes and how many are left ([`room`]), kept
+    /// while what it was worked out from is as it was.
+    room: std::cell::RefCell<Option<(RoomFor, Room)>>,
     /// The game data could not be given the table's new lines (it was
     /// held): given them once it is free ([`show_when_free`]).
     unshown: bool,
@@ -178,6 +181,49 @@ pub(crate) fn map_lines(app: &Moonglow) -> Result<std::sync::Arc<BTreeSet<u32>>,
         read.map(|m| std::sync::Arc::new(m.map(|m| talk_range::map_lines(&m)).unwrap_or_default()));
     *kept = Some((path, stamp, lines.clone()));
     lines
+}
+
+/// Where the next typed line goes (or why nowhere), and how many of the
+/// project's range are left, of how many (none without a range).
+pub(crate) type Room = (Result<usize, String>, Option<(u32, u32)>);
+
+/// What a [`Room`] was worked out from: the table's lines
+/// (`Table::revision`), the lines a builder may take, the map's and those
+/// held for Redo.
+type RoomFor =
+    (u64, talk_range::Allowed, Result<std::sync::Arc<BTreeSet<u32>>, String>, BTreeSet<usize>);
+
+/// The [`Room`] left in the open talk table, for Module Properties ›
+/// Custom Content to say (none with no table open): worked out when the
+/// table, the range, the map or the lines held change, not every frame
+/// the page shows (a walk of the used part of the range, twice).
+pub(crate) fn room(app: &Moonglow) -> Option<Room> {
+    let t = app.talk.as_ref()?;
+    let allowed = (app.ws.as_ref())
+        .map_or(talk_range::Allowed::End, |ws| ws.module.project_file.talk_allowed());
+    let map = map_lines(app);
+    let made_for: RoomFor = (t.revision(), allowed, map, app.typed.held());
+    let same = |a: &RoomFor, b: &RoomFor| {
+        let maps = match (&a.2, &b.2) {
+            (Ok(a), Ok(b)) => std::sync::Arc::ptr_eq(a, b),
+            (Err(a), Err(b)) => a == b,
+            _ => false,
+        };
+        maps && (a.0, &a.1, &a.3) == (b.0, &b.1, &b.3)
+    };
+    let mut kept = app.typed.room.borrow_mut();
+    if let Some((of, room)) = &*kept
+        && same(of, &made_for)
+    {
+        return Some(room.clone());
+    }
+    let next = next_line(app, t);
+    let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
+    let map_lines = made_for.2.clone().unwrap_or_default();
+    let left = talk_range::free_lines(&made_for.1, len, |l| t.is_blank(l as usize), &map_lines);
+    let room: Room = (next, left);
+    *kept = Some((made_for, room.clone()));
+    Some(room)
 }
 
 /// The next line text typed (or Move to Talk Table) takes: in the
@@ -442,17 +488,19 @@ fn shown(app: &mut Moonglow) {
 
 /// Gives the game data the talk table as it is now, where it can be
 /// changed (nothing else reads it): whether it was (or there was nothing
-/// to give). Only what is made from the custom table's strings is
-/// forgotten (`GameData::set_custom_tlk`: the choice lists): the 2DAs
-/// read and the appearances judged have none of them, and every typed
-/// text made the open editors read `appearance.2da` and the rest again.
+/// to give). Only the lines that differ are copied
+/// (`GameData::update_custom_tlk`: the whole table was, 50,000 lines for
+/// one typed), and only what is made from the custom table's strings is
+/// forgotten (the choice lists): the 2DAs read and the appearances judged
+/// have none of them, and every typed text made the open editors read
+/// `appearance.2da` and the rest again.
 fn show(app: &mut Moonglow) -> bool {
     let Some(t) = app.talk.as_ref().filter(|_| !app.talk_view.outside) else {
         app.typed.unshown = false;
         return true;
     };
     let Some(game) = crate::exclusive(&mut app.game) else { return app.game.is_none() };
-    game.set_custom_tlk(Some(t.tlk.clone()));
+    game.update_custom_tlk(&t.tlk);
     app.typed.unshown = false;
     true
 }
@@ -644,5 +692,74 @@ mod tests {
         app.reload_project_files();
         assert!(map_lines(&app).unwrap().is_empty());
         assert!(app.typed.map.borrow().is_none());
+    }
+
+    /// Where the next typed line goes and how many are left ([`room`]) is
+    /// what a look through the range finds, kept while the table, the
+    /// range, the map and the lines held are as they were, and worked out
+    /// again when one of them changes (the walk ran every frame Module
+    /// Properties › Custom Content showed: what the first pass left of
+    /// the review's D25).
+    #[test]
+    fn the_room_left_for_typed_lines_is_kept_until_something_changes() {
+        use mg_module::talk::{Line, Table};
+        let dir = mg_testkit::scratch_dir("ui-talk-room").join("project");
+        Module::new().save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        let toml = |lines: &str| format!("[talk]\nlines = \"{lines}\"\nmap = \"lines.json\"\n");
+        std::fs::write(dir.join("moonglow.toml"), toml("10-19")).unwrap();
+        let map = |line: u32| format!("{{\"version\": 1, \"lines\": {{\"a\": {line}}}}}");
+        std::fs::write(dir.join("lines.json"), map(10)).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir);
+        assert_eq!(room(&app), None, "no table open");
+        let line = |text: &str| Line {
+            text: text.into(),
+            feminine: None,
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        app.talk = Some(Table::create("talk", &dir, mg_core::Language::ENGLISH, false));
+        // As a look finds it, each time.
+        let look = |app: &Moonglow| -> Room {
+            let t = app.talk.as_ref().unwrap();
+            let allowed = app.ws.as_ref().unwrap().module.project_file.talk_allowed();
+            let map = map_lines(app).unwrap_or_default();
+            let len = t.len() as u32;
+            (
+                next_line(app, t),
+                talk_range::free_lines(&allowed, len, |l| t.is_blank(l as usize), &map),
+            )
+        };
+        let kept = |app: &Moonglow| app.typed.room.borrow().as_ref().map(|(of, _)| of.0);
+        // (Line 10 is the map's.)
+        assert_eq!(room(&app), Some((Ok(11), Some((9, 10)))));
+        assert_eq!(room(&app), Some(look(&app)));
+        let first = kept(&app);
+        assert_eq!(room(&app), Some(look(&app)));
+        assert_eq!(kept(&app), first, "kept: not worked out again");
+        // A line of the table set: worked out again.
+        app.talk.as_mut().unwrap().put_line(11, &line("Typed")).unwrap();
+        assert_eq!(room(&app), Some((Ok(12), Some((8, 10)))));
+        assert_eq!(room(&app), Some(look(&app)));
+        assert_ne!(kept(&app), first);
+        // Taken back by the table's Undo.
+        app.talk.as_mut().unwrap().undo();
+        assert_eq!(room(&app), Some((Ok(11), Some((9, 10)))));
+        // The map changed (another line of the range its own, a longer file).
+        std::fs::write(dir.join("lines.json"), map(11).replace("\"a\"", "\"another\"")).unwrap();
+        assert_eq!(room(&app), Some(look(&app)));
+        assert_eq!(room(&app).unwrap().0, Ok(10));
+        // The range changed.
+        std::fs::write(dir.join("moonglow.toml"), toml("30-31")).unwrap();
+        app.reload_project_files();
+        assert_eq!(room(&app), Some((Ok(30), Some((2, 2)))));
+        assert_eq!(room(&app), Some(look(&app)));
+        // Another table: its own lines.
+        let mut other = Table::create("talk", &dir, mg_core::Language::ENGLISH, false);
+        other.put_line(30, &line("There")).unwrap();
+        other.put_line(31, &line("And there")).unwrap();
+        app.talk = Some(other);
+        assert_eq!(room(&app), Some(look(&app)));
+        assert!(room(&app).unwrap().0.is_err(), "the range is full");
     }
 }

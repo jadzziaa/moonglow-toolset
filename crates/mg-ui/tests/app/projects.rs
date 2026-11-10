@@ -2329,6 +2329,48 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "deleted");
 }
 
+/// A rename whose command is held for the Protected Area window goes
+/// ahead whole from there: the area renamed, its tab following it and the
+/// log saying so. Its command alone was applied, the rename's follow-ups
+/// lost (the editors' page's smaller line: Rename and Copy had no action
+/// to go on with).
+#[test]
+fn a_rename_held_for_a_protected_area_goes_ahead_whole() {
+    let (_dir, app) = claimed_project(
+        "ui-claims-protected-rename",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("ab", "merged"),
+    );
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let (from, to) = (
+        ResKey::parse("start", ResType::ARE).unwrap(),
+        ResKey::parse("square", ResType::ARE).unwrap(),
+    );
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(from.resref)));
+    h.run();
+    // (Not through the Rename window, which asks before it opens: the
+    // command itself is held.)
+    let rename = mg_ui::Action::RenameResource { from, to: to.resref, literals: false };
+    h.state_mut().actions.push(rename);
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    let has =
+        |h: &Harness<'_, Moonglow>, k: &ResKey| h.state().ws.as_ref().unwrap().module.contains(k);
+    assert!(has(&h, &from) && !has(&h, &to), "held");
+    assert!(!logged(&h, "Renamed start.are"));
+    h.get_by_label("Rename It Anyway").click();
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Protected Area").is_none(), "{:?}", h.state().log.entries);
+    assert!(!has(&h, &from) && has(&h, &to), "renamed");
+    assert!(logged(&h, "Renamed start.are to square.are"), "{:?}", h.state().log.entries);
+    let tabs: Vec<Tab> = h.state().dock.iter_all_tabs().map(|(_, t)| t.clone()).collect();
+    assert!(tabs.contains(&Tab::AreaProperties(to.resref)), "its tab follows: {tabs:?}");
+    assert!(!tabs.contains(&Tab::AreaProperties(from.resref)));
+}
+
 /// A command that changes several protected areas (a Tag set on all an
 /// Advanced Search found, a plugin's step) was asked about for the first
 /// alone, and its Anyway let the others through unnamed (the review of

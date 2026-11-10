@@ -1356,6 +1356,84 @@ fn a_hak_s_extract_asks_about_files_there_and_runs_as_a_job() {
     assert_eq!(mg_module::hak_edit::Hak::open(&saved).unwrap().items().len(), 2);
 }
 
+/// A hak tab's OK, and Save in the question a tab closed with unsaved
+/// changes asks, write the hak as a job and close the tab once it is
+/// written: a hak of gigabytes was written inside the frame, the window
+/// standing still (what the first pass left of the review's D19). One
+/// that can't be written stays open, unsaved, and is asked about again.
+#[test]
+fn a_hak_s_ok_and_its_closing_question_save_it_as_a_job() {
+    let dir = mg_testkit::scratch_dir("ui-hak-ok-job");
+    let file = dir.join("mg_one.2da");
+    std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
+    // (No folder can be made under a file: a hak there is not written.)
+    std::fs::write(dir.join("a_file"), "x").unwrap();
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = harness(app, 1400.0, 900.0);
+    // (On a thread of their own, as the application runs them.)
+    h.state_mut().background_jobs = true;
+    let changed = |h: &mut Harness<'_, Moonglow>, to: std::path::PathBuf| -> u32 {
+        mg_ui::hak_view::new_hak(h.state_mut());
+        h.run();
+        let d = h.state_mut().haks.last_mut().unwrap();
+        d.hak.path = Some(to);
+        d.hak.add_files(std::slice::from_ref(&file));
+        assert!(d.hak.is_dirty());
+        d.id
+    };
+    let open =
+        |h: &Harness<'_, Moonglow>, id: u32| h.state().dock.find_tab(&Tab::Hak(id)).is_some();
+    // OK: written off the window's thread, the tab open until it is.
+    let first = dir.join("first.hak");
+    let id = changed(&mut h, first.clone());
+    h.run();
+    h.get_by_label("OK").click();
+    h.step();
+    assert!(h.state().busy(), "written off the window's thread");
+    assert!(open(&h, id) && h.state().haks[0].hak.is_dirty(), "not closed before it is written");
+    settle(&mut h);
+    assert!(first.is_file(), "{:?}", h.state().log.entries);
+    assert!(h.state().haks.is_empty() && !open(&h, id), "saved: closed");
+    assert_eq!(mg_module::hak_edit::Hak::open(&first).unwrap().items().len(), 1);
+    // The closing question's Save: the same, and nothing asked meanwhile.
+    let second = dir.join("second.hak");
+    let id = changed(&mut h, second.clone());
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Hak(id)]));
+    h.run();
+    h.get_by_label("Save changes to second.hak?");
+    h.get_all_by_label("Save").last().unwrap().click();
+    h.step();
+    assert!(h.state().busy() && open(&h, id));
+    h.step();
+    assert!(h.query_by_label("Save changes to second.hak?").is_none() || !h.state().busy());
+    settle(&mut h);
+    assert!(second.is_file(), "{:?}", h.state().log.entries);
+    assert!(h.state().haks.is_empty() && !open(&h, id), "saved: closed");
+    assert!(h.query_by_label("Save changes to second.hak?").is_none());
+    // One that can't be written: OK leaves it open and unsaved; the
+    // question's Save too, and asks again.
+    let id = changed(&mut h, dir.join("a_file").join("third.hak"));
+    h.run();
+    h.get_by_label("OK").click();
+    h.step();
+    settle(&mut h);
+    assert!(open(&h, id) && h.state().haks[0].hak.is_dirty(), "not saved: as it was");
+    let said = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().any(|(_, l)| l.contains("Could not save the hak"))
+    };
+    assert!(said(&h), "{:?}", h.state().log.entries);
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Hak(id)]));
+    h.run();
+    h.get_all_by_label("Save").last().unwrap().click();
+    h.step();
+    settle(&mut h);
+    h.get_by_label("Save changes to third.hak?");
+    assert!(open(&h, id) && h.state().haks[0].hak.is_dirty());
+    h.get_by_label("Don't Save").click();
+    h.run();
+    assert!(h.state().haks.is_empty() && !open(&h, id));
+}
+
 /// The side editors (a hak's, a 2DA's, a tileset's) ask of unsaved changes
 /// as the module does (Save, Don't Save, Cancel), and of each tab closed
 /// in turn: Close All with two changed haks asks of both, not only the

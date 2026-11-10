@@ -34,7 +34,7 @@ pub(crate) struct ScriptBuffer {
     raw: String,
     /// The module's bytes the text was last compared with (address and
     /// length), to decode them again only when they change.
-    source: (usize, usize),
+    source: crate::tree::Stamp,
     /// Bookmarked lines (0-based).
     pub(crate) bookmarks: std::collections::BTreeSet<usize>,
     /// Numbered bookmarks 1 to 9 (index 0 unused): Ctrl+Shift+N sets one,
@@ -137,7 +137,7 @@ pub(crate) fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color
 
 impl ScriptBuffer {
     /// A script's bytes in an editor, read in the script codepage.
-    pub(crate) fn read(bytes: &[u8], source: (usize, usize)) -> ScriptBuffer {
+    pub(crate) fn read(bytes: &[u8], source: crate::tree::Stamp) -> ScriptBuffer {
         let codepage = script_codepage();
         let raw = codepage.decode(bytes).into_owned();
         let text = crate::text::to_editor(&raw).0;
@@ -557,7 +557,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.label(format!("{key} is no longer in the module."));
         return;
     };
-    let source = (bytes.as_ptr() as usize, bytes.len());
+    let source = crate::tree::stored_stamp(ws, &key, bytes);
     app.scripts.entry(key).or_insert_with(|| ScriptBuffer::read(bytes, source));
     if app.script_tools.open_externally.remove(&key)
         && let Some(editor) = app.settings.external_editor.clone()
@@ -2164,7 +2164,7 @@ mod tests {
         let mut scripts = std::collections::HashMap::new();
         let read = |scripts: &_| script_source(scripts, Some(&ws), None, &key);
         assert_eq!(read(&scripts).as_deref(), Some("// ą\n"));
-        let mut open = ScriptBuffer::read(b"// \xb9\n", (0, 0));
+        let mut open = ScriptBuffer::read(b"// \xb9\n", (0, 0, 0));
         open.text.push_str("void main() {}\n");
         scripts.insert(key, open);
         assert_eq!(read(&scripts).as_deref(), Some("// ą\nvoid main() {}\n"), "the editor's");
@@ -2178,7 +2178,7 @@ mod tests {
     #[test]
     fn a_crlf_script_is_edited_with_plain_newlines_and_saved_with_crlf() {
         let file = NEW_SCRIPT.as_bytes();
-        let mut buf = ScriptBuffer::read(file, (0, 0));
+        let mut buf = ScriptBuffer::read(file, (0, 0, 0));
         assert_eq!(buf.text, "void main()\n{\n\n}\n");
         assert!(!buf.is_dirty());
         assert_eq!(buf.bytes(), file, "untouched: the file's bytes");
@@ -2189,7 +2189,7 @@ mod tests {
         assert!(!buf.is_dirty());
         assert_eq!(buf.bytes(), saved);
         // A plain-newline script stays one.
-        let mut lf = ScriptBuffer::read(b"void main()\n{\n}\n", (0, 0));
+        let mut lf = ScriptBuffer::read(b"void main()\n{\n}\n", (0, 0, 0));
         lf.text.insert_str(0, "// x\n");
         assert_eq!(lf.mark_saved(), b"// x\nvoid main()\n{\n}\n");
         // The templates have no trailing spaces either.

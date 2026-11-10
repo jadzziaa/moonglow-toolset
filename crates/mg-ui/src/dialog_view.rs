@@ -19,7 +19,7 @@ use mg_module::dialog::{
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
 
-use crate::text::{decode, encode, with_english};
+use crate::text::{decode, encode, with_edited_text};
 use crate::widgets::{FieldTarget, LocStringEdit, commit_text, resref_field};
 use crate::{Action, Moonglow, Tab};
 
@@ -1583,7 +1583,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let i = add_node(&mut ng, input.parent, "");
             // (With plain line ends, as Aurora writes a line's text.)
             let text = crate::text::with_loc_line_ends(input.text.trim_end(), "");
-            let t = with_english(Default::default(), &text);
+            let t = with_edited_text(Default::default(), &text);
             if let Some(n) = ng.root.list_mut(kind.list()).and_then(|l| l.get_mut(i as usize)) {
                 n.set("Text", Value::LocString(t.clone()));
             }
@@ -1980,7 +1980,7 @@ fn text_panel(
     if let Some(v) = typed {
         // (Put in the module's talk table first, where Options › Language
         // says so.)
-        let now = with_english(ls.clone(), &v);
+        let now = with_edited_text(ls.clone(), &v);
         let words = words_edit(app, key, &ls, &now);
         let edit = Edit::SetField {
             key,
@@ -2020,7 +2020,7 @@ fn text_panel(
             }
         });
         if let Some(v) = with_token {
-            let now = with_english(ls.clone(), &v);
+            let now = with_edited_text(ls.clone(), &v);
             let words = words_edit(app, key, &ls, &now);
             let edit = Edit::SetField {
                 key,
@@ -2596,7 +2596,7 @@ fn search_pane(
                         crate::script_tools::replace_all(&t, &s.find, &s.replace, &s.options);
                     if count > 0 {
                         let ls = line.locstring("Text").cloned().unwrap_or_default();
-                        line.set("Text", with_english(ls, &new).into_value());
+                        line.set("Text", with_edited_text(ls, &new).into_value());
                         n += count;
                     }
                 }

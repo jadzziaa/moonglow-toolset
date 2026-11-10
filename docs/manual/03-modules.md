@@ -1190,7 +1190,8 @@ patterns' (`tdod_rental_*`) by what their names begin with
 **Up** move to it and **Enter** takes it (Enter is the offer's then, not
 the window's OK); **Escape** closes the offer and leaves the window
 open. One chosen (or
-typed whole) takes its type, a value is chosen from its values, and its
+typed whole) takes its type, a value is chosen from its values (a list
+of more than 30, a table's rows, has a Filter field over it), and its
 help is the name's tip. Under the list, the window says what the
 description finds wrong (another type, a value not listed, the wrong
 kind of object, a name in another case or like the project's and
@@ -1448,7 +1449,12 @@ copies live in Moonglow's own data folder, never next to the module or in
 the game's folders, and are removed when you save or discard the changes.
 If Moonglow (or the computer) stops first, the next start offers the copy
 in **Recover Unsaved Work**: open it as an unsaved module (with the tabs
-it had), then save it where you want. As in Aurora, open conversations are also backed up as
+it had), then save it where you want. (A copy whose note of where its
+module lives was lost with the power is offered too, by its file's name:
+recovered, it is a module never saved.) A copy belongs to the window
+that writes it for as long as that Moonglow runs: a second Moonglow
+started meanwhile does not offer it, and keeps a copy of its own if it
+has the same module open. As in Aurora, open conversations are also backed up as
 `<name>.bak` every 5 minutes.
 
 ## Module Properties
@@ -1774,7 +1780,8 @@ chooses the one edited (with no unsaved changes).
 
 **Move to Talk Table** in the String Edit window (the **…** beside a name
 or description) adds the text to the talk table as a new line and puts its
-StrRef in the string in place of the text. That's for translations, and
+StrRef in the string in place of the text; the line is added with the
+window's **OK** (Cancel adds nothing). That's for translations, and
 for text a server sends many times. The line is the next free one of the
 project's lines for typed text (below), at the table's end without them.
 It is not offered for a string with text in another language too: the
@@ -1927,7 +1934,9 @@ folder's files, subfolders included, to look over and save.
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. The hak
   editor's Save and Save As… show how far the save is, with **Cancel**,
-  which leaves the old one as it was. It warns when
+  which leaves the old one as it was; so do its **OK** and the **Save**
+  of the question a closed tab asks, which close the tab once the hak is
+  written (one that could not be written stays open). It warns when
   resources would start past 2 GiB, which the game can't read. The hak
   editor itself reads all of such a hak: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.

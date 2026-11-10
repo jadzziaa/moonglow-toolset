@@ -465,10 +465,13 @@ fn after_save(app: &mut Moonglow, i: usize) {
 }
 
 /// Saves a hak (asking where for a new one, or with `ask`), here and
-/// now: whether it was. For what goes on with the answer at once (a
-/// tab's OK and its question on closing, the module's Save, a NUI
-/// window's pictures); the hak editor's own Save is a job
-/// ([`save_as_job`]). A hak the module uses is read again.
+/// now: whether it was. For what goes on with the answer at once: the
+/// module's Save, which is followed in the same step by what reads the
+/// files written (the game started for a test, a project's pack, the
+/// plugins told of the save, Exit), and a NUI window's pictures, which
+/// says what was written. The hak editor's own Save, its tab's OK and
+/// its question on closing are jobs ([`save_then`]). A hak the module
+/// uses is read again.
 pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
     let Some(i) = app.haks.iter().position(|d| d.id == id) else { return false };
     let Ok(to) = save_to(app, i, ask) else { return false };
@@ -493,6 +496,19 @@ fn written(progress: &crate::jobs::Progress, done: u64, total: u64) -> bool {
     !progress.cancelled()
 }
 
+/// The title of the job that saves a hak ([`save_then`]).
+pub(crate) const SAVE_JOB: &str = "Save Hak";
+
+/// What goes on once a hak is saved as a job ([`save_then`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Then {
+    /// Nothing more: the editor's Save.
+    Stay,
+    /// Its tab closes (its OK, and Save in the question a tab closed with
+    /// unsaved changes asks), unless it was changed again meanwhile.
+    Close,
+}
+
 /// The hak editor's Save and Save As…, as a job: the hak is written on a
 /// thread of its own, with how far it is and Cancel (which leaves the
 /// file as it was), and taken as saved when it is written: also where
@@ -500,6 +516,15 @@ fn written(progress: &crate::jobs::Progress, done: u64, total: u64) -> bool {
 /// which). A hak of gigabytes was written inside the frame, and the
 /// window stood still for the whole copy.
 fn save_as_job(app: &mut Moonglow, id: u32, ask: bool) {
+    save_then(app, id, ask, Then::Stay);
+}
+
+/// Saves a hak as a job ([`save_as_job`]), and goes on with `then` once
+/// it is written: a tab's OK and its closing question's Save wrote it
+/// inside the frame, to close the tab with the answer. One not saved (the
+/// place not chosen, the disk full, the job canceled) stays as it was,
+/// open and unsaved.
+pub(crate) fn save_then(app: &mut Moonglow, id: u32, ask: bool, then: Then) {
     let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
     let Ok(to) = save_to(app, i, ask) else { return };
     let saving = match app.haks[i].hak.saving(to.as_deref()) {
@@ -508,12 +533,23 @@ fn save_as_job(app: &mut Moonglow, id: u32, ask: bool) {
     };
     let total = saving.size();
     app.start_job_to_its_end(
-        "Save Hak",
+        SAVE_JOB,
         move |cx| saving.write(&mut |done| written(&cx.progress, done, total)),
         move |app, saved| {
             let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
             match saved.and_then(|s| s.map(|s| app.haks[i].hak.saved(s)).transpose()) {
-                Ok(Some(())) => after_save(app, i),
+                Ok(Some(())) => {
+                    after_save(app, i);
+                    // (Changed again while it was written: it stays, with
+                    // what is unsaved.)
+                    let saved = app.haks.get(i).is_some_and(|d| d.id == id && !d.hak.is_dirty());
+                    if then == Then::Close && saved {
+                        let tab = crate::Tab::Hak(id);
+                        app.side_closing.retain(|t| *t != tab);
+                        app.forget_side(&tab);
+                        app.actions.push(crate::Action::CloseTab(tab));
+                    }
+                }
                 // (Stopped: the file is as it was.)
                 Ok(None) => app.log.info("Save Hak: canceled"),
                 Err(e) => app.log.error(format!("Could not save the hak: {e}")),

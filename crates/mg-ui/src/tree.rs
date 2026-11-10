@@ -47,25 +47,85 @@ pub(crate) use mg_module::areas::AreaInfo;
 /// being edited.
 #[derive(Debug, Default)]
 pub(crate) struct AreaNames {
-    /// By area: the stored ARE read (where its data is and its length:
-    /// replaced data is elsewhere) and what it says.
-    read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
+    /// By area: the stored ARE read ([`stored_stamp`]) and what it says.
+    read: HashMap<ResRef, (Stamp, AreaInfo)>,
     /// The areas the module's area list names, and what it was read from.
     listed: Option<(ListRead, std::collections::HashSet<ResRef>)>,
     /// Blueprints' names, likewise.
-    names: HashMap<ResKey, ((usize, usize), String)>,
+    names: HashMap<ResKey, (Stamp, String)>,
     /// What each of the tree's groups lists, as made for a revision of the
     /// workspace and the two options that shape it (areas by name, ResRefs
     /// beside names): not made again every frame.
     groups: Option<Groups>,
+    /// What the Filter finds, kept while it has the same typed.
+    filtered: Filtered,
+    /// How many times an area's placed objects were read for the tree
+    /// (what the Filter found in them is then looked for again).
+    reads: u64,
+}
+
+/// What the groups' lists were made for ([`Groups::shape`]).
+type Shape = (u64, usize, bool, bool);
+
+/// What the Filter finds, kept from frame to frame: it was looked for
+/// again every frame (each resource's name lowered, every placed object of
+/// every area matched, two to four times), tens of milliseconds a frame in
+/// a persistent world for as long as a word stood in the Filter.
+#[derive(Debug, Default)]
+struct Filtered {
+    /// What is typed and the groups' lists `matched` was made from.
+    made_for: Option<(String, Shape)>,
+    /// The resources found by their own ResRef or name.
+    matched: Arc<std::collections::HashSet<ResKey>>,
+    /// By area whose placed objects are read: those found, kind by kind
+    /// ([`found_in`]), for what is typed; `None` where none is. (An area
+    /// read again is taken out, and looked through again.)
+    areas: HashMap<ResRef, Option<Arc<Vec<Vec<usize>>>>>,
+    /// What `found` was made for: the areas read (how many times, and how
+    /// many are held) and the rows kept under the Filter for a tab chosen.
+    found_for: Option<(u64, usize, Option<Vec<ResKey>>)>,
+    /// Each group's rows under the Filter, in the group's order.
+    found: Arc<Vec<Vec<ResKey>>>,
+}
+
+/// The placed objects of an area that the Filter finds: for each kind,
+/// their places in the area's list in the order listed; `None` when it
+/// finds none (the area is then listed whole, if at all).
+fn found_in(contents: &AreaContents, filter: &Needle) -> Option<Vec<Vec<usize>>> {
+    if filter.is_empty() {
+        return None;
+    }
+    let found: Vec<Vec<usize>> = (contents.iter())
+        .map(|c| {
+            (c.order.iter().copied()).filter(|&i| filter.finds_folded(&c.rows[i].sought)).collect()
+        })
+        .collect();
+    found.iter().any(|f: &Vec<usize>| !f.is_empty()).then_some(found)
+}
+
+/// What a resource's stored data is told apart by, for what was read from
+/// it and kept: where the data is, its length, and the revision at which
+/// the resource last changed.
+pub(crate) type Stamp = (usize, usize, u64);
+
+/// The [`Stamp`] of `key`'s stored `data`. Replaced data is elsewhere, or
+/// of another length, nearly always: but data replaced twice at one length
+/// can come back to where the first was (the allocator hands the room
+/// out again), and what was kept of the first then passed for the third's
+/// where nothing looked in between (a tab behind another, the tree folded
+/// away). The revision is what a command, its undo or a file read again
+/// moves ([`Workspace::changed_at`]); the place and length, what a
+/// replacement past the commands moves.
+pub(crate) fn stored_stamp(ws: &Workspace, key: &ResKey, data: &[u8]) -> Stamp {
+    (data.as_ptr() as usize, data.len(), ws.changed_at(key))
 }
 
 /// What the module's area list was read from: the stored `module.ifo`
-/// (where its data is and its length: replaced data is elsewhere), or the
-/// open document at a revision of the workspace.
+/// ([`stored_stamp`]), or the open document at a revision of the
+/// workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListRead {
-    Stored(usize, usize),
+    Stored(Stamp),
     Open(u64),
 }
 
@@ -79,7 +139,7 @@ type GroupList = (Vec<ResKey>, HashMap<ResKey, String>);
 /// names.
 #[derive(Debug)]
 struct Groups {
-    shape: (u64, usize, bool, bool),
+    shape: Shape,
     lists: Arc<Vec<GroupList>>,
     /// The areas the module's area list leaves out (the game doesn't load
     /// them): marked in the tree.
@@ -130,6 +190,69 @@ pub(crate) fn shown(game: Option<&GameData>, s: &mg_core::LocString) -> String {
 }
 
 impl AreaNames {
+    /// Looks for what the Filter finds, where it is not in hand
+    /// ([`Filtered`]): the resources by their own names when what is typed
+    /// or the groups' lists changed, the placed objects of the areas read
+    /// since, and each group's rows when either did or the rows `kept`
+    /// under the Filter are others.
+    fn find(
+        &mut self,
+        filter: &Needle,
+        shape: Shape,
+        lists: &[GroupList],
+        contents: &HashMap<ResRef, (Read, AreaContents)>,
+        kept: Option<&[ResKey]>,
+    ) {
+        let f = &mut self.filtered;
+        let typed = filter.as_str();
+        if f.made_for.as_ref().is_none_or(|(t, s)| t != typed || *s != shape) {
+            if f.made_for.as_ref().is_none_or(|(t, _)| t != typed) {
+                f.areas.clear();
+            }
+            // (Every word in its ResRef or its name, in any order.)
+            let mut matched = std::collections::HashSet::new();
+            for (all, names) in lists {
+                for k in all {
+                    let name = names.get(k).map(|n| mg_core::text::fold(n)).unwrap_or_default();
+                    if filter.finds_in(&[&k.to_string().to_ascii_lowercase(), &name]) {
+                        matched.insert(*k);
+                    }
+                }
+            }
+            f.matched = Arc::new(matched);
+            f.made_for = Some((typed.to_string(), shape));
+            f.found_for = None;
+        }
+        let now = (self.reads, contents.len(), kept.map(<[ResKey]>::to_vec));
+        if f.found_for.as_ref() == Some(&now) {
+            return;
+        }
+        f.areas.retain(|area, _| contents.contains_key(area));
+        for (area, (_, c)) in contents {
+            f.areas.entry(*area).or_insert_with(|| found_in(c, filter).map(Arc::new));
+        }
+        // (An area stays for what is placed in it, too, opened out or not;
+        // and the rows of a tab chosen while the Filter has this typed.)
+        let stays = |k: &ResKey| {
+            f.matched.contains(k)
+                || (k.restype == ResType::ARE
+                    && f.areas.get(&k.resref).is_some_and(Option::is_some))
+                || kept.is_some_and(|keys| keys.contains(k))
+        };
+        let found = (lists.iter())
+            .map(|(all, _)| all.iter().filter(|k| stays(k)).copied().collect())
+            .collect();
+        f.found = Arc::new(found);
+        f.found_for = Some(now);
+    }
+
+    /// An area's placed objects were read (again): what the Filter found
+    /// in it is looked for again.
+    fn read_again(&mut self, area: ResRef) {
+        self.filtered.areas.remove(&area);
+        self.reads += 1;
+    }
+
     pub(crate) fn info(
         &mut self,
         ws: &Workspace,
@@ -146,7 +269,7 @@ impl AreaNames {
         let Some(data) = ws.module.get(&key) else {
             return AreaInfo { resref: area, listed, ..Default::default() };
         };
-        let stamp = (data.as_ptr() as usize, data.len());
+        let stamp = stored_stamp(ws, &key, data);
         if let Some((s, info)) = self.read.get(&area)
             && *s == stamp
             && info.listed == listed
@@ -165,7 +288,7 @@ impl AreaNames {
         let key = mg_module::Module::info_key();
         let read = match (ws.loaded(&key), ws.module.get(&key)) {
             (Some(_), _) => ListRead::Open(ws.revision()),
-            (None, Some(d)) => ListRead::Stored(d.as_ptr() as usize, d.len()),
+            (None, Some(d)) => ListRead::Stored(stored_stamp(ws, &key, d)),
             (None, None) => return true,
         };
         if self.listed.as_ref().is_none_or(|(r, _)| *r != read) {
@@ -190,7 +313,7 @@ impl AreaNames {
             return blueprint_name(game, &doc.root);
         }
         let Some(data) = ws.module.get(&key) else { return String::new() };
-        let stamp = (data.as_ptr() as usize, data.len());
+        let stamp = stored_stamp(ws, &key, data);
         if let Some((s, name)) = self.names.get(&key)
             && *s == stamp
         {
@@ -255,12 +378,12 @@ pub(crate) type Placed = (mg_area::ObjectKind, usize);
 
 /// What an area's placed objects were read from, for the module tree's
 /// copy of them: the open document at a revision of the workspace (it is
-/// being edited), else the stored GIT's data (where it is and its length:
-/// replaced data is elsewhere). They are read again when it changes.
+/// being edited), else the stored GIT's data ([`stored_stamp`]; none: no
+/// GIT). They are read again when it changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Read {
     Revision(u64),
-    Data(usize, usize),
+    Data(Option<Stamp>),
 }
 
 /// What an area's placed objects would be read from now ([`Read`]).
@@ -271,7 +394,7 @@ fn read_of(ws: &Workspace, area: ResRef) -> Read {
     if ws.loaded(&git).is_some() {
         return Read::Revision(ws.changed_at(&git));
     }
-    ws.module.get(&git).map_or(Read::Data(0, 0), |d| Read::Data(d.as_ptr() as usize, d.len()))
+    Read::Data(ws.module.get(&git).map(|d| stored_stamp(ws, &git, d)))
 }
 
 /// What is placed in an area, as the workspace has it now: every kind,
@@ -367,7 +490,8 @@ fn contents_ui(
     ui: &mut Ui,
     area: ResRef,
     contents: &AreaContents,
-    filter: &Needle,
+    // What the Filter finds among them ([`found_in`]), if anything.
+    found: Option<&[Vec<usize>]>,
     go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
     // The object in hand (its row marked), and whether to go to it.
     in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
@@ -383,19 +507,17 @@ fn contents_ui(
     let one_kind =
         chosen.is_some_and(|c| c.iter().all(|(k, _)| Some(k) == c.first().map(|f| &f.0)));
     let mut went = false;
-    let matches = |row: &ObjectRow| filter.finds_folded(&row.sought);
-    let filtered = !filter.is_empty() && contents.iter().any(|c| c.rows.iter().any(&matches));
+    let filtered = found.is_some();
     // (Collapse All closed its kinds too, as they are next shown.)
     let closing = ui.data_mut(|d| {
         d.remove_temp::<bool>(egui::Id::new(("tree-area-kinds-closed", area))).is_some()
     });
     ui.indent(("area-contents", area), |ui| {
-        for KindContents { kind, rows, order } in contents {
+        for (at, KindContents { kind, rows, order }) in contents.iter().enumerate() {
             // (By their places in the area's list, in the order listed.)
-            let shown: Vec<usize> = if filtered {
-                order.iter().copied().filter(|&i| matches(&rows[i])).collect()
-            } else {
-                order.clone()
+            let shown: Vec<usize> = match found {
+                Some(found) => found.get(at).cloned().unwrap_or_default(),
+                None => order.clone(),
             };
             let title = if filtered {
                 format!("{} ({} of {})", kind.label(), shown.len(), rows.len())
@@ -1135,9 +1257,6 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // The resource to bring into view is in a group still opening: gone
     // to when it is open (its rows are where they will be then).
     let mut opening = false;
-    // The resources the filter finds by their own ResRef or name (not
-    // only by what is placed in them).
-    let mut matched: Vec<ResKey> = Vec::new();
     // A tab chosen while the Filter has something typed: its rows (a tab
     // of several's, each) are listed under it too, for as long as it has
     // the same typed (the tree goes to them; the Filter stays).
@@ -1148,7 +1267,27 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         }
         app.tree_kept = Some((keys, filter.as_str().to_string()));
     }
-    for ((name, types), (all, names)) in GROUPS.iter().zip(lists.iter()) {
+    // What the Filter finds: the resources by their own ResRef or name
+    // (`matched`), the placed objects of each area read (every area's are
+    // read while the Filter has something typed, below), and so each
+    // group's rows; looked for when one of those changes, not every frame.
+    if !filter.is_empty() {
+        // (The rows of a tab chosen while the Filter has this typed stay
+        // in sight under it: the tree goes to them.)
+        let kept = app.tree_kept.as_ref().filter(|(_, f)| f == filter.as_str());
+        let kept = kept.map(|(keys, _)| keys.as_slice());
+        app.area_names.find(&filter, shape, &lists, &app.area_contents, kept);
+    }
+    let (matched, found_rows) =
+        (app.area_names.filtered.matched.clone(), app.area_names.filtered.found.clone());
+    // (An area's own, for its row and its objects' rows.)
+    let found_of = |area: ResRef| -> Option<Arc<Vec<Vec<usize>>>> {
+        if filter.is_empty() {
+            return None;
+        }
+        app.area_names.filtered.areas.get(&area).cloned().flatten()
+    };
+    for (group, ((name, types), (all, names))) in GROUPS.iter().zip(lists.iter()).enumerate() {
         listed += all.len();
         // A group with nothing in it, left out (Options › General: Hide
         // empty groups, a builder's ask). (While the Filter has something
@@ -1156,40 +1295,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         if hide_empty && all.is_empty() && filter.is_empty() {
             continue;
         }
-        // (An area stays for what is placed in it, too, opened out or not:
-        // every area's objects are read while the Filter has something
-        // typed, below.)
-        let holds = |k: &ResKey| {
-            k.restype == ResType::ARE
-                && app.area_contents.get(&k.resref).is_some_and(|(_, contents)| {
-                    contents.iter().any(|c| c.rows.iter().any(|r| filter.finds_folded(&r.sought)))
-                })
+        let holds = |k: &ResKey| k.restype == ResType::ARE && found_of(k.resref).is_some();
+        let listed_keys: std::borrow::Cow<'_, [ResKey]> = if filter.is_empty() {
+            std::borrow::Cow::Borrowed(all.as_slice())
+        } else {
+            std::borrow::Cow::Borrowed(found_rows[group].as_slice())
         };
-        // (The rows of a tab chosen while the Filter has this typed stay
-        // in sight under it: the tree goes to them.)
-        let kept = |k: &ResKey| {
-            (app.tree_kept.as_ref())
-                .is_some_and(|(keys, f)| f == filter.as_str() && keys.contains(k))
-        };
-        // (Every word in its ResRef or its name, in any order.)
-        let own = |k: &ResKey| {
-            let name = names.get(k).map(|n| mg_core::text::fold(n)).unwrap_or_default();
-            filter.finds_in(&[&k.to_string().to_ascii_lowercase(), &name])
-        };
-        let found: Option<Vec<ResKey>> = (!filter.is_empty()).then(|| {
-            let mut found = Vec::new();
-            for &k in all {
-                if own(&k) {
-                    matched.push(k);
-                    found.push(k);
-                } else if holds(&k) || kept(&k) {
-                    found.push(k);
-                }
-            }
-            found
-        });
-        let listed_keys: std::borrow::Cow<'_, [ResKey]> =
-            found.map_or(std::borrow::Cow::Borrowed(all.as_slice()), std::borrow::Cow::Owned);
         let keys: &[ResKey] = &listed_keys;
         // What makes a new resource of the group (its wizard, or the New
         // window): on the group's and its resources' right-click menus.
@@ -1362,11 +1473,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     together: false,
                                     listed: Vec::new(),
                                 };
+                                let found = found_of(k.resref);
                                 let went = contents_ui(
                                     ui,
                                     k.resref,
                                     contents,
-                                    &filter,
+                                    found.as_ref().map(|f| f.as_slice()),
                                     &mut go,
                                     in_hand,
                                     chosen,
@@ -1650,10 +1762,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // While the Filter has something typed, what every area holds is
     // read (not only the areas opened out), for what it finds there.
     if !filter.is_empty() {
+        // (Those opened out are to be read already: looked up in a set, the
+        // list was gone through for each area, 1,500 times 1,500 a frame
+        // until a world's areas were all read.)
+        let opened: std::collections::HashSet<ResRef> = read.iter().copied().collect();
         for k in ws.module.keys_of(ResType::ARE) {
             let now = read_of(ws, k.resref);
             if app.area_contents.get(&k.resref).is_none_or(|c| c.0 != now)
-                && !read.contains(&k.resref)
+                && !opened.contains(&k.resref)
             {
                 read.push(k.resref);
             }
@@ -1888,6 +2004,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         for area in read {
             let contents = area_contents(ws, app.game.as_deref(), area);
             app.area_contents.insert(area, (read_of(ws, area), contents));
+            app.area_names.read_again(area);
             if began.elapsed() > std::time::Duration::from_millis(12) {
                 break;
             }
@@ -2393,6 +2510,117 @@ mod tests {
         assert_eq!(by(waypoints, "ww"), object(Waypoint, 0), "the same letter: the next");
         assert_eq!(by(object(Waypoint, 0), "b"), Some(TreeAt::Resource(b)));
         assert_eq!(by(Some(TreeAt::Resource(b)), "b"), object(Creature, 1));
+    }
+
+    /// What is kept of what the Filter finds ([`AreaNames::find`]) is what
+    /// a look through every resource and every placed object finds, as the
+    /// tree looked each frame: for each thing typed, typed again, after an
+    /// area's objects are read again, with a tab's rows kept under the
+    /// Filter and with the groups' lists made again.
+    #[test]
+    fn what_the_filter_keeps_is_what_a_look_through_finds() {
+        use mg_area::ObjectKind::Creature;
+        let (_, _, mut contents, a, b) = opened_out();
+        let script = ResKey::parse("gate_open", ResType::NSS).unwrap();
+        let names = HashMap::from([(b, "The Bandits' Camp".to_string())]);
+        let mut lists: Vec<GroupList> = vec![(vec![a, b], names), (vec![script], HashMap::new())];
+        type Held = HashMap<ResRef, (Read, AreaContents)>;
+        let look = |lists: &[GroupList], filter: &Needle, contents: &Held, also: &[ResKey]| {
+            let own = |k: &ResKey, names: &HashMap<ResKey, String>| {
+                let name = names.get(k).map(|n| mg_core::text::fold(n)).unwrap_or_default();
+                filter.finds_in(&[&k.to_string().to_ascii_lowercase(), &name])
+            };
+            let holds = |k: &ResKey| {
+                k.restype == ResType::ARE
+                    && contents.get(&k.resref).is_some_and(|(_, c)| {
+                        c.iter().any(|c| c.rows.iter().any(|r| filter.finds_folded(&r.sought)))
+                    })
+            };
+            (lists.iter())
+                .map(|(all, names)| {
+                    (all.iter().filter(|k| own(k, names) || holds(k) || also.contains(k)))
+                        .copied()
+                        .collect::<Vec<ResKey>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut kept = AreaNames::default();
+        let mut shape = (1, 3, true, false);
+        let typed = ["gate", "GOBLIN", "gate wp", "b", "bandit", "nothing", "gate open", "a"];
+        for typed in typed {
+            let filter = Needle::new(typed);
+            for _ in 0..2 {
+                kept.find(&filter, shape, &lists, &contents, None);
+                assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]), "{typed}");
+            }
+        }
+        // The objects found, kind by kind in the order listed.
+        let both = Some(vec![vec![1, 0], vec![], vec![]]);
+        assert_eq!(found_in(&contents[&a.resref].1, &Needle::new("b")), both);
+        let filter = Needle::new("bandit");
+        assert_eq!(found_in(&contents[&a.resref].1, &Needle::new("ogre")), None);
+        assert_eq!(found_in(&contents[&a.resref].1, &Needle::new("")), None);
+        kept.find(&filter, shape, &lists, &contents, None);
+        assert_eq!(kept.filtered.found[0], [a, b]);
+        assert!(kept.filtered.matched.contains(&b) && !kept.filtered.matched.contains(&a));
+        // The area's objects read again, its creatures gone: found no more.
+        let (_, held) = contents.get_mut(&a.resref).unwrap();
+        held.retain(|c| c.kind != Creature);
+        kept.read_again(a.resref);
+        kept.find(&filter, shape, &lists, &contents, None);
+        assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]));
+        assert_eq!(kept.filtered.found[0], [b]);
+        // A tab's rows kept under the Filter, then let go.
+        kept.find(&filter, shape, &lists, &contents, Some(&[script]));
+        assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[script]));
+        assert_eq!(kept.filtered.found[1], [script]);
+        kept.find(&filter, shape, &lists, &contents, None);
+        assert!(kept.filtered.found[1].is_empty());
+        // The groups' lists made again (a resource renamed), and what the
+        // areas hold let go (the game data read again).
+        lists[0].1.insert(b, "The Camp".to_string());
+        shape.0 += 1;
+        kept.find(&filter, shape, &lists, &contents, None);
+        assert!(kept.filtered.found[0].is_empty(), "{:?}", kept.filtered.found);
+        let filter = Needle::new("gate");
+        kept.find(&filter, shape, &lists, &contents, None);
+        assert_eq!(kept.filtered.found[0], [a]);
+        contents.clear();
+        kept.find(&filter, shape, &lists, &contents, None);
+        assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]));
+        assert!(kept.filtered.found[0].is_empty());
+    }
+
+    /// What was read from a resource's stored data is told apart by more
+    /// than where the data is and how long: data at the same place and of
+    /// the same length is another's once a command, its undo or a file
+    /// read again changed the resource (the review's S26: replaced twice,
+    /// it can come back to where the first was). Another resource's
+    /// change leaves it.
+    #[test]
+    fn stored_data_is_told_apart_by_its_resource_s_changes_too() {
+        let (a, b) =
+            (ResKey::parse("a", ResType::NSS).unwrap(), ResKey::parse("b", ResType::NSS).unwrap());
+        let mut m = mg_module::Module::new();
+        m.set(a, b"// one".to_vec());
+        m.set(b, b"// two".to_vec());
+        let mut ws = Workspace::new(m);
+        // (One place and length throughout, as data come back to it.)
+        let data = b"// one";
+        let first = stored_stamp(&ws, &a, data);
+        assert_eq!(stored_stamp(&ws, &a, data), first);
+        let set = |key, text: &[u8]| {
+            let edit = mg_edit::Edit::SetResource { key, data: Some(text.to_vec()) };
+            mg_edit::Command::new("edit", vec![edit])
+        };
+        ws.apply(set(b, b"// 2")).unwrap();
+        assert_eq!(stored_stamp(&ws, &a, data), first, "another's change");
+        ws.apply(set(a, b"// uno")).unwrap();
+        let second = stored_stamp(&ws, &a, data);
+        assert_ne!(second, first, "changed, at the same place and length");
+        ws.undo().unwrap();
+        assert_ne!(stored_stamp(&ws, &a, data), second, "and undone");
+        assert_ne!(stored_stamp(&ws, &a, &data[..5]), stored_stamp(&ws, &a, data));
     }
 
     /// Deleted by Delete, a placed object the keys were at leaves them at

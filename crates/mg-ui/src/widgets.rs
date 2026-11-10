@@ -60,6 +60,10 @@ pub struct LocStringEdit {
     original: LocString,
     /// Each language's tokens, read when its Token… is first opened.
     tokens: Vec<(Language, Vec<String>)>,
+    /// Move to Talk Table's line, added to the table at OK, and the
+    /// String Ref it was shown as taking: not added where the String Ref
+    /// was changed since, or the window canceled.
+    moved: Option<(String, mg_module::talk::Line)>,
 }
 
 impl LocStringEdit {
@@ -81,6 +85,7 @@ impl LocStringEdit {
             entries,
             original: value.clone(),
             tokens: Vec::new(),
+            moved: None,
         }
     }
 
@@ -148,32 +153,37 @@ impl VarRow {
     }
 }
 
-/// A variable's name.
-fn var_name(s: &Struct) -> &[u8] {
-    s.string("Name").unwrap_or_default()
+/// What a variable is told apart by: its name and its type. (The game
+/// keeps an int and a string of one name as two variables: `GetLocalInt`
+/// and `GetLocalString` each read their own.)
+fn var_key(s: &Struct) -> (&[u8], Option<&Value>) {
+    (s.string("Name").unwrap_or_default(), s.get("Type"))
 }
 
 /// What an edit of one object's variables (`before` to `after`) makes of
 /// another's (`theirs`): the variables added or changed are set on it (in
-/// place where it has one of that name, else at the end), those deleted
-/// are deleted from it, and it keeps its others as they are.
+/// place where it has one of that name and type, else at the end), those
+/// deleted are deleted from it, and it keeps its others as they are. (By
+/// name alone, a change to an int replaced the string of its name too on
+/// the others edited with it, and left them with two ints.)
 pub(crate) fn merge_variables(
     before: &[Struct],
     after: &[Struct],
     theirs: &[Struct],
 ) -> Vec<Struct> {
-    let had = |list: &[Struct], name: &[u8]| list.iter().any(|s| var_name(s) == name);
+    type Key<'a> = (&'a [u8], Option<&'a Value>);
+    let had = |list: &[Struct], key: Key<'_>| list.iter().any(|s| var_key(s) == key);
     let changed: Vec<&Struct> = after.iter().filter(|a| !before.contains(a)).collect();
     let mut out: Vec<Struct> = theirs
         .iter()
-        .filter(|s| !had(before, var_name(s)) || had(after, var_name(s)))
+        .filter(|s| !had(before, var_key(s)) || had(after, var_key(s)))
         .map(|s| {
-            let set = changed.iter().find(|c| var_name(c) == var_name(s));
+            let set = changed.iter().find(|c| var_key(c) == var_key(s));
             set.map_or_else(|| s.clone(), |c| (*c).clone())
         })
         .collect();
     for c in changed {
-        if !had(&out, var_name(c)) {
+        if !had(&out, var_key(c)) {
             out.push(c.clone());
         }
     }
@@ -249,6 +259,9 @@ pub struct VarHelp {
     /// Each described variable's values, by its description's name, read
     /// when first needed (a table's rows, a script's constants).
     choices: std::collections::HashMap<String, Choices>,
+    /// Those values as their lists show them ([`Offered`]), made with
+    /// them.
+    offered: std::collections::HashMap<String, Offered>,
     /// The rows' names at the frame before, to see one change.
     names: Vec<String>,
     /// The row whose name is being typed: the names offered under it.
@@ -261,6 +274,36 @@ pub struct VarHelp {
     /// The row and name Escape closed the offer at: not offered again
     /// until the name changes.
     dismissed: Option<(usize, String)>,
+}
+
+/// A described variable's values as its list shows them, made once when
+/// they are read: a table's rows (`rows = "placeables"`, 25,000 with CEP)
+/// were copied every frame for each such variable, and each row of the
+/// open list was looked up in the whole list.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Offered {
+    /// Each value's row, numbered by its place among the values: the
+    /// value, and what it means after it.
+    rows: Vec<mg_rules::Choice>,
+    /// Where each value is among them (the first, of one written twice).
+    at: std::collections::HashMap<String, usize>,
+}
+
+impl Offered {
+    fn of(c: &Choices) -> Offered {
+        let mut at = std::collections::HashMap::with_capacity(c.list.len());
+        let rows = (c.list.iter().enumerate())
+            .map(|(row, x)| {
+                at.entry(x.value.clone()).or_insert(row);
+                let text = match &x.note {
+                    Some(n) => format!("{} — {n}", x.value),
+                    None => x.value.clone(),
+                };
+                mg_rules::Choice { row, text }
+            })
+            .collect();
+        Offered { rows, at }
+    }
 }
 
 /// A name the Variables window offers as one is typed: a described
@@ -302,6 +345,7 @@ impl VarHelp {
             let rm = app.game.as_deref().map(|g| &g.resman);
             let lookup = lookup.get_or_insert_with(|| ModuleLookup::new(&ws.module, rm));
             let c = d.choices(lookup);
+            self.offered.insert(d.name.clone(), Offered::of(&c));
             self.choices.insert(d.name.clone(), c);
         }
     }
@@ -647,50 +691,54 @@ fn offer_keys(ui: &Ui, count: usize, highlighted: &mut usize) -> (bool, bool) {
 }
 
 /// A described variable's value, chosen from its values (and typed, where
-/// it takes others too).
+/// it takes `other`s too): the list every editor has for a table's rows
+/// ([`RowChoice`]), in the order the description gives them, which lays
+/// out the rows in sight and has a Filter field over a long one.
 fn value_choice(
     ui: &mut Ui,
     row: usize,
-    d: &Described,
+    other: bool,
     c: &Choices,
+    offered: &Offered,
     value: &mut String,
     width: f32,
 ) {
-    let listed = c.list.iter().find(|x| x.value == *value);
-    let shown = |x: &mg_module::var_desc::Choice| match &x.note {
-        Some(n) => format!("{} — {n}", x.value),
-        None => x.value.clone(),
+    let at = offered.at.get(value.as_str()).copied();
+    let current = at.map(|a| a as i64);
+    let chosen = |picked: Option<i64>, value: &mut String| {
+        let picked = picked.and_then(|p| usize::try_from(p).ok());
+        if let Some(x) = picked.and_then(|p| c.list.get(p)) {
+            value.clone_from(&x.value);
+        }
     };
-    if d.other {
+    if other {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
             // (Its values to choose from, the arrow keys stepping through
             // them as every dropdown's do.)
-            let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
-            dropdown(("var-value-offer", row))
-                .selected_text("")
-                .width(24.0)
-                .height(320.0)
-                .show(ui, value, &values, |v| {
-                    c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown)
-                })
-                .on_hover_text("Its values (variables.toml)");
+            let picked =
+                row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
+                    .shown("")
+                    .width(24.0)
+                    .ordered()
+                    .hover_text("Its values (variables.toml)")
+                    .show(ui);
+            chosen(picked, value);
         });
         return;
     }
-    let text = match listed {
-        Some(x) => egui::RichText::new(shown(x)),
+    let text = match at {
+        Some(a) => egui::RichText::new(&offered.rows[a].text),
         None if value.is_empty() => egui::RichText::new("(choose)").weak(),
         None => egui::RichText::new(format!("{value} (not one of its values)"))
             .color(ui.visuals().warn_fg_color),
     };
-    let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
-    dropdown(("var-value", row)).selected_text(text).width(width).height(320.0).show(
-        ui,
-        value,
-        &values,
-        |v| c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown),
-    );
+    let picked = row_choice(egui::Id::new(("var-value", row)), &offered.rows, current)
+        .shown(text)
+        .width(width)
+        .ordered()
+        .show(ui);
+    chosen(picked, value);
 }
 
 /// A variable's type as the window names it.
@@ -705,6 +753,23 @@ pub struct Picker {
     pub title: String,
     pub filter: String,
     choices: Vec<ResRef>,
+    /// The choices the Filter finds, and what it had typed (folded) when
+    /// they were found: not looked for every frame (60,000 sounds with
+    /// CEP's haks, a text made of each).
+    found: Option<(String, Vec<ResRef>)>,
+}
+
+impl Picker {
+    /// The choices the Filter finds, in their order.
+    fn shown(&mut self) -> &[ResRef] {
+        let filter = mg_core::text::Needle::new(&self.filter);
+        if self.found.as_ref().is_none_or(|(typed, _)| typed != filter.as_str()) {
+            let found =
+                self.choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
+            self.found = Some((filter.as_str().to_string(), found));
+        }
+        self.found.as_ref().map_or(&[], |(_, found)| found)
+    }
 }
 
 impl Moonglow {
@@ -723,7 +788,8 @@ impl Moonglow {
         }
         choices.sort();
         choices.dedup();
-        self.picker = Some(Picker { id, title: title.to_string(), filter: String::new(), choices });
+        let (title, filter) = (title.to_string(), String::new());
+        self.picker = Some(Picker { id, title, filter, choices, found: None });
     }
 
     /// The resource picked for a field, once.
@@ -1065,7 +1131,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         .hint_text("none"),
                 );
             });
-            if let Some(t) = &tlk {
+            // (A text on its way to the talk table: added with OK.)
+            let moving = edit.moved.as_ref().filter(|(at, _)| at == edit.strref.trim());
+            if let Some((_, line)) = moving {
+                ui.weak(format!("Talk table: {} (added with OK)", line.text));
+            } else if let Some(t) = &tlk {
                 ui.weak(format!("Talk table: {t}"));
             }
             if let Some((language, feminine)) = movable {
@@ -1099,16 +1169,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         sound: String::new(),
                         sound_length: 0.0,
                     };
-                    match crate::talk_view::add_line(app, &line) {
+                    // (The line is added at OK: added here, Cancel left it
+                    // in the table, named by nothing.)
+                    match crate::talk_view::next_strref(app) {
                         Ok(strref) => {
                             edit.strref = strref.0.to_string();
                             edit.entries.retain(|e| {
                                 e.0 != language || (e.1 == Gender::Female && !feminine)
                             });
-                            app.log.info(format!(
-                                "Added talk-table line {}; it's saved with the module",
-                                strref.0
-                            ));
+                            edit.moved = Some((edit.strref.clone(), line));
                         }
                         Err(e) => app.log.error(format!("Move to Talk Table: {e}")),
                     }
@@ -1185,13 +1254,38 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if ui.add_enabled(value.is_some(), egui::Button::new("OK")).clicked()
                     || (value.is_some() && crate::widgets::enter(ui))
                 {
-                    if let Some(v) = value.filter(|v| *v != edit.original) {
-                        app.actions.push(
-                            edit.target
-                                .command(&format!("Edit {}", edit.title), Value::LocString(v)),
-                        );
+                    // The text moved to the talk table is added now, where
+                    // the string still names its line. (Not added: the
+                    // window stays, with why in the log.)
+                    let mut value = value;
+                    let moved = edit.moved.take().filter(|(at, _)| at == edit.strref.trim());
+                    let added = moved.map(|(at, line)| {
+                        let added = crate::talk_view::add_line(app, &line);
+                        match &added {
+                            Ok(strref) => {
+                                edit.strref = strref.0.to_string();
+                                value = edit.value();
+                                app.log.info(format!(
+                                    "Added talk-table line {}; it's saved with the module",
+                                    strref.0
+                                ));
+                            }
+                            Err(e) => {
+                                app.log.error(format!("Move to Talk Table: {e}"));
+                                edit.moved = Some((at, line));
+                            }
+                        }
+                        added.is_ok()
+                    });
+                    if added != Some(false) {
+                        if let Some(v) = value.filter(|v| *v != edit.original) {
+                            app.actions.push(
+                                edit.target
+                                    .command(&format!("Edit {}", edit.title), Value::LocString(v)),
+                            );
+                        }
+                        close = true;
                     }
-                    close = true;
                 }
                 if cancel(ui) {
                     close = true;
@@ -1270,10 +1364,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .response;
                 crate::widgets::autofocus(ui, &field);
             });
-            let filter = mg_core::text::Needle::new(&p.filter);
-            let shown: Vec<ResRef> =
-                p.choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
-            ui.weak(format!("{} of {}", shown.len(), p.choices.len()));
+            let (id, all) = (p.id, p.choices.len());
+            let shown = p.shown();
+            ui.weak(format!("{} of {all}", shown.len()));
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
                 egui::ScrollArea::vertical().max_height(300.0).show_rows(
@@ -1284,7 +1377,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.set_width(260.0);
                         for r in &shown[range] {
                             if ui.selectable_label(false, r.to_string()).clicked() {
-                                app.picked.insert(p.id, *r);
+                                app.picked.insert(id, *r);
                                 close = true;
                             }
                         }
@@ -1504,10 +1597,11 @@ fn var_body(
                     );
                 });
                 let typed = desc.is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
-                let choices = desc.and_then(|d| help.choices.get(&d.name));
+                let choices =
+                    desc.and_then(|d| help.choices.get(&d.name).zip(help.offered.get(&d.name)));
                 match (desc, choices) {
-                    (Some(d), Some(c)) if edits && typed && !c.list.is_empty() => {
-                        value_choice(ui, i, d, c, &mut r.value, value_width);
+                    (Some(d), Some((c, o))) if edits && typed && !c.list.is_empty() => {
+                        value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
                     }
                     _ if edits && colored(r) => {
                         // A color's swatch beside its text.
@@ -3109,6 +3203,10 @@ pub(crate) fn files_already(
         Some(Already::Skip) if always => *there = FilesThere::Skip,
         _ => {}
     }
+    // (Answered: the tick is not the next asking's.)
+    if answer.is_some() {
+        ctx.data_mut(|d| d.remove_temp::<bool>(always_id));
+    }
     answer
 }
 
@@ -3118,11 +3216,20 @@ pub(crate) fn files_already(
 /// ticked. Asked for by a builder (Carcerian): a question always given
 /// the same answer is answered once.
 pub(crate) fn always_box(ui: &mut Ui, id: egui::Id, label: &str, options_at: &str) -> bool {
-    let mut on = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    // (Asked anew, not shown the pass before: the tick is the last
+    // asking's, which was answered with it or without. Kept, the box came
+    // ticked the next time the question was asked, with Options set back
+    // to Ask, and one answer became the setting again.)
+    let (asked_id, now) = (id.with("asked"), ui.ctx().cumulative_pass_nr());
+    let anew = ui.data(|d| d.get_temp::<u64>(asked_id)).is_none_or(|at| now > at + 1);
+    let mut on = !anew && ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     ui.checkbox(&mut on, label).on_hover_text(format!(
         "Your answer is kept, and this isn't asked again: {options_at} changes it"
     ));
-    ui.data_mut(|d| d.insert_temp(id, on));
+    ui.data_mut(|d| {
+        d.insert_temp(id, on);
+        d.insert_temp(asked_id, now);
+    });
     on
 }
 
@@ -3199,7 +3306,7 @@ pub(crate) struct RowChoice<'a> {
     choices: &'a [mg_rules::Choice],
     current: Option<i64>,
     width: Option<f32>,
-    shown: Option<String>,
+    shown: Option<egui::WidgetText>,
     unset: &'a str,
     none: Option<&'a str>,
     ordered: bool,
@@ -3281,7 +3388,7 @@ impl<'a> RowChoice<'a> {
     }
 
     /// What the box shows, in place of the chosen row's name.
-    pub(crate) fn shown(mut self, text: impl Into<String>) -> Self {
+    pub(crate) fn shown(mut self, text: impl Into<egui::WidgetText>) -> Self {
         self.shown = Some(text.into());
         self
     }
@@ -3357,8 +3464,8 @@ impl<'a> RowChoice<'a> {
             mut about,
         } = self;
         let shown = shown.unwrap_or_else(|| match current {
-            Some(row) => mg_rules::choice_text(choices, row),
-            None => unset.to_string(),
+            Some(row) => mg_rules::choice_text(choices, row).into(),
+            None => unset.into(),
         });
         // (The widget's own state, by `id`, where `in_use` finds it.)
         let key = ui.make_persistent_id(id);
@@ -4203,10 +4310,6 @@ pub(crate) fn tile_label_height(ui: &Ui) -> f32 {
     2.0 * ui.text_style_height(&egui::TextStyle::Body) + 4.0
 }
 
-/// A picture over its name, in a gallery: `side` points square and its
-/// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
-/// is nothing to draw; `None`: not made yet). Its response, and whether
-/// it is in sight (to have its picture made).
 /// Where a picture of texture `id` is drawn in `room`: as large as fits,
 /// in its own shape (a texture twice as wide as tall isn't stretched to a
 /// square), centered. The whole room where its size isn't known.
@@ -4222,6 +4325,10 @@ pub(crate) fn letterboxed(
     egui::Rect::from_center_size(room.center(), egui::vec2(w * scale, h * scale))
 }
 
+/// A picture over its name, in a gallery: `side` points square and its
+/// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
+/// is nothing to draw; `None`: not made yet). Its response, and whether
+/// it is in sight (to have its picture made).
 pub(crate) fn picture_tile(
     ui: &mut Ui,
     side: f32,
@@ -4747,6 +4854,51 @@ mod tests {
         assert_eq!(merge_variables(&before, &before, &theirs), theirs);
     }
 
+    /// An int and a string of one name are two variables, as the game
+    /// keeps them: a change to the one leaves the other as it is on the
+    /// objects edited with it, a deletion takes the one deleted, and a
+    /// variable given another type is that one changed (the review's S27:
+    /// by name alone, the change replaced both).
+    #[test]
+    fn a_variable_edit_merges_by_name_and_type() {
+        let int = |name: &str, value: i32| {
+            let mut s = Struct::new(0);
+            s.set("Name", Value::String(name.as_bytes().to_vec()));
+            s.set("Type", Value::Dword(1));
+            s.set("Value", Value::Int(value));
+            s
+        };
+        let string = |name: &str, value: &str| {
+            let mut s = Struct::new(0);
+            s.set("Name", Value::String(name.as_bytes().to_vec()));
+            s.set("Type", Value::Dword(3));
+            s.set("Value", Value::String(value.as_bytes().to_vec()));
+            s
+        };
+        // The int changed; the string of its name untouched.
+        let before = [int("KIND", 1), string("KIND", "smith")];
+        let after = [int("KIND", 2), string("KIND", "smith")];
+        let theirs = [string("KIND", "tanner"), int("KIND", 1), int("OWN", 3)];
+        assert_eq!(
+            merge_variables(&before, &after, &theirs),
+            [string("KIND", "tanner"), int("KIND", 2), int("OWN", 3)]
+        );
+        // One with the string alone gets the int beside it.
+        assert_eq!(
+            merge_variables(&before, &after, &[string("KIND", "tanner")]),
+            [string("KIND", "tanner"), int("KIND", 2)]
+        );
+        // The string deleted: theirs goes, their int stays.
+        let after = [int("KIND", 1)];
+        assert_eq!(merge_variables(&before, &after, &theirs), [int("KIND", 1), int("OWN", 3)]);
+        // An int made a string: the int goes, the string is set.
+        let (before, after) = ([int("DC", 15)], [string("DC", "hard")]);
+        assert_eq!(
+            merge_variables(&before, &after, &[int("OWN", 3), int("DC", 20)]),
+            [int("OWN", 3), string("DC", "hard")]
+        );
+    }
+
     fn target() -> FieldTarget {
         FieldTarget::new(
             ResKey::parse("module", ResType::IFO).unwrap(),
@@ -5004,6 +5156,131 @@ mod row_choice_tests {
         let (at, lists) = open_list(200, true);
         assert!(lists.iter().all(|l| *l == lists[0]), "{lists:?}");
         assert!(lists[0].width() > at.width() + 50.0, "{lists:?} beside {at:?}");
+    }
+
+    /// A question's "Always do this" box keeps its tick while the question
+    /// is asked, and comes unticked when it is asked again later: kept, one
+    /// answer became the setting again the next time (the review's S26).
+    #[test]
+    fn an_always_box_is_unticked_when_its_question_is_asked_again() {
+        let id = egui::Id::new("a-question-always");
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
+            move |ui, (asked, on): &mut (bool, bool)| {
+                if *asked {
+                    *on = super::always_box(ui, id, "Always do this", "Options");
+                } else {
+                    ui.label("Nothing asked");
+                }
+            },
+            (true, false),
+        );
+        h.run();
+        h.get_by_label("Always do this").click();
+        h.run();
+        h.run();
+        assert!(h.state().1, "ticked, and kept while it is asked");
+        // Answered; asked again some frames on.
+        h.state_mut().0 = false;
+        h.run();
+        h.run();
+        h.state_mut().0 = true;
+        h.run();
+        assert!(!h.state().1, "asked anew: not ticked");
+        h.get_by_label("Always do this").click();
+        h.run();
+        assert!(h.state().1);
+    }
+
+    /// A described variable's values from a table of 20,000 rows
+    /// (`rows = "placeables"` with CEP): the list lays out the rows in
+    /// sight, the chosen one among them, shows each value with what it
+    /// means, and the one clicked becomes the variable's value. Closed, it
+    /// costs nothing a row: the values were copied each frame, and the
+    /// open list laid out whole, each row looked up among them all (the
+    /// review's S20).
+    #[test]
+    fn a_described_variable_s_values_lay_out_only_the_rows_in_sight() {
+        use mg_module::var_desc::{Choice, Choices};
+        struct State {
+            choices: Choices,
+            offered: super::Offered,
+            value: String,
+        }
+        let list: Vec<Choice> = (0..20_000)
+            .map(|n| Choice { value: n.to_string(), note: Some(format!("Placeable {n:05}")) })
+            .collect();
+        let choices = Choices { list, rows: Some(20_000), problem: None };
+        let offered = super::Offered::of(&choices);
+        // (As the list each frame made them: every value, each with what
+        // it means, found by its value.)
+        for (n, x) in choices.list.iter().enumerate().step_by(997) {
+            assert_eq!(offered.at[&x.value], n);
+            assert_eq!(offered.rows[n].text, format!("{n} — Placeable {n:05}"));
+            assert_eq!(offered.rows[n].row, n);
+        }
+        let state = State { choices, offered, value: "12345".into() };
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, s: &mut State| {
+                super::value_choice(ui, 0, false, &s.choices, &s.offered, &mut s.value, 220.0);
+            },
+            state,
+        );
+        h.run();
+        let t = std::time::Instant::now();
+        for _ in 0..20 {
+            h.step();
+        }
+        // (Closed: 20,000 texts were made a frame.)
+        assert!(t.elapsed() < std::time::Duration::from_millis(20 * 10), "{:?}", t.elapsed());
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        assert_eq!(h.get(combo).value().as_deref(), Some("12345 — Placeable 12345"));
+        h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox)).click();
+        h.run();
+        let rows = h.query_all_by_label_contains(" — Placeable ").count();
+        assert!(rows < 30, "{rows} rows laid out");
+        assert!(h.query_by_label("12345 — Placeable 12345").is_some(), "the chosen one in sight");
+        let t = std::time::Instant::now();
+        for _ in 0..20 {
+            h.step();
+        }
+        assert!(t.elapsed() < std::time::Duration::from_millis(20 * 40), "{:?}", t.elapsed());
+        // (In the description's order, not by name: 12346 follows 12345.)
+        h.get_by_label("12346 — Placeable 12346").click();
+        h.run();
+        assert_eq!(h.state().value, "12346");
+        // A value it doesn't list is said; one typed too, where it takes
+        // others.
+        h.state_mut().value = "none".into();
+        h.run();
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        assert_eq!(h.get(combo).value().as_deref(), Some("none (not one of its values)"));
+    }
+
+    /// Select Resource keeps what its Filter finds until what is typed
+    /// changes: the names it finds, in their order, as a look through
+    /// them all finds.
+    #[test]
+    fn select_resource_keeps_what_its_filter_finds() {
+        let choices: Vec<mg_core::ResRef> = (0..500)
+            .map(|n| mg_core::ResRef::from_str(&format!("as_sound_{n:03}")).unwrap())
+            .collect();
+        let mut p = super::Picker {
+            id: egui::Id::new("picker"),
+            title: "Select Resource".into(),
+            filter: String::new(),
+            choices: choices.clone(),
+            found: None,
+        };
+        assert_eq!(p.shown(), choices);
+        for typed in ["12", "SOUND 4", "sound_499", "none", "", "12"] {
+            p.filter = typed.into();
+            let filter = mg_core::text::Needle::new(typed);
+            let look: Vec<mg_core::ResRef> =
+                choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
+            assert_eq!(p.shown(), look, "{typed}");
+            assert_eq!(p.shown(), look, "{typed}, again");
+            assert_eq!(p.found.as_ref().map(|f| f.0.as_str()), Some(filter.as_str()));
+        }
     }
 
     /// A list of tens of thousands of rows (a 2DA's) lays out only those

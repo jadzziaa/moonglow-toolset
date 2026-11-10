@@ -167,6 +167,41 @@ enum Side {
     Below,
 }
 
+impl Place {
+    /// The place as the settings and a module's open tabs keep it:
+    /// `window`, `middle`, `palettes`, `split left 300`.
+    fn text(self) -> String {
+        match self {
+            Place::Window => "window".into(),
+            Place::Middle => "middle".into(),
+            Place::Palettes => "palettes".into(),
+            Place::Split(side, share) => format!("split {} {share}", side.name()),
+        }
+    }
+
+    /// The place [`Place::text`] wrote (a split's share kept between a
+    /// twentieth and nineteen twentieths); `None` for other text.
+    fn parse(text: &str) -> Option<Place> {
+        let mut words = text.split_whitespace();
+        Some(match (words.next()?, words.next()) {
+            ("window", None) => Place::Window,
+            ("middle", None) => Place::Middle,
+            ("palettes", None) => Place::Palettes,
+            ("split", Some(side)) => {
+                let side = match side {
+                    "left" => Side::Left,
+                    "right" => Side::Right,
+                    "above" => Side::Above,
+                    "below" => Side::Below,
+                    _ => return None,
+                };
+                Place::Split(side, words.next()?.parse::<u16>().ok()?.clamp(50, 950))
+            }
+            _ => return None,
+        })
+    }
+}
+
 impl Side {
     fn name(self) -> &'static str {
         match self {
@@ -389,6 +424,16 @@ pub enum Action {
     FindReferences(ResKey),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
+    /// The Rename window's Rename: the resource renamed everywhere, with
+    /// what follows it (its tabs, the log, the scripts compiled again:
+    /// `Moonglow::rename_resource`). An action, so that a rename held for
+    /// the Protected Area window goes ahead whole from there: its command
+    /// alone was applied, and the tabs kept the old name.
+    RenameResource {
+        from: ResKey,
+        to: mg_core::ResRef,
+        literals: bool,
+    },
     /// Opens the Placeable Gallery.
     PlaceableGallery,
     /// The palette's More › Refresh Palette: the module's custom palette
@@ -396,6 +441,11 @@ pub enum Action {
     RefreshPalette(mg_module::palette::BlueprintKind),
     /// Copy…: asks for the copy's ResRef and Tag.
     CopyDialog(ResKey),
+    /// The Copy window's Create Copy: the copy made, with what follows it
+    /// (the log, an area's tags checked, the palette and the copy's
+    /// window: `copy_as::make`). An action for the Protected Area
+    /// window, as [`Action::RenameResource`] is.
+    CopyResource(Box<copy_as::CopyDraft>),
     /// Edit beside a script's name: opens the module's script, else the
     /// game's; a script that is nowhere is made in the module first (as
     /// Aurora does). `condition`: one that answers whether a conversation
@@ -799,15 +849,15 @@ pub struct Moonglow {
     pub(crate) start_focus: Option<mg_core::ResRef>,
     /// The References tab.
     pub references: references::References,
-    /// What each script was compiled from when Compile All last compiled
-    /// it (its stamp), and what those stamps were made with: a script
-    /// whose stamp is the same is not compiled again.
     /// The text field typed in since it got the keyboard: Undo and Redo
     /// are its own there (`commands::keys_pressed`).
     pub(crate) text_typed: Option<egui::Id>,
     /// A command asked for by its key while a text field was typed in:
     /// run in the next frame, after the field has set its text.
     pub(crate) command_after_text: Option<commands::AfterText>,
+    /// What each script was compiled from when Compile All last compiled
+    /// it (its stamp), and what those stamps were made with: a script
+    /// whose stamp is the same is not compiled again.
     pub(crate) script_stamps: mg_module::build::Remembered,
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
@@ -945,6 +995,9 @@ pub struct Moonglow {
     /// a Shift+click goes from. Marked, and what a menu acts on, when
     /// there are several.
     pub tree_selected: std::collections::BTreeSet<ResKey>,
+    /// The module as it was when those chosen were last held to its
+    /// resources (its revision, and how many it has).
+    tree_selected_at: (u64, usize),
     pub(crate) tree_anchor: Option<ResKey>,
     /// The rows of the tab chosen while the module tree's Filter had this
     /// text typed: listed under it, which would hide them, until it is
@@ -1296,6 +1349,7 @@ impl Moonglow {
             tree_object: None,
             tree_object_pending: false,
             tree_selected: Default::default(),
+            tree_selected_at: (0, 0),
             tree_anchor: None,
             tree_kept: None,
             tree_objects: None,
@@ -1734,6 +1788,7 @@ impl Moonglow {
         self.remember_window_places();
         self.note_recent_tabs(ui.ctx());
         tree::follow_front_tab(self);
+        self.prune_tree_selection();
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -1942,9 +1997,6 @@ impl Moonglow {
         if out.is_empty() { "none".into() } else { out.join(" ") }
     }
 
-    /// Where the main panes split for the Palettes pane on the right: the
-    /// left side's share, leaving the palette as wide as the module tree.
-    /// (egui_dock's split fraction is always the left side's.)
     /// Where a tool window is: a window of its own, a tab of the main
     /// pane, or a tab of the palettes' pane.
     fn place_of(&self, tab: &Tab) -> Option<Place> {
@@ -2016,26 +2068,29 @@ impl Moonglow {
     /// last dragged to (GitHub issue 14), a window of its own otherwise.
     fn place_for(&self, tab: &Tab) -> Place {
         let kept = kept_by_kind(&self.settings.window_places, tab);
-        match kept.map(|(_, p)| p.as_str()) {
-            Some("middle") => Place::Middle,
-            Some("palettes") => Place::Palettes,
-            Some(split) => {
-                // "split left 300": the side, and thousandths of the two.
-                let mut words = split.split_whitespace();
-                let side = match (words.next(), words.next()) {
-                    (Some("split"), Some("left")) => Side::Left,
-                    (Some("split"), Some("right")) => Side::Right,
-                    (Some("split"), Some("above")) => Side::Above,
-                    (Some("split"), Some("below")) => Side::Below,
-                    _ => return Place::Window,
-                };
-                match words.next().and_then(|w| w.parse::<u16>().ok()) {
-                    Some(share) => Place::Split(side, share.clamp(50, 950)),
-                    None => Place::Window,
-                }
-            }
-            None => Place::Window,
+        // ("split left 300": the side, and thousandths of the two.)
+        kept.and_then(|(_, p)| Place::parse(p)).unwrap_or(Place::Window)
+    }
+
+    /// Holds the resources chosen in the module tree to those the module
+    /// has, when it changed: one deleted or renamed stayed chosen, and a
+    /// plugin's command run on the tree's selection was handed it (the
+    /// tree shown or folded away).
+    fn prune_tree_selection(&mut self) {
+        let Some(ws) = &self.ws else { return };
+        let now = (ws.revision(), ws.module.len());
+        if self.tree_selected_at != now {
+            self.tree_selected_at = now;
+            self.tree_selected.retain(|k| ws.module.contains(k));
         }
+    }
+
+    /// The middle's pane: the main window's first that is not the
+    /// palettes' (the areas', or the one that says none is open).
+    pub(crate) fn middle_pane(&self) -> Option<egui_dock::NodePath> {
+        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+        (self.dock.iter_leaves().map(|(p, _)| p))
+            .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette)
     }
 
     /// Notes where the user dragged a tool window to (a window seen in
@@ -2053,9 +2108,7 @@ impl Moonglow {
             && self.maximized.is_empty()
         {
             let side = match self.split_of(path.node) {
-                Some(Place::Split(side, share)) if side != Side::Right => {
-                    Some(format!("split {} {share}", side.name()))
-                }
+                Some(place @ Place::Split(side, _)) if side != Side::Right => Some(place.text()),
                 _ => None,
             };
             let kind = Tab::Palette.kind();
@@ -2076,13 +2129,11 @@ impl Moonglow {
             if before.is_some_and(|b| b != now) && !self.maximized.contains_key(&tab) {
                 let kind = tab.kind();
                 self.settings.window_places.retain(|(k, _)| k != kind);
-                let name = match now {
-                    Place::Middle => "middle".to_string(),
-                    Place::Palettes => "palettes".to_string(),
-                    Place::Split(side, share) => format!("split {} {share}", side.name()),
-                    Place::Window => continue,
-                };
-                self.settings.window_places.push((kind.to_string(), name));
+                // (A window of its own is where one opens anyway.)
+                if now == Place::Window {
+                    continue;
+                }
+                self.settings.window_places.push((kind.to_string(), now.text()));
             }
         }
     }
@@ -2345,11 +2396,7 @@ impl Moonglow {
     fn tab_pane(&self) -> Option<egui_dock::NodePath> {
         let tabs = |p: &egui_dock::NodePath| self.dock.leaf(*p).map_or(0, |l| l.tabs.len());
         let focused = self.dock.focused_leaf().filter(|p| tabs(p) > 1);
-        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
-        focused.or_else(|| {
-            (self.dock.iter_leaves().map(|(p, _)| p))
-                .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette)
-        })
+        focused.or_else(|| self.middle_pane())
     }
 
     /// The tab Close Tab closes: the one in front of the pane with the
@@ -2505,10 +2552,7 @@ impl Moonglow {
     /// The middle's tab of a number (from 1; 9: its last), brought to the
     /// front.
     fn number_tab(&mut self, number: usize) {
-        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
-        let Some((_, leaf)) = (self.dock.iter_leaves())
-            .find(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != palette)
-        else {
+        let Some(leaf) = self.middle_pane().and_then(|p| self.dock.leaf(p).ok()) else {
             return;
         };
         let tab = if number == 9 { leaf.tabs.last() } else { leaf.tabs.get(number - 1) };
@@ -2615,6 +2659,9 @@ impl Moonglow {
         }
     }
 
+    /// Where the main panes split for the Palettes pane on the right: the
+    /// left side's share, leaving the palette as wide as the module tree.
+    /// (egui_dock's split fraction is always the left side's.)
     fn palette_split(&self) -> f32 {
         match (self.tree_width, self.dock_width) {
             (Some(tree), Some(dock)) if dock > 0.0 => (1.0 - tree / dock).clamp(0.5, 0.9),
@@ -3159,7 +3206,7 @@ impl Moonglow {
         let Some(path) = self.dialogs.save_file(FileKind::Log, suggested.as_deref()) else {
             return;
         };
-        match std::fs::write(&path, self.log.text()) {
+        match mg_module::write_replacing(&path, self.log.text().as_bytes()) {
             Ok(()) => self.log.info(format!("Saved the log to {}", path.display())),
             Err(e) => self.log.error(format!("Could not write {}: {e}", path.display())),
         }
@@ -3597,16 +3644,7 @@ impl Moonglow {
         self.search_kept = Default::default();
         self.release_game_data();
         if let Some(game) = exclusive(&mut self.game) {
-            let module_layers: Vec<String> = game
-                .resman
-                .layers()
-                .iter()
-                .filter(|l| l.priority == priority::MODULE || l.label.starts_with("hak:"))
-                .map(|l| l.label.clone())
-                .collect();
-            for l in module_layers {
-                game.resman.remove(&l);
-            }
+            remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
@@ -4090,17 +4128,13 @@ impl Moonglow {
                     } else if !tab.docks() {
                         // Where one of its kind was last dragged to, if
                         // that pane is there; a window of its own else.
-                        let palette =
-                            self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
                         let pane = match self.place_for(&tab) {
                             Place::Window => None,
                             Place::Palettes => self
                                 .dock
                                 .find_tab(&Tab::Palette)
                                 .map(|p| egui_dock::NodePath { surface: p.surface, node: p.node }),
-                            Place::Middle => (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| {
-                                p.surface.is_main() && Some((p.surface, p.node)) != palette
-                            }),
+                            Place::Middle => self.middle_pane(),
                             // A pane of its own off that side of the middle,
                             // as large as it was (GitHub issue 22).
                             Place::Split(side, share) => self.split_middle(side, share, &tab),
@@ -4153,11 +4187,8 @@ impl Moonglow {
                         let other = |p: &egui_dock::NodePath| {
                             p.surface.is_main() && Some((p.surface, p.node)) != palette
                         };
-                        let target = self
-                            .dock
-                            .focused_leaf()
-                            .filter(other)
-                            .or_else(|| self.dock.iter_leaves().map(|(p, _)| p).find(other));
+                        let target =
+                            self.dock.focused_leaf().filter(other).or_else(|| self.middle_pane());
                         match (target, palette) {
                             (Some(pane), _) => {
                                 self.dock.set_focused_node_and_surface(pane);
@@ -4185,7 +4216,11 @@ impl Moonglow {
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
             Action::FindStrRef(n) => self.find_references(references::Query::StrRef(n)),
             Action::RenameDialog(k) => self.rename_dialog(k),
+            Action::RenameResource { from, to, literals } => {
+                self.rename_resource(from, to, literals);
+            }
             Action::CopyDialog(k) => self.copy_dialog(k, false),
+            Action::CopyResource(draft) => copy_as::make(self, &draft),
             Action::PlaceableGallery => {
                 // (For the selection: not the placeable it was last opened for.)
                 self.placeable_gallery = Some(Default::default());
@@ -4603,7 +4638,6 @@ impl Moonglow {
         // (The .mod of its name there, in any case: `Castle/` beside
         // `castle.mod` is written as `castle.mod`.)
         let path = mg_module::folder::mod_beside(dir);
-        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
         // (As saving a .mod: the one there kept as its backup, and the new
         // one written beside it, then moved into its place.)
         if !self.settings.no_backups && path.is_file() {
@@ -4612,13 +4646,8 @@ impl Moonglow {
                 self.log.warn(format!("{}: {e}", backup.display()));
             }
         }
-        let part = dir.with_file_name(format!("{name}.moonglow-tmp"));
-        let written = ws
-            .module
-            .to_archive_bytes()
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| std::fs::write(&part, bytes).map_err(|e| e.to_string()))
-            .and_then(|()| std::fs::rename(&part, &path).map_err(|e| e.to_string()));
+        let written = (ws.module.to_archive_bytes().map_err(|e| e.to_string()))
+            .and_then(|b| mg_module::write_replacing(&path, &b).map_err(|e| e.to_string()));
         match written {
             Ok(()) => self.log.info(format!("Wrote {}", path.display())),
             Err(e) => self.log.error(format!("{}: {e}", path.display())),
@@ -4706,10 +4735,9 @@ impl Moonglow {
         };
         match ws.module.target_archive_with(&lookup) {
             Ok(Some((path, bytes, models))) => {
-                let written = path
-                    .parent()
-                    .map_or(Ok(()), std::fs::create_dir_all)
-                    .and_then(|()| std::fs::write(&path, bytes));
+                // (Whole or not at all: the module packed before is not
+                // left cut short.)
+                let written = mg_module::write_replacing(&path, &bytes);
                 match written {
                     Ok(()) => {
                         let what = "the project";
@@ -5026,11 +5054,7 @@ impl Moonglow {
     /// A nasher project's packed module is looked at once packed, before
     /// it is copied there.
     pub(crate) fn test_may_start(&mut self) -> bool {
-        if test_module::game_running() {
-            self.log.warn(
-                "The game started for the last test is still running: close it, then test \
-                 again (a second test would write the module under it)",
-            );
+        if self.game_still_running() {
             return false;
         }
         if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
@@ -5045,13 +5069,22 @@ impl Moonglow {
         allowed
     }
 
-    /// Starts the game on the saved module (Test Module).
-    fn test_module(&mut self, choose: bool) {
-        if test_module::game_running() {
+    /// Whether the game started for the last test is still running, said
+    /// in the log if so: no other test starts meanwhile.
+    fn game_still_running(&mut self) -> bool {
+        let running = test_module::game_running();
+        if running {
             self.log.warn(
                 "The game started for the last test is still running: close it, then test \
                  again (a second test would write the module under it)",
             );
+        }
+        running
+    }
+
+    /// Starts the game on the saved module (Test Module).
+    fn test_module(&mut self, choose: bool) {
+        if self.game_still_running() {
             return;
         }
         // NUI windows changed since their last build are built first, so the
@@ -5137,11 +5170,7 @@ impl Moonglow {
     /// modules folder as [`test_module::FROM_HERE`] with its start moved,
     /// and the game started on it.
     fn test_from_here(&mut self, area: mg_core::ResRef, at: [f32; 3], facing: f32, choose: bool) {
-        if test_module::game_running() {
-            self.log.warn(
-                "The game started for the last test is still running: close it, then test \
-                 again (a second test would write the module under it)",
-            );
+        if self.game_still_running() {
             return;
         }
         let Some(install) = self.install.clone() else {
@@ -5161,9 +5190,7 @@ impl Moonglow {
         let modules = install.user_folder("modules").unwrap_or_else(|| user.join("modules"));
         let dest = modules.join(format!("{}.mod", test_module::FROM_HERE));
         let written = bytes.and_then(|b| {
-            std::fs::create_dir_all(&modules)
-                .and_then(|()| std::fs::write(&dest, b))
-                .map_err(|e| format!("{}: {e}", dest.display()))
+            mg_module::write_replacing(&dest, &b).map_err(|e| format!("{}: {e}", dest.display()))
         });
         match written {
             Ok(()) => {
@@ -5386,8 +5413,6 @@ impl Moonglow {
         self.ws.as_mut().map(listed_haks).unwrap_or_default()
     }
 
-    /// Layers the module's haks as Module Properties lists them, when the
-    /// list changed (an edit, an undo): no reopening needed.
     /// Closes the module's haks, so that another program may write over
     /// them (a project's command): whether any were closed.
     /// [`Moonglow::sync_haks`] opens them again.
@@ -5397,18 +5422,14 @@ impl Moonglow {
         }
         self.release_game_data();
         let Some(game) = exclusive(&mut self.game) else { return false };
-        let haks: Vec<String> = (game.resman.layers().iter())
-            .filter(|l| l.label.starts_with("hak:"))
-            .map(|l| l.label.clone())
-            .collect();
-        for l in haks {
-            game.resman.remove(&l);
-        }
+        remove_layers(&mut game.resman, is_hak_layer);
         self.haks_layered.clear();
         self.game_data_changed();
         true
     }
 
+    /// Layers the module's haks as Module Properties lists them, when the
+    /// list changed (an edit, an undo): no reopening needed.
     pub(crate) fn sync_haks(&mut self) {
         let listed = self.listed_haks();
         if listed == self.haks_layered {
@@ -5417,16 +5438,7 @@ impl Moonglow {
         let baked = self.ws.as_ref().and_then(|ws| ws.module.project_file.baked_rows().ok());
         self.release_game_data();
         let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
-        let old: Vec<String> = game
-            .resman
-            .layers()
-            .iter()
-            .filter(|l| l.label.starts_with("hak:"))
-            .map(|l| l.label.clone())
-            .collect();
-        for l in old {
-            game.resman.remove(&l);
-        }
+        remove_layers(&mut game.resman, is_hak_layer);
         match game.resman.add_haks(gi, &listed) {
             Ok(missing) => {
                 for h in missing {
@@ -5634,8 +5646,6 @@ impl Moonglow {
         }
     }
 
-    /// Verify Module, as a job: what is missing, and what is wrong with the
-    /// custom content, into the log.
     /// Build › Round-Trip Check, as a job: the module as it is (unsaved
     /// changes too) saved to a copy of its own and read back, and its GFFs
     /// and 2DAs written anew; what doesn't come back as it was is said in
@@ -5679,6 +5689,8 @@ impl Moonglow {
         );
     }
 
+    /// Verify Module, as a job: what is missing, and what is wrong with the
+    /// custom content, into the log.
     fn verify(&mut self) {
         if self.ws.is_none() || self.game.is_none() {
             return;
@@ -5865,7 +5877,9 @@ impl Moonglow {
                     continue;
                 }
             };
-            match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, &bytes)) {
+            // (Whole or not at all: a write that stops leaves the backup
+            // before it, the last good one.)
+            match mg_module::write_replacing(&path, &bytes) {
                 Ok(()) => {
                     self.dialog_backed_up.insert(key, bytes);
                     written.push(path);
@@ -5922,13 +5936,13 @@ impl Moonglow {
         }
     }
 
-    /// A script editor's current text.
     /// The scripts the compile memory holds: compiled here (Compile All,
     /// a Build, a rename), passed over while they are as compiled.
     pub fn compiled_scripts(&self) -> Vec<ResKey> {
         self.script_stamps.scripts.keys().copied().collect()
     }
 
+    /// A script editor's current text.
     pub fn script_text(&self, key: ResKey) -> Option<String> {
         self.scripts.get(&key).map(|b| b.text.clone())
     }
@@ -6037,6 +6051,21 @@ fn kept_by_kind<'a, T>(kept: &'a [(String, T)], tab: &Tab) -> Option<&'a (String
     kept.iter()
         .find(|(k, _)| k == kind)
         .or_else(|| tab.kind_before().and_then(|b| kept.iter().find(|(k, _)| k == b)))
+}
+
+/// Whether a layer of the load order is one of the module's haks (as
+/// `ResMan::add_haks` labels them).
+fn is_hak_layer(layer: &mg_resman::Layer) -> bool {
+    layer.label.starts_with("hak:")
+}
+
+/// Takes the layers `gone` says out of the load order.
+fn remove_layers(resman: &mut mg_resman::ResMan, gone: impl Fn(&mg_resman::Layer) -> bool) {
+    let labels: Vec<String> =
+        resman.layers().iter().filter(|l| gone(l)).map(|l| l.label.clone()).collect();
+    for label in labels {
+        resman.remove(&label);
+    }
 }
 
 /// The game data to change (its layers, its talk table): only while
