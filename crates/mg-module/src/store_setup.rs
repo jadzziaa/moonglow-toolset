@@ -34,13 +34,25 @@ pub fn next_name(module: &Module, stem: &str, restype: ResType) -> ResRef {
 /// The script that opens the store with `tag` for the PC speaker (with
 /// the appraise skill adjusting prices if `appraise`), or says that there
 /// is none (talk table 53090), as Aurora writes it: CRLF line ends, no
-/// final one.
+/// final one. A tag with a quote, a backslash or a line break in it
+/// (another tool's) is written as an NWScript string takes them (`\"`,
+/// `\\`, `\n`), so that the script compiles and looks for that tag.
 pub fn script(tag: &str, appraise: bool) -> String {
     let (include, open) = if appraise {
         ("#include \"nw_i0_plot\"\r\n", "gplotAppraiseOpenStore")
     } else {
         ("", "OpenStore")
     };
+    let mut escaped = String::with_capacity(tag.len());
+    for c in tag.chars() {
+        match c {
+            '"' | '\\' => escaped.extend(['\\', c]),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => {}
+            c => escaped.push(c),
+        }
+    }
+    let tag = escaped;
     format!(
         "{include}void main()\r\n{{\r\n    object oStore = GetNearestObjectByTag(\"{tag}\");\r\n    \
          if (GetObjectType(oStore) == OBJECT_TYPE_STORE)\r\n    {{\r\n        \
@@ -103,6 +115,28 @@ pub fn store_placement(creature: &Struct) -> crate::instances::Placement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A store's tag with a quote or a backslash in it is one string of
+    /// the script, and ends where it should (the review's V25: it was put
+    /// between the quotes as it is, and the script did not compile, or
+    /// looked for another tag).
+    #[test]
+    fn a_tag_with_a_quote_is_one_string_of_the_script() {
+        use mg_script::lex::{TokenKind, tokenize};
+        for tag in ["a\"b", "back\\", "\\\"); DestroyObject(OBJECT_SELF); //", "two\nlines"] {
+            let s = script(tag, false);
+            let tokens = tokenize(s.as_bytes());
+            let strings: Vec<_> =
+                tokens.iter().filter(|t| matches!(t.kind, TokenKind::String { .. })).collect();
+            assert_eq!(strings.len(), 1, "{tag}: {s}");
+            assert_eq!(strings[0].kind, TokenKind::String { terminated: true }, "{tag}: {s}");
+            let after = &s[strings[0].span.end..];
+            assert!(after.starts_with(");\r\n    if (GetObjectType(oStore)"), "{tag}: {s}");
+            assert!(!s.contains("DestroyObject") || s[strings[0].span.clone()].contains("Destroy"));
+        }
+        assert!(script("a\"b", false).contains("GetNearestObjectByTag(\"a\\\"b\");"));
+        assert!(script("PLAIN_1", false).contains("GetNearestObjectByTag(\"PLAIN_1\");"));
+    }
 
     #[test]
     fn writes_aurora_s_script_and_conversation() {
