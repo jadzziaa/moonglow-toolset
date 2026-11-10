@@ -608,6 +608,74 @@ fn advanced_search_finds_again_before_it_acts_in_a_changed_module() {
     );
 }
 
+/// Advanced Search's list lays out the rows in sight, the others taking
+/// a row's room each (every hit was laid out every frame: 8,785 rows of
+/// widgets for a world's variables; the review of November 2026, D23):
+/// the first rows are there, the last is not until the list is scrolled
+/// to it, and a row scrolled to is ticked and clicked as any other.
+#[test]
+fn advanced_search_lays_out_the_rows_in_sight() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-rows");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let creatures: Vec<Struct> = (0..400)
+        .map(|i| {
+            let mut c = Struct::new(4);
+            c.set("Tag", Value::String(format!("T{i:03}").into_bytes()));
+            let mut v = Struct::new(0);
+            v.set("Name", Value::String(b"nQuest".to_vec()));
+            v.set("Type", Value::Dword(1));
+            v.set("Value", Value::Int(1));
+            c.set("VarTable", Value::List(vec![v]));
+            c
+        })
+        .collect();
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = window_harness(app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Variable, name: "nQuest".into(), ..Default::default() };
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("400 found:");
+    h.get_by_label_contains("creature T000");
+    assert!(h.query_by_label_contains("creature T399").is_none(), "out of sight: not laid out");
+    let laid_out = h.query_all_by_label_contains("creature T").count();
+    assert!((5..200).contains(&laid_out), "{laid_out} rows laid out");
+    // Scrolled to its end: the last rows, where the first were.
+    let over = h.get_by_label_contains("creature T003").rect().center();
+    h.hover_at(over);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -1_000_000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while h.query_by_label_contains("creature T399").is_none() {
+        assert!(std::time::Instant::now() < deadline, "the list scrolls to its end");
+        h.step();
+    }
+    assert!(h.query_by_label_contains("creature T000").is_none());
+    h.get_by_label_contains("creature T399").click();
+    let area = ResRef::from_str("start").unwrap();
+    while h.state().dock.find_tab(&Tab::Area(area)).is_none() {
+        assert!(std::time::Instant::now() < deadline, "its place opens");
+        h.step();
+    }
+}
+
 /// Every search wrote the field looked for over the change's name, which
 /// is a variable's too: after a search of appearances, a variable typed
 /// as nBoss read Appearance_Type once the change had run (it ends with a

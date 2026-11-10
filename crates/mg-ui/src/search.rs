@@ -1227,6 +1227,17 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
     go
 }
 
+/// A hit's place as its row shows it, with areas named as the rest of
+/// the window names them (Options › General: Show areas by name).
+fn place_shown(app: &mut Moonglow, h: &mg_module::search::Hit) -> String {
+    let of_area = matches!(h.key.restype, ResType::ARE | ResType::GIT);
+    if !of_area || !app.settings.area_names {
+        return h.place.clone();
+    }
+    let name = crate::tabs::area_label(app, h.key.resref);
+    h.place.replacen(&h.key.resref.to_lowercase().to_string(), &name, 1)
+}
+
 /// The Advanced Search tab.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if app.ws.is_none() {
@@ -1235,20 +1246,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     let mut draft = std::mem::take(&mut app.advanced_search);
     let (mut find, mut go, mut change) = (false, None, false);
-    // The places, with areas named as the rest of the window names them
-    // (Options › General: Show areas by name).
-    let places: Vec<String> = draft
-        .hits
-        .iter()
-        .map(|h| {
-            let of_area = matches!(h.key.restype, ResType::ARE | ResType::GIT);
-            if !of_area || !app.settings.area_names {
-                return h.place.clone();
-            }
-            let name = crate::tabs::area_label(app, h.key.resref);
-            h.place.replacen(&h.key.resref.to_lowercase().to_string(), &name, 1)
-        })
-        .collect();
     let game = app.game.clone();
     ui.weak(
         "The module's blueprints, placed objects (and the items they hold), areas and \
@@ -1358,19 +1355,38 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let path = mg_edit::GffPath(h.path.0.iter().take(1).cloned().collect());
             crate::plugins::selected_at(h.key, &path)
         };
+        // What a plugin's command is run on from a ticked row: every
+        // ticked hit's. Made once a frame, when a ticked row in sight
+        // first asks, and whether a command fits it: it was made again
+        // for every ticked row, 8,785 times 8,785 for a world's variables.
+        let mut ticked: Option<(Vec<mg_plugin::Selected>, bool)> = None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for (i, place) in places.iter().enumerate() {
+            // (Only the rows in sight are named and laid out; the others
+            // take a row's room, as Find References' do.)
+            let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            for i in 0..draft.hits.len() {
+                let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+                if !ui.is_rect_visible(room) {
+                    ui.add_space(row);
+                    continue;
+                }
+                let place = place_shown(app, &draft.hits[i]);
                 ui.horizontal(|ui| {
                     let h = &draft.hits[i];
                     let mine = h.layer.is_none();
                     let tick = egui::Checkbox::without_text(&mut draft.ticked[i]);
                     let tick = ui.add_enabled(mine, tick);
-                    let mut hover = format!("{} {}", h.key, h.path);
-                    if let Some(layer) = &h.layer {
-                        hover = format!("{hover}\nRead from {layer}: read-only");
+                    let r = ui.link(place).on_hover_ui(|ui| {
+                        ui.label(match &h.layer {
+                            Some(layer) => {
+                                format!("{} {}\nRead from {layer}: read-only", h.key, h.path)
+                            }
+                            None => format!("{} {}", h.key, h.path),
+                        });
+                    });
+                    if h.layer.is_some() {
                         tick.on_disabled_hover_text("Read-only: the module has no copy of it");
                     }
-                    let r = ui.link(place).on_hover_text(hover);
                     if r.clicked() {
                         go = Some(i);
                     }
@@ -1381,18 +1397,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // The plugins' commands for it, or (one of those
                     // ticked) for each ticked.
                     if !commands.is_empty() {
-                        let mut on: Vec<mg_plugin::Selected> = if draft.ticked[i] {
-                            (draft.hits.iter().zip(&draft.ticked))
-                                .filter(|(_, t)| **t)
-                                .map(|(h, _)| on_hit(h))
-                                .collect()
-                        } else {
-                            vec![on_hit(h)]
+                        let fits = |on: &[mg_plugin::Selected]| {
+                            commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(on)))
                         };
-                        on.dedup();
-                        if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
+                        let alone;
+                        let (on, fits): (&[mg_plugin::Selected], bool) = if draft.ticked[i] {
+                            let (on, fits) = ticked.get_or_insert_with(|| {
+                                let mut on: Vec<mg_plugin::Selected> =
+                                    (draft.hits.iter().zip(&draft.ticked))
+                                        .filter(|(_, t)| **t)
+                                        .map(|(h, _)| on_hit(h))
+                                        .collect();
+                                on.dedup();
+                                let fits = fits(&on);
+                                (on, fits)
+                            });
+                            (on, *fits)
+                        } else {
+                            alone = [on_hit(h)];
+                            (&alone, fits(&alone))
+                        };
+                        if fits {
                             r.context_menu(|ui| {
-                                crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
+                                crate::plugins::menu_on(ui, &commands, on, &mut app.actions);
                             });
                         }
                     }
