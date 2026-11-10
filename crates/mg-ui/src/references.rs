@@ -919,7 +919,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 Query::Resource(k) => {
                     (index.usages(*k), index.mentions(&k.resref.to_string(), true, codepage))
                 }
-                Query::Tag(t) => (index.tag_usages(t), index.mentions(t, false, codepage)),
+                // (A tag as the files have it: an object's in the game's
+                // codepage, a script's string in the scripts'. Asked as
+                // UTF-8, a tag with a letter outside ASCII was found
+                // nowhere.)
+                Query::Tag(t) => (
+                    index.tag_usages_of(&crate::text::encode(t)),
+                    index.mentions_of(&codepage.encode_lossy(t), false, codepage),
+                ),
                 Query::StrRef(n) => (index.strref_usages(*n), Vec::new()),
             });
         reading = found.is_none();

@@ -7611,6 +7611,7 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
             };
             let clash = |tag: &str, count, unique: Option<&str>| mg_module::tags::Clash {
                 tag: tag.into(),
+                raw: tag.as_bytes().to_vec(),
                 count,
                 unique: unique.map(str::to_string),
                 area: None,

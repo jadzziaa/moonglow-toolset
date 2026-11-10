@@ -117,6 +117,13 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
         })
         .collect();
     let mut found = clashes(&index, &tags, &rules, warning);
+    // (Said as the game reads them: a tag is bytes in the module's
+    // codepage, kept in `raw`, which the objects' are compared with. As
+    // UTF-8 text, a tag with a letter outside ASCII, `Señor`, was listed
+    // with a mark in it, matched no object, and Retag passed it over.)
+    for c in &mut found {
+        c.tag = crate::text::decode(&c.raw);
+    }
     let tagged: Vec<(Made, Vec<u8>)> = weighed
         .iter()
         .filter(|(_, w)| !w.is_static)
@@ -124,10 +131,9 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
         .collect();
     let mut counted = Vec::new();
     if whole_area && warning == PasteWarning::Any {
-        let own = |t: &str| {
-            tagged.iter().any(|(m, tag)| m.key.restype == ResType::ARE && tag == t.as_bytes())
-        };
-        (found, counted) = found.into_iter().partition(|c| c.unique.is_some() || own(&c.tag));
+        let own =
+            |t: &[u8]| tagged.iter().any(|(m, tag)| m.key.restype == ResType::ARE && tag == t);
+        (found, counted) = found.into_iter().partition(|c| c.unique.is_some() || own(&c.raw));
     }
     let others = counted.len();
     if found.is_empty() && others == 0 {
@@ -135,7 +141,7 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     }
     let of = |clashes: &[Clash]| -> Vec<(Made, String)> {
         (tagged.iter())
-            .filter(|(_, t)| clashes.iter().any(|c| c.tag.as_bytes() == t.as_slice()))
+            .filter(|(_, t)| clashes.iter().any(|c| c.raw == *t))
             .map(|(m, t)| (m.clone(), crate::text::decode(t)))
             .collect()
     };
@@ -179,7 +185,8 @@ fn spelled(app: &mut Moonglow, clashes: &[Clash]) -> Vec<String> {
     };
     let mut out = Vec::new();
     for c in clashes {
-        for m in index.mentions(&c.tag, false, codepage) {
+        // (As the scripts' files spell it, in their codepage.)
+        for m in index.mentions_of(&codepage.encode_lossy(&c.tag), false, codepage) {
             out.push(format!("{} line {}", m.script, m.line));
         }
     }

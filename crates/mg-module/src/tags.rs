@@ -250,7 +250,13 @@ pub struct Breach<'a> {
 /// A tag a paste or a copy put on more than one object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clash {
+    /// The tag for people, read as UTF-8 (a caller that knows the
+    /// module's codepage reads `raw` with it, and says that).
     pub tag: String,
+    /// The tag as the module has it, in its codepage: what an object's
+    /// tag, or a script's string, is compared with. `tag` is not: a tag
+    /// with a letter outside ASCII (`Señor`) reads otherwise in UTF-8.
+    pub raw: Vec<u8>,
     /// How many objects of the module have it now (of `area`, where the
     /// project wants it unique in each area).
     pub count: usize,
@@ -373,7 +379,7 @@ pub fn clashes(
         };
         if warned {
             seen.insert((tag, area));
-            out.push(Clash { tag: text, count, unique, area });
+            out.push(Clash { tag: text, raw: tag.to_vec(), count, unique, area });
         }
     }
     out
@@ -499,6 +505,29 @@ mod tests {
         MadeTag { tag, area: r("inn"), custom, is_static }
     }
 
+    /// A tag with a letter outside ASCII is kept as the module has it
+    /// (`Señor` in Windows-1252 is no UTF-8): what is compared with the
+    /// objects' tags is its bytes, not the text made of them for people
+    /// (the review of November 2026, D17).
+    #[test]
+    fn a_clash_keeps_its_tag_as_the_module_has_it() {
+        let senor = b"Se\xF1or";
+        let mut git = Struct::new(0);
+        let object = |tag: &[u8]| {
+            let mut s = Struct::new(0);
+            s.set("Tag", Value::String(tag.to_vec()));
+            s
+        };
+        git.set("Placeable List", Value::List(vec![object(senor), object(senor)]));
+        let mut i = TagIndex::default();
+        i.add_git(r("inn"), &git);
+        let rules = TagRules::default();
+        let got = clashes(&i, &[made(senor, true, false)], &rules, rules.paste_warning_or(true));
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].raw.as_slice(), got[0].count), (&senor[..], 2));
+        assert_ne!(got[0].tag.as_bytes(), senor, "read as UTF-8, it is another text");
+    }
+
     #[test]
     fn a_paste_says_what_it_made_twice_as_the_project_wants() {
         let i = index();
@@ -511,7 +540,9 @@ mod tests {
         );
         let made_custom = [made(b"LAMP", false, false), made(b"LAMP", true, false)];
         let got = clashes(&i, &made_custom, &rules, rules.paste_warning_or(true));
-        assert_eq!(got, [Clash { tag: "LAMP".into(), count: 2, unique: None, area: None }]);
+        let lamp =
+            Clash { tag: "LAMP".into(), raw: b"LAMP".to_vec(), count: 2, unique: None, area: None };
+        assert_eq!(got, [lamp]);
         assert_eq!(got[0].sentence(), "LAMP is now on two objects");
         // The builder's option off (Options › General), the project saying
         // nothing and wanting no tag unique: none.
@@ -591,7 +622,13 @@ mod tests {
         rules.paste_warning = Some(PasteWarning::Any);
         assert_eq!(
             clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true)),
-            [Clash { tag: "KZ_STORE_1".into(), count: 2, unique: None, area: None }]
+            [Clash {
+                tag: "KZ_STORE_1".into(),
+                raw: b"KZ_STORE_1".to_vec(),
+                count: 2,
+                unique: None,
+                area: None
+            }]
         );
         // A second in the mill: said, with the area.
         i.add_git(r("mill"), &store("KZ_STORE_1"));
@@ -600,6 +637,7 @@ mod tests {
             got,
             [Clash {
                 tag: "KZ_STORE_1".into(),
+                raw: b"KZ_STORE_1".to_vec(),
                 count: 2,
                 unique: Some("*_STORE_*".into()),
                 area: Some(r("mill"))
