@@ -430,13 +430,13 @@ fn rows_hash(choices: &[crate::Choice]) -> u64 {
     let mut h = 0;
     for c in choices {
         h = step(step(h, c.row as u64), c.text.len() as u64);
-        let mut chunks = c.text.as_bytes().chunks_exact(8);
-        for chunk in &mut chunks {
-            h = step(h, u64::from_le_bytes(chunk.try_into().expect("eight bytes")));
+        let (eights, rest) = c.text.as_bytes().as_chunks::<8>();
+        for eight in eights {
+            h = step(h, u64::from_le_bytes(*eight));
         }
-        let mut rest = [0; 8];
-        rest[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
-        h = step(h, u64::from_le_bytes(rest));
+        let mut last = [0; 8];
+        last[..rest.len()].copy_from_slice(rest);
+        h = step(h, u64::from_le_bytes(last));
     }
     h
 }

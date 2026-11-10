@@ -112,7 +112,8 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
         }
     }
     // What an object is told by, for a move: its tag and its blueprint.
-    let told = |ws: &mut Workspace, at: usize, slot: Slot| -> Option<(Vec<u8>, Option<ResRef>)> {
+    type Told = (Vec<u8>, Option<ResRef>);
+    let told = |ws: &mut Workspace, at: usize, slot: Slot| -> Option<Told> {
         let (key, list) = &lists[at].0;
         let field = ObjectKind::from_list(list)?.resref_field();
         let of = |s: &Struct| (s.string("Tag").unwrap_or(b"").to_vec(), s.resref(field));
@@ -127,7 +128,7 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
     };
     // The objects that were there and are taken out: one of them stands
     // for one placed that is the same.
-    let mut gone: Vec<(usize, (Vec<u8>, Option<ResRef>))> = Vec::new();
+    let mut gone: Vec<(usize, Told)> = Vec::new();
     for &(at, slot) in &taken {
         if matches!(slot, Slot::Was(_))
             && let Some(t) = told(ws, at, slot)
@@ -136,12 +137,9 @@ pub fn made_by(ws: &mut Workspace, edits: &[Edit]) -> Vec<Made> {
         }
     }
     let mut made: Vec<(usize, Made)> = areas;
-    for at in 0..lists.len() {
-        for (place, slot) in lists[at].1.clone().into_iter().enumerate() {
-            let here = || {
-                let (key, list) = &lists[at].0;
-                Made { key: *key, path: GffPath::root().item(list, place) }
-            };
+    for (at, ((key, list), slots)) in lists.iter().enumerate() {
+        for (place, slot) in slots.iter().copied().enumerate() {
+            let here = || Made { key: *key, path: GffPath::root().item(list, place) };
             // The first edit that set its tag to another than it had.
             let was = told(ws, at, slot).map(|(tag, _)| tag);
             let set = (retagged.iter())
