@@ -29,9 +29,16 @@ const FEW: usize = 16;
 /// mesh's surface, and its place among the scene's lights.
 pub(crate) type Reaching = (u32, f32, u32);
 
-/// The scene's lights, by the ground they reach.
+/// The scene's lights, by the ground they reach: sorted into their
+/// squares the first time a mesh asks ([`LightGrid::reaching`]). A frame
+/// whose meshes all find their lights as they took them the frame before
+/// ([`ReachCache`]: the lights unchanged, the camera still or turning)
+/// asks nothing, and the grid, filled and dropped every frame, was made
+/// for nothing.
 pub(crate) struct LightGrid<'a> {
     lights: &'a [PointLight],
+    /// The lights are sorted into the squares.
+    built: bool,
     /// The grid's corner, its squares' side and how many there are each
     /// way; none across with no grid.
     min: (f32, f32),
@@ -50,9 +57,28 @@ pub(crate) struct LightGrid<'a> {
 }
 
 impl<'a> LightGrid<'a> {
+    /// The grid of `lights`, not sorted yet.
     pub(crate) fn new(lights: &'a [PointLight]) -> LightGrid<'a> {
+        LightGrid {
+            lights,
+            built: false,
+            min: (0.0, 0.0),
+            square: SQUARE,
+            across: 0,
+            down: 0,
+            starts: Vec::new(),
+            items: Vec::new(),
+            wide: Vec::new(),
+            tried: Vec::new(),
+            search: 0,
+        }
+    }
+
+    /// The grid of `lights`, sorted into its squares.
+    fn sorted(lights: &'a [PointLight]) -> LightGrid<'a> {
         let mut grid = LightGrid {
             lights,
+            built: true,
             min: (0.0, 0.0),
             square: SQUARE,
             across: 0,
@@ -159,6 +185,9 @@ impl<'a> LightGrid<'a> {
     /// the nearest, then as the scene lists them).
     pub(crate) fn reaching(&mut self, centre: Vec3, radius: f32, out: &mut Vec<Reaching>) {
         out.clear();
+        if !self.built {
+            *self = LightGrid::sorted(self.lights);
+        }
         let lights = self.lights;
         let mut try_light = |i: u32| {
             let l = &lights[i as usize];
@@ -569,6 +598,10 @@ mod tests {
             }
             cache.begin(&lights);
             let mut grid = LightGrid::new(&lights);
+            // (The grid is sorted only where a mesh asks it: not in a
+            // frame whose meshes are those of the frame before, under the
+            // same lights.)
+            let known = (1..=2).contains(&frame) || frame == 7;
             let mut sets: std::collections::HashMap<Vec<u32>, u32> = Default::default();
             let mut asked = Vec::new();
             // (Some meshes of a frame not drawn in the next, some twice.)
@@ -587,6 +620,7 @@ mod tests {
                     }
                 }
             }
+            assert_eq!(grid.built, !known, "frame {frame}");
         }
     }
 
