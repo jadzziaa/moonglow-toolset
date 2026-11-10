@@ -65,12 +65,7 @@ pub fn parse(text: &str) -> Option<[f32; 3]> {
 
 /// `"#rrggbb"` as its three bytes.
 pub fn parse_bytes(text: &str) -> Option<[u8; 3]> {
-    let hex = text.trim().strip_prefix('#')?;
-    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
-    Some([byte(0)?, byte(2)?, byte(4)?])
+    mg_core::text::hex_bytes(text.trim().strip_prefix('#')?)
 }
 
 /// A color as the locals hold it: `"#rrggbb"`, lower case.

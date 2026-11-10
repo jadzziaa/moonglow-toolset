@@ -296,12 +296,7 @@ pub fn color_text([r, g, b]: [u8; 3]) -> String {
 /// color field takes one; `None` for anything else.
 pub fn color_of(text: &str) -> Option<[u8; 3]> {
     let t = text.trim();
-    let hex = t.strip_prefix('#').unwrap_or(t);
-    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
-    Some([byte(0)?, byte(2)?, byte(4)?])
+    mg_core::text::hex_bytes(t.strip_prefix('#').unwrap_or(t))
 }
 
 /// Something a plugin asks of the user.

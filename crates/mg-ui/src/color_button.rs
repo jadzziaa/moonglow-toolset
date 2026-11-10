@@ -14,10 +14,11 @@ use egui::{Color32, Popup, PopupCloseBehavior, Response, Ui};
 pub fn parse(text: &str) -> Option<Color32> {
     let t = text.trim();
     let hex = t.strip_prefix('#').unwrap_or(t);
-    if matches!(hex.len(), 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
-        let a = if hex.len() == 8 { byte(6)? } else { 255 };
-        return Some(Color32::from_rgba_unmultiplied(byte(0)?, byte(2)?, byte(4)?, a));
+    if let Some([r, g, b]) = mg_core::text::hex_bytes::<3>(hex) {
+        return Some(Color32::from_rgb(r, g, b));
+    }
+    if let Some([r, g, b, a]) = mg_core::text::hex_bytes::<4>(hex) {
+        return Some(Color32::from_rgba_unmultiplied(r, g, b, a));
     }
     let inner = t
         .strip_prefix("rgba(")

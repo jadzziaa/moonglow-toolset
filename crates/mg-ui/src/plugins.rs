@@ -2868,11 +2868,7 @@ fn tidy(v: &mg_plugin::SettingValue) -> mg_plugin::SettingValue {
 
 /// A color as `#rrggbb` reads, and back.
 fn rgb_of(text: &str) -> Option<[u8; 3]> {
-    if !mg_plugin::is_color(text) {
-        return None;
-    }
-    let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).ok();
-    Some([byte(1)?, byte(3)?, byte(5)?])
+    mg_core::text::hex_bytes(text.strip_prefix('#')?)
 }
 
 /// One setting's field in the settings' form.

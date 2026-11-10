@@ -359,6 +359,24 @@ pub fn line_of(text: &[u8], at: usize) -> usize {
     line_ends(&text[..at.min(text.len())]) + 1
 }
 
+/// `N` bytes written as `2 × N` hex digits (`9e97d3` for a color's three),
+/// either case; anything else (another length, a character that is no hex
+/// digit, one of several bytes) is none. The one reader of a color's
+/// `#rrggbb` (the `#` is the caller's: some ask for it, some take it
+/// left out): four were written.
+pub fn hex_bytes<const N: usize>(digits: &str) -> Option<[u8; N]> {
+    let d = digits.as_bytes();
+    if d.len() != 2 * N || !d.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    let nibble = |b: u8| (b as char).to_digit(16).map(|v| v as u8);
+    let mut out = [0; N];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = nibble(d[2 * i])? << 4 | nibble(d[2 * i + 1])?;
+    }
+    Some(out)
+}
+
 /// How many line ends (`\n`) `bytes` holds.
 pub fn line_ends(bytes: &[u8]) -> usize {
     bytes.iter().filter(|&&b| b == b'\n').count()
@@ -381,6 +399,19 @@ mod tests {
         assert_eq!(line_of(text, usize::MAX), 4, "past the end: the last line");
         assert_eq!(line_of(b"", 0), 1);
         assert_eq!(line_ends(text), 3);
+    }
+
+    /// A color's hex digits: either case; another length, a letter past
+    /// `f` or a character of several bytes (`aéb23` is six bytes) is none,
+    /// without a panic.
+    #[test]
+    fn hex_digits_are_read_as_bytes_or_not_at_all() {
+        assert_eq!(hex_bytes::<3>("9e97D3"), Some([0x9e, 0x97, 0xd3]));
+        assert_eq!(hex_bytes::<4>("9e97d380"), Some([0x9e, 0x97, 0xd3, 0x80]));
+        for no in ["9e97d", "9e97d3a", "9e97g3", "aéb23", "+e97d3", ""] {
+            assert_eq!(hex_bytes::<3>(no), None, "{no:?}");
+        }
+        assert_eq!(hex_bytes::<0>(""), Some([]));
     }
 
     #[test]
