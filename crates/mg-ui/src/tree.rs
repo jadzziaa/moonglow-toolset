@@ -47,13 +47,12 @@ pub(crate) use mg_module::areas::AreaInfo;
 /// being edited.
 #[derive(Debug, Default)]
 pub(crate) struct AreaNames {
-    /// By area: the stored ARE read (where its data is and its length:
-    /// replaced data is elsewhere) and what it says.
-    read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
+    /// By area: the stored ARE read ([`stored_stamp`]) and what it says.
+    read: HashMap<ResRef, (Stamp, AreaInfo)>,
     /// The areas the module's area list names, and what it was read from.
     listed: Option<(ListRead, std::collections::HashSet<ResRef>)>,
     /// Blueprints' names, likewise.
-    names: HashMap<ResKey, ((usize, usize), String)>,
+    names: HashMap<ResKey, (Stamp, String)>,
     /// What each of the tree's groups lists, as made for a revision of the
     /// workspace and the two options that shape it (areas by name, ResRefs
     /// beside names): not made again every frame.
@@ -104,12 +103,29 @@ fn found_in(contents: &AreaContents, filter: &Needle) -> Option<Vec<Vec<usize>>>
     found.iter().any(|f: &Vec<usize>| !f.is_empty()).then_some(found)
 }
 
+/// What a resource's stored data is told apart by, for what was read from
+/// it and kept: where the data is, its length, and the revision at which
+/// the resource last changed.
+pub(crate) type Stamp = (usize, usize, u64);
+
+/// The [`Stamp`] of `key`'s stored `data`. Replaced data is elsewhere, or
+/// of another length, nearly always: but data replaced twice at one length
+/// can come back to where the first was (the allocator hands the room
+/// out again), and what was kept of the first then passed for the third's
+/// where nothing looked in between (a tab behind another, the tree folded
+/// away). The revision is what a command, its undo or a file read again
+/// moves ([`Workspace::changed_at`]); the place and length, what a
+/// replacement past the commands moves.
+pub(crate) fn stored_stamp(ws: &Workspace, key: &ResKey, data: &[u8]) -> Stamp {
+    (data.as_ptr() as usize, data.len(), ws.changed_at(key))
+}
+
 /// What the module's area list was read from: the stored `module.ifo`
-/// (where its data is and its length: replaced data is elsewhere), or the
-/// open document at a revision of the workspace.
+/// ([`stored_stamp`]), or the open document at a revision of the
+/// workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListRead {
-    Stored(usize, usize),
+    Stored(Stamp),
     Open(u64),
 }
 
@@ -253,7 +269,7 @@ impl AreaNames {
         let Some(data) = ws.module.get(&key) else {
             return AreaInfo { resref: area, listed, ..Default::default() };
         };
-        let stamp = (data.as_ptr() as usize, data.len());
+        let stamp = stored_stamp(ws, &key, data);
         if let Some((s, info)) = self.read.get(&area)
             && *s == stamp
             && info.listed == listed
@@ -272,7 +288,7 @@ impl AreaNames {
         let key = mg_module::Module::info_key();
         let read = match (ws.loaded(&key), ws.module.get(&key)) {
             (Some(_), _) => ListRead::Open(ws.revision()),
-            (None, Some(d)) => ListRead::Stored(d.as_ptr() as usize, d.len()),
+            (None, Some(d)) => ListRead::Stored(stored_stamp(ws, &key, d)),
             (None, None) => return true,
         };
         if self.listed.as_ref().is_none_or(|(r, _)| *r != read) {
@@ -297,7 +313,7 @@ impl AreaNames {
             return blueprint_name(game, &doc.root);
         }
         let Some(data) = ws.module.get(&key) else { return String::new() };
-        let stamp = (data.as_ptr() as usize, data.len());
+        let stamp = stored_stamp(ws, &key, data);
         if let Some((s, name)) = self.names.get(&key)
             && *s == stamp
         {
@@ -362,12 +378,12 @@ pub(crate) type Placed = (mg_area::ObjectKind, usize);
 
 /// What an area's placed objects were read from, for the module tree's
 /// copy of them: the open document at a revision of the workspace (it is
-/// being edited), else the stored GIT's data (where it is and its length:
-/// replaced data is elsewhere). They are read again when it changes.
+/// being edited), else the stored GIT's data ([`stored_stamp`]; none: no
+/// GIT). They are read again when it changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Read {
     Revision(u64),
-    Data(usize, usize),
+    Data(Option<Stamp>),
 }
 
 /// What an area's placed objects would be read from now ([`Read`]).
@@ -378,7 +394,7 @@ fn read_of(ws: &Workspace, area: ResRef) -> Read {
     if ws.loaded(&git).is_some() {
         return Read::Revision(ws.changed_at(&git));
     }
-    ws.module.get(&git).map_or(Read::Data(0, 0), |d| Read::Data(d.as_ptr() as usize, d.len()))
+    Read::Data(ws.module.get(&git).map(|d| stored_stamp(ws, &git, d)))
 }
 
 /// What is placed in an area, as the workspace has it now: every kind,
@@ -2573,6 +2589,38 @@ mod tests {
         kept.find(&filter, shape, &lists, &contents, None);
         assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]));
         assert!(kept.filtered.found[0].is_empty());
+    }
+
+    /// What was read from a resource's stored data is told apart by more
+    /// than where the data is and how long: data at the same place and of
+    /// the same length is another's once a command, its undo or a file
+    /// read again changed the resource (the review's S26: replaced twice,
+    /// it can come back to where the first was). Another resource's
+    /// change leaves it.
+    #[test]
+    fn stored_data_is_told_apart_by_its_resource_s_changes_too() {
+        let (a, b) =
+            (ResKey::parse("a", ResType::NSS).unwrap(), ResKey::parse("b", ResType::NSS).unwrap());
+        let mut m = mg_module::Module::new();
+        m.set(a, b"// one".to_vec());
+        m.set(b, b"// two".to_vec());
+        let mut ws = Workspace::new(m);
+        // (One place and length throughout, as data come back to it.)
+        let data = b"// one";
+        let first = stored_stamp(&ws, &a, data);
+        assert_eq!(stored_stamp(&ws, &a, data), first);
+        let set = |key, text: &[u8]| {
+            let edit = mg_edit::Edit::SetResource { key, data: Some(text.to_vec()) };
+            mg_edit::Command::new("edit", vec![edit])
+        };
+        ws.apply(set(b, b"// 2")).unwrap();
+        assert_eq!(stored_stamp(&ws, &a, data), first, "another's change");
+        ws.apply(set(a, b"// uno")).unwrap();
+        let second = stored_stamp(&ws, &a, data);
+        assert_ne!(second, first, "changed, at the same place and length");
+        ws.undo().unwrap();
+        assert_ne!(stored_stamp(&ws, &a, data), second, "and undone");
+        assert_ne!(stored_stamp(&ws, &a, &data[..5]), stored_stamp(&ws, &a, data));
     }
 
     /// Deleted by Delete, a placed object the keys were at leaves them at

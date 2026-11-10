@@ -800,7 +800,7 @@ mod tests {
         app.ws.as_mut().unwrap().save().unwrap();
         app.forget_recovery();
         assert_eq!(app.autosave_tick(t0), None, "saved");
-        let source = (0, 0);
+        let source = (0, 0, 0);
         let mut buf = crate::script_view::ScriptBuffer::read(b"// changed", source);
         buf.text.push_str(" typed");
         app.scripts.insert(key, buf);

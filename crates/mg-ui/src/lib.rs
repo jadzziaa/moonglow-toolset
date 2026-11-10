@@ -980,6 +980,9 @@ pub struct Moonglow {
     /// a Shift+click goes from. Marked, and what a menu acts on, when
     /// there are several.
     pub tree_selected: std::collections::BTreeSet<ResKey>,
+    /// The module as it was when those chosen were last held to its
+    /// resources (its revision, and how many it has).
+    tree_selected_at: (u64, usize),
     pub(crate) tree_anchor: Option<ResKey>,
     /// The rows of the tab chosen while the module tree's Filter had this
     /// text typed: listed under it, which would hide them, until it is
@@ -1331,6 +1334,7 @@ impl Moonglow {
             tree_object: None,
             tree_object_pending: false,
             tree_selected: Default::default(),
+            tree_selected_at: (0, 0),
             tree_anchor: None,
             tree_kept: None,
             tree_objects: None,
@@ -1769,6 +1773,7 @@ impl Moonglow {
         self.remember_window_places();
         self.note_recent_tabs(ui.ctx());
         tree::follow_front_tab(self);
+        self.prune_tree_selection();
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -2050,6 +2055,19 @@ impl Moonglow {
         let kept = kept_by_kind(&self.settings.window_places, tab);
         // ("split left 300": the side, and thousandths of the two.)
         kept.and_then(|(_, p)| Place::parse(p)).unwrap_or(Place::Window)
+    }
+
+    /// Holds the resources chosen in the module tree to those the module
+    /// has, when it changed: one deleted or renamed stayed chosen, and a
+    /// plugin's command run on the tree's selection was handed it (the
+    /// tree shown or folded away).
+    fn prune_tree_selection(&mut self) {
+        let Some(ws) = &self.ws else { return };
+        let now = (ws.revision(), ws.module.len());
+        if self.tree_selected_at != now {
+            self.tree_selected_at = now;
+            self.tree_selected.retain(|k| ws.module.contains(k));
+        }
     }
 
     /// The middle's pane: the main window's first that is not the

@@ -3165,6 +3165,10 @@ pub(crate) fn files_already(
         Some(Already::Skip) if always => *there = FilesThere::Skip,
         _ => {}
     }
+    // (Answered: the tick is not the next asking's.)
+    if answer.is_some() {
+        ctx.data_mut(|d| d.remove_temp::<bool>(always_id));
+    }
     answer
 }
 
@@ -3174,11 +3178,20 @@ pub(crate) fn files_already(
 /// ticked. Asked for by a builder (Carcerian): a question always given
 /// the same answer is answered once.
 pub(crate) fn always_box(ui: &mut Ui, id: egui::Id, label: &str, options_at: &str) -> bool {
-    let mut on = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    // (Asked anew, not shown the pass before: the tick is the last
+    // asking's, which was answered with it or without. Kept, the box came
+    // ticked the next time the question was asked, with Options set back
+    // to Ask, and one answer became the setting again.)
+    let (asked_id, now) = (id.with("asked"), ui.ctx().cumulative_pass_nr());
+    let anew = ui.data(|d| d.get_temp::<u64>(asked_id)).is_none_or(|at| now > at + 1);
+    let mut on = !anew && ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     ui.checkbox(&mut on, label).on_hover_text(format!(
         "Your answer is kept, and this isn't asked again: {options_at} changes it"
     ));
-    ui.data_mut(|d| d.insert_temp(id, on));
+    ui.data_mut(|d| {
+        d.insert_temp(id, on);
+        d.insert_temp(asked_id, now);
+    });
     on
 }
 
@@ -5060,6 +5073,39 @@ mod row_choice_tests {
         let (at, lists) = open_list(200, true);
         assert!(lists.iter().all(|l| *l == lists[0]), "{lists:?}");
         assert!(lists[0].width() > at.width() + 50.0, "{lists:?} beside {at:?}");
+    }
+
+    /// A question's "Always do this" box keeps its tick while the question
+    /// is asked, and comes unticked when it is asked again later: kept, one
+    /// answer became the setting again the next time (the review's S26).
+    #[test]
+    fn an_always_box_is_unticked_when_its_question_is_asked_again() {
+        let id = egui::Id::new("a-question-always");
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
+            move |ui, (asked, on): &mut (bool, bool)| {
+                if *asked {
+                    *on = super::always_box(ui, id, "Always do this", "Options");
+                } else {
+                    ui.label("Nothing asked");
+                }
+            },
+            (true, false),
+        );
+        h.run();
+        h.get_by_label("Always do this").click();
+        h.run();
+        h.run();
+        assert!(h.state().1, "ticked, and kept while it is asked");
+        // Answered; asked again some frames on.
+        h.state_mut().0 = false;
+        h.run();
+        h.run();
+        h.state_mut().0 = true;
+        h.run();
+        assert!(!h.state().1, "asked anew: not ticked");
+        h.get_by_label("Always do this").click();
+        h.run();
+        assert!(h.state().1);
     }
 
     /// A described variable's values from a table of 20,000 rows

@@ -1748,6 +1748,58 @@ fn the_filter_follows_what_is_placed_as_it_changes() {
     }
 }
 
+/// Resources chosen together in the module tree are chosen no more once
+/// they are deleted or renamed (a plugin's command run on the tree's
+/// selection was handed them: the review's S26), with the tree shown or
+/// folded away; those left stay chosen.
+#[test]
+fn resources_deleted_or_renamed_are_chosen_no_more() {
+    let dir = mg_testkit::scratch_dir("ui-tree-selection-pruned");
+    let path = dir.join("m.mod");
+    let key = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    for n in ["one", "two", "three", "four"] {
+        m.set(key(n), b"void main() {}\n".to_vec());
+    }
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    let chosen = |h: &Harness<'_, Moonglow>| h.state().tree_selected.iter().copied().collect();
+    let gone = |k: ResKey| mg_edit::Edit::SetResource { key: k, data: None };
+    for hidden in [false, true] {
+        h.state_mut().settings.hide_tree = hidden;
+        h.state_mut().tree_selected = [key("one"), key("two"), key("three")].into();
+        h.run();
+        let all: Vec<ResKey> = chosen(&h);
+        assert_eq!(all.len(), 3, "all in the module: all chosen");
+        let delete = mg_edit::Command::new("Delete", vec![gone(key("one")), gone(key("two"))]);
+        h.state_mut().actions.push(mg_ui::Action::Apply(delete));
+        h.run();
+        h.run();
+        let left: Vec<ResKey> = chosen(&h);
+        assert_eq!(left, [key("three")], "tree folded away: {hidden}");
+        // Renamed: the old name is no resource.
+        let renamed = mg_edit::Edit::SetResource {
+            key: key("third"),
+            data: Some(b"void main() {}\n".to_vec()),
+        };
+        let rename = mg_edit::Command::new("Rename", vec![gone(key("three")), renamed]);
+        h.state_mut().actions.push(mg_ui::Action::Apply(rename));
+        h.run();
+        h.run();
+        let left: Vec<ResKey> = chosen(&h);
+        assert!(left.is_empty(), "{left:?}");
+        // (Back, for the other way round.)
+        h.state_mut().actions.push(mg_ui::Action::Undo);
+        h.run();
+        h.state_mut().actions.push(mg_ui::Action::Undo);
+        h.run();
+    }
+}
+
 /// A plugin whose command is for every kind the module tree lists
 /// ("Each Kind"), in a folder of installed plugins of its own.
 fn each_kind_plugin(name: &str) -> std::path::PathBuf {
