@@ -138,6 +138,12 @@ fn bake_walkmesh_is_offered_with_bake_rules_and_a_transform() {
     }
     position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
     assert!(!h.get_by_label("Bake Walkmesh to Transform…").accesskit_node().is_disabled());
+    // (The review's A20: what the menu says is worked out as it opens,
+    // each placeable's struct and walkmesh read once, not every frame.)
+    let worked = h.state().bake.menus_worked;
+    h.run_steps(12);
+    assert_eq!(h.state().bake.menus_worked, worked, "not worked out again while it is open");
+    assert!(!h.get_by_label("Bake Walkmesh to Transform…").accesskit_node().is_disabled());
     h.get_by_label("Bake Walkmesh to Transform…").click();
     h.run_steps(3);
     let d = h.state().bake.draft.as_ref().expect("the window");

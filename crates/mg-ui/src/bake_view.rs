@@ -28,6 +28,12 @@ use crate::{Action, Moonglow};
 pub struct BakeState {
     /// The window, while it is open.
     pub draft: Option<BakeDraft>,
+    /// What the Position menu says of the placeables selected, what for,
+    /// and the pass it was last asked in: worked out as the menu opens
+    /// (and when what it is of changes), not every frame it is open.
+    menu: Option<(MenuFor, MenuSays, u64)>,
+    /// How many times that was worked out (for tests).
+    pub menus_worked: u64,
     /// The rows file as each step of Undo found it and left it.
     pub(crate) steps: Vec<(u64, RowsWritten)>,
     /// The save's question, while it waits.
@@ -113,6 +119,49 @@ fn plan_for(app: &mut Moonglow, area: ResRef, objects: &[usize]) -> Result<Plan,
     bake::plan(&ready, &rows, &game.resman, game.codepage(), &requests)
 }
 
+/// What the Position menu's items are worked out for: the area, the
+/// module's revision and the placeables selected.
+type MenuFor = (ResRef, u64, Vec<usize>);
+
+/// What the Position menu says of them: why Bake Walkmesh is not offered
+/// (if it is not), and those baked, each with the row it goes back to.
+type MenuSays = (Result<(), String>, Vec<(usize, u32)>);
+
+/// [`MenuSays`] of the placeables `selected` of `area`. (Each one's
+/// struct read from the GIT, and, with the project's `[bake]`, its
+/// model's walkmesh read and parsed: two thousand trees selected were as
+/// many of both every frame the menu was open.)
+fn menu_says(app: &mut Moonglow, area: ResRef, selected: &[usize]) -> MenuSays {
+    let why_not = (|| -> Result<(), String> {
+        let (_, rows) = rules(app)?;
+        let what = if selected.len() == 1 { "It isn't baked" } else { "Not every one" };
+        for &i in selected {
+            let s = placed(app, area, i).ok_or("the placeable is gone")?;
+            bake::transform_of(&s).map_err(|e| format!("{what}: {e}"))?;
+            // (A model with no walkmesh has nothing to bake: the row a baked
+            // one copies, its model.)
+            let a = s.integer("Appearance").unwrap_or(0) as u32;
+            let row = rows.row(a).map_or(a, |r| r.copy_of);
+            let game = app.game.as_deref().ok_or("no game data")?;
+            let table = game.table("placeables").map_err(|e| e.to_string())?;
+            let model = table
+                .get(row as usize, "ModelName")
+                .ok_or_else(|| format!("{what}: row {row} of placeables.2da has no model"))?;
+            bake::walkmesh_of(&game.resman, model).map_err(|e| format!("{what}: {e}"))?;
+        }
+        Ok(())
+    })();
+    let rows = rules(app).map(|(_, r)| r).unwrap_or_default();
+    let baked: Vec<(usize, u32)> = selected
+        .iter()
+        .filter_map(|&i| {
+            let a = placed(app, area, i)?.integer("Appearance")? as u32;
+            Some((i, bake::unbaked_row(&rows, a).ok()?))
+        })
+        .collect();
+    (why_not, baked)
+}
+
 /// The Position menu's items for selected placeables: Bake Walkmesh to
 /// Transform… (offered with the project's `[bake]` and a visual
 /// transform, a tip saying why not otherwise) and Unbake Walkmesh (on
@@ -128,25 +177,19 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         return;
     }
     ui.separator();
-    let why_not = (|| -> Result<(), String> {
-        let (_, rows) = rules(app)?;
-        let what = if selected.len() == 1 { "It isn't baked" } else { "Not every one" };
-        for &i in &selected {
-            let s = placed(app, view.area, i).ok_or("the placeable is gone")?;
-            bake::transform_of(&s).map_err(|e| format!("{what}: {e}"))?;
-            // (A model with no walkmesh has nothing to bake: the row a baked
-            // one copies, its model.)
-            let a = s.integer("Appearance").unwrap_or(0) as u32;
-            let row = rows.row(a).map_or(a, |r| r.copy_of);
-            let game = app.game.as_deref().ok_or("no game data")?;
-            let table = game.table("placeables").map_err(|e| e.to_string())?;
-            let model = table
-                .get(row as usize, "ModelName")
-                .ok_or_else(|| format!("{what}: row {row} of placeables.2da has no model"))?;
-            bake::walkmesh_of(&game.resman, model).map_err(|e| format!("{what}: {e}"))?;
-        }
-        Ok(())
-    })();
+    // (Worked out once for the selection and the module as they are.)
+    let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
+    let wanted: MenuFor = (view.area, revision, selected.clone());
+    let now = ui.ctx().cumulative_pass_nr();
+    let kept = |(of, _, at): &(MenuFor, MenuSays, u64)| *of == wanted && now <= at + 1;
+    if !app.bake.menu.as_ref().is_some_and(kept) {
+        let says = menu_says(app, view.area, &selected);
+        app.bake.menu = Some((wanted, says, now));
+        app.bake.menus_worked += 1;
+    }
+    let Some((_, (why_not, baked), at)) = &mut app.bake.menu else { return };
+    *at = now;
+    let (why_not, baked) = (why_not.clone(), baked.clone());
     let tip =
         "Give each a model copy whose walkmesh blocks as it looks. Shows what it makes first.";
     let r = ui
@@ -157,14 +200,6 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         open(app, view.area, selected.clone());
         ui.close();
     }
-    let rows = rules(app).map(|(_, r)| r).unwrap_or_default();
-    let baked: Vec<(usize, u32)> = selected
-        .iter()
-        .filter_map(|&i| {
-            let a = placed(app, view.area, i)?.integer("Appearance")? as u32;
-            Some((i, bake::unbaked_row(&rows, a).ok()?))
-        })
-        .collect();
     if !baked.is_empty()
         && ui
             .button("Unbake Walkmesh")
