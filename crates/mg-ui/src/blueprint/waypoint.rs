@@ -21,12 +21,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = f.choices("waypoint", Some("STRREF"), Some("LABEL"));
     let appearances = f.appearance_rows(mg_rules::ObjectKind::Waypoint, &appearances);
     egui::Grid::new(("utw-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocalizedName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocalizedName");
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Waypoint);
         ui.end_row();

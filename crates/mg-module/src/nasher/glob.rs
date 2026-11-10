@@ -150,13 +150,7 @@ impl Cover {
         if !has_magic(&pattern) {
             return Cover { base: root.join(&pattern), rest: None };
         }
-        let (base, magic) = match pattern.find(|c| ['*', '?', '[', '{'].contains(&c)) {
-            Some(first) => match pattern[..first].rfind('/') {
-                Some(slash) => (&pattern[..slash], &pattern[slash + 1..]),
-                None => ("", &pattern[..]),
-            },
-            None => ("", &pattern[..]),
-        };
+        let (base, magic) = base_and_rest(&pattern);
         let base = if base.is_empty() { root.to_path_buf() } else { root.join(base) };
         let rest = to_regex(magic, true).ok().and_then(|rx| Regex::new(&rx).ok());
         Cover { base, rest: Some(rest) }
@@ -169,6 +163,18 @@ impl Cover {
         let Ok(rel) = path.strip_prefix(&self.base) else { return false };
         let rel = rel.to_string_lossy().replace('\\', "/");
         rest.as_ref().is_some_and(|rx| rx.is_match(&rel))
+    }
+}
+
+/// A pattern's leading folders without glob syntax, and the rest from
+/// its first wildcard's folder on (`a/b/*.nss`: `a/b` and `*.nss`).
+fn base_and_rest(pattern: &str) -> (&str, &str) {
+    match pattern.find(|c| ['*', '?', '[', '{'].contains(&c)) {
+        Some(first) => match pattern[..first].rfind('/') {
+            Some(slash) => (&pattern[..slash], &pattern[slash + 1..]),
+            None => ("", pattern),
+        },
+        None => ("", pattern),
     }
 }
 
@@ -190,13 +196,7 @@ pub(crate) fn walk(root: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
         return walk(root, &format!("{}/**", pattern.trim_end_matches('/')));
     }
     // The leading folders without glob syntax, and the rest.
-    let (base, magic) = match pattern.find(|c| ['*', '?', '[', '{'].contains(&c)) {
-        Some(first) => match pattern[..first].rfind('/') {
-            Some(slash) => (&pattern[..slash], &pattern[slash + 1..]),
-            None => ("", &pattern[..]),
-        },
-        None => ("", &pattern[..]),
-    };
+    let (base, magic) = base_and_rest(&pattern);
     let dir = if base.is_empty() { root.to_path_buf() } else { root.join(base) };
     let rx = Regex::new(&to_regex(magic, true)?).map_err(|e| e.to_string())?;
     let mut stack = vec![dir.clone()];

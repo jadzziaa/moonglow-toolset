@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use egui::Ui;
 use mg_2da::TwoDa;
-use mg_core::{ResRef, ResType};
+use mg_core::{ResRef, ResType, StrRef};
 use mg_edit::{Command, Edit};
 use mg_module::doctor::{CellFault, ColumnKind, TalkTables};
 use mg_module::table_desc::{Beside, Description, Kind};
@@ -22,6 +22,7 @@ use mg_module::table_edit::{Candidate, Editing, Offered, Whose};
 use mg_resman::ResKey;
 
 use crate::palette_view::{Keys, give_keys, keys_are};
+use crate::talk_view::Pending;
 use crate::{Action, Moonglow, Tab};
 
 /// Where a table being edited lives, and is saved to.
@@ -140,6 +141,9 @@ pub struct TableDoc {
     pub references: Option<(usize, Vec<Reference>, Vec<mg_module::rename::Usage>)>,
     /// What went wrong last (a cell refused, a save that failed).
     pub problem: Option<String>,
+    /// New Line's lines, added to the module's talk table as the table is
+    /// saved, where a cell still names them ([`add_pending_lines`]).
+    pending: Pending,
 }
 
 /// A table's description as read from its file (`name.2da.toml` beside
@@ -205,6 +209,7 @@ impl TableDoc {
             taking: None,
             references: None,
             problem: None,
+            pending: Pending::default(),
         }
     }
 
@@ -614,10 +619,56 @@ pub fn add_row_of(
     Some(row)
 }
 
+/// Adds New Line's lines that a cell of the table at `at` still names to
+/// the module's talk table, and gives each such cell the number its line
+/// took, where the talk table changed meanwhile. (Before the table is
+/// saved; and before the module's Save saves the talk table, which saves
+/// the tables after it.) An error leaves the table unsaved, saying why.
+pub(crate) fn add_pending_lines(app: &mut Moonglow, at: usize) -> Result<(), String> {
+    if app.tables[at].pending.is_empty() {
+        return Ok(());
+    }
+    app.tables[at].commit();
+    let named = |doc: &TableDoc, n: StrRef| -> Vec<(usize, usize)> {
+        let (t, n) = (doc.edit.table(), n.0.to_string());
+        (0..t.len())
+            .flat_map(|r| (0..t.columns().len()).map(move |c| (r, c)))
+            .filter(|&(r, c)| t.cell(r, c).is_some_and(|v| v.trim() == n))
+            .collect()
+    };
+    let mut pending = std::mem::take(&mut app.tables[at].pending);
+    let t = app.tables[at].edit.table();
+    let numbers: BTreeSet<u32> = (0..t.len())
+        .flat_map(|r| (0..t.columns().len()).filter_map(move |c| t.cell(r, c)))
+        .filter_map(|v| v.trim().parse().ok())
+        .collect();
+    let (took, added) = pending.add(app, |n| numbers.contains(&n.0));
+    app.tables[at].pending = pending;
+    let doc = &mut app.tables[at];
+    // (All at once: a line that took the number another was shown with
+    // is not given that one's cells too.)
+    let cells: Vec<(Vec<(usize, usize)>, StrRef)> = took
+        .iter()
+        .filter(|(shown, to)| shown != to)
+        .map(|(s, to)| (named(doc, *s), *to))
+        .collect();
+    for (places, to) in cells {
+        for (r, c) in places {
+            doc.edit.set(r, c, Some(to.0.to_string())).map_err(|e| e.to_string())?;
+        }
+        doc.changed();
+    }
+    added.map_err(|e| format!("New Line: {e}"))
+}
+
 /// Saves a table where it lives. Whether it was saved.
 pub fn save(app: &mut Moonglow, id: u32) -> bool {
     let cp = codepage(app);
     let Some(at) = app.tables.iter().position(|d| d.id == id) else { return false };
+    if let Err(e) = add_pending_lines(app, at) {
+        app.tables[at].problem = Some(format!("Not saved: {e}"));
+        return false;
+    }
     app.tables[at].commit();
     let (key, home) = (app.tables[at].key, app.tables[at].home.clone());
     let layout = match app.tables[at].compact {
@@ -1359,11 +1410,12 @@ fn cell_shows(
     strref: bool,
     named: Option<&Kind>,
     (talk, game): (Option<&mg_module::talk::Table>, Option<&mg_rules::GameData>),
+    pending: &Pending,
 ) -> (String, Option<String>, bool) {
     let text = raw
         .filter(|_| strref)
         .and_then(|v| v.parse::<u32>().ok())
-        .and_then(|n| talk_string(talk, game, n));
+        .and_then(|n| pending_or_talk_string(pending, talk, game, n));
     // (A value by its name, where the description gives it one.)
     let name = raw.zip(named).and_then(|(v, k)| k.named(v));
     let was_named = name.is_some();
@@ -2261,8 +2313,9 @@ pub(crate) fn grid_in(
         Some((c, Edge::Fit)) => {
             // (To every row's cell, as shown: not those of a Find alone.)
             let t = doc.edit.table();
-            let cells =
-                (0..t.len()).map(|r| cell_shows(t.cell(r, c), strref[c], named[c], (talk, game)).0);
+            let cells = (0..t.len()).map(|r| {
+                cell_shows(t.cell(r, c), strref[c], named[c], (talk, game), &doc.pending).0
+            });
             let w = fit_width(ui, &columns[c], cells);
             set_column_width(settings, table_name, &columns[c], w);
         }
@@ -2449,8 +2502,13 @@ pub(crate) fn grid_in(
                                 }
                                 let raw = doc.edit.table().cell(r, c);
                                 let fault = wrong_here.iter().find(|f| f.column == c);
-                                let (label, text, was_named) =
-                                    cell_shows(raw, is_strref, named[c], (talk, game));
+                                let (label, text, was_named) = cell_shows(
+                                    raw,
+                                    is_strref,
+                                    named[c],
+                                    (talk, game),
+                                    &doc.pending,
+                                );
                                 let mut rich = egui::RichText::new(label).monospace();
                                 if raw.is_none() {
                                     rich = rich.weak();
@@ -2819,10 +2877,10 @@ fn inspector(
         }
         match kind {
             Some(ColumnKind::StrRef) => {
-                let text = value
-                    .as_deref()
-                    .and_then(|v| v.parse::<u32>().ok())
-                    .and_then(|n| talk_string(talk, game.as_deref(), n));
+                let text = value.as_deref().and_then(|v| v.parse::<u32>().ok()).and_then(|n| {
+                    let pending = &app.tables[at].pending;
+                    pending_or_talk_string(pending, talk, game.as_deref(), n)
+                });
                 match text {
                     Some(text) => ui.label(format!("\u{201c}{text}\u{201d}")),
                     None => ui.weak("a talk-table string's number"),
@@ -2900,15 +2958,14 @@ fn inspector(
     if let Some(text) = new_line {
         let line =
             mg_module::talk::Line { text, feminine: None, sound: String::new(), sound_length: 0.0 };
-        match crate::talk_view::add_line(app, &line) {
-            Ok(strref) => {
-                set = Some(Some(strref.0.to_string()));
-                app.log.info(format!(
-                    "Added talk-table line {} for {name}.2da row {row}, {column_name}: saved with \
-                     the talk table (its own Save, or the module's)",
-                    strref.0
-                ));
-            }
+        // (Added to the talk table as this table is saved, where a cell
+        // still names it: added here, the table's Cancel left it in the
+        // talk table, named by nothing.)
+        let mut pending = std::mem::take(&mut app.tables[at].pending);
+        let pushed = pending.push(app, line);
+        app.tables[at].pending = pending;
+        match pushed {
+            Ok(strref) => set = Some(Some(strref.0.to_string())),
             Err(e) => app.tables[at].problem = Some(format!("New Line: {e}")),
         }
     }
@@ -2947,6 +3004,17 @@ fn column_kind(
         Some(Kind::Text) | None => known,
         Some(_) => None,
     }
+}
+
+/// [`talk_string`], or the text of a line New Line will add as the table
+/// is saved (`pending`).
+fn pending_or_talk_string(
+    pending: &Pending,
+    talk: Option<&mg_module::talk::Table>,
+    game: Option<&mg_rules::GameData>,
+    n: u32,
+) -> Option<String> {
+    pending.text(n).map(str::to_string).or_else(|| talk_string(talk, game, n))
 }
 
 /// A talk-table string's text: a custom one (16777216 and on) as the
@@ -3111,7 +3179,7 @@ fn string_choice(
             ui.horizontal(|ui| {
                 let add =
                     ui.add_enabled(typed, egui::Button::new("Add to Talk Table")).on_hover_text(
-                        "A new line at the talk table's end. The cell takes its number.",
+                        "The cell takes the new line's number, added as the table is saved.",
                     );
                 if add.clicked() {
                     *new_line = Some(text.trim().to_string());

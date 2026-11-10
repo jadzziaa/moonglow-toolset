@@ -1260,8 +1260,7 @@ impl AreaChooser {
                 return None;
             }
             let cp = app.game.as_deref().map_or(mg_core::Codepage::WINDOWS_1252, |g| g.codepage());
-            let areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
-            let found = (areas.into_iter())
+            let found = (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
                 .filter(|&a| app.area_holds.of(&ws.module, a, cp).is_some_and(|h| has.matches(h)))
                 .collect();
             self.held = Some((Some(has), revision, found));

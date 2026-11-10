@@ -903,17 +903,14 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
     let color = if s.erase { ERASER } else { CIRCLE };
     let radius = f32::from(s.radius_cm) / 100.0;
     const POINTS: usize = 64;
+    // On the walkable ground nearest the pointer's level, as a dab finds
+    // it (not up a tower's wall beside it); level where there is none.
+    let ground = ground(view, at);
     let circle: Vec<Vec3> = (0..POINTS)
         .map(|k| {
             let a = k as f32 / POINTS as f32 * std::f32::consts::TAU;
             at + Vec3::new(a.cos(), a.sin(), 0.0) * radius
         })
-        .collect();
-    // On the walkable ground nearest the pointer's level, as a dab finds
-    // it (not up a tower's wall beside it); level where there is none.
-    let ground = ground(view, at);
-    let circle: Vec<Vec3> = circle
-        .into_iter()
         .map(|p| p.truncate().extend(ground(p.truncate()).unwrap_or(at.z) + 0.05))
         .collect();
     for k in 0..POINTS {

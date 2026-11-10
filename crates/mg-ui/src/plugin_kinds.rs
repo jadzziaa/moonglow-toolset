@@ -345,7 +345,7 @@ impl Moonglow {
             let input = Input { selection, settings, ..input };
             mg_plugin::run_export(&p, &id, &to, input, host)
         };
-        self.run_plugin(name, decl.title.clone(), false, None, Some(keeper), run);
+        self.run_plugin(name, decl.title, false, None, Some(keeper), run);
     }
 
     /// File › Import › an importer: what it reads is asked (a file of its
@@ -370,7 +370,7 @@ impl Moonglow {
             let input = Input { selection, settings, ..input };
             mg_plugin::run_import(&p, &id, &from, input, host)
         };
-        self.run_plugin(name, decl.title.clone(), false, None, Some(keeper), run);
+        self.run_plugin(name, decl.title, false, None, Some(keeper), run);
     }
 
     /// Wizards › a plugin's wizard: a job whose pages are asked in its
@@ -388,7 +388,7 @@ impl Moonglow {
             let input = Input { selection, settings, ..input };
             mg_plugin::run_wizard(&p, &id, input, host)
         };
-        self.run_plugin(name, decl.title.clone(), false, None, Some(keeper), run);
+        self.run_plugin(name, decl.title, false, None, Some(keeper), run);
     }
 
     /// Draws the open panels again where they are stale: by their

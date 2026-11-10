@@ -264,7 +264,7 @@ pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
     let mut counted = 0;
     for at in mg_script::lex::includes(source) {
         let quoted = String::from_utf8_lossy(&source[at.name]);
-        line += source[counted..at.directive.start].iter().filter(|&&b| b == b'\n').count();
+        line += mg_core::text::line_ends(&source[counted..at.directive.start]);
         counted = at.directive.start;
         if let Ok(target) = ResRef::from_str(&quoted)
             && !target.is_empty()

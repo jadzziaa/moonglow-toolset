@@ -390,7 +390,7 @@ impl ActDraft {
                 if self.act == Act::AddProperty {
                     Change::AddEntry { entry, name: game.property_text(&p) }
                 } else {
-                    Change::RemoveEntry { entry, name: t.name.clone() }
+                    Change::RemoveEntry { entry, name: t.name }
                 }
             }
             Act::AddItem | Act::RemoveItem => {

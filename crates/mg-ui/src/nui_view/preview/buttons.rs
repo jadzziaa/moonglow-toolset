@@ -2,7 +2,7 @@
 use super::*;
 
 impl Renderer<'_> {
-    pub(super) fn button(&mut self, c: &Control<'_>) {
+    pub(super) fn button(c: &Control<'_>) {
         let Control { s, a, scale, node, ty, row, body, tint, state_key, .. } = *c;
         let p = &c.p;
         let section = if ty == "button_select" { "selectable" } else { "button" };
@@ -48,7 +48,7 @@ impl Renderer<'_> {
         }
     }
 
-    pub(super) fn check(&mut self, c: &Control<'_>) {
+    pub(super) fn check(c: &Control<'_>) {
         let Control { s, a, scale, node, row, body, tint, font, state_key, .. } = *c;
         let p = &c.p;
         // Nuklear's toggle selector follows the logical font height,
@@ -84,7 +84,7 @@ impl Renderer<'_> {
     }
 
     /// Options and Tabs.
-    pub(super) fn choices(&mut self, ui: &mut Ui, c: &mut Control<'_>) {
+    pub(super) fn choices(ui: &mut Ui, c: &mut Control<'_>) {
         let Control { s, a, scale, node, ty, row, tint, font, interactive, source_path, .. } = *c;
         let p = &c.p;
         let choices = &c.choices;

@@ -1462,7 +1462,7 @@ pub fn script_reads(module: &Module) -> std::collections::BTreeMap<String, Vec<R
                 continue;
             }
             let name = String::from_utf8_lossy(inner).into_owned();
-            let line = 1 + src[..tok.span.start].iter().filter(|b| **b == b'\n').count();
+            let line = mg_core::text::line_of(src, tok.span.start);
             out.entry(name).or_default().push(Read {
                 var_type: *var_type,
                 function,

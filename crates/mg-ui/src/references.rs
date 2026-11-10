@@ -690,10 +690,9 @@ impl Moonglow {
         {
             let listed =
                 |a: &mg_gff::Struct| a.resref("Area_Name").is_some_and(|r| areas.contains(&r));
-            let at: Vec<usize> = (0..list.len()).rev().filter(|&i| listed(&list[i])).collect();
+            let at = (0..list.len()).rev().filter(|&i| listed(&list[i]));
             let root = mg_edit::GffPath::root;
-            edits
-                .extend(at.into_iter().map(|i| Edit::remove_item(ifo, root(), "Mod_Area_list", i)));
+            edits.extend(at.map(|i| Edit::remove_item(ifo, root(), "Mod_Area_list", i)));
         }
         edits.extend(gone.iter().map(|k| Edit::SetResource { key: *k, data: None }));
         let label = match going.as_slice() {

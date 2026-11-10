@@ -31,7 +31,7 @@ impl egui::TextBuffer for NativeTextBuffer {
 }
 
 impl Renderer<'_> {
-    pub(super) fn label(&mut self, c: &Control<'_>) {
+    pub(super) fn label(c: &Control<'_>) {
         let Control { s, a, scale, node, row, body, font, .. } = *c;
         if body.width() >= a.font_height(font) * scale * 0.5 {
             let value = localized_string(&node["value"], s, row, a);
@@ -183,7 +183,7 @@ impl Renderer<'_> {
         p.with_clip_rect(clip.intersect(p.clip_rect())).galley(content.min - offset, galley, fg);
     }
 
-    pub(super) fn textedit(&mut self, ui: &mut Ui, c: &mut Control<'_>) {
+    pub(super) fn textedit(ui: &mut Ui, c: &mut Control<'_>) {
         let Control { s, a, scale, node, row, body, fg, font, interactive, source_path, .. } = *c;
         let p = &c.p;
         c.frame("edit", body);

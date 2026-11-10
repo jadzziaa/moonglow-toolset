@@ -154,7 +154,7 @@ impl Moonglow {
         // (And the builder's own project file, in a hidden folder the
         // walk passes over.)
         let paths = match archive {
-            true => vec![root.clone()],
+            true => vec![root],
             false => vec![root.clone(), mg_module::project_file::ProjectFile::user_path(&root)],
         };
         if self.outside.watch.as_ref().is_none_or(|w| w.paths() != paths.as_slice()) {

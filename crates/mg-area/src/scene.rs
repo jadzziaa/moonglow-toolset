@@ -907,6 +907,26 @@ impl AreaScene {
         Some(BareLight { color: lamp.color, on: true, reach: lamp.cutoff, stock: false })
     }
 
+    /// Object `i`'s model as shown, the inverse of where it stands, and
+    /// `ray`'s origin and direction in the model's own space; `None` for an
+    /// object without a model to meet (see [`AreaScene::ray_hit`]).
+    fn ray_in_model(
+        &self,
+        area: &AreaModel,
+        i: usize,
+        ray: &crate::pick::Ray,
+    ) -> Option<(&Arc<Shown>, glam::Mat4, Vec3, Vec3)> {
+        let shown = self.objects.get(i).and_then(Option::as_ref)?;
+        let o = area.objects.get(i)?;
+        if self.as_arrow(o, Some(shown)) || !shown.composed.has_meshes() {
+            return None;
+        }
+        let inverse = o.model_transform().inverse();
+        let (origin, dir) =
+            (inverse.transform_point3(ray.origin), inverse.transform_vector3(ray.dir));
+        Some((shown, inverse, origin, dir))
+    }
+
     /// How far along `ray` it meets object `i`'s model itself (its
     /// triangles, as it stands: in its pause, where its box is), for a click that passes a wide box to reach
     /// what is behind. `None`: the object has no model to meet (a marker,
@@ -918,14 +938,7 @@ impl AreaScene {
         i: usize,
         ray: &crate::pick::Ray,
     ) -> Option<Option<f32>> {
-        let shown = self.objects.get(i).and_then(Option::as_ref)?;
-        let o = area.objects.get(i)?;
-        if self.as_arrow(o, Some(shown)) || !shown.composed.has_meshes() {
-            return None;
-        }
-        let inverse = o.model_transform().inverse();
-        let (origin, dir) =
-            (inverse.transform_point3(ray.origin), inverse.transform_vector3(ray.dir));
+        let (shown, _, origin, dir) = self.ray_in_model(area, i, ray)?;
         Some(shown.composed.ray_hit_in(&shown.stance, origin, dir))
     }
 
@@ -939,14 +952,7 @@ impl AreaScene {
         i: usize,
         ray: &crate::pick::Ray,
     ) -> Option<Vec<(f32, Vec3)>> {
-        let shown = self.objects.get(i).and_then(Option::as_ref)?;
-        let o = area.objects.get(i)?;
-        if self.as_arrow(o, Some(shown)) || !shown.composed.has_meshes() {
-            return None;
-        }
-        let inverse = o.model_transform().inverse();
-        let (origin, dir) =
-            (inverse.transform_point3(ray.origin), inverse.transform_vector3(ray.dir));
+        let (shown, inverse, origin, dir) = self.ray_in_model(area, i, ray)?;
         let out_of = inverse.transpose();
         let crossings = shown.composed.ray_crossings_in(&shown.stance, origin, dir);
         Some(
@@ -1055,7 +1061,7 @@ impl AreaScene {
             let name = tile.model.as_deref().unwrap_or("a tile");
             let transform = tile.transform();
             let drawn = mg_render::guard::guarded(name, || {
-                let layers = self.tile_layers(tile, loaded, view);
+                let layers = Self::tile_layers(tile, loaded, view);
                 let pose = if layers.is_empty() {
                     loaded.gpu.rest.clone()
                 } else {
@@ -1120,7 +1126,7 @@ impl AreaScene {
                 if tile.source_lights.iter().all(|&v| v == 0) {
                     continue;
                 }
-                let layers = self.tile_layers(tile, loaded, view);
+                let layers = Self::tile_layers(tile, loaded, view);
                 let posed;
                 let pose: &[Mat4] = if layers.is_empty() {
                     &loaded.gpu.rest
@@ -1184,7 +1190,6 @@ impl AreaScene {
     /// default, day or night, and the animation loops switched on.
     /// Each with its binding to the tile's model, as it was loaded.
     fn tile_layers<'a>(
-        &self,
         tile: &AreaTile,
         loaded: &'a Loaded,
         view: &View,
@@ -1438,9 +1443,9 @@ impl AreaScene {
 
     /// A tile's model as `view` shows it playing the tile's animations:
     /// what every tile of the model playing the same shares.
-    fn posed_tile(&self, tile: &AreaTile, loaded: &Loaded, view: &View) -> PosedTile {
+    fn posed_tile(tile: &AreaTile, loaded: &Loaded, view: &View) -> PosedTile {
         let model = &loaded.gpu.model;
-        let layers = self.tile_layers(tile, loaded, view);
+        let layers = Self::tile_layers(tile, loaded, view);
         // (The animations' keys gathered once, for the pose, the lights
         // and the meshes.)
         let playing = anim::Playing::new(model, &layers, view.time);
@@ -1485,7 +1490,7 @@ impl AreaScene {
         let posed = match shared.tiles.get(&key) {
             Some(posed) => posed.clone(),
             None => {
-                let posed = Arc::new(self.posed_tile(tile, loaded, view));
+                let posed = Arc::new(Self::posed_tile(tile, loaded, view));
                 shared.tiles.insert(key, posed.clone());
                 posed
             }

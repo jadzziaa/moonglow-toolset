@@ -999,22 +999,8 @@ const GROUND_SHADOW_OPACITY: f32 = 0.6;
 /// is unseen but for the shadow on it; facing up alone (seen from below,
 /// the model shows whole). A 2 m square about the origin, at height 0.
 fn ground_model() -> Model {
-    use mg_mdl::{Face, Mesh, Node, NodeKind};
-    let mesh = Mesh {
-        diffuse: BACKGROUND,
-        ambient: BACKGROUND,
-        render: true,
-        vertices: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]],
-        normals: vec![[0.0, 0.0, 1.0]; 4],
-        uvs: [vec![[0.0, 0.0]; 4], vec![], vec![], vec![]],
-        faces: vec![
-            Face { vertices: [0, 1, 2], material: 0 },
-            Face { vertices: [0, 2, 3], material: 0 },
-        ],
-        source: vec![0, 1, 2, 3],
-        shadow: false,
-        ..Default::default()
-    };
+    use mg_mdl::{Mesh, Node, NodeKind};
+    let mesh = Mesh::square(2.0, 0.0, BACKGROUND);
     let mut root = Node::new("mg_ground", NodeKind::Dummy);
     root.children = vec![1];
     let mut m = Node::new("ground", NodeKind::Mesh(Box::new(mesh)));

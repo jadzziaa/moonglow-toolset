@@ -2155,7 +2155,7 @@ impl AreaView {
     }
 
     /// `position` led round `middle` by `angle` (where it is, with none).
-    fn turned_about(&self, middle: Option<Vec2>, position: Vec3, angle: f32) -> Vec3 {
+    fn turned_about(middle: Option<Vec2>, position: Vec3, angle: f32) -> Vec3 {
         match middle {
             Some(m) => {
                 let to = m + Vec2::from_angle(angle).rotate(position.truncate() - m);
@@ -2249,7 +2249,7 @@ impl AreaView {
                     Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
                     Drag::Turn { angle } | Drag::Spin { angle, .. } => (
                         i,
-                        self.turned_about(middle.or(own(o)), o.position, angle),
+                        Self::turned_about(middle.or(own(o)), o.position, angle),
                         if turns(o.kind) { o.rotation + angle } else { o.rotation },
                     ),
                     Drag::Lift { by } | Drag::Slide { by, .. } => {
@@ -2583,7 +2583,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
     let model = AreaModel::read(&game, &are.root, &git.root, tileset);
-    view.read_from = Some((are.clone(), git.clone()));
+    view.read_from = Some((are, git));
     view.read_since.clear();
     view.whole_reads += 1;
     step(&format!(
@@ -6834,7 +6834,7 @@ impl AreaView {
                 .map(|i| {
                     let o = &model.objects[i];
                     let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
-                    (i, self.turned_about(Some(middle), o.position, by), r)
+                    (i, Self::turned_about(Some(middle), o.position, by), r)
                 })
                 .collect();
         }
@@ -6846,7 +6846,7 @@ impl AreaView {
                 let o = &model.objects[i];
                 let r = mg_area::arrange::snap_rotation(o.rotation + by, self.snap.1);
                 let about = o.kind.has_outline().then(|| pivot(o).truncate());
-                (i, self.turned_about(about, o.position, r - o.rotation), r)
+                (i, Self::turned_about(about, o.position, r - o.rotation), r)
             })
             .collect()
     }
@@ -8356,7 +8356,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let changed = (added.instance.fields.iter())
         .filter(|f| placed.get(&label(f)) != Some(&f.value))
         .map(|f| (label(f), Some(f.value.clone())));
-    for (label, value) in gone.chain(changed).collect::<Vec<_>>() {
+    for (label, value) in gone.chain(changed) {
         edits.push(mg_edit::Edit::SetField { key: git, path: at.clone(), label, value });
     }
     let first = added.blueprints[0].0;
@@ -8509,6 +8509,15 @@ fn held_places(app: &Moonglow) -> Vec<crate::blueprint::follow::Place> {
     if let Some(d) = &app.light_draft {
         out.extend(d.change.iter().map(|&(k, i)| place_of(d.area, k, i)));
     }
+    // (The module tree's Go To or Adjust Location on several, waiting for
+    // the area's view to be ready: an edit meanwhile renumbers them.)
+    if let Some((area, objects)) = &app.area_select {
+        out.extend(objects.iter().map(|&(k, i)| place_of(*area, k, i)));
+    }
+    // (And the object the camera goes to, likewise.)
+    if let Some((area, kind, index)) = app.area_focus {
+        out.push(place_of(area, kind, index));
+    }
     out
 }
 
@@ -8605,11 +8614,59 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
             app.light_draft = None;
         }
     }
+    if let Some((area, objects)) = &mut app.area_select {
+        follow(*area, objects);
+    }
+    if let Some((area, kind, index)) = app.area_focus {
+        app.area_focus = object_now(moved, area, (kind, index)).map(|(k, i)| (area, k, i));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The module tree's Go To (or Adjust Location) on several objects
+    /// holds them by their places until the area's view is ready, which
+    /// its first reading, on a thread of its own, takes a while: an Undo
+    /// key or a plugin's edit meanwhile left them on the objects that took
+    /// their places. They follow them now (the last pass's item 19).
+    #[test]
+    fn objects_to_select_follow_their_objects_until_the_view_takes_them() {
+        use mg_module::{Module, ModuleLocation};
+        let dir = mg_testkit::scratch_dir("ui-area-select-follows");
+        let mut m = Module::new();
+        let area = ResRef::from_str("yard").unwrap();
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        let creature = |tag: &str| {
+            let mut s = mg_gff::Struct::new(4);
+            s.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+            s
+        };
+        let list = vec![creature("first"), creature("second"), creature("third")];
+        git.root.set("Creature List", mg_gff::Value::List(list));
+        m.set(ResKey::new(area, ResType::GIT), git.to_bytes().unwrap());
+        m.save_as(&ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir.join("m.mod"));
+        app.area_select = Some((area, vec![(ObjectKind::Creature, 1), (ObjectKind::Creature, 2)]));
+        app.area_focus = Some((area, ObjectKind::Creature, 1));
+        let remove = |index| mg_edit::Edit::RemoveItem {
+            key: ResKey::new(area, ResType::GIT),
+            path: mg_edit::GffPath::root(),
+            list: "Creature List".into(),
+            index,
+        };
+        app.apply(Command::new("Delete", vec![remove(0)])).unwrap();
+        let held = app.area_select.as_ref().map(|(_, o)| o.clone());
+        assert_eq!(held, Some(vec![(ObjectKind::Creature, 0), (ObjectKind::Creature, 1)]));
+        assert_eq!(app.area_focus, Some((area, ObjectKind::Creature, 0)));
+        // One of them gone: the other stays, and the camera goes nowhere.
+        app.apply(Command::new("Delete", vec![remove(0)])).unwrap();
+        let held = app.area_select.as_ref().map(|(_, o)| o.clone());
+        assert_eq!(held, Some(vec![(ObjectKind::Creature, 0)]));
+        assert_eq!(app.area_focus, None);
+    }
 
     /// The review's A29: which tile a ground point is in is one rule
     /// (the tile tools', the ground's level, the corner's readout): the

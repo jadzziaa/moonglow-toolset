@@ -277,11 +277,9 @@ pub(crate) fn read_again(app: &mut Moonglow) {
         app.talk_view.stamps = None;
         return;
     };
-    let files: Vec<std::path::PathBuf> = std::iter::once(&t.source)
+    let now: Vec<_> = std::iter::once(&t.source)
         .chain(t.feminine.as_ref().map(|(s, _)| s))
         .filter_map(|s| s.file().map(std::path::Path::to_path_buf))
-        .collect();
-    let now: Vec<_> = (files.into_iter())
         .map(|p| {
             let at = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
             (p, at)
@@ -369,23 +367,86 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
 /// The line a text moved into the module's talk table would take now
 /// ([`add_line`]): the next free one of the project's range, as typed
 /// text takes one; the table's end without one.
-fn line_to_add(app: &mut Moonglow) -> Result<usize, String> {
+fn line_to_add(app: &mut Moonglow, taken: &[StrRef]) -> Result<usize, String> {
     load(app);
     let own = !app.talk_view.outside;
     let t = app.talk.as_ref().filter(|t| own && t.editable()).ok_or("no talk table to add to")?;
-    crate::talk_typed::next_line(app, t)
+    let taken: Vec<usize> =
+        (taken.iter().filter(|s| s.is_custom())).map(|s| s.index() as usize).collect();
+    crate::talk_typed::next_line_but(app, t, &taken)
 }
 
 /// The StrRef [`add_line`] would give a line added now (String Edit shows
 /// it from Move to Talk Table on, and adds the line at OK).
 pub(crate) fn next_strref(app: &mut Moonglow) -> Result<StrRef, String> {
-    line_to_add(app).map(Table::strref)
+    next_strref_but(app, &[])
+}
+
+/// [`next_strref`] once the lines `taken` are added: a window that adds
+/// several at its OK numbers each against those before it.
+pub(crate) fn next_strref_but(app: &mut Moonglow, taken: &[StrRef]) -> Result<StrRef, String> {
+    line_to_add(app, taken).map(Table::strref)
+}
+
+/// Lines a window will add to the module's talk table at its OK (Move
+/// Name to Talk Table, a table's New Line), each by the StrRef it was
+/// shown as taking.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Pending(Vec<(StrRef, Line)>);
+
+impl Pending {
+    /// A line to add, by the StrRef it will take once those before it
+    /// are added (as the window shows it until then).
+    pub(crate) fn push(&mut self, app: &mut Moonglow, line: Line) -> Result<StrRef, String> {
+        let taken: Vec<StrRef> = self.0.iter().map(|(s, _)| *s).collect();
+        let strref = next_strref_but(app, &taken)?;
+        self.0.push((strref, line));
+        Ok(strref)
+    }
+
+    /// The text of the line on its way as `strref`.
+    pub(crate) fn text(&self, strref: u32) -> Option<&str> {
+        self.0.iter().find(|(s, _)| s.0 == strref).map(|(_, l)| l.text.as_str())
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Adds the lines something still names (`named`), in the order they
+    /// were pushed, and lets the others go: each StrRef shown and the one
+    /// its line took, where the table changed meanwhile and they differ
+    /// (to be named in its place). An error stops there, and leaves the
+    /// lines not yet added to be added again.
+    pub(crate) fn add(
+        &mut self,
+        app: &mut Moonglow,
+        named: impl Fn(StrRef) -> bool,
+    ) -> (Vec<(StrRef, StrRef)>, Result<(), String>) {
+        let mut took = Vec::new();
+        while let Some((shown, line)) = self.0.first().cloned() {
+            if named(shown) {
+                match add_line(app, &line) {
+                    Ok(strref) => {
+                        app.log.info(format!(
+                            "Added talk-table line {}; it's saved with the module",
+                            strref.0
+                        ));
+                        took.push((shown, strref));
+                    }
+                    Err(e) => return (took, Err(e)),
+                }
+            }
+            self.0.remove(0);
+        }
+        (took, Ok(()))
+    }
 }
 
 /// Adds a line to the module's talk table (String Edit › Move to Talk
 /// Table, at its OK); returns its StrRef.
 pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String> {
-    let row = line_to_add(app)?;
+    let row = line_to_add(app, &[])?;
     let t = app.talk.as_mut().expect("checked");
     if row == t.len() {
         t.add_line(line)?;

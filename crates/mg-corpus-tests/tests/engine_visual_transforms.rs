@@ -148,7 +148,7 @@ fn module(game: &GameData, dir: &std::path::Path) -> std::path::PathBuf {
             assert!(o.takes_visual_transform(), "{} takes one", o.tag);
             let edits = mg_area::edit::visual_transform_edits(git_key, &o, s, MIRROR);
             assert!(!edits.is_empty(), "{}: an edit", o.tag);
-            ws.apply(Command::new("Adjust location", edits)).unwrap();
+            ws.apply(Command::new("Adjust Location", edits)).unwrap();
         }
     }
     // A static placeable's file may still have one (set before it was

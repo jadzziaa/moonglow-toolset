@@ -83,12 +83,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let types = f.appearance_rows(mg_rules::ObjectKind::Door, &types);
     let generic = f.choices("genericdoors", Some("Name"), Some("Label"));
     egui::Grid::new(("utd-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocName");
         // (Each door's picture beside the row the pointer rests on; the
         // generic door's, the generic appearance chosen below.)
         crate::widgets::field_label(ui, "Appearance Type");

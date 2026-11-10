@@ -78,7 +78,7 @@ pub(crate) fn run(
     let mut out = Output::default();
     let code = p.user.builder_code.clone();
     match action {
-        Action::List => return list(root, &p),
+        Action::List => return Ok(list(root, &p)),
         Action::Claim | Action::Release | Action::Hand => {
             let Some(code) = code.as_deref() else {
                 bail!(
@@ -149,7 +149,7 @@ pub(crate) fn run(
 
 /// Every area of the table and of the module (where it opens), whose each
 /// is to you.
-fn list(root: &Path, p: &ProjectFile) -> Result<Output> {
+fn list(root: &Path, p: &ProjectFile) -> Output {
     let mut out = Output::default();
     for line in p.errors.iter().chain(&p.warnings) {
         out.note(line.clone());
@@ -196,5 +196,5 @@ fn list(root: &Path, p: &ProjectFile) -> Result<Output> {
     }
     let file = p.claims.file.clone();
     out.json = json!({ "file": file, "code": p.user.builder_code, "areas": rows });
-    Ok(out)
+    out
 }

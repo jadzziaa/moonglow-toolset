@@ -607,7 +607,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         .on_disabled_hover_text("It levels one creature up at a time")
         .clicked()
     {
-        crate::levelup_view::open(f.app, key, base.clone());
+        crate::levelup_view::open(f.app, key, base);
     }
     ui.separator();
     associates(f, ui, &list, &class_int);
@@ -995,7 +995,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                     crate::widgets::field_label(ui, "Sound Set");
                     ui.horizontal(|ui| {
                         // Aurora's filters: gender and soundsettype.2da type.
-                        let id = egui::Id::new(("utc-soundset-filter", f.key));
+                        let id = f.id("utc-soundset-filter");
                         let (mut gender, mut kind): (Option<i64>, Option<i64>) =
                             ui.data(|d| d.get_temp(id)).unwrap_or_default();
                         let types = f.choices("soundsettype", Some("STRREF"), Some("LABEL"));

@@ -1220,6 +1220,17 @@ impl Form<'_> {
         self.text(ui, what, label, mg_module::tags::MAX_TAG);
     }
 
+    /// A blueprint page's first rows in its grid: Name (the localized
+    /// name in `name`) and Tag.
+    pub(crate) fn name_and_tag(&mut self, ui: &mut Ui, name: &str) {
+        crate::widgets::field_label(ui, "Name");
+        self.locstring(ui, "Name", name);
+        ui.end_row();
+        crate::widgets::field_label(ui, "Tag");
+        self.tag(ui, "Tag", "Tag");
+        ui.end_row();
+    }
+
     /// A multi-line text field (`CExoString`), line ends kept.
     pub(crate) fn memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
         self.mark_mixed(ui, label);

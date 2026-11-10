@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn haks_and_a_talk_table_go_to_the_user_folder() {
-        let dir = mg_testkit::scratch_dir("mg-attach");
+        let dir = mg_testkit::scratch_dir("mg-module-attach");
         let _ = std::fs::remove_dir_all(&dir);
         let (dl, user) = (dir.join("download"), dir.join("user"));
         std::fs::create_dir_all(&dl).unwrap();

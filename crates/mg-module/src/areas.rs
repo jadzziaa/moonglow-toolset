@@ -499,7 +499,7 @@ fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
         f.label.as_bytes().starts_with(b"On") && matches!(f.value, Value::ResRef(_)) && !empty
     });
     if let Some(f) = script {
-        return Some(Kept::Active(f.label.to_string_lossy().to_string()));
+        return Some(Kept::Active(f.label.to_string_lossy()));
     }
     if p.resref("Conversation").is_some_and(|r| !r.is_empty()) {
         return Some(Kept::Active("Conversation".into()));
@@ -572,7 +572,7 @@ impl ScriptStrings {
                 if text.is_empty() {
                     continue;
                 }
-                line += src[counted..t.span.start].iter().filter(|&&b| b == b'\n').count();
+                line += mg_core::text::line_ends(&src[counted..t.span.start]);
                 counted = t.span.start;
                 out.entry(text.to_vec()).or_insert((name, line));
             }

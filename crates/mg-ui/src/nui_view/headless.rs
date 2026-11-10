@@ -156,6 +156,9 @@ pub enum Error {
     NotInRow(String),
     /// A state was asked for a row the list doesn't have: how many it has.
     Row(String, usize, usize),
+    /// A state was asked for a row the list has past those laid out: the
+    /// rows laid out, and how many it has.
+    RowLeftOut(String, usize, usize, usize),
 }
 
 impl fmt::Display for Error {
@@ -199,6 +202,11 @@ impl fmt::Display for Error {
                 "no row {row} for {id:?}: its list has {rows} row{}, 0 to {}",
                 if *rows == 1 { "" } else { "s" },
                 rows - 1
+            ),
+            Error::RowLeftOut(id, row, laid, rows) => write!(
+                f,
+                "row {row} for {id:?} is not laid out: its list has {rows} rows, of which the \
+                 first {laid} are laid out"
             ),
         }
     }
@@ -328,16 +336,10 @@ pub struct Picture {
 impl Picture {
     /// As a PNG.
     pub fn png(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut enc = png::Encoder::new(&mut out, self.width, self.height);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
         // (Writing to memory fails only on sizes that don't match.)
-        let written = enc
-            .write_header()
-            .and_then(|mut w| w.write_image_data(&self.rgba).and_then(|()| w.finish()));
+        let written = mg_image::png::write_rgba(self.width, self.height, &self.rgba);
         debug_assert!(written.is_ok(), "{written:?}");
-        out
+        written.unwrap_or_default()
     }
 }
 
@@ -589,11 +591,29 @@ fn frames(
             return Err(Error::NotInRow(id.clone()));
         }
         if !rows.contains(row) {
-            return Err(Error::Row(id.clone(), *row, rows.len()));
+            // (Past the rows laid out of a list cut short: the count is the
+            // list's, not the cut's.)
+            let list = (layout.elements.iter())
+                .find(|e| e.id.as_deref() == Some(id.as_str()) && e.row.is_some())
+                .and_then(|e| {
+                    let within = |l: &&String| e.path.starts_with(&format!("{l}/"));
+                    record
+                        .rows_of_cut
+                        .iter()
+                        .filter(|(l, _)| within(l))
+                        .max_by_key(|(l, _)| l.len())
+                });
+            return Err(match list {
+                Some((_, &count)) if *row < count => {
+                    Error::RowLeftOut(id.clone(), *row, rows.len(), count)
+                }
+                Some((_, &count)) => Error::Row(id.clone(), *row, count),
+                None => Error::Row(id.clone(), *row, rows.len()),
+            });
         }
     }
     // (Said once each, however many frames found them.)
-    layout.issues = assets.issues.clone();
+    layout.issues = assets.issues;
     layout.issues.extend(said);
     layout.issues.extend(record.rows_left_out.iter().cloned());
     layout.issues.sort();
@@ -778,6 +798,37 @@ mod tests {
         assert_eq!(
             l.issues.iter().filter(|i| i.contains("rows are laid out")).collect::<Vec<_>>(),
             ["/root/children/1: only the first 512 of its 600 rows are laid out"]
+        );
+    }
+
+    /// A state asked for a row past those laid out of a long list says
+    /// how many the list has: it said "its list has 512 rows", the cut's
+    /// count (the last pass's item 14, seen by the NUI drawing fixer).
+    #[test]
+    fn a_row_past_those_laid_out_is_said_as_the_list_has_it() {
+        let mut doc = mg_nui::window();
+        doc["root"] = json!({"type": "col", "children": [
+            {"type": "list", "row_count": 600, "height": 100.0, "row_template":
+                [[{"type": "label", "id": "cell", "value": "x"}, 0, true]]}]});
+        let module = module_with(&doc, None);
+        let w = Window { module: &module, resman: None, game: None, name: "w" };
+        let asked = |row: usize| {
+            let o = Options {
+                row_states: [(("cell".to_owned(), row), Look::Hover)].into(),
+                ..Options::default()
+            };
+            layout(&w, &o).map(|_| ()).map_err(|e| e.to_string())
+        };
+        assert_eq!(asked(511), Ok(()));
+        assert_eq!(
+            asked(550),
+            Err("row 550 for \"cell\" is not laid out: its list has 600 rows, of which the \
+                 first 512 are laid out"
+                .into())
+        );
+        assert_eq!(
+            asked(700),
+            Err("no row 700 for \"cell\": its list has 600 rows, 0 to 599".into())
         );
     }
 

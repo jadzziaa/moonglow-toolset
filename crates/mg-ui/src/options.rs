@@ -1044,7 +1044,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 )
                                 .on_hover_text(
                                     "Copy each open conversation with unsaved changes into the \
-                                     temp folder's moonglow-backups",
+                                     data folder's conversation-backups",
                                 );
                                 ui.add_enabled_ui(draft.dialog_backup, |ui| {
                                     let minutes = &mut draft.dialog_backup_minutes;

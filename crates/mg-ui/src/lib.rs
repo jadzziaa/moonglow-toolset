@@ -1114,8 +1114,11 @@ pub struct Moonglow {
     /// Test Module asked to minimize the window (Options › General).
     pub minimize_requested: bool,
     /// Where conversation backups go (Options › Conversation Editor), a
-    /// folder per module: the temporary folder's `moonglow-backups`.
-    pub conversation_backups: std::path::PathBuf,
+    /// folder per module: the desktop app gives its data folder's
+    /// `conversation-backups`; none, none are written. (They went to the
+    /// system's temporary folder's `moonglow-backups`, which another
+    /// user of the machine could make, or link elsewhere, first.)
+    pub conversation_backups: Option<std::path::PathBuf>,
     /// Where recovery copies of unsaved work go (Options › General); none
     /// until the desktop app gives its data folder.
     pub recovery_dir: Option<std::path::PathBuf>,
@@ -1123,8 +1126,9 @@ pub struct Moonglow {
     /// Recovery copies a session that did not end left (Recover Unsaved
     /// Work).
     pub recoveries: Vec<recovery::Copy>,
-    /// Where Print writes the pages it opens in the browser.
-    pub print_dir: std::path::PathBuf,
+    /// Where Print writes the pages it opens in the browser; `None`, the
+    /// run's own folder's `print` (`mg_module::build::own_scratch_dir`).
+    pub print_dir: Option<std::path::PathBuf>,
     /// When conversations were last backed up, and what was written.
     dialog_backup_at: Option<std::time::Instant>,
     dialog_backed_up: HashMap<ResKey, Vec<u8>>,
@@ -1406,11 +1410,11 @@ impl Moonglow {
             lit_check: Default::default(),
             relaunch: None,
             minimize_requested: false,
-            conversation_backups: std::env::temp_dir().join("moonglow-backups"),
+            conversation_backups: None,
             recovery_dir: None,
             autosave: Default::default(),
             recoveries: Vec::new(),
-            print_dir: std::env::temp_dir().join("moonglow-print"),
+            print_dir: None,
             dialog_backup_at: None,
             dialog_backed_up: HashMap::new(),
             manual: Default::default(),
@@ -4542,6 +4546,15 @@ impl Moonglow {
                 ));
             }
         }
+        // (New Line's lines of the tables saved below go into the talk
+        // table first, which is saved before them.)
+        for at in 0..self.tables.len() {
+            if self.tables[at].has_unsaved()
+                && let Err(e) = table_view::add_pending_lines(self, at)
+            {
+                self.log.error(format!("{}: {e}", self.tables[at].key));
+            }
+        }
         // (A talk table with lines typed for the module's fields that can't
         // be saved stops the module's save: its fields would name lines
         // the table hasn't.)
@@ -5706,8 +5719,15 @@ impl Moonglow {
         if self.ws.is_none() {
             return;
         }
-        let copy =
-            std::env::temp_dir().join(format!("moonglow-roundtrip-{}.mod", std::process::id()));
+        // (In the run's own folder: a name anyone could guess in the
+        // system's temporary folder could be made, or linked, first.)
+        let copy = match mg_module::build::own_scratch_dir() {
+            Ok(dir) => dir.join("roundtrip.mod"),
+            Err(e) => {
+                self.log.error(format!("Round-Trip Check: no folder for its copy: {e}"));
+                return;
+            }
+        };
         self.start_job(
             "Round-Trip Check",
             move |job| {
@@ -5915,7 +5935,8 @@ impl Moonglow {
             .map_or_else(|| "untitled".to_string(), |s| s.to_string_lossy().into_owned());
         let docs: Vec<(ResKey, Vec<u8>)> =
             keys.into_iter().filter_map(|k| Some((k, ws.doc(&k).ok()?.to_bytes().ok()?))).collect();
-        let dir = self.conversation_backups.join(module);
+        let Some(backups) = &self.conversation_backups else { return Vec::new() };
+        let dir = backups.join(module);
         let mut written = Vec::new();
         for (key, bytes) in docs {
             if self.dialog_backed_up.get(&key) == Some(&bytes) {

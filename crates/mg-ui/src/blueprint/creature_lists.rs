@@ -447,6 +447,46 @@ fn spell_entry(spell: usize, metamagic: u8) -> Struct {
 /// The Spells page, laid out as the Feats page: the spells of the chosen
 /// class to choose from (by level, name and category) beside those it
 /// knows or has prepared, by level, with how many it may have of each.
+/// A class's name as the Spells page shows it: its talk-table string, else
+/// its label (the page of one creature and of several alike).
+fn class_name(game: &GameData, classes: &mg_2da::TwoDa, row: usize) -> String {
+    classes
+        .get_int(row, "Name")
+        .and_then(|s| game.string(mg_core::StrRef(s as u32)))
+        .unwrap_or_else(|| classes.get(row, "Label").unwrap_or_default().to_string())
+}
+
+/// The Spells page's Spell Level row: all, or one of 0 to 9.
+fn level_row(ui: &mut Ui, level: &mut Option<usize>) {
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::field_label(ui, "Spell Level");
+        ui.selectable_value(level, None, "All");
+        for l in 0..=9 {
+            ui.selectable_value(level, Some(l), l.to_string());
+        }
+    });
+}
+
+/// A spell to prepare: its name and how many are prepared (`count`, of
+/// the first where several), marked where any are. (Aurora lists one cast
+/// above level 9 too, as a level no list keeps: off.)
+fn prepare_button(
+    ui: &mut Ui,
+    name: &str,
+    count: usize,
+    chosen: bool,
+    cast: usize,
+    tip: &str,
+) -> egui::Response {
+    let text = match count {
+        0 => name.to_string(),
+        n => format!("{name}  ×{n}"),
+    };
+    ui.add_enabled(cast <= 9, egui::Button::selectable(chosen, text))
+        .on_hover_text(tip)
+        .on_disabled_hover_text("Cast above level 9")
+}
+
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     if f.several() {
         spells_together(f, ui);
@@ -466,11 +506,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         .filter_map(|(i, c)| {
             let row = c.integer("Class")?.max(0) as usize;
             let slots = game.spell_slots(&f.root, c)?;
-            let name = classes
-                .get_int(row, "Name")
-                .and_then(|s| game.string(mg_core::StrRef(s as u32)))
-                .unwrap_or_else(|| classes.get(row, "Label").unwrap_or_default().to_string());
-            Some((i, row, name, slots))
+            Some((i, row, class_name(game, &classes, row), slots))
         })
         .collect();
     if casters.is_empty() {
@@ -505,13 +541,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             ui.radio_value(&mut which, n, name);
         }
     });
-    ui.horizontal_wrapped(|ui| {
-        crate::widgets::field_label(ui, "Spell Level");
-        ui.selectable_value(&mut level, None, "All");
-        for l in 0..=9 {
-            ui.selectable_value(&mut level, Some(l), l.to_string());
-        }
-    });
+    level_row(ui, &mut level);
     ui.data_mut(|d| d.insert_temp(id, (which, level)));
     // Aurora's Meta-Magic, for a class that prepares its spells: none, or
     // one of the metamagic feats the creature has. The spells to choose
@@ -613,19 +643,9 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                             let cast = if prepares { l + raised } else { *l };
                             let present = had(cast, *row);
                             let r = if prepares {
-                                let text = match present.len() {
-                                    0 => name.clone(),
-                                    n => format!("{name}  ×{n}"),
-                                };
-                                // (Aurora lists one cast above level 9 too, as a
-                                // level no list keeps.)
-                                let r = ui
-                                    .add_enabled(
-                                        cast <= 9,
-                                        egui::Button::selectable(!present.is_empty(), text),
-                                    )
-                                    .on_hover_text("Prepare one more")
-                                    .on_disabled_hover_text("Cast above level 9");
+                                let (n, chosen) = (present.len(), !present.is_empty());
+                                let r =
+                                    prepare_button(ui, name, n, chosen, cast, "Prepare one more");
                                 if r.clicked() {
                                     let item = spell_entry(*row, metamagic);
                                     let at = lists[cast].len();
@@ -886,13 +906,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         ui.weak("None of the creatures' classes casts spells.");
         return;
     }
-    let class_name = |row: i64| {
-        let r = row.max(0) as usize;
-        classes
-            .get_int(r, "Name")
-            .and_then(|s| game.string(mg_core::StrRef(s as u32)))
-            .unwrap_or_else(|| classes.get(r, "Label").unwrap_or_default().to_string())
-    };
+    let class_name = |row: i64| class_name(game, &classes, row.max(0) as usize);
     // Each creature's spell warnings, named.
     if !f.app.settings.no_spell_warning {
         let color = ui.visuals().warn_fg_color;
@@ -925,13 +939,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
             super::entry_mark(ui, *having, total);
         }
     });
-    ui.horizontal_wrapped(|ui| {
-        crate::widgets::field_label(ui, "Spell Level");
-        ui.selectable_value(&mut level, None, "All");
-        for l in 0..=9 {
-            ui.selectable_value(&mut level, Some(l), l.to_string());
-        }
-    });
+    level_row(ui, &mut level);
     ui.data_mut(|d| d.insert_temp(id, (which, level)));
     let class = caster_classes[which].0;
     // Those that have the class, each with its lists.
@@ -1043,17 +1051,8 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                                 class_targets.iter().map(|c| count(c, cast.min(9), k)).collect();
                             let having = counts.iter().filter(|c| **c > 0).count();
                             let r = if prepares {
-                                let text = match counts[0] {
-                                    0 => name.clone(),
-                                    c => format!("{name}  ×{c}"),
-                                };
-                                let r = ui
-                                    .add_enabled(
-                                        cast <= 9,
-                                        egui::Button::selectable(having > 0, text),
-                                    )
-                                    .on_hover_text("Prepare one more, on each")
-                                    .on_disabled_hover_text("Cast above level 9");
+                                let tip = "Prepare one more, on each";
+                                let r = prepare_button(ui, name, counts[0], having > 0, cast, tip);
                                 if r.clicked() {
                                     let mut out = lists::Outcome::default();
                                     for c in &class_targets {
@@ -1331,7 +1330,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             ui.strong("Spells");
-            let id = egui::Id::new(("utc-special-find", key));
+            let id = f.id("utc-special-find");
             let needle = filter(ui, id);
             let category = category_filter(ui, id.with("category"), &categories);
             let in_category = |row: usize| {

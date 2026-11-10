@@ -231,7 +231,15 @@ pub(crate) fn room(app: &Moonglow) -> Option<Room> {
 /// tlk-alloc`'s and those Redo would put back; the table's end without a
 /// range. An error where the range is full or the map can't be read.
 pub(crate) fn next_line(app: &Moonglow, t: &Table) -> Result<usize, String> {
-    let Some(ws) = &app.ws else { return Ok(t.len()) };
+    next_line_but(app, t, &[])
+}
+
+/// [`next_line`], with the lines `taken` (lines a window will add at its
+/// OK) taken as if they had text already.
+pub(crate) fn next_line_but(app: &Moonglow, t: &Table, taken: &[usize]) -> Result<usize, String> {
+    let Some(ws) = &app.ws else {
+        return Ok((t.len()..).find(|l| !taken.contains(l)).unwrap_or(t.len()));
+    };
     let pf = &ws.module.project_file;
     let allowed = pf.talk_allowed();
     let map = map_lines(app)?;
@@ -241,7 +249,7 @@ pub(crate) fn next_line(app: &Moonglow, t: &Table) -> Result<usize, String> {
         &allowed,
         len,
         |l| t.is_blank(l as usize),
-        |l| map.contains(&l) || held.contains(&(l as usize)),
+        |l| map.contains(&l) || held.contains(&(l as usize)) || taken.contains(&(l as usize)),
     );
     row.map(|r| r as usize).ok_or_else(|| {
         format!(

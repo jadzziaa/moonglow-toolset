@@ -107,8 +107,7 @@ pub fn save(dir: &Path, name: &str, set: &ParamSet) -> Result<PathBuf, String> {
 
 /// Reads the set named `name`.
 pub fn load(dir: &Path, name: &str) -> Result<ParamSet, String> {
-    let text = SHELF.read(Some(dir), name)?;
-    from_text(&text).map_err(|e| format!("{name}: {e}"))
+    SHELF.load(dir, name, from_text)
 }
 
 /// Deletes the set named `name`: its text, to put it back with [`restore`].
@@ -159,7 +158,7 @@ pub fn describe(set: &ParamSet) -> String {
 
 /// What a set's file is called: `NAME.params.json`.
 pub fn file_name(name: &str) -> String {
-    format!("{}{}", name.trim(), SHELF.suffix)
+    SHELF.file_name(name)
 }
 
 /// Saves a set to the file `path` (anywhere), named with the sets'
@@ -167,26 +166,12 @@ pub fn file_name(name: &str) -> String {
 /// `.json` to a name typed bare, others add nothing): so a copy put in
 /// the sets' folder is listed.
 pub fn save_file(path: &Path, set: &ParamSet) -> Result<PathBuf, String> {
-    let path = match path.file_name() {
-        Some(n) => {
-            let n = n.to_string_lossy();
-            let lower = n.to_lowercase();
-            let cut = [SHELF.suffix, ".json", ".params"]
-                .iter()
-                .find(|s| lower.ends_with(*s))
-                .map_or(n.len(), |s| n.len() - s.len());
-            path.with_file_name(file_name(&n[..cut]))
-        }
-        None => path.to_path_buf(),
-    };
-    crate::saved::write_whole(&path, &to_text(set))?;
-    Ok(path)
+    SHELF.save_file(path, &to_text(set))
 }
 
 /// Reads the set in the file `path` (anywhere).
 pub fn load_file(path: &Path) -> Result<ParamSet, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    from_text(&text).map_err(|e| format!("{}: {e}", path.display()))
+    SHELF.load_file(path, from_text)
 }
 
 #[cfg(test)]

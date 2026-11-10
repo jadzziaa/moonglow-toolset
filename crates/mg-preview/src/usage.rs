@@ -1195,7 +1195,7 @@ pub fn hak_usage(
     walk.settle();
     // The game's own 2DAs, which a hak replaces: the game reads them.
     let tables = report.overrides.keys().filter(|k| k.restype == ResType::TWODA).copied();
-    walk.game_reads(tables.collect::<Vec<_>>());
+    walk.game_reads(tables);
     walk.players_choose();
     walk.settle();
     let mut out = Vec::new();

@@ -352,7 +352,7 @@ impl SettingKind {
 
 /// Whether text is a color as a setting keeps one: `#rrggbb`.
 pub fn is_color(text: &str) -> bool {
-    text.len() == 7 && text.starts_with('#') && text[1..].chars().all(|c| c.is_ascii_hexdigit())
+    text.strip_prefix('#').and_then(mg_core::text::hex_bytes::<3>).is_some()
 }
 
 /// A pattern as a setting holds text to it: its whole.

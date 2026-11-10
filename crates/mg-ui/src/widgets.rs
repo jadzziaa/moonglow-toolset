@@ -274,6 +274,11 @@ pub struct VarHelp {
     /// The row and name Escape closed the offer at: not offered again
     /// until the name changes.
     dismissed: Option<(usize, String)>,
+    /// Each row's note ([`VarHelp::note`]) by its name, type and value,
+    /// kept until a variable's values are read: a value was looked for in
+    /// the whole of its variable's values (a table's 25,000 rows) for each
+    /// row, every frame.
+    notes: std::collections::HashMap<(String, u32, String), Option<String>>,
 }
 
 /// A described variable's values as its list shows them, made once when
@@ -347,7 +352,23 @@ impl VarHelp {
             let c = d.choices(lookup);
             self.offered.insert(d.name.clone(), Offered::of(&c));
             self.choices.insert(d.name.clone(), c);
+            self.notes.clear();
         }
+    }
+
+    /// [`VarHelp::note`], kept for the row's name, type and value.
+    fn kept_note(&mut self, r: &VarRow) -> Option<String> {
+        let key = (r.name.clone(), r.kind, r.value.clone());
+        if let Some(note) = self.notes.get(&key) {
+            return note.clone();
+        }
+        let note = self.note(r);
+        // (Names and values typed one letter at a time: not kept for ever.)
+        if self.notes.len() > 4096 {
+            self.notes.clear();
+        }
+        self.notes.insert(key, note.clone());
+        note
     }
 
     /// What the rows lack that one of them needs beside it (the
@@ -934,6 +955,21 @@ pub(crate) fn sets_menu<T: Clone + Send + Sync + 'static>(
     chosen
 }
 
+/// Under Save Set's name: that a set of the name on `shelf` (in `dir`)
+/// is replaced, where there is one. (Said, as it isn't asked about: the
+/// variable sets said it and the parameter sets did not.)
+pub(crate) fn replaced_note(
+    ui: &mut Ui,
+    shelf: &crate::saved::Shelf,
+    dir: Option<&std::path::Path>,
+    name: &str,
+) {
+    let kept = dir.and_then(|dir| shelf.file(Some(dir), name).ok());
+    if kept.is_some_and(|file| file.exists()) {
+        ui.colored_label(ui.visuals().warn_fg_color, "A set of that name is replaced.");
+    }
+}
+
 /// Save Set's name, typed in place: whether it is to be saved (Save, or
 /// Enter in the name) and whether Cancel was pressed.
 pub(crate) fn set_name_row(ui: &mut Ui, name: &mut String) -> (bool, bool) {
@@ -1117,6 +1153,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.game.as_deref()?.string(StrRef(n))
     };
 
+    // (A conversation's line follows its renumberings with its editor
+    // behind another tab.)
+    crate::dialog_view::follow_unseen(app);
     if let Some(edit) = app.loc_edit.take() {
         let mut edit = edit;
         let mut close = false;
@@ -1487,7 +1526,7 @@ fn var_body(
     let notes: Vec<String> = if described {
         let typing = help.completing;
         let rows = (edit.rows.iter().enumerate()).filter(|(i, _)| Some(*i) != typing);
-        let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.note(r)).collect();
+        let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.kept_note(r)).collect();
         notes.extend(help.needed(&edit.rows, typing));
         notes
     } else {
@@ -1739,12 +1778,7 @@ fn var_body(
     }
     if let Some(name) = edit.set_name.as_mut() {
         let (save, cancel) = set_name_row(ui, name);
-        // (Said, as it isn't asked about.)
-        let kept = (app.var_set_dir.as_deref())
-            .and_then(|dir| crate::var_sets::SHELF.file(Some(dir), name).ok());
-        if kept.is_some_and(|file| file.exists()) {
-            ui.colored_label(ui.visuals().warn_fg_color, "A set of that name is replaced.");
-        }
+        replaced_note(ui, &crate::var_sets::SHELF, app.var_set_dir.as_deref(), name);
         if save && let Some(dir) = app.var_set_dir.clone() {
             match crate::var_sets::save(&dir, name, &edit.rows) {
                 Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
@@ -4497,6 +4531,23 @@ pub fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response
     ui.label(egui::RichText::new(text).strong())
 }
 
+/// How large a gallery's pictures are: a slider of their side in `range`
+/// (its value not shown, `text` beside it where given). The side moved
+/// to, rounded, when it is moved.
+pub(crate) fn picture_size_slider(
+    ui: &mut egui::Ui,
+    mut side: f32,
+    range: std::ops::RangeInclusive<f32>,
+    text: Option<&str>,
+) -> Option<u16> {
+    let mut slider = egui::Slider::new(&mut side, range).show_value(false);
+    if let Some(text) = text {
+        slider = slider.text(text);
+    }
+    let moved = ui.add(slider).on_hover_text("How large the pictures are").changed();
+    moved.then(|| side.round() as u16)
+}
+
 /// A PLT color (0 to 175) chosen among a palette's swatches (a TGA of
 /// `pal_*`, its rows the colours): its swatch, then a list showing
 /// `current` (or `text` in place of its number) that opens on all 176,
@@ -5225,6 +5276,45 @@ mod row_choice_tests {
     /// costs nothing a row: the values were copied each frame, and the
     /// open list laid out whole, each row looked up among them all (the
     /// review's S20).
+    #[test]
+    fn a_row_s_kept_note_is_the_note_made_anew() {
+        // (A row's note was made every frame, its value looked for in the
+        // whole of its variable's values: kept now, for its name, type
+        // and value, until a variable's values are read. The last pass's
+        // item 17.)
+        let mut variables = mg_module::var_desc::Variables::default();
+        let source = "[KIND]\ntype = \"string\"\nvalues = [\"smith\", \"tanner\"]\n\
+                      [DC]\ntype = \"int\"\nmin = 5\nmax = 40\n";
+        variables.apply("variables.toml", source, &mut Vec::new()).unwrap();
+        use super::{VarHelp, VarRow};
+        let mut help = VarHelp { variables, ..Default::default() };
+        let rows = [
+            VarRow::new("KIND", 3, "smith"),
+            VarRow::new("KIND", 3, "Smith"),
+            VarRow::new("KIND", 1, "2"),
+            VarRow::new("DC", 1, "50"),
+            VarRow::new("DC", 1, "10"),
+            VarRow::new("OTHER", 1, "1"),
+        ];
+        let fresh = |help: &VarHelp| rows.iter().map(|r| help.note(r)).collect::<Vec<_>>();
+        let made = fresh(&help);
+        for _ in 0..2 {
+            assert_eq!(rows.iter().map(|r| help.kept_note(r)).collect::<Vec<_>>(), made);
+        }
+        // Its values read (here none come from elsewhere): made again.
+        let d = help.variables.describe("KIND").unwrap().clone();
+        let module = mg_module::Module::new();
+        let c = d.choices(&mg_module::var_desc::ModuleLookup::new(&module, None));
+        help.choices.insert(d.name.clone(), c);
+        help.notes.clear();
+        let made = fresh(&help);
+        assert!(made[1].as_deref().is_some_and(|n| n.contains("case and all")), "{made:?}");
+        assert_eq!(made[0], None, "a value it has");
+        for _ in 0..2 {
+            assert_eq!(rows.iter().map(|r| help.kept_note(r)).collect::<Vec<_>>(), made);
+        }
+    }
+
     #[test]
     fn a_described_variable_s_values_lay_out_only_the_rows_in_sight() {
         use mg_module::var_desc::{Choice, Choices};

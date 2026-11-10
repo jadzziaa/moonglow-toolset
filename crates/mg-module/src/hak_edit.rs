@@ -50,7 +50,8 @@ pub fn folder_files(dir: &Path) -> Vec<PathBuf> {
             }
             match e.file_type() {
                 Ok(t) if t.is_dir() => dirs.push(e.path()),
-                Ok(t) if t.is_file() => files.push(e.path()),
+                // (A link to a file too, as the game reads one.)
+                Ok(_) if mg_resman::is_file_or_link_to_one(&e) => files.push(e.path()),
                 _ => {}
             }
         }

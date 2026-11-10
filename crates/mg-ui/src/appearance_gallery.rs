@@ -200,10 +200,9 @@ const MAX_TILE: f32 = 220.0;
 
 /// The slider for the pictures' size (the palette's Gallery has it too).
 pub(crate) fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui) {
-    let mut side = tile_side(app);
-    let slider = egui::Slider::new(&mut side, MIN_TILE..=MAX_TILE).show_value(false);
-    if ui.add(slider).on_hover_text("How large the pictures are").changed() {
-        app.settings.gallery_tile = Some(side.round() as u16);
+    let side = tile_side(app);
+    if let Some(side) = crate::widgets::picture_size_slider(ui, side, MIN_TILE..=MAX_TILE, None) {
+        app.settings.gallery_tile = Some(side);
     }
 }
 

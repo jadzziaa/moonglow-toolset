@@ -65,12 +65,7 @@ fn optional_price(
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("utm-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocName");
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Store);
         ui.end_row();
@@ -288,7 +283,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     };
     let (not_buy, only_buy) = (list("WillNotBuy"), list("WillOnlyBuy"));
     // The mode is the list in use; with both empty, the one last chosen.
-    let state_id = egui::Id::new(("utm-restrict", key));
+    let state_id = f.id("utm-restrict");
     let (mut only, mut filter, mut left, mut right): (bool, String, Option<i64>, Option<i64>) =
         ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
     if !only_buy.is_empty() {
@@ -336,7 +331,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.set_width(240.0);
             ui.label("Base Items");
-            crate::widgets::SearchField::new(egui::Id::new(("utm-bases-find", key)), &mut filter)
+            crate::widgets::SearchField::new(state_id.with("bases-find"), &mut filter)
                 .hint("Find")
                 .show(ui);
             let needle = mg_core::text::Needle::new(&filter);
@@ -446,7 +441,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     let key = f.key;
     let targets = f.list_targets();
     let total = targets.len();
-    let state_id = egui::Id::new(("utm-restrict-together", key));
+    let state_id = f.id("utm-restrict-together");
     let (mut only, mut filter, mut left, mut right): (bool, String, Option<i64>, Option<i64>) =
         ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
     let modes: Vec<Option<bool>> = targets.iter().map(mode_of).collect();
@@ -506,7 +501,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.set_width(240.0);
             ui.label("Base Items");
-            crate::widgets::SearchField::new(egui::Id::new(("utm-bases-find", key)), &mut filter)
+            crate::widgets::SearchField::new(state_id.with("bases-find"), &mut filter)
                 .hint("Find")
                 .show(ui);
             let needle = mg_core::text::Needle::new(&filter);

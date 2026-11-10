@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use glam::{Mat4, Vec3};
-use mg_mdl::{Face, Mesh, MeshExtra, Model, Node, NodeKind, Skin};
+use mg_mdl::{Mesh, MeshExtra, Model, Node, NodeKind, Skin};
 
 use crate::{Assets, Camera, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene, Targets};
 
@@ -97,7 +97,7 @@ pub fn probe(adapter: &wgpu::Adapter) -> Probe {
     let info = adapter.get_info();
     let mut p = Probe {
         backend: info.backend,
-        adapter: info.name.clone(),
+        adapter: info.name,
         outcome: Ok(()),
         blames_backend: false,
         device: Duration::ZERO,
@@ -182,30 +182,14 @@ fn check(gpu: &Gpu, p: &mut Probe, drawn_wrong: &mut bool) -> Result<(), String>
 /// A quad `side` metres across, flat at height `z`, in `color`
 /// (unlit: drawn in it), skinned to bone 1 where `skinned`.
 pub(crate) fn quad(name: &str, side: f32, z: f32, color: [f32; 3], skinned: bool) -> Model {
-    let h = side / 2.0;
-    let mesh = Mesh {
-        diffuse: color,
-        ambient: color,
-        render: true,
-        vertices: vec![[-h, -h, z], [h, -h, z], [h, h, z], [-h, h, z]],
-        normals: vec![[0.0, 0.0, 1.0]; 4],
-        uvs: [vec![[0.0, 0.0]; 4], vec![], vec![], vec![]],
-        faces: vec![
-            Face { vertices: [0, 1, 2], material: 0 },
-            Face { vertices: [0, 2, 3], material: 0 },
-        ],
-        source: vec![0, 1, 2, 3],
-        extra: if skinned {
-            MeshExtra::Skin(Skin {
-                bones: vec![1],
-                weights: vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 4],
-                inverse_bind: Vec::new(),
-            })
-        } else {
-            MeshExtra::None
-        },
-        ..Default::default()
-    };
+    let mut mesh = Mesh::square(side, z, color);
+    if skinned {
+        mesh.extra = MeshExtra::Skin(Skin {
+            bones: vec![1],
+            weights: vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 4],
+            inverse_bind: Vec::new(),
+        });
+    }
     let mut root = Node::new(name, NodeKind::Dummy);
     root.children = vec![1, 2];
     let mut bone = Node::new("bone", NodeKind::Dummy);

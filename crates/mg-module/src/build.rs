@@ -383,6 +383,76 @@ pub fn shader_cache_dir() -> Option<std::path::PathBuf> {
     cache_dir().map(|d| d.join("shaders"))
 }
 
+/// A folder of this run's own, for a file written for a moment or handed to
+/// another program (a script for the external editor, a page to print, a
+/// round trip's copy): in the user's cache folder (`scratch`), else in the
+/// system's temporary folder, named so that no other user of the machine
+/// can guess it, made new (never one that was there) and, on Unix, open to
+/// the user alone. One a run, made when first asked for (again if it was
+/// taken away). Under the cache folder, the runs' folders older than a week
+/// are taken away. A name anyone could guess in the temporary folder, which
+/// every user writes to, let another plant a file or a link there first.
+pub fn own_scratch_dir() -> std::io::Result<std::path::PathBuf> {
+    static DIR: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+    let mut kept = DIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(dir) = kept.as_ref().filter(|d| d.is_dir()) {
+        return Ok(dir.clone());
+    }
+    let base = match cache_dir() {
+        Some(cache) => {
+            let base = cache.join("scratch");
+            std::fs::create_dir_all(&base)?;
+            sweep_scratch(&base, std::time::Duration::from_secs(7 * 24 * 3600));
+            base
+        }
+        None => std::env::temp_dir(),
+    };
+    let dir = new_private_dir(&base)?;
+    *kept = Some(dir.clone());
+    Ok(dir)
+}
+
+/// A new folder in `base`, of a name no one can guess, made there (never
+/// one that was) and on Unix open to the user alone.
+fn new_private_dir(base: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    use std::hash::{BuildHasher, Hasher};
+    let mut last = None;
+    for attempt in 0..8u32 {
+        // (Of the process's random keys, its number, the time and the
+        // attempt: not the number alone, which anyone can see.)
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u32(std::process::id());
+        h.write_u32(attempt);
+        h.write_u128(std::time::UNIX_EPOCH.elapsed().map_or(0, |d| d.as_nanos()));
+        let dir = base.join(format!("moonglow-{:016x}", h.finish()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("no folder of its own could be made")))
+}
+
+/// Takes away the runs' folders in `base` (`moonglow-…`) last changed more
+/// than `age` ago.
+fn sweep_scratch(base: &std::path::Path, age: std::time::Duration) {
+    let Ok(entries) = std::fs::read_dir(base) else { return };
+    for e in entries.flatten() {
+        let old = (e.metadata().ok())
+            .filter(|m| m.is_dir())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|since| since > age);
+        if old && e.file_name().to_string_lossy().starts_with("moonglow-") {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
 /// Where the window and `mg compile` both keep what they remember of the
 /// scripts they compiled ([`Remembered`]): one folder, so each passes over
 /// what the other compiled.
@@ -856,6 +926,34 @@ mod tests {
     use mg_resman::{LayerClass, MemContainer, priority};
 
     use super::*;
+
+    /// A run's own folder is a new one of a name no one can guess, open to
+    /// the user alone: one named in a known way in the temporary folder
+    /// (`moonglow-PID`, `moonglow-roundtrip-PID.mod`) could be made, or
+    /// linked elsewhere, by another user first (the last pass's item 24).
+    /// The runs' folders older than a week go; others stay.
+    #[test]
+    fn a_run_s_own_folder_is_new_unguessable_and_the_user_s_alone() {
+        let base = mg_testkit::scratch_dir("build-own-scratch");
+        let (a, b) = (new_private_dir(&base).unwrap(), new_private_dir(&base).unwrap());
+        assert_ne!(a, b);
+        assert!(a.is_dir() && b.is_dir());
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with("moonglow-") && name.len() == "moonglow-".len() + 16, "{name}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
+        // Old runs' folders swept, new ones and others left.
+        let other = base.join("kept");
+        std::fs::create_dir_all(&other).unwrap();
+        sweep_scratch(&base, std::time::Duration::from_secs(3600));
+        assert!(a.is_dir() && other.is_dir(), "an hour old at most: kept");
+        sweep_scratch(&base, std::time::Duration::ZERO);
+        assert!(!a.exists() && !b.exists() && other.is_dir());
+    }
 
     fn key(s: &str, t: ResType) -> ResKey {
         ResKey::new(ResRef::from_str(s).unwrap(), t)

@@ -66,6 +66,56 @@ impl Shelf {
         std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    /// The one named `name`, read by `from_text` (its kind's reader); why
+    /// not, by its name.
+    pub fn load<T>(
+        &self,
+        dir: &Path,
+        name: &str,
+        from_text: impl Fn(&str) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let text = self.read(Some(dir), name)?;
+        from_text(&text).map_err(|e| format!("{name}: {e}"))
+    }
+
+    /// What the file of one named `name` is called: `NAME` and the ending.
+    pub fn file_name(&self, name: &str) -> String {
+        format!("{}{}", name.trim(), self.suffix)
+    }
+
+    /// Writes `text` to the file `path` (anywhere), named with the kind's
+    /// ending whatever the dialog gave (Windows' adds `.json` to a name
+    /// typed bare, others add nothing): so a copy put in the kind's folder
+    /// is listed. The file written.
+    pub fn save_file(&self, path: &Path, text: &str) -> Result<PathBuf, String> {
+        let path = match path.file_name() {
+            Some(n) => {
+                let n = n.to_string_lossy();
+                let lower = n.to_lowercase();
+                // (`.params.json`, `.json` or `.params` already there.)
+                let bare = self.suffix.strip_suffix(".json").unwrap_or(self.suffix);
+                let cut = [self.suffix, ".json", bare]
+                    .iter()
+                    .find(|s| lower.ends_with(*s))
+                    .map_or(n.len(), |s| n.len() - s.len());
+                path.with_file_name(self.file_name(&n[..cut]))
+            }
+            None => path.to_path_buf(),
+        };
+        write_whole(&path, text)?;
+        Ok(path)
+    }
+
+    /// The one in the file `path` (anywhere), read by `from_text`.
+    pub fn load_file<T>(
+        &self,
+        path: &Path,
+        from_text: impl Fn(&str) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        from_text(&text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
     /// Deletes the one named `name`: its text, to put it back with
     /// [`Shelf::restore`].
     pub fn delete(&self, dir: Option<&Path>, name: &str) -> Result<String, String> {

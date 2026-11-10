@@ -46,17 +46,12 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         Choice { row: 1, text: "Single Shot".into() },
     ];
     egui::Grid::new(("ute-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocalizedName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocalizedName");
         crate::widgets::field_label(ui, "Difficulty");
         // The index, and the difficulty value it stands for.
         f.mark_mixed(ui, "DifficultyIndex");
         let current = f.int("DifficultyIndex");
-        let id = egui::Id::new(("ute-diff", f.key));
+        let id = f.id("ute-diff");
         if let Some(row) = crate::widgets::row_choice(id, &difficulties, current).show(ui) {
             let value = usize::try_from(row).ok().and_then(|r| values.get(r)).copied();
             f.set_many(
@@ -255,7 +250,7 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
             add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
         });
         ui.separator();
-        let sel_id = egui::Id::new(("ute-selected-together", key));
+        let sel_id = f.id("ute-selected-together");
         let mut selected: Option<ResRef> =
             ui.data(|d| d.get_temp(sel_id)).filter(|r: &ResRef| merged.iter().any(|m| m.key == *r));
         ui.vertical(|ui| {

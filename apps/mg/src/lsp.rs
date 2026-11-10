@@ -101,7 +101,7 @@ fn script_name(path: &Path) -> Option<String> {
 fn position(text: &str, offset: usize) -> Value {
     let offset = offset.min(text.len());
     let line_start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
-    let line = text[..offset].matches('\n').count();
+    let line = mg_core::text::line_of(text.as_bytes(), offset) - 1;
     let character: usize = text[line_start..offset].chars().map(char::len_utf16).sum();
     json!({ "line": line, "character": character })
 }
@@ -136,8 +136,11 @@ struct Server {
     /// The codepage scripts' files are read in (and their text compiled
     /// in): the game's language's, Windows-1250 for Polish.
     codepage: Codepage,
-    /// Where game scripts are written for Go to Definition.
-    cache: PathBuf,
+    /// Where game scripts are written for Go to Definition: Moonglow's
+    /// cache folder's `scripts`; `None`, there being none, the run's own
+    /// folder's (`mg_module::build::own_scratch_dir`), not a name anyone
+    /// could guess in the system's temporary folder.
+    cache: Option<PathBuf>,
 }
 
 impl Server {
@@ -181,8 +184,12 @@ impl Server {
             return Some(path_uri(p));
         }
         let text = self.text(name)?;
-        let path = self.cache.join(format!("{name}.nss"));
-        std::fs::create_dir_all(&self.cache).ok()?;
+        let dir = match &self.cache {
+            Some(dir) => dir.clone(),
+            None => mg_module::build::own_scratch_dir().ok()?.join("scripts"),
+        };
+        let path = dir.join(format!("{name}.nss"));
+        std::fs::create_dir_all(&dir).ok()?;
         if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
             let _ = std::fs::write(&path, &text);
         }
@@ -468,11 +475,9 @@ fn encode(codepage: Codepage, text: &str) -> Vec<u8> {
 
 /// Serves the protocol on standard input and output until `exit`.
 pub(crate) fn serve(game: Option<ResMan>, codepage: Codepage) -> Result<()> {
-    // (Moonglow's cache folder, as the window's: the system's temporary
-    // folder where there is none.)
-    let cache = mg_module::build::cache_dir()
-        .unwrap_or_else(|| std::env::temp_dir().join("moonglow"))
-        .join("scripts");
+    // (Moonglow's cache folder, as the window's: the run's own folder
+    // where there is none.)
+    let cache = mg_module::build::cache_dir().map(|d| d.join("scripts"));
     let mut server = Server {
         root: None,
         files: HashMap::new(),

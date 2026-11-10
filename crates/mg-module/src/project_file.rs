@@ -717,7 +717,7 @@ fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
 
 /// The line (from 1) a byte of `source` is on.
 pub(crate) fn line_of(source: &str, at: usize) -> usize {
-    source.as_bytes()[..at.min(source.len())].iter().filter(|b| **b == b'\n').count() + 1
+    mg_core::text::line_of(source.as_bytes(), at)
 }
 
 /// What reads one file: its name, as messages give it, and its text.
@@ -826,6 +826,31 @@ impl<'a> Reader<'a> {
         Some(Patterns::new(&globs).expect("each read"))
     }
 
+    /// A command's table: its `run` for this system (`windows` or `unix`
+    /// before `run`), `input` set from its key, and each other key given
+    /// to `other`, in the file's order.
+    fn run_table<'i>(
+        &mut self,
+        t: &'i DeTable<'i>,
+        input: &mut bool,
+        mut other: impl FnMut(&mut Self, Entry<'i>),
+    ) -> Option<String> {
+        let (mut run, mut windows, mut unix) = (None, None, None);
+        for e in in_order(t) {
+            match e.0.get_ref().as_ref() {
+                "run" => run = self.text(e),
+                "windows" => windows = self.text(e),
+                "unix" => unix = self.text(e),
+                "input" => match e.1.get_ref() {
+                    DeValue::Boolean(b) => *input = *b,
+                    _ => self.warn(e.1.span().start, "input is true or false"),
+                },
+                _ => other(self, e),
+            }
+        }
+        if cfg!(windows) { windows.or(run) } else { unix.or(run) }
+    }
+
     /// A command of `[commands]`: its text, or a table of `run` (or
     /// `windows` and `unix`, each for its systems) and `label`.
     fn command(&mut self, (key, value): Entry) -> Option<ProjectCommand> {
@@ -842,30 +867,20 @@ impl<'a> Reader<'a> {
         match value.get_ref() {
             DeValue::String(s) => c.run = Some(s.to_string()),
             DeValue::Table(t) => {
-                let (mut run, mut windows, mut unix) = (None, None, None);
-                for e in in_order(t) {
-                    match e.0.get_ref().as_ref() {
-                        "run" => run = self.text(e),
-                        "windows" => windows = self.text(e),
-                        "unix" => unix = self.text(e),
-                        "label" => {
-                            if let Some(l) = self.text(e).filter(|l| !l.trim().is_empty()) {
-                                c.label = l.trim().to_string();
-                            }
+                let (label, writes, key, name) = (&mut c.label, &mut c.writes, &mut c.key, &c.name);
+                c.run = self.run_table(t, &mut c.input, |r, e| match e.0.get_ref().as_ref() {
+                    "label" => {
+                        if let Some(l) = r.text(e).filter(|l| !l.trim().is_empty()) {
+                            *label = l.trim().to_string();
                         }
-                        "writes" => match e.1.get_ref() {
-                            DeValue::Boolean(b) => c.writes = *b,
-                            _ => self.warn(e.1.span().start, "writes is true or false"),
-                        },
-                        "key" => c.key = self.text(e).filter(|k| !k.trim().is_empty()),
-                        "input" => match e.1.get_ref() {
-                            DeValue::Boolean(b) => c.input = *b,
-                            _ => self.warn(e.1.span().start, "input is true or false"),
-                        },
-                        _ => self.unknown(&format!("commands.{}", c.name), e),
                     }
-                }
-                c.run = if cfg!(windows) { windows.or(run) } else { unix.or(run) };
+                    "writes" => match e.1.get_ref() {
+                        DeValue::Boolean(b) => *writes = *b,
+                        _ => r.warn(e.1.span().start, "writes is true or false"),
+                    },
+                    "key" => *key = r.text(e).filter(|k| !k.trim().is_empty()),
+                    _ => r.unknown(&format!("commands.{name}"), e),
+                });
             }
             _ => {
                 let message = format!(
@@ -887,20 +902,7 @@ impl<'a> Reader<'a> {
         match value.get_ref() {
             DeValue::String(s) => c.run = Some(s.to_string()),
             DeValue::Table(t) => {
-                let (mut run, mut windows, mut unix) = (None, None, None);
-                for e in in_order(t) {
-                    match e.0.get_ref().as_ref() {
-                        "run" => run = self.text(e),
-                        "windows" => windows = self.text(e),
-                        "unix" => unix = self.text(e),
-                        "input" => match e.1.get_ref() {
-                            DeValue::Boolean(b) => c.input = *b,
-                            _ => self.warn(e.1.span().start, "input is true or false"),
-                        },
-                        _ => self.unknown("nwsync.upload", e),
-                    }
-                }
-                c.run = if cfg!(windows) { windows.or(run) } else { unix.or(run) };
+                c.run = self.run_table(t, &mut c.input, |r, e| r.unknown("nwsync.upload", e));
             }
             _ => {
                 let message = "upload is to be its command, in quotes, or a table: { run = \"…\", \
@@ -1875,7 +1877,7 @@ impl ProjectFile {
 /// character typed in Windows-1252, say); `None` for text that is.
 pub(crate) fn not_utf8_at(bytes: &[u8]) -> Option<usize> {
     let e = std::str::from_utf8(bytes).err()?;
-    Some(1 + bytes[..e.valid_up_to()].iter().filter(|b| **b == b'\n').count())
+    Some(mg_core::text::line_of(bytes, e.valid_up_to()))
 }
 
 /// The text of a project's file (`name`, as messages name it) that a

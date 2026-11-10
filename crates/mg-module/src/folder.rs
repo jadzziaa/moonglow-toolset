@@ -96,16 +96,10 @@ impl FolderFiles {
     /// [`FolderFiles::outside_scan`] of these files alone: what is known
     /// of the resources they are, by their names.
     pub(crate) fn outside_scan_of(&self, paths: &[PathBuf]) -> OutsideScan {
-        let mut keys: Vec<ResKey> = (paths.iter())
-            .filter_map(|p| crate::folder_key(&p.file_name()?.to_string_lossy()))
-            .collect();
-        keys.sort();
-        keys.dedup();
-        let files = (keys.iter())
-            .filter_map(|k| self.files.get(k).map(|(path, file)| self.known(*k, path, file)));
         let kind = crate::outside::Kind::Folder { dir: self.dir.clone() };
-        let only = Some(paths.iter().cloned().collect());
-        OutsideScan { files: files.collect(), kind, only }
+        OutsideScan::of_paths(paths, kind, crate::folder_key, |k| {
+            self.files.get(k).map(|(path, file)| self.known(*k, path, file))
+        })
     }
 
     /// Takes what [`OutsideScan::run`] found (see

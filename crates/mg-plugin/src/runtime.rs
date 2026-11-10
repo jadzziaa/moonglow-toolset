@@ -731,7 +731,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
                 let table = data.table(&name).or_else(fail)?;
                 let file = ResKey::from_filename(&file).and_then(|k| data.resman.get(&k).ok());
                 let file = file.map(|f| f.into_owned());
-                crate::tables::twoda(lua, &s.budget_held, table.clone(), file)
+                crate::tables::twoda(lua, &s.budget_held, table, file)
             })?,
         )?;
         let s = sh.clone();

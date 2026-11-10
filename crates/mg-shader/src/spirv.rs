@@ -154,6 +154,15 @@ impl Module {
         out
     }
 
+    /// The types decorated `Block` (uniform blocks' structs).
+    fn block_types(&self) -> Result<HashSet<u32>, ShaderError> {
+        self.insts
+            .iter()
+            .filter(|i| i.op == OP_DECORATE && i.args.get(1) == Some(&DECORATION_BLOCK))
+            .map(|i| i.arg(0))
+            .collect()
+    }
+
     fn new_id(&mut self) -> u32 {
         let id = self.header[3];
         self.header[3] += 1;
@@ -526,12 +535,7 @@ pub const LIGHT_TABLE: &str = "mg_light_table";
 pub(crate) fn index_lights(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     let mut m = Module::parse(words)?;
     // The one uniform block, its type and variable (as `add_spare_blocks`).
-    let blocks: HashSet<u32> = m
-        .insts
-        .iter()
-        .filter(|i| i.op == OP_DECORATE && i.args.get(1) == Some(&DECORATION_BLOCK))
-        .map(|i| i.arg(0))
-        .collect::<Result<_, _>>()?;
+    let blocks = m.block_types()?;
     let mut block = None;
     let mut vars = Vec::new();
     for i in m.insts.iter().filter(|i| i.op == OP_TYPE_POINTER) {
@@ -821,12 +825,7 @@ pub(crate) const SPARE_BLOCKS: [&str; 2] = ["mg_frame", "mg_bones"];
 /// a block is left as it is.
 pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     let mut m = Module::parse(words)?;
-    let blocks: HashSet<u32> = m
-        .insts
-        .iter()
-        .filter(|i| i.op == OP_DECORATE && i.args.get(1) == Some(&DECORATION_BLOCK))
-        .map(|i| i.arg(0))
-        .collect::<Result<_, _>>()?;
+    let blocks = m.block_types()?;
     let pointers: HashSet<u32> = m
         .insts
         .iter()

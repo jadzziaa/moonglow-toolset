@@ -734,6 +734,10 @@ fn main() -> eframe::Result<()> {
             // Recovery copies of unsaved work go to Moonglow's data folder;
             // those a crashed session left are offered back.
             moonglow.recovery_dir = mg_ui::recovery::data_dir().map(|d| d.join("recovery"));
+            // Conversation backups too (not the system's temporary folder,
+            // which every user of the machine writes to).
+            moonglow.conversation_backups =
+                mg_ui::recovery::data_dir().map(|d| d.join("conversation-backups"));
             moonglow.compiled_dir = mg_ui::recovery::data_dir().map(|d| d.join("compiled"));
             // A nasher project's locked objects (kept out of its files).
             moonglow.locks_dir = mg_ui::recovery::data_dir().map(|d| d.join("locks"));

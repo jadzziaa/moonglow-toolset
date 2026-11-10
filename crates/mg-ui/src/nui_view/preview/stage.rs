@@ -202,11 +202,7 @@ fn session(v: &Value, s: &Settings, state: &mut State) -> Option<interaction::Se
     let mut runtime = state.runtime.take();
     if state.preview_interactive && runtime.as_ref().is_none_or(|r| !r.matches(v, s)) {
         runtime = Some(interaction::Session::new(v, s));
-        state.list_scroll.clear();
-        state.group_scroll_x.clear();
-        state.group_scroll_y.clear();
-        state.text_scroll_x.clear();
-        state.text_scroll_y.clear();
+        state.forget_scrolls();
     }
     if state.preview_interactive
         && let Some(runtime) = &mut runtime
@@ -270,19 +266,11 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         if ui.toggle_value(&mut state.preview_interactive, "Interact").changed() {
             state.runtime = None;
             state.resize = None;
-            state.list_scroll.clear();
-            state.group_scroll_x.clear();
-            state.group_scroll_y.clear();
-            state.text_scroll_x.clear();
-            state.text_scroll_y.clear();
+            state.forget_scrolls();
         }
         if state.preview_interactive && ui.button("Reset").clicked() {
             state.runtime = None;
-            state.list_scroll.clear();
-            state.group_scroll_x.clear();
-            state.group_scroll_y.clear();
-            state.text_scroll_x.clear();
-            state.text_scroll_y.clear();
+            state.forget_scrolls();
         }
         ui.menu_button(format!("UI scale {:.0}%", state.preview_scale * 100.0), |ui| {
             for (label, scale) in [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("200%", 2.0)] {

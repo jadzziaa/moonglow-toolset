@@ -306,14 +306,7 @@ pub fn tileset(rm: &ResMan, are: &Struct) -> Result<Tileset, String> {
 
 /// A picture as a PNG (top row first, as PNGs are).
 pub fn png(image: &Rgba) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    let mut enc = png::Encoder::new(&mut out, image.width, image.height);
-    enc.set_color(png::ColorType::Rgba);
-    enc.set_depth(png::BitDepth::Eight);
-    let mut w = enc.write_header().map_err(|e| e.to_string())?;
-    w.write_image_data(&image.top_down().data).map_err(|e| e.to_string())?;
-    w.finish().map_err(|e| e.to_string())?;
-    Ok(out)
+    mg_image::png::write_rgba(image.width, image.height, &image.top_down().data)
 }
 
 #[cfg(test)]

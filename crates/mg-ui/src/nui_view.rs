@@ -243,6 +243,21 @@ impl State {
     fn guides(&self) -> bool {
         !self.preview_clean
     }
+
+    /// Every list, group and text block of the canvas back at its start
+    /// (a new simulation, Interact turned on or off, Reset). The five
+    /// were cleared by hand in three places.
+    fn forget_scrolls(&mut self) {
+        for kept in [
+            &mut self.list_scroll,
+            &mut self.group_scroll_x,
+            &mut self.group_scroll_y,
+            &mut self.text_scroll_x,
+            &mut self.text_scroll_y,
+        ] {
+            kept.clear();
+        }
+    }
 }
 
 /// The window that asks for a new NUI window's name (Tools › New NUI
