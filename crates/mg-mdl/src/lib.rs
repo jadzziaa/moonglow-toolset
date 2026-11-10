@@ -451,6 +451,28 @@ impl Mesh {
         let faces = if self.drawn.is_empty() { self.faces.as_slice() } else { &[] };
         self.drawn.iter().copied().chain(faces.iter().map(|f| f.vertices))
     }
+
+    /// A square `side` across about the origin, flat at height `z` and
+    /// facing up (two faces), drawn in `color` (diffuse and ambient), with
+    /// no texture and no shadow: the renderer's probe's quads and the model
+    /// viewer's ground.
+    pub fn square(side: f32, z: f32, color: Vec3) -> Mesh {
+        let h = side / 2.0;
+        Mesh {
+            diffuse: color,
+            ambient: color,
+            render: true,
+            vertices: vec![[-h, -h, z], [h, -h, z], [h, h, z], [-h, h, z]],
+            normals: vec![[0.0, 0.0, 1.0]; 4],
+            uvs: [vec![[0.0, 0.0]; 4], vec![], vec![], vec![]],
+            faces: vec![
+                Face { vertices: [0, 1, 2], material: 0 },
+                Face { vertices: [0, 2, 3], material: 0 },
+            ],
+            source: vec![0, 1, 2, 3],
+            ..Default::default()
+        }
+    }
 }
 
 /// What a mesh adds.
