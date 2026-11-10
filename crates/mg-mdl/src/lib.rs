@@ -22,6 +22,7 @@ pub mod binary;
 pub mod binary_write;
 pub mod compile;
 pub mod ctrl;
+pub mod facts;
 pub mod keywords;
 pub mod lint;
 pub mod outline;

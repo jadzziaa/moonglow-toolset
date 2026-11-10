@@ -1374,6 +1374,22 @@ enum ModelCmd {
         /// The text to write.
         output: PathBuf,
     },
+    /// A model's facts: its nodes by kind, faces (all, and those of the
+    /// meshes the game draws), vertices, the box its drawn meshes fill at
+    /// rest, its skins and the bones their weights move, the textures and
+    /// materials it names, its supermodel and its own animations with
+    /// their lengths. Text or compiled alike.
+    Info {
+        /// A model's file, or a model's name (`plc_a01`, `plc_a01.mdl`)
+        /// found in the game's load order.
+        model: String,
+        /// A module (.mod, folder or nasher project) whose haks, and the
+        /// module itself, are in the load order too.
+        #[arg(long)]
+        module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
+    },
 }
 
 /// `mg plugin`'s commands.
@@ -2075,6 +2091,9 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
         ModelCmd::Compile { input, output } | ModelCmd::Decompile { input, output } => {
             (input, output)
         }
+        ModelCmd::Info { model, module, added } => {
+            return model_info(cli, model, module.as_deref(), added);
+        }
     };
     let data = std::fs::read(input).with_context(|| format!("{}", input.display()))?;
     let mut out = Output::new(serde_json::json!({
@@ -2101,6 +2120,7 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
             write_bytes_whole(output, text.as_ref())?;
             out.note(format!("wrote {}", output.display()));
         }
+        ModelCmd::Info { .. } => unreachable!("answered above"),
         ModelCmd::Compile { .. } => {
             let name = input.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
             let name = name.to_ascii_lowercase();
@@ -2124,6 +2144,83 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
             out.json["compiler_notes"] = notes.into();
             out.note(format!("wrote {}", output.display()));
         }
+    }
+    Ok(out)
+}
+
+/// `mg model info`: a model's facts ([`mg_mdl::facts::Facts`]), from its
+/// file, or by its name from the load order (with a module's haks and
+/// those `--hak` gives).
+fn model_info(
+    cli: &Cli,
+    model: &str,
+    module: Option<&Path>,
+    added: &added::Added,
+) -> Result<Output> {
+    use serde_json::json;
+    let mut out = Output::default();
+    let file = Path::new(model);
+    let (data, from) = if file.is_file() {
+        let data = std::fs::read(file).with_context(|| path_text(file))?;
+        (data, path_text(file))
+    } else {
+        let name = model.strip_suffix(".mdl").unwrap_or(model);
+        let key = ResKey::parse(name, ResType::MDL)
+            .with_context(|| format!("{model}: no such file, nor a model's name"))?;
+        let rm = resman_with(cli, module, added, &mut out)?;
+        let at = rm.find(&key).with_context(|| format!("{key} is found nowhere"))?;
+        let data = rm.get_in(at, &key)?.into_owned();
+        (data, rm.layers()[at].label.clone())
+    };
+    let m = mg_mdl::Model::read(&data).map_err(|e| anyhow::anyhow!("{model}: {e}"))?;
+    let f = mg_mdl::facts::Facts::of(&m);
+    let format = if mg_mdl::is_binary(&data) { "binary" } else { "ascii" };
+    let classification = format!("{:?}", f.classification).to_lowercase();
+    let bounds = f.bounds.map(|(min, max)| json!({ "min": min, "max": max }));
+    out.json = json!({
+        "model": model,
+        "from": from,
+        "format": format,
+        "name": f.name,
+        "supermodel": f.supermodel,
+        "classification": classification,
+        "animation_scale": f.animation_scale,
+        "nodes": f.nodes,
+        "node_types": f.node_types,
+        "faces": f.faces,
+        "faces_rendered": f.faces_rendered,
+        "vertices": f.vertices,
+        "bounds": bounds,
+        "skins": (f.skins.iter())
+            .map(|(node, bones)| json!({ "node": node, "bones": bones }))
+            .collect::<Vec<_>>(),
+        "textures": f.textures,
+        "materials": f.materials,
+        "animations": (f.animations.iter())
+            .map(|(name, length, transtime, events)| json!({
+                "name": name, "length": length, "transtime": transtime, "events": events,
+            }))
+            .collect::<Vec<_>>(),
+    });
+    let list = |v: &mut dyn Iterator<Item = String>| v.collect::<Vec<_>>().join(", ");
+    out.line(format!("Name\t{} ({format}, from {from})", f.name));
+    out.line(format!("Supermodel\t{}", f.supermodel.as_deref().unwrap_or("NULL")));
+    out.line(format!("Classification\t{classification}"));
+    let types = list(&mut f.node_types.iter().map(|(t, n)| format!("{n} {t}")));
+    out.line(format!("Nodes\t{} ({types})", f.nodes));
+    out.line(format!("Faces\t{} ({} drawn), {} vertices", f.faces, f.faces_rendered, f.vertices));
+    let shown = |v: mg_mdl::Vec3| format!("{:.3} {:.3} {:.3}", v[0], v[1], v[2]);
+    out.line(match f.bounds {
+        Some((min, max)) => format!("Bounds\t{} to {}", shown(min), shown(max)),
+        None => "Bounds\tnone (no mesh drawn)".to_string(),
+    });
+    for (node, bones) in &f.skins {
+        out.line(format!("Skin\t{node}: {bones} bones"));
+    }
+    out.line(format!("Textures\t{}", list(&mut f.textures.iter().cloned())));
+    out.line(format!("Materials\t{}", list(&mut f.materials.iter().cloned())));
+    for (name, length, _, _) in &f.animations {
+        out.line(format!("Animation\t{name}: {length} s"));
     }
     Ok(out)
 }
