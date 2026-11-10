@@ -32,7 +32,7 @@ pub use game::{Captured, CapturedPipeline};
 pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use pool::MeshMemory;
-pub use reach::{Frustum, box_corners};
+pub use reach::{Frustum, box_corners, box_of};
 #[doc(hidden)]
 pub use renderer::ViewKept;
 pub use renderer::{

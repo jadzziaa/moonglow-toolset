@@ -3807,10 +3807,7 @@ fn scene_pass<'e>(
 
 /// The box around vertices (an animation's, replacing a mesh's).
 fn vertices_box(vertices: &[Vertex]) -> (Vec3, Vec3) {
-    vertices.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(min, max), v| {
-        let p = Vec3::from(v.pos);
-        (min.min(p), max.max(p))
-    })
+    crate::reach::box_of(vertices.iter().map(|v| Vec3::from(v.pos))).unwrap_or(crate::reach::NO_BOX)
 }
 
 /// The box a skinned mesh bound in the box `min`…`max` lies in, posed by
@@ -3831,16 +3828,16 @@ fn posed_box(
     bones: &[[[f32; 4]; 4]],
 ) -> (Vec3, Vec3) {
     let (centre, half) = ((min + max) * 0.5, (max - min) * 0.5);
-    let empty = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    let (lo, hi) = bones.iter().fold(empty, |(lo, hi), b| {
+    let carried = bones.iter().flat_map(|b| {
         let m = Mat4::from_cols_array_2d(b);
         let turned = glam::Mat3::from_mat4(m);
         let at = m.transform_point3(centre);
         let around = turned.x_axis.abs() * half.x
             + turned.y_axis.abs() * half.y
             + turned.z_axis.abs() * half.z;
-        (lo.min(at - around), hi.max(at + around))
+        [at - around, at + around]
     });
+    let (lo, hi) = crate::reach::box_of(carried).unwrap_or(crate::reach::NO_BOX);
     let (mut lo, mut hi) = (lo.min(lo * least).min(lo * most), hi.max(hi * least).max(hi * most));
     if unweighed {
         (lo, hi) = (lo.min(min).min(Vec3::ZERO), hi.max(max).max(Vec3::ZERO));

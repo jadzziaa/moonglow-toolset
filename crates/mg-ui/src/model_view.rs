@@ -879,11 +879,8 @@ impl ModelView {
         let Some(c) = &self.composed else { return };
         let (low, high) = c.bounds_in(self.animation.as_deref(), self.time);
         // (The box around it as it is stood.)
-        let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for p in mg_render::box_corners(low, high) {
-            let w = self.stand.transform_point3(p);
-            (min, max) = (min.min(w), max.max(w));
-        }
+        let stood = mg_render::box_corners(low, high).map(|p| self.stand.transform_point3(p));
+        let Some((min, max)) = mg_render::box_of(stood) else { return };
         self.orbit.target = (min + max) * 0.5;
         let radius = ((max - min).length() * 0.5).max(0.1);
         self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
@@ -899,12 +896,8 @@ impl ModelView {
         if self.rest_box.is_none() {
             let c = self.composed.as_ref()?;
             let (low, high) = c.bounds_in(None, 0.0);
-            let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            for p in mg_render::box_corners(low, high) {
-                let w = self.stand.transform_point3(p);
-                (min, max) = (min.min(w), max.max(w));
-            }
-            self.rest_box = Some((min, max));
+            let stood = mg_render::box_corners(low, high).map(|p| self.stand.transform_point3(p));
+            self.rest_box = mg_render::box_of(stood);
         }
         self.rest_box
     }
@@ -2272,11 +2265,13 @@ fn draw_group(app: &mut Moonglow, parts: &[(Composed, Mat4)], apart: bool) -> Dr
     if parts.is_empty() {
         return Ok(None);
     }
-    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let placed = parts.iter().flat_map(|(composed, at)| {
+        let (low, high) = composed.bounds();
+        [at.transform_point3(low), at.transform_point3(high)]
+    });
+    let (min, max) = mg_render::box_of(placed).unwrap_or((Vec3::ZERO, Vec3::ZERO));
     let (mut instances, mut lights) = (Vec::new(), Vec::new());
     for (composed, at) in parts {
-        let (low, high) = composed.bounds();
-        (min, max) = (min.min(at.transform_point3(low)), max.max(at.transform_point3(high)));
         instances.extend(composed.instances(None, 0.0, *at));
         // (A group's tiles: their light nodes are main lights, which the
         // area's tiles colour; the picture is drawn without them.)

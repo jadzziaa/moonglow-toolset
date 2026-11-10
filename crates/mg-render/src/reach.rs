@@ -410,6 +410,24 @@ pub fn box_corners(min: Vec3, max: Vec3) -> [Vec3; 8] {
     })
 }
 
+/// The box around `points` (its least and greatest corners): `None` where
+/// none of them is anywhere. A point that is not finite is left out: the
+/// running least and greatest took a NaN and then the next point, so a
+/// NaN in the middle of a list left the box of the points after it alone
+/// (a mesh culled while in view), and one in the last place left none (an
+/// area without the sun's shadows). The one place a box is put around
+/// points: a mesh's, the shadows' receivers and casters, the previews'
+/// and the model viewer's framing.
+pub fn box_of(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+    let mut somewhere = points.into_iter().filter(|p| p.is_finite());
+    let first = somewhere.next()?;
+    Some(somewhere.fold((first, first), |(min, max), p| (min.min(p), max.max(p))))
+}
+
+/// What stands for the box around no points, where one is needed all the
+/// same: its least corner past its greatest, so that it holds nothing.
+pub(crate) const NO_BOX: (Vec3, Vec3) = (Vec3::MAX, Vec3::MIN);
+
 /// What the camera sees, as the six planes around it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frustum([Vec4; 6]);
@@ -436,6 +454,32 @@ impl Frustum {
 mod tests {
     use super::*;
     use crate::scene::Camera;
+
+    /// The box around points leaves out those that are nowhere, wherever
+    /// they are in the list: a NaN in the middle changes nothing (it left
+    /// the box of the points after it alone), nor one at the end (which
+    /// left a box of NaN); no points anywhere, no box.
+    #[test]
+    fn the_box_around_points_leaves_out_what_is_nowhere() {
+        let (a, b, c) =
+            (Vec3::new(1.0, 5.0, -2.0), Vec3::new(-3.0, 2.0, 0.0), Vec3::new(0.0, 9.0, 4.0));
+        let whole = Some((Vec3::new(-3.0, 2.0, -2.0), Vec3::new(1.0, 9.0, 4.0)));
+        assert_eq!(box_of([a, b, c]), whole);
+        let nowhere = Vec3::new(0.0, f32::NAN, 0.0);
+        for list in [
+            vec![a, nowhere, b, c],
+            vec![a, b, nowhere, c],
+            vec![a, b, c, nowhere],
+            vec![nowhere, a, b, c],
+            vec![a, b, c, Vec3::new(f32::INFINITY, 0.0, 0.0), Vec3::NEG_INFINITY],
+        ] {
+            assert_eq!(box_of(list.clone()), whole, "{list:?}");
+        }
+        assert_eq!(box_of([a]), Some((a, a)));
+        assert_eq!(box_of([nowhere, Vec3::NAN]), None);
+        assert_eq!(box_of(Vec::<Vec3>::new()), None);
+        assert!(NO_BOX.0.cmpgt(NO_BOX.1).all());
+    }
 
     #[test]
     fn a_box_s_corners_in_their_order() {

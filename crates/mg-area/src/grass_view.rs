@@ -109,10 +109,8 @@ pub fn grass_chosen(grown: &[Grown], sight: &Sight) -> Vec<GrassDraw> {
 
 /// A ball around balls (around their box).
 fn around(balls: impl Iterator<Item = (Vec3, f32)>) -> (Vec3, f32) {
-    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for (c, r) in balls {
-        (min, max) = (min.min(c - r), max.max(c + r));
-    }
+    let (min, max) = mg_render::box_of(balls.flat_map(|(c, r)| [c - r, c + r]))
+        .unwrap_or((Vec3::MAX, Vec3::MIN));
     ((min + max) / 2.0, (max - min).length() / 2.0)
 }
 
@@ -131,12 +129,9 @@ pub(crate) struct TileGrass {
 impl TileGrass {
     /// `grass` ([`crate::grass::tufts`]), its meshes `densities` dense.
     pub(crate) fn new(gpu: &Gpu, grass: Model, densities: Vec<f32>) -> TileGrass {
-        let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for mesh in grass.nodes.iter().filter_map(Node::mesh) {
-            for p in &mesh.vertices {
-                (min, max) = (min.min(Vec3::from(*p)), max.max(Vec3::from(*p)));
-            }
-        }
+        let vertices = grass.nodes.iter().filter_map(Node::mesh).flat_map(|m| &m.vertices);
+        let (min, max) =
+            mg_render::box_of(vertices.map(|p| Vec3::from(*p))).unwrap_or((Vec3::MAX, Vec3::MIN));
         let all = Arc::new(GpuModel::new(gpu, Arc::new(grass)));
         // (A tuft's indices: three to each of its faces. Each of the
         // model's meshes is uploaded: a grown mesh has a tuft at least.)

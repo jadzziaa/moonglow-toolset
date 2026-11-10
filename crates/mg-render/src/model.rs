@@ -241,11 +241,8 @@ impl GpuModel {
             let n = vertices.len() as u32;
             let mut indices: Vec<u32> =
                 triangles.into_iter().filter(|t| t.iter().all(|&i| i < n)).flatten().collect();
-            let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            for p in &m.vertices {
-                min = min.min(Vec3::from(*p));
-                max = max.max(Vec3::from(*p));
-            }
+            let (min, max) = crate::reach::box_of(m.vertices.iter().map(|p| Vec3::from(*p)))
+                .unwrap_or(crate::reach::NO_BOX);
             let emissive = node.value("selfillumcolor").map_or(Vec3::ZERO, |v| {
                 Vec3::new(
                     v.first().copied().unwrap_or(0.0),

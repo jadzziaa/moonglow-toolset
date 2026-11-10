@@ -195,7 +195,7 @@ pub(crate) fn light_view(direction: Vec3) -> Mat4 {
 fn seen(camera: &Camera, aspect: f32, receivers: (Vec3, Vec3)) -> Option<(Vec3, Vec3)> {
     let inverse = (camera.projection(aspect) * camera.view()).inverse();
     let far = camera.far.max(camera.near) + FARTHEST;
-    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let mut points = Vec::with_capacity(15);
     for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (0.0, 0.0)] {
         let near = inverse.project_point3(Vec3::new(x, y, 0.0));
         let further = inverse.project_point3(Vec3::new(x, y, 0.5));
@@ -216,12 +216,9 @@ fn seen(camera: &Camera, aspect: f32, receivers: (Vec3, Vec3)) -> Option<(Vec3, 
         if ends.len() == 1 {
             ends.push(far);
         }
-        for t in ends {
-            let p = near + ray * t;
-            min = min.min(p);
-            max = max.max(p);
-        }
+        points.extend(ends.into_iter().map(|t| near + ray * t));
     }
+    let (min, max) = crate::reach::box_of(points)?;
     // (A millimeter's give: the rays' crossings of a flat receiver, a
     // ground of one height, lie at its height but for the last bits, and
     // one a bit above it left no box.)
@@ -269,7 +266,9 @@ pub(crate) fn plan<'a>(
     // out once it is known to cast into the map's region.)
     let mut casters: Vec<Met<'a>> = Vec::new();
     let mut bones = Vec::new();
-    let (mut rmin, mut rmax) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    // (The box around what receives them.)
+    let mut receivers: Option<(Vec3, Vec3)> = None;
+    let somewhere = |(min, max): (Vec3, Vec3)| min.is_finite() && max.is_finite();
     for inst in &scene.instances {
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
         let node = |n: usize| inst.transform * pose.get(n).copied().unwrap_or(Mat4::IDENTITY);
@@ -288,11 +287,19 @@ pub(crate) fn plan<'a>(
             }
             let world = node(mesh.node);
             let bounds = world_box(world, mesh);
+            // (A mesh that is nowhere, its instance's place no number: it
+            // neither receives nor casts. Its box took every receiver's
+            // before it with it, and the area's shadows where it came
+            // last.)
+            if !somewhere(bounds) {
+                continue;
+            }
             // (One left out, Fade Geometry's, casts but isn't drawn to
             // receive.)
             let hidden = replaced.is_some_and(|r| r.hidden);
             if inst.receives_shadows && inst.opacity >= 1.0 && !hidden {
-                (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
+                let all = receivers.into_iter().chain([bounds]);
+                receivers = crate::reach::box_of(all.flat_map(|(min, max)| [min, max]));
             }
             let skinned = mesh.skin.is_some();
             if casts(inst, mesh, alpha) && (skins || !skinned) {
@@ -305,31 +312,27 @@ pub(crate) fn plan<'a>(
             if casts(inst, mesh, 1.0) && (skins || !skinned) {
                 let world = node(mesh.node);
                 let bounds = posed_box(world_box(world, mesh), skinned);
+                if !somewhere(bounds) {
+                    continue;
+                }
                 let caster = Caster { mesh, model, world, bones: None, bottom };
                 casters.push((caster, bounds, skinned.then_some(pose)));
             }
         }
     }
-    if casters.is_empty() || rmin.cmpgt(rmax).any() {
-        return None;
-    }
-    let region = seen(camera, aspect, (rmin, rmax))?;
+    let receivers = receivers.filter(|_| !casters.is_empty())?;
+    let region = seen(camera, aspect, receivers)?;
     let view = light_view(scene.area.direction);
     let to_light = |(min, max): (Vec3, Vec3)| {
-        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for c in crate::box_corners(min, max) {
-            let p = view.transform_point3(c);
-            (lo, hi) = (lo.min(p), hi.max(p));
-        }
-        (lo, hi)
+        crate::reach::box_of(crate::box_corners(min, max).map(|c| view.transform_point3(c)))
     };
-    let (lo, mut hi) = to_light(region);
+    let (lo, mut hi) = to_light(region)?;
     // The casters whose shadows can fall on what is seen: across the
     // light, over the region; the box reaching back to the farthest
     // towards the light.
     let mut kept = Vec::with_capacity(casters.len());
     for (mut caster, bounds, pose) in casters {
-        let (clo, chi) = to_light(bounds);
+        let Some((clo, chi)) = to_light(bounds) else { continue };
         if chi.x < lo.x || clo.x > hi.x || chi.y < lo.y || clo.y > hi.y || chi.z < lo.z {
             continue;
         }
@@ -361,7 +364,7 @@ pub(crate) fn plan<'a>(
         depth: far - near,
         shadows,
         direction: scene.area.direction,
-        floor: rmin.z,
+        floor: receivers.0.z,
     })
 }
 
@@ -542,7 +545,8 @@ pub(crate) fn light_plan<'a>(
             break;
         }
         let (first, first_bone) = (plan.casters.len(), plan.bones.len());
-        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        // (The box around all of it.)
+        let mut around: Option<(Vec3, Vec3)> = None;
         for inst in &parts {
             let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
             let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
@@ -555,16 +559,20 @@ pub(crate) fn light_plan<'a>(
                     continue;
                 }
                 let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                // (A part that is nowhere casts nothing.)
+                let (a, b) = posed_box(world_box(world, mesh), mesh.skin.is_some());
+                if !(a.is_finite() && b.is_finite()) {
+                    continue;
+                }
+                around = crate::reach::box_of(
+                    around.into_iter().flat_map(|(a, b)| [a, b]).chain([a, b]),
+                );
                 let skinned = skin_bones(mesh, pose, &mut plan.bones);
-                let (a, b) = posed_box(world_box(world, mesh), skinned.is_some());
-                (lo, hi) = (lo.min(a), hi.max(b));
                 let model = &inst.model;
                 plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
             }
         }
-        if plan.casters.len() == first {
-            continue;
-        }
+        let Some((lo, hi)) = around else { continue };
         // (One light for the whole of it, from where its base stands, and
         // one map: its box is all its parts'.)
         let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
@@ -1672,6 +1680,69 @@ mod tests {
         assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
         let lit = light_plan(&near, &camera, false).expect("a plan");
         assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
+    }
+
+    /// A tile or a static placeable whose place is no number (a corrupt
+    /// float in an area's GIT) neither receives nor casts: the map is the
+    /// same as without it, wherever it is among the instances (its box
+    /// took every receiver's before it with it; last, it left the area no
+    /// shadows at all).
+    #[test]
+    fn an_instance_that_is_nowhere_changes_no_shadow() {
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let model = |m| std::sync::Arc::new(crate::GpuModel::new(&gpu, std::sync::Arc::new(m)));
+        let mut caster = crate::probe::quad("rigid", 1.0, 1.0, [1.0; 3], false);
+        for n in &mut caster.nodes {
+            if let mg_mdl::NodeKind::Mesh(mesh) = &mut n.kind {
+                mesh.shadow = true;
+            }
+        }
+        let (ground, caster) =
+            (model(crate::probe::quad("ground", 4.0, 0.0, [1.0; 3], false)), model(caster));
+        let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0));
+        let tile =
+            |x: f32| Instance { receives_shadows: true, ..Instance::new(ground.clone(), at(x)) };
+        let nowhere = Instance {
+            receives_shadows: true,
+            casts_light_shadows: true,
+            ..Instance::new(caster.clone(), at(f32::NAN))
+        };
+        let scene = |instances: Vec<Instance>| Scene {
+            instances,
+            area: crate::AreaLight {
+                ambient: Vec3::splat(0.2),
+                diffuse: Vec3::splat(0.6),
+                direction: Vec3::new(0.3, 0.2, 1.0),
+            },
+            shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            light_shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            lights: vec![
+                PointLight::new(Vec3::new(3.0, 0.0, 3.0), Vec3::ONE, 10.0, false, 4)
+                    .casting(true, 10.0, 0.0),
+            ],
+            ..Default::default()
+        };
+        let camera = Camera {
+            eye: Vec3::new(0.0, -8.0, 10.0),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        let good =
+            || vec![tile(-4.0), tile(0.0), tile(4.0), Instance::new(caster.clone(), at(0.5))];
+        let all_good = scene(good());
+        let whole = plan(&all_good, &camera, 1.5, true).expect("a plan");
+        for place in [0, 1, 2, 4] {
+            let mut instances = good();
+            instances.insert(place, nowhere.clone());
+            let scene = scene(instances);
+            let with = plan(&scene, &camera, 1.5, true).expect("a plan");
+            assert_eq!(with.light, whole.light, "at {place}");
+            assert_eq!((with.casters.len(), with.floor), (whole.casters.len(), whole.floor));
+            // (Nor a light's shadow of it.)
+            assert!(light_plan(&scene, &camera, true).is_none(), "at {place}");
+        }
     }
 
     /// The light's view looks down along the light: a point towards the
