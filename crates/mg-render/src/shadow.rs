@@ -133,9 +133,13 @@ pub(crate) struct Caster<'a> {
 }
 
 impl Caster<'_> {
-    /// What the map holds of it: its mesh, its place, its bones' first.
-    fn key(&self) -> (usize, Mat4, Option<u32>) {
-        (std::ptr::from_ref(self.mesh) as usize, self.world, self.bones)
+    /// What the map holds of it: its mesh (its model's number, which no
+    /// two models share, and its node), its place, its bones' first. Not
+    /// where the mesh lies in memory: a model dropped and another built
+    /// where it was, at the same place in the world, was taken as drawn
+    /// already, and the map kept the first one's shadow.
+    fn key(&self) -> ((u64, usize), Mat4, Option<u32>) {
+        ((self.model.id, self.mesh.node), self.world, self.bones)
     }
 }
 
@@ -916,7 +920,7 @@ impl SunMap {
 
 /// What a shadow map holds: its projection, its casters (mesh, transform,
 /// first bone) and their bones.
-type Held = (Mat4, Vec<(usize, Mat4, Option<u32>)>, Vec<Mat4>);
+type Held = (Mat4, Vec<((u64, usize), Mat4, Option<u32>)>, Vec<Mat4>);
 
 /// What draws casters into a shadow map: a pipeline for rigid meshes and
 /// one for skinned, the frame's casters and bones.
