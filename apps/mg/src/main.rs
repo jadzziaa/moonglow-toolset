@@ -17,6 +17,7 @@ mod plugins;
 mod search;
 mod serve;
 mod test;
+mod texture;
 mod tlk_alloc;
 mod twoda_set;
 mod usage;
@@ -1215,6 +1216,11 @@ enum Cmd {
     Model {
         #[command(subcommand)]
         cmd: ModelCmd,
+    },
+    /// Textures: convert between TGA, PNG and DDS.
+    Texture {
+        #[command(subcommand)]
+        cmd: texture::TextureCmd,
     },
     /// Check that Moonglow keeps a module as it is: saves a copy (the
     /// module is not touched), opens it again and compares every resource
@@ -5096,6 +5102,9 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Roundtrip { module, keep } => roundtrip(module, keep.as_deref())?,
         Cmd::Model { cmd } => model_file(cli, cmd)?,
+        Cmd::Texture { cmd } => match cmd {
+            texture::TextureCmd::Convert(a) => texture::convert(cli, a)?,
+        },
         Cmd::ModelFiles { what, out, module, added, all, force, dry_run } => {
             let gi = install(cli)?;
             let asked = ModelFiles { all: *all, force: *force, dry_run: *dry_run };

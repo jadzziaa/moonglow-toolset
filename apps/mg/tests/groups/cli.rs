@@ -66,6 +66,8 @@ mod search;
 mod serve;
 #[path = "../test_cmd.rs"]
 mod test_cmd;
+#[path = "../texture.rs"]
+mod texture;
 #[path = "../tlk_alloc.rs"]
 mod tlk_alloc;
 #[path = "../tlk_io.rs"]

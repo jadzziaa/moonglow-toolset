@@ -38,6 +38,28 @@ pub fn read_picture(data: &[u8]) -> Result<Rgba, ImageError> {
     Ok(rgba)
 }
 
+/// An uncompressed TGA of a picture, rows as [`Rgba`] keeps them (the
+/// bottom first, the header's bottom-left origin): 32-bit with its
+/// alpha (eight alpha bits declared) or 24-bit without. A side over
+/// 65,535 is cut to it, which no texture has.
+pub fn write(image: &Rgba, alpha: bool) -> Vec<u8> {
+    let (w, h) = (image.width.min(65_535) as u16, image.height.min(65_535) as u16);
+    let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    out.extend(w.to_le_bytes());
+    out.extend(h.to_le_bytes());
+    out.extend(if alpha { [32, 8] } else { [24, 0] });
+    let row = image.width as usize * 4;
+    for line in image.data.chunks_exact(row).take(h as usize) {
+        for px in line.as_chunks::<4>().0.iter().take(w as usize) {
+            match alpha {
+                true => out.extend([px[2], px[1], px[0], px[3]]),
+                false => out.extend([px[2], px[1], px[0]]),
+            }
+        }
+    }
+    out
+}
+
 /// Reads a TGA into a single RGBA level, rows bottom first.
 pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let mut r = Reader::new(data);

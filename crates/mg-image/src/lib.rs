@@ -14,6 +14,7 @@
 //! Pictures that are not textures (a NUI window's, a plugin's) are read
 //! top row first: [`tga::read_picture`] and [`png::read_picture`].
 
+pub mod adjust;
 pub mod bc;
 pub mod dds;
 pub mod encode;
@@ -127,6 +128,24 @@ impl Texture {
         }
         Rgba { width: self.width, height: self.height, data }
     }
+
+    /// The largest level as RGBA8 with the alpha its data holds, where
+    /// [`to_rgba`](Self::to_rgba) gives what the game draws: DXT1's
+    /// transparent texels transparent (the game draws them black), a
+    /// 32-bit TGA's alpha whatever it is. What a conversion carries over.
+    pub fn stored_rgba(&self) -> Rgba {
+        let data = match self.format {
+            Format::Rgba8 => self.mips[0].clone(),
+            f => bc::decode(f, self.width, self.height, &self.mips[0]),
+        };
+        Rgba { width: self.width, height: self.height, data }
+    }
+
+    /// Whether any texel of the largest level is less than opaque, as
+    /// [`stored_rgba`](Self::stored_rgba) gives it.
+    pub fn alpha_used(&self) -> bool {
+        self.stored_rgba().alpha_used()
+    }
 }
 
 /// RGBA8 pixels, rows bottom first.
@@ -155,6 +174,11 @@ impl Rgba {
         Rgba { width: self.width, height: self.height, data }
     }
 
+    /// Whether any texel is less than opaque.
+    pub fn alpha_used(&self) -> bool {
+        self.data.as_chunks::<4>().0.iter().any(|p| p[3] < 255)
+    }
+
     /// As a single-level texture.
     pub fn into_texture(self, has_alpha: bool) -> Texture {
         Texture {
@@ -171,15 +195,7 @@ impl Rgba {
 /// An uncompressed 24-bit TGA of a picture (rows stored bottom first, as
 /// [`Rgba`] keeps them), as the game's minimap pictures are.
 pub fn write_tga(image: &Rgba) -> Vec<u8> {
-    let (w, h) = (image.width as u16, image.height as u16);
-    let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    out.extend(w.to_le_bytes());
-    out.extend(h.to_le_bytes());
-    out.extend([24, 0]);
-    for px in image.data.as_chunks::<4>().0 {
-        out.extend([px[2], px[1], px[0]]);
-    }
-    out
+    tga::write(image, false)
 }
 
 /// Reads a TGA or DDS.
@@ -199,5 +215,22 @@ mod write_tests {
         img.data.copy_from_slice(&[255, 0, 0, 255, 0, 0, 255, 255]);
         let back = super::read(mg_core::ResType::TGA, &super::write_tga(&img)).unwrap().to_rgba();
         assert_eq!(back, img);
+    }
+
+    /// 32-bit keeps alpha, and DXT1's transparent texels come back
+    /// transparent from `stored_rgba` (opaque from `to_rgba`, as drawn).
+    #[test]
+    fn alpha_is_kept_where_it_is_stored() {
+        let mut img = super::Rgba::new(2, 1);
+        img.data.copy_from_slice(&[255, 0, 0, 10, 0, 0, 255, 255]);
+        let tga = super::tga::write(&img, true);
+        let back = super::read(mg_core::ResType::TGA, &tga).unwrap();
+        assert!(back.has_alpha && back.alpha_used());
+        assert_eq!(back.stored_rgba(), img);
+        let mut cut = super::Rgba::new(4, 4);
+        cut.data.as_chunks_mut::<8>().0.iter_mut().for_each(|p| *p = [9, 9, 9, 0, 200, 9, 9, 255]);
+        let t = super::encode::compress(&cut, super::Format::Bc1, false, true);
+        assert!(t.alpha_used() && !t.has_alpha);
+        assert!(!t.to_rgba().alpha_used());
     }
 }
