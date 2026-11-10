@@ -1,6 +1,7 @@
 //! `mg texture convert`: textures between PNG, TGA and both DDS headers,
 //! the way up kept; a DDS kept in its format copied; resizing, alpha
-//! bleed, and what is refused before anything is written.
+//! bleed, and what is refused before anything is written; and
+//! `mg texture info`, their facts.
 
 use std::path::Path;
 
@@ -215,9 +216,84 @@ fn textures_are_converted_by_name_from_the_load_order() {
     let (ok, json) =
         run(&["texture", "convert", "c_wolf.tga", "-o", s(&dir.join("w.png")), "--hak", s(&hak)]);
     assert!(ok && json["files"][0]["from"] == format!("folder:{}", hak.display()), "{json}");
+    // Facts by name: the game's DXT5, its alpha used between clear and
+    // opaque, and a PLT where there is no DDS or TGA of the name.
+    let (ok, json) = run(&["texture", "info", "c_azer", "pmh0_head001"]);
+    assert!(ok, "{json}");
+    let t = &json["textures"];
+    assert_eq!((t[0]["format"].as_str(), t[0]["alpha"].as_str()), (Some("dxt5"), Some("blended")));
+    assert!(t[0]["alpha_mean"].as_f64().is_some_and(|m| m > 0.5 && m < 0.7), "{json}");
+    assert_eq!((t[1]["type"].as_str(), t[1]["layers"][0].as_str()), (Some("plt"), Some("skin")));
     let (ok, json) = run(&["texture", "convert", "mg_zz_nowhere", "--to", s(&dir)]);
     assert!(
         !ok && json["failed"][0]["error"].as_str().unwrap().contains("found nowhere"),
         "{json}"
     );
+}
+
+#[test]
+fn info_gives_each_texture_s_size_format_levels_and_alpha() {
+    let dir = mg_testkit::scratch_dir("mg-texture-info");
+    let (cut, solid) = (dir.join("cut.png"), dir.join("solid.png"));
+    png(&cut, 0);
+    png(&solid, 255);
+    for (from, to, extra) in [
+        (&cut, "cut.dds", None),
+        (&cut, "cut_std.dds", Some("--standard")),
+        (&solid, "solid.tga", None),
+    ] {
+        let mut args = vec![s(from), "-o"];
+        let out = dir.join(to);
+        args.push(s(&out));
+        args.extend(extra);
+        assert!(convert(&args).0);
+    }
+    // A PLT of two layers (skin and cloth 1), by hand.
+    let mut plt = b"PLT V1  ".to_vec();
+    for v in [10u32, 0, 2, 1] {
+        plt.extend_from_slice(&v.to_le_bytes());
+    }
+    plt.extend_from_slice(&[100, 0, 200, 4]);
+    std::fs::write(dir.join("part.plt"), plt).unwrap();
+    std::fs::write(dir.join("bad.dds"), b"DDS not one").unwrap();
+    let names = ["cut.png", "cut.dds", "cut_std.dds", "solid.tga", "part.plt", "bad.dds"];
+    let paths: Vec<String> = names.iter().map(|n| s(&dir.join(n)).to_string()).collect();
+    let mut args = vec!["--json", "texture", "info"];
+    args.extend(paths.iter().map(String::as_str));
+    let (ok, json) = crate::json_out(crate::mg_alone().args(&args));
+    assert!(!ok, "the bad one fails the run: {json}");
+    let t = json["textures"].as_array().unwrap();
+    assert_eq!(t.len(), 5, "{json}");
+    let fact = |i: usize, k: &str| t[i][k].clone();
+    assert_eq!(
+        (fact(0, "type"), fact(0, "format"), fact(0, "has_alpha")),
+        ("png".into(), "rgba8".into(), true.into())
+    );
+    assert_eq!(fact(0, "alpha"), "binary");
+    assert_eq!(
+        (fact(1, "container"), fact(1, "format"), fact(1, "mips")),
+        ("bioware".into(), "dxt5".into(), 4.into())
+    );
+    assert_eq!(fact(1, "alpha_mean"), 0.5);
+    assert_eq!((fact(2, "container"), fact(2, "format")), ("standard".into(), "dxt5".into()));
+    assert_eq!(
+        (fact(3, "format"), fact(3, "has_alpha"), fact(3, "alpha")),
+        ("rgb8".into(), false.into(), "opaque".into())
+    );
+    assert_eq!((fact(3, "width"), fact(3, "height")), (8.into(), 8.into()));
+    assert_eq!(fact(4, "layers"), serde_json::json!(["skin", "cloth1"]));
+    assert_eq!((fact(4, "width"), fact(4, "height")), (2.into(), 1.into()));
+    assert_eq!(json["failed"][0]["input"], paths[5]);
+    // Headers only: the texels' alpha not looked at.
+    let (ok, json) = crate::json_out(crate::mg_alone().args([
+        "--json",
+        "texture",
+        "info",
+        "--headers",
+        &paths[0],
+        &paths[1],
+    ]));
+    assert!(ok, "{json}");
+    assert!(json["textures"].as_array().unwrap().iter().all(|t| t["alpha"].is_null()), "{json}");
+    assert_eq!(json["textures"][0]["has_alpha"], true);
 }

@@ -1217,7 +1217,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ModelCmd,
     },
-    /// Textures: convert between TGA, PNG and DDS.
+    /// Textures: convert between TGA, PNG and DDS; their facts.
     Texture {
         #[command(subcommand)]
         cmd: texture::TextureCmd,
@@ -5104,6 +5104,7 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Model { cmd } => model_file(cli, cmd)?,
         Cmd::Texture { cmd } => match cmd {
             texture::TextureCmd::Convert(a) => texture::convert(cli, a)?,
+            texture::TextureCmd::Info(a) => texture::info(cli, a)?,
         },
         Cmd::ModelFiles { what, out, module, added, all, force, dry_run } => {
             let gi = install(cli)?;

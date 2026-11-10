@@ -1,6 +1,7 @@
 //! `mg texture convert`: textures converted between TGA, PNG and DDS
 //! (BioWare's header and the standard one), from files or from the load
-//! order, one to a file or many into a folder.
+//! order, one to a file or many into a folder; and `mg texture info`,
+//! their facts (size, format, mip levels, alpha) for many in one run.
 
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,23 @@ pub(crate) enum TextureCmd {
     /// encoded again. Fails if any texture can't be (once the rest are
     /// written).
     Convert(Convert),
+    /// A texture's facts, for as many as given (TGA, PNG, DDS, PLT): its
+    /// size, type, header (BioWare's or the standard DDS), format, mip
+    /// levels, whether its format holds alpha, and (from its largest
+    /// level, unless --headers) whether its texels use it. Fails if any
+    /// can't be read (once the rest are said).
+    Info(Info),
+}
+
+#[derive(clap::Args)]
+pub(crate) struct Info {
+    #[command(flatten)]
+    inputs: Inputs,
+    /// Read the headers only: the alpha the texels use is not looked at
+    /// (`alpha` null). (A DDS's levels, a TGA's and a PLT's texels are
+    /// read all the same; a PNG's are not.)
+    #[arg(long)]
+    headers: bool,
 }
 
 /// Textures by file or by name, as `mg texture`'s commands take them.
@@ -316,6 +334,127 @@ pub(crate) fn format_name(f: Format) -> &'static str {
         Format::Bc4 => "ati1",
         Format::Bc5 => "ati2",
     }
+}
+
+/// How a picture's texels use alpha: none less than opaque, only clear and
+/// opaque (a cut-out), or values between.
+fn alpha_use(rgba: &Rgba) -> &'static str {
+    let px = rgba.data.as_chunks::<4>().0;
+    if px.iter().all(|p| p[3] == 255) {
+        "opaque"
+    } else if px.iter().all(|p| p[3] == 0 || p[3] == 255) {
+        "binary"
+    } else {
+        "blended"
+    }
+}
+
+/// A TGA's format by its header: its type and bits per pixel.
+fn tga_format(data: &[u8], alpha: bool) -> &'static str {
+    match (data.get(2).copied().unwrap_or(0) & !8, data.get(16).copied().unwrap_or(0)) {
+        (1, _) => "indexed8",
+        (3, _) => "grey8",
+        (_, 15 | 16) => "rgb5",
+        _ if alpha => "rgba8",
+        _ => "rgb8",
+    }
+}
+
+/// One texture's facts.
+fn info_one(l: &Loaded, headers: bool) -> Result<(Value, String)> {
+    let fail = |e: mg_image::ImageError| anyhow!("{}: {e}", l.given);
+    let mut facts = json!({ "input": l.given, "from": l.from, "type": l.kind.name() });
+    let (w, h, format, mips, has_alpha, alpha) = match l.kind {
+        Kind::Plt => {
+            let plt = mg_image::plt::Plt::read(&l.data).map_err(fail)?;
+            let used = plt.layers();
+            let names: Vec<String> = (mg_image::plt::LAYERS.iter().zip(used))
+                .filter(|(_, u)| *u)
+                .map(|(n, _)| n.to_ascii_lowercase().replace(' ', ""))
+                .collect();
+            facts["layers"] = names.into();
+            (plt.width, plt.height, "plt".to_string(), 1, false, None)
+        }
+        Kind::Png if headers => {
+            let (w, h, format, alpha) = mg_image::png::info(&l.data).map_err(fail)?;
+            (w, h, format, 1, alpha, None)
+        }
+        Kind::Png => {
+            let (w, h, format, has_alpha) = mg_image::png::info(&l.data).map_err(fail)?;
+            let alpha = alpha_use(&decode(l)?.stored_rgba());
+            (w, h, format, 1, has_alpha, Some(alpha))
+        }
+        Kind::Dds | Kind::Tga => {
+            let t = decode(l)?;
+            let format = match l.kind {
+                Kind::Tga => tga_format(&l.data, t.has_alpha).to_string(),
+                _ => format_name(t.format).to_string(),
+            };
+            if l.kind == Kind::Dds {
+                let container = if l.data.starts_with(b"DDS ") { "standard" } else { "bioware" };
+                facts["container"] = container.into();
+                facts["alpha_mean"] = t.alpha_mean.into();
+            }
+            let alpha = (!headers).then(|| alpha_use(&t.stored_rgba()));
+            (t.width, t.height, format, t.mips.len(), t.has_alpha, alpha)
+        }
+    };
+    for (k, v) in [
+        ("format", json!(format)),
+        ("width", json!(w)),
+        ("height", json!(h)),
+        ("mips", json!(mips)),
+        ("has_alpha", json!(has_alpha)),
+        ("alpha", json!(alpha)),
+        ("size", json!(l.data.len())),
+    ] {
+        facts[k] = v;
+    }
+    let levels = if mips == 1 { String::new() } else { format!(", {mips} levels") };
+    let alpha = match alpha {
+        Some(a) => format!(", alpha {a}"),
+        None if has_alpha => ", alpha".to_string(),
+        None => String::new(),
+    };
+    let line =
+        format!("{}\t{}\t{} {format} {w}×{h}{levels}{alpha}", l.given, l.from, l.kind.name());
+    Ok((facts, line))
+}
+
+/// `mg texture info`.
+pub(crate) fn info(cli: &Cli, a: &Info) -> Result<Output> {
+    let mut out = Output::default();
+    let (mut textures, mut failed) = (Vec::new(), Vec::new());
+    for l in load_all(cli, &a.inputs, &mut out)? {
+        let facts = match &l {
+            Ok(l) => info_one(l, a.headers),
+            Err((given, e)) => Err(anyhow!("{given}: {e}")),
+        };
+        match facts {
+            Ok((facts, line)) => {
+                out.line(line);
+                textures.push(facts);
+            }
+            Err(e) => {
+                let given = match &l {
+                    Ok(l) => l.given.clone(),
+                    Err((given, _)) => given.clone(),
+                };
+                out.line(format!("{given}\tnot read: {e:#}"));
+                failed.push(json!({ "input": given, "error": format!("{e:#}") }));
+            }
+        }
+    }
+    if !failed.is_empty() {
+        out.note(format!(
+            "{} of {} textures not read",
+            failed.len(),
+            failed.len() + textures.len()
+        ));
+        out.failed = true;
+    }
+    out.json = json!({ "textures": textures, "failed": failed });
+    Ok(out)
 }
 
 /// The size a texture is written at: the nearest powers of two if asked,
