@@ -200,7 +200,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let have: std::collections::HashMap<i64, usize> =
         merged.iter().map(|m| (m.key, m.having.len())).collect();
     let having = |row: usize| have.get(&(row as i64)).copied().unwrap_or(0);
-    let id = egui::Id::new(("utc-feats", key));
+    let id = f.id("utc-feats");
     let mut assigned_only: bool = ui.data(|d| d.get_temp(id.with("only"))).unwrap_or(false);
     let feat_table = f.app.game.as_ref().and_then(|g| g.table("feat").ok());
     let categories: Vec<(i32, String)> =
@@ -490,7 +490,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             }
         }
     }
-    let id = egui::Id::new(("utc-spells", key));
+    let id = f.id("utc-spells");
     let (mut which, mut level): (usize, Option<usize>) =
         ui.data(|d| d.get_temp(id)).unwrap_or_default();
     which = which.min(casters.len() - 1);
@@ -909,7 +909,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     let total = targets.len();
-    let id = egui::Id::new(("utc-spells", key));
+    let id = f.id("utc-spells");
     let (mut which, mut level): (usize, Option<usize>) =
         ui.data(|d| d.get_temp(id)).unwrap_or_default();
     which = which.min(caster_classes.len() - 1);

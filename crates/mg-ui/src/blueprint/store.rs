@@ -178,7 +178,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let key = f.key;
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Item);
-    let shown_id = egui::Id::new(("utm-page", key));
+    let shown_id = f.id("utm-page");
     let first = STORE_PAGES
         .iter()
         .map(|(id, _)| *id)

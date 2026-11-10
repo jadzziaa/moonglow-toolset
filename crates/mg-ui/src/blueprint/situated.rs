@@ -200,7 +200,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         (None, Some(r)) => r.to_string(),
         (None, None) => "(none)".to_string(),
     };
-    let pick_id = egui::Id::new(("portrait-pick", f.key));
+    let pick_id = f.id("portrait-pick");
     let mut pick = None;
     // A little room below, so the picture doesn't sit on the next row.
     ui.vertical(|ui| {
@@ -208,7 +208,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             if let Some(b) = current.and_then(base) {
                 portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
             }
-            let id = egui::Id::new(("portrait", f.key));
+            let id = f.id("portrait");
             let row = current.map(|r| r as i64);
             let list = crate::widgets::row_choice(id, &list, row).width(200.0).shown(shown);
             pick = list.show(ui).and_then(|r| usize::try_from(r).ok());
@@ -862,24 +862,24 @@ pub(super) fn advanced(
 /// a long list by name, with a Filter field.)
 pub(super) fn pick(
     ui: &mut Ui,
-    key: ResKey,
+    of: egui::Id,
     name: &str,
     choices: &[Choice],
     current: i64,
 ) -> Option<i64> {
-    pick_list(key, name, choices, current, 220.0).show(ui)
+    pick_list(of, name, choices, current, 220.0).show(ui)
 }
 
 /// [`pick`] in the order given, however long (a cost table's values,
 /// from the least).
 pub(super) fn pick_ordered(
     ui: &mut Ui,
-    key: ResKey,
+    of: egui::Id,
     name: &str,
     choices: &[Choice],
     current: i64,
 ) -> Option<i64> {
-    pick_list(key, name, choices, current, 220.0).ordered().show(ui)
+    pick_list(of, name, choices, current, 220.0).ordered().show(ui)
 }
 
 /// [`pick_ordered`], `width` wide, for a body part: the mouse wheel over
@@ -887,13 +887,13 @@ pub(super) fn pick_ordered(
 /// on the model without opening the list).
 pub(super) fn pick_part(
     ui: &mut Ui,
-    key: ResKey,
+    of: egui::Id,
     name: &str,
     choices: &[Choice],
     current: i64,
     width: f32,
 ) -> Option<i64> {
-    pick_list(key, name, choices, current, width).ordered().wheel().show(ui)
+    pick_list(of, name, choices, current, width).ordered().wheel().show(ui)
 }
 
 /// A body or armor part's choices: none first (0, no part there: a
@@ -908,14 +908,17 @@ pub(super) fn part_choices(numbers: &[u16], text: impl Fn(u16) -> String) -> Vec
 }
 
 /// The list [`pick`] and the others show, to add to (a row's picture).
+/// `of`: its window's own id for its lists ([`Form::picks`]). By the
+/// document alone, two Properties windows of one area's objects side by
+/// side shared a list's state.
 pub(super) fn pick_list<'a>(
-    key: ResKey,
+    of: egui::Id,
     name: &str,
     choices: &'a [Choice],
     current: i64,
     width: f32,
 ) -> crate::widgets::RowChoice<'a> {
-    crate::widgets::row_choice(egui::Id::new(("pick", key, name)), choices, current).width(width)
+    crate::widgets::row_choice(of.with(name), choices, current).width(width)
 }
 
 /// The model viewer's tab for the form's object: a placed object as it is

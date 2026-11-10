@@ -531,7 +531,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
             f.mark_mixed(ui, label);
-            if let Some(v) = situated::pick_part(ui, f.key, label, &choices, current, 220.0) {
+            if let Some(v) = situated::pick_part(ui, f.picks(), label, &choices, current, 220.0) {
                 super::item::set_part(f, text, &[label], v);
             }
             ui.end_row();
@@ -631,13 +631,14 @@ fn class_list(
 ) {
     let base = f.path.clone();
     let key = f.key;
+    let picks = f.picks();
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
     egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
             let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
             let class = c.integer("Class").unwrap_or(0);
-            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), all, class) {
+            if let Some(v) = situated::pick(ui, picks, &format!("class{i}"), all, class) {
                 edits.push(("Class", vec![set(key, &path, "Class", Value::Int(v as i32))]));
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
@@ -663,7 +664,8 @@ fn class_list(
                 ui.horizontal(|ui| {
                     for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
                         let name = format!("class{i}-domain{n}");
-                        if let Some(v) = optional_pick(ui, key, &name, domains, c.integer(label)) {
+                        if let Some(v) = optional_pick(ui, picks, &name, domains, c.integer(label))
+                        {
                             edits.push((
                                 "Domain",
                                 vec![set(key, &path, label, Value::Byte(v as u8))],
@@ -676,7 +678,7 @@ fn class_list(
                 ui.label("School");
                 let current = c.integer("School");
                 if let Some(v) =
-                    optional_pick(ui, key, &format!("class{i}-school"), schools, current)
+                    optional_pick(ui, picks, &format!("class{i}-school"), schools, current)
                 {
                     edits.push(("School", vec![set(key, &path, "School", Value::Byte(v as u8))]));
                 }
@@ -716,6 +718,7 @@ fn classes_together(
     class_int: &dyn Fn(i64, &str) -> Option<i64>,
 ) {
     let key = f.key;
+    let picks = f.picks();
     let targets = f.list_targets();
     let total = targets.len();
     let merged = lists::merged(&targets, "ClassList", lists::class);
@@ -726,7 +729,7 @@ fn classes_together(
             let is = move |e: &Struct| lists::class(e) == Some(class);
             let c = &m.entry;
             ui.label(format!("Class {}", i + 1));
-            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), all, class) {
+            if let Some(v) = situated::pick(ui, picks, &format!("class{i}"), all, class) {
                 change = Some(("Class", lists::change_class(&targets, class, v as i32), "Set on"));
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
@@ -766,7 +769,7 @@ fn classes_together(
             let mut picked = |ui: &mut Ui, name: &str, label: &str, choices: &[Choice]| {
                 let differs = lists::differs(&targets, "ClassList", is, |e| e.integer(label));
                 f.mark_if(ui, &format!("{label}#{class}"), differs);
-                if let Some(v) = optional_pick(ui, key, name, choices, c.integer(label)) {
+                if let Some(v) = optional_pick(ui, picks, name, choices, c.integer(label)) {
                     let out = lists::set(&targets, "ClassList", is, &[label], |_, _| {
                         Some(Value::Byte(v as u8))
                     });
@@ -804,12 +807,12 @@ fn classes_together(
 /// decides, as it does for a cleric without domains); the row picked.
 fn optional_pick(
     ui: &mut Ui,
-    key: ResKey,
+    of: egui::Id,
     name: &str,
     choices: &[Choice],
     current: Option<i64>,
 ) -> Option<i64> {
-    let id = egui::Id::new(("pick", key, name));
+    let id = of.with(name);
     crate::widgets::row_choice(id, choices, current).unset("Not set").width(100.0).show(ui)
 }
 
@@ -856,7 +859,7 @@ fn associates(
             crate::widgets::field_label(ui, title);
             f.mark_mixed(ui, type_label);
             let current = f.root.integer(type_label);
-            if let Some(v) = optional_pick(ui, f.key, type_label, kinds, current) {
+            if let Some(v) = optional_pick(ui, f.picks(), type_label, kinds, current) {
                 f.set_int(title, type_label, v, FieldType::Int);
             }
             crate::widgets::field_label(ui, "Name");

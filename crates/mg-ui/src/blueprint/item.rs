@@ -378,7 +378,7 @@ fn pictured(
     wheel: bool,
 ) -> Option<i64> {
     let female = on_woman(f);
-    let key = f.key;
+    let picks = f.picks();
     let (app, root) = (&mut *f.app, &f.root);
     // (An armor's part: that part alone too.)
     let pieces = (ARMOR_PARTS.iter().chain(&LOWER_PARTS))
@@ -389,7 +389,7 @@ fn pictured(
         let item = labels.iter().fold(root.clone(), |item, label| with_model(&item, label, n));
         super::item_part_picture(app, ui, &item, female, pieces);
     };
-    let list = super::situated::pick_list(key, name, choices, current, PART_WIDTH).ordered();
+    let list = super::situated::pick_list(picks, name, choices, current, PART_WIDTH).ordered();
     let list = if wheel { list.wheel() } else { list };
     list.about(&mut shown).show(ui)
 }
@@ -975,7 +975,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         let list = f.root.list("PropertiesList").unwrap_or(&[]);
         list.iter().map(|e| Assigned { p: ItemProperty::from_gff(e), having: 1 }).collect()
     };
-    let state_id = egui::Id::new(("uti-props", key));
+    let state_id = f.id("uti-props");
     // (available type chosen, its subtype chosen, assigned index chosen)
     let (mut chosen, mut chosen_sub, mut selected): (Option<u16>, Option<u16>, Option<usize>) =
         ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
@@ -1192,9 +1192,13 @@ fn property_editor(
             let subtypes = game.property_subtype_list(&t, base);
             if !subtypes.is_empty() {
                 crate::widgets::field_label(ui, "Sub-Property");
-                if let Some(v) =
-                    super::situated::pick(ui, f.key, "prop-sub", &subtypes, i64::from(p.subtype))
-                {
+                if let Some(v) = super::situated::pick(
+                    ui,
+                    f.picks(),
+                    "prop-sub",
+                    &subtypes,
+                    i64::from(p.subtype),
+                ) {
                     changes.push(("Subtype", Value::Word(v as u16)));
                     // The parameter follows the subtype's table.
                     let table = game.property_param_table(&t, v as u16);
@@ -1212,7 +1216,7 @@ fn property_editor(
                 crate::widgets::field_label(ui, "Cost Parameter");
                 if let Some(v) = super::situated::pick_ordered(
                     ui,
-                    f.key,
+                    f.picks(),
                     "prop-cost",
                     &costs,
                     i64::from(p.cost_value),
@@ -1228,7 +1232,7 @@ fn property_editor(
                 crate::widgets::field_label(ui, "Parameter 1");
                 if let Some(v) = super::situated::pick_ordered(
                     ui,
-                    f.key,
+                    f.picks(),
                     "prop-param",
                     &params,
                     i64::from(p.param1_value),

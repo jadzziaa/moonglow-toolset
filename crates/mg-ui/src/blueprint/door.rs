@@ -102,9 +102,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Generic Appearance");
         f.mark_mixed(ui, mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
+            let picks = f.picks();
             let app = &mut *f.app;
             let mut shown = |ui: &mut Ui, row| super::generic_door_picture(app, ui, row);
-            let list = situated::pick_list(f.key, "generic", &generic, current, 220.0);
+            let list = situated::pick_list(picks, "generic", &generic, current, 220.0);
             if let Some(v) = list.about(&mut shown).show(ui) {
                 let mut fields = vec![("GenericType_New", v, FieldType::Dword)];
                 if f.root.get("GenericType").is_some() && v <= 255 {

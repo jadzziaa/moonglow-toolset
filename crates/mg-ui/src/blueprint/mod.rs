@@ -715,6 +715,19 @@ pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
     made
 }
 
+/// The id a Properties window keeps a piece of its state by (`name`): its
+/// own, by the object it shows (`key`, and `path` in it), so two windows
+/// of one area's objects share none. A placed object's window keeps its
+/// ids as it follows its object ([`Moonglow::window_ids`]).
+fn window_state_id(app: &Moonglow, key: ResKey, path: &GffPath, name: &str) -> egui::Id {
+    if key.restype == ResType::GIT
+        && let Some(id) = app.window_ids.get(&(key.resref, path.clone()))
+    {
+        return id.with(("blueprint", name));
+    }
+    egui::Id::new(("blueprint", key, path, name))
+}
+
 /// After a frame: what the pages keep while they are drawn, let go of
 /// for those that were not (`replacements::let_go_of_unseen`).
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, ctx: &egui::Context) {
@@ -904,14 +917,13 @@ impl Form<'_> {
     }
 
     fn id(&self, name: &str) -> egui::Id {
-        // (A placed object's window keeps its widgets' ids as it follows
-        // its object.)
-        if self.key.restype == ResType::GIT
-            && let Some(id) = self.app.window_ids.get(&(self.key.resref, self.path.clone()))
-        {
-            return id.with(("blueprint", name));
-        }
-        egui::Id::new(("blueprint", self.key, &self.path, name))
+        window_state_id(self.app, self.key, &self.path, name)
+    }
+
+    /// The id its lists are kept by (`situated::pick_list` and the
+    /// others): the window's own.
+    pub(crate) fn picks(&self) -> egui::Id {
+        self.id("pick")
     }
 
     fn target(&self, label: &str) -> FieldTarget {
@@ -1512,7 +1524,7 @@ impl Form<'_> {
             };
             l.palette(palette)
         };
-        let id = ("palette-color", self.key, label);
+        let id = ("palette-color", self.id(label));
         crate::widgets::palette_color(ui, id, pal.as_deref(), what, current, text)
     }
 
@@ -2076,9 +2088,19 @@ pub(crate) fn edit_many(
             also.len() + 1
         ));
     }
-    let note_id = egui::Id::new(("several-note", key));
-    if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
-        ui.colored_label(ui.visuals().warn_fg_color, note);
+    // (Its own, by its first object: by the document, every Properties
+    // window of that area's objects, a single one's too, showed it. And
+    // while the window is shown: one not drawn in the pass before is of a
+    // window closed since.)
+    let note_id = window_state_id(app, key, &path, "several-note");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let note = ui.data(|d| d.get_temp::<(String, u64)>(note_id));
+    match note.filter(|(_, drawn)| several && drawn + 1 >= pass) {
+        Some((note, _)) => {
+            ui.colored_label(ui.visuals().warn_fg_color, &note);
+            ui.data_mut(|d| d.insert_temp(note_id, (note, pass)));
+        }
+        None => ui.data_mut(|d| d.remove::<(String, u64)>(note_id)),
     }
     let pending = app.actions.len();
     if viewed {
@@ -2136,12 +2158,17 @@ pub(crate) fn edit_many(
                 kept.push(action);
             }
         }
+        // (A change made, with nothing to say of it: the note of the one
+        // before is taken down.)
+        let changed = kept.iter().any(|a| matches!(a, Action::Apply(_) | Action::ApplyTyped(_)));
         app.actions.extend(kept);
         if dropped {
             let note = format!("That change can only be made to one {one} at a time.");
-            ui.data_mut(|d| d.insert_temp(note_id, note));
+            ui.data_mut(|d| d.insert_temp(note_id, (note, pass)));
         } else if let Some(said) = form.together.said.take() {
-            ui.data_mut(|d| d.insert_temp(note_id, said));
+            ui.data_mut(|d| d.insert_temp(note_id, (said, pass)));
+        } else if changed {
+            ui.data_mut(|d| d.remove::<(String, u64)>(note_id));
         }
     }
     window_drawn(form.app, pending, &tab, &targets, pressed);

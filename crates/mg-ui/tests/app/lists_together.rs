@@ -859,6 +859,28 @@ fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
     assert!(given.iter().all(|f| f.contains(&first)), "{given:?}");
     assert_eq!(given[0], before[0]);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add feat"));
+    // What a window of several says of a change is its own, and goes
+    // with it (the review's B28: kept by the document, the first one's
+    // own Properties showed it too, for the rest of the session).
+    undo(&mut h);
+    let boxes: Vec<_> = h
+        .get_all_by_label(&name)
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::CheckBox)
+        .collect();
+    boxes[0].click();
+    h.run();
+    let said = "Added to 2; left: mg_b: has it already";
+    assert!(h.query_by_label_contains(said).is_some());
+    close_tab(h.state_mut(), &Tab::Blueprints(keys.clone()));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(keys[0])));
+    h.run();
+    h.run();
+    assert!(h.query_by_label_contains(said).is_none(), "not the first one's own window's");
+    close_tab(h.state_mut(), &Tab::Blueprint(keys[0]));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprints(keys.clone())));
+    h.run();
+    h.run();
+    assert!(h.query_by_label_contains(said).is_none(), "nor the window's opened again");
 }
 
 /// Advanced Search's Add an Item and Remove an Item, through the same
