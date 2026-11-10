@@ -424,6 +424,12 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
     let jui = key(ResType::JUI)?;
     let data = w.module.get(&jui).ok_or(Error::Missing(jui))?;
     let mut window = mg_nui::parse(data).map_err(|e| Error::Read(jui, e))?;
+    // A window is an object: text that reads as a list or a number is not
+    // one, as the editor says of it (and what sets a field of it below, a
+    // variant's root among them, would panic).
+    if !window.is_object() {
+        return Err(Error::Read(jui, mg_nui::NuiError::Json(super::NOT_A_WINDOW.into())));
+    }
     let txt = key(ResType::TXT)?;
     let mut settings = match w.module.get(&txt) {
         Some(b) => Settings::parse(b).map_err(|e| Error::Read(txt, e))?,
@@ -480,9 +486,7 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
             return Err(Error::Id(id.clone(), ids.into_iter().collect()));
         }
     }
-    if let Some([width, height]) = o.size
-        && window.is_object()
-    {
+    if let Some([width, height]) = o.size {
         // A geometry from a bind takes the size in the bind's first value.
         let geometry = match window["geometry"]["bind"].as_str().map(str::to_owned) {
             Some(bind) => &mut settings.bindings.entry(bind).or_default().value,
@@ -775,6 +779,33 @@ mod tests {
             l.issues.iter().filter(|i| i.contains("rows are laid out")).collect::<Vec<_>>(),
             ["/root/children/1: only the first 512 of its 600 rows are laid out"]
         );
+    }
+
+    /// A JUI that is no object is refused as the editor refuses it, with a
+    /// variant asked for too (`mg nui layout w --variant v` on a `w.jui`
+    /// that is `[]` panicked: "cannot access key "root" in JSON array").
+    #[test]
+    fn a_window_that_is_no_object_is_refused_not_indexed() {
+        let settings = json!({"format": mg_nui::FORMAT,
+            "views": {"v": {"type": "col", "children": []}},
+            "view_targets": {"v": "_window_"}});
+        for jui in [json!([]), json!("text"), json!(7), Value::Null, json!([{"root": {}}])] {
+            let module = module_with(&jui, Some(&settings));
+            let w = Window { module: &module, resman: None, game: None, name: "w" };
+            for o in [
+                Options { variants: vec!["v".into()], ..Default::default() },
+                Options { size: Some([300.0, 200.0]), ..Default::default() },
+                Options::default(),
+            ] {
+                let refused = layout(&w, &o).unwrap_err();
+                assert!(matches!(refused, Error::Read(..)), "{jui}: {refused:?}");
+                assert!(refused.to_string().starts_with("w.jui: A window is a JSON object"));
+            }
+            // (The canvas's own way to the variant, which the editor never
+            // takes with such a window.)
+            let s = Settings::parse(settings.to_string().as_bytes()).unwrap();
+            assert_eq!(layouts::context_document(&jui, &s, "v", "_window_"), None);
+        }
     }
 
     /// What is kept of a placed control is its own fields: its binds, its

@@ -763,6 +763,10 @@ fn texts(ui: &mut Ui, module: &mg_module::Module, key: ResKey) -> Option<Frame> 
     Some(Frame { key, name, raw, original, config_key, config_raw, config_original })
 }
 
+/// What is said of a JUI that reads as JSON but is no object: in the
+/// editor, and by `mg nui layout` and `render` ([`headless`]).
+const NOT_A_WINDOW: &str = "A window is a JSON object ({ … }): this text is not one";
+
 /// The window and its settings parsed, and the checks run on them: each
 /// again only when the module holds other bytes than last frame, kept in
 /// `state` between.
@@ -779,7 +783,7 @@ fn check(module: &mg_module::Module, frame: &Frame, state: &mut State) -> Checke
         let window = mg_nui::parse(frame.raw.as_bytes()).map_err(|e| e.to_string()).and_then(|v| {
             match v.is_object() {
                 true => Ok(v),
-                false => Err("A window is a JSON object ({ … }): this text is not one".to_string()),
+                false => Err(NOT_A_WINDOW.to_string()),
             }
         });
         if let Ok(doc) = &window {

@@ -158,7 +158,9 @@ fn context_document_inner(
     target: &str,
     visited: &mut std::collections::BTreeSet<String>,
 ) -> Option<Value> {
-    if !visited.insert(view.into()) {
+    // (A window that is no object has no root to show a variant in:
+    // `result["root"]` below would panic on a list or a number.)
+    if !doc.is_object() || !visited.insert(view.into()) {
         return None;
     }
     let layout = s.variants.get(view)?;
