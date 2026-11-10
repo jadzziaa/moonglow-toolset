@@ -431,7 +431,7 @@ impl Watcher {
             step.written.push(name);
         }
         let list: String = written.iter().map(|n| format!("{n}\n")).collect();
-        std::fs::write(self.dev_dir.join(WRITTEN), list)?;
+        crate::write_bytes_whole(&self.dev_dir.join(WRITTEN), list.as_bytes())?;
         // (For the next build, too.)
         self.build()?;
         Ok(step)

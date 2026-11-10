@@ -782,7 +782,7 @@ pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
         Some(path) => path.to_path_buf(),
         None => PathBuf::from(format!("{}-{}.zip", m.id, m.version)),
     };
-    std::fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
+    crate::write_bytes_whole(&path, &bytes)?;
     let package = mg_plugin::Package::read(&bytes).map_err(|e| anyhow!("{e}"))?;
     let files: Vec<&str> = package.files().collect();
     let mut out = Output::new(json!({

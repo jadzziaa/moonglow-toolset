@@ -129,7 +129,8 @@ pub(crate) fn twoda(args: &Args<'_>, cp: Codepage) -> Result<Output> {
         lines(&mut out, &d, &[&b, &a], "");
         if let Some(file) = args.changes {
             let edits = edit_file(&resource, &b, args.b, cp, &format!("Update {resource}"))?;
-            std::fs::write(file, serde_json::to_string_pretty(&edits)? + "\n")?;
+            let text = serde_json::to_string_pretty(&edits)? + "\n";
+            crate::write_bytes_whole(file, text.as_bytes())?;
         }
         out.note(match d.is_empty() {
             true => "the tables are the same".to_string(),
@@ -175,13 +176,13 @@ pub(crate) fn twoda(args: &Args<'_>, cp: Codepage) -> Result<Output> {
         return Ok(out);
     }
     if let Some(file) = args.output {
-        std::fs::write(file, written_like(&merged.table, args.a, cp)?)
-            .with_context(|| file.display().to_string())?;
+        crate::write_bytes_whole(file, &written_like(&merged.table, args.a, cp)?)?;
     }
     if let Some(file) = args.changes {
         let label = format!("Merge {resource}");
         let edits = edit_file(&resource, &merged.table, args.a, cp, &label)?;
-        std::fs::write(file, serde_json::to_string_pretty(&edits)? + "\n")?;
+        let text = serde_json::to_string_pretty(&edits)? + "\n";
+        crate::write_bytes_whole(file, text.as_bytes())?;
     }
     out.note(format!(
         "merged: {} cells from A, {} from B, {} changed by both",
@@ -270,7 +271,7 @@ pub(crate) fn tlk(args: &Args<'_>, cp: Codepage) -> Result<Output> {
         if let Some(file) = args.changes {
             let changed: Vec<u32> = d.iter().map(|c| c.line).collect();
             let text = serde_json::to_string_pretty(&lines_file(&b, &changed, cp))? + "\n";
-            std::fs::write(file, text).with_context(|| file.display().to_string())?;
+            crate::write_bytes_whole(file, text.as_bytes())?;
         }
         out.note(match d.is_empty() {
             true => "the tables are the same".to_string(),
@@ -316,12 +317,12 @@ pub(crate) fn tlk(args: &Args<'_>, cp: Codepage) -> Result<Output> {
         return Ok(out);
     }
     if let Some(file) = args.output {
-        std::fs::write(file, merged.to_bytes()?).with_context(|| file.display().to_string())?;
+        crate::write_bytes_whole(file, &merged.to_bytes()?)?;
     }
     if let Some(file) = args.changes {
         let changed: Vec<u32> = mg_tlk::diff::diff(&base, &merged).iter().map(|c| c.line).collect();
         let text = serde_json::to_string_pretty(&lines_file(&merged, &changed, cp))? + "\n";
-        std::fs::write(file, text).with_context(|| file.display().to_string())?;
+        crate::write_bytes_whole(file, text.as_bytes())?;
     }
     out.note(format!(
         "merged: {} lines from A, {} from B, {} changed by both",

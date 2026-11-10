@@ -76,6 +76,8 @@ mod vars;
 mod verify;
 #[path = "../watch.rs"]
 mod watch;
+#[path = "../written_whole.rs"]
+mod written_whole;
 
 /// `mg`, as every test here starts it: with Moonglow's data and cache
 /// folders (what it remembers of the scripts it compiled, the language

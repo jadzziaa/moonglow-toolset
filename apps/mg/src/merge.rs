@@ -182,7 +182,7 @@ pub(crate) fn merge_gff(args: &Args<'_>) -> Result<Output> {
     };
     let unchanged = taken == "ours" && args.output.is_none();
     if !unchanged {
-        std::fs::write(target, &bytes).with_context(|| target.display().to_string())?;
+        crate::write_bytes_whole(target, &bytes)?;
     }
     out.json["written"] = json!((!unchanged).then(|| target.display().to_string()));
     out.json["result"] = json!(taken);
@@ -257,7 +257,7 @@ pub(crate) fn merge_claims(args: &Args<'_>) -> Result<Output> {
         } else {
             Codepage::WINDOWS_1252.encode_lossy(&merged.text)
         };
-        std::fs::write(target, data).with_context(|| target.display().to_string())?;
+        crate::write_bytes_whole(target, &data)?;
     }
     out.json["written"] = json!((!unchanged).then(|| target.display().to_string()));
     out.note(match merged.conflicts.len() {
