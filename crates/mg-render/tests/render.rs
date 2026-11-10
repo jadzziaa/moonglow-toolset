@@ -6098,9 +6098,10 @@ fn a_view_keeps_its_own_from_frame_to_frame() {
     assert_eq!(casts, [true, true, false, false], "each view's map drawn once");
     let kept = r.kept_for(&area_targets).expect("the area's");
     assert!(kept.sun_map && kept.stencil_target.is_none() && kept.line_shapes == 1, "{kept:?}");
-    // (And a bind group on the area's depth copy, or the other view's.)
+    // (And a bind group on each view's own depth copy: one for the
+    // renderer, two views with soft particles made it again each frame.)
     let other_kept = r.kept_for(&other_targets).expect("the other's");
-    assert!(kept.copies != other_kept.copies, "{kept:?} {other_kept:?}");
+    assert!(kept.copies && other_kept.copies, "{kept:?} {other_kept:?}");
     // High: a stencil target each, of its own size, kept across the other's
     // frame.
     r.shadow_volumes = true;

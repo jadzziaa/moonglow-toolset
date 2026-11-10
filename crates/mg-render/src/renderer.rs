@@ -516,7 +516,6 @@ pub struct Renderer {
     /// and the last target's, by its copies' number.
     particle_depth_layout: wgpu::BindGroupLayout,
     particle_depth_none: wgpu::BindGroup,
-    particle_depth: Option<(u64, wgpu::BindGroup)>,
     particle_pipelines: HashMap<ParticleBlend, wgpu::RenderPipeline>,
     particle_buffer: wgpu::Buffer,
     line_pipeline: wgpu::RenderPipeline,
@@ -605,6 +604,10 @@ struct ViewState {
     sun: Option<crate::shadow::SunMap>,
     /// The stencil volumes' target, while the view's frames lay them.
     stencil: Option<crate::volume::StencilTarget>,
+    /// The soft particles' bind group on the view's framebuffer copies
+    /// (their number): one for the renderer, two views with soft particles
+    /// in a frame made it again each.
+    particle_depth: Option<(u64, wgpu::BindGroup)>,
 }
 
 /// What the renderer keeps for a view ([`Renderer::kept_for`]).
@@ -1433,7 +1436,6 @@ impl Renderer {
             particle_frame,
             particle_depth_layout,
             particle_depth_none,
-            particle_depth: None,
             particle_pipelines,
             particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_pipeline,
@@ -3313,10 +3315,10 @@ impl Renderer {
                         || game_blended.iter().any(|d| d.pipeline.wants_fb))
         });
         if let Some(c) = copying
-            && self.particle_depth.as_ref().is_none_or(|(id, _)| *id != c.id)
+            && kept_view.particle_depth.as_ref().is_none_or(|(id, _)| *id != c.id)
         {
             let group = particle_depth_group(&gpu.device, &self.particle_depth_layout, &c.depth);
-            self.particle_depth = Some((c.id, group));
+            kept_view.particle_depth = Some((c.id, group));
         }
         self.game.set_framebuffer(copying.map(|c| crate::game::FbViews {
             color: c.color.clone(),
@@ -3575,7 +3577,7 @@ impl Renderer {
                 }
                 if !own_bound {
                     pass.set_bind_group(0, &self.particle_frame, &[]);
-                    let depth = match (copying, &self.particle_depth) {
+                    let depth = match (copying, &kept_view.particle_depth) {
                         (Some(c), Some((id, group))) if *id == c.id => group,
                         _ => &self.particle_depth_none,
                     };
@@ -3632,9 +3634,6 @@ impl Renderer {
 
     /// Lets go of the bind groups on the framebuffer copies numbered `id`.
     fn forget_copies(&mut self, id: u64) {
-        if self.particle_depth.as_ref().is_some_and(|(of, _)| *of == id) {
-            self.particle_depth = None;
-        }
         self.game.forget_framebuffer(id);
     }
 
@@ -3649,9 +3648,10 @@ impl Renderer {
     #[doc(hidden)]
     pub fn kept_for(&self, targets: &Targets) -> Option<ViewKept> {
         let id = targets.copies.id;
-        let copies = self.particle_depth.as_ref().is_some_and(|(of, _)| *of == id)
-            || self.game.holds_framebuffer(id);
         let state = self.views.of(Some(id));
+        let copies = state
+            .is_some_and(|s| s.particle_depth.as_ref().is_some_and(|(of, _)| *of == id))
+            || self.game.holds_framebuffer(id);
         (copies || state.is_some()).then(|| ViewKept {
             copies,
             sun_map: state.is_some_and(|s| s.sun.is_some()),
