@@ -1607,7 +1607,11 @@ fn frames_at_144_in_a_persistent_world() {
         h.event(egui::Event::Text("door".into()));
         h.run_steps(300);
         view(&mut h, &mut r, "module tree, a word in the Filter (300 areas' objects)", None);
-        click(&mut h, "×");
+        // Cleared, and the groups the word opened closed again, as the
+        // tree was for the views after (open, they cost what the tree
+        // listed whole does).
+        assert!(click(&mut h, "×"), "the Filter's clear button");
+        click(&mut h, "⏶");
     }
 
     palette(&mut h, BlueprintKind::Item, true, "");
