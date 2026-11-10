@@ -1778,7 +1778,8 @@ chooses the one edited (with no unsaved changes).
 
 **Move to Talk Table** in the String Edit window (the **…** beside a name
 or description) adds the text to the talk table as a new line and puts its
-StrRef in the string in place of the text. That's for translations, and
+StrRef in the string in place of the text; the line is added with the
+window's **OK** (Cancel adds nothing). That's for translations, and
 for text a server sends many times. The line is the next free one of the
 project's lines for typed text (below), at the table's end without them.
 It is not offered for a string with text in another language too: the

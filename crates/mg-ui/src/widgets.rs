@@ -60,6 +60,10 @@ pub struct LocStringEdit {
     original: LocString,
     /// Each language's tokens, read when its Token… is first opened.
     tokens: Vec<(Language, Vec<String>)>,
+    /// Move to Talk Table's line, added to the table at OK, and the
+    /// String Ref it was shown as taking: not added where the String Ref
+    /// was changed since, or the window canceled.
+    moved: Option<(String, mg_module::talk::Line)>,
 }
 
 impl LocStringEdit {
@@ -81,6 +85,7 @@ impl LocStringEdit {
             entries,
             original: value.clone(),
             tokens: Vec::new(),
+            moved: None,
         }
     }
 
@@ -148,32 +153,37 @@ impl VarRow {
     }
 }
 
-/// A variable's name.
-fn var_name(s: &Struct) -> &[u8] {
-    s.string("Name").unwrap_or_default()
+/// What a variable is told apart by: its name and its type. (The game
+/// keeps an int and a string of one name as two variables: `GetLocalInt`
+/// and `GetLocalString` each read their own.)
+fn var_key(s: &Struct) -> (&[u8], Option<&Value>) {
+    (s.string("Name").unwrap_or_default(), s.get("Type"))
 }
 
 /// What an edit of one object's variables (`before` to `after`) makes of
 /// another's (`theirs`): the variables added or changed are set on it (in
-/// place where it has one of that name, else at the end), those deleted
-/// are deleted from it, and it keeps its others as they are.
+/// place where it has one of that name and type, else at the end), those
+/// deleted are deleted from it, and it keeps its others as they are. (By
+/// name alone, a change to an int replaced the string of its name too on
+/// the others edited with it, and left them with two ints.)
 pub(crate) fn merge_variables(
     before: &[Struct],
     after: &[Struct],
     theirs: &[Struct],
 ) -> Vec<Struct> {
-    let had = |list: &[Struct], name: &[u8]| list.iter().any(|s| var_name(s) == name);
+    type Key<'a> = (&'a [u8], Option<&'a Value>);
+    let had = |list: &[Struct], key: Key<'_>| list.iter().any(|s| var_key(s) == key);
     let changed: Vec<&Struct> = after.iter().filter(|a| !before.contains(a)).collect();
     let mut out: Vec<Struct> = theirs
         .iter()
-        .filter(|s| !had(before, var_name(s)) || had(after, var_name(s)))
+        .filter(|s| !had(before, var_key(s)) || had(after, var_key(s)))
         .map(|s| {
-            let set = changed.iter().find(|c| var_name(c) == var_name(s));
+            let set = changed.iter().find(|c| var_key(c) == var_key(s));
             set.map_or_else(|| s.clone(), |c| (*c).clone())
         })
         .collect();
     for c in changed {
-        if !had(&out, var_name(c)) {
+        if !had(&out, var_key(c)) {
             out.push(c.clone());
         }
     }
@@ -1121,7 +1131,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         .hint_text("none"),
                 );
             });
-            if let Some(t) = &tlk {
+            // (A text on its way to the talk table: added with OK.)
+            let moving = edit.moved.as_ref().filter(|(at, _)| at == edit.strref.trim());
+            if let Some((_, line)) = moving {
+                ui.weak(format!("Talk table: {} (added with OK)", line.text));
+            } else if let Some(t) = &tlk {
                 ui.weak(format!("Talk table: {t}"));
             }
             if let Some((language, feminine)) = movable {
@@ -1155,16 +1169,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         sound: String::new(),
                         sound_length: 0.0,
                     };
-                    match crate::talk_view::add_line(app, &line) {
+                    // (The line is added at OK: added here, Cancel left it
+                    // in the table, named by nothing.)
+                    match crate::talk_view::next_strref(app) {
                         Ok(strref) => {
                             edit.strref = strref.0.to_string();
                             edit.entries.retain(|e| {
                                 e.0 != language || (e.1 == Gender::Female && !feminine)
                             });
-                            app.log.info(format!(
-                                "Added talk-table line {}; it's saved with the module",
-                                strref.0
-                            ));
+                            edit.moved = Some((edit.strref.clone(), line));
                         }
                         Err(e) => app.log.error(format!("Move to Talk Table: {e}")),
                     }
@@ -1241,13 +1254,38 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if ui.add_enabled(value.is_some(), egui::Button::new("OK")).clicked()
                     || (value.is_some() && crate::widgets::enter(ui))
                 {
-                    if let Some(v) = value.filter(|v| *v != edit.original) {
-                        app.actions.push(
-                            edit.target
-                                .command(&format!("Edit {}", edit.title), Value::LocString(v)),
-                        );
+                    // The text moved to the talk table is added now, where
+                    // the string still names its line. (Not added: the
+                    // window stays, with why in the log.)
+                    let mut value = value;
+                    let moved = edit.moved.take().filter(|(at, _)| at == edit.strref.trim());
+                    let added = moved.map(|(at, line)| {
+                        let added = crate::talk_view::add_line(app, &line);
+                        match &added {
+                            Ok(strref) => {
+                                edit.strref = strref.0.to_string();
+                                value = edit.value();
+                                app.log.info(format!(
+                                    "Added talk-table line {}; it's saved with the module",
+                                    strref.0
+                                ));
+                            }
+                            Err(e) => {
+                                app.log.error(format!("Move to Talk Table: {e}"));
+                                edit.moved = Some((at, line));
+                            }
+                        }
+                        added.is_ok()
+                    });
+                    if added != Some(false) {
+                        if let Some(v) = value.filter(|v| *v != edit.original) {
+                            app.actions.push(
+                                edit.target
+                                    .command(&format!("Edit {}", edit.title), Value::LocString(v)),
+                            );
+                        }
+                        close = true;
                     }
-                    close = true;
                 }
                 if cancel(ui) {
                     close = true;
@@ -4814,6 +4852,51 @@ mod tests {
         assert_eq!(merge_variables(&before, &after, &[]), [var("MUSIC", 2), var("NEW", 9)]);
         // Nothing changed: nothing changes.
         assert_eq!(merge_variables(&before, &before, &theirs), theirs);
+    }
+
+    /// An int and a string of one name are two variables, as the game
+    /// keeps them: a change to the one leaves the other as it is on the
+    /// objects edited with it, a deletion takes the one deleted, and a
+    /// variable given another type is that one changed (the review's S27:
+    /// by name alone, the change replaced both).
+    #[test]
+    fn a_variable_edit_merges_by_name_and_type() {
+        let int = |name: &str, value: i32| {
+            let mut s = Struct::new(0);
+            s.set("Name", Value::String(name.as_bytes().to_vec()));
+            s.set("Type", Value::Dword(1));
+            s.set("Value", Value::Int(value));
+            s
+        };
+        let string = |name: &str, value: &str| {
+            let mut s = Struct::new(0);
+            s.set("Name", Value::String(name.as_bytes().to_vec()));
+            s.set("Type", Value::Dword(3));
+            s.set("Value", Value::String(value.as_bytes().to_vec()));
+            s
+        };
+        // The int changed; the string of its name untouched.
+        let before = [int("KIND", 1), string("KIND", "smith")];
+        let after = [int("KIND", 2), string("KIND", "smith")];
+        let theirs = [string("KIND", "tanner"), int("KIND", 1), int("OWN", 3)];
+        assert_eq!(
+            merge_variables(&before, &after, &theirs),
+            [string("KIND", "tanner"), int("KIND", 2), int("OWN", 3)]
+        );
+        // One with the string alone gets the int beside it.
+        assert_eq!(
+            merge_variables(&before, &after, &[string("KIND", "tanner")]),
+            [string("KIND", "tanner"), int("KIND", 2)]
+        );
+        // The string deleted: theirs goes, their int stays.
+        let after = [int("KIND", 1)];
+        assert_eq!(merge_variables(&before, &after, &theirs), [int("KIND", 1), int("OWN", 3)]);
+        // An int made a string: the int goes, the string is set.
+        let (before, after) = ([int("DC", 15)], [string("DC", "hard")]);
+        assert_eq!(
+            merge_variables(&before, &after, &[int("OWN", 3), int("DC", 20)]),
+            [int("OWN", 3), string("DC", "hard")]
+        );
     }
 
     fn target() -> FieldTarget {

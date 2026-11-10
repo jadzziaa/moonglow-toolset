@@ -319,15 +319,26 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     }
 }
 
-/// Adds a line to the module's talk table (String Edit › Move to Talk
-/// Table); returns its StrRef.
-pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String> {
+/// The line a text moved into the module's talk table would take now
+/// ([`add_line`]): the next free one of the project's range, as typed
+/// text takes one; the table's end without one.
+fn line_to_add(app: &mut Moonglow) -> Result<usize, String> {
     load(app);
     let own = !app.talk_view.outside;
     let t = app.talk.as_ref().filter(|t| own && t.editable()).ok_or("no talk table to add to")?;
-    // (At the next free line of the project's range, as typed text takes
-    // one; at the end without one.)
-    let row = crate::talk_typed::next_line(app, t)?;
+    crate::talk_typed::next_line(app, t)
+}
+
+/// The StrRef [`add_line`] would give a line added now (String Edit shows
+/// it from Move to Talk Table on, and adds the line at OK).
+pub(crate) fn next_strref(app: &mut Moonglow) -> Result<StrRef, String> {
+    line_to_add(app).map(Table::strref)
+}
+
+/// Adds a line to the module's talk table (String Edit › Move to Talk
+/// Table, at its OK); returns its StrRef.
+pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String> {
+    let row = line_to_add(app)?;
     let t = app.talk.as_mut().expect("checked");
     if row == t.len() {
         t.add_line(line)?;
