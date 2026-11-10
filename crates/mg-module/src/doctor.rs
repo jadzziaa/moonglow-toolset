@@ -833,7 +833,7 @@ struct Doctor<'a> {
     /// What Verify leaves out: never pushed.
     skip: &'a Skip,
     out: Vec<Finding>,
-    tables: HashMap<String, Option<TwoDa>>,
+    tables: HashMap<String, Option<std::sync::Arc<TwoDa>>>,
     /// Why each model an object names couldn't be read (`None`: it was,
     /// or it is the game's own), read once a run.
     models_read: HashMap<ResKey, Option<String>>,
@@ -900,9 +900,15 @@ impl<'a> Doctor<'a> {
                 .ok()
                 .and_then(|r| self.rm.get(&ResKey::new(r, ResType::TWODA)).ok())
                 .and_then(|d| TwoDa::parse(&d, Codepage::default()).ok());
-            self.tables.insert(name.to_string(), t);
+            self.tables.insert(name.to_string(), t.map(std::sync::Arc::new));
         }
-        self.tables[name].as_ref()
+        self.tables[name].as_deref()
+    }
+
+    /// [`table`](Self::table), to hand on.
+    fn table_shared(&mut self, name: &str) -> Option<std::sync::Arc<TwoDa>> {
+        self.table(name)?;
+        self.tables[name].clone()
     }
 
     /// Why model `name` (an object's appearance's or one of its parts')
@@ -2587,11 +2593,54 @@ pub fn table_faults(
     tables: Option<&TableOf>,
     tlk: TalkTables,
 ) -> Vec<CellFault> {
+    // (A table is there where it reads.)
+    let there = |n: &str| tables.is_some_and(|read| read(n).is_some());
+    let others = tables.map(|read| Others { read, there: &there });
+    let mut out: Vec<CellFault> = (cell_faults(name, t, kinds, others.as_ref(), tlk).into_iter())
+        .map(|f| CellFault { row: f.row, column: f.column, message: f.message })
+        .collect();
+    out.sort_by_key(|f| (f.row, f.column));
+    out
+}
+
+/// How the cells' rule reads the other tables: a table's rows, and
+/// whether a table is there at all (Verify asks the game data, which has
+/// a table it can't read too).
+struct Others<'a> {
+    read: &'a TableOf<'a>,
+    there: &'a dyn Fn(&str) -> bool,
+}
+
+/// A cell that is wrong, with what its column holds: what the one rule of
+/// a table's cells finds ([`cell_faults`]), for the 2DA editor
+/// ([`table_faults`]) and for Verify ([`two_da`]) to say each in its way.
+struct KindFault {
+    row: usize,
+    /// The column's place in the table, and its name as the checks have it.
+    column: usize,
+    label: &'static str,
+    kind: ColumnKind,
+    /// The row of a table that the cell names (a [`ColumnKind::Row`]'s).
+    names: Option<(&'static str, usize)>,
+    message: String,
+}
+
+/// The rule of a table's cells, written once: what is wrong in the cells
+/// of the table `name`, by what its columns hold (`kinds`), a column
+/// after another and each from its first row down.
+fn cell_faults(
+    name: &str,
+    t: &TwoDa,
+    kinds: &[(&'static str, ColumnKind)],
+    others: Option<&Others>,
+    tlk: TalkTables,
+) -> Vec<KindFault> {
     let mut out = Vec::new();
     for (column, kind) in kinds {
         let Some(at) = t.column(column) else { continue };
         for row in 0..t.len() {
             let Some(text) = t.cell(row, at) else { continue };
+            let mut names = None;
             let message = match kind {
                 ColumnKind::StrRef => mg_2da::parse_int(text)
                     .and_then(|v| u32::try_from(v).ok())
@@ -2606,27 +2655,27 @@ pub fn table_faults(
                 ColumnKind::Model | ColumnKind::Script => None,
                 ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {
                     let named = mg_2da::parse_int(text).and_then(|v| row_named(name, column, v));
-                    match (kind.row_table(t, row), named) {
-                        (Some(target), Some(named)) if target.eq_ignore_ascii_case(name) => {
+                    names = kind.row_table(t, row).zip(named);
+                    match names {
+                        Some((target, named)) if target.eq_ignore_ascii_case(name) => {
                             row_fault(t, target, named)
                         }
-                        (Some(target), Some(named)) => tables
-                            .and_then(|read| read(target))
+                        Some((target, named)) => others
+                            .and_then(|o| (o.read)(target))
                             .and_then(|other| row_fault(&other, target, named)),
-                        _ => None,
+                        None => None,
                     }
                 }
-                ColumnKind::Table => tables.and_then(|read| {
-                    let there = text.eq_ignore_ascii_case(name) || read(text.trim()).is_some();
+                ColumnKind::Table => others.and_then(|o| {
+                    let there = text.eq_ignore_ascii_case(name) || (o.there)(text.trim());
                     (!there).then(|| format!("{text}.2da, which it names, isn't there"))
                 }),
             };
             if let Some(message) = message {
-                out.push(CellFault { row, column: at, message });
+                out.push(KindFault { row, column: at, label: column, kind: *kind, names, message });
             }
         }
     }
-    out.sort_by_key(|f| (f.row, f.column));
     out
 }
 
@@ -2716,69 +2765,44 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     };
     // What its columns hold: its own, and those it has as a table that a
     // class, a race, a package or an item property names (by that column,
-    // or by its name as the game's own are named).
-    let mut kinds = column_kinds(&name);
-    for (naming, by, _, column, kind) in NAMED_TABLES {
-        if kinds.contains(&(column, kind)) {
-            continue;
-        }
-        let named = d.table(naming).is_some_and(|t| {
-            (0..t.len()).any(|r| t.get(r, by).is_some_and(|n| n.eq_ignore_ascii_case(&name)))
-        });
-        if named {
-            kinds.push((column, kind));
-        }
-    }
-    for (column, kind) in kinds {
-        if table.column(column).is_none() {
-            continue;
-        }
-        for row in (0..table.len()).filter(|r| changed(*r)) {
-            let at = format!("row {row}, {column}");
-            match kind {
-                ColumnKind::StrRef => {
-                    let Some(v) = table.get_int(row, column) else { continue };
-                    let Ok(v) = u32::try_from(v) else { continue };
-                    if let Some(p) = strref_problem(v, d.tlk) {
-                        let message = format!("string {v} doesn't exist: {p} (\"Bad Strref\")");
-                        d.push(Error, Check::TwoDaStrRef, source, key, at, message);
-                    }
-                }
-                ColumnKind::Model | ColumnKind::Script => {}
-                // Rows of other tables (as the module has them, this
-                // hak's and the others' over the game's).
-                ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {
-                    let Some(target) = kind.row_table(&table, row) else { continue };
-                    let Some(named) =
-                        table.get_int(row, column).and_then(|v| row_named(&name, column, v))
-                    else {
-                        continue;
-                    };
-                    let Some(other) = d.table(target) else { continue };
-                    let Some(message) = row_fault(other, target, named) else { continue };
-                    // (A cell as the copy below has it, wrong in the game's
-                    // own tables too, is the game's: appearance's
-                    // FOOTSTEPTYPE 30.)
-                    let kept = base.is_some_and(|b| b.get(row, column) == table.get(row, column));
-                    if kept
-                        && game_copy(d.rm, target)
-                            .is_some_and(|g| row_fault(&g, target, named).is_some())
-                    {
-                        continue;
-                    }
-                    d.push(Warning, Check::TwoDaRef, source, key, at, message);
-                }
-                // A table that is not there.
-                ColumnKind::Table => {
-                    let Some(named) = table.get(row, column) else { continue };
-                    let there = ResKey::parse(named.trim(), ResType::TWODA)
-                        .is_some_and(|k| d.rm.contains(&k));
-                    if !there {
-                        let message = format!("{named}.2da, which it names, isn't there");
-                        d.push(Warning, Check::TwoDaRef, source, key, at, message);
-                    }
-                }
+    // or by its name as the game's own are named). Its cells are held to
+    // the rule the 2DA editor holds them to as they are typed
+    // ([`cell_faults`]): the other tables as the module has them (this
+    // hak's and the others' over the game's), a table there where the
+    // game data has it.
+    let (rm, tlk) = (d.rm, d.tlk);
+    let found = {
+        let doctor = std::cell::RefCell::new(&mut *d);
+        let read = |n: &str| doctor.borrow_mut().table_shared(n);
+        let there = |n: &str| ResKey::parse(n, ResType::TWODA).is_some_and(|k| rm.contains(&k));
+        let kinds = column_kinds_as_named(&name, &read);
+        let others = Others { read: &read, there: &there };
+        cell_faults(&name, &table, &kinds, Some(&others), tlk)
+    };
+    // (Of the rows it adds or changes alone.)
+    for f in found.into_iter().filter(|f| changed(f.row)) {
+        let at = format!("row {}, {}", f.row, f.label);
+        match f.kind {
+            ColumnKind::StrRef => {
+                let message = format!("{} (\"Bad Strref\")", f.message);
+                d.push(Error, Check::TwoDaStrRef, source, key, at, message);
             }
+            ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {
+                // (A cell as the copy below has it, wrong in the game's
+                // own tables too, is the game's: appearance's
+                // FOOTSTEPTYPE 30.)
+                let kept = base.is_some_and(|b| b.get(f.row, f.label) == table.get(f.row, f.label));
+                let the_game_s = |(target, named): (&str, usize)| {
+                    game_copy(rm, target).is_some_and(|g| row_fault(&g, target, named).is_some())
+                };
+                if kept && f.names.is_some_and(the_game_s) {
+                    continue;
+                }
+                d.push(Warning, Check::TwoDaRef, source, key, at, f.message);
+            }
+            // A table that is not there.
+            ColumnKind::Table => d.push(Warning, Check::TwoDaRef, source, key, at, f.message),
+            ColumnKind::Model | ColumnKind::Script => {}
         }
     }
 }
@@ -3938,7 +3962,7 @@ fn walk_objects(
                     d.table(name);
                 }
                 let tables = &d.tables;
-                let lookup = |name: &str| tables.get(name).and_then(Option::as_ref);
+                let lookup = |name: &str| tables.get(name).and_then(Option::as_deref);
                 let parts = at.parts(s, &lookup, rm);
                 for p in &parts.problems {
                     out.push((path.field(p.field()), p.to_string(), p.problem.is_part()));
@@ -4498,9 +4522,18 @@ endmodelgeom fx\ndonemodel fx\n";
         for c in ["mdl-read", "tile-faces", "mdl-text"] {
             assert!(plain.iter().any(|f| f.check == c), "{c}: {plain:#?}");
         }
+        let kept = || -> Vec<String> {
+            (std::fs::read_dir(dir.join("verify")).unwrap())
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        };
         let (first, read_first) = run(&rm, Some(&cache));
         assert_eq!(first, plain);
         assert_eq!(read_first, ["fx.mdl", "loose.mdl", "tst_a01.mdl", "tst_b01.mdl"]);
+        // (Its file: its label, no folder, its version.)
+        let was = kept();
+        assert_eq!(was.len(), 1, "{was:?}");
+        assert!(was[0].starts_with("hak_stamped-00000000-") && was[0].ends_with(".json"));
         // As it was: only the folder's model is read, the findings the same.
         let (again, read_again) = run(&rm, Some(&cache));
         assert_eq!(again, plain);
@@ -4511,11 +4544,9 @@ endmodelgeom fx\ndonemodel fx\n";
         let (changed, read_changed) = run(&rm, Some(&cache));
         assert_eq!(changed, plain);
         assert_eq!(read_changed, ["fx.mdl", "loose.mdl", "tst_a01.mdl", "tst_b01.mdl"]);
-        let files: Vec<String> = std::fs::read_dir(dir.join("verify"))
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(files, ["hak_stamped-0000000000000008.json"]);
+        let now = kept();
+        assert_eq!(now.len(), 1, "{now:?}");
+        assert!(now[0].starts_with("hak_stamped-00000000-") && now != was, "{now:?} {was:?}");
     }
 
     /// What `mg verify --skip` and Options › Verify take: groups, checks
@@ -5504,6 +5535,49 @@ Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
             [("2da-row", "row 2".into()), ("2da-strref", "row 1, StrRef".into())]
         );
         assert_eq!(f, before);
+    }
+
+    /// Verify and the 2DA editor hold a table's cells to one rule (the
+    /// review's V21: it was written twice): a table with a fault of each
+    /// kind (a string, a row of another table, a table that isn't there)
+    /// has the same cells wrong in both, with the same words.
+    #[test]
+    fn verify_and_the_2da_editor_fault_the_same_cells() {
+        let classes = b"2DA V2.0\n\n   Label Name Package FeatsTable\n0  A 5 0 cls_feat_a\n\
+                        1  B 99999 9 cls_feat_none\n2  C 16777217 **** ****\n";
+        let packages = b"2DA V2.0\n\n   Label\n0  P\n";
+        let feats = b"2DA V2.0\n\n   FeatIndex\n0  0\n";
+        let rm = resman(&[
+            ("classes", ResType::TWODA, classes),
+            ("packages", ResType::TWODA, packages),
+            ("cls_feat_a", ResType::TWODA, feats),
+        ]);
+        let tlk = TalkTables { base: 100, custom: Some(1) };
+        let f = examine(&Module::new(), &rm, tlk);
+        let mut verify: Vec<(String, String)> = (f.iter())
+            .filter(|x| x.resource == key("classes", ResType::TWODA))
+            .filter(|x| x.check == "2da-strref" || x.check == "2da-ref")
+            .map(|x| (x.at.clone(), x.message.replace(" (\"Bad Strref\")", "")))
+            .collect();
+        verify.sort();
+        let read = |name: &str| {
+            let data = rm.get(&ResKey::parse(name, ResType::TWODA)?).ok()?;
+            TwoDa::parse(&data, Codepage::default()).ok().map(std::sync::Arc::new)
+        };
+        let t = read("classes").unwrap();
+        let kinds = column_kinds_as_named("classes", &read);
+        let mut editor: Vec<(String, String)> =
+            (table_faults("classes", &t, &kinds, Some(&read), tlk).into_iter())
+                .map(|x| (format!("row {}, {}", x.row, t.columns()[x.column]), x.message))
+                .collect();
+        editor.sort();
+        assert_eq!(verify, editor);
+        let cells: Vec<&str> = editor.iter().map(|(at, _)| at.as_str()).collect();
+        assert_eq!(
+            cells,
+            ["row 1, FeatsTable", "row 1, Name", "row 1, Package", "row 2, Name"],
+            "{editor:#?}"
+        );
     }
 
     #[test]
