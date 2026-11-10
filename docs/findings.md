@@ -298,6 +298,28 @@ asked for has them, and so the modifiers and the saves.
   `great_constitution_s_hit_points_are_the_engine_s_to_add`).
 - **Wiki:** missing.
 
+### The feats whose saves the engine hard-codes
+
+The game adds to a creature's saves for these feats, by feat.2da row,
+whatever the feat's own cells say: Great Fortitude (14), Lightning
+Reflexes (24) and Iron Will (22) 2 to their save; Epic Fortitude (583),
+Epic Reflexes (585) and Epic Will (695) 4 to theirs; Lucky (248) and Luck
+of Heroes (382) 1 to all three; Bullheaded (380) 1 to Will; Snake Blood
+(386) 1 to Reflex; Strong Soul (388) 1 to Fortitude and Will; Divine
+Grace (217) and Dark Blessing (473) the Charisma modifier to all three,
+each its own (a creature with both gets it twice).
+
+- **Checked:** in the game's server, `engine_saves.rs`
+  `save_feats_match_the_engine`: a fighter 10 of Charisma 18 with none
+  of them, with each, with Divine Grace and Dark Blessing together and
+  with the three epic ones, each save equal to the Statistics page's.
+  Through 3.18.1 the page left out the epic three, Dark Blessing,
+  Bullheaded, Snake Blood and Strong Soul (the code review of November
+  2026, G3).
+- **Moonglow:** `crates/mg-rules/src/creatures.rs` (`SAVE_FEATS`,
+  `creature_stats`).
+- **Wiki:** not looked for.
+
 ### Aurora's Levelup Wizard
 
 Levels are applied one at a time, in class-slot order:

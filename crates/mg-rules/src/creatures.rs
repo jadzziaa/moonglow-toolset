@@ -19,8 +19,33 @@ pub mod feat {
     pub const TOUGHNESS: u16 = 40;
     pub const DIVINE_GRACE: u16 = 217;
     pub const LUCKY: u16 = 248;
+    pub const BULLHEADED: u16 = 380;
     pub const LUCK_OF_HEROES: u16 = 382;
+    pub const SNAKEBLOOD: u16 = 386;
+    pub const STRONGSOUL: u16 = 388;
+    pub const DARK_BLESSING: u16 = 473;
+    pub const EPIC_FORTITUDE: u16 = 583;
+    pub const EPIC_REFLEXES: u16 = 585;
+    pub const EPIC_WILL: u16 = 695;
 }
+
+/// What each save feat the engine hard-codes adds to Fortitude, Reflex
+/// and Will (measured in the game, a creature a feat:
+/// `engine_saves.rs`'s `save_feats_match_the_engine`). Divine Grace and
+/// Dark Blessing add the Charisma modifier instead, each its own.
+const SAVE_FEATS: [(u16, [i32; 3]); 11] = [
+    (feat::GREAT_FORTITUDE, [2, 0, 0]),
+    (feat::LIGHTNING_REFLEXES, [0, 2, 0]),
+    (feat::IRON_WILL, [0, 0, 2]),
+    (feat::LUCKY, [1, 1, 1]),
+    (feat::LUCK_OF_HEROES, [1, 1, 1]),
+    (feat::BULLHEADED, [0, 0, 1]),
+    (feat::SNAKEBLOOD, [0, 1, 0]),
+    (feat::STRONGSOUL, [1, 0, 1]),
+    (feat::EPIC_FORTITUDE, [4, 0, 0]),
+    (feat::EPIC_REFLEXES, [0, 4, 0]),
+    (feat::EPIC_WILL, [0, 0, 4]),
+];
 
 /// What the statistics depend on (a creature's fields).
 #[derive(Debug, Clone, Default)]
@@ -225,20 +250,19 @@ impl GameData {
         for s in &mut saves_base {
             *s += epic;
         }
-        // Constitution, Dexterity, Wisdom; the save feats; luck.
+        // Constitution, Dexterity, Wisdom; the save feats ([`SAVE_FEATS`]);
+        // and the Charisma modifier for Divine Grace, and again for Dark
+        // Blessing (a paladin turned blackguard has both).
         let mut saves_modifier = [modifiers[2], modifiers[1], modifiers[4]];
-        for (i, f) in [feat::GREAT_FORTITUDE, feat::LIGHTNING_REFLEXES, feat::IRON_WILL]
-            .into_iter()
-            .enumerate()
-        {
-            if has(f) {
-                saves_modifier[i] += 2;
+        for (_, adds) in SAVE_FEATS.iter().filter(|(f, _)| has(*f)) {
+            for i in 0..3 {
+                saves_modifier[i] += adds[i];
             }
         }
-        let luck = i32::from(has(feat::LUCKY)) + i32::from(has(feat::LUCK_OF_HEROES));
-        let grace = if has(feat::DIVINE_GRACE) { modifiers[5].max(0) } else { 0 };
+        let charisma = modifiers[5].max(0);
+        let graces = i32::from(has(feat::DIVINE_GRACE)) + i32::from(has(feat::DARK_BLESSING));
         for m in &mut saves_modifier {
-            *m += luck + grace;
+            *m += charisma * graces;
         }
         let saves: [i32; 3] =
             std::array::from_fn(|i| saves_base[i] + saves_modifier[i] + c.save_bonus[i]);

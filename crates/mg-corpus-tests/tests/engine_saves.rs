@@ -181,3 +181,98 @@ fn great_constitution_s_hit_points_are_the_engine_s_to_add() {
     assert_eq!(engine["mg_great"], (plain_max + 60, plain_max + 60), "Moonglow's starts whole");
     assert_eq!(aurora.current_hit_points, great.current_hit_points);
 }
+
+/// The feats whose saves the engine hard-codes, one creature a feat: a
+/// fighter 10 of Charisma 18 with none of them, then with each (and Divine
+/// Grace with Dark Blessing, to see them add up). The Statistics page's
+/// saves are the game's for every one.
+const SAVE_FEATS: [(&str, &[u16]); 14] = [
+    ("none", &[]),
+    ("greatfort", &[14]),
+    ("ironwill", &[22]),
+    ("lightning", &[24]),
+    ("grace", &[217]),
+    ("lucky", &[248]),
+    ("bullhead", &[380]),
+    ("heroes", &[382]),
+    ("snake", &[386]),
+    ("strong", &[388]),
+    ("dark", &[473]),
+    ("gracedark", &[217, 473]),
+    ("epics", &[583, 585, 695]),
+    ("epicfort", &[583]),
+];
+
+#[test]
+fn save_feats_match_the_engine() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_save_feats");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut extra = Vec::new();
+    let mut ours = Vec::new();
+    let mut probes = String::new();
+    for (name, feats) in SAVE_FEATS {
+        let resref = ResRef::from_str(&format!("mg_sf_{name}")).unwrap();
+        let spec = CreatureSpec {
+            resref,
+            first_name: name.to_string(),
+            last_name: String::new(),
+            race: 6,
+            gender: 0,
+            appearance: 6,
+            portrait: 1,
+            faction: 1,
+            classes: vec![(4, 10)],
+            category: 0,
+        };
+        let mut utc = creature(&game, &spec, &|_| None);
+        utc.root.set("Cha", Value::Byte(18));
+        let list = utc.root.list_mut("FeatList").unwrap();
+        // (The wizard's own of these out, the case's in.)
+        let all: Vec<u16> = SAVE_FEATS.iter().flat_map(|(_, f)| f.iter().copied()).collect();
+        list.retain(|f| !f.integer("Feat").is_some_and(|f| all.contains(&(f as u16))));
+        for &feat in feats {
+            let mut f = Struct::new(1);
+            f.set("Feat", Value::Word(feat));
+            list.push(f);
+        }
+        let stats = game.creature_stats(&CreatureSheet::from_gff(&utc.root));
+        ours.push((name, stats.saves));
+        extra.push((ResKey::new(resref, ResType::UTC), utc.to_bytes().unwrap()));
+        probes += &format!(
+            "    o = CreateObject(OBJECT_TYPE_CREATURE, \"mg_sf_{name}\", l);\n    \
+             WriteTimestampedLogEntry(\"MG_SAVE {name}=\" + IntToString(GetIsObjectValid(o)) + \
+             \",\" + IntToString(GetFortitudeSavingThrow(o)) + \",\" + \
+             IntToString(GetReflexSavingThrow(o)) + \",\" + IntToString(GetWillSavingThrow(o)));\n"
+        );
+    }
+    let script = format!(
+        "void main()\n{{\n    location l = GetStartingLocation();\n    object o;\n{probes}    \
+         WriteTimestampedLogEntry(\"MG_DONE\");\n}}\n"
+    );
+    probe_module(&root, &dir, "mg_savefeats", &script, &[], &extra);
+    let run = run_server(&root, &dir, "mg_savefeats", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "{}", &run.log[run.log.len().saturating_sub(2000)..]);
+    let engine: std::collections::HashMap<String, Vec<i32>> = run
+        .values("MG_SAVE")
+        .into_iter()
+        .filter_map(|v| {
+            let (name, rest) = v.split_once('=')?;
+            Some((name.to_string(), rest.split(',').filter_map(|n| n.parse().ok()).collect()))
+        })
+        .collect();
+    let mut wrong = Vec::new();
+    for (name, saves) in ours {
+        let theirs = &engine[name];
+        assert_eq!(theirs[0], 1, "{name} was made");
+        if theirs[1..] != saves {
+            wrong.push(format!("{name}: ours {saves:?}, the engine's {:?}", &theirs[1..]));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
