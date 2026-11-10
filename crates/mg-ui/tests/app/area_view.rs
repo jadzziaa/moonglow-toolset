@@ -6787,3 +6787,55 @@ fn page_up_and_down_move_the_ghost_before_it_is_placed() {
     let z = list[1].float("Z").unwrap();
     assert!((z - top).abs() < 1e-3, "placed on the table: {z} ({top})");
 }
+
+/// One field of waypoint `i` of `area` set, as a command.
+fn set_waypoint(
+    h: &mut Harness<'_, Moonglow>,
+    area: ResRef,
+    i: usize,
+    label: &str,
+    value: mg_gff::Value,
+) {
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("WaypointList", i),
+        label: label.into(),
+        value: Some(value),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(label, vec![edit])));
+    h.run_steps(2);
+}
+
+/// The review's A7: an object moved in the view, the move undone and the
+/// module saved while another tab was in front. The view, shown again,
+/// compared the GIT with the one it had read whole (the same again) and
+/// kept the object where the move had put it: it has it where the module
+/// does.
+#[test]
+fn an_edit_undone_behind_another_tab_and_saved_is_undone_in_the_view() {
+    let Some((mut h, area)) = area_harness("undone-behind") else { return };
+    settle(&mut h);
+    let x = |h: &Harness<'_, Moonglow>| {
+        let model = h.state().area_views[&area].model.as_ref().unwrap();
+        model.object(mg_area::ObjectKind::Waypoint, 1).unwrap().position.x
+    };
+    assert!((x(&h) - 30.0).abs() < 1e-4);
+    set_waypoint(&mut h, area, 1, "XPosition", mg_gff::Value::Float(33.0));
+    assert!((x(&h) - 33.0).abs() < 1e-4, "moved in the view");
+    // (The journal in front of it, in its pane.)
+    let app = h.state_mut();
+    let at = app.dock.find_tab(&Tab::Area(area)).unwrap();
+    app.dock
+        .set_focused_node_and_surface(egui_dock::NodePath { surface: at.surface, node: at.node });
+    app.dock.push_to_focused_leaf(Tab::Journal);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(&mut h);
+    assert_eq!(waypoint(&mut h, area, 1).map(|w| w.0), Some(30.0), "undone in the module");
+    let at = h.state().dock.find_tab(&Tab::Area(area)).unwrap();
+    h.state_mut().dock.set_active_tab(at).expect("its tab");
+    h.run_steps(3);
+    assert!((x(&h) - 30.0).abs() < 1e-4, "and in the view: {}", x(&h));
+}

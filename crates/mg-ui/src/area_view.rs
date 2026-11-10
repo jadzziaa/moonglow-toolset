@@ -402,6 +402,11 @@ pub struct AreaView {
     /// The ARE and GIT `model` was read from: what an edit changed of
     /// them is read again, not the whole area (`refresh`).
     read_from: Option<(Gff, Gff)>,
+    /// The objects read again since `read_from` was read, from what the
+    /// workspace said its edits touched: `model` has them as the GIT had
+    /// them then, not as `read_from` does, so a comparison with
+    /// `read_from` reads them again too.
+    read_since: std::collections::HashSet<(ObjectKind, usize)>,
     /// How many times the area was read whole (for tests: an edit of some
     /// of its objects reads only those).
     pub whole_reads: usize,
@@ -995,6 +1000,7 @@ impl AreaView {
             textures_drawn: 0,
             revision: None,
             read_from: None,
+            read_since: Default::default(),
             whole_reads: 0,
             var_previewed: (Vec::new(), None),
             rewrites: None,
@@ -2325,6 +2331,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
             }
         };
         step(&format!("{} of its objects read again", changed.len()));
+        view.read_since.extend(changed.iter().map(|(o, _)| *o));
         if let Some(g) = &mut view.ground {
             g.update(&game, &model);
         }
@@ -2363,8 +2370,15 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         && view.model.is_some()
         && let Some((was_are, was_git)) = &view.read_from
         && *was_are == are
-        && let Some(changed) = AreaModel::changed_objects(&was_git.root, &git.root)
+        && let Some(mut changed) = AreaModel::changed_objects(&was_git.root, &git.root)
     {
+        // (And those the model has as an edit since left them, which may
+        // be set back by now: an object moved, the move undone while
+        // another tab was in front, the module saved.)
+        let since = std::mem::take(&mut view.read_since);
+        let known: std::collections::HashSet<_> = changed.iter().copied().collect();
+        changed.extend(since.into_iter().filter(|o| !known.contains(o)));
+        changed.sort();
         let mut model = view.model.take().expect("checked above");
         if changed.is_empty() {
             step("nothing of it changed");
@@ -2398,6 +2412,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         let (are, git) = (are.clone(), git.clone());
         // (What the thread reads it from.)
         view.read_from = Some((are.clone(), git.clone()));
+        view.read_since.clear();
         view.whole_reads += 1;
         let work = move || {
             let set = mg_area::tileset(&game, tileset_ref).map_err(|e| e.to_string());
@@ -2438,6 +2453,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
     let model = AreaModel::read(&game, &are.root, &git.root, tileset);
     view.read_from = Some((are.clone(), git.clone()));
+    view.read_since.clear();
     view.whole_reads += 1;
     step(&format!(
         "model read: {} by {} tiles, {} objects, tileset {}",
