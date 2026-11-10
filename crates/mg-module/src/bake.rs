@@ -345,15 +345,29 @@ pub fn layer_read(rm: &ResMan, key: &ResKey) -> Option<usize> {
     rm.layers().iter().position(|l| l.label != PENDING_LABEL && l.container.contains(key))
 }
 
-/// The placeables.2da the game reads with these resources, but for the
-/// module file's own copy and [`PENDING_LABEL`]'s: the haks' or the
-/// game's, and the layer it is read from.
+/// The layer whose placeables.2da the game reads (its place in
+/// [`ResMan::layers`]): the first that has one, but for the module
+/// file's own and [`PENDING_LABEL`]'s. The engine reads no
+/// placeables.2da of a module's own, though it finds other resources
+/// there (`baked_walkmeshes_block_as_drawn` in
+/// `engine_placeable_walkmesh.rs`: a row the module's copy alone has is
+/// no placeable's): a hak's, a folder's or the game's. What a bake and a
+/// custom light both go by.
+pub fn placeables_layer(rm: &ResMan) -> Option<usize> {
+    let key = crate::lights::placeables_key();
+    rm.layers().iter().position(|l| {
+        l.priority != priority::MODULE && l.label != PENDING_LABEL && l.container.contains(&key)
+    })
+}
+
+/// The placeables.2da the game reads with these resources
+/// ([`placeables_layer`]: the haks' or the game's, not the module
+/// file's own copy or [`PENDING_LABEL`]'s), and the layer it is read
+/// from.
 pub fn table_under(rm: &ResMan, codepage: Codepage) -> Result<(TwoDa, String), String> {
     let key = crate::lights::placeables_key();
-    let layer = (rm.layers().iter())
-        .find(|l| {
-            l.priority != priority::MODULE && l.label != PENDING_LABEL && l.container.contains(&key)
-        })
+    let layer = placeables_layer(rm)
+        .map(|i| &rm.layers()[i])
         .ok_or("the game data has no placeables.2da")?;
     let data = layer.container.read(&key).map_err(|e| format!("placeables.2da: {e}"))?;
     let table = TwoDa::parse(&data, codepage).map_err(|e| format!("placeables.2da: {e}"))?;

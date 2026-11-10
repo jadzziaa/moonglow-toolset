@@ -58,17 +58,12 @@ pub fn read_user(path: &Path) -> Result<UserValues, String> {
     }
 }
 
-/// Writes them to `path` (its folder made), whole, by way of a file
-/// beside it.
+/// Writes them to `path` (its folder made), whole or not at all
+/// (`mg_module::write_replacing`).
 pub fn write_user(path: &Path, values: &UserValues) -> Result<(), String> {
-    let shown = |e: std::io::Error| format!("{}: {e}", path.display());
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(shown)?;
-    }
     let text = serde_json::to_string_pretty(values).map_err(|e| e.to_string())? + "\n";
-    let part = path.with_extension("json.part");
-    std::fs::write(&part, text).map_err(shown)?;
-    std::fs::rename(&part, path).map_err(shown)
+    mg_module::write_replacing(path, text.as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Keeps one value of a setting of scope `user` (none: taken out, back to
@@ -487,6 +482,27 @@ scope = "project"
             ["moonglow.toml:7: [plugins.\"gone.plugin\"]: there is no plugin gone.plugin \
                  (installed, or the project's): its values are left there"]
         );
+    }
+
+    /// The user's values are written whole, in a folder made for them:
+    /// what was there stays under a second name it had (the new file is
+    /// moved into its place, not written over it), and nothing is left
+    /// beside it.
+    #[test]
+    fn the_user_s_values_are_written_whole() {
+        let dir = mg_testkit::scratch_dir("plugin-settings-whole").join("kept");
+        let path = dir.join("plugin-settings.json");
+        let values = UserValues::from([(
+            "t.rules".to_string(),
+            BTreeMap::from([("most".to_string(), serde_json::json!(12))]),
+        )]);
+        write_user(&path, &values).unwrap();
+        std::fs::hard_link(&path, dir.join("second")).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        write_user(&path, &UserValues::new()).unwrap();
+        assert_eq!(std::fs::read(dir.join("second")).unwrap(), before);
+        assert_eq!(read_user(&path).unwrap(), UserValues::new());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
     }
 
     /// What is kept wrong is tidied: a value not of its kind and one of no

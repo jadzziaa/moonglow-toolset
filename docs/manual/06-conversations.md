@@ -251,8 +251,8 @@ written in those tools and brought in. The mapping:
     keep it when it saves the story again.
   - A story that says none of them (one written in Twine or Inky) makes
     a conversation with Aurora's (`nw_walk_wp` for both scripts); where
-    `mg dialog-import` puts it in the place of a conversation, that
-    conversation's stay as they are.
+    `mg dialog-import --force` puts it in the place of a conversation,
+    that conversation's stay as they are.
 - **Player replies** are a passage's links or a knot's choices, leading
   to the next NPC line or to `END`.
   - Twine: `[[Who are you? {if c_curious} {do a_note}->E5]]`.

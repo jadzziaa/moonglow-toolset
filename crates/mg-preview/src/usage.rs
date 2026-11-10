@@ -158,9 +158,10 @@ fn followed(t: ResType) -> bool {
 
 /// The engine functions that take a row of a table by a number, which
 /// argument it is, and the table: what a compiled script reaches by one.
-const BY_NUMBER: [(&str, usize, Row); 9] = [
+const BY_NUMBER: [(&str, usize, Row); 10] = [
     ("EffectVisualEffect", 0, Row::VisualEffect),
     ("EffectBeam", 0, Row::VisualEffect),
+    ("EffectAreaOfEffect", 0, Row::AreaOfEffect),
     ("ActionCastSpellAtObject", 0, Row::Spell),
     ("ActionCastSpellAtLocation", 0, Row::Spell),
     ("ActionCastFakeSpellAtObject", 0, Row::Spell),
@@ -210,6 +211,8 @@ const SHOWN_BY_THE_GAME: [(&str, &[&str]); 9] = [
 enum Row {
     /// visualeffects.2da (and the progfx.2da rows it names).
     VisualEffect,
+    /// vfx_persistent.2da (and the visualeffects.2da row it names).
+    AreaOfEffect,
     /// spells.2da.
     Spell,
     /// iprp_visualfx.2da: a weapon's glow, on any weapon.
@@ -559,6 +562,15 @@ impl<'a> Walk<'a> {
                     for r in progfx {
                         self.row_files(&p, r);
                     }
+                }
+            }
+            Row::AreaOfEffect => {
+                let Some(t) = self.table("vfx_persistent") else { return };
+                // (Its scripts, models and sounds; and its one large
+                // effect, a row of visualeffects.2da.)
+                self.row_files(&t, n);
+                if let Some(fx) = cell(&t, n, "DurationVFX").and_then(|s| s.parse().ok()) {
+                    self.row(Row::VisualEffect, fx);
                 }
             }
             Row::Spell => {
@@ -1966,7 +1978,8 @@ mod tests {
     }
 
     /// A compiled script's rows named by a number, where the number is a
-    /// constant: a visual effect's models, sounds and programmed effect, a
+    /// constant: a visual effect's models, sounds and programmed effect, an
+    /// area of effect's scripts, models, sounds and visual effect, a
     /// spell's icon, script, visuals and sounds, an item's spell (its icon
     /// and its spell), an appearance's model; and its strings. A number
     /// worked out as it runs (a variable's) is counted, not followed.
@@ -1979,13 +1992,22 @@ mod tests {
             &b"effect EffectVisualEffect(int nVisualEffectId, int nMissEffect=FALSE);\n\
                void ActionCastSpellAtObject(int nSpell, object oTarget);\n\
                void SetCreatureAppearanceType(object oCreature, int nAppearanceType);\n\
-               itemproperty ItemPropertyCastSpell(int nSpell, int nNumUses);\n"[..],
+               itemproperty ItemPropertyCastSpell(int nSpell, int nNumUses);\n\
+               effect EffectAreaOfEffect(int nAreaEffectId, string sOnEnterScript=\"\");\n"[..],
         );
         stock.insert(
             key("visualeffects.2da"),
             table(
                 " Label Imp_Impact_Node SoundImpact ProgFX_Impact\n0 A vfx_none **** ****\n\
-                 1 B **** **** ****\n2 Heal vfx_heal snd_heal 1\n",
+                 1 B **** **** ****\n2 Heal vfx_heal snd_heal 1\n3 Fog vfx_fog **** ****\n",
+            ),
+        );
+        stock.insert(
+            key("vfx_persistent.2da"),
+            table(
+                " LABEL SHAPE RADIUS ONENTER DurationVFX MODEL01 SoundDuration\n\
+                 0 VFX_PER_A C 5 mg_other_a **** vps_other ****\n\
+                 1 VFX_PER_MG C 5 mg_aoe_a 3 vps_mg sps_mg_loop\n",
             ),
         );
         stock.insert(key("progfx.2da"), table(" Label Param1\n0 X ****\n1 Glow fx_glowtex\n"));
@@ -2013,10 +2035,11 @@ mod tests {
             "is_ice.tga",
             "is_wand.tga",
             "mg_ding.wav",
+            "sps_mg_loop.wav",
         ] {
             haks.insert(key(n), &b"x"[..]);
         }
-        for n in ["vfx_heal", "vfx_none", "vco_fire", "c_wolf"] {
+        for n in ["vfx_heal", "vfx_none", "vco_fire", "c_wolf", "vfx_fog", "vps_mg", "vps_other"] {
             haks.insert(key(&format!("{n}.mdl")), model(n, "x"));
         }
         // (A compiled script: the header, then the code.)
@@ -2031,6 +2054,7 @@ mod tests {
         let object = [&[0x04, 0x06][..], &0u32.to_be_bytes()].concat();
         let call = |id: u8, argc: u8| vec![0x05, 0x00, 0x00, id, argc];
         haks.insert(key("nw_s0_fire.ncs"), ncs(&[&[0x20, 0x00]]));
+        haks.insert(key("mg_aoe_a.ncs"), ncs(&[&[0x20, 0x00]]));
         let mut module = MemContainer::new();
         module.insert(
             key("mg_fx.ncs"),
@@ -2051,6 +2075,9 @@ mod tests {
                 &int(1),
                 &int(0),
                 &call(3, 2),
+                // EffectAreaOfEffect(1)
+                &int(1),
+                &call(4, 1),
                 // EffectVisualEffect(nVis): a variable's copy.
                 &[0x03, 0x01, 0xff, 0xff, 0xff, 0xfc, 0x00, 0x04],
                 &call(0, 1),
@@ -2082,11 +2109,16 @@ mod tests {
             "is_wand.tga",
             "c_wolf.mdl",
             "mg_ding.wav",
+            "mg_aoe_a.ncs",
+            "vps_mg.mdl",
+            "sps_mg_loop.wav",
+            "vfx_fog.mdl",
         ] {
             assert_eq!(reached(&walk, n).as_deref(), Some("mg_fx.ncs"), "{n}");
         }
+        assert_eq!(reached(&walk, "vps_other.mdl"), None, "an area of effect nothing names");
         assert_eq!(reached(&walk, "vfx_none.mdl"), None, "row 0, which nothing names");
-        assert_eq!(walk.by_number.followed, 4);
+        assert_eq!(walk.by_number.followed, 5);
         assert_eq!(
             walk.by_number.not_followed,
             vec![(key("mg_fx.ncs"), "EffectVisualEffect".to_string())]

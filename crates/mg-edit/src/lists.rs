@@ -486,7 +486,16 @@ pub const STORE_PANEL_PAGE: [u32; 5] = {
 
 /// The first free place for a `w`×`h` item in an inventory grid
 /// `width` wide, row by row, among `taken` rectangles (x, y, w, h).
+///
+/// The rows looked at are the first and those just under a taken
+/// rectangle: the first free place is in one of them (a place free in a
+/// row and not in the row above is right under what was in its way), so
+/// a rectangle of any height costs one look, not a row at a time down
+/// its side (four billion of them, for a height a file can give). Where
+/// every such row is past what a place can be (rectangles down to the
+/// last row), the last row is given.
 pub fn place(taken: &[(u32, u32, u32, u32)], width: u32, w: u32, h: u32) -> (u32, u32) {
+    let width = width.max(1);
     let w = w.clamp(1, width);
     // (A place and a size are numbers a file gives: added in 64 bits, an
     // item at the far end of what a field holds wraps onto no row.)
@@ -499,9 +508,14 @@ pub fn place(taken: &[(u32, u32, u32, u32)], width: u32, w: u32, h: u32) -> (u32
                 || end(ty, th) <= u64::from(y)
         })
     };
-    (0..)
+    let mut rows: Vec<u32> = std::iter::once(0)
+        .chain(taken.iter().filter_map(|&(_, ty, _, th)| u32::try_from(end(ty, th)).ok()))
+        .collect();
+    rows.sort_unstable();
+    rows.dedup();
+    (rows.into_iter())
         .find_map(|y| (0..=width - w).find(|&x| free(x, y)).map(|x| (x, y)))
-        .expect("an empty row fits any item")
+        .unwrap_or((0, u32::MAX))
 }
 
 /// The item blueprint an inventory's entry is of (`InventoryRes`,
@@ -703,6 +717,29 @@ mod tests {
         // is in no one's way, and adds up to no wrapped place.
         let far = [(u32::MAX, u32::MAX, 10, 255), (u32::MAX - 3, 0, 10, 255)];
         assert_eq!(place(&far, 10, 2, 3), (0, 0));
+        // A rectangle as tall as a field's number can say, across the
+        // grid: the place under it, found at once (a row at a time, it
+        // was four billion rows), and none where it ends past the last.
+        let started = std::time::Instant::now();
+        assert_eq!(place(&[(0, 0, 10, u32::MAX - 5)], 10, 2, 3), (0, u32::MAX - 5));
+        assert_eq!(place(&[(0, 0, 10, u32::MAX), (0, u32::MAX, 10, 9)], 10, 2, 3), (0, u32::MAX));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        // As row by row finds them: under the lowest of what is in the
+        // way, at the first column free there; a grid of no width is one
+        // column.
+        let taken = [(0, 0, 4, 2), (4, 0, 6, 5), (0, 2, 3, 1), (2, 3, 1, 1)];
+        let by_rows = |w: u32, h: u32| {
+            let free = |x: u32, y: u32| {
+                taken.iter().all(|&(tx, ty, tw, th)| {
+                    x + w <= tx || tx + tw <= x || y + h <= ty || ty + th <= y
+                })
+            };
+            (0..).find_map(|y| (0..=10 - w).find(|&x| free(x, y)).map(|x| (x, y))).unwrap()
+        };
+        for (w, h) in [(1, 1), (1, 2), (2, 1), (3, 3), (4, 1), (10, 1)] {
+            assert_eq!(place(&taken, 10, w, h), by_rows(w, h), "{w}x{h}");
+        }
+        assert_eq!(place(&[(0, 0, 1, 1)], 0, 3, 1), (0, 1));
         assert_eq!(STORE_PANEL_PAGE, [0, 4, 2, 3, 1], "the pages of the panels, in their order");
     }
 }

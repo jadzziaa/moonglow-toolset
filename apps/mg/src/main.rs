@@ -743,14 +743,20 @@ enum Cmd {
         languages: Vec<String>,
     },
     /// Read a Twine (.twee) or Ink (.ink) story into a module as a
-    /// conversation (replacing one of the same name) and save; or, from a
-    /// .csv export, read back the text of the conversation's lines.
+    /// conversation and save (one of the same name is replaced only with
+    /// --force); or, from a .csv export, read back the text of the
+    /// conversation's lines.
     DialogImport {
         module: PathBuf,
         file: PathBuf,
         /// The conversation's name (default: the file's).
         #[arg(long)]
         name: Option<String>,
+        /// A story: replace the conversation of that name, if the module
+        /// has one (what the story does not say of it, its end scripts
+        /// among them, stays as that one has it).
+        #[arg(long)]
+        force: bool,
     },
     /// Write a talk table (a .tlk file) as JSON, as nwn_tlk writes it, or as
     /// CSV (a row a line: StrRef, text, the feminine table's text if a
@@ -2051,7 +2057,7 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
         ModelCmd::Decompile { .. } => {
             let text =
                 mg_mdl::decompile_with(&data, &models).map_err(|e| anyhow::anyhow!("{e}"))?;
-            std::fs::write(output, text)?;
+            write_bytes_whole(output, text.as_ref())?;
             out.note(format!("wrote {}", output.display()));
         }
         ModelCmd::Compile { .. } => {
@@ -2061,7 +2067,7 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
             let compiled =
                 mg_mdl::compile::compile_named_with(&data, &name, &models, &|_| None, &materials)
                     .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
-            std::fs::write(output, &compiled.binary)?;
+            write_bytes_whole(output, &compiled.binary)?;
             // (With the linter's notes on the text.)
             let mut said = compiled.notes;
             said.extend(mg_module::models::linter_notes(&String::from_utf8_lossy(&data)));
@@ -2169,40 +2175,41 @@ fn path_text(p: &Path) -> String {
     p.display().to_string()
 }
 
-/// Writes a file whole or not at all: `fill` writes it into a file beside
-/// `path` (`<name>.moonglow-tmp`), which is flushed to the disk and then
-/// put in `path`'s place. A failure on the way (a full disk, a file that
-/// can't be read, the command stopped) leaves what was at `path` as it
-/// was, never a part of the new. (As `mg_module`'s `write_replacing`,
-/// for a file that is streamed.)
+/// Writes a file whole or not at all, as `mg_module::write_replacing_with`
+/// does it (a file beside `path`, flushed to the disk and put in its
+/// place), for a file that is streamed: `fill` writes it, and a failure
+/// of its own (a file that can't be read, the command stopped) leaves
+/// what was at `path` as it was too, never a part of the new.
 pub(crate) fn write_whole(
     path: &Path,
     fill: impl FnOnce(&mut io::BufWriter<std::fs::File>) -> Result<()>,
 ) -> Result<()> {
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent).with_context(|| path_text(parent))?;
+    // (The rule is mg-module's; `fill`'s own error is carried past it.)
+    let mut said = None;
+    let written = mg_module::write_replacing_with(path, |file| {
+        fill(file).map_err(|e| {
+            said = Some(e);
+            io::Error::other("not written")
+        })
+    });
+    match (written, said) {
+        (Ok(()), _) => Ok(()),
+        (Err(_), Some(e)) => Err(e),
+        (Err(e), None) => Err(e.into()),
     }
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".moonglow-tmp");
-    let tmp = path.with_file_name(name);
-    let written = (|| -> Result<()> {
-        let mut file = io::BufWriter::new(std::fs::File::create(&tmp)?);
-        fill(&mut file)?;
-        let file = file.into_inner().map_err(io::IntoInnerError::into_error)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    written.with_context(|| path_text(path))
+    .with_context(|| path_text(path))
 }
 
 /// [`write_whole`] for a file's bytes at hand.
 pub(crate) fn write_bytes_whole(path: &Path, bytes: &[u8]) -> Result<()> {
-    write_whole(path, |file| Ok(file.write_all(bytes)?))
+    mg_module::write_replacing(path, bytes).with_context(|| path_text(path))
+}
+
+/// [`write_bytes_whole`] for one of the many files a command writes into
+/// a folder (an archive unpacked, a picture an area): whole or not at
+/// all, but not flushed to the disk file by file.
+fn write_one_of_many(path: &Path, bytes: &[u8]) -> Result<()> {
+    mg_module::write_replacing_one_of_many(path, bytes).with_context(|| path_text(path))
 }
 
 /// Compile results: errors as lines and as JSON; warnings as notes, each
@@ -2279,7 +2286,7 @@ fn run(cli: &Cli) -> Result<Output> {
             std::fs::create_dir_all(dir)?;
             for e in &erf.entries {
                 let path = ResKey::new(e.resref, e.restype).path_in(dir)?;
-                std::fs::write(path, erf.data(e)?)?;
+                write_one_of_many(&path, &erf.data(e)?)?;
             }
             let mut out =
                 Output::new(json!({ "folder": path_text(dir), "files": erf.entries.len() }));
@@ -2804,7 +2811,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let description = mg_module::stamp::describe(comment, &stamp);
             let erf =
                 mg_module::transfer::export_erf(&m, &plan.resources, &description, !keep_factions)?;
-            std::fs::write(output, erf)?;
+            write_bytes_whole(output, &erf)?;
             out.json = json!({
                 "erf": path_text(output),
                 "resources": plan.resources.iter().map(ToString::to_string).collect::<Vec<_>>(),
@@ -2996,8 +3003,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 out.line(line);
             }
             if let Some(file) = junit {
-                std::fs::write(file, ran.report.junit(&ran.name, ran.seconds))
-                    .with_context(|| path_text(file))?;
+                write_bytes_whole(file, ran.report.junit(&ran.name, ran.seconds).as_bytes())?;
             }
             out.failed = !ran.ok();
             out.notes = ran.notes.clone();
@@ -3299,9 +3305,15 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut out = Output::default();
             let codepage = scripts_codepage(cli, &m);
             let (usages, mentions, run) = if *tag {
+                // (A tag as the files have it: an object's in the module's
+                // codepage, a script's string in the scripts'. Asked as
+                // UTF-8, a tag with a letter outside ASCII was found
+                // nowhere: as the window's Find References asks.)
+                let tag = module_codepage(cli, &m).encode_lossy(name);
+                let spelled = codepage.encode_lossy(name);
                 (
-                    mg_module::rename::tag_usages(&m, name),
-                    mg_module::rename::mentions(&m, name, false, codepage),
+                    mg_module::rename::tag_usages_of(&m, &tag),
+                    mg_module::rename::mentions_of(&m, &spelled, false, codepage),
                     Vec::new(),
                 )
             } else {
@@ -3325,7 +3337,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 };
                 (
                     mg_module::rename::usages(&m, key),
-                    mg_module::rename::mentions(&m, &key.resref.to_string(), true, codepage),
+                    // (The name's own bytes: as text, a byte above 0x7F
+                    // was two.)
+                    mg_module::rename::mentions_of(&m, key.resref.as_bytes(), true, codepage),
                     run,
                 )
             };
@@ -3386,7 +3400,7 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             save_asked(cli, &was, &mut m, &mut out)?;
             let codepage = scripts_codepage(cli, &m);
-            let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true, codepage);
+            let left = mg_module::rename::mentions_of(&m, from.resref.as_bytes(), true, codepage);
             for x in &left {
                 out.note(format!(
                     "warning: {} line {} still spells {}: {}",
@@ -3471,7 +3485,7 @@ fn run(cli: &Cli) -> Result<Output> {
             // (Its lines as the module's own table reads them, if any.)
             let title = key.resref.to_string();
             let text = f.write_in(&g, &title, module_codepage(cli, &m), &languages);
-            std::fs::write(output, text.as_bytes())?;
+            write_bytes_whole(output, text.as_bytes())?;
             Output::new(
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
@@ -3486,7 +3500,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 "csv" => (t.to_csv_as(!*base).into_bytes(), "csv"),
                 _ => anyhow::bail!("the output must end .json or .csv"),
             };
-            std::fs::write(output, text)?;
+            write_bytes_whole(output, text.as_ref())?;
             Output::new(json!({
                 "table": path_text(table),
                 "file": path_text(output),
@@ -3551,7 +3565,7 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::DialogImport { module, file, name } => {
+        Cmd::DialogImport { module, file, name, force } => {
             use mg_module::dialog_io::Format;
             let mut m = crate::open_module(module)?;
             let stem = file.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
@@ -3571,7 +3585,18 @@ fn run(cli: &Cli) -> Result<Output> {
             let replaced = m.gff(&key).and_then(Result::ok);
             let g = if let Some(read) = format.and_then(|f| f.read_over(&source, replaced.as_ref()))
             {
-                read.map_err(|e| anyhow::anyhow!("{e}"))?
+                let g = read.map_err(|e| anyhow::anyhow!("{e}"))?;
+                // (A story is a whole conversation: the one of its name,
+                // which may only share the file's name, is not written
+                // over without a word, as `mg dialog-export --to` writes
+                // over no file.)
+                if !*force && m.contains(&key) {
+                    bail!(
+                        "{key} is in the module: nothing written (--force replaces it, or \
+                         --name NAME makes the story another conversation)"
+                    );
+                }
+                g
             } else if let Some(format) =
                 format.filter(|f| f.reads() == mg_module::dialog_io::Reads::Text)
             {
@@ -4131,7 +4156,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
                     std::fs::create_dir_all(dir)?;
                 }
-                std::fs::write(&path, &bytes)?;
+                write_bytes_whole(&path, &bytes)?;
                 let lines = mg_tlk::Tlk::read(&bytes).map_or(0, |t| t.entries.len());
                 let mut out = Output::new(
                     json!({ "compiled": null, "packed": path_text(&path), "lines": lines }),
@@ -4478,7 +4503,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 for area in areas {
                     let path = dir.join(format!("{area}.png"));
                     let wrote = draw(area).and_then(|(d, png)| {
-                        std::fs::write(&path, png).with_context(|| path.display().to_string())?;
+                        write_one_of_many(&path, &png)?;
                         Ok(d)
                     });
                     match wrote {
@@ -4509,7 +4534,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 ResRef::from_str(&area.to_ascii_lowercase()).ok().context("not an area name")?;
             let png = Path::new(png);
             let (d, data) = draw(area)?;
-            std::fs::write(png, data)?;
+            write_bytes_whole(png, &data)?;
             out.json = described(area, png, &d);
             out.note(format!("{}×{} pixels", d.image.width, d.image.height));
             if *map_notes {
@@ -4834,7 +4859,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 set.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
             let path =
                 output.clone().unwrap_or_else(|| set.with_file_name(format!("{stem}palstd.itp")));
-            std::fs::write(&path, gff.to_bytes()?)?;
+            write_bytes_whole(&path, &gff.to_bytes()?)?;
             // (Leaves, in the folders a terrain too.)
             let count = |id: usize| match gff.root.get("MAIN") {
                 Some(mg_gff::Value::List(c)) => c.get(id).map_or(0, mg_module::tileset::leaves),
@@ -5685,10 +5710,10 @@ fn model_files(
     for (name, origin, _, text) in &chosen {
         if !dry_run {
             match text {
-                Some(text) => std::fs::write(dir.join(name), text)?,
+                Some(text) => write_one_of_many(&dir.join(name), text)?,
                 None => {
                     let key = ResKey::from_filename(name).context("a resource's name")?;
-                    std::fs::write(key.path_in(dir)?, game.resman.get(&key)?)?;
+                    write_one_of_many(&key.path_in(dir)?, &game.resman.get(&key)?)?;
                 }
             }
         }
@@ -5778,7 +5803,8 @@ fn dialog_export_into(
         let path = dir.join(file(key));
         let wrote = g.and_then(|g| {
             let text = format.write_in(&g, &key.resref.to_string(), codepage, languages);
-            std::fs::write(&path, text.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))
+            mg_module::write_replacing_one_of_many(&path, text.as_bytes())
+                .map_err(|e| format!("{}: {e}", path.display()))
         });
         match wrote {
             Ok(()) => {
@@ -5924,7 +5950,7 @@ fn gff(
         let value: serde_json::Value = serde_json::from_slice(&data)?;
         let gff = mg_gff::from_json(&value, cp)?;
         let out = output.context("writing GFF needs --output")?;
-        std::fs::write(out, gff.to_bytes()?)?;
+        write_bytes_whole(out, &gff.to_bytes()?)?;
         return Ok(Output::new(serde_json::json!({ "written": path_text(out) })));
     }
     let is_gff = input
@@ -5943,7 +5969,7 @@ fn gff(
     }
     match output {
         Some(o) => {
-            std::fs::write(o, serde_json::to_string_pretty(&value)? + "\n")?;
+            write_bytes_whole(o, (serde_json::to_string_pretty(&value)? + "\n").as_bytes())?;
             Ok(Output::new(serde_json::json!({ "written": path_text(o) })))
         }
         // The GFF as JSON is the output, with --json or without.

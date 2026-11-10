@@ -489,7 +489,7 @@ pub(crate) fn save_as(app: &mut Moonglow, key: ResKey, layer: Option<&str>, as_t
     else {
         return;
     };
-    match std::fs::write(&path, &data) {
+    match mg_module::write_replacing(&path, &data) {
         Ok(()) => app.log.info(format!("Saved {key} to {}", path.display())),
         Err(e) => app.log.error(format!("Could not write {}: {e}", path.display())),
     }
@@ -951,7 +951,7 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         && let Some(path) =
             app.dialogs.save_file(FileKind::Any, Some(&PathBuf::from(key.to_string())))
     {
-        match std::fs::write(&path, &viewed.data) {
+        match mg_module::write_replacing(&path, &viewed.data) {
             Ok(()) => app.log.info(format!("Saved {key} to {}", path.display())),
             Err(e) => app.log.error(format!("Could not write {}: {e}", path.display())),
         }

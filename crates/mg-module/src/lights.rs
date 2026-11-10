@@ -238,8 +238,10 @@ pub fn plan(
     let key = placeables_key();
     // (Not the walkmesh bake's pending rows' layer, which is over every hak
     // while a baked row waits for the project's build: no hak can be moved
-    // above it.)
-    let top = crate::bake::layer_read(rm, &key).ok_or("the game data has no placeables.2da")?;
+    // above it. Nor the module file's own copy, which the engine does not
+    // read: a light numbered after its rows, in a table made from it, was
+    // not the table the game had.)
+    let top = crate::bake::placeables_layer(rm).ok_or("the game data has no placeables.2da")?;
     let layers = rm.layers();
     let label = format!("hak:{}", hak.name.to_lowercase());
     let at = layers.iter().position(|l| l.label.eq_ignore_ascii_case(&label));
@@ -484,6 +486,38 @@ mod tests {
         assert!(again.describe().contains("Nothing is written"));
         let other = plan(&rm, cp, LightSpec { radius: 8.0, ..spec }, listed, None).unwrap();
         assert_eq!((other.row, other.reused), (20001, false));
+    }
+
+    /// A module file's own placeables.2da is not the copy the game reads
+    /// (the engine reads none of a module's: `engine_placeable_walkmesh`),
+    /// so a light's table is the game's or a hak's with its row added,
+    /// as the walkmesh bake's is ([`crate::bake::table_under`]): made from
+    /// the module's copy, it had rows the game never showed and lacked
+    /// the hak-less game's own.
+    #[test]
+    fn a_module_s_own_table_is_not_the_copy_the_game_reads() {
+        let dir = mg_testkit::scratch_dir("mg-lights-module-table");
+        let base = table(&["Chest **** plc_c01 **** 1 0 0", "Lamp **** plc_lamp **** 1 0 0"]);
+        let own = table(&["Mine **** x_mine **** 1 0 0"]);
+        let rm = game(&[
+            ("module", priority::MODULE, Some(own.clone())),
+            ("game", priority::KEY, Some(base.clone())),
+        ]);
+        let (cp, spec) = (Codepage::default(), LightSpec::default());
+        let p = plan(&rm, cp, spec, new_hak(&dir, "lights").unwrap(), None).unwrap();
+        assert_eq!((p.row, p.table_from.as_str()), (2, "game"));
+        assert_eq!(p.table.get(0, "Label"), Some("Chest"));
+        let (under, from) = crate::bake::table_under(&rm, cp).unwrap();
+        assert_eq!((under.len(), from), (2, p.table_from.clone()), "as the bake reads it");
+        // With a hak's above it: the hak's, as before.
+        let theirs = table(&["Chest **** plc_c01 **** 1 0 0"]);
+        let rm = game(&[
+            ("hak:theirs", priority::HAK_USER, Some(theirs)),
+            ("module", priority::MODULE, Some(own)),
+            ("game", priority::KEY, Some(base)),
+        ]);
+        let p = plan(&rm, cp, spec, new_hak(&dir, "lights").unwrap(), None).unwrap();
+        assert_eq!((p.row, p.table_from.as_str()), (1, "hak:theirs"));
     }
 
     /// While a baked row waits for the project's build, Moonglow reads

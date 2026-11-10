@@ -114,9 +114,16 @@ fn a_story_read_back_keeps_the_conversation_s_end_scripts() {
     run(&["dialog-export", p, "gate.dlg", i]);
     let story = std::fs::read_to_string(&ink).unwrap();
     assert!(story.starts_with("# end:gate_done\n# abort:\n"), "{story}");
-    // As a new conversation, and over the one it came from.
+    // As a new conversation, and over the one it came from: only with
+    // --force (without it nothing is written, and the command says so).
     run(&["dialog-import", p, i, "--name", "gate_copy"]);
-    run(&["dialog-import", p, i]);
+    let before = std::fs::read(&path).unwrap();
+    let refused = crate::mg_alone().args(["dialog-import", p, i]).output().unwrap();
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "{said}");
+    assert!(said.contains("gate.dlg is in the module") && said.contains("--force"), "{said}");
+    assert_eq!(std::fs::read(&path).unwrap(), before, "nothing written");
+    run(&["dialog-import", p, i, "--force"]);
     assert_eq!(ends(), ("gate_done".to_string(), String::new()));
     let copy = ResKey::parse("gate_copy", ResType::DLG).unwrap();
     let copy = Module::open(&path).unwrap().gff(&copy).unwrap().unwrap();
@@ -124,7 +131,7 @@ fn a_story_read_back_keeps_the_conversation_s_end_scripts() {
     assert_eq!(copy.root.get("EndConverAbort"), g.root.get("EndConverAbort"));
     // Edited in Inky, its tags gone: the conversation's own stay.
     std::fs::write(&ink, "-> a\n=== a ===\nHello again.\n+ [Bye.] -> END\n").unwrap();
-    run(&["dialog-import", p, i]);
+    run(&["dialog-import", p, i, "--force"]);
     assert_eq!(ends(), ("gate_done".to_string(), String::new()));
 }
 

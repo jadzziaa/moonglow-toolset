@@ -55,7 +55,8 @@ pub(crate) enum NuiCmd {
     /// or nothing: a window with errors, an opener or event script edited
     /// by hand, or one that does not compile, changes nothing. A script of
     /// yours that includes the opener and does not compile is printed and
-    /// keeps the compiled script it had.
+    /// keeps the compiled script it had: the window is built and saved,
+    /// and the command fails, as `mg compile` does.
     Generate {
         /// A module archive, folder or nasher project.
         module: PathBuf,
@@ -185,6 +186,10 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             let mut out = write(cli, ws, made.command, module, name, *dry_run, out)?;
             out.json["failed"] = failed["failed"].clone();
             out.json["errors"] = failed["errors"].clone();
+            // (The window is built and saved, and the exit says that a
+            // script that opens it is not: as `mg compile`, so that a
+            // pipeline goes no further with a module of old scripts.)
+            out.failed = !made.failed.is_empty();
             out.json["returns"] = serde_json::to_value(&made.refits)?;
             if out.json["saved"] == true
                 && let Some(dir) = &dir

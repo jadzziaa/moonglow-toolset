@@ -706,7 +706,12 @@ impl GameData {
             let (w, h) = size(b);
             let fits =
                 |x: u16, y: u16| (0..w).all(|i| (0..h).all(|j| !taken.contains(&(x + i, y + j))));
-            let place = (0..200u16)
+            // (Down to the row under everything carried, which is free
+            // across: an item always finds room. Only the first 200 rows
+            // were looked at, and an item with none there was not given,
+            // without a word.)
+            let under = taken.iter().map(|&(_, y)| y + 1).max().unwrap_or(0);
+            let place = (0..=under)
                 .flat_map(|y| (0..=INVENTORY_WIDTH.saturating_sub(w)).map(move |x| (x, y)))
                 .find(|&(x, y)| fits(x, y));
             if let Some((x, y)) = place {
@@ -821,6 +826,22 @@ mod tests {
             ("big", GearPlace::Carry(0, 1)),
             ("ring", GearPlace::Equip(16)),
             ("band", GearPlace::Carry(1, 0)),
+        ];
+        assert_eq!(places, expected.map(|(name, at)| (name.to_string(), at)));
+        // A backpack whose first 255 rows are taken (one such item
+        // carried): the gear still finds room, under it. (Past row 200
+        // nothing was looked at, and the big one was not given.)
+        let mut full = Struct::new(0);
+        let mut carried = Struct::new(0);
+        carried.set("BaseItem", Value::Int(0));
+        full.set("ItemList", Value::List(vec![carried]));
+        let gear = game.new_class_gear(&full, 0, &item);
+        let places: Vec<(String, GearPlace)> =
+            gear.into_iter().map(|(r, at)| (r.to_string(), at)).collect();
+        let expected = [
+            ("big", GearPlace::Carry(0, 255)),
+            ("ring", GearPlace::Equip(16)),
+            ("band", GearPlace::Carry(0, 510)),
         ];
         assert_eq!(places, expected.map(|(name, at)| (name.to_string(), at)));
     }

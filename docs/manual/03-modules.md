@@ -1607,7 +1607,9 @@ the game's script), and what that names in turn:
   source, so a hak's script that comes without its source counts too.
 - **What a script names by a number**: a visual effect
   (`EffectVisualEffect`, `EffectBeam`: its models, sounds and
-  `progfx.2da` effects), a spell (`ActionCastSpellAtObject` and the
+  `progfx.2da` effects), an area of effect (`EffectAreaOfEffect`: its
+  scripts, models and sounds in `vfx_persistent.2da`, and its visual
+  effect), a spell (`ActionCastSpellAtObject` and the
   others that cast one: its icon, impact script, visuals and sounds),
   an item property's spell (`ItemPropertyCastSpell`: its icon and its
   spell) or weapon glow (`ItemPropertyVisualEffect`: its model on every

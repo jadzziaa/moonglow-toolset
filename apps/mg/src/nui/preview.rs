@@ -159,7 +159,7 @@ impl Shown {
                  or the file alone",
                 path_text(path)
             ),
-            (false, Some(name)) => (Module::open(path)?, name.to_owned()),
+            (false, Some(name)) => (crate::open_module(path)?, name.to_owned()),
             (false, None) => {
                 bail!("{}: which window? Give its name after the module", path_text(path))
             }
@@ -249,7 +249,7 @@ pub(super) fn render(
     let picture = mg_ui::nui_render::render(&gpu, &shown.window(), options)
         .with_context(|| window_text(module, &shown.name))?;
     let file = png.map_or_else(|| PathBuf::from(format!("{}.png", shown.name)), Path::to_path_buf);
-    std::fs::write(&file, picture.png()).with_context(|| path_text(&file))?;
+    crate::write_bytes_whole(&file, &picture.png())?;
     let layout = &picture.layout;
     out.json = json!({
         "module": path_text(module),

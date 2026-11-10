@@ -5941,6 +5941,70 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
     }
 }
 
+/// The sun's map is drawn again when another model stands where one
+/// stood: it went by where a caster's mesh lies in memory, so a model
+/// dropped and another built at the same address, at the same place in
+/// the world, was taken as drawn already and kept the first one's shadow.
+/// (Here the second model's mesh and number are put where the first's
+/// were, which is what the allocator does when it gives the address
+/// again.)
+#[test]
+fn the_sun_s_map_is_drawn_again_for_another_model_where_one_was() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let mut plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |plate: &Arc<GpuModel>| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(plate.clone(), Mat4::from_translation(Vec3::Z)),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu, format, 4);
+    let targets = mg_render::Targets::new(&gpu, format, 4, 64, 64);
+    let mut drawn = Vec::new();
+    for _ in 0..2 {
+        r.render_targets(&gpu, &NoAssets, &scene(&plate), &camera, &targets);
+        assert_eq!(r.drawn.sun_casters, 1);
+        drawn.push(r.drawn.sun_map_drawn);
+    }
+    assert_eq!(drawn, [true, false], "the same model: the map holds it");
+    let mut other = GpuModel::new(&gpu, Arc::new(shadow_plate()));
+    {
+        let was = Arc::get_mut(&mut plate).expect("no scene has it now");
+        let mesh = std::ptr::from_ref(&was.shadow_only[0]);
+        std::mem::swap(&mut was.shadow_only[0], &mut other.shadow_only[0]);
+        std::mem::swap(&mut was.id, &mut other.id);
+        assert_eq!(
+            std::ptr::from_ref(&was.shadow_only[0]),
+            mesh,
+            "another mesh, where the first was"
+        );
+    }
+    r.render_targets(&gpu, &NoAssets, &scene(&plate), &camera, &targets);
+    assert_eq!(r.drawn.sun_casters, 1);
+    assert!(r.drawn.sun_map_drawn, "another model's shadow is drawn");
+    r.render_targets(&gpu, &NoAssets, &scene(&plate), &camera, &targets);
+    assert!(!r.drawn.sun_map_drawn, "and then held");
+}
+
 /// What a view keeps from frame to frame is its own: an area's view (its
 /// sun's shadow map) drawn, another view drawn through the same renderer,
 /// then the area's again draws the map once in all, and each view's

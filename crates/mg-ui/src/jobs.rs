@@ -53,7 +53,9 @@ impl Progress {
     }
 
     /// Whether the job was called off: it should stop at its next step and
-    /// return (what it returns is dropped).
+    /// return (what it returns is dropped, but for a job started with
+    /// [`Moonglow::start_job_to_its_end`], which says itself how far it
+    /// came).
     pub fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
     }
@@ -89,6 +91,9 @@ pub struct Job {
     progress: Arc<Progress>,
     thread: JoinHandle<Made>,
     finish: Finish,
+    /// Its work is handed over when it was called off too
+    /// ([`Moonglow::start_job_to_its_end`]).
+    to_its_end: bool,
     started: Instant,
 }
 
@@ -191,7 +196,7 @@ impl Moonglow {
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
-        self.start_job_on(title.into(), true, work, finish);
+        self.start_job_on(title.into(), true, false, work, finish);
     }
 
     /// [`start_job`](Self::start_job) for work that needs no module (a
@@ -202,13 +207,30 @@ impl Moonglow {
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
-        self.start_job_on(title.into(), false, work, finish);
+        self.start_job_on(title.into(), false, false, work, finish);
+    }
+
+    /// [`start_job_anywhere`](Self::start_job_anywhere) for work that
+    /// changes what the window has to follow (a file it has open, written
+    /// anew): `finish` is called when the job was called off too, and
+    /// what the work made says whether it stopped. A Cancel that comes
+    /// when the work is past its last look at it (the file being flushed
+    /// to the disk and moved into place) left the file written and the
+    /// window not knowing: the log said "canceled".
+    pub(crate) fn start_job_to_its_end<T: Send + 'static>(
+        &mut self,
+        title: impl Into<String>,
+        work: impl FnOnce(&Context) -> T + Send + 'static,
+        finish: impl FnOnce(&mut Moonglow, T) + 'static,
+    ) {
+        self.start_job_on(title.into(), false, true, work, finish);
     }
 
     fn start_job_on<T: Send + 'static>(
         &mut self,
         title: String,
         needs_module: bool,
+        to_its_end: bool,
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
@@ -258,6 +280,7 @@ impl Moonglow {
                     finish(app, *made);
                 }
             }),
+            to_its_end,
             started: Instant::now(),
         });
         if !self.background_jobs {
@@ -283,7 +306,9 @@ impl Moonglow {
         let Some(job) = self.job.take() else { return };
         crate::trace::note(format!("job ends: {} ({:.0?})", job.title, job.started.elapsed()));
         match job.thread.join() {
-            Ok(_) if job.progress.cancelled() => self.log.info(format!("{}: canceled", job.title)),
+            Ok(_) if job.progress.cancelled() && !job.to_its_end => {
+                self.log.info(format!("{}: canceled", job.title));
+            }
             Ok(made) => (job.finish)(self, made),
             Err(panic) => {
                 self.log.error(format!("{} failed: {}", job.title, panic_text(&panic)));
@@ -449,6 +474,32 @@ mod tests {
         until_done(&mut app);
         assert!(logged(&app, Level::Info, "counted 1"), "{:?}", app.log.entries);
         assert!(!logged(&app, Level::Info, "another ran"));
+    }
+
+    /// A job that changes what the window follows hands its work over
+    /// when it was called off too: a Cancel that came after the work's
+    /// last look at it left a hak written and the editor not knowing.
+    #[test]
+    fn a_job_to_its_end_hands_over_when_called_off() {
+        let mut app = app("ui-job-to-its-end");
+        let (go, wait) = mpsc::channel::<()>();
+        app.start_job_to_its_end(
+            "Write",
+            move |job| {
+                // (Its last look at Cancel, then the rest of its work.)
+                let stopped = job.progress.cancelled();
+                wait.recv().ok();
+                stopped
+            },
+            |app, stopped| app.log.info(format!("handed over, stopped: {stopped}")),
+        );
+        let progress = app.job.as_ref().unwrap().progress.clone();
+        std::thread::sleep(Duration::from_millis(50));
+        progress.cancel.store(true, Ordering::Relaxed);
+        go.send(()).unwrap();
+        until_done(&mut app);
+        assert!(logged(&app, Level::Info, "handed over, stopped: false"), "{:?}", app.log.entries);
+        assert!(!logged(&app, Level::Info, "Write: canceled"));
     }
 
     #[test]

@@ -468,7 +468,10 @@ impl Table {
             feminine: self.feminine.as_ref().map(|(_, f)| self.decode(f.entries.get(row))),
             sound: e
                 .filter(|e| e.flags & FLAG_SOUND != 0)
-                .map(|e| String::from_utf8_lossy(&e.sound).trim_end_matches('\0').to_string())
+                // (As the game reads the field: up to its first NUL. What a
+                // file has after it was shown as part of the name, which
+                // then was no sound's name, and the line could not be set.)
+                .map(|e| String::from_utf8_lossy(e.sound_name()).into_owned())
                 .unwrap_or_default(),
             sound_length: e.map_or(0.0, shown_length),
         }
@@ -1316,6 +1319,27 @@ mod tests {
         }
         t.set_line(0, &sounded(""), None).unwrap();
         assert_eq!(t.tlk.entries[0].flags & FLAG_SOUND, 0);
+    }
+
+    /// A sound field with bytes after its NUL (a file's junk) is the name
+    /// before it, as the game reads it: shown so, and the line's text can
+    /// be set (the whole field was the name, NUL and all, which no line
+    /// could be written with).
+    #[test]
+    fn a_sound_is_the_field_up_to_its_first_nul() {
+        let entry = TlkEntry {
+            flags: FLAG_TEXT | FLAG_SOUND,
+            text: b"Hi".to_vec(),
+            sound: b"vs_hi\0junk\0\0".to_vec(),
+            ..Default::default()
+        };
+        let tlk = Tlk { language: Language::ENGLISH, entries: vec![entry] };
+        let found = Found { source: Source::Module, data: tlk.to_bytes().unwrap() };
+        let mut t = Table::open("mine", found, None).unwrap();
+        let read = t.line(0);
+        assert_eq!(read.sound, "vs_hi");
+        t.set_line(0, &Line { text: "Hello".into(), ..read }, None).unwrap();
+        assert_eq!((t.line(0).text.as_str(), t.line(0).sound.as_str()), ("Hello", "vs_hi"));
     }
 
     /// A project's table (JSON) with a line that has a length and no

@@ -176,6 +176,11 @@ fn the_builder_s_answer_holds_for_the_plugin_as_it_was() {
     assert!(Trust::Unasked.to_ask() && !Trust::Unasked.runs());
     project::decide(&kept, &root, p, true).unwrap();
     assert_eq!(trust(p), Trust::Allowed);
+    // (Written whole, as every file Moonglow keeps: nothing left beside it.)
+    let beside: Vec<_> = (std::fs::read_dir(kept.parent().unwrap()).unwrap().flatten())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(beside, ["answers.toml"]);
     // Kept by the project's canonical path, the plugin and its digest.
     let text = std::fs::read_to_string(&kept).unwrap();
     let canonical = root.canonicalize().unwrap();

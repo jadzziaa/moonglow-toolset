@@ -221,8 +221,20 @@ pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
     Err(mlua::Error::runtime(message))
 }
 
+/// The resource a plugin names (`name.ext`): as `ctx.module:resources()`
+/// lists it (a byte above 0x7F as the character of that number, which
+/// [`ResKey::from_filename`] reads back), or as a ResRef field read gave
+/// its name, in the module's codepage (`œuvre`, a Polish or Cyrillic
+/// module's letters), which was taken as UTF-8 and named no resource.
 pub(crate) fn key_of(name: &str) -> mlua::Result<ResKey> {
-    match ResKey::from_filename(name) {
+    let in_codepage = || {
+        let (stem, ext) = name.rsplit_once('.')?;
+        // (A character past U+00FF is no listed name's: a field's text.)
+        stem.chars().any(|c| c > '\u{ff}').then_some(())?;
+        let resref = ResRef::from_bytes(&codepage().encode(stem)?).ok()?;
+        Some(ResKey::new(resref, mg_core::ResType::from_extension(ext)?))
+    };
+    match in_codepage().or_else(|| ResKey::from_filename(name)) {
         Some(key) => Ok(key),
         None => fail(format!("{name:?} is not a resource's name (name.ext)")),
     }
@@ -2538,6 +2550,24 @@ mod tests {
             let e = field(bad).unwrap_err();
             assert!(e.contains("the number \"n\"'s"), "{bad}: {e}");
         }
+    }
+
+    /// A resource named as a ResRef field read gave its name, in the
+    /// module's codepage, is that resource: a letter Latin-1 has not was
+    /// taken as its UTF-8 bytes, a name the module has not. A name as
+    /// `ctx.module:resources()` lists it is read as before.
+    #[test]
+    fn a_resource_is_named_as_a_field_read_gave_it() {
+        assert_eq!(codepage(), Codepage::WINDOWS_1252);
+        let named = |n: &str| key_of(n).unwrap().resref.as_bytes().to_vec();
+        assert_eq!(named("\u{153}uvre_\u{20ac}.dlg"), b"\x9cuvre_\x80");
+        assert_eq!(named("caf\u{e9}_01.utc"), b"caf\xe9_01");
+        // As listed: the byte's own number.
+        let listed = ResKey::new(ResRef::from_bytes(b"\x9cuvre").unwrap(), mg_core::ResType::DLG);
+        assert_eq!(key_of(&listed.to_string()).unwrap(), listed);
+        // A letter the codepage has not: its UTF-8 bytes, as a file's name.
+        assert_eq!(named("\u{17c}.dlg"), "\u{17c}".as_bytes());
+        assert!(key_of("no_type").is_err() && key_of("x.nosuch").is_err());
     }
 
     /// A resource's name set from text is the text's bytes in the

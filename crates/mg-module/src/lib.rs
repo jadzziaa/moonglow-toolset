@@ -484,6 +484,10 @@ impl Module {
                     .as_ref()
                     .is_some_and(|p| p.root() == root.as_path() && &p.target == target);
                 let mut made = None;
+                // (A `nasher.cfg` this save writes, to take away again if
+                // the save fails.)
+                let cfg = nasher::Package::config_path(root);
+                let cfg_made = !same && !cfg.exists();
                 if !same {
                     let file = format!("{}.mod", self.project_file_stem(root));
                     // (The kinds of file it keeps other than scripts and
@@ -528,7 +532,14 @@ impl Module {
                     Some(made) => made,
                     None => self.project.as_mut().expect("the module's own project"),
                 };
-                project.save(&self.resources)?;
+                if let Err(e) = project.save(&self.resources) {
+                    // (Left there, the folder passed for a project with no
+                    // module or half of one: a builder's own stays.)
+                    if cfg_made {
+                        let _ = std::fs::remove_file(&cfg);
+                    }
+                    return Err(e);
+                }
                 let location =
                     ModuleLocation::Project { root: root.clone(), target: project.target.clone() };
                 if made.is_some() {
@@ -1322,6 +1333,16 @@ mod tests {
         std::fs::write(dir.join("b/src"), b"").unwrap();
         m.set(key("script", ResType::NSS), &b"changed"[..]);
         assert!(m.save_as(&project("b")).is_err());
+        assert_eq!(m.location, opened);
+        // (And the `nasher.cfg` the save made there is gone with it: the
+        // folder is no project of half a module. One that was there
+        // before, a builder's own, stays.)
+        assert!(!dir.join("b/nasher.cfg").exists());
+        std::fs::create_dir_all(dir.join("c")).unwrap();
+        std::fs::write(dir.join("c/src"), b"").unwrap();
+        std::fs::copy(dir.join("a/nasher.cfg"), dir.join("c/nasher.cfg")).unwrap();
+        assert!(m.save_as(&project("c")).is_err());
+        assert!(dir.join("c/nasher.cfg").exists());
         assert_eq!(m.location, opened);
         assert_eq!(m.project.as_ref().map(|p| p.root().to_path_buf()), Some(dir.join("a")));
         m.save().unwrap();
