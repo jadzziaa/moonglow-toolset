@@ -458,22 +458,22 @@ impl UsageIndex {
         // (An object's own: a field of a struct the root holds.)
         let own = |path: &GffPath| matches!(&path.0[..], [_, Step::Field(l)] if l == "Tag");
         let Some(read) = self.seen.get(&git) else { return Vec::new() };
-        let mut tags: Vec<&[u8]> = (read.tags.iter())
+        let mut tags: std::collections::HashSet<&[u8]> = (read.tags.iter())
             .filter(|(path, tag)| own(path) && !tag.is_empty())
             .map(|(_, tag)| &tag[..])
             .collect();
         // (A tag another area's object has too: a transition to it still
-        // goes there.)
-        let elsewhere = |tag: &[u8]| {
-            self.seen.iter().any(|(k, r)| {
-                k.restype == ResType::GIT
-                    && k.resref != area
-                    && r.tags.iter().any(|(path, t)| own(path) && t == tag)
-            })
-        };
-        tags.sort();
-        tags.dedup();
-        tags.retain(|t| !elsewhere(t));
+        // goes there. The other areas' tags are walked once, not once for
+        // each tag of this one.)
+        let others = (self.seen.iter())
+            .filter(|(k, _)| k.restype == ResType::GIT && k.resref != area)
+            .flat_map(|(_, r)| r.tags.iter().filter(|(path, _)| own(path)));
+        for (_, tag) in others {
+            tags.remove(&tag[..]);
+        }
+        if tags.is_empty() {
+            return Vec::new();
+        }
         let leads = |path: &GffPath, tag: &[u8]| {
             matches!(path.0.last(), Some(Step::Field(l)) if l == "LinkedTo") && tags.contains(&tag)
         };
