@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-08T11:40:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T04:44:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -35,6 +35,21 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `mg_core::release` is in v2.9.0 and after, so the line can only go in
   with the viewer's move to a newer tag (in its repository, not this
   one). (S, waits on the viewer's next toolset tag)
+- **Tests of the review of November 2026 not seen failing before their
+  fix:** each of its fixes came with a test, but these were not run
+  against the code before the fix, and rest on the review's trace or
+  the fixer's reading: plugins and the NUI Creator's X3, X9, X17, X18
+  and X19, and the unit tests of X5, X11, X14, X20 and X22 to X25; the
+  blueprint editors' fixer's tests but B15's and B19's; the command line's and
+  plugin host's C1 to C28 but C7 (C4's timed before the fix); the
+  formats' timed tests (F9, F13 to F15) and hostile-file tests (F2,
+  F8), whose old code would take gigabytes or minutes; opening and
+  saving's P2 to P23 but P7, P16, P20 and P21. D28's test passed
+  before its change too, as did the test of a rename's list made
+  through a set (seen on the way): both findings were suspected. Each
+  test run at its fix's parent commit would show which fail there. (S,
+  waits on the reviewer's run against the code before the fixes) (the
+  review of November 2026, [its fixes](review-2026-11/fixes.md))
 
 ## Script intelligence (`mg lsp`, the script editor)
 
@@ -69,6 +84,33 @@ Size: S (an hour or two), M (a day or so), L (several days).
     git's stages. A conflict file (the edits each side wants, for `mg
     apply`) or a Moonglow window would. (M)
   (The Domains of Dread's builder proposal, C9)
+- **NWNT and a typed line break, the owner's call:** a nasher NWNT
+  project refuses to save a file whose text holds a typed `\n` or `\r`
+  (`C:\new`), naming the field, as it refuses a label with a dot (the
+  review's F5): NWNT would read it back as a line break. The review's
+  entry allowed saying so in the log instead; which the owner prefers
+  is asked. Labels with `[`, `]` or a trailing space are kept
+  (Moonglow's reader reads them back); how `nwn_nwnt` reads them is not
+  measured (it would not convert the probe file). (S) (the review of
+  November 2026, F5)
+- **A resource name past ASCII in a module folder, the owner's call:**
+  a name with a byte above 0x7F keeps its name through a folder as
+  text, each such byte written as the character of its number and read
+  back as that byte (the review's F7), so that file names are the same
+  on every system and valid in a repository, not raw bytes as haks keep
+  them on Linux. A loose file another tool named in UTF-8
+  (`pièce01.utc`) is read as byte 0xE8, not as the game on Linux reads
+  it from `override/`. Whether that is the rule wanted is asked. (S)
+  (the review of November 2026, F7)
+- **Bulk saves are not flushed file by file, the owner's call:** every
+  file mg-module keeps is written through `write_replacing` (the
+  review's P17), but a module folder's save, a project's save and
+  NWSync's data files go through `write_replacing_one_of_many`, which
+  removes its temporary file on a failure and does not flush: a flush
+  cost about 1 ms a file here (3,000 files 0.07 s without, 2.95 s
+  with), so a first save of 30,000 files would go from under a second
+  to half a minute. They were never flushed before. Whether to flush
+  them anyway is asked. (S) (the review of November 2026, P17)
 
 ## Test loop
 
@@ -97,6 +139,13 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Windows and macOS (the stock include normalizing a zero tangent; read
   on Linux, `reading_tangents`; Moonglow draws the same black on CI's
   Direct3D 12 and Metal). (S, waits on a builder's machine)
+- **Verify's hak cache and a hak rebuilt alike, the owner's call:**
+  what Verify keeps of a hak is named by its folder and its entries as
+  well as its name, time and size (the review's V14); a hak rebuilt
+  with the same time, size and layout, only its data changed, is still
+  taken for the old one. Hashing a hak's data would tell them apart, at
+  the cost of reading every hak on every run; asked of the owner. (S)
+  (the review of November 2026, V14)
 
 ## Frames (a steady 144 a second)
 
@@ -160,6 +209,68 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     GPU's timestamps (not on every backend). (M)
   - **An area's opening to its last texture** is about 50 ms longer since
     3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
+- **The review of November 2026's performance fixes, not timed:** its
+  fixers ran no timing test; each named the views that would show its
+  change, for the reviewer to measure before and after (`frame_perf`,
+  `editor_perf`, `nui_perf`, `world_perf`):
+  - the area editor: every object selected and dragged, and so with
+    Adjust Location or the context menu open (A16); Paint at radius 25
+    m and density 50, the pointer still (A17); Find Instance with
+    45,000 found, Update Instances with 30,000 listed, Edit Areas
+    Together with 3,000 areas (A18); 2,000 placeables with the Position
+    menu open (A20); a light placed with 30,000 more rows in
+    placeables.2da (A21); a 2,000-tile set's Tiles page, its last tile
+    chosen (A22); a hill tileset's 32 by 32 area all selected (A24);
+  - the blueprint editors: the Instances window of 100 creatures on its
+    Inventory page (B20); Setup Area Transition in a module of hundreds
+    of areas (B21); the gallery, the Creature Wizard's appearance page
+    and a creature's Feats with long tables (B22); a large Custom
+    palette, List and Gallery, a search typed (B23, B24); the gallery's
+    scroll bar dragged to its end (B25); an item's Appearance page with
+    a thousand icons, Select Portrait, Select Texture with a search
+    (B26);
+  - the editors: a 15,000-row 2DA whose StrRef column is all faults, and
+    `spells.2da` at full width (D20); Choose Model open, and a described
+    table whose `Row` column names itself (D21); Advanced Search with
+    10,000 hits ticked (D23); the Claims Table of 1,400 areas, a
+    conversation's Search of 20,000 results, Build Module with 20,000, a
+    GIT of 3,000 placeables in the raw fields view (D24); Custom Content
+    with a 20,000-line map (D25); a typed line on a world-sized table
+    (D27); `nwscript.nss` read-only (D29);
+  - the window's shell: the module tree with a word in its Filter over
+    300 areas' objects, and Options › Folders (S19, S21: new views of
+    `frames_at_144_in_a_persistent_world`); the Variables window on a
+    variable with `rows = "placeables"` (S20);
+  - the NUI Creator and the script editor: two Creator tabs side by
+    side, and Split source while a picture's name is typed (N3); a
+    column of 1,000 rows (N12); the Design page with 300 controls and a
+    list bound to 1,000 rows (N13); a combo of 10,000 entries, closed
+    (N14); 2,000 findings (N15); a chart of 1,000,000 samples (N16); a
+    docked panel's 2,000-option choice (X5); Search Results after Find
+    In Files (X8); Open Script with All Resources (X10); the end of a
+    huge script with completions open (X18); Choose Image with a name
+    typed (X11, X20); the Bindings page of many binds (X22); Design with
+    a deep window (X23); a list cell of thousands of rows (X24);
+  - the renderer: a model view drawn beside the area, `FRAME_DETAIL=1`
+    (R9); `FRAME_SHADOW_QUALITY=high FRAME_MEMORY=labels` after a view
+    lets go (R5, R10); an animated cloaked NPC out of the map's region
+    (R15); an interior with a flame on every tile (R16); a TDoD area of
+    tinted placeables (R22); area084 (R23 and the hasher); texture
+    memory and area opening with DDS heads and many colored NPCs (R12,
+    R13);
+  - the workspace and the rules: `tint_edits` and `refresh_parts` (E8),
+    `area_views` and `area_parts` (E19, E20), an item blueprint's
+    Properties page (G4, whose page still matches every subtype row a
+    frame while its search has text);
+  - Verify, the plugins and the models: `world_perf`'s content doctor
+    and verify steps (V6, V10, V12); a second Find with haks and game,
+    Delete's question and Rename in a large module (V15 to V17); a panel
+    with `refresh = "selection"` over a large selection (C3), a plugin
+    check of many fixes in Verify Module (C4); `mg haks --usage` on a
+    module of many part-based creatures (M17); opening a large nasher
+    project (P19).
+  (M, waiting on the reviewer's timing run) (the review of November
+  2026, [its fixes](review-2026-11/fixes.md))
 
 ## Blueprint editors and inventories
 
@@ -199,6 +310,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `item_clip` hold one item each place; carrying the selection is a
     drag of many rows, and where each lands (slots, grid places). (M)
   (a second builder's review, October 2026)
+- **The Levelup Wizard's spells where Aurora was not captured:** a
+  class new to a creature gets no spells of a level whose slots are
+  bonus slots alone (a paladin's and a ranger's first: the review's
+  G8), as the level-up and the spell warnings count bonus slots two
+  ways; which way is Aurora's isn't known, for the captures in
+  `levelup/` (Fighter, Wizard 1, Rogue 3, Cleric 5) have no level whose
+  gain cell is 0. Nor is a class that knows its spells captured (a
+  sorcerer's or a bard's first level). The module comment of
+  `crates/mg-rules/src/levelup.rs` names both. (S, waits on an Aurora
+  capture: the Levelup Wizard adding Paladin 4 to a creature of Wisdom
+  14, and a sorcerer's and a bard's first level) (the review of
+  November 2026, G8)
+- **A preview shown twice in a frame, the owner's call:** a 3D view
+  shown in two places in one frame (the Preview window over the
+  model's tab) is drawn in the first, and the second says "The preview
+  is shown elsewhere in the window." (the review's B19), rather than
+  getting targets of its own. The wording, and whether the second
+  should draw too, are asked. (S) (the review of November 2026, B19)
 
 ## Bulk editing
 
@@ -237,6 +366,36 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (from builders' reports after 1.19.1)
 
 ## Custom content data (2DAs and talk tables)
+
+- **A talk-table import far past the end, the owner's call:** an import
+  that reaches a row far past the table's end is one undo step (the
+  review's P4), with no bound on the gap: a team's range may begin
+  high, and `mg tlk-import` into a new table is a fair use. Whether an
+  import that grows the table by more than some number of empty lines
+  should be refused or asked about is asked. (S) (the review of
+  November 2026, P4)
+- **Verify and a table description's mistakes, the owner's call:** the
+  2DA editor reads a `name.2da.toml` with a mistake in it by
+  `Description::read`, keeping the rest and noting each mistake by line
+  (the review's P22); Verify, `mg 2da-check` and plugins keep
+  `Description::parse`, which stops at the first, as a check that
+  skipped a broken column would pass. `doctor.rs` could take `read` and
+  report each mistake as a `2da-described` warning, checking the other
+  columns; whether Verify should report every mistake or the first is
+  asked. (S) (the review of November 2026, P22, and what its fixers saw
+  on the way)
+- **Two of a hak's saves stay synchronous:** a hak tab's OK, its closing
+  question's Save, Extract, Export as Files, Add Haks and the hak
+  editor's own Save and Save As are jobs (the review's D19), but the
+  module's Save still writes an open hak at once, as what follows it in
+  the same step reads the files written (the game started for a test,
+  a project's pack, the plugins' saved event, Exit), and so does the
+  NUI Creator's picture hak, whose caller reports at once whether it
+  was written: made jobs, each would need a continuation
+  (`side_doc.rs`, `lib.rs`), and until then a real unintended
+  consequence. Add Haks has no byte progress or Cancel mid-copy
+  (`attach::copy` has no hook for one). (M) (the review of November
+  2026, D19)
 
 
 ## Area visibility
@@ -333,6 +492,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   client batch). Left: the window's flicker itself (Custom Light…
   writing the keyed `default` and a dynamic placeable). (S) (from
   builders' reports after 1.16.2)
+- **A drag when a key changes the mode, the owner's call:** a drag under
+  way is dropped, not committed, when a key changes the mode (the
+  review's A12); committing it would be the other way. Asked. (S) (the
+  review of November 2026, A12)
+- **Alt + drag in Paint, Select Tiles and with a tile brush, the
+  owner's call:** there Alt + drag always moves the view, whatever is
+  selected (the review's A14; elsewhere, with a selection, it raises or
+  lowers it). Whether that is wanted is asked. (S) (the review of
+  November 2026, A14)
 
 ## Rendering: creatures, particles, water and shaders
 
@@ -400,7 +568,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     their values through each program's plan, and are more draws (a
     swaying program's box grown by a meter joins fewer). `NO_DISCARD` 0
     for every material (notes §M.10) not looked at. ([the frames
-    note](research/notes_frames.md), 27 October) (M)
+    note](research/notes_frames.md), 27 October) The review of November
+    2026 measured the woods' draws encoded a fifth to a third slower
+    than on 27 October, in steps of 1 and 2 November (its Z2, [the
+    finders' page](review-2026-11/mechanical.md)); the figures above are
+    27 October's, and a profile of the encoding at both builds is
+    pending, the reviewer's. (M)
   - A program whose uniforms can't be split falls back to Moonglow's
     shader, reported. Since 2026-11-02 a block a program names besides
     its loose uniforms (`uniform Name { … };`) is split with them; what
@@ -572,6 +745,56 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the game's, since 2026-11-02.)
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
+- **Light Shadows with Creature Shadows unticked, the owner's call:**
+  they draw no light shadows (the review's R4), where the menu and the
+  manual present the two as independent. Should Light Shadows cast with
+  Creature Shadows off, or be grayed out while it is off? Asked. (S)
+  (the review of November 2026, R4)
+- **Shadow volumes kept with a mesh:** the volume buffers are kept in
+  each `GpuMesh` for the model's life (the review's R5, its fourth
+  part; the other three are done). Freeing them needs the renderer to
+  own them, a restructure of the casters' path that the measurement of
+  the review's Z2 would have to cover. (M, waits on that measurement)
+  (the review of November 2026, R5)
+- **Read in the client, not yet** (no client was run in the fixes of
+  the review of November 2026):
+  - chunk particles' spin (R18): quads are read as `particlerot`
+    radians a second, chunks still as turns (the module doc says so); a
+    chunk emitter (`chunkName` an asymmetric model, `particlerot 1`,
+    velocity 0) beside `reading_particle_spin_and_order`'s quads, two
+    shots a second apart, would tell one radian from one turn;
+  - a mesh's tangents where its UVs are one point (R29's last part):
+    `reading_tangents` with such a card;
+  - a body part of a two-digit phenotype, its own textures (M10: the
+    name is read as `skeleton` writes it);
+  - a creature holding an item that names no model, drawn without it
+    (M13), and the sandboxed client's CD key copy removed when its run
+    ends (F22, held by its guard's own test).
+  (S, waits on a client run) (the review of November 2026, R18, R29,
+  M10, M13, F22)
+- **The model viewer's ground shadow, the owner's call:** it is drawn
+  as a shadow map always (`shadow_volumes = false` before its draw),
+  since stencil volumes cast no skins: the renderer's fixer's choice in
+  the review of November 2026; following Options' Shadows quality
+  would also do. To confirm. (S) (the review of November 2026, the
+  renderer's page)
+- **The renderer's textures by name, across sources:** the window's one
+  renderer keeps its textures by name; they are forgotten when the game
+  data changes, a module closes, or a texture, MTR or TXI of the
+  module's own files changes outside (the review's B15), but not when
+  the model viewer draws a hak's model from the hak's own load order
+  through the same renderer, nor after an Import
+  (`refresh_module_layer`, which also runs after every build). Clearing
+  them at every such change would read every texture again, and a
+  hak's model drawn beside an area view would clear them twice a frame:
+  a real unintended consequence. Caches per source in the renderer, or
+  a clear only where a texture's key changed, would do. (M) (the
+  review of November 2026, B15, and what its fixers saw on the way)
+- **PLT palettes read in two places:** mg-render reads them once
+  (`Palettes`, `Assets::texture_kept`: the review's R13); mg-ui's
+  `images.rs` keeps its own, as before, and the two loaders are not
+  made one. Left by the renderer's fixer, whose part was mg-render:
+  beyond the finding's part. (S) (the review of November 2026, R13)
 
 ## Models and textures
 
@@ -748,6 +971,29 @@ contribution itself states as not done or not checked.
     average without the tree, 0.97 with it, the most 0.55 ms more (a
     long script, 0.73 to 1.28); none over the budget. Without one,
     nothing. (S, waits on a screen reader's user)
+- **A scroll bar's end button:** a scrolled list shows the same rows at
+  any zoom or UI scale, a group, a list and a text scrolling through one
+  function (the review's N9); what a click on a bar's end button
+  scrolls by still differs by kind (a group 20 points, a text a font's
+  height, a list to the track's end). A client run clicking the end
+  buttons of a list's, a group's and a NuiText's bar would say what the
+  game does. The combo popup's own scrolling is untouched. (S, waits on
+  a client run) (the review of November 2026, N9)
+- **The NUI Creator's lesser copies:** the Design page copies the window
+  and its settings once a frame (the review's N13); not done: `check`'s
+  own copy a frame, Interact's two whole comparisons of its session,
+  and a cache of a variant's context document, suspected in the review
+  and not measured. Charts and polylines are drawn by what their pixels
+  show (N16); Options' and Tabs' entries, named only in the entry's
+  confidence line, are unchanged, bounded by the file's size. (S, waits
+  on the reviewer's timing run: `nui_perf`, the Design page of 300
+  controls) (the review of November 2026, N13, N16)
+- **A font of a sliver of a line, not reproduced:** a font whose line is
+  a sliver of its em is refused and the skin's numbers are held to a
+  range (the review's N17), but the gigabyte glyph itself was not
+  drawn: the test's font has no glyphs, so the size it would be drawn
+  at is tested, not the drawing. (S, waits on such a font with glyphs)
+  (the review of November 2026, N17)
 
 ## Automation
 
@@ -835,6 +1081,35 @@ contribution itself states as not done or not checked.
     2DA editor's entry (the rest done in the deferred sprint,
     2026-11-02); left because `crates/mg-plugin` was another package's
     that round, not begun. (S)
+- **What a plugin's job makes the host hold, the owner's call:** 512 MB
+  (`HELD_LIMIT`), beside Luau's 256 MB, since one picture of the 64
+  million pixels a plugin may decode is 256 MB by itself; tables and
+  pictures give their bytes back when the plugin lets go of them, so
+  there is no line limit on `tlk:set` and no count limit on fixes (the
+  review's C2). Whether 512 MB is the bound wanted is asked. (S) (the
+  review of November 2026, C2)
+- **A byte order mark on a conversation's CSV, the owner's call:** Import
+  Lines reads a CSV that begins with one (the review's V5); should the
+  CSV export begin with one, so that Excel reads its accents (other
+  readers then see the mark)? Asked. (S) (the review of November 2026,
+  V5)
+- **Twine and the `moonglow` object:** a conversation through Twine
+  keeps its end scripts, delays and zoom in a `moonglow` object of the
+  story's `StoryData` (the review's V7); whether Twine itself keeps that
+  object when it saves the story is not checked. Where a story says
+  nothing, `mg dialog-import` keeps the replaced conversation's
+  settings. (S, waits on Twine) (the review of November 2026, V7)
+- **`mg gff`'s JSON as serde lays it out, the owner's call:** the
+  command writes its file and plain print with `serde_json`'s pretty
+  printer, where `mg_gff::to_json_text` writes JSON as neverwinter.nim
+  does (the nasher save, `mg merge-gff` and the prefabs use it): the
+  values are the same, the spelling of small and large floats and of
+  control characters in strings is not (12 of 404 random floats
+  differed in notation from `nwn_gff`'s), and the help says
+  "neverwinter.nim / nasher format". Taking `to_json_text`, or saying in
+  the help that the notation is serde's, is the owner's call, as the
+  review's page says; not taken up in its fixes. (S) (the review of
+  November 2026, Z4)
 
 ## Tileset authoring
 
@@ -852,6 +1127,11 @@ contribution itself states as not done or not checked.
     models, or the module and the haks it lists). The log now says,
     for each model left out, whether it was found and why it can't be
     read. (S, waits on the builder's hak)
+- **A tileset whose count lies, the owner's call:** `mg-set`'s
+  `add_tile` trusts `Count`: on a junk `Count=1869573190` it writes
+  `[TILE1869573190]` (one section, no hang). What to do with a file
+  whose count lies is asked. (S) (what the fixers of the review of
+  November 2026 saw on the way)
 
 ## The install, starting and crashes
 
@@ -866,6 +1146,22 @@ contribution itself states as not done or not checked.
   loop was read in its code (`run_app_on_demand` on the stack), not
   crashed on Linux, Windows or macOS. (S) (waits on a crash on Windows
   and macOS) (Sacha's report, 2026-10-25)
+- **The fixes of the review of November 2026 on Windows and macOS,
+  compiled, not run there:**
+  - Windows: the recovery copy's lock (`File::try_lock` on
+    `<stem>.lock`, a second window's copy `-2`: C27's second half), its
+    Windows branch compiled for `x86_64-pc-windows-gnu`, not run; a lost
+    device (R8), tested here by closing a device, not by a real driver
+    reset; an archive's hak named with a colon or a control character
+    left out (P21), the names taken on Linux, the write on Windows not
+    tried.
+  - macOS: the system's version read from `SystemVersion.plist` for a
+    graphics record (R25), from reading, its pure parts unit-tested;
+    Option with a key that types kept for a text field (S16), from
+    reading; Test Module's look for a running game asking `ps` within a
+    time limit (the editors' smaller notes), unchecked there.
+  (S, waits on CI's runs and on a Windows machine and a Mac) (the
+  review of November 2026)
 
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `portraits`,
@@ -885,7 +1181,12 @@ contribution itself states as not done or not checked.
   tried where they live: a real Windows with Steam elsewhere (a folder
   of other than ASCII letters, which `reg` prints in the console's
   codepage), Beamdog's client on any system, and the reporter's case (a
-  second drive on Linux), covered by the list. (S) (waits on a Windows
+  second drive on Linux), covered by the list. Since the review of
+  November 2026 (F20) the usual folders are tried before any drive
+  letter, so that a GOG or Beamdog install is found before one in an
+  unlisted `X:\Steam` or `X:\SteamLibrary`: not timed (that needs
+  Windows with an unreachable mapped drive), and its `reg.exe` path not
+  run. (S) (waits on a Windows
   machine and a Beamdog install) (from builders' reports after 1.14.1)
 - **The graphics backend** (Options › General, `mg_render::backend`;
   El Grillo's report, October 2026: an AMD Radeon PRO's tiles gone one
@@ -996,10 +1297,13 @@ or asked about before a save, Claim This Area and Release Claim, merged
 areas' Tag and ResRef asked about before they change, `mg claims`, and
 File › Project. What is left:
 
-- **The project's commands on Windows** (`cmd /C` with the command's
-  text as written, no console window) are tested by CI's runs of the
-  UI tests, not on a builder's machine with a real update script. (S,
-  needs Windows)
+- **The project's commands on Windows** (`cmd /S /C "<text>"`, the
+  command's text as written, no console window, since the review of
+  November 2026's D16, as for `mg nwsync`'s upload) are tested by CI's
+  runs of the UI tests, and D16's Windows-only unit test
+  (`a_quoted_program_with_a_quoted_argument_runs_as_typed`) was
+  compiled here for `x86_64-pc-windows-gnu`, not run: CI runs it. Not
+  on a builder's machine with a real update script. (S, needs Windows)
 
 ## Release and packaging
 
@@ -1026,7 +1330,12 @@ File › Project. What is left:
     the zip's files moved aside and in while `moonglow.exe` runs). Their
     steps are unit tests here (`mg_update::install`), the AppImage's and
     the zip's swap run on scratch copies; none was run on the system it
-    is for. (S, needs a Mac and a Windows machine)
+    is for. Since the review of November 2026 `hdiutil`, `ditto` and
+    `reg` run by their full paths with a time limit (F19), and the
+    unpacked zip and the copied-out app are checked again before they
+    are swapped in (F23): on a Mac, anything that writes into the staged
+    app before Moonglow closes (a `.DS_Store`) would refuse the install,
+    which needs a Mac to rule out. (S, needs a Mac and a Windows machine)
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 
