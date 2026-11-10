@@ -988,6 +988,11 @@ pub fn rename_among(
         report.changed.push(new);
     }
 
+    // (What is in `report.changed` so far, to name each resource once:
+    // looked for in the list itself, every resource a rename changed was
+    // compared with all those before it.)
+    let mut listed: std::collections::HashSet<ResKey> = report.changed.iter().copied().collect();
+
     // References in GFF resources.
     let keys: Vec<ResKey> = module.keys().copied().filter(&read).collect();
     for key in keys {
@@ -997,7 +1002,7 @@ pub fn rename_among(
             if n > 0 {
                 module.set_gff(key, &g).map_err(|e| bad(key)(e.to_string()))?;
                 report.references += n;
-                if !report.changed.contains(&key) {
+                if listed.insert(key) {
                     report.changed.push(key);
                 }
             }
@@ -1083,7 +1088,7 @@ pub fn rename_among(
         out.extend_from_slice(&src[at..]);
         module.set(key, out);
         report.in_scripts += spans.len();
-        if !report.changed.contains(&key) {
+        if listed.insert(key) {
             report.changed.push(key);
         }
         report.recompile.push(key);
@@ -1289,6 +1294,41 @@ mod tests {
             rename(&mut m, key("guard_spawn", ResType::NSS), rr("x"), false),
             Err(RenameError::Missing(key("guard_spawn", ResType::NSS)))
         );
+    }
+
+    /// What a rename changed is each resource once, in the order it was
+    /// changed: the renamed ones, the GFF resources that named them, the
+    /// scripts. A script that spells its own name is among the first and
+    /// not named again; and a hundred creatures that run it are a hundred
+    /// entries (each was looked for in the whole list so far, which a set
+    /// answers now).
+    #[test]
+    fn what_a_rename_changed_names_each_resource_once() {
+        let mut m = module();
+        m.set(
+            key("guard_spawn", ResType::NSS),
+            b"void main() { ExecuteScript(\"guard_spawn\", OBJECT_SELF); }\n".to_vec(),
+        );
+        for i in 0..100 {
+            let mut utc = Gff::new(*b"UTC ");
+            utc.root.set("ScriptSpawn", Value::resref(rr("guard_spawn")));
+            m.set_gff(key(&format!("extra{i:03}"), ResType::UTC), &utc).unwrap();
+        }
+        let r = rename(&mut m, key("guard_spawn", ResType::NSS), rr("guard_wake"), true).unwrap();
+        let names: Vec<String> = r.changed.iter().map(ToString::to_string).collect();
+        let distinct: std::collections::BTreeSet<&String> = names.iter().collect();
+        assert_eq!(distinct.len(), names.len(), "{names:?}");
+        assert_eq!(names.len(), 2 + 103 + 1, "{names:?}");
+        let mut renamed = names[..2].to_vec();
+        renamed.sort();
+        assert_eq!(renamed, ["guard_wake.ncs", "guard_wake.nss"], "{names:?}");
+        assert_eq!(names.last().map(String::as_str), Some("on_load.nss"));
+        let mut referring = names[2..105].to_vec();
+        referring.sort();
+        let mut expected: Vec<String> = (0..100).map(|i| format!("extra{i:03}.utc")).collect();
+        expected.extend(["guard.utc", "guard_talk.dlg", "keep.git"].map(String::from));
+        expected.sort();
+        assert_eq!(referring, expected);
     }
 
     /// A script's name in the module's own tables follows a rename: in the
