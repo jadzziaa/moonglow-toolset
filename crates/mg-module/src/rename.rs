@@ -497,6 +497,29 @@ impl UsageIndex {
         out
     }
 
+    /// The resources a rename of `target` has to read ([`rename_among`]):
+    /// those that name it (the ones [`usages`](Self::usages) lists) and,
+    /// with `literals`, the scripts with a string that spells its name, in
+    /// order. From what [`refresh`](Self::refresh) read, with no resource
+    /// read again: ask an index refreshed for the module as it is.
+    pub fn holders(&self, target: ResKey, literals: bool) -> Vec<ResKey> {
+        let kinds = kinds(target.restype);
+        let name = target.resref.to_string();
+        let names = |r: &Reference| kinds.contains(&r.kind) && r.target == target.resref;
+        let spells = |read: &Read| {
+            let spelled = |&(a, b): &(usize, usize)| {
+                read.data.get(a..b).is_some_and(|s| s.eq_ignore_ascii_case(name.as_bytes()))
+            };
+            literals && read.strings.iter().any(spelled)
+        };
+        let mut keys: Vec<ResKey> = (self.seen.iter())
+            .filter(|(_, read)| read.refs.iter().any(names) || spells(read))
+            .map(|(k, _)| *k)
+            .collect();
+        keys.sort();
+        keys
+    }
+
     /// [`usages`] of `target`, from what [`refresh`](Self::refresh) read.
     pub fn usages(&self, target: ResKey) -> Vec<Usage> {
         let kinds = kinds(target.restype);
@@ -869,6 +892,23 @@ pub fn rename(
     to: ResRef,
     literals: bool,
 ) -> Result<RenameReport, RenameError> {
+    rename_among(module, from, to, literals, None)
+}
+
+/// [`rename`] that reads, for what names the resource, only `holders`:
+/// the resources an index of the module's references says name it
+/// ([`UsageIndex::holders`], asked with the same `literals` of an index
+/// refreshed for `module` as it is). Without them every GFF resource and
+/// script of the module is read, as [`rename`] does (0.8 s of a
+/// persistent world, on one core: the window has the index, and the
+/// command line has not). The module's own tables are read either way.
+pub fn rename_among(
+    module: &mut Module,
+    from: ResKey,
+    to: ResRef,
+    literals: bool,
+    holders: Option<&[ResKey]>,
+) -> Result<RenameReport, RenameError> {
     let kinds = kinds(from.restype);
     if kinds.is_empty() {
         return Err(RenameError::NotRenamable(from));
@@ -887,6 +927,10 @@ pub fn rename(
     }
     let mut report = RenameReport::default();
     let bad = |k: ResKey| move |e: String| RenameError::Resource(k, e);
+    // (The resource itself is read under its new name, whatever names it.)
+    let held: Option<std::collections::HashSet<ResKey>> = holders
+        .map(|h| h.iter().copied().chain(family.iter().map(|t| ResKey::new(to, *t))).collect());
+    let read = |k: &ResKey| held.as_ref().is_none_or(|h| h.contains(k));
 
     // The resources themselves, under the new name, with their own name.
     for t in moving {
@@ -911,7 +955,7 @@ pub fn rename(
     }
 
     // References in GFF resources.
-    let keys: Vec<ResKey> = module.keys().copied().collect();
+    let keys: Vec<ResKey> = module.keys().copied().filter(&read).collect();
     for key in keys {
         if key.restype.is_gff() {
             let Some(Ok(mut g)) = module.gff(&key) else { continue };
@@ -976,7 +1020,7 @@ pub fn rename(
     }
 
     // Script sources: #include lines, and strings if asked.
-    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
+    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().filter(&read).collect();
     for key in scripts {
         let src = module.get(&key).expect("present").to_vec();
         let mut spans = Vec::new();
@@ -1257,6 +1301,56 @@ mod tests {
         // A conversation's rename leaves the tables alone.
         let r = rename(&mut m, key("guard_talk", ResType::DLG), rr("guard_spawnx"), false);
         assert_eq!(r.map(|r| r.in_tables), Ok(0));
+    }
+
+    /// A rename given the resources the index says name the resource reads
+    /// those alone, and gives the module and the report a rename that
+    /// reads every resource gives: for a script (with and without its
+    /// strings), a blueprint, an area and an include.
+    #[test]
+    fn a_rename_among_the_index_s_holders_is_the_rename() {
+        let mut m = module();
+        // (A script that names nothing: never among the holders.)
+        m.set(key("idle", ResType::NSS), b"void main() {}\n".to_vec());
+        let mut index = UsageIndex::default();
+        index.refresh(&m);
+        let spawn = key("guard_spawn", ResType::NSS);
+        assert_eq!(
+            index.holders(spawn, false),
+            [
+                key("guard", ResType::UTC),
+                key("guard_talk", ResType::DLG),
+                key("keep", ResType::GIT)
+            ]
+        );
+        let with_strings = index.holders(spawn, true);
+        assert!(with_strings.contains(&key("on_load", ResType::NSS)), "{with_strings:?}");
+        let asked = [
+            (spawn, false),
+            (spawn, true),
+            (key("guard", ResType::UTC), true),
+            (key("keep", ResType::ARE), false),
+            (key("inc_guard", ResType::NSS), false),
+        ];
+        for (from, literals) in asked {
+            let (mut whole, mut among) = (m.clone(), m.clone());
+            let holders = index.holders(from, literals);
+            assert!(!holders.contains(&key("idle", ResType::NSS)), "{from}: {holders:?}");
+            let a = rename(&mut whole, from, rr("renamed"), literals).unwrap();
+            let b =
+                rename_among(&mut among, from, rr("renamed"), literals, Some(&holders)).unwrap();
+            assert_eq!(a, b, "{from}");
+            assert!(a.references + a.in_scripts > 0, "{from}: something names it");
+            let keys = |m: &Module| {
+                let mut keys: Vec<ResKey> = m.keys().copied().collect();
+                keys.sort();
+                keys
+            };
+            assert_eq!(keys(&whole), keys(&among), "{from}");
+            for k in keys(&whole) {
+                assert_eq!(whole.get(&k), among.get(&k), "{from}: {k}");
+            }
+        }
     }
 
     /// The haks' tables are not the module's to rewrite: the cells that

@@ -265,8 +265,13 @@ impl Moonglow {
             self.log.error(e.to_string());
             return;
         }
+        // (What names it is read from the references the window keeps,
+        // where they are at hand: not every resource of the module again.)
+        let holders = (self.references.index(&ws.module, self.background_jobs))
+            .map(|index| index.holders(from, literals));
         let mut staged = ws.module.clone();
-        let report = match rename::rename(&mut staged, from, to, literals) {
+        let renamed = rename::rename_among(&mut staged, from, to, literals, holders.as_deref());
+        let report = match renamed {
             Ok(r) => r,
             Err(e) => {
                 self.log.error(format!("Rename: {e}"));
