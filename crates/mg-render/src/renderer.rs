@@ -3021,11 +3021,15 @@ impl Renderer {
                         Some(Some((pipeline, _))) => pipeline + 4,
                         _ => u32::from(d.mesh.skin.is_some()) * 2 + u32::from(d.twosided),
                     };
-                    // (And the chunk its mesh lies in: a dense area's
-                    // see-through meshes of one material lie in a dozen,
-                    // and a run of them in the order they came bound
-                    // another chunk's buffers at most of its draws.)
-                    let state = (pipeline, key.1, d.mesh.chunk() as u32);
+                    // (And, for Moonglow's own pipelines, the chunk its
+                    // mesh lies in: a dense area's see-through meshes of
+                    // one material lie in a dozen, and a run of them in
+                    // the order they came bound another chunk's buffers
+                    // at most of its draws. The game's are left by
+                    // material: their pipelines and groups cost more to
+                    // set again than a chunk's buffers.)
+                    let chunk = if pipeline < 4 { d.mesh.chunk() as u32 } else { 0 };
+                    let state = (pipeline, key.1, chunk);
                     batcher.place(key, Some(state), d.bounds, None)
                 };
                 batch_of.push(batch);
