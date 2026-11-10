@@ -84,9 +84,15 @@ pub struct Plugins {
     /// A save held for what the plugins said of it (`resource-saving`).
     pub save: crate::plugin_events::SaveState,
     /// What each plugin's events were allowed (a folder chosen, a yes to
-    /// writing into it), by plugin id: an event that comes again does not
-    /// ask again. Kept between runs in the settings (`plugin_grants`).
+    /// writing into it), by the plugin as its grants are kept
+    /// ([`grants_name`]: its id with its version, or a project's with its
+    /// content and place, so that other code under the same id asks
+    /// again): an event that comes again does not ask again. Kept between
+    /// runs in the settings (`plugin_grants`).
     granted: std::collections::HashMap<String, Granted>,
+    /// An event's job ran since what was allowed was last put into the
+    /// settings.
+    grants_to_keep: bool,
     /// The project's plugins the user is being asked about (their ids),
     /// in the question that comes when the project is opened. Emptied
     /// when each is answered, or all are put off (Decide Later).
@@ -1063,16 +1069,28 @@ impl Moonglow {
     /// Forgets what a plugin's events were allowed (it asks again): when
     /// it is enabled or disabled, removed, or installed anew.
     pub fn forget_plugin_grants(&mut self, id: &str) {
-        self.plugins.granted.remove(id);
         let of = |p: &str| p.split_once(' ').is_some_and(|(i, _)| i == id);
+        self.plugins.granted.retain(|name, _| !of(name));
         self.settings.plugin_grants.retain(|(p, _, _)| !of(p));
+    }
+
+    /// Puts what the events' jobs were allowed into the settings, for the
+    /// next run: once after a job of theirs, not every frame.
+    fn keep_plugin_grants(&mut self) {
+        if !std::mem::take(&mut self.plugins.grants_to_keep) {
+            return;
+        }
+        for (name, granted) in &self.plugins.granted {
+            let granted = granted.lock().unwrap_or_else(|e| e.into_inner());
+            keep_grants(&mut self.settings.plugin_grants, name, &granted);
+        }
     }
 
     /// Forgets what this run of Moonglow holds of what plugins' events
     /// were allowed, as a new start has it: what the settings keep is
     /// read again.
     pub fn forget_plugin_session(&mut self) {
-        self.next_plugin_event();
+        self.keep_plugin_grants();
         self.plugins.granted.clear();
     }
 
@@ -1370,23 +1388,22 @@ impl Moonglow {
             return;
         }
         // What the last event's job was allowed is kept for the next run.
-        let names: Vec<(String, String)> = (self.enabled_plugins().into_iter())
-            .map(|p| (p.manifest.id.clone(), grants_name(p)))
-            .collect();
-        for (id, name) in &names {
-            if let Some(granted) = self.plugins.granted.get(id) {
-                let granted = granted.lock().unwrap_or_else(|e| e.into_inner());
-                keep_grants(&mut self.settings.plugin_grants, name, &granted);
-            }
-        }
+        // (Once after an event's job: nothing is looked up, on disk or in
+        // the plugins, in a frame with no event.)
+        self.keep_plugin_grants();
         let Some((id, event_id, event)) = self.plugins.events.pop_front() else { return };
         let found = self.enabled_plugins().into_iter().find(|p| p.manifest.id == id).cloned();
         let Some(plugin) = found else { return };
         let (name, title) = (plugin.manifest.name.clone(), event.kind.name().to_string());
+        // (By the plugin as it is now: what other code of its id was
+        // allowed, a project's plugin changed and allowed again or one
+        // replaced by hand, answers none of this one's questions.)
         let kept = &self.settings.plugin_grants;
-        let granted = (self.plugins.granted.entry(id))
-            .or_insert_with(|| Arc::new(Mutex::new(kept_grants(kept, &grants_name(&plugin)))))
+        let as_kept = grants_name(&plugin);
+        let granted = (self.plugins.granted.entry(as_kept.clone()))
+            .or_insert_with(|| Arc::new(Mutex::new(kept_grants(kept, &as_kept))))
             .clone();
+        self.plugins.grants_to_keep = true;
         let settings = Some(self.plugin_settings(&plugin));
         let keeper = plugin.clone();
         let run = move |input: Input, host: Rc<dyn Host>| {

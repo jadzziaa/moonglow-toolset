@@ -1509,6 +1509,68 @@ fn a_project_s_plugins_changed_while_it_is_open_are_asked_about() {
     assert!(runs(&h, id) && runs(&h, "example.hello"));
 }
 
+/// What a project's plugin's events were allowed is the allowance of that
+/// code: the plugin changed (a pull) and allowed again asks its questions
+/// again, and nothing is kept for the new code that it was not given.
+/// (What the old code was allowed answered the new code's question of the
+/// same wording, unasked, and was then kept under the new code's name.)
+#[test]
+fn a_changed_project_plugin_s_events_ask_again() {
+    let dir = plugin_project("ui-project-plugin-grants");
+    let asks = dir.join("plugins/asks");
+    std::fs::create_dir_all(&asks).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(plugin_fixtures().join("asks").join(file), asks.join(file)).unwrap();
+    }
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    h.get_by_label("Allow All").click();
+    h.run();
+    assert!(runs(&h, "test.asks"));
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+        log.filter(|m| m.starts_with("Asks: ")).collect()
+    };
+    let key = ResKey::parse("captain", ResType::UTC).unwrap();
+    let mut n = 0;
+    let mut save_changed = |h: &mut Harness<'_, Moonglow>| {
+        n += 1;
+        let mut captain = Gff::new(*b"UTC ");
+        captain.root.set("Tag", mg_gff::Value::String(format!("captain_{n}").into_bytes()));
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "A captain",
+            vec![mg_edit::Edit::SetResource { key, data: Some(captain.to_bytes().unwrap()) }],
+        )));
+        h.run_steps(2);
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(6);
+    };
+    // Asked and answered yes; the next save is not asked.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Yes));
+    save_changed(&mut h);
+    save_changed(&mut h);
+    assert_eq!(said(&h), ["Asks: noted"; 2]);
+    assert_eq!(h.state().plugin_grants("test.asks"), 1);
+    let kept = h.state().settings.plugin_grants.clone();
+    // A pull changes its code; it is allowed again.
+    let main = asks.join("main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- pulled\n")).unwrap();
+    assert!(h.state_mut().project_plugins_changed());
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, ["test.asks"]);
+    h.get_by_label("Allow").click();
+    h.run();
+    assert!(runs(&h, "test.asks"));
+    // Its question is asked again: a no this time is a no.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_changed(&mut h);
+    assert!(h.state().plugins.answers.is_empty(), "the changed plugin asked");
+    assert_eq!(said(&h).last().unwrap(), "Asks: not noted");
+    h.run_steps(2);
+    assert_eq!(h.state().settings.plugin_grants, kept, "nothing kept for the new code");
+}
+
 /// A project's plugins are asked about when it is opened, with what each
 /// adds and keeps; none runs until allowed, and the answer is kept by the
 /// plugin's content in the builder's own file: a change asks again, a no
