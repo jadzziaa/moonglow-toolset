@@ -154,7 +154,6 @@ impl Tab {
         }
     }
 
-    /// The size its own window opens at (before fitting the screen).
     /// The kind of window this tab gathers in with others of its kind,
     /// where its option says so (Options: scripts, Properties,
     /// conversations): 0 scripts, 1 Properties, 2 conversations; and 3
@@ -172,6 +171,7 @@ impl Tab {
         }
     }
 
+    /// The size its own window opens at (before fitting the screen).
     pub(crate) fn window_size(&self) -> egui::Vec2 {
         let (w, h) = match self {
             // (Room for the text beside the lists, which open as wide as
@@ -218,9 +218,6 @@ impl Tab {
         }
     }
 
-    /// The resource the tab shows that can be renamed (a script, an area, a
-    /// conversation, a blueprint, a GFF file), whether or not the module
-    /// has it.
     /// Whether it has a close button (and Close in its menu).
     pub fn closeable(&self) -> bool {
         !matches!(self, Tab::Welcome | Tab::NoArea)
@@ -296,6 +293,9 @@ impl Tab {
         }
     }
 
+    /// The resource the tab shows that can be renamed (a script, an area, a
+    /// conversation, a blueprint, a GFF file), whether or not the module
+    /// has it.
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
             Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {

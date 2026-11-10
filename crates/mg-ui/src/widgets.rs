@@ -4259,10 +4259,6 @@ pub(crate) fn tile_label_height(ui: &Ui) -> f32 {
     2.0 * ui.text_style_height(&egui::TextStyle::Body) + 4.0
 }
 
-/// A picture over its name, in a gallery: `side` points square and its
-/// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
-/// is nothing to draw; `None`: not made yet). Its response, and whether
-/// it is in sight (to have its picture made).
 /// Where a picture of texture `id` is drawn in `room`: as large as fits,
 /// in its own shape (a texture twice as wide as tall isn't stretched to a
 /// square), centered. The whole room where its size isn't known.
@@ -4278,6 +4274,10 @@ pub(crate) fn letterboxed(
     egui::Rect::from_center_size(room.center(), egui::vec2(w * scale, h * scale))
 }
 
+/// A picture over its name, in a gallery: `side` points square and its
+/// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
+/// is nothing to draw; `None`: not made yet). Its response, and whether
+/// it is in sight (to have its picture made).
 pub(crate) fn picture_tile(
     ui: &mut Ui,
     side: f32,

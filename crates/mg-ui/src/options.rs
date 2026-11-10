@@ -37,13 +37,13 @@ const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or copy gives a second objec
 const CLOSE_CANCELS_TIP: &str = "Closing a window with OK and Cancel sets back its changes, as \
                                  Cancel does";
 
-/// The Options window's pages and their names.
 /// The user folders `nwn.ini` may put elsewhere that Moonglow reads or
 /// writes (`GameInstall::user_folder`), said under the user folder where
 /// it does.
 const ALIASED: [&str; 7] =
     ["hak", "tlk", "override", "development", "modules", "portraits", "patch"];
 
+/// The Options window's pages and their names.
 pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::Folders, "Folders"),
     (OptionsPage::Area, "Area"),
@@ -1308,8 +1308,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
-/// Options › General › Toolbar buttons: Icons and text, or Icons only
-/// (the main toolbar's and the area view's, at once).
 /// The shadows' quality, Fast or High, to choose (Options › Area and the
 /// area view's Shadows menu): whether it changed.
 pub(crate) fn shadow_quality_choice(
@@ -1368,6 +1366,8 @@ fn area_resolution_choice(ui: &mut Ui, resolution: &mut Option<u8>) {
     });
 }
 
+/// Options › General › Toolbar buttons: Icons and text, or Icons only
+/// (the main toolbar's and the area view's, at once).
 fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
     let name = |icons_only: &bool| if *icons_only { "Icons only" } else { "Icons and text" };
     ui.horizontal(|ui| {

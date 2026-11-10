@@ -834,15 +834,15 @@ pub struct Moonglow {
     pub(crate) start_focus: Option<mg_core::ResRef>,
     /// The References tab.
     pub references: references::References,
-    /// What each script was compiled from when Compile All last compiled
-    /// it (its stamp), and what those stamps were made with: a script
-    /// whose stamp is the same is not compiled again.
     /// The text field typed in since it got the keyboard: Undo and Redo
     /// are its own there (`commands::keys_pressed`).
     pub(crate) text_typed: Option<egui::Id>,
     /// A command asked for by its key while a text field was typed in:
     /// run in the next frame, after the field has set its text.
     pub(crate) command_after_text: Option<commands::AfterText>,
+    /// What each script was compiled from when Compile All last compiled
+    /// it (its stamp), and what those stamps were made with: a script
+    /// whose stamp is the same is not compiled again.
     pub(crate) script_stamps: mg_module::build::Remembered,
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
@@ -1977,9 +1977,6 @@ impl Moonglow {
         if out.is_empty() { "none".into() } else { out.join(" ") }
     }
 
-    /// Where the main panes split for the Palettes pane on the right: the
-    /// left side's share, leaving the palette as wide as the module tree.
-    /// (egui_dock's split fraction is always the left side's.)
     /// Where a tool window is: a window of its own, a tab of the main
     /// pane, or a tab of the palettes' pane.
     fn place_of(&self, tab: &Tab) -> Option<Place> {
@@ -2629,6 +2626,9 @@ impl Moonglow {
         }
     }
 
+    /// Where the main panes split for the Palettes pane on the right: the
+    /// left side's share, leaving the palette as wide as the module tree.
+    /// (egui_dock's split fraction is always the left side's.)
     fn palette_split(&self) -> f32 {
         match (self.tree_width, self.dock_width) {
             (Some(tree), Some(dock)) if dock > 0.0 => (1.0 - tree / dock).clamp(0.5, 0.9),
@@ -5376,8 +5376,6 @@ impl Moonglow {
         self.ws.as_mut().map(listed_haks).unwrap_or_default()
     }
 
-    /// Layers the module's haks as Module Properties lists them, when the
-    /// list changed (an edit, an undo): no reopening needed.
     /// Closes the module's haks, so that another program may write over
     /// them (a project's command): whether any were closed.
     /// [`Moonglow::sync_haks`] opens them again.
@@ -5393,6 +5391,8 @@ impl Moonglow {
         true
     }
 
+    /// Layers the module's haks as Module Properties lists them, when the
+    /// list changed (an edit, an undo): no reopening needed.
     pub(crate) fn sync_haks(&mut self) {
         let listed = self.listed_haks();
         if listed == self.haks_layered {
@@ -5609,8 +5609,6 @@ impl Moonglow {
         }
     }
 
-    /// Verify Module, as a job: what is missing, and what is wrong with the
-    /// custom content, into the log.
     /// Build › Round-Trip Check, as a job: the module as it is (unsaved
     /// changes too) saved to a copy of its own and read back, and its GFFs
     /// and 2DAs written anew; what doesn't come back as it was is said in
@@ -5654,6 +5652,8 @@ impl Moonglow {
         );
     }
 
+    /// Verify Module, as a job: what is missing, and what is wrong with the
+    /// custom content, into the log.
     fn verify(&mut self) {
         if self.ws.is_none() || self.game.is_none() {
             return;
@@ -5899,13 +5899,13 @@ impl Moonglow {
         }
     }
 
-    /// A script editor's current text.
     /// The scripts the compile memory holds: compiled here (Compile All,
     /// a Build, a rename), passed over while they are as compiled.
     pub fn compiled_scripts(&self) -> Vec<ResKey> {
         self.script_stamps.scripts.keys().copied().collect()
     }
 
+    /// A script editor's current text.
     pub fn script_text(&self, key: ResKey) -> Option<String> {
         self.scripts.get(&key).map(|b| b.text.clone())
     }

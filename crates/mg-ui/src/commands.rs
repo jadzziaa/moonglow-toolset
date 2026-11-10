@@ -1660,9 +1660,6 @@ pub struct Finder {
     focused: bool,
 }
 
-/// The enabled plugins' exporters, importers, wizards or panels in a
-/// menu: each plugin's under its name, where there are several; a panel's
-/// ticked while it is shown.
 /// A plugin's commands in the Plugins menu at `depth` of their submenus
 /// (API 0.7's `menu`): each without a submenu there a row, each submenu
 /// once, where its first command is, holding those that name it.
@@ -1707,6 +1704,9 @@ fn plugin_command_rows(
     }
 }
 
+/// The enabled plugins' exporters, importers, wizards or panels in a
+/// menu: each plugin's under its name, where there are several; a panel's
+/// ticked while it is shown.
 fn plugin_entries(
     app: &mut Moonglow,
     ui: &mut Ui,
