@@ -72,7 +72,7 @@ pub(super) fn context_document(
     view: &str,
     target: &str,
 ) -> Option<Value> {
-    context_document_inner(doc, s, view, target, &mut std::collections::BTreeSet::new())
+    context_document_inner(doc, s, None, view, target, &mut std::collections::BTreeSet::new())
 }
 
 pub(super) fn variants(s: &Settings, group: &str) -> Vec<String> {
@@ -112,9 +112,12 @@ pub(super) fn canvas_context(doc: &Value, s: &Settings, state: &State) -> Option
     let view = state.edit_view.as_deref()?;
     let main = state.main_doc.as_ref()?;
     let target = target_for(s, view)?;
-    let mut current = s.clone();
-    current.variants.insert(view.into(), doc["root"].clone());
-    let shown = context_document(main, &current, view, &target)?;
+    // (The variant as it is edited, in place of the settings' own: given
+    // beside them, where the settings were copied whole each frame to
+    // hold it.)
+    let edited = Some((view, &doc["root"]));
+    let mut visited = std::collections::BTreeSet::new();
+    let shown = context_document_inner(main, s, edited, view, &target, &mut visited)?;
     let prefix = if target == "_window_" {
         "/root".into()
     } else {
@@ -123,19 +126,38 @@ pub(super) fn canvas_context(doc: &Value, s: &Settings, state: &State) -> Option
     Some((shown, prefix))
 }
 
+/// The JSON pointer of the group with ID `id` in `node` (itself at
+/// `path`), the first in the order of its keys. (Put together on the way
+/// back from the group, not as a path for every value passed on the way
+/// to it.)
 fn group_path(node: &Value, id: &str, path: &str) -> Option<String> {
-    if node["type"] == "group" && node["id"] == id {
-        return Some(path.into());
-    }
-    match node {
-        Value::Object(o) => o.iter().find_map(|(k, v)| {
-            group_path(v, id, &format!("{path}/{}", k.replace('~', "~0").replace('/', "~1")))
-        }),
-        Value::Array(a) => {
-            a.iter().enumerate().find_map(|(i, v)| group_path(v, id, &format!("{path}/{i}")))
+    /// Whether the group is in `node`: `steps` then has the pointer's
+    /// steps from the group up.
+    fn find(node: &Value, id: &str, steps: &mut Vec<String>) -> bool {
+        if node["type"] == "group" && node["id"] == id {
+            return true;
         }
-        _ => None,
+        match node {
+            Value::Object(o) => o.iter().any(|(k, v)| {
+                let found = find(v, id, steps);
+                if found {
+                    steps.push(format!("/{}", k.replace('~', "~0").replace('/', "~1")));
+                }
+                found
+            }),
+            Value::Array(a) => a.iter().enumerate().any(|(i, v)| {
+                let found = find(v, id, steps);
+                if found {
+                    steps.push(format!("/{i}"));
+                }
+                found
+            }),
+            _ => false,
+        }
     }
+    let mut steps = Vec::new();
+    find(node, id, &mut steps)
+        .then(|| std::iter::once(path.to_owned()).chain(steps.into_iter().rev()).collect())
 }
 
 pub(super) fn canvas_path<'a>(
@@ -151,9 +173,12 @@ pub(super) fn canvas_path<'a>(
     }
 }
 
+/// [`context_document`], with variant `edited.0` as `edited.1` has it in
+/// place of the settings' own (the one being edited on the canvas).
 fn context_document_inner(
     doc: &Value,
     s: &Settings,
+    edited: Option<(&str, &Value)>,
     view: &str,
     target: &str,
     visited: &mut std::collections::BTreeSet<String>,
@@ -163,20 +188,30 @@ fn context_document_inner(
     if !doc.is_object() || !visited.insert(view.into()) {
         return None;
     }
-    let layout = s.variants.get(view)?;
+    let as_edited = |name: &str| edited.filter(|(n, _)| *n == name).map(|(_, layout)| layout);
+    let layout = as_edited(view).or_else(|| s.variants.get(view))?;
     let mut result = doc.clone();
     if target == "_window_" {
         result["root"] = layout.clone();
     } else {
         // A target may itself exist only in another alternate layout.
         if group_mut(&mut result["root"], target).is_none() {
-            result = s
-                .variants
-                .iter()
-                .filter(|(n, v)| n.as_str() != view && mg_nui::group_ids(v).contains(target))
-                .find_map(|(parent, _)| {
+            // (The edited variant too, where the settings don't have it
+            // yet: in the order of their names, as the settings keep them.)
+            let named: std::collections::BTreeSet<&str> = (s.variants.keys().map(String::as_str))
+                .chain(edited.map(|(name, _)| name))
+                .collect();
+            result = named
+                .into_iter()
+                .filter(|n| *n != view)
+                .filter(|n| {
+                    let layout = as_edited(n).or_else(|| s.variants.get(*n));
+                    layout.is_some_and(|v| mg_nui::group_ids(v).contains(target))
+                })
+                .find_map(|parent| {
                     let parent_target = target_for(s, parent)?;
-                    context_document_inner(doc, s, parent, &parent_target, &mut visited.clone())
+                    let mut visited = visited.clone();
+                    context_document_inner(doc, s, edited, parent, &parent_target, &mut visited)
                 })?;
         }
         group_mut(&mut result["root"], target)?["children"] = json!([layout]);
@@ -411,6 +446,112 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
 mod tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
+
+    /// A group's pointer is what a path made for every value on the way
+    /// gave: the first group of the ID in key order, its keys escaped.
+    #[test]
+    fn a_group_s_pointer_is_made_on_the_way_back() {
+        fn slow(node: &Value, id: &str, path: &str) -> Option<String> {
+            if node["type"] == "group" && node["id"] == id {
+                return Some(path.into());
+            }
+            match node {
+                Value::Object(o) => o.iter().find_map(|(k, v)| {
+                    slow(v, id, &format!("{path}/{}", k.replace('~', "~0").replace('/', "~1")))
+                }),
+                Value::Array(a) => {
+                    a.iter().enumerate().find_map(|(i, v)| slow(v, id, &format!("{path}/{i}")))
+                }
+                _ => None,
+            }
+        }
+        let group =
+            |id: &str, inside: Value| json!({"type": "group", "id": id, "children": [inside]});
+        let doc = json!({"root": {"type": "col", "children": [
+            {"type": "label"},
+            {"type": "row", "a/b": [group("slash", json!({"type": "col"}))],
+                "c~d": {"x": group("tilde", json!(1))},
+                "children": [group("outer", group("inner", json!({"type": "col"}))),
+                    group("inner", json!(null))]}]}});
+        for id in ["slash", "tilde", "outer", "inner", "none", ""] {
+            for prefix in ["", "/root"] {
+                let found = group_path(&doc, id, prefix);
+                assert_eq!(found, slow(&doc, id, prefix), "{id:?} from {prefix:?}");
+                if let Some(path) = found.filter(|_| prefix.is_empty()) {
+                    assert_eq!(doc.pointer(&path).unwrap()["id"], id, "{path}");
+                }
+            }
+        }
+        assert_eq!(group_path(&doc, "none", ""), None);
+        assert_eq!(group_path(&group("top", json!(1)), "top", "/root").as_deref(), Some("/root"));
+    }
+
+    /// The window with a variant as it is being edited is the window with
+    /// the settings holding that variant: given beside the settings, where
+    /// they were copied whole to hold it.
+    #[test]
+    fn a_variant_being_edited_is_shown_as_if_the_settings_held_it() {
+        let group =
+            |id: &str, inside: Value| json!({"type": "group", "id": id, "children": [inside]});
+        let col =
+            |text: &str| json!({"type": "col", "children": [{"type": "label", "value": text}]});
+        let mut doc = mg_nui::window();
+        doc["root"] = json!({"type": "col", "children": [group("pages", col("first"))]});
+        let mut s = Settings::default();
+        // "details" is shown in "pages"; "deep" in a group only "details" has.
+        s.variants.insert(
+            "details".into(),
+            json!({"type": "col", "children": [
+            group("nested", col("in details"))]}),
+        );
+        s.variants.insert("deep".into(), col("deep, saved"));
+        s.variant_targets.insert("details".into(), "pages".into());
+        s.variant_targets.insert("deep".into(), "nested".into());
+        let edits = [
+            ("details", json!({"type": "row", "children": [group("nested", col("edited"))]})),
+            ("deep", col("deep, edited")),
+            // (Not in the settings yet.)
+            ("new", col("new")),
+        ];
+        for (view, root) in &edits {
+            let mut held = s.clone();
+            held.variants.insert((*view).into(), root.clone());
+            if *view == "new" {
+                held.variant_targets.insert("new".into(), "pages".into());
+            }
+            let targets = &held;
+            for shown in ["details", "deep", "new"] {
+                let Some(target) = target_for(targets, shown) else { continue };
+                let mut visited = Default::default();
+                let beside = context_document_inner(
+                    &doc,
+                    targets,
+                    Some((view, root)),
+                    shown,
+                    &target,
+                    &mut visited,
+                );
+                let whole = context_document(&doc, &held, shown, &target);
+                assert_eq!(beside, whole, "{shown} while {view} is edited");
+                assert!(whole.is_some() || shown == "new", "{shown} while {view} is edited");
+            }
+        }
+        // And with the settings not holding the edited variant at all.
+        let (view, root) = &edits[0];
+        let mut without = s.clone();
+        without.variants.remove("details");
+        let mut visited = Default::default();
+        let shown = context_document_inner(
+            &doc,
+            &without,
+            Some((view, root)),
+            "deep",
+            "nested",
+            &mut visited,
+        )
+        .expect("the group is the edited variant's");
+        assert_eq!(shown["root"]["children"][0]["children"][0]["type"], "row");
+    }
 
     fn harness(settings: Settings) -> Harness<'static, Moonglow> {
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));

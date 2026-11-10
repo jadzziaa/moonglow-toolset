@@ -146,6 +146,21 @@ pub(crate) struct State {
     checks: Option<Checks>,
     /// The source field being typed in.
     source_draft: Option<SourceDraft>,
+    /// The bytes the window and the settings the Design page shows were
+    /// read from, this frame.
+    shown_of: Option<[Held; 2]>,
+    /// Split source's text, for what it was written out of.
+    split_text: Option<SplitText>,
+}
+
+/// What Split source shows: the window (or, a variant being edited, the
+/// settings) written out as text, kept for the bytes it was read from.
+struct SplitText {
+    of: SourceOf,
+    /// The variant edited in the window's place, if one was.
+    view: Option<String>,
+    read: Option<[Held; 2]>,
+    text: String,
 }
 
 /// A page of the Creator.
@@ -1236,8 +1251,18 @@ fn design_page(
         repair(ui, state);
         return Vec::new();
     };
-    let before = v.clone();
-    let before_settings = s.clone();
+    // What the page changed is told against the window and the settings as
+    // `state` holds them parsed (`check` handed this frame copies of
+    // those), not against two more copies of them made here each frame.
+    use std::borrow::Cow;
+    let source = state.source.take();
+    let (before, before_settings) = match source.as_ref().map(|s| (&s.window, &s.settings)) {
+        Some((Ok(window), Ok(settings))) => (Cow::Borrowed(window), Cow::Borrowed(settings)),
+        _ => (Cow::Owned(v.clone()), Cow::Owned(s.clone())),
+    };
+    let (before, before_settings) = (&*before, &*before_settings);
+    // (What Split source shows is written out once for these.)
+    state.shown_of = source.as_ref().map(|s| s.of.clone());
     layouts::bar(ui, &s, state);
     // (The bar may have left the variant whose source was typed in.)
     leave_source(state, &mut frame.raw, &mut frame.config_raw);
@@ -1267,12 +1292,12 @@ fn design_page(
         };
         s.variants.insert(name.clone(), root);
     }
-    fields::put_back(ui.ctx(), &before, &mut v);
-    fields::put_back_settings(ui.ctx(), &before_settings, &mut s);
-    if v != before {
+    fields::put_back(ui.ctx(), before, &mut v);
+    fields::put_back_settings(ui.ctx(), before_settings, &mut s);
+    if v != *before {
         write_window(&mut frame.raw, &v);
     }
-    if s != before_settings {
+    if s != *before_settings {
         write_settings(&mut frame.config_raw, &s);
     }
     if let Some(source) = split_raw {
@@ -1282,6 +1307,7 @@ fn design_page(
             frame.raw = source;
         }
     }
+    state.source = source;
     Vec::new()
 }
 
@@ -1314,23 +1340,32 @@ fn design_view(
     match state.view_mode {
         ViewMode::Preview => preview::canvas(ui, v, s, state, &mut app.nui_assets),
         ViewMode::Split => ui.columns(2, |columns| {
-            let (of, source, title) = if state.edit_view.is_some() {
-                (
-                    SourceOf::Variants,
-                    serde_json::to_string_pretty(s).unwrap_or_default(),
-                    "Variants and binding JSON",
-                )
-            } else {
-                (
-                    SourceOf::SplitWindow,
-                    serde_json::to_string_pretty(v).unwrap_or_default(),
-                    "JUI source",
-                )
+            let (of, title) = match state.edit_view.is_some() {
+                true => (SourceOf::Variants, "Variants and binding JSON"),
+                false => (SourceOf::SplitWindow, "JUI source"),
             };
+            // The window (or the settings) written out as text, once for
+            // the bytes it was read from, not in every frame it shows.
+            let kept = state.split_text.take().filter(|kept| {
+                kept.of == of
+                    && kept.view == state.edit_view
+                    && matches!((&kept.read, &state.shown_of), (Some(a), Some(b)) if same(a, b))
+            });
+            let kept = kept.unwrap_or_else(|| SplitText {
+                of,
+                view: state.edit_view.clone(),
+                read: state.shown_of.clone(),
+                text: match of {
+                    SourceOf::Variants => serde_json::to_string_pretty(s).unwrap_or_default(),
+                    _ => serde_json::to_string_pretty(v).unwrap_or_default(),
+                },
+            });
+            let source = &kept.text;
             widgets::section_heading(&mut columns[1], title);
             egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
-                split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
+                split_raw = source_field(ui, &mut state.source_draft, of, source, 28);
             });
+            state.split_text = Some(kept);
             // The canvas shows the source as it is typed, where it reads,
             // before the field is left; it edits nothing of it meanwhile.
             match typed_source(state, of, v) {
