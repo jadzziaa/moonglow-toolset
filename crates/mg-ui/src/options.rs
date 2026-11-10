@@ -640,6 +640,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     });
     let this_run = app.settings.user_dir_this_run.clone();
     let drawing_with = app.drawing_with.clone();
+    let passes_over = app.renderer_check.passes_over.clone();
     let updates_here = app.updates.here(app.settings.update_checked);
     let mut browse = None;
     let mut close = false;
@@ -827,7 +828,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                         }
                         OptionsPage::General => {
-                            general(ui, draft, drawing_with.as_deref());
+                            general(ui, draft, drawing_with.as_deref(), &passes_over);
                         }
                         OptionsPage::Area => {
                             crate::widgets::section_heading(ui, "View");
@@ -1336,8 +1337,16 @@ fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
 
 /// Options › General › Graphics backend: Automatic and the backends of
 /// this platform, from the next start; what this run draws with
-/// (`drawing_with`), and whether `WGPU_BACKEND` decides instead.
-fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
+/// (`drawing_with`), and whether `WGPU_BACKEND` decides instead; then the
+/// backends recorded as drawing wrong, those Automatic passes over
+/// (`passes_over`: as this run found) told from those it draws with all
+/// the same.
+fn graphics_backend(
+    ui: &mut Ui,
+    draft: &mut OptionsDraft,
+    drawing_with: Option<&str>,
+    passes_over: &[wgpu::Backend],
+) {
     use crate::settings::GraphicsBackend;
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Graphics backend");
@@ -1353,7 +1362,7 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
     if let Some(now) = drawing_with {
         note.push_str(&format!(" This run draws with {now}."));
     }
-    if std::env::var_os("WGPU_BACKEND").is_some_and(|v| !v.is_empty()) {
+    if mg_render::backend::backends_from_env().0.is_some() {
         note.push_str(" WGPU_BACKEND is set, and decides over this.");
     }
     ui.weak(note);
@@ -1386,16 +1395,7 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
         return;
     }
     ui.horizontal_wrapped(|ui| {
-        let each: Vec<String> = draft
-            .graphics_failures
-            .iter()
-            .map(|f| format!("{} on {} (driver {})", f.backend, f.adapter, f.driver))
-            .collect();
-        ui.weak(format!(
-            "Automatic passes over {}: it drew nothing here ({}).",
-            each.join(", "),
-            draft.graphics_failures.iter().map(|f| f.what.as_str()).collect::<Vec<_>>().join(", ")
-        ));
+        ui.weak(graphics_failures_said(&draft.graphics_failures, passes_over));
         if ui
             .button("Try Again")
             .on_hover_text("Forget the backends passed over, from the next start")
@@ -1404,6 +1404,49 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
             draft.forget_graphics_failures = true;
         }
     });
+}
+
+/// What Options says of the backends recorded as drawing wrong: those
+/// Automatic passes over (`passes_over`: their names' backends, as this
+/// run found), and those it draws with all the same, as no other backend
+/// is left (one backend on the platform, or every one recorded).
+pub(crate) fn graphics_failures_said(
+    failures: &[crate::settings::GraphicsFailure],
+    passes_over: &[wgpu::Backend],
+) -> String {
+    let passed = |f: &crate::settings::GraphicsFailure| {
+        passes_over.iter().any(|b| mg_render::backend::backend_name(*b) == f.backend)
+    };
+    let each = |passed_over: bool| -> (Vec<String>, Vec<String>) {
+        failures
+            .iter()
+            .filter(|f| passed(f) == passed_over)
+            .map(|f| {
+                let found = crate::recovery::age(f.when);
+                let name = format!("{} on {} (driver {})", f.backend, f.adapter, f.driver);
+                (name, format!("{}, {found}", f.what))
+            })
+            .unzip()
+    };
+    let mut said = Vec::new();
+    let (names, whats) = each(true);
+    if !names.is_empty() {
+        said.push(format!(
+            "Automatic passes over {}: it drew wrong here ({}).",
+            names.join(", "),
+            whats.join("; ")
+        ));
+    }
+    let (names, whats) = each(false);
+    if !names.is_empty() {
+        said.push(format!(
+            "{} drew wrong here ({}); Automatic draws with it all the same, where no other \
+             backend is left.",
+            names.join(", "),
+            whats.join("; ")
+        ));
+    }
+    said.join(" ")
 }
 
 /// The script editor's font size and a colour per syntax element (the
@@ -1760,7 +1803,12 @@ fn keys_file_id() -> egui::Id {
 
 /// Options › General, in sections: Aurora's options first in each, in its
 /// order, then Moonglow's.
-fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
+fn general(
+    ui: &mut Ui,
+    draft: &mut OptionsDraft,
+    drawing_with: Option<&str>,
+    passes_over: &[wgpu::Backend],
+) {
     crate::widgets::section_heading(ui, "Saving and Exporting");
     ui.checkbox(&mut draft.backups, "Create backups of modules")
         .on_hover_text("Keep the module as it was as <name>.BackupMod at each save");
@@ -1804,7 +1852,7 @@ fn general(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
     });
     ui.checkbox(&mut draft.light_theme, "Light theme");
     toolbar_buttons(ui, draft);
-    graphics_backend(ui, draft, drawing_with);
+    graphics_backend(ui, draft, drawing_with, passes_over);
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Windows and Tabs");
     ui.checkbox(&mut draft.properties_together, "Open Properties as tabs of one window")

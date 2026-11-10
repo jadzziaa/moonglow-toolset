@@ -725,7 +725,7 @@ impl Watching {
         use mg_render::watch;
         // (A look the GPU never gave back: given up, and the next taken.)
         if let Some(s) = self.sampler.as_mut()
-            && s.give_up(now)
+            && s.give_up(&vp.gpu, now)
         {
             self.pending = None;
             if !std::mem::replace(&mut self.noted.lost, true) {
@@ -903,7 +903,7 @@ impl AreaView {
     }
 
     /// Lets go of its picture's targets (drawn anew into new ones).
-    pub(crate) fn let_go_of_targets(&mut self, vp: &crate::model_view::Viewport3d) {
+    pub(crate) fn let_go_of_targets(&mut self, vp: &mut crate::model_view::Viewport3d) {
         vp.let_go_of_targets(&mut self.targets);
         self.drawn = None;
     }
@@ -947,7 +947,7 @@ impl AreaView {
 /// Reload Resources reads it. (Kept, every area opened in a session held
 /// its targets and scene until the module closed.)
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
-    let Some(vp) = app.viewport.as_ref() else { return };
+    let Some(vp) = app.viewport.as_mut() else { return };
     let after = crate::model_view::UNSEEN_AFTER;
     for (area, view) in app.area_views.iter_mut() {
         if view.last_frame.is_some_and(|t| now - t <= after) {

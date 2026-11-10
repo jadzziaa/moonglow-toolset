@@ -77,11 +77,7 @@ impl Walkmesh {
         if faces.is_empty() {
             return None;
         }
-        let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for p in faces.iter().flat_map(|f| f.corners) {
-            min = min.min(p);
-            max = max.max(p);
-        }
+        let (min, max) = mg_render::box_of(faces.iter().flat_map(|f| f.corners))?;
         Some(Walkmesh { faces, min, max })
     }
 

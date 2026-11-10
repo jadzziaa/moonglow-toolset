@@ -29,9 +29,16 @@ const FEW: usize = 16;
 /// mesh's surface, and its place among the scene's lights.
 pub(crate) type Reaching = (u32, f32, u32);
 
-/// The scene's lights, by the ground they reach.
+/// The scene's lights, by the ground they reach: sorted into their
+/// squares the first time a mesh asks ([`LightGrid::reaching`]). A frame
+/// whose meshes all find their lights as they took them the frame before
+/// ([`ReachCache`]: the lights unchanged, the camera still or turning)
+/// asks nothing, and the grid, filled and dropped every frame, was made
+/// for nothing.
 pub(crate) struct LightGrid<'a> {
     lights: &'a [PointLight],
+    /// The lights are sorted into the squares.
+    built: bool,
     /// The grid's corner, its squares' side and how many there are each
     /// way; none across with no grid.
     min: (f32, f32),
@@ -50,9 +57,28 @@ pub(crate) struct LightGrid<'a> {
 }
 
 impl<'a> LightGrid<'a> {
+    /// The grid of `lights`, not sorted yet.
     pub(crate) fn new(lights: &'a [PointLight]) -> LightGrid<'a> {
+        LightGrid {
+            lights,
+            built: false,
+            min: (0.0, 0.0),
+            square: SQUARE,
+            across: 0,
+            down: 0,
+            starts: Vec::new(),
+            items: Vec::new(),
+            wide: Vec::new(),
+            tried: Vec::new(),
+            search: 0,
+        }
+    }
+
+    /// The grid of `lights`, sorted into its squares.
+    fn sorted(lights: &'a [PointLight]) -> LightGrid<'a> {
         let mut grid = LightGrid {
             lights,
+            built: true,
             min: (0.0, 0.0),
             square: SQUARE,
             across: 0,
@@ -159,6 +185,9 @@ impl<'a> LightGrid<'a> {
     /// the nearest, then as the scene lists them).
     pub(crate) fn reaching(&mut self, centre: Vec3, radius: f32, out: &mut Vec<Reaching>) {
         out.clear();
+        if !self.built {
+            *self = LightGrid::sorted(self.lights);
+        }
         let lights = self.lights;
         let mut try_light = |i: u32| {
             let l = &lights[i as usize];
@@ -410,6 +439,24 @@ pub fn box_corners(min: Vec3, max: Vec3) -> [Vec3; 8] {
     })
 }
 
+/// The box around `points` (its least and greatest corners): `None` where
+/// none of them is anywhere. A point that is not finite is left out: the
+/// running least and greatest took a NaN and then the next point, so a
+/// NaN in the middle of a list left the box of the points after it alone
+/// (a mesh culled while in view), and one in the last place left none (an
+/// area without the sun's shadows). The one place a box is put around
+/// points: a mesh's, the shadows' receivers and casters, the previews'
+/// and the model viewer's framing.
+pub fn box_of(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+    let mut somewhere = points.into_iter().filter(|p| p.is_finite());
+    let first = somewhere.next()?;
+    Some(somewhere.fold((first, first), |(min, max), p| (min.min(p), max.max(p))))
+}
+
+/// What stands for the box around no points, where one is needed all the
+/// same: its least corner past its greatest, so that it holds nothing.
+pub(crate) const NO_BOX: (Vec3, Vec3) = (Vec3::MAX, Vec3::MIN);
+
 /// What the camera sees, as the six planes around it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frustum([Vec4; 6]);
@@ -436,6 +483,32 @@ impl Frustum {
 mod tests {
     use super::*;
     use crate::scene::Camera;
+
+    /// The box around points leaves out those that are nowhere, wherever
+    /// they are in the list: a NaN in the middle changes nothing (it left
+    /// the box of the points after it alone), nor one at the end (which
+    /// left a box of NaN); no points anywhere, no box.
+    #[test]
+    fn the_box_around_points_leaves_out_what_is_nowhere() {
+        let (a, b, c) =
+            (Vec3::new(1.0, 5.0, -2.0), Vec3::new(-3.0, 2.0, 0.0), Vec3::new(0.0, 9.0, 4.0));
+        let whole = Some((Vec3::new(-3.0, 2.0, -2.0), Vec3::new(1.0, 9.0, 4.0)));
+        assert_eq!(box_of([a, b, c]), whole);
+        let nowhere = Vec3::new(0.0, f32::NAN, 0.0);
+        for list in [
+            vec![a, nowhere, b, c],
+            vec![a, b, nowhere, c],
+            vec![a, b, c, nowhere],
+            vec![nowhere, a, b, c],
+            vec![a, b, c, Vec3::new(f32::INFINITY, 0.0, 0.0), Vec3::NEG_INFINITY],
+        ] {
+            assert_eq!(box_of(list.clone()), whole, "{list:?}");
+        }
+        assert_eq!(box_of([a]), Some((a, a)));
+        assert_eq!(box_of([nowhere, Vec3::NAN]), None);
+        assert_eq!(box_of(Vec::<Vec3>::new()), None);
+        assert!(NO_BOX.0.cmpgt(NO_BOX.1).all());
+    }
 
     #[test]
     fn a_box_s_corners_in_their_order() {
@@ -525,6 +598,10 @@ mod tests {
             }
             cache.begin(&lights);
             let mut grid = LightGrid::new(&lights);
+            // (The grid is sorted only where a mesh asks it: not in a
+            // frame whose meshes are those of the frame before, under the
+            // same lights.)
+            let known = (1..=2).contains(&frame) || frame == 7;
             let mut sets: std::collections::HashMap<Vec<u32>, u32> = Default::default();
             let mut asked = Vec::new();
             // (Some meshes of a frame not drawn in the next, some twice.)
@@ -543,6 +620,7 @@ mod tests {
                     }
                 }
             }
+            assert_eq!(grid.built, !known, "frame {frame}");
         }
     }
 

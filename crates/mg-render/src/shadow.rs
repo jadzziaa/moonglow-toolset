@@ -18,6 +18,9 @@
 //! game's own shaders and Moonglow's are darkened alike, after either has
 //! lit the pixel.
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
@@ -33,7 +36,8 @@ pub(crate) const MAP_SIZE: u32 = 2048;
 pub(crate) const LIGHT_MAP_SIZE: u32 = 512;
 
 /// How many creatures cast the lights' shadows at once (the nearest the
-/// camera looks at): the client's `max-casting-lights` (3 by default)
+/// camera looks at; a creature made of parts is one:
+/// [`Instance::object`]): the client's `max-casting-lights` (3 by default)
 /// didn't change what one creature casts, and was not settled for many.
 pub(crate) const MAX_LIGHT_SHADOWS: usize = 16;
 
@@ -151,13 +155,12 @@ fn skin_bones(mesh: &GpuMesh, pose: &[Mat4], bones: &mut Vec<Mat4>) -> Option<u3
 
 /// A caster's box: a skinned mesh's grown by half its size each way (its
 /// bones move it out of the box it was bound in).
-fn posed_box((min, max): (Vec3, Vec3), skinned: Option<u32>) -> (Vec3, Vec3) {
-    match skinned {
-        Some(_) => {
-            let grow = (max - min).max_element() * 0.5;
-            (min - Vec3::splat(grow), max + Vec3::splat(grow))
-        }
-        None => (min, max),
+fn posed_box((min, max): (Vec3, Vec3), skinned: bool) -> (Vec3, Vec3) {
+    if skinned {
+        let grow = (max - min).max_element() * 0.5;
+        (min - Vec3::splat(grow), max + Vec3::splat(grow))
+    } else {
+        (min, max)
     }
 }
 
@@ -192,7 +195,7 @@ pub(crate) fn light_view(direction: Vec3) -> Mat4 {
 fn seen(camera: &Camera, aspect: f32, receivers: (Vec3, Vec3)) -> Option<(Vec3, Vec3)> {
     let inverse = (camera.projection(aspect) * camera.view()).inverse();
     let far = camera.far.max(camera.near) + FARTHEST;
-    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let mut points = Vec::with_capacity(15);
     for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (0.0, 0.0)] {
         let near = inverse.project_point3(Vec3::new(x, y, 0.0));
         let further = inverse.project_point3(Vec3::new(x, y, 0.5));
@@ -213,12 +216,9 @@ fn seen(camera: &Camera, aspect: f32, receivers: (Vec3, Vec3)) -> Option<(Vec3, 
         if ends.len() == 1 {
             ends.push(far);
         }
-        for t in ends {
-            let p = near + ray * t;
-            min = min.min(p);
-            max = max.max(p);
-        }
+        points.extend(ends.into_iter().map(|t| near + ray * t));
     }
+    let (min, max) = crate::reach::box_of(points)?;
     // (A millimeter's give: the rays' crossings of a flat receiver, a
     // ground of one height, lie at its height but for the last bits, and
     // one a bit above it left no box.)
@@ -247,20 +247,37 @@ pub(crate) struct Plan<'a> {
     pub(crate) floor: f32,
 }
 
+/// A caster met, before the cut to the map's region: its box, and a
+/// skinned one's pose.
+type Met<'a> = (Caster<'a>, (Vec3, Vec3), Option<&'a [Mat4]>);
+
 /// The shadow map a scene needs, seen by `camera` in a picture of
 /// `aspect`: `None` where it has no shadows (none asked for, none to cast
-/// or none to receive one in sight).
-pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option<Plan<'a>> {
+/// or none to receive one in sight). `volumes`: it is the stencil
+/// volumes' (else the map's), which cast no skinned mesh, as the game's
+/// cast none, and end a tile's volumes at its box's bottom
+/// ([`Caster::bottom`], which the map reads nothing of).
+pub(crate) fn plan<'a>(
+    scene: &'a Scene,
+    camera: &Camera,
+    aspect: f32,
+    volumes: bool,
+) -> Option<Plan<'a>> {
+    let skins = !volumes;
     let shadows = scene.shadows.filter(|s| s.opacity > 0.0)?;
-    let mut casters: Vec<(Caster<'a>, (Vec3, Vec3))> = Vec::new();
+    // (Each with its box, and a skinned one's pose: its bones are worked
+    // out once it is known to cast into the map's region.)
+    let mut casters: Vec<Met<'a>> = Vec::new();
     let mut bones = Vec::new();
-    let (mut rmin, mut rmax) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    // (The box around what receives them.)
+    let mut receivers: Option<(Vec3, Vec3)> = None;
+    let somewhere = |(min, max): (Vec3, Vec3)| min.is_finite() && max.is_finite();
     for inst in &scene.instances {
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
         let node = |n: usize| inst.transform * pose.get(n).copied().unwrap_or(Mat4::IDENTITY);
         let model: &'a crate::GpuModel = &inst.model;
         // (A tile's box's bottom, of all its meshes.)
-        let bottom = inst.tile.then(|| {
+        let bottom = (inst.tile && volumes).then(|| {
             (model.meshes.iter().chain(&model.shadow_only))
                 .map(|m| world_box(node(m.node), m).0.z)
                 .fold(f32::MAX, f32::min)
@@ -273,51 +290,60 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
             }
             let world = node(mesh.node);
             let bounds = world_box(world, mesh);
+            // (A mesh that is nowhere, its instance's place no number: it
+            // neither receives nor casts. Its box took every receiver's
+            // before it with it, and the area's shadows where it came
+            // last.)
+            if !somewhere(bounds) {
+                continue;
+            }
             // (One left out, Fade Geometry's, casts but isn't drawn to
             // receive.)
             let hidden = replaced.is_some_and(|r| r.hidden);
             if inst.receives_shadows && inst.opacity >= 1.0 && !hidden {
-                (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
+                let all = receivers.into_iter().chain([bounds]);
+                receivers = crate::reach::box_of(all.flat_map(|(min, max)| [min, max]));
             }
-            if casts(inst, mesh, alpha) {
-                let skinned = skin_bones(mesh, pose, &mut bones);
-                let caster = Caster { mesh, model, world, bones: skinned, bottom };
-                casters.push((caster, posed_box(bounds, skinned)));
+            let skinned = mesh.skin.is_some();
+            if casts(inst, mesh, alpha) && (skins || !skinned) {
+                let caster = Caster { mesh, model, world, bones: None, bottom };
+                casters.push((caster, posed_box(bounds, skinned), skinned.then_some(pose)));
             }
         }
         for mesh in &inst.model.shadow_only {
-            if casts(inst, mesh, 1.0) {
+            let skinned = mesh.skin.is_some();
+            if casts(inst, mesh, 1.0) && (skins || !skinned) {
                 let world = node(mesh.node);
-                let skinned = skin_bones(mesh, pose, &mut bones);
                 let bounds = posed_box(world_box(world, mesh), skinned);
-                casters.push((Caster { mesh, model, world, bones: skinned, bottom }, bounds));
+                if !somewhere(bounds) {
+                    continue;
+                }
+                let caster = Caster { mesh, model, world, bones: None, bottom };
+                casters.push((caster, bounds, skinned.then_some(pose)));
             }
         }
     }
-    if casters.is_empty() || rmin.cmpgt(rmax).any() {
-        return None;
-    }
-    let region = seen(camera, aspect, (rmin, rmax))?;
+    let receivers = receivers.filter(|_| !casters.is_empty())?;
+    let region = seen(camera, aspect, receivers)?;
     let view = light_view(scene.area.direction);
     let to_light = |(min, max): (Vec3, Vec3)| {
-        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for c in crate::box_corners(min, max) {
-            let p = view.transform_point3(c);
-            (lo, hi) = (lo.min(p), hi.max(p));
-        }
-        (lo, hi)
+        crate::reach::box_of(crate::box_corners(min, max).map(|c| view.transform_point3(c)))
     };
-    let (lo, mut hi) = to_light(region);
+    let (lo, mut hi) = to_light(region)?;
     // The casters whose shadows can fall on what is seen: across the
     // light, over the region; the box reaching back to the farthest
     // towards the light.
     let mut kept = Vec::with_capacity(casters.len());
-    for (caster, bounds) in casters {
-        let (clo, chi) = to_light(bounds);
+    for (mut caster, bounds, pose) in casters {
+        let Some((clo, chi)) = to_light(bounds) else { continue };
         if chi.x < lo.x || clo.x > hi.x || chi.y < lo.y || clo.y > hi.y || chi.z < lo.z {
             continue;
         }
         hi.z = hi.z.max(chi.z);
+        // (The bones of those kept alone: the map is drawn again when
+        // they change, and a creature animating out of its region changed
+        // them every frame.)
+        caster.bones = pose.and_then(|pose| skin_bones(caster.mesh, pose, &mut bones));
         kept.push(caster);
     }
     if kept.is_empty() {
@@ -341,7 +367,7 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
         depth: far - near,
         shadows,
         direction: scene.area.direction,
-        floor: rmin.z,
+        floor: receivers.0.z,
     })
 }
 
@@ -477,14 +503,36 @@ pub(crate) fn light_projection(light: Vec3, at: Vec3, radius: f32, reach: f32) -
 
 /// The lights' shadows a scene needs, seen by `camera`: `None` where it
 /// has none (none asked for, or no creature with a light that casts).
-pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightPlan<'a>> {
+/// `volumes`: it is the stencil volumes', which cast no skinned mesh
+/// ([`plan`]).
+pub(crate) fn light_plan<'a>(
+    scene: &'a Scene,
+    camera: &Camera,
+    volumes: bool,
+) -> Option<LightPlan<'a>> {
+    let skins = !volumes;
     let shadows = scene.light_shadows.filter(|s| s.opacity > 0.0)?;
-    let mut creatures: Vec<(f32, &'a Instance)> = scene
-        .instances
-        .iter()
-        .filter(|i| i.casts_light_shadows)
-        .map(|i| (i.transform.w_axis.truncate().distance(camera.target), i))
-        .collect();
+    // A creature's instances (its base first, then its parts: one made of
+    // body parts is an instance a part), the nearest the camera's target
+    // first.
+    let mut creatures: Vec<(f32, Vec<&'a Instance>)> = Vec::new();
+    let mut of_object: HashMap<u32, usize> = HashMap::new();
+    for inst in scene.instances.iter().filter(|i| i.casts_light_shadows) {
+        let known = inst.object.and_then(|o| match of_object.entry(o) {
+            Entry::Occupied(e) => Some(*e.get()),
+            Entry::Vacant(e) => {
+                e.insert(creatures.len());
+                None
+            }
+        });
+        match known {
+            Some(at) => creatures[at].1.push(inst),
+            None => {
+                let from_target = inst.transform.w_axis.truncate().distance(camera.target);
+                creatures.push((from_target, vec![inst]));
+            }
+        }
+    }
     creatures.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut plan = LightPlan {
         lights: Vec::new(),
@@ -497,34 +545,47 @@ pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightP
     };
     // (Each map's light, by its place in the scene's.)
     let mut cast_from = Vec::new();
-    for (_, inst) in creatures {
+    for (_, parts) in creatures {
         if plan.lights.len() == MAX_LIGHT_SHADOWS {
             break;
         }
-        let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
-        let first = plan.casters.len();
-        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
-        for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
-            let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
-            let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
-            if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 }) {
-                continue;
+        let (first, first_bone) = (plan.casters.len(), plan.bones.len());
+        // (The box around all of it.)
+        let mut around: Option<(Vec3, Vec3)> = None;
+        for inst in &parts {
+            let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
+            let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
+            for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
+                let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
+                let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
+                if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 })
+                    || (mesh.skin.is_some() && !skins)
+                {
+                    continue;
+                }
+                let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                // (A part that is nowhere casts nothing.)
+                let (a, b) = posed_box(world_box(world, mesh), mesh.skin.is_some());
+                if !(a.is_finite() && b.is_finite()) {
+                    continue;
+                }
+                around = crate::reach::box_of(
+                    around.into_iter().flat_map(|(a, b)| [a, b]).chain([a, b]),
+                );
+                let skinned = skin_bones(mesh, pose, &mut plan.bones);
+                let model = &inst.model;
+                plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
             }
-            let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
-            let skinned = skin_bones(mesh, pose, &mut plan.bones);
-            let (a, b) = posed_box(world_box(world, mesh), skinned);
-            (lo, hi) = (lo.min(a), hi.max(b));
-            let model = &inst.model;
-            plan.casters.push(Caster { mesh, model, world, bones: skinned, bottom: None });
         }
-        if plan.casters.len() == first {
-            continue;
-        }
+        let Some((lo, hi)) = around else { continue };
+        // (One light for the whole of it, from where its base stands, and
+        // one map: its box is all its parts'.)
         let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
-        let feet = inst.transform.w_axis.truncate();
+        let feet = parts[0].transform.w_axis.truncate();
         let Some(light) = casting_light(&scene.lights, at, radius, feet) else {
+            // (With its bones: nothing draws them.)
             plan.casters.truncate(first);
+            plan.bones.truncate(first_bone);
             continue;
         };
         cast_from.push(light);
@@ -743,11 +804,7 @@ fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
     if (total <= 0.0) {{ return 1.0; }}
     return 1.0 - pow(clamp(1.0 - mine / total, 0.0, 1.0), 1.0 / 2.2);
 }}
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
-    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}}
-@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @location(0) vec4<f32> {{
+{vs}@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @location(0) vec4<f32> {{
     let at = vec2<i32>(frag.xy);
     let d = {load};
     let ndc = vec2<f32>(frag.x / p.screen.x * 2.0 - 1.0, 1.0 - frag.y / p.screen.y * 2.0);
@@ -785,8 +842,25 @@ fn share_of(k: u32, world: vec3<f32>, n: vec3<f32>) -> f32 {{
 ",
         sources = MAX_LIGHT_SHADOWS / 4,
         share_lights = 2 * MAX_SHARE_LIGHTS,
+        vs = crate::framebuffer::FULLSCREEN_VS,
     )
 }
+
+/// How the darkening is laid (the map's and the stencil volumes'): black
+/// over what is there, as opaque as the shadow: its colour times one less
+/// the alpha, its alpha kept.
+pub(crate) const DARKEN_BLEND: wgpu::BlendState = wgpu::BlendState {
+    color: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        operation: wgpu::BlendOperation::Add,
+    },
+    alpha: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    },
+};
 
 /// The darkening pass for a target's format and samples.
 #[derive(Debug)]
@@ -795,20 +869,49 @@ struct Darkener {
     layout: wgpu::BindGroupLayout,
 }
 
-/// The shadow map and what draws it and reads it, made at the first frame
-/// that has shadows.
+/// What draws the shadow maps and reads them, made at the first frame
+/// that has shadows. The sun's map itself is a view's ([`SunMap`]).
 #[derive(Debug)]
 pub(crate) struct ShadowMaps {
-    map: wgpu::TextureView,
     sampler: wgpu::Sampler,
     casting: Casting,
     params: wgpu::Buffer,
     darkeners: std::collections::HashMap<(wgpu::TextureFormat, u32, bool), Darkener>,
     /// The lights' maps, made at the first frame with lights' shadows.
     lights: Option<LightMaps>,
+}
+
+/// A view's map of the sun's shadows, kept from one of its frames to the
+/// next ([`crate::views`]): made at the view's first frame with them.
+#[derive(Debug)]
+pub(crate) struct SunMap {
+    map: wgpu::TextureView,
     /// What the map holds: the light's projection, the casters' meshes,
     /// transforms and bones (drawn again only when they change).
     holds: Option<Held>,
+}
+
+impl SunMap {
+    fn new(device: &wgpu::Device) -> SunMap {
+        let map = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("shadow map"),
+                size: wgpu::Extent3d {
+                    width: MAP_SIZE,
+                    height: MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: MAP_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        SunMap { map, holds: None }
+    }
 }
 
 /// What a shadow map holds: its projection, its casters (mesh, transform,
@@ -828,23 +931,6 @@ pub(crate) struct Casting {
 
 impl ShadowMaps {
     pub(crate) fn new(device: &wgpu::Device) -> ShadowMaps {
-        let map = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("shadow map"),
-                size: wgpu::Extent3d {
-                    width: MAP_SIZE,
-                    height: MAP_SIZE,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: MAP_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&Default::default());
         // (Four texels compared and their results blended: an edge a texel
         // wide, as hard as the game's.)
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -865,7 +951,6 @@ impl ShadowMaps {
             })
         };
         ShadowMaps {
-            map,
             sampler,
             casting: Casting::new(device, Some(wgpu::Face::Back)),
             params: buffer(
@@ -875,34 +960,38 @@ impl ShadowMaps {
             ),
             darkeners: Default::default(),
             lights: None,
-            holds: None,
         }
     }
 
-    /// Draws `plan`'s casters into the map (unless it holds them already).
+    /// Draws `plan`'s casters into the view's `map` (made where it has
+    /// none), unless it holds them already: whether it drew them.
     pub(crate) fn cast(
         &mut self,
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         plan: &Plan,
-    ) {
+        map: &mut Option<SunMap>,
+    ) -> bool {
+        let map = map.get_or_insert_with(|| SunMap::new(&gpu.device));
         let holds: Vec<_> = plan.casters.iter().map(Caster::key).collect();
-        if self
+        if map
             .holds
             .as_ref()
             .is_some_and(|(l, h, b)| *l == plan.light && *h == holds && *b == plan.bones)
         {
-            return;
+            return false;
         }
         self.casting.upload(gpu, &plan.casters, &plan.bones);
         let group = self.casting.group(gpu, plan.light);
-        self.casting.draw(encoder, &self.map, &group, &plan.casters, 0, true);
-        self.holds = Some((plan.light, holds, plan.bones.clone()));
+        self.casting.draw(encoder, &map.map, &group, &plan.casters, 0, true);
+        map.holds = Some((plan.light, holds, plan.bones.clone()));
+        true
     }
 
-    /// Lays the sun's shadows over what is drawn in `target` (multisampled
-    /// by `samples`, of `format`), as deep as `depth` says, for `camera`
-    /// seeing a picture of `size`; `fog`: the scene's.
+    /// Lays the sun's shadows, as the view's `map` has them, over what is
+    /// drawn in `target` (multisampled by `samples`, of `format`), as deep
+    /// as `depth` says, for `camera` seeing a picture of `size`; `fog`:
+    /// the scene's.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn darken(
         &mut self,
@@ -910,7 +999,7 @@ impl ShadowMaps {
         encoder: &mut wgpu::CommandEncoder,
         targets: (&wgpu::TextureView, &wgpu::TextureView),
         format: (wgpu::TextureFormat, u32),
-        plan: &Plan,
+        (plan, map): (&Plan, &SunMap),
         camera: &Camera,
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
@@ -924,7 +1013,7 @@ impl ShadowMaps {
             .darkeners
             .entry((format.0, format.1, false))
             .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, false));
-        darkener.lay(gpu, encoder, targets, &self.params, &self.map, &self.sampler);
+        darkener.lay(gpu, encoder, targets, &self.params, &map.map, &self.sampler);
     }
 
     /// Draws the lights' maps of `plan`.
@@ -1162,22 +1251,9 @@ impl Casting {
                 bones: [c.bones.unwrap_or(0), 0, 0, 0],
             })
             .collect();
-        let grow = |buffer: &mut wgpu::Buffer, bytes: u64, label| {
-            if buffer.size() < bytes {
-                *buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(label),
-                    size: bytes.next_power_of_two(),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-            }
-        };
-        grow(&mut self.casters, std::mem::size_of_val(&data[..]) as u64, "shadow casters");
-        grow(&mut self.bones, std::mem::size_of_val(bones) as u64, "shadow bones");
-        gpu.queue.write_buffer(&self.casters, 0, bytemuck::cast_slice(&data));
-        if !bones.is_empty() {
-            gpu.queue.write_buffer(&self.bones, 0, bytemuck::cast_slice(bones));
-        }
+        let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
+        crate::renderer::upload(gpu, &mut self.casters, "shadow casters", usage, &data, 0);
+        crate::renderer::upload(gpu, &mut self.bones, "shadow bones", usage, bones, 0);
     }
 
     /// The bind group for drawing the uploaded casters seen through
@@ -1317,20 +1393,7 @@ impl Darkener {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        // Black over what is there, as opaque as the shadow: its colour
-        // times one less the alpha, its alpha kept.
-        let blend = wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        };
+        let blend = DARKEN_BLEND;
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow darkening"),
             layout: Some(&pipeline_layout),
@@ -1408,6 +1471,10 @@ impl Darkener {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A plan for the shadow map, and one for the stencil volumes.
+    const MAP: bool = false;
+    const VOLUMES: bool = true;
 
     /// The client's camera of the reference scenes (pitch 50, its eye 19 m
     /// from a focus 12 m below it) with the fog ending at 45 m: its
@@ -1532,6 +1599,146 @@ mod tests {
         assert!(inside(ground.with_z(0.0)), "{ground}");
         // Nothing beside it.
         assert!(!inside(at + Vec3::X * 5.0));
+    }
+
+    /// The plans carry the bones of the skinned meshes that are drawn into
+    /// a map: not those of a creature out of the sun's map's region (its
+    /// animation changed them every frame, and the map was drawn again
+    /// each frame with a still camera), nor of one no light casts for, nor
+    /// any where skins cast nothing (the stencil volumes).
+    #[test]
+    fn the_plans_carry_the_bones_of_what_is_drawn_alone() {
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let model = |m| std::sync::Arc::new(crate::GpuModel::new(&gpu, std::sync::Arc::new(m)));
+        let cast = |m: mg_mdl::Model| {
+            let mut m = m;
+            for n in &mut m.nodes {
+                if let mg_mdl::NodeKind::Mesh(mesh) = &mut n.kind {
+                    mesh.shadow = true;
+                }
+            }
+            m
+        };
+        let ground = model(crate::probe::quad("ground", 20.0, 0.0, [1.0; 3], false));
+        let skin = model(cast(crate::probe::quad("skinned", 1.0, 1.0, [1.0; 3], true)));
+        let rigid = model(cast(crate::probe::quad("rigid", 1.0, 1.0, [1.0; 3], false)));
+        assert!(skin.meshes[0].skin.is_some() && skin.meshes[0].casts);
+        let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0));
+        let creature = |m: &std::sync::Arc<crate::GpuModel>, x: f32| Instance {
+            casts_light_shadows: true,
+            ..Instance::new(m.clone(), at(x))
+        };
+        let scene = |x: f32| Scene {
+            instances: vec![
+                Instance { receives_shadows: true, ..Instance::new(ground.clone(), at(0.0)) },
+                creature(&rigid, 0.0),
+                creature(&skin, x),
+            ],
+            area: crate::AreaLight {
+                ambient: Vec3::splat(0.2),
+                diffuse: Vec3::splat(0.6),
+                direction: Vec3::Z,
+            },
+            shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            light_shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            lights: vec![
+                PointLight::new(Vec3::new(3.0, 0.0, 3.0), Vec3::ONE, 10.0, false, 4)
+                    .casting(true, 10.0, 0.0),
+            ],
+            ..Default::default()
+        };
+        // (Looking down on the ground's middle: 5 m of it seen.)
+        let camera = Camera {
+            eye: Vec3::new(0.0, -0.01, 6.0),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        // In the region: both cast, the skin with its bone.
+        let near = scene(1.0);
+        let sun = plan(&near, &camera, 1.0, MAP).expect("a plan");
+        assert_eq!((sun.casters.len(), sun.bones.len()), (2, 1));
+        assert_eq!(sun.casters.iter().filter(|c| c.bones.is_some()).count(), 1);
+        // The skin out of the region: the rigid one alone, and no bones.
+        let far = scene(60.0);
+        let sun = plan(&far, &camera, 1.0, MAP).expect("a plan");
+        assert_eq!((sun.casters.len(), sun.bones.len()), (1, 0));
+        // Skins casting nothing (the stencil volumes): none planned.
+        let sun = plan(&near, &camera, 1.0, VOLUMES).expect("a plan");
+        assert_eq!((sun.casters.len(), sun.bones.len()), (1, 0));
+        // The lights': the skin within the lamp's reach casts, with its
+        // bone; out of it, nothing of it is left; nor where skins cast
+        // nothing.
+        let lit = light_plan(&near, &camera, MAP).expect("a plan");
+        assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (2, 2, 1));
+        let lit = light_plan(&far, &camera, MAP).expect("a plan");
+        assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
+        let lit = light_plan(&near, &camera, VOLUMES).expect("a plan");
+        assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
+    }
+
+    /// A tile or a static placeable whose place is no number (a corrupt
+    /// float in an area's GIT) neither receives nor casts: the map is the
+    /// same as without it, wherever it is among the instances (its box
+    /// took every receiver's before it with it; last, it left the area no
+    /// shadows at all).
+    #[test]
+    fn an_instance_that_is_nowhere_changes_no_shadow() {
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let model = |m| std::sync::Arc::new(crate::GpuModel::new(&gpu, std::sync::Arc::new(m)));
+        let mut caster = crate::probe::quad("rigid", 1.0, 1.0, [1.0; 3], false);
+        for n in &mut caster.nodes {
+            if let mg_mdl::NodeKind::Mesh(mesh) = &mut n.kind {
+                mesh.shadow = true;
+            }
+        }
+        let (ground, caster) =
+            (model(crate::probe::quad("ground", 4.0, 0.0, [1.0; 3], false)), model(caster));
+        let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0));
+        let tile =
+            |x: f32| Instance { receives_shadows: true, ..Instance::new(ground.clone(), at(x)) };
+        let nowhere = Instance {
+            receives_shadows: true,
+            casts_light_shadows: true,
+            ..Instance::new(caster.clone(), at(f32::NAN))
+        };
+        let scene = |instances: Vec<Instance>| Scene {
+            instances,
+            area: crate::AreaLight {
+                ambient: Vec3::splat(0.2),
+                diffuse: Vec3::splat(0.6),
+                direction: Vec3::new(0.3, 0.2, 1.0),
+            },
+            shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            light_shadows: Some(SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            lights: vec![
+                PointLight::new(Vec3::new(3.0, 0.0, 3.0), Vec3::ONE, 10.0, false, 4)
+                    .casting(true, 10.0, 0.0),
+            ],
+            ..Default::default()
+        };
+        let camera = Camera {
+            eye: Vec3::new(0.0, -8.0, 10.0),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        let good =
+            || vec![tile(-4.0), tile(0.0), tile(4.0), Instance::new(caster.clone(), at(0.5))];
+        let all_good = scene(good());
+        let whole = plan(&all_good, &camera, 1.5, MAP).expect("a plan");
+        for place in [0, 1, 2, 4] {
+            let mut instances = good();
+            instances.insert(place, nowhere.clone());
+            let scene = scene(instances);
+            let with = plan(&scene, &camera, 1.5, MAP).expect("a plan");
+            assert_eq!(with.light, whole.light, "at {place}");
+            assert_eq!((with.casters.len(), with.floor), (whole.casters.len(), whole.floor));
+            // (Nor a light's shadow of it.)
+            assert!(light_plan(&scene, &camera, MAP).is_none(), "at {place}");
+        }
     }
 
     /// The light's view looks down along the light: a point towards the

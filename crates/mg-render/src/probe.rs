@@ -41,6 +41,13 @@ pub struct Probe {
     pub adapter: String,
     /// `Err`: what was drawn wrong (or what failed before it was drawn).
     pub outcome: Result<(), String>,
+    /// What failed is the backend's doing on this GPU and driver: a
+    /// picture compared and found wrong, or an error the GPU gave. Not no
+    /// device (its memory taken by another program), a panic, a GPU that
+    /// didn't finish in time or a device lost meanwhile, which may pass:
+    /// the backend is not taken this run, but nothing is recorded against
+    /// it ([`crate::backend::Failed`]).
+    pub blames_backend: bool,
     /// Opening the device, making the renderer (its pipelines), and
     /// drawing the scene and reading it back.
     pub device: Duration,
@@ -81,28 +88,30 @@ impl fmt::Display for Probe {
 }
 
 /// Checks that `adapter` draws: a device opened on it as the window opens
-/// one, the scene drawn and read back. Never panics: what goes wrong
-/// (no device, a GPU error, a panic in wgpu, a picture that isn't the
-/// scene's) is the outcome. The device is dropped after.
+/// one ([`crate::backend::device_descriptor`]), the scene drawn and read
+/// back. Never panics: what goes wrong (no device, a GPU error, a device
+/// lost, a panic in wgpu, a picture that isn't the scene's) is the
+/// outcome, and [`Probe::blames_backend`] whether it is the backend's
+/// doing. The device is dropped after.
 pub fn probe(adapter: &wgpu::Adapter) -> Probe {
     let info = adapter.get_info();
     let mut p = Probe {
         backend: info.backend,
         adapter: info.name.clone(),
         outcome: Ok(()),
+        blames_backend: false,
         device: Duration::ZERO,
         pipelines: Duration::ZERO,
         draw: Duration::ZERO,
     };
     let start = Instant::now();
-    let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("moonglow startup check"),
-            required_features: adapter.features() & crate::OPTIONAL_FEATURES,
-            required_limits: adapter.limits(),
-            ..Default::default()
-        }))
-    }));
+    let opened = crate::guard::checked(|| {
+        pollster::block_on(adapter.request_device(&crate::backend::device_descriptor(
+            "moonglow startup check",
+            adapter.features(),
+            adapter.limits(),
+        )))
+    });
     p.device = start.elapsed();
     let (device, queue) = match opened {
         Ok(Ok(dq)) => dq,
@@ -115,32 +124,36 @@ pub fn probe(adapter: &wgpu::Adapter) -> Probe {
             return p;
         }
     };
-    let errors: Arc<Mutex<Vec<String>>> = Arc::default();
+    // (Each error, and whether it is the GPU's verdict on what it was
+    // asked: not that its memory ran out.)
+    let errors: Arc<Mutex<Vec<(String, bool)>>> = Arc::default();
     let noted = errors.clone();
     device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
         if let Ok(mut errors) = noted.lock() {
-            errors.push(e.to_string());
+            errors.push((e.to_string(), !matches!(e, wgpu::Error::OutOfMemory { .. })));
         }
     }));
+    // (wgpu tells no error handler of a device lost: every call after is
+    // taken in silence, and the read-back never ends.)
+    let lost: Arc<Mutex<Option<String>>> = Arc::default();
+    let noted = lost.clone();
+    device.set_device_lost_callback(move |reason, message| {
+        if let Ok(mut lost) = noted.lock() {
+            *lost = Some(crate::guard::device_loss_said(reason, &message));
+        }
+    });
     let gpu = Gpu::new(device, queue);
-    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check(&gpu, &mut p)));
-    let outcome = match checked {
-        Ok(outcome) => outcome,
-        Err(payload) => Err(format!(
-            "it panicked: {}",
-            payload
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_default()
-        )),
-    };
-    // (A GPU error is the first thing to say: what was drawn follows from
-    // it.)
+    let mut drawn_wrong = false;
+    let outcome = crate::guard::checked(|| check(&gpu, &mut p, &mut drawn_wrong))
+        .unwrap_or_else(|why| Err(format!("it panicked: {why}")));
+    // (A device lost, then a GPU error, is the first thing to say: what
+    // was drawn follows from it.)
+    let lost = lost.lock().ok().and_then(|l| l.clone());
     let errors = errors.lock().map(|e| e.clone()).unwrap_or_default();
-    p.outcome = match errors.first() {
-        Some(e) => Err(format!("a GPU error: {}", first_line(e))),
-        None => outcome,
+    (p.outcome, p.blames_backend) = match (lost, errors.first()) {
+        (Some(why), _) => (Err(format!("the device was lost: {why}")), false),
+        (None, Some((e, verdict))) => (Err(format!("a GPU error: {}", first_line(e))), *verdict),
+        (None, None) => (outcome, drawn_wrong),
     };
     p
 }
@@ -149,8 +162,9 @@ fn first_line(text: &str) -> &str {
     text.lines().find(|l| !l.trim().is_empty()).unwrap_or(text).trim()
 }
 
-/// The scene drawn on `gpu` and compared; the times into `p`.
-fn check(gpu: &Gpu, p: &mut Probe) -> Result<(), String> {
+/// The scene drawn on `gpu` and compared; the times into `p`, and into
+/// `drawn_wrong` whether a picture was read back and found wrong.
+fn check(gpu: &Gpu, p: &mut Probe, drawn_wrong: &mut bool) -> Result<(), String> {
     let start = Instant::now();
     let mut renderer = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     let targets = Targets::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4, SIDE, SIDE);
@@ -160,12 +174,14 @@ fn check(gpu: &Gpu, p: &mut Probe) -> Result<(), String> {
     renderer.render_targets(gpu, &NoAssets, &scene, &camera, &targets);
     let image = gpu.try_read_rgba(&targets.color);
     p.draw = start.elapsed();
-    compare(&image?, &camera)
+    let compared = compare(&image?, &camera);
+    *drawn_wrong = compared.is_err();
+    compared
 }
 
 /// A quad `side` metres across, flat at height `z`, in `color`
 /// (unlit: drawn in it), skinned to bone 1 where `skinned`.
-fn quad(name: &str, side: f32, z: f32, color: [f32; 3], skinned: bool) -> Model {
+pub(crate) fn quad(name: &str, side: f32, z: f32, color: [f32; 3], skinned: bool) -> Model {
     let h = side / 2.0;
     let mesh = Mesh {
         diffuse: color,
@@ -316,6 +332,9 @@ pub struct Lit {
     /// says why).
     pub game: Option<Result<(), String>>,
     pub fell_back: Option<String>,
+    /// A draw panicked (Moonglow's own, or the game's programs': which
+    /// one's `Err` says "it panicked"): no picture was compared.
+    pub panicked: bool,
     /// Making the renderer and drawing with Moonglow's own; making the
     /// game's pipeline (compiling its programs, or reading them from the
     /// cache) and drawing with it.
@@ -442,6 +461,7 @@ pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>
         own: Err("not drawn".into()),
         game: None,
         fell_back: None,
+        panicked: false,
         own_time: Duration::ZERO,
         game_time: Duration::ZERO,
         own_picture: None,
@@ -451,7 +471,9 @@ pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>
         overridden: Vec::new(),
     };
     let assets = LitAssets { game, overridden: Mutex::default() };
-    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    // (Which draw is under way: a panic is that draw's.)
+    let mut own_drawn = false;
+    let checked = crate::guard::checked(|| {
         let start = Instant::now();
         let mut renderer = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         renderer.set_shader_cache(cache);
@@ -474,6 +496,7 @@ pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>
         lit.own = draw(&mut renderer, &mut lit.own_picture);
         lit.own_color = middle(&lit.own_picture);
         lit.own_time = start.elapsed();
+        own_drawn = true;
         let start = Instant::now();
         renderer.game_shaders = true;
         let mut picture = None;
@@ -495,15 +518,19 @@ pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>
                 None => "drawn by Moonglow's own".into(),
             });
         }
-    }));
+    });
     lit.overridden = assets.overridden.into_inner().unwrap_or_default();
-    if let Err(payload) = checked {
-        let why = payload
-            .downcast_ref::<&str>()
-            .map(|s| s.to_string())
-            .or_else(|| payload.downcast_ref::<String>().cloned())
-            .unwrap_or_default();
-        lit.own = Err(format!("it panicked: {why}"));
+    if let Err(why) = checked {
+        // (The game's draw's, where Moonglow's own was done: its shader
+        // drew right, and the game's programs are what the area view must
+        // do without.)
+        let said = Err(format!("it panicked: {why}"));
+        lit.panicked = true;
+        if own_drawn {
+            lit.game = Some(said);
+        } else {
+            lit.own = said;
+        }
     }
     lit
 }

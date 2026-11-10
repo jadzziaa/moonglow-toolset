@@ -1001,11 +1001,11 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     let lit =
         AreaLight { ambient: Vec3::splat(0.05), diffuse: Vec3::splat(0.05), direction: Vec3::Z };
-    let mut shot = |texture: &str, env: Option<&str>, default: bool| {
+    let mut shot_of = |model: Arc<GpuModel>, env: Option<&str>, default: bool| {
         let inst = Instance {
             env_map: env.map(str::to_string),
             env_map_default: default,
-            ..Instance::new(quad_with(texture), Mat4::IDENTITY)
+            ..Instance::new(model, Mat4::IDENTITY)
         };
         let scene = Scene {
             instances: vec![inst],
@@ -1016,6 +1016,8 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
         };
         r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
     };
+    let mut shot =
+        |texture: &str, env: Option<&str>, default: bool| shot_of(quad_with(texture), env, default);
     let red = |p: [u8; 4]| p[0] > p[2] + 8;
     let blue = |p: [u8; 4]| p[2] > p[0] + 8;
     // A placeable's `default`: the texture's `default` is the area's, its
@@ -1037,6 +1039,76 @@ fn a_texture_s_default_map_is_the_area_s_unless_the_object_names_one() {
     assert!(blue(named), "{named:?}");
     assert!(red(none), "{none:?}");
     assert!(red(creature), "{creature:?}");
+    // Two placeables of one model, one whose `Reflection` is `default`
+    // and one naming `chrome1`: each its own (the surfaces kept for a
+    // model left the flag out, and both took the first drawn's).
+    let model = quad_with("mirror_default");
+    let first = shot_of(model.clone(), Some("chrome1"), true);
+    let second = shot_of(model.clone(), Some("chrome1"), false);
+    let again = shot_of(model, Some("chrome1"), true);
+    assert!(red(first) && blue(second) && red(again), "{first:?} {second:?} {again:?}");
+}
+
+/// A texture that takes no colors (a plain DDS or TGA: a custom head) is
+/// one texture however many differently colored instances wear it (it was
+/// read and uploaded once for every set of colors that asked for it,
+/// under a name with the colors in it); a PLT is one a set of colors.
+#[test]
+fn a_plain_texture_is_kept_once_for_every_set_of_colors() {
+    let Some(gpu) = gpu() else { return };
+    /// `plain` takes no colors; the others do, each set its own picture
+    /// (asked for by the name with the colors in it).
+    struct Parts(TestAssets);
+    impl mg_render::Assets for Parts {
+        fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+            let (base, colors) = mg_render::split_colors(name);
+            // (As the load order's: a plain texture whatever colors are
+            // asked for, a PLT in them.)
+            match (base, colors) {
+                ("plain", _) => self.0.texture("plain"),
+                ("plt", Some(c)) => self.0.texture(if c[0] == 1 { "red" } else { "blue" }),
+                _ => None,
+            }
+        }
+        fn takes_colors(&self, name: &str) -> bool {
+            name != "plain"
+        }
+    }
+    let mut assets = TestAssets::default();
+    assets.solid("plain", [0, 255, 0, 255]);
+    assets.solid("red", [255, 0, 0, 255]);
+    assets.solid("blue", [0, 0, 255, 255]);
+    let assets = Parts(assets);
+    let head = |texture: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(texture.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let lit = AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z };
+    for (texture, textures, left, right) in [("plain", 1, 1, 1), ("plt", 2, 0, 2)] {
+        let model = head(texture);
+        let worn = |x: f32, color: u8| Instance {
+            plt_colors: Some([color; 10]),
+            ..Instance::new(model.clone(), Mat4::from_translation(Vec3::new(x, 0.0, 0.0)))
+        };
+        let scene =
+            Scene { instances: vec![worn(-1.5, 1), worn(1.5, 2)], area: lit, ..Default::default() };
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 64, 32);
+        assert_eq!(r.texture_memory().textures, textures, "{texture}");
+        // (Each drawn in its own: channel `left` and `right` the brightest.)
+        let brightest = |p: [u8; 4]| (0..3).max_by_key(|&c| p[c]).unwrap();
+        let (l, rt) = (image.pixel(25, 16), image.pixel(39, 16));
+        assert_eq!((brightest(l), brightest(rt)), (left, right), "{texture}: {l:?} {rt:?}");
+    }
 }
 
 #[test]
@@ -1111,6 +1183,62 @@ fn the_sky_fade_is_laid_over_the_sky_by_its_alpha() {
     let px = r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32);
     // Red over white by a quarter: (255, 191, 191).
     assert!(px[0] > 245 && (180..205).contains(&px[1]) && (180..205).contains(&px[2]), "{px:?}");
+}
+
+/// Moonglow's own shader leaves the picture's alpha as the scene cleared
+/// it where it draws solid, as the game's programs' passes do: a layer
+/// drawn by the `vertexalpha` effect without `transparency`, its vertex
+/// alpha a half, and a sky whose texture has alpha (wrote theirs, and the
+/// panel showed through the picture there, as through `mgv render`'s
+/// PNG); and the sky is not cut where its texture's alpha is low (the
+/// game's sky program is made with `NO_DISCARD`).
+#[test]
+fn a_solid_draw_leaves_the_picture_s_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.opaque("layer", [255, 0, 0]);
+    let named = "customshadervs vertexalpha_vs\ncustomshaderfs vertexalpha_fs\n";
+    assets.materials.insert("layer".into(), mg_image::mtr::Mtr::parse(named.as_bytes()));
+    // (A sky a tenth opaque: below the cut.)
+    assets.solid("thin", [0, 0, 255, 25]);
+    let quad_with = |bitmap: &str, alpha: u8| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(bitmap.into());
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.colors = vec![[255, 255, 255, alpha]; 4];
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let far =
+        Mat4::from_translation(Vec3::new(0.0, 0.0, -500.0)) * Mat4::from_scale(Vec3::splat(2000.0));
+    let scene = Scene {
+        instances: vec![Instance::new(quad_with("layer", 128), Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        sky: Some(Instance::new(quad_with("thin", 255), far)),
+        background: [0.0, 1.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    for samples in [1, 4] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        assert_eq!(r.drawn.game, 0, "Moonglow's own shader");
+        // The layer, in the middle: red, the picture opaque there.
+        let layer = image.pixel(32, 32);
+        assert!(layer[0] > layer[1] + 100, "{samples} samples: the layer {layer:?}");
+        // The sky, in a corner: its texture's blue, not the background
+        // (green) it was cut to.
+        let sky = image.pixel(3, 3);
+        assert!(sky[2] > 200 && sky[1] < 60, "{samples} samples: the sky {sky:?}");
+        let see_through = image.data.as_chunks::<4>().0.iter().filter(|p| p[3] != 255).count();
+        assert_eq!(see_through, 0, "{samples} samples: pixels whose alpha is not the clear's");
+    }
 }
 
 /// The scene's depths stay in the depth buffer: what a caller draws after
@@ -5813,6 +5941,218 @@ fn a_creature_s_shadow_falls_away_from_its_light() {
     }
 }
 
+/// What a view keeps from frame to frame is its own: an area's view (its
+/// sun's shadow map) drawn, another view drawn through the same renderer,
+/// then the area's again draws the map once in all, and each view's
+/// stencil target is of its own size (the one renderer kept one map and
+/// one target, which the second view's frame took: the area's next frame
+/// drew its map again, and two views of two sizes made the target anew
+/// twice a frame). A view drawn without High lets go of its stencil
+/// target, and one whose targets are let go of leaves nothing.
+#[test]
+fn a_view_keeps_its_own_from_frame_to_frame() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let scene = |plate_at: f32| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(plate.clone(), Mat4::from_translation(Vec3::new(plate_at, 0.0, 1.0))),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        // (A soft particle: the frame reads the targets' depth copy.)
+        particles: vec![mg_render::particles::ParticleBatch {
+            texture: None,
+            blend: mg_render::particles::ParticleBlend::Normal,
+            render_order: 0,
+            vertices: [(-1.0, 0.0), (1.0, 0.0), (1.0, 2.0)]
+                .map(|(x, z)| mg_render::particles::ParticleVertex {
+                    pos: [x, 3.0, z],
+                    uv: [0.0, 0.0],
+                    color: [1.0; 4],
+                    softness: 0.0,
+                })
+                .to_vec(),
+            tint: None,
+            softness: 5.0,
+        }],
+        line_shapes: vec![mg_render::LineShape {
+            lines: Arc::from(vec![[Vec3::ZERO, Vec3::X]]),
+            copies: vec![mg_render::LineCopy {
+                offset: Vec3::new(plate_at, 0.0, 0.5),
+                scale: 1.0,
+                color: [1.0; 4],
+            }],
+        }],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu, format, 4);
+    let (area, other) = (scene(0.0), scene(2.0));
+    let area_targets = mg_render::Targets::new(&gpu, format, 4, 96, 64);
+    let other_targets = mg_render::Targets::new(&gpu, format, 4, 48, 48);
+    assert_eq!(r.kept_for(&area_targets), None);
+    // Fast: the sun's map.
+    let mut casts = Vec::new();
+    for (s, t) in [
+        (&area, &area_targets),
+        (&other, &other_targets),
+        (&area, &area_targets),
+        (&other, &other_targets),
+    ] {
+        r.render_targets(&gpu, &NoAssets, s, &camera, t);
+        assert_eq!(r.drawn.sun_casters, 1);
+        casts.push(r.drawn.sun_map_drawn);
+    }
+    assert_eq!(casts, [true, true, false, false], "each view's map drawn once");
+    let kept = r.kept_for(&area_targets).expect("the area's");
+    assert!(kept.sun_map && kept.stencil_target.is_none() && kept.line_shapes == 1, "{kept:?}");
+    // (And a bind group on the area's depth copy, or the other view's.)
+    let other_kept = r.kept_for(&other_targets).expect("the other's");
+    assert!(kept.copies != other_kept.copies, "{kept:?} {other_kept:?}");
+    // High: a stencil target each, of its own size, kept across the other's
+    // frame.
+    r.shadow_volumes = true;
+    for _ in 0..2 {
+        r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+        r.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
+    }
+    assert_eq!(r.kept_for(&area_targets).unwrap().stencil_target, Some((96, 64)));
+    assert_eq!(r.kept_for(&other_targets).unwrap().stencil_target, Some((48, 48)));
+    // Back to Fast in one view: its target is let go of, the other's kept.
+    r.shadow_volumes = false;
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    assert!(!r.drawn.sun_map_drawn, "the map still holds the area's casters");
+    assert_eq!(r.kept_for(&area_targets).unwrap().stencil_target, None);
+    assert_eq!(r.kept_for(&other_targets).unwrap().stencil_target, Some((48, 48)));
+    // A view lets go of its targets: nothing of it is kept.
+    assert!(r.kept_for(&area_targets).unwrap().copies, "the last drawn: its depth copy bound");
+    r.let_go_of(&area_targets);
+    assert_eq!(r.kept_for(&area_targets), None);
+    assert!(r.kept_for(&other_targets).is_some());
+    // Targets dropped (a view made again at another size): what was kept
+    // for them goes at the next frame drawn.
+    r.shadow_volumes = true;
+    let resized = mg_render::Targets::new(&gpu, format, 4, 80, 80);
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &resized);
+    assert_eq!(r.kept_for(&resized).unwrap().stencil_target, Some((80, 80)));
+    assert_eq!(r.views_kept(), 2);
+    drop(resized);
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    assert_eq!(r.views_kept(), 2, "the other's and the area's");
+    r.shadow_volumes = false;
+    // And the pictures are as a renderer of its own draws them.
+    let mut fresh = Renderer::new(&gpu, format, 4);
+    fresh.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
+    let alone = gpu.read_rgba(&other_targets.color);
+    r.render_targets(&gpu, &NoAssets, &area, &camera, &area_targets);
+    r.render_targets(&gpu, &NoAssets, &other, &camera, &other_targets);
+    assert_eq!(gpu.read_rgba(&other_targets.color).data, alone.data);
+}
+
+/// A creature made of parts is one object to the lights' shadows: two of
+/// 20 part instances each under one lamp cast every part's shadow, from
+/// two maps. (A map was planned for each instance: the 16 parts nearest
+/// the camera's target cast and the other 24 cast nothing.)
+#[test]
+fn a_creature_of_parts_casts_one_shadow_from_a_light() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    // Each creature's parts: plates 30 cm across, 40 cm apart, a meter up.
+    let part = |creature: usize, i: usize| {
+        let base = if creature == 0 { -2.0 } else { 2.0 };
+        Vec3::new(base + ((i % 5) as f32 - 2.0) * 0.4, ((i / 5) as f32 - 1.5) * 0.4, 1.0)
+    };
+    let scene = |shadows: bool, together: bool| {
+        let mut instances = vec![Instance {
+            receives_shadows: true,
+            ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(6.0)))
+        }];
+        for creature in 0..2 {
+            instances.extend((0..20).map(|i| Instance {
+                casts_light_shadows: true,
+                object: together.then_some(creature as u32),
+                ..Instance::new(
+                    plate.clone(),
+                    Mat4::from_translation(part(creature, i)) * Mat4::from_scale(Vec3::splat(0.15)),
+                )
+            }));
+        }
+        Scene {
+            instances,
+            lights: vec![
+                mg_render::PointLight::new(Vec3::new(0.0, 0.0, 2.0), Vec3::ONE, 10.0, false, 4)
+                    .casting(true, 10.0, 2.0),
+            ],
+            area: AreaLight {
+                ambient: Vec3::splat(0.004),
+                diffuse: Vec3::splat(0.012),
+                direction: Vec3::Z,
+            },
+            light_shadows: shadows
+                .then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+            ..Default::default()
+        }
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    // (From 4 m up, a part a meter up throws its shadow 4/3 as far from
+    // under the lamp as it is; 128 pixels are 12 tan 0.4 meters.)
+    let pixel = |p: Vec3| {
+        let scale = 128.0 / (12.0 * 0.4f32.tan());
+        let at = |v: f32| (128.0 + v * 4.0 / 3.0 * scale).round() as u32;
+        (at(p.x), at(-p.y))
+    };
+    for volumes in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.shadow_volumes = volumes;
+        let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 256, 256);
+        let (cast, off, apart) =
+            (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+        let name = format!("shadows_light_parts{}.png", if volumes { "_high" } else { "" });
+        save(&cast, &mg_testkit::output_dir("render").join(name));
+        let dark = |img: &mg_image::Rgba| {
+            (0..40)
+                .filter(|n| {
+                    let (x, y) = pixel(part(n / 20, n % 20));
+                    let lit = grey(off.pixel(x, y));
+                    assert!(lit > 20.0, "part {n}: the ground is lit {lit}");
+                    grey(img.pixel(x, y)) < lit * 0.75
+                })
+                .count()
+        };
+        assert_eq!(dark(&cast), 40, "volumes {volumes}: every part of both");
+        // (Each instance an object by itself: the 16 nearest alone.)
+        assert_eq!(dark(&apart), 16, "volumes {volumes}: parts as creatures");
+        // Between the two, no shadow.
+        let between = (128, 40);
+        let (a, b) = (grey(cast.pixel(between.0, between.1)), grey(off.pixel(128, 40)));
+        assert!((a - b).abs() <= 1.0, "volumes {volumes}: {a} {b}");
+    }
+}
+
 /// A unit cube from 0 to 1, each face's vertices its own (as a model's
 /// are where its texture coordinates part), wound outwards.
 fn cube() -> Model {
@@ -6081,6 +6421,7 @@ fn the_startup_check_passes_and_fails_where_nothing_is_drawn() {
     let _ = writeln!(std::io::stdout(), "startup check (again): {again}");
     assert!(first.passed(), "{first}");
     assert!(again.passed(), "{again}");
+    assert!(!first.blames_backend);
     let blanked = {
         let _unblank = Unblank;
         mg_render::guard::blank_draws(true);
@@ -6088,6 +6429,8 @@ fn the_startup_check_passes_and_fails_where_nothing_is_drawn() {
     };
     let _ = writeln!(std::io::stdout(), "startup check (draws blanked): {blanked}");
     assert!(!blanked.passed(), "{blanked}");
+    // (A picture compared and found wrong: the backend's doing, recorded.)
+    assert!(blanked.blames_backend);
     let why = blanked.outcome.clone().unwrap_err();
     assert!(why.contains("the solid mesh is") && why.contains("the skinned mesh"), "{why}");
     assert!(!why.contains("the background"), "the background is drawn right: {why}");
@@ -6197,13 +6540,19 @@ fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
     assert!(colored as f32 >= 0.97 * of as f32, "{colored} of {of} drawn points colored");
     assert_eq!(seen.colors[0], [0.0; 3], "the sky's corner: the background");
     assert_eq!(blanked.colored(scene.background), 0);
-    // A look the GPU never gives back is given up after a while, and the
-    // next is taken.
+    // A look the GPU has done is not given up, however long ago it was
+    // taken (a view whose next frame comes later than that, its tab
+    // behind another: it was dropped unread as lost, and the log said the
+    // GPU hadn't given it back): it is there to take.
     sampler.look(&gpu, &targets, seen.expected.clone(), 100.0);
     assert!(sampler.busy());
-    assert!(!sampler.give_up(100.0 + watch::LOST - 0.5));
-    assert!(sampler.give_up(100.0 + watch::LOST));
-    assert!(!sampler.busy());
+    assert!(!sampler.give_up(&gpu, 100.0 + watch::LOST - 0.5), "not yet, done or not");
+    let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+    assert!(!sampler.give_up(&gpu, 100.0 + watch::LOST + 1.0));
+    assert!(sampler.busy());
+    let late = sampler.take(&gpu).expect("the look, read late");
+    assert_eq!(late.counted(), blanked.counted(), "of the targets as last drawn");
+    assert!(!sampler.busy() && !sampler.give_up(&gpu, 1e6), "none under way");
 }
 
 /// Moonglow's own shaders (each WGSL source the renderer makes, at one
@@ -6329,6 +6678,49 @@ fn the_lit_check_draws_a_lit_mesh_both_ways() {
     let _ = writeln!(std::io::stdout(), "lit check (draws blanked): {blanked}");
     assert!(blanked.own.as_ref().is_err_and(|e| e.contains("not red")), "{blanked}");
     assert!(!blanked.game_fails(), "Moonglow's own fails too: not the game's to blame");
+    assert!(!blanked.panicked && !lit.panicked);
+    mg_render::guard::blank_draws(false);
+    // The game's draw panicking, after Moonglow's own drew right: the
+    // game's part fails (it was put on Moonglow's own shader, the notice
+    // said that drew the mesh in the wrong colors, and the game's shaders
+    // stayed on for the area view to panic in).
+    struct Panicking(TestAssets);
+    impl mg_render::Assets for Panicking {
+        fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+            self.0.texture(name)
+        }
+        fn game_shader(&self, _: &str) -> Option<String> {
+            assert!(mg_render::guard::checking(), "a check's panic, told apart from a crash");
+            panic!("made to panic")
+        }
+    }
+    let mut pair = TestAssets::default();
+    authored_lit_pair(&mut pair);
+    let panicked = mg_render::probe::probe_lit(&gpu, &Panicking(pair), None);
+    let _ = writeln!(std::io::stdout(), "lit check (the game's draw panicking): {panicked}");
+    assert_eq!(panicked.own, Ok(()), "{panicked}");
+    assert!(panicked.game_fails() && panicked.panicked, "{panicked}");
+    assert_eq!(panicked.game, Some(Err("it panicked: made to panic".into())));
+    assert!(!mg_render::guard::checking());
+}
+
+/// A device lost (the driver reset or updated, the GPU removed) is told:
+/// wgpu takes every call after in silence, and tells no error handler.
+/// Here the device is closed, which loses it as the driver would.
+#[test]
+fn a_lost_device_is_told_once() {
+    // (The loss is the process's to take: no other test's device is the
+    // application's meanwhile.)
+    mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
+    mg_render::guard::note_gpu_errors(&gpu.device);
+    assert_eq!(mg_render::guard::take_device_loss(), None);
+    gpu.device.destroy();
+    let _ = gpu.device.poll(wgpu::PollType::Poll);
+    let lost = mg_render::guard::take_device_loss();
+    assert_eq!(lost.as_deref(), Some("it was closed"));
+    let _ = gpu.device.poll(wgpu::PollType::Poll);
+    assert_eq!(mg_render::guard::take_device_loss(), None, "told once");
 }
 
 /// A texture read with derivatives (`textureSample`) in a loop whose count

@@ -257,8 +257,10 @@ impl GraphicsBackend {
 /// A backend that drew wrong on a GPU and driver
 /// ([`Settings::graphics_failures`]): the GPU's PCI vendor and device IDs,
 /// its driver's name and version, the backend (by its name, as
-/// [`mg_render::backend::backend_name`] says it), when (Unix seconds) and
-/// what found it.
+/// [`mg_render::backend::backend_name`] says it), when (Unix seconds),
+/// what found it, and the release of Moonglow that did: another release
+/// may have mended what failed, and tries the backend again
+/// ([`Settings::failed_backends`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GraphicsFailure {
@@ -270,6 +272,8 @@ pub struct GraphicsFailure {
     pub backend: String,
     pub when: u64,
     pub what: String,
+    /// Moonglow's version then (empty: a record older than the field).
+    pub version: String,
 }
 
 impl GraphicsFailure {
@@ -283,7 +287,21 @@ impl GraphicsFailure {
             backend: mg_render::backend::backend_name(info.backend).to_string(),
             when: mg_core::time::unix_now(),
             what: what.to_string(),
+            version: mg_core::release::version().to_string(),
         }
+    }
+
+    /// A record as one line (the startup check's marker file, written
+    /// before an adapter is checked: [`GraphicsFailure::from_line`]).
+    pub fn to_line(&self) -> String {
+        ron::to_string(self).unwrap_or_default()
+    }
+
+    /// The record of [`GraphicsFailure::to_line`] (`None`: not one).
+    pub fn from_line(line: &str) -> Option<GraphicsFailure> {
+        // (A marker is a line of a few hundred bytes.)
+        let record: GraphicsFailure = ron::from_str(line.get(..line.len().min(4096))?).ok()?;
+        record.failed().map(|_| record)
     }
 
     /// As [`mg_render::backend::pick_adapter`] passes it over (`None`: a
@@ -1139,9 +1157,20 @@ impl Settings {
     }
 
     /// The backends recorded as failing ([`Settings::graphics_failures`]),
-    /// as Automatic passes them over.
+    /// as Automatic passes them over: those this release of Moonglow
+    /// recorded (another's are tried again: what failed may be mended).
     pub fn failed_backends(&self) -> Vec<mg_render::backend::Failed> {
-        self.graphics_failures.iter().filter_map(GraphicsFailure::failed).collect()
+        let release = mg_core::release::version();
+        let ours = self.graphics_failures.iter().filter(|f| f.version == release);
+        ours.filter_map(GraphicsFailure::failed).collect()
+    }
+
+    /// Drops the failures another release of Moonglow recorded, as
+    /// Moonglow starts: how many.
+    pub fn forget_other_releases_graphics_failures(&mut self) -> usize {
+        let (before, release) = (self.graphics_failures.len(), mg_core::release::version());
+        self.graphics_failures.retain(|f| f.version == release);
+        before - self.graphics_failures.len()
     }
 
     /// Records a backend's failure, in place of one of the same GPU,
@@ -1664,6 +1693,40 @@ mod tests {
         assert!(older.graphics_failures.is_empty());
         let unknown = GraphicsFailure { backend: "WebGPU 2".into(), ..Default::default() };
         assert_eq!(unknown.failed(), None);
+    }
+
+    /// A failure is this release's: one another release recorded (or one
+    /// from before records said which) is passed over by nothing, and is
+    /// dropped as Moonglow starts. The release that fixes what failed
+    /// tries the backend again.
+    #[test]
+    fn another_release_s_graphics_failure_is_tried_again() {
+        let mut info = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Dx12);
+        (info.vendor, info.device, info.name) = (0x1002, 0x67df, "Radeon RX 580".into());
+        info.driver_info = "25.9.1".into();
+        let ours = GraphicsFailure::of(&info, "the startup check");
+        assert_eq!(ours.version, mg_core::release::version());
+        info.backend = wgpu::Backend::Vulkan;
+        let older = GraphicsFailure { version: "0.0.1".into(), ..GraphicsFailure::of(&info, "x") };
+        let undated = GraphicsFailure { version: String::new(), ..older.clone() };
+        let mut s = Settings {
+            graphics_failures: vec![older, ours.clone(), undated],
+            ..Default::default()
+        };
+        assert_eq!(s.failed_backends(), [ours.failed().unwrap()]);
+        assert_eq!(s.forget_other_releases_graphics_failures(), 2);
+        assert_eq!(s.graphics_failures, std::slice::from_ref(&ours));
+        assert_eq!(s.forget_other_releases_graphics_failures(), 0);
+        // (A record saved before the field reads as of no release.)
+        let saved = "(graphics_failures:[(vendor:4098,device:26591,backend:\"Vulkan\")])";
+        let before: Settings = ron::from_str(saved).unwrap();
+        assert_eq!(before.graphics_failures.len(), 1);
+        assert!(before.failed_backends().is_empty());
+        // The startup check's marker: a record on a line, and nothing else.
+        assert_eq!(GraphicsFailure::from_line(&ours.to_line()), Some(ours));
+        assert_eq!(GraphicsFailure::from_line(""), None);
+        assert_eq!(GraphicsFailure::from_line("(backend:\"WebGPU 2\")"), None);
+        assert_eq!(GraphicsFailure::from_line(&"(".repeat(100_000)), None);
     }
 
     /// The lit check's notice is hidden on one GPU, driver and backend

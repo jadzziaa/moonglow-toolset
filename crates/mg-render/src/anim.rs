@@ -121,21 +121,10 @@ pub struct Binding {
 }
 
 impl Binding {
-    /// `anim`, played by `model`.
-    pub fn new(model: &Model, anim: &Animation) -> Binding {
-        Nodes::of(model, None).bind(model, anim, None)
-    }
-
-    /// Each of `anims`, played by `model` (its nodes looked up once).
-    pub fn all<'a>(model: &Model, anims: impl IntoIterator<Item = &'a Animation>) -> Vec<Binding> {
-        let nodes = Nodes::of(model, None);
-        anims.into_iter().map(|a| nodes.bind(model, a, None)).collect()
-    }
-
-    /// [`Binding::all`] of animations each with the scale it plays at
-    /// through the model's chain of supermodels
+    /// Each of `anims`, played by `model` (its nodes looked up once), with
+    /// the scale it plays at through the model's chain of supermodels
     /// ([`mg_mdl::animations_scaled`]: the product of each link's but the
-    /// owner's), where `all` takes the model's own scale alone.
+    /// owner's).
     pub fn all_scaled<'a>(
         model: &Model,
         anims: impl IntoIterator<Item = (&'a Animation, f32)>,
@@ -554,23 +543,28 @@ fn animated_vertices(m: &Mesh, sets: &AnimMeshSets, t: f32) -> Option<Vec<Vertex
         let k = (f.floor().max(0.0) as usize).min(last);
         (k, (k + 1).min(last), (f - k as f32).clamp(0.0, 1.0))
     };
-    let mut out = crate::model::mesh_vertices(m);
+    // (A vertex on a mirrored seam is uploaded twice: the copy moves with
+    // its original.)
+    let crate::model::Uploaded { vertices: mut out, originals, triangles } =
+        crate::model::uploaded(m);
     if !sets.vertex_sets.is_empty() {
         let (a, b, f) = at(sets.vertex_sets.len());
         let (a, b) = (&sets.vertex_sets[a], &sets.vertex_sets[b]);
-        for (v, &s) in out.iter_mut().zip(&m.source) {
+        for (v, &o) in out.iter_mut().zip(&originals) {
+            let Some(&s) = m.source.get(o as usize) else { continue };
             let s = s as usize;
             if let (Some(p), Some(q)) = (a.get(s), b.get(s)) {
                 v.pos = Vec3::from(*p).lerp(Vec3::from(*q), f).to_array();
             }
         }
-        smooth_normals(m, &mut out);
+        smooth_normals(m, &originals, &triangles, &mut out);
     }
     if !sets.uv_sets.is_empty() {
         let (a, b, f) = at(sets.uv_sets.len());
         let (a, b) = (&sets.uv_sets[a], &sets.uv_sets[b]);
-        let source = if m.source_uv.len() == out.len() { &m.source_uv } else { &m.source };
-        for (v, &s) in out.iter_mut().zip(source) {
+        let source = if m.source_uv.len() == m.vertices.len() { &m.source_uv } else { &m.source };
+        for (v, &o) in out.iter_mut().zip(&originals) {
+            let Some(&s) = source.get(o as usize) else { continue };
             let s = s as usize;
             if let (Some(p), Some(q)) = (a.get(s), b.get(s)) {
                 v.uv = glam::Vec2::from(*p).lerp(glam::Vec2::from(*q), f).to_array();
@@ -580,21 +574,23 @@ fn animated_vertices(m: &Mesh, sets: &AnimMeshSets, t: f32) -> Option<Vec<Vertex
     Some(out)
 }
 
-/// Normals from the faces around each vertex. Vertices that had the same
-/// position and normal at rest (split only by UV seams) share one, so hard
-/// edges stay hard.
-fn smooth_normals(m: &Mesh, out: &mut [Vertex]) {
+/// Normals from the faces around each vertex (`triangles`, of the vertices
+/// as uploaded; `originals`: the mesh's vertex each is). Vertices that had
+/// the same position and normal at rest (split only by UV seams) share
+/// one, so hard edges stay hard.
+fn smooth_normals(m: &Mesh, originals: &[u32], triangles: &[[u32; 3]], out: &mut [Vertex]) {
     let mut class: HashMap<([u32; 3], [u32; 3]), usize> = HashMap::new();
-    let classes: Vec<usize> = (0..out.len())
-        .map(|i| {
-            let p = m.vertices[i].map(f32::to_bits);
-            let n = m.normals.get(i).copied().unwrap_or_default().map(f32::to_bits);
+    let classes: Vec<usize> = originals
+        .iter()
+        .map(|&o| {
+            let p = m.vertices.get(o as usize).copied().unwrap_or_default().map(f32::to_bits);
+            let n = m.normals.get(o as usize).copied().unwrap_or_default().map(f32::to_bits);
             let next = class.len();
             *class.entry((p, n)).or_insert(next)
         })
         .collect();
     let mut sum = vec![Vec3::ZERO; class.len()];
-    for t in m.triangles() {
+    for t in triangles {
         let [a, b, c] = t.map(|v| v as usize);
         if a.max(b).max(c) >= out.len() {
             continue;
@@ -928,7 +924,9 @@ mod tests {
         };
         for model in [model([Some(0), Some(1), Some(2)]), model([None; 3])] {
             let layers = [&model.animations[0], &borrowed];
-            let bound = Binding::all(&model, layers);
+            // (Each at the model's own scale, as `pose_layers` plays it.)
+            let nodes = Nodes::of(&model, None);
+            let bound: Vec<Binding> = layers.iter().map(|a| nodes.bind(&model, a, None)).collect();
             let pairs: Vec<(&Animation, &Binding)> = layers.into_iter().zip(&bound).collect();
             for t in [0.0, 0.25, 1.0, 1.5] {
                 let playing = Playing::new(&model, &pairs, t);
@@ -942,5 +940,59 @@ mod tests {
             let lamp = Playing::new(&model, &pairs, 0.0).lamps(&model, &played);
             assert_eq!(lamp[0].color, Vec3::new(0.25, 0.5, 0.75));
         }
+    }
+
+    /// Vertex animation on a mesh with a mirrored texture seam (its middle
+    /// vertices uploaded twice, for the tangents the renderer makes): the
+    /// copies move with their originals, and take their normals from the
+    /// faces as uploaded. (It read past the mesh's vertices for the copies,
+    /// and ended the model viewer.)
+    #[test]
+    fn vertex_animation_moves_a_mirrored_seam_s_copies() {
+        let card = Mesh {
+            vertices: vec![
+                [0.0, 0.0, 0.0],
+                [0.6, 0.0, 0.0],
+                [1.2, 0.0, 0.0],
+                [0.0, 0.0, 1.2],
+                [0.6, 0.0, 1.2],
+                [1.2, 0.0, 1.2],
+            ],
+            normals: vec![[0.0, -1.0, 0.0]; 6],
+            uvs: [
+                vec![[0.0, 0.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 1.0]],
+                vec![],
+                vec![],
+                vec![],
+            ],
+            faces: [[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]]
+                .map(|vertices| mg_mdl::Face { vertices, material: 0 })
+                .to_vec(),
+            source: (0..6).collect(),
+            source_uv: (0..6).collect(),
+            ..Default::default()
+        };
+        let rest = card.vertices.clone();
+        // The second set: every vertex a meter up, the card turned to face
+        // along X.
+        let moved: Vec<[f32; 3]> = rest.iter().map(|p| [0.0, p[0], p[2] + 1.0]).collect();
+        let sets = AnimMeshSets {
+            sample_period: 1.0,
+            vertex_sets: vec![rest, moved.clone()],
+            uv_sets: vec![card.uvs[0].clone(), card.uvs[0].iter().map(|u| [u[0], 2.0]).collect()],
+        };
+        let out = animated_vertices(&card, &sets, 1.0).expect("animated");
+        assert_eq!(out.len(), 8, "the middle's two copied");
+        for (at, o) in (0..6).chain([1, 4]).enumerate() {
+            assert_eq!(out[at].pos, moved[o], "vertex {at}, of {o}");
+            assert_eq!(out[at].uv[1], 2.0, "vertex {at}");
+            let n = Vec3::from(out[at].normal);
+            assert!(n.abs().abs_diff_eq(Vec3::X, 1e-5), "vertex {at}: {n}");
+        }
+        assert_eq!((out[6].normal, out[7].normal), (out[1].normal, out[4].normal));
+        // Halfway, a copy is where its original is.
+        let half = animated_vertices(&card, &sets, 0.5).expect("animated");
+        assert_eq!((half[6].pos, half[7].pos), (half[1].pos, half[4].pos));
+        assert_eq!(half[1].pos, [0.3, 0.3, 0.5]);
     }
 }

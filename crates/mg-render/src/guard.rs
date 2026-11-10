@@ -17,6 +17,17 @@
 //! [`note_gpu_errors`] (the application's: the frame draws what the GPU
 //! takes). Each is said once ([`take_gpu_errors`]).
 //!
+//! A device that is lost (the driver reset or updated, the GPU removed)
+//! takes every wgpu call from then on without a word: the window would
+//! show its last frame for good. A device given to [`note_gpu_errors`]
+//! says so ([`take_device_loss`]), for the application to keep the
+//! unsaved work and tell the builder.
+//!
+//! The graphics checks ([`crate::probe`]) catch their own panics too (a
+//! backend that panics opening its device is their finding): while one
+//! runs, [`checking`] is true, so that the panic hook writes it up as a
+//! check's and not as a crash.
+//!
 //! [`blank_draws`] makes every scene draw nothing (tests): what a driver
 //! that draws nothing does, for the startup check ([`crate::probe`]) and
 //! the area view's watch ([`crate::watch`]) to be proved on a GPU that
@@ -31,7 +42,12 @@ thread_local! {
     /// How many guarded steps are running on this thread, one inside
     /// another.
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    /// How many graphics checks, likewise.
+    static CHECKS: Cell<u32> = const { Cell::new(0) };
 }
+
+/// The device given to [`note_gpu_errors`] was lost: why, until taken.
+static DEVICE_LOST: Mutex<Option<String>> = Mutex::new(None);
 
 /// What failed, since last taken.
 static FAILURES: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -55,6 +71,29 @@ pub fn guarding() -> bool {
     DEPTH.with(|d| d.get() > 0)
 }
 
+/// Whether a graphics check is running on this thread ([`checked`]): a
+/// panic now is the check's finding, and Moonglow carries on.
+pub fn checking() -> bool {
+    CHECKS.with(|d| d.get() > 0)
+}
+
+/// Runs `step` of a graphics check ([`crate::probe`]): `Err` with the
+/// panic's message if it panics.
+pub fn checked<T>(step: impl FnOnce() -> T) -> Result<T, String> {
+    CHECKS.with(|d| d.set(d.get() + 1));
+    let result = catch_unwind(AssertUnwindSafe(step));
+    CHECKS.with(|d| d.set(d.get() - 1));
+    result.map_err(|payload| panic_message(&*payload).unwrap_or_default())
+}
+
+/// What a panic said, where it said it in words.
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<String> {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+}
+
 /// Runs `step` (loading, building or posing `what`: a model's name). If it
 /// panics, the failure is noted for [`take_failures`] and `None` returned.
 pub fn guarded<T>(what: &str, step: impl FnOnce() -> T) -> Option<T> {
@@ -64,11 +103,7 @@ pub fn guarded<T>(what: &str, step: impl FnOnce() -> T) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(payload) => {
-            let why = payload
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "an unknown failure".into());
+            let why = panic_message(&*payload).unwrap_or_else(|| "an unknown failure".into());
             let failure = format!("{what}: {why}");
             if let Ok(mut failures) = FAILURES.lock()
                 && !failures.contains(&failure)
@@ -100,7 +135,8 @@ pub fn note_gpu_error(what: &str, error: &str) {
 
 /// Makes `device`'s errors that no error scope takes noted
 /// ([`note_gpu_error`]) where wgpu would panic: a frame the GPU refuses
-/// is drawn as far as it takes it, and Moonglow goes on. For the
+/// is drawn as far as it takes it, and Moonglow goes on. And its loss
+/// ([`take_device_loss`]), which wgpu tells no error handler. For the
 /// application's device; tests keep wgpu's panic, which shows a mistake
 /// where it is made.
 pub fn note_gpu_errors(device: &wgpu::Device) {
@@ -111,6 +147,29 @@ pub fn note_gpu_errors(device: &wgpu::Device) {
         };
         note_gpu_error(what, &e.to_string());
     }));
+    device.set_device_lost_callback(|reason, message| {
+        if let Ok(mut lost) = DEVICE_LOST.lock() {
+            *lost = Some(device_loss_said(reason, &message));
+        }
+    });
+}
+
+/// Why a device was lost, in words: what the driver said, or that it said
+/// nothing.
+pub(crate) fn device_loss_said(reason: wgpu::DeviceLostReason, message: &str) -> String {
+    let message = one_line(message);
+    match (reason, message.is_empty()) {
+        (wgpu::DeviceLostReason::Destroyed, _) => "it was closed".into(),
+        (_, true) => "the driver gave no reason".into(),
+        (_, false) => message,
+    }
+}
+
+/// Why the device given to [`note_gpu_errors`] was lost, if it was since
+/// the last call (the driver reset or updated, the GPU removed): nothing
+/// more is drawn through it, and every call to it is taken in silence.
+pub fn take_device_loss() -> Option<String> {
+    DEVICE_LOST.lock().ok().and_then(|mut lost| lost.take())
 }
 
 /// What the GPU refused since the last call (each said once), for the log.
@@ -231,6 +290,24 @@ mod tests {
         assert_eq!(ours.len(), 1, "{failures:?}");
         assert!(ours[0].contains("index out of bounds"), "{ours:?}");
         assert!(!take_failures().iter().any(|f| f.starts_with("c_broken")), "taken once");
+    }
+
+    /// A check's panic is its finding, told apart from a model's failure
+    /// and from a crash while it runs.
+    #[test]
+    fn a_check_that_panics_gives_what_it_said() {
+        assert_eq!(checked(|| 3), Ok(3));
+        assert!(!checking());
+        let found: Result<(), String> = checked(|| {
+            assert!(checking() && !guarding());
+            panic!("no device {}", std::hint::black_box(7))
+        });
+        assert_eq!(found, Err("no device 7".into()));
+        assert!(!checking(), "over once the check is");
+        let lost = |reason, message: &str| device_loss_said(reason, message);
+        assert_eq!(lost(wgpu::DeviceLostReason::Unknown, ""), "the driver gave no reason");
+        assert_eq!(lost(wgpu::DeviceLostReason::Unknown, "DXGI\n removed"), "DXGI: removed");
+        assert_eq!(lost(wgpu::DeviceLostReason::Destroyed, ""), "it was closed");
     }
 
     #[test]

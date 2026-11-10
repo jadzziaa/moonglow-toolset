@@ -39,13 +39,10 @@ fn main() {
         inst.pose = Some(Arc::new(mg_render::anim::pose(&model, a, t)));
         inst.state = Some(Arc::new(mg_render::anim::mesh_state(&gm, a, t)));
     }
-    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for m in &gm.meshes {
-        for p in mg_render::box_corners(m.min, m.max) {
-            let w = gm.rest[m.node].transform_point3(p);
-            (min, max) = (min.min(w), max.max(w));
-        }
-    }
+    let corners = gm.meshes.iter().flat_map(|m| {
+        mg_render::box_corners(m.min, m.max).map(|p| gm.rest[m.node].transform_point3(p))
+    });
+    let (min, max) = mg_render::box_of(corners).unwrap_or((Vec3::ZERO, Vec3::ZERO));
     let radius = ((max - min).length() * 0.5).max(0.1);
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     std::fs::create_dir_all(out).unwrap();

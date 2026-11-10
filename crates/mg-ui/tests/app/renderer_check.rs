@@ -459,6 +459,7 @@ fn the_game_s_shaders_notice_can_be_hidden_on_this_driver() {
         own: Ok(()),
         game: Some(Err("the lit mesh is [212, 133, 133] at (24, 24), not red".into())),
         fell_back: None,
+        panicked: false,
         own_time: Default::default(),
         game_time: Default::default(),
         own_picture: None,

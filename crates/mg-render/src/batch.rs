@@ -20,9 +20,6 @@
 //! patch of surface: they overlap, or a flat one lies on a face of the
 //! other. Boxes that only touch do not meet: tiles lie edge to edge.
 
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
-
 use glam::Vec3;
 
 /// What draws must share to be one draw: the mesh (its address), its
@@ -73,48 +70,10 @@ const WIDE: i64 = 16;
 /// draw is taken to meet one of them.
 const TRIED: usize = 48;
 
-/// A hash for the squares and the keys (small numbers, looked up for every
-/// draw: the standard one costs more than the rest of placing a draw).
-#[derive(Default)]
-struct Mix(u64);
-
-impl Hasher for Mix {
-    fn write(&mut self, bytes: &[u8]) {
-        for chunk in bytes.chunks(8) {
-            let mut word = [0u8; 8];
-            word[..chunk.len()].copy_from_slice(chunk);
-            self.write_u64(u64::from_le_bytes(word));
-        }
-    }
-
-    fn write_u64(&mut self, n: u64) {
-        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x517c_c1b7_2722_0a95);
-    }
-
-    fn write_u32(&mut self, n: u32) {
-        self.write_u64(u64::from(n));
-    }
-
-    fn write_i32(&mut self, n: i32) {
-        self.write_u64(n as u64);
-    }
-
-    fn write_usize(&mut self, n: usize) {
-        self.write_u64(n as u64);
-    }
-
-    fn write_u8(&mut self, n: u8) {
-        self.write_u64(u64::from(n));
-    }
-
-    fn finish(&self) -> u64 {
-        // (The table takes its place from the low bits, which the
-        // multiplication leaves the weakest.)
-        self.0 ^ (self.0 >> 29)
-    }
-}
-
-type Mixed<K, V> = HashMap<K, V, BuildHasherDefault<Mix>>;
+/// The squares and the keys (small numbers, looked up for every draw: the
+/// standard hash costs more than the rest of placing a draw) by the
+/// renderer's quick hasher.
+type Mixed<K, V> = crate::game::Fast<K, V>;
 
 /// A batch's place in the order of draws: its run, and its place in the
 /// run (as one number, the run's in the high half).
@@ -240,8 +199,10 @@ impl Batcher {
         };
         let ((c0, c1), (r0, r1)) =
             (along(bounds.min.x, bounds.max.x), along(bounds.min.y, bounds.max.y));
-        let count = (i64::from(c1) - i64::from(c0) + 1) * (i64::from(r1) - i64::from(r0) + 1);
-        (count <= WIDE).then_some((c0, r0, c1, r1))
+        // (Each way first: a box from one end of the numbers to the other
+        // is 2^32 squares each way, whose product is past an `i64`.)
+        let (across, down) = (i64::from(c1) - i64::from(c0) + 1, i64::from(r1) - i64::from(r0) + 1);
+        (across <= WIDE && down <= WIDE && across * down <= WIDE).then_some((c0, r0, c1, r1))
     }
 
     /// Whether a draw with `bounds` meets one placed (since `since`, of
@@ -532,6 +493,33 @@ mod tests {
         b.pass(0.125, 0.0001);
         let later = b.place(floor, None, Some(cube(0.0, 0.0, 0.0, 0.1, 0.0)), None);
         assert!(later > fourth);
+    }
+
+    /// A box from one end of the numbers to the other (two stray vertices,
+    /// a transform with a huge scale) is on too many squares to count by
+    /// multiplying: it is kept with the wide ones, and what meets it
+    /// keeps its order.
+    #[test]
+    fn a_box_over_every_square_is_a_wide_one() {
+        let mut b = Batcher::default();
+        b.begin();
+        b.pass(10.0, 1e-3);
+        let floor = (1, 0, 0, None);
+        let first = b.place(floor, None, Some(cube(0.0, 0.0, 0.0, 10.0, 0.0)), None);
+        for (min, max) in [
+            ([-1e30, -1e30, 0.0], [1e30, 1e30, 1.0]),
+            // (2^32 squares one way and 2^31 the other.)
+            ([-1e30, 0.0, 0.0], [1e30, 1e30, 1.0]),
+            ([-3e10, -3e10, 0.0], [3e10, 3e10, 0.0]),
+        ] {
+            let huge = slab(min, max);
+            assert_eq!(b.squares_of(&huge), None, "{min:?}");
+            let stray = b.place((2, 1, 0, None), None, Some(huge), None);
+            // A floor it lies across comes after it, as it came.
+            let second = b.place(floor, None, Some(cube(20.0, 0.0, 0.0, 10.0, 0.0)), None);
+            assert!(first < stray && stray < second, "{first} {stray} {second}");
+        }
+        assert_eq!(b.used, 2, "the squares of the floors alone");
     }
 
     /// However draws lie: each is in one batch with draws of its key, and

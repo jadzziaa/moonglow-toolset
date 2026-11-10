@@ -58,6 +58,18 @@ impl mg_render::Assets for GameAssets {
         mg_render::Assets::texture(&self.0.resman, name)
     }
 
+    fn texture_kept(
+        &self,
+        name: &str,
+        kept: &mg_render::Palettes,
+    ) -> Option<mg_render::LoadedTexture> {
+        mg_render::Assets::texture_kept(&self.0.resman, name, kept)
+    }
+
+    fn takes_colors(&self, name: &str) -> bool {
+        mg_render::Assets::takes_colors(&self.0.resman, name)
+    }
+
     fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
         mg_render::Assets::material(&self.0.resman, name)
     }
@@ -171,9 +183,12 @@ impl Viewport3d {
 
     /// Lets go of a view's targets and the egui texture that shows them
     /// (egui's binding of the texture held it on the GPU otherwise, after
-    /// the view had let go of it): made again when it is drawn.
-    pub(crate) fn let_go_of_targets(&self, held: &mut Option<(Targets, egui::TextureId)>) {
-        if let Some((_, id)) = held.take() {
+    /// the view had let go of it), with what the renderer kept for the
+    /// view (its shadow map, and the bind groups that held the targets'
+    /// framebuffer copies): made again when it is drawn.
+    pub(crate) fn let_go_of_targets(&mut self, held: &mut Option<(Targets, egui::TextureId)>) {
+        if let Some((targets, id)) = held.take() {
+            self.renderer.let_go_of(&targets);
             self.render_state.renderer.write().free_texture(&id);
         }
     }
@@ -189,7 +204,7 @@ pub(crate) const UNSEEN_AFTER: f64 = 2.0;
 /// After a frame: the model views not drawn for [`UNSEEN_AFTER`] let go
 /// of their targets.
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
-    let Some(vp) = app.viewport.as_ref() else { return };
+    let Some(vp) = app.viewport.as_mut() else { return };
     for view in app.model_views.values_mut() {
         if view.targets.is_some() && view.last_frame.is_none_or(|t| now - t > UNSEEN_AFTER) {
             view.let_go_of_targets(vp);
@@ -199,7 +214,7 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
 
 impl ModelView {
     /// Lets go of its picture's targets (drawn anew into new ones).
-    pub(crate) fn let_go_of_targets(&mut self, vp: &Viewport3d) {
+    pub(crate) fn let_go_of_targets(&mut self, vp: &mut Viewport3d) {
         vp.let_go_of_targets(&mut self.targets);
     }
 
@@ -864,11 +879,8 @@ impl ModelView {
         let Some(c) = &self.composed else { return };
         let (low, high) = c.bounds_in(self.animation.as_deref(), self.time);
         // (The box around it as it is stood.)
-        let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for p in mg_render::box_corners(low, high) {
-            let w = self.stand.transform_point3(p);
-            (min, max) = (min.min(w), max.max(w));
-        }
+        let stood = mg_render::box_corners(low, high).map(|p| self.stand.transform_point3(p));
+        let Some((min, max)) = mg_render::box_of(stood) else { return };
         self.orbit.target = (min + max) * 0.5;
         let radius = ((max - min).length() * 0.5).max(0.1);
         self.orbit.distance = radius / 20f32.to_radians().sin() * 1.1;
@@ -884,12 +896,8 @@ impl ModelView {
         if self.rest_box.is_none() {
             let c = self.composed.as_ref()?;
             let (low, high) = c.bounds_in(None, 0.0);
-            let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            for p in mg_render::box_corners(low, high) {
-                let w = self.stand.transform_point3(p);
-                (min, max) = (min.min(w), max.max(w));
-            }
-            self.rest_box = Some((min, max));
+            let stood = mg_render::box_corners(low, high).map(|p| self.stand.transform_point3(p));
+            self.rest_box = mg_render::box_of(stood);
         }
         self.rest_box
     }
@@ -1188,8 +1196,14 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         camera.view(),
     );
     // Animated alpha, self-illumination and vertices; dangly meshes.
-    let mut state =
-        playing.map_or_else(|| MeshState::new(&model), |a| anim::mesh_state(&model, a, view.time));
+    // (Guarded, as building the model is: custom content's animated meshes
+    // hold surprises, and the model is then shown at rest.)
+    let mut state = playing
+        .and_then(|a| {
+            let name = &model.model.name;
+            mg_render::guard::guarded(name, || anim::mesh_state(&model, a, view.time))
+        })
+        .unwrap_or_else(|| MeshState::new(&model));
     let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
     dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
     dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
@@ -1280,6 +1294,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // (Drawn again and again: the game's programs are made while it goes
     // on, Moonglow's own shader drawing until they are.)
     vp.renderer.game_background = true;
+    // (Its ground's shadow is a shadow map's, whatever quality the area
+    // view last drew its own with: the stencil volumes cast no skin's.)
+    vp.renderer.shadow_volumes = false;
     vp.renderer.render_targets(&vp.gpu, assets, &scene, &camera, targets);
     vp.renderer.game_background = false;
     // A program of the game's that reads the clock moves what it draws:
@@ -2248,11 +2265,13 @@ fn draw_group(app: &mut Moonglow, parts: &[(Composed, Mat4)], apart: bool) -> Dr
     if parts.is_empty() {
         return Ok(None);
     }
-    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let placed = parts.iter().flat_map(|(composed, at)| {
+        let (low, high) = composed.bounds();
+        [at.transform_point3(low), at.transform_point3(high)]
+    });
+    let (min, max) = mg_render::box_of(placed).unwrap_or((Vec3::ZERO, Vec3::ZERO));
     let (mut instances, mut lights) = (Vec::new(), Vec::new());
     for (composed, at) in parts {
-        let (low, high) = composed.bounds();
-        (min, max) = (min.min(at.transform_point3(low)), max.max(at.transform_point3(high)));
         instances.extend(composed.instances(None, 0.0, *at));
         // (A group's tiles: their light nodes are main lights, which the
         // area's tiles colour; the picture is drawn without them.)

@@ -157,6 +157,15 @@ impl eframe::App for App {
         }
         // (A panic keeps the unsaved work in a recovery copy first.)
         self.moonglow.recovering(|m| m.ui(ui));
+        // The device lost: the window draws nothing more, so the builder
+        // is told by a dialog of the system's (once; the log has it too).
+        if let Some(said) = self.moonglow.renderer_check.device_lost.take() {
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("Moonglow Toolset")
+                .set_description(said)
+                .show();
+        }
         let title = self.moonglow.title();
         if title != self.title {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -221,14 +230,19 @@ fn crash_reports() {
             enabled => enabled.join(", "),
         };
         // A model that failed is left out and Moonglow carries on: the
-        // report says so, and is named apart from a crash's.
-        let carried_on = mg_ui::model_guard::guarding();
+        // report says so, and is named apart from a crash's. So a
+        // graphics check that panicked (a backend opening its device):
+        // its finding, which the check tells.
+        let checking = mg_ui::model_guard::checking();
+        let carried_on = checking || mg_ui::model_guard::guarding();
         // (A panic in a thread of its own leaves the window going: the
         // next frame keeps the unsaved work in a recovery copy.)
         if !carried_on {
             mg_ui::recovery::note_panic();
         }
-        let what = if carried_on {
+        let what = if checking {
+            "found a graphics check failing and carried on"
+        } else if carried_on {
             "could not show a model, left it out and carried on"
         } else {
             "crashed"
@@ -238,7 +252,11 @@ fn crash_reports() {
             env!("CARGO_PKG_VERSION"),
             std::backtrace::Backtrace::force_capture()
         );
-        let name = if carried_on { "model-failure" } else { "crash" };
+        let name = match (checking, carried_on) {
+            (true, _) => "graphics-check",
+            (false, true) => "model-failure",
+            (false, false) => "crash",
+        };
         let path = dir.join(format!("{name}-{time}.txt"));
         // (In the debug log too, if one is written: where it stopped.)
         mg_ui::trace::note(format!("{what}: {info} (report: {})", path.display()));
@@ -295,9 +313,16 @@ impl CommandLine {
 struct Taken {
     why: String,
     missing: Option<wgpu::Backend>,
-    /// The adapters that failed the startup check, and what they drew
-    /// wrong (to be recorded, and said).
-    failed: Vec<(wgpu::AdapterInfo, String)>,
+    /// The adapters that failed the startup check, what they drew wrong
+    /// (to be said), and whether that is the backend's doing (to be
+    /// recorded: `Probe::blames_backend`).
+    failed: Vec<(wgpu::AdapterInfo, String, bool)>,
+    /// The backends Automatic passed over as recorded.
+    passed_over: Vec<wgpu::Backend>,
+    /// The adapter taken is OpenGL's or a software one.
+    fallback: Option<mg_ui::graphics::Fallback>,
+    /// What to say of `WGPU_BACKEND`'s names that are no backend.
+    environment_unknown: Option<String>,
     /// The adapter taken failed it (kept: asked for, or no other drew).
     failing: bool,
     /// The pick failed and the same GPU's other backend was taken.
@@ -329,11 +354,24 @@ fn pick_adapter(
         adapters.iter().filter(|a| surface.is_none_or(|s| a.is_surface_supported(s))).collect();
     let infos: Vec<wgpu::AdapterInfo> = usable.iter().map(|a| a.get_info()).collect();
     let power = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
-    let from_environment = wgpu::Backends::from_env().is_some();
+    // (Set but naming no backend: as not set, and said.)
+    let (named, unknown) = graphics::backends_from_env();
+    let from_environment = named.is_some();
     let platform = graphics::Platform::current();
     let mut probes = Vec::new();
     let check = |i: usize| {
+        // (A marker while the check runs: a backend that ends the process
+        // in it is known at the next start, `died_checking`.)
+        let marker = check_marker();
+        if let Some(marker) = &marker {
+            let record = mg_ui::settings::GraphicsFailure::of(&infos[i], DIED_CHECKING);
+            let _ = marker.parent().map(std::fs::create_dir_all);
+            let _ = std::fs::write(marker, record.to_line());
+        }
         let p = mg_ui::renderer_check::probe(usable[i]);
+        if let Some(marker) = &marker {
+            let _ = std::fs::remove_file(marker);
+        }
         let outcome = p.outcome.clone();
         probes.push(p);
         outcome
@@ -360,11 +398,23 @@ fn pick_adapter(
     }
     let mut known = failed.to_vec();
     known.extend(started.failures().map(|(i, _)| graphics::Failed::of(&infos[i])));
+    // (The checks and the probes are in one order: each check ran one.)
+    let blamed = |i: usize| {
+        let at = started.checks.iter().position(|(checked, _)| *checked == i);
+        at.and_then(|k| probes.get(k)).is_some_and(|p| p.blames_backend)
+    };
     if let Ok(mut t) = taken.lock() {
         *t = Taken {
             why,
             missing: started.pick.missing,
-            failed: started.failures().map(|(i, w)| (infos[i].clone(), w.to_string())).collect(),
+            failed: started
+                .failures()
+                .map(|(i, w)| (infos[i].clone(), w.to_string(), blamed(i)))
+                .collect(),
+            passed_over: started.pick.passed_over.clone(),
+            fallback: graphics::Fallback::of(&infos[started.index], platform)
+                .filter(|_| !from_environment),
+            environment_unknown: graphics::unknown_backends_said(&unknown, from_environment),
             failing: started.failing(),
             switched: started.switched,
             asked_for: started.pick.asked_for(),
@@ -376,49 +426,93 @@ fn pick_adapter(
     Ok(usable[started.index].clone())
 }
 
+/// What a record says found it where Moonglow ended during the startup
+/// check of a backend.
+const DIED_CHECKING: &str = "the startup check: Moonglow ended during it";
+
+/// The startup check's marker: there while an adapter is checked, with
+/// the record of that adapter failing ([`died_checking`]).
+fn check_marker() -> Option<PathBuf> {
+    mg_ui::recovery::data_dir().map(|d| d.join("graphics-check.txt"))
+}
+
+/// The backend the last start ended in the check of (the process ended by
+/// the driver, or killed while it hung): its record, the marker removed.
+/// Nothing was written of it otherwise, and Automatic took the same
+/// backend at every start.
+fn died_checking(marker: Option<&std::path::Path>) -> Option<mg_ui::settings::GraphicsFailure> {
+    let marker = marker?;
+    let line = std::fs::read_to_string(marker).ok()?;
+    let _ = std::fs::remove_file(marker);
+    mg_ui::settings::GraphicsFailure::from_line(line.trim())
+}
+
 /// What the startup check found, into the app: the failures recorded
-/// (Automatic passes over them from the next start), said in the log, and
-/// the notice where the adapter taken draws nothing.
+/// (those that are the backend's doing: Automatic passes over them from
+/// the next start), said in the log, and the notice where the adapter
+/// taken draws nothing or is a fallback.
 fn startup_check(moonglow: &mut Moonglow, taken: &Taken) {
     let check = &mut moonglow.renderer_check;
     check.asked_for = taken.asked_for;
     check.from_environment = taken.from_environment;
     check.other = taken.other;
+    check.passes_over = taken.passed_over.clone();
     let name = |b| mg_ui::graphics::backend_name(b);
-    for (info, why) in &taken.failed {
+    if let Some(said) = &taken.environment_unknown {
+        moonglow.log.warn(said.clone());
+    }
+    for (info, why, blamed) in &taken.failed {
+        // (No device, a panic, a GPU that didn't finish, a device lost:
+        // not this backend's doing for good. It is checked again.)
+        if !blamed {
+            continue;
+        }
         let what = format!("the startup check: {why}");
         moonglow
             .settings
             .record_graphics_failure(mg_ui::settings::GraphicsFailure::of(info, &what));
+        if taken.switched && !moonglow.renderer_check.passes_over.contains(&info.backend) {
+            moonglow.renderer_check.passes_over.push(info.backend);
+        }
     }
     let drawing = moonglow.renderer_check.adapter.clone();
     if taken.switched
-        && let (Some((first, why)), Some(now)) = (taken.failed.first(), &drawing)
+        && let (Some((first, why, blamed)), Some(now)) = (taken.failed.first(), &drawing)
     {
+        let from_now = if *blamed {
+            format!(
+                ", and passes over {} on this driver from now on (Options › General › Graphics \
+                 backend)",
+                name(first.backend)
+            )
+        } else {
+            " in this run".to_string()
+        };
         moonglow.log.warn(format!(
-            "Graphics: {} on {} drew nothing in Moonglow's startup check ({why}); Moonglow draws \
-             through {} instead, and passes over {} on this driver from now on (Options › \
-             General › Graphics backend)",
+            "Graphics: {} on {} failed Moonglow's startup check ({why}); Moonglow draws through \
+             {} instead{from_now}",
             name(first.backend),
             first.name,
             name(now.backend),
-            name(first.backend),
         ));
     }
     if taken.failing
         && let Some(now) = &drawing
     {
-        let mine = taken.failed.iter().find(|(i, _)| i.backend == now.backend);
+        let mine = taken.failed.iter().find(|(i, ..)| i.backend == now.backend);
         let others: Vec<(wgpu::Backend, String)> = taken
             .failed
             .iter()
-            .filter(|(i, _)| i.backend != now.backend)
-            .map(|(i, w)| (i.backend, w.clone()))
+            .filter(|(i, ..)| i.backend != now.backend)
+            .map(|(i, w, _)| (i.backend, w.clone()))
             .collect();
-        let why = mine.map_or("", |(_, w)| w.as_str());
+        let why = mine.map_or("", |(_, w, _)| w.as_str());
         moonglow.renderer_check.startup_failed(why, &others);
         let said = moonglow.renderer_check.trouble.as_ref().map(|t| t.said.clone());
         moonglow.log.warn(format!("Graphics: {}", said.unwrap_or_default()));
+    }
+    if let Some(fallback) = taken.fallback {
+        mg_ui::renderer_check::fallback_taken(moonglow, fallback);
     }
 }
 
@@ -532,8 +626,10 @@ fn main() -> eframe::Result<()> {
     let app_file = settings_file.clone();
     let wanted = saved.graphics_backend.backend();
     // (The backends recorded as drawing nothing here: Automatic passes
-    // over them.)
-    let failed = saved.failed_backends();
+    // over them. And the one the last start ended in the check of.)
+    let mut failed = saved.failed_backends();
+    let died = died_checking(check_marker().as_deref());
+    failed.extend(died.as_ref().and_then(|d| d.failed()));
     let taken = std::sync::Arc::new(std::sync::Mutex::new(Taken::default()));
     let picked = taken.clone();
     // Restart with … (the renderer's notice), Restart Now (an update's)
@@ -581,6 +677,12 @@ fn main() -> eframe::Result<()> {
             // (As read above, from the file eframe's storage is.)
             let unread = read.problem();
             let mut settings: Settings = read.settings;
+            // (A backend another release of Moonglow recorded as failing
+            // is tried again: what failed may be mended.)
+            let forgotten = settings.forget_other_releases_graphics_failures();
+            if let Some(died) = &died {
+                settings.record_graphics_failure(died.clone());
+            }
             // `--user-dir DIR`: this run's user folder, over Options' (not
             // saved).
             let not_a_folder = line.user_dir.clone().filter(|d| !d.is_dir());
@@ -609,6 +711,20 @@ fn main() -> eframe::Result<()> {
                          draws with {} (Automatic)",
                         mg_ui::graphics::backend_name(missing),
                         mg_ui::graphics::backend_name(rs.adapter.get_info().backend),
+                    ));
+                }
+                if forgotten > 0 {
+                    moonglow.log.info(
+                        "Graphics: the backends an earlier version of Moonglow found drawing \
+                         wrong here are tried again",
+                    );
+                }
+                if let Some(died) = &died {
+                    moonglow.log.warn(format!(
+                        "Graphics: Moonglow ended during its startup check of {} on {} the last \
+                         time it started; Automatic passes over it on this driver from now on \
+                         (Options › General › Graphics backend)",
+                        died.backend, died.adapter
                     ));
                 }
                 startup_check(&mut moonglow, &taken);
@@ -711,13 +827,8 @@ fn device_descriptor(
     features: wgpu::Features,
     limits: wgpu::Limits,
 ) -> wgpu::DeviceDescriptor<'static> {
-    wgpu::DeviceDescriptor {
-        label: Some("moonglow"),
-        required_features: features & mg_ui::OPTIONAL_FEATURES,
-        required_limits: limits,
-        memory_hints: wgpu::MemoryHints::MemoryUsage,
-        ..Default::default()
-    }
+    // (One with the startup check's: `mg_render::backend`.)
+    mg_ui::graphics::device_descriptor("moonglow", features, limits)
 }
 
 #[cfg(test)]
@@ -797,7 +908,7 @@ mod tests {
         let nothing = "the solid mesh is [0, 0, 0] at (8, 18)".to_string();
         let mut heed = app(wgpu::Backend::Vulkan);
         let switched = Taken {
-            failed: vec![(info(wgpu::Backend::Dx12), nothing.clone())],
+            failed: vec![(info(wgpu::Backend::Dx12), nothing.clone(), true)],
             switched: true,
             ..Default::default()
         };
@@ -810,7 +921,7 @@ mod tests {
         assert_eq!(heed.renderer_check.trouble, None);
         let mut chosen = app(wgpu::Backend::Dx12);
         let kept = Taken {
-            failed: vec![(info(wgpu::Backend::Dx12), nothing)],
+            failed: vec![(info(wgpu::Backend::Dx12), nothing, true)],
             failing: true,
             asked_for: true,
             other: Some(wgpu::Backend::Vulkan),
@@ -820,5 +931,84 @@ mod tests {
         let trouble = chosen.renderer_check.trouble.clone().expect("the notice");
         assert_eq!(trouble.offer, Some(wgpu::Backend::Vulkan));
         assert!(trouble.said.contains("Direct3D 12 on Radeon RX 580 Series"), "{}", trouble.said);
+        assert_eq!(heed.renderer_check.passes_over, [wgpu::Backend::Dx12]);
+    }
+
+    /// A check that failed without a picture compared (no device: the
+    /// GPU's memory taken by another program; a panic; a GPU that didn't
+    /// finish) is not the backend's doing for good: the other backend is
+    /// drawn with in this run, and nothing is recorded, so Automatic
+    /// checks the backend again at the next start.
+    #[test]
+    fn a_check_that_compared_no_picture_records_nothing() {
+        use super::{Taken, startup_check};
+        let info = |backend| {
+            let mut a = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, backend);
+            (a.vendor, a.device, a.name) = (0x1002, 0x67df, "Radeon RX 580 Series".into());
+            a
+        };
+        for why in ["no device: out of memory", "opening the device panicked"] {
+            let mut m = mg_ui::Moonglow::new(None, Box::new(mg_ui::NoDialogs::default()));
+            m.renderer_check.adapter = Some(info(wgpu::Backend::Vulkan));
+            let switched = Taken {
+                failed: vec![(info(wgpu::Backend::Dx12), why.to_string(), false)],
+                switched: true,
+                ..Default::default()
+            };
+            startup_check(&mut m, &switched);
+            assert!(m.settings.graphics_failures.is_empty(), "{why}");
+            assert!(m.renderer_check.passes_over.is_empty());
+            let said = &m.log.entries.last().unwrap().1;
+            assert!(said.ends_with("Moonglow draws through Vulkan instead in this run"), "{said}");
+        }
+    }
+
+    /// OpenGL or a software adapter taken (nothing else was there) is
+    /// said, in the log and a notice, with what to install; and a name in
+    /// `WGPU_BACKEND` that is no backend.
+    #[test]
+    fn a_fallback_adapter_is_told() {
+        use super::{Taken, startup_check};
+        let mut m = mg_ui::Moonglow::new(None, Box::new(mg_ui::NoDialogs::default()));
+        let mut gl = wgpu::AdapterInfo::new(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Gl);
+        gl.name = "Mesa Intel(R) UHD".into();
+        m.renderer_check.adapter = Some(gl);
+        let taken = Taken {
+            fallback: Some(mg_ui::graphics::Fallback::Backend(wgpu::Backend::Gl)),
+            environment_unknown: mg_ui::graphics::unknown_backends_said(&["d3d".into()], false),
+            ..Default::default()
+        };
+        startup_check(&mut m, &taken);
+        let trouble = m.renderer_check.trouble.clone().expect("the notice");
+        assert!(trouble.said.starts_with("Moonglow draws through OpenGL on Mesa Intel(R) UHD, "));
+        assert!(!trouble.record && trouble.offer.is_none());
+        let log: Vec<&str> = m.log.entries.iter().map(|e| e.1.as_str()).collect();
+        assert!(log.iter().any(|l| l.starts_with("WGPU_BACKEND names no backend")), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("Graphics: Moonglow draws through OpenGL")));
+    }
+
+    /// The marker the startup check leaves while it runs is the record of
+    /// the backend checked: found at the next start where the last one
+    /// ended in the check, and removed; a marker that is no record is
+    /// removed and gives none.
+    #[test]
+    fn a_start_that_ended_in_the_check_is_known_at_the_next() {
+        use super::{DIED_CHECKING, died_checking};
+        let dir = std::env::temp_dir().join(format!("moonglow-check-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("graphics-check.txt");
+        assert_eq!(died_checking(Some(&marker)), None, "no marker");
+        assert_eq!(died_checking(None), None);
+        let mut info = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Dx12);
+        (info.vendor, info.device, info.name) = (0x1002, 0x67df, "Radeon RX 580 Series".into());
+        let record = mg_ui::settings::GraphicsFailure::of(&info, DIED_CHECKING);
+        std::fs::write(&marker, record.to_line()).unwrap();
+        let died = died_checking(Some(&marker)).expect("the record");
+        assert_eq!(died.failed(), Some(mg_ui::graphics::Failed::of(&info)));
+        assert!(!marker.exists(), "removed once read");
+        std::fs::write(&marker, "not a record").unwrap();
+        assert_eq!(died_checking(Some(&marker)), None);
+        assert!(!marker.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

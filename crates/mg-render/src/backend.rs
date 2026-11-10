@@ -99,6 +99,61 @@ pub struct Pick {
     pub why: Why,
     pub missing: Option<Backend>,
     pub passed_over: Vec<Backend>,
+    /// The adapter is none Moonglow draws right or fast with
+    /// ([`Fallback`]): taken as nothing else was there, or as asked for.
+    pub fallback: Option<Fallback>,
+}
+
+/// An adapter Automatic takes only where there is no other: the views are
+/// drawn wrong or slowly with it, and the builder is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fallback {
+    /// A backend the platform's choices leave out (OpenGL: Moonglow's
+    /// renderer draws particles, the game's shaders and more wrong on
+    /// wgpu's).
+    Backend(Backend),
+    /// A software adapter (llvmpipe, Microsoft's Basic Render Driver): a
+    /// few frames a second.
+    Software,
+}
+
+impl Fallback {
+    /// What `adapter` is a fallback as, on `platform` (`None`: an adapter
+    /// Automatic draws with).
+    pub fn of(adapter: &AdapterInfo, platform: Platform) -> Option<Fallback> {
+        if !platform.backends().contains(&adapter.backend) {
+            Some(Fallback::Backend(adapter.backend))
+        } else if adapter.device_type == DeviceType::Cpu {
+            Some(Fallback::Software)
+        } else {
+            None
+        }
+    }
+
+    /// What it is, and what to do about it, for the log and the notice
+    /// (after "Moonglow draws through Vulkan on llvmpipe, ").
+    pub fn said(self, platform: Platform) -> String {
+        let what = match self {
+            Fallback::Backend(b) => format!(
+                "and its renderer draws parts of the 3D views wrong through {}",
+                backend_name(b)
+            ),
+            Fallback::Software => {
+                "a software adapter, which draws the 3D views at a few frames a second".into()
+            }
+        };
+        let wanted: Vec<&str> = platform.backends().iter().map(|b| backend_name(*b)).collect();
+        let install = match platform {
+            Platform::Windows => {
+                "Install the graphics driver of the GPU's maker (over a remote desktop or in a                  virtual machine there may be none)."
+            }
+            Platform::MacOs => "This Mac's GPU has no Metal driver.",
+            Platform::Linux | Platform::Other => {
+                "Install the GPU's Vulkan driver (the distribution's Mesa Vulkan drivers package,                  or the GPU maker's driver)."
+            }
+        };
+        format!("{what}: no GPU that draws through {} was found. {install}", wanted.join(" or "))
+    }
 }
 
 impl Pick {
@@ -125,6 +180,13 @@ impl fmt::Display for Pick {
         if !self.passed_over.is_empty() {
             let names: Vec<&str> = self.passed_over.iter().map(|b| backend_name(*b)).collect();
             write!(f, ", passing over {} (failed before on this driver)", names.join(" and "))?;
+        }
+        match self.fallback {
+            Some(Fallback::Backend(b)) => {
+                write!(f, ", a fallback ({}: no other adapter)", backend_name(b))?
+            }
+            Some(Fallback::Software) => write!(f, ", a fallback (a software adapter)")?,
+            None => {}
         }
         Ok(())
     }
@@ -161,9 +223,111 @@ impl Failed {
 
 /// An adapter's driver, as a failure is kept by: its name and its version
 /// (wgpu's `driver` and `driver_info`; Direct3D 12 says the version alone,
-/// Vulkan both).
+/// Vulkan both). Metal says neither, nor the GPU's vendor and device (its
+/// driver is the system's): the adapter's name and the system's version
+/// stand for them, so that a record is of one GPU and ends with a system
+/// update.
 pub fn driver_of(info: &AdapterInfo) -> String {
-    format!("{} {}", info.driver, info.driver_info).trim().to_string()
+    driver_on(info, system_version())
+}
+
+/// [`driver_of`], on a system of version `system`.
+fn driver_on(info: &AdapterInfo, system: &str) -> String {
+    let said = format!("{} {}", info.driver, info.driver_info).trim().to_string();
+    if !said.is_empty() {
+        return said;
+    }
+    format!("{} {system}", info.name).trim().to_string()
+}
+
+/// The operating system's version where a driver's stands for none
+/// ([`driver_of`]): `macOS 15.1` on a Mac (its `SystemVersion.plist`),
+/// nothing elsewhere (Vulkan and Direct3D 12 say their drivers).
+fn system_version() -> &'static str {
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION.get_or_init(|| {
+        if Platform::current() != Platform::MacOs {
+            return String::new();
+        }
+        std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist")
+            .ok()
+            .and_then(|plist| product_version(&plist).map(|v| format!("macOS {v}")))
+            .unwrap_or_default()
+    })
+}
+
+/// `ProductVersion`'s string in a `SystemVersion.plist`.
+fn product_version(plist: &str) -> Option<&str> {
+    let after = plist.split_once("<key>ProductVersion</key>")?.1;
+    let value = after.split_once("<string>")?.1.split_once("</string>")?.0.trim();
+    (!value.is_empty() && value.len() <= 32).then_some(value)
+}
+
+/// The descriptor Moonglow's devices are opened with (the window's, the
+/// startup check's, the headless one's), of an adapter with `features`
+/// and `limits`: BC textures where it reads them (the game's are mostly
+/// BC: uploaded as they are, else as RGBA8 four to eight times their
+/// size) and the shadow volumes' depth as exact as the scene's
+/// ([`crate::OPTIONAL_FEATURES`]); the GPU's memory taken in blocks of 8
+/// to 64 MB, not wgpu's default 128 to 256 (a block is held while
+/// anything is in it, and what the views and textures let go of stayed
+/// held: 768 MB held for 270 used after Tyrants of the Moonsea's frame
+/// test, 524 with these, no frame slower).
+pub fn device_descriptor(
+    label: &'static str,
+    features: wgpu::Features,
+    limits: wgpu::Limits,
+) -> wgpu::DeviceDescriptor<'static> {
+    wgpu::DeviceDescriptor {
+        label: Some(label),
+        required_features: features & crate::OPTIONAL_FEATURES,
+        required_limits: limits,
+        memory_hints: wgpu::MemoryHints::MemoryUsage,
+        ..Default::default()
+    }
+}
+
+/// The backends `WGPU_BACKEND` names, as wgpu reads it (a list of names
+/// with commas between, any case: `vulkan` or `vk`, `dx12` or `d3d12`,
+/// `metal` or `mtl`, `gl`, `gles` or `opengl`): `None` where it is not
+/// set, empty, or names none (wgpu's own reading then leaves no backend
+/// at all: no adapter, and no window); and the names that are none.
+pub fn named_backends(value: Option<&str>) -> (Option<wgpu::Backends>, Vec<String>) {
+    let Some(value) = value else { return (None, Vec::new()) };
+    let (mut backends, mut unknown) = (wgpu::Backends::empty(), Vec::new());
+    for name in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        backends |= match name.to_ascii_lowercase().as_str() {
+            "vulkan" | "vk" => wgpu::Backends::VULKAN,
+            "dx12" | "d3d12" => wgpu::Backends::DX12,
+            "metal" | "mtl" => wgpu::Backends::METAL,
+            "opengl" | "gles" | "gl" => wgpu::Backends::GL,
+            _ => {
+                unknown.push(name.to_string());
+                continue;
+            }
+        };
+    }
+    ((!backends.is_empty()).then_some(backends), unknown)
+}
+
+/// [`named_backends`] of this run's `WGPU_BACKEND`: what the window's
+/// instance, the headless one's and the pick all go by.
+pub fn backends_from_env() -> (Option<wgpu::Backends>, Vec<String>) {
+    named_backends(std::env::var("WGPU_BACKEND").ok().as_deref())
+}
+
+/// What to say of `WGPU_BACKEND`'s names that are no backend (`None`:
+/// there are none).
+pub fn unknown_backends_said(unknown: &[String], decides: bool) -> Option<String> {
+    if unknown.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = unknown.iter().map(|n| format!("\"{n}\"")).collect();
+    let rest = if decides { "the others it names decide" } else { "it is passed over" };
+    Some(format!(
+        "WGPU_BACKEND names no backend with {} (vulkan, dx12, metal and gl are the names): {rest}",
+        names.join(", ")
+    ))
 }
 
 /// wgpu's order of adapter kinds for a power preference (wgpu-core's
@@ -203,10 +367,12 @@ fn wgpu_order(
 /// backend chosen in Options (`None`: Automatic). `from_environment`:
 /// `WGPU_BACKEND` is set, and the adapters are its backends': it decides,
 /// over `wanted`, in wgpu's order. A backend chosen with no adapter falls
-/// back to Automatic (and says so in [`Pick::missing`]). Automatic passes
-/// over the adapters `failed` names (each a backend that failed on that
-/// GPU and driver: [`Pick::passed_over`]), unless that leaves none.
-/// `None` only without any adapter.
+/// back to Automatic (and says so in [`Pick::missing`]). Automatic takes
+/// an adapter of the platform's backends that is no software one, passing
+/// over those `failed` names (each a backend that failed on that GPU and
+/// driver: [`Pick::passed_over`]) unless that leaves none; OpenGL or a
+/// software adapter only where there is no other, and it says so
+/// ([`Pick::fallback`]). `None` only without any adapter.
 pub fn pick_adapter(
     adapters: &[AdapterInfo],
     wanted: Option<Backend>,
@@ -215,7 +381,13 @@ pub fn pick_adapter(
     platform: Platform,
     failed: &[Failed],
 ) -> Option<Pick> {
-    let pick = |index, why, missing| Pick { index, why, missing, passed_over: Vec::new() };
+    let pick = |index: usize, why, missing| Pick {
+        index,
+        why,
+        missing,
+        passed_over: Vec::new(),
+        fallback: Fallback::of(&adapters[index], platform),
+    };
     if from_environment {
         let index = *wgpu_order(adapters, power, |_| true).first()?;
         return Some(pick(index, Why::Environment, None));
@@ -228,15 +400,16 @@ pub fn pick_adapter(
         }
     }
     let recorded = |a: &AdapterInfo| failed.iter().any(|f| f.names(a));
-    // (No adapter left that Automatic would draw with: as though none
-    // were recorded. Not OpenGL, nor a software adapter, in their place.)
-    let worth = |a: &AdapterInfo| {
-        platform.backends().contains(&a.backend) && a.device_type != DeviceType::Cpu
-    };
-    let skip = !wgpu_order(adapters, power, |a| worth(a) && !recorded(a)).is_empty();
-    let kept = |a: &AdapterInfo| !(skip && recorded(a));
+    // (An adapter Automatic draws with: not OpenGL, nor a software one.)
+    let worth = |a: &AdapterInfo| Fallback::of(a, platform).is_none();
+    // Those that didn't fail before; else (every one recorded) as though
+    // none were; else (none to draw with at all) whatever is there.
+    let unrecorded = wgpu_order(adapters, power, |a| worth(a) && !recorded(a));
+    let skip = !unrecorded.is_empty();
+    let any_worth = adapters.iter().any(worth);
+    let kept = |a: &AdapterInfo| if any_worth { worth(a) && !(skip && recorded(a)) } else { true };
     let mut passed_over: Vec<Backend> = Vec::new();
-    for a in adapters.iter().filter(|a| !kept(a)) {
+    for a in adapters.iter().filter(|a| skip && recorded(a)) {
         if !passed_over.contains(&a.backend) {
             passed_over.push(a.backend);
         }
@@ -254,7 +427,7 @@ pub fn pick_adapter(
             (index, why) = (i, Why::AmdOnWindows);
         }
     }
-    Some(Pick { index, why, missing, passed_over })
+    Some(Pick { passed_over, ..pick(index, why, missing) })
 }
 
 /// The same GPU as `adapters[taken]` through another of `platform`'s
@@ -412,9 +585,9 @@ mod tests {
         pick_adapter(adapters, wanted, false, HIGH, platform, &[]).unwrap()
     }
 
-    /// A pick of nothing passed over.
+    /// A pick of nothing passed over, no fallback.
     fn picked(index: usize, why: Why, missing: Option<Backend>) -> Pick {
-        Pick { index, why, missing, passed_over: Vec::new() }
+        Pick { index, why, missing, passed_over: Vec::new(), fallback: None }
     }
 
     /// El Grillo's Radeon PRO (integrated, AMD's Vulkan driver): Direct3D
@@ -673,6 +846,108 @@ mod tests {
         two.push(adapter(Backend::Vulkan, NVIDIA, 0x2520, DeviceType::DiscreteGpu));
         let p = pick_adapter(&two, None, false, HIGH, Platform::Windows, &both).unwrap();
         assert_eq!((p.index, p.why), (4, Why::Automatic));
+    }
+
+    /// Automatic takes OpenGL or a software adapter only where nothing
+    /// else is there, and says so; with a GPU's backend recorded, the
+    /// other GPU, not the first GPU's OpenGL (a Linux laptop asked for low
+    /// power, its Intel GPU's Vulkan recorded: OpenGL on Intel came first
+    /// by kind, against the rule that OpenGL stands in for nothing).
+    #[test]
+    fn automatic_takes_a_fallback_only_where_nothing_else_draws() {
+        let laptop = vec![
+            adapter(Backend::Vulkan, INTEL, 0x46a6, DeviceType::IntegratedGpu),
+            adapter(Backend::Vulkan, NVIDIA, 0x2520, DeviceType::DiscreteGpu),
+            adapter(Backend::Vulkan, 0x10005, 0, DeviceType::Cpu),
+            adapter(Backend::Gl, INTEL, 0, DeviceType::IntegratedGpu),
+        ];
+        let low = PowerPreference::LowPower;
+        let recorded = [Failed::of(&laptop[0])];
+        let p = pick_adapter(&laptop, None, false, low, Platform::Linux, &recorded).unwrap();
+        assert_eq!((p.index, p.why, p.fallback), (1, Why::Automatic, None));
+        assert_eq!(p.passed_over, [Backend::Vulkan]);
+        // (Nor OpenGL before a GPU's Vulkan with nothing recorded.)
+        let gl_first = vec![laptop[3].clone(), laptop[1].clone()];
+        let p = pick_adapter(&gl_first, None, false, low, Platform::Linux, &[]).unwrap();
+        assert_eq!((p.index, p.fallback), (1, None));
+        // No Vulkan driver: OpenGL, as a fallback.
+        let gl = vec![adapter(Backend::Gl, INTEL, 0, DeviceType::IntegratedGpu)];
+        let p = pick(&gl, None, Platform::Linux);
+        assert_eq!((p.index, p.fallback), (0, Some(Fallback::Backend(Backend::Gl))));
+        assert_eq!(
+            p.to_string(),
+            "Automatic (wgpu's order), a fallback (OpenGL: no other adapter)"
+        );
+        // The basic display driver, a remote desktop: Microsoft's software
+        // adapter, as a fallback; so llvmpipe alone on Linux.
+        let warp = vec![adapter(Backend::Dx12, 0x1414, 0x8c, DeviceType::Cpu)];
+        let p = pick(&warp, None, Platform::Windows);
+        assert_eq!((p.index, p.fallback), (0, Some(Fallback::Software)));
+        let p = pick(&laptop[2..3], None, Platform::Linux);
+        assert_eq!(p.fallback, Some(Fallback::Software));
+        // A software adapter and OpenGL: the software one of the
+        // platform's backend last, as wgpu orders kinds.
+        let p = pick(&laptop[2..], None, Platform::Linux);
+        assert_eq!((p.index, p.fallback), (1, Some(Fallback::Backend(Backend::Gl))));
+        // Asked for: said all the same.
+        let p = pick(&laptop, Some(Backend::Gl), Platform::Linux);
+        assert_eq!((p.index, p.fallback), (3, Some(Fallback::Backend(Backend::Gl))));
+        // What the builder is told names the backend to install.
+        let said = Fallback::Backend(Backend::Gl).said(Platform::Linux);
+        assert!(said.contains("through OpenGL") && said.contains("Vulkan driver"), "{said}");
+        let said = Fallback::Software.said(Platform::Windows);
+        assert!(said.contains("Vulkan or Direct3D 12"), "{said}");
+    }
+
+    /// Metal says no driver, vendor or device: a record there is of the
+    /// GPU by its name, and of the system's version. Where the driver is
+    /// said, it alone.
+    #[test]
+    fn a_metal_record_names_the_gpu_and_the_system() {
+        let metal = |name: &str| {
+            let mut a = adapter(Backend::Metal, 0, 0, DeviceType::IntegratedGpu);
+            a.name = name.into();
+            a
+        };
+        let (m1, pro) = (metal("Apple M1"), metal("AMD Radeon Pro 5500M"));
+        assert_ne!(Failed::of(&m1), Failed::of(&pro));
+        assert!(Failed::of(&m1).driver.starts_with("Apple M1"));
+        assert_eq!(driver_on(&m1, "macOS 15.1"), "Apple M1 macOS 15.1");
+        assert_ne!(driver_on(&m1, "macOS 15.1"), driver_on(&m1, "macOS 15.2"));
+        assert_eq!(driver_on(&m1, ""), "Apple M1");
+        let mut vulkan = adapter(Backend::Vulkan, AMD, 0x7550, DeviceType::DiscreteGpu);
+        (vulkan.name, vulkan.driver, vulkan.driver_info) =
+            ("RX 9070".into(), "radv".into(), "Mesa 26.0".into());
+        assert_eq!(driver_on(&vulkan, "macOS 15.1"), "radv Mesa 26.0");
+        let plist = "<dict>\n\t<key>ProductName</key>\n\t<string>macOS</string>\n\t\
+                     <key>ProductVersion</key>\n\t<string>15.1</string>\n</dict>";
+        assert_eq!(product_version(plist), Some("15.1"));
+        assert_eq!(product_version("<key>ProductVersion</key><string>"), None);
+        assert_eq!(product_version(""), None);
+    }
+
+    /// `WGPU_BACKEND` set but empty, or naming no backend, is as though it
+    /// were not set (wgpu's own reading leaves no backend at all then: no
+    /// adapter, and `mg`'s pictures said there was no GPU); a name that is
+    /// none among others is said.
+    #[test]
+    fn wgpu_backend_naming_no_backend_is_as_unset() {
+        let none: Vec<String> = Vec::new();
+        assert_eq!(named_backends(None), (None, none.clone()));
+        assert_eq!(named_backends(Some("")), (None, none.clone()));
+        assert_eq!(named_backends(Some(" , ")), (None, none.clone()));
+        assert_eq!(named_backends(Some("d3d")), (None, vec!["d3d".to_string()]));
+        let (some, unknown) = named_backends(Some("vulkan,nope"));
+        assert_eq!((some, unknown), (Some(wgpu::Backends::VULKAN), vec!["nope".to_string()]));
+        let (both, unknown) = named_backends(Some(" DX12, gl "));
+        assert_eq!((both, unknown), (Some(wgpu::Backends::DX12 | wgpu::Backends::GL), none));
+        // (As wgpu reads the names it knows.)
+        for names in ["vulkan", "vk,metal", "D3D12", "opengl,gles", "mtl"] {
+            assert_eq!(named_backends(Some(names)).0, Some(wgpu::Backends::from_comma_list(names)));
+        }
+        assert_eq!(unknown_backends_said(&[], true), None);
+        let said = unknown_backends_said(&["d3d".into()], false).unwrap();
+        assert!(said.contains("\"d3d\"") && said.ends_with("it is passed over"), "{said}");
     }
 
     /// The other backend is the same GPU's: not the software adapter, nor

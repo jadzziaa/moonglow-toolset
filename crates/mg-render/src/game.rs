@@ -1259,13 +1259,20 @@ pub(crate) struct GamePipeline {
 pub(crate) type Fast<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<Quick>>;
 
 /// FxHash's multiply-and-rotate: for numbers, not for what an adversary
-/// chooses.
+/// chooses. The renderer's one quick hasher: the batcher's squares and
+/// keys, the lights' choices by their balls, the game's programs' values.
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct Quick(u64);
 
 impl std::hash::Hasher for Quick {
     fn finish(&self) -> u64 {
-        self.0
+        // (The table takes its place from the low bits, which the
+        // multiplication leaves the weakest: the high ones folded down,
+        // twice. Without, keys that differ in their high bits alone, as
+        // the bits of floats on a grid of tiles or addresses do, landed
+        // in a few buckets: 1,024 tiles' balls in 32 of 1,024, where
+        // these fill 600, and chance would 650.)
+        self.0 ^ (self.0 >> 29) ^ (self.0 >> 47)
     }
 
     /// Eight bytes at a time (a draw's lights are a slice of numbers).
@@ -1287,6 +1294,10 @@ impl std::hash::Hasher for Quick {
 
     fn write_u32(&mut self, n: u32) {
         self.write_u64(u64::from(n));
+    }
+
+    fn write_i32(&mut self, n: i32) {
+        self.write_u64(n as u64);
     }
 
     fn write_usize(&mut self, n: usize) {
@@ -2685,6 +2696,22 @@ impl GameShaders {
         self.fb = fb;
     }
 
+    /// Lets go of the copies numbered `id` (their target is let go of):
+    /// this frame's, and the pipelines' groups made with them, which held
+    /// them on the GPU.
+    pub(crate) fn forget_framebuffer(&mut self, id: u64) {
+        if self.fb.as_ref().is_some_and(|fb| fb.id == id) {
+            self.fb = None;
+        }
+        self.fb_groups.retain(|_, (of, _)| *of != id);
+    }
+
+    /// Whether anything holds the copies numbered `id`.
+    pub(crate) fn holds_framebuffer(&self, id: u64) -> bool {
+        self.fb.as_ref().is_some_and(|fb| fb.id == id)
+            || self.fb_groups.values().any(|(of, _)| *of == id)
+    }
+
     /// A pipeline's group 1 with this frame's copies, where it is made.
     fn fb_group(&self, id: u32) -> Option<&wgpu::BindGroup> {
         let fb = self.fb.as_ref()?;
@@ -3129,6 +3156,34 @@ pub(crate) fn program_pair(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    /// The quick hasher spreads keys that differ in their high bits alone
+    /// over a table's buckets (which go by the low bits): the meshes'
+    /// balls of an area, their floats' bits on a grid of tiles, landed in
+    /// a few buckets before the high bits were folded down; so addresses
+    /// (whose low bits are all alike).
+    #[test]
+    fn the_quick_hasher_spreads_keys_that_differ_in_their_high_bits() {
+        use std::hash::{BuildHasher, BuildHasherDefault};
+        let hasher = BuildHasherDefault::<super::Quick>::default();
+        let buckets = |hashes: Vec<u64>| {
+            let mut low: Vec<u64> = hashes.iter().map(|h| h & 1023).collect();
+            low.sort_unstable();
+            low.dedup();
+            low.len()
+        };
+        // 1,024 balls on a grid of tiles, 10 m apart, one radius.
+        let balls: Vec<[u32; 4]> = (0..32)
+            .flat_map(|x| (0..32).map(move |y| (x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0)))
+            .map(|(x, y)| [x, y, 0.0, 7.5f32].map(f32::to_bits))
+            .collect();
+        let spread = buckets(balls.iter().map(|b| hasher.hash_one(b)).collect());
+        // (1,024 keys thrown at 1,024 buckets fill about 647 of them.)
+        assert!(spread > 550, "{spread} of 1024 buckets for the tiles' balls");
+        let places: Vec<usize> = (0..1024).map(|i| 0x7f3a_0000_0000 + i * 4096).collect();
+        let spread = buckets(places.iter().map(|p| hasher.hash_one(p)).collect());
+        assert!(spread > 550, "{spread} of 1024 buckets for addresses a page apart");
+    }
 
     #[test]
     fn a_material_names_a_pair_only_with_both_programs() {

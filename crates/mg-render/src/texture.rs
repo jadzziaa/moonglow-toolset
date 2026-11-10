@@ -183,28 +183,7 @@ impl GpuTexture {
             view_formats: &[],
         });
         for (level, (data, w, h)) in levels.iter().enumerate() {
-            let (bytes_per_row, rows, extent) = match format.block_bytes() {
-                None => (w * 4, *h, (*w, *h)),
-                Some(b) => {
-                    let (bw, bh) = (w.div_ceil(4), h.div_ceil(4));
-                    (bw * b as u32, bh, (bw * 4, bh * 4))
-                }
-            };
-            gpu.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: level as u32,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: Some(rows),
-                },
-                wgpu::Extent3d { width: extent.0, height: extent.1, depth_or_array_layers: 1 },
-            );
+            write_level(gpu, &texture, (level as u32, 0), format, data, (*w, *h));
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         GpuTexture { texture, view, has_alpha: tex.has_alpha }
@@ -217,13 +196,26 @@ impl GpuTexture {
     /// game's programs' bias, Moonglow's `cube_level`), is blurred. Faces of
     /// another size than the first are scaled to it.
     pub fn upload_cube(gpu: &Gpu, label: &str, faces: &[Texture; 6]) -> GpuTexture {
+        if let Some(cube) = upload_cube_as_stored(gpu, label, faces) {
+            return cube;
+        }
         let first = faces[0].to_rgba();
         let (w, h) = (first.width.max(1), first.height.max(1));
         let count = 1 + w.max(h).ilog2();
+        // (The levels over the limit left out: the first within it is the
+        // largest.)
+        let over = |level: u32| {
+            gpu.texture_limit().is_some_and(|l| (w >> level).max(h >> level).max(1) > l)
+        };
+        let skip = (0..count - 1).take_while(|&level| over(level)).count() as u32;
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 6 },
-            mip_level_count: count,
+            size: wgpu::Extent3d {
+                width: (w >> skip).max(1),
+                height: (h >> skip).max(1),
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: count - skip,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
@@ -253,22 +245,12 @@ impl GpuTexture {
                         None => half(&level.0, level.1, level.2),
                     };
                 }
+                if mip < skip {
+                    continue;
+                }
                 let (data, lw, lh) = &level;
-                gpu.queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &texture,
-                        mip_level: mip,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 },
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    data,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(lw * 4),
-                        rows_per_image: Some(*lh),
-                    },
-                    wgpu::Extent3d { width: *lw, height: *lh, depth_or_array_layers: 1 },
-                );
+                let at = (mip - skip, layer as u32);
+                write_level(gpu, &texture, at, Format::Rgba8, data, (*lw, *lh));
             }
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -288,6 +270,99 @@ impl GpuTexture {
         let tex = mg_image::Rgba { width: 1, height: 1, data: rgba.to_vec() }.into_texture(true);
         GpuTexture::upload(gpu, label, &tex, false)
     }
+}
+
+/// A cube map of six BC faces uploaded as they are stored (a DXT cube's
+/// faces decoded took four to eight times their stored size): where the
+/// device reads BC and the faces agree (one format, one size, whole
+/// blocks a side) and each stores its smaller levels down to a pixel (the
+/// rough surfaces' blurred reflections are read from them). From the
+/// first level within [`Gpu::texture_limit`] whose sides are whole blocks.
+/// `None`: uploaded as RGBA8, its levels made.
+fn upload_cube_as_stored(gpu: &Gpu, label: &str, faces: &[Texture; 6]) -> Option<GpuTexture> {
+    let first = &faces[0];
+    let (w, h) = (first.width, first.height);
+    let blocks = |level: usize| {
+        let (lw, lh) = first.level_dims(level);
+        lw.is_multiple_of(4) && lh.is_multiple_of(4)
+    };
+    if first.format == Format::Rgba8 || !gpu.bc_textures() || w == 0 || h == 0 || !blocks(0) {
+        return None;
+    }
+    let count = 1 + w.max(h).ilog2() as usize;
+    let whole = |f: &Texture| {
+        (f.format, f.width, f.height) == (first.format, w, h)
+            && f.mips.len() >= count
+            && (0..count).all(|i| {
+                let (lw, lh) = f.level_dims(i);
+                f.mips[i].len() == f.format.level_size(lw, lh)
+            })
+    };
+    if !faces.iter().all(whole) {
+        return None;
+    }
+    let over = |level: usize| {
+        let (lw, lh) = first.level_dims(level);
+        gpu.texture_limit().is_some_and(|l| lw.max(lh) > l)
+    };
+    let skip = (0..count - 1).take_while(|&i| over(i) && blocks(i + 1)).count();
+    let (width, height) = first.level_dims(skip);
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 6 },
+        mip_level_count: (count - skip) as u32,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu_format(first.format),
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    for (layer, face) in faces.iter().enumerate() {
+        for level in skip..count {
+            let at = ((level - skip) as u32, layer as u32);
+            write_level(gpu, &texture, at, face.format, &face.mips[level], face.level_dims(level));
+        }
+    }
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::Cube),
+        ..Default::default()
+    });
+    Some(GpuTexture { texture, view, has_alpha: false })
+}
+
+/// Writes a level of a layer of `texture` (`at`: the level and the
+/// layer): `data` in `format`, `w` by `h` pixels (a BC format's whole
+/// blocks).
+fn write_level(
+    gpu: &Gpu,
+    texture: &wgpu::Texture,
+    (level, layer): (u32, u32),
+    format: Format,
+    data: &[u8],
+    (w, h): (u32, u32),
+) {
+    let (bytes_per_row, rows, extent) = match format.block_bytes() {
+        None => (w * 4, h, (w, h)),
+        Some(b) => {
+            let (bw, bh) = (w.div_ceil(4), h.div_ceil(4));
+            (bw * b as u32, bh, (bw * 4, bh * 4))
+        }
+    };
+    gpu.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: level,
+            origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(bytes_per_row),
+            rows_per_image: Some(rows),
+        },
+        wgpu::Extent3d { width: extent.0, height: extent.1, depth_or_array_layers: 1 },
+    );
 }
 
 /// What a texture takes on the GPU, bytes ([`GpuTexture::bytes`]).
@@ -331,6 +406,65 @@ mod tests {
         let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
         let cube = GpuTexture::upload_cube(&gpu, "cube", &std::array::from_fn(|_| face.clone()));
         assert_eq!(cube.texture.mip_level_count(), 3);
+    }
+
+    /// A cube map is uploaded within Options › Largest textures, as a
+    /// texture is (a hak's 1024-pixel cube took 32 MB where the limit
+    /// asked for 2), and its BC faces as they are stored where the device
+    /// reads BC and they store every level (decoded, four to eight times
+    /// their size).
+    #[test]
+    fn a_cube_is_uploaded_within_the_limit_and_as_stored() {
+        let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
+        let plain = Texture {
+            width: 16,
+            height: 16,
+            format: Format::Rgba8,
+            mips: vec![[255, 0, 0, 255].repeat(256)],
+            has_alpha: false,
+            alpha_mean: None,
+        };
+        let cube = |face: &Texture| {
+            GpuTexture::upload_cube(&gpu, "cube", &std::array::from_fn(|_| face.clone()))
+        };
+        let size = |t: &GpuTexture| (t.texture.width(), t.texture.mip_level_count());
+        assert_eq!(size(&cube(&plain)), (16, 5));
+        let whole = cube(&plain).bytes();
+        gpu.set_texture_limit(Some(4));
+        let limited = cube(&plain);
+        assert_eq!(size(&limited), (4, 3), "the first level within the limit");
+        assert_eq!(limited.texture.format(), wgpu::TextureFormat::Rgba8Unorm);
+        assert!(limited.bytes() * 10 < whole, "{} of {whole}", limited.bytes());
+        gpu.set_texture_limit(None);
+        // BC1 faces with every level down to a pixel (one block each from
+        // 4 pixels down).
+        let block = [0x00, 0xF8, 0x00, 0xF8, 0, 0, 0, 0];
+        let stored = Texture {
+            format: Format::Bc1,
+            mips: [16, 4, 1, 1, 1].iter().map(|blocks| block.repeat(*blocks)).collect(),
+            ..plain.clone()
+        };
+        let compressed = cube(&stored);
+        if gpu.bc_textures() {
+            assert_eq!(compressed.texture.format(), wgpu::TextureFormat::Bc1RgbaUnorm);
+            assert_eq!(size(&compressed), (16, 5));
+            assert!(compressed.bytes() * 4 <= whole, "{} of {whole}", compressed.bytes());
+            // Within the limit, from a level whose sides are whole blocks.
+            gpu.set_texture_limit(Some(8));
+            assert_eq!(size(&cube(&stored)), (8, 4));
+            gpu.set_texture_limit(Some(2));
+            assert_eq!(size(&cube(&stored)), (4, 3), "no smaller than a block");
+            gpu.set_texture_limit(None);
+        }
+        // Faces that store one level alone, or disagree: decoded, their
+        // levels made, as before.
+        let one_level = Texture { mips: vec![stored.mips[0].clone()], ..stored.clone() };
+        assert_eq!(cube(&one_level).texture.format(), wgpu::TextureFormat::Rgba8Unorm);
+        let mut mixed: [Texture; 6] = std::array::from_fn(|_| stored.clone());
+        mixed[3] = plain.clone();
+        let mixed = GpuTexture::upload_cube(&gpu, "cube", &mixed);
+        assert_eq!(mixed.texture.format(), wgpu::TextureFormat::Rgba8Unorm);
+        assert_eq!(size(&mixed), (16, 5));
     }
 
     #[test]

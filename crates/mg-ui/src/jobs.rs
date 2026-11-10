@@ -117,11 +117,7 @@ pub(crate) fn wake(ctx: &egui::Context, at_once: bool) {
 
 /// What a thread that panicked said.
 fn panic_text(panic: &Made) -> String {
-    panic
-        .downcast_ref::<&str>()
-        .map(|s| s.to_string())
-        .or_else(|| panic.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "it stopped unexpectedly".into())
+    mg_render::guard::panic_message(&**panic).unwrap_or_else(|| "it stopped unexpectedly".into())
 }
 
 impl Moonglow {

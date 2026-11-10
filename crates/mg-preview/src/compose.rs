@@ -858,7 +858,8 @@ impl Composed {
     /// The box around it with its nodes as `stance` has them (model
     /// space).
     pub fn bounds_of(&self, stance: &Stance) -> (Vec3, Vec3) {
-        let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        // (Every point it reaches: the box around them.)
+        let mut reached: Vec<Vec3> = Vec::new();
         let mut add = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
             for m in &gm.meshes {
                 let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
@@ -868,17 +869,12 @@ impl Composed {
                 // pause, and the box around the spread was several times
                 // the dragon.
                 if let Some(places) = skinned_places(gm, m, nodes, to) {
-                    for w in places {
-                        min = min.min(w);
-                        max = max.max(w);
-                    }
+                    reached.extend(places);
                     continue;
                 }
-                for p in mg_render::box_corners(m.min, m.max) {
-                    let w = (to * node).transform_point3(p);
-                    min = min.min(w);
-                    max = max.max(w);
-                }
+                let node = to * node;
+                reached
+                    .extend(mg_render::box_corners(m.min, m.max).map(|p| node.transform_point3(p)));
             }
         };
         for (gm, nodes, to) in self.models_in(stance) {
@@ -886,7 +882,7 @@ impl Composed {
         }
         // (No mesh to draw, as a fog of particles alone: the box its
         // emitters' particles fill.)
-        if min.x > max.x {
+        if reached.is_empty() {
             for (gm, nodes, to) in self.models_in(stance) {
                 for (i, n) in gm.model.nodes.iter().enumerate() {
                     if !matches!(n.kind, mg_mdl::NodeKind::Emitter(_)) {
@@ -894,14 +890,13 @@ impl Composed {
                     }
                     let node = to * nodes.get(i).copied().unwrap_or(Mat4::IDENTITY);
                     let (low, high) = emitter_box(n);
-                    for p in mg_render::box_corners(low, high) {
-                        let w = node.transform_point3(p);
-                        (min, max) = (min.min(w), max.max(w));
-                    }
+                    reached.extend(
+                        mg_render::box_corners(low, high).map(|p| node.transform_point3(p)),
+                    );
                 }
             }
         }
-        if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
+        mg_render::box_of(reached).unwrap_or((Vec3::splat(-1.0), Vec3::splat(1.0)))
     }
 }
 

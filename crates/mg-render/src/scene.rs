@@ -66,6 +66,12 @@ pub struct Instance {
     /// ([`Scene::light_shadows`]): a creature, as the client's do where
     /// the area has no sun or moon shadows at the time.
     pub casts_light_shadows: bool,
+    /// The object it is a part of, where an object is drawn as several
+    /// instances (a creature made of body parts, with what it wears and
+    /// holds): those of one number are one object, the first of them in
+    /// the scene its base (where it stands), and cast one shadow from one
+    /// light ([`Scene::light_shadows`]). `None`: an object by itself.
+    pub object: Option<u32>,
     /// Its meshes' material ambient and diffuse (linear) in place of their
     /// own: the tile border past an area's edge, which the client draws
     /// in half the sun's diffuse color (`mg_area::border::material`).
@@ -97,6 +103,7 @@ impl Instance {
             receives_shadows: false,
             casts_shadows: true,
             casts_light_shadows: false,
+            object: None,
             material: None,
             material_values: None,
         }
@@ -288,10 +295,10 @@ pub struct Scene {
     pub environment: Environment,
     /// The area light's shadows; `None`: none.
     pub shadows: Option<SunShadows>,
-    /// The shadows cast from point lights (each instance that
+    /// The shadows cast from point lights (each object whose instances
     /// [`Instance::casts_light_shadows`] casts one from the nearest light
-    /// that [`PointLight::casts_shadows`]), as dark as these say; `None`:
-    /// none.
+    /// that [`PointLight::casts_shadows`]: [`Instance::object`]), as dark
+    /// as these say; `None`: none.
     pub light_shadows: Option<SunShadows>,
 }
 

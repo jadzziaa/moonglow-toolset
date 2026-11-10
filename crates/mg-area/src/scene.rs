@@ -813,8 +813,11 @@ impl AreaScene {
             let drawn = mg_render::guard::guarded(name, || {
                 let (model, playing, pose) = c.emitters(c.idle.as_deref(), view.time)?;
                 let new = !sims.contains_key(&key);
-                let sim =
-                    sims.entry(key).or_insert_with(|| mg_render::particles::Particles::new(model));
+                // (Each its own random numbers, by its number: emitters of
+                // one model side by side are no copies of one another.)
+                let sim = sims.entry(key).or_insert_with(|| {
+                    mg_render::particles::Particles::new_seeded(model, key.0 as u64)
+                });
                 sim.ground = o.position.z;
                 if new {
                     let mut ahead = 0.0;
@@ -882,8 +885,11 @@ impl AreaScene {
                     ..Animation::default()
                 });
                 let new = !sims.contains_key(&key);
-                let sim =
-                    sims.entry(key).or_insert_with(|| mg_render::particles::Particles::new(model));
+                // (Each its own random numbers, by its number: emitters of
+                // one model side by side are no copies of one another.)
+                let sim = sims.entry(key).or_insert_with(|| {
+                    mg_render::particles::Particles::new_seeded(model, key.0 as u64)
+                });
                 sim.ground = transform.w_axis.z;
                 // (Run ahead as an object's: a forge's fire was dark for
                 // its first seconds.)
@@ -950,9 +956,9 @@ impl AreaScene {
                 let drawn = mg_render::guard::guarded("fx_flame01", || {
                     let pose = anim::pose(model, playing, view.time);
                     let new = !sims.contains_key(&key);
-                    let sim = sims
-                        .entry(key)
-                        .or_insert_with(|| mg_render::particles::Particles::new(model));
+                    let sim = sims.entry(key).or_insert_with(|| {
+                        mg_render::particles::Particles::new_seeded(model, key.0 as u64)
+                    });
                     sim.ground = at.w_axis.z - 2.0;
                     if new {
                         let mut ahead = 0.0;
@@ -1103,7 +1109,7 @@ impl AreaScene {
             }
         }
         let lit_shadows = view.light_shadows_of(&area.lighting).is_some();
-        for (o, shown) in area.objects.iter().zip(&self.objects) {
+        for (n, (o, shown)) in area.objects.iter().zip(&self.objects).enumerate() {
             if !view.shows(o.kind) {
                 continue;
             }
@@ -1163,6 +1169,8 @@ impl AreaScene {
                 unlit,
                 casts_shadows: casts && i.casts_shadows,
                 casts_light_shadows: from_lights && i.casts_shadows,
+                // (Its parts are one object: one shadow from a light.)
+                object: Some(n as u32),
                 receives_shadows: o.is_static,
                 ..i
             }));

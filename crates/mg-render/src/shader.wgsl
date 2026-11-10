@@ -12,25 +12,7 @@
 // model has tangents, else from screen-space derivatives (the tangents made
 // for a mesh without, for the game's shaders, are left alone).
 
-struct Frame {
-    view: mat4x4<f32>,
-    proj: mat4x4<f32>,
-    // Area (sun/moon) light, linear.
-    area_ambient: vec4<f32>,
-    area_diffuse: vec4<f32>,
-    // View-space direction towards the sun/moon.
-    area_dir: vec4<f32>,
-    // enabled, start, end, 1 / (end - start)
-    fog: vec4<f32>,
-    // Gamma space.
-    fog_color: vec4<f32>,
-    // 1 / max intensity, falloff factor, light count, target height (pixels)
-    light_params: vec4<f32>,
-    // Minimum light (the GUI "scene colour"), linear.
-    scene_color: vec4<f32>,
-    // x = seconds, for what moves by itself (water).
-    time: vec4<f32>,
-};
+// (`Frame`: `frame.wgsl`, put before this source.)
 
 struct Light {
     // View-space position.
@@ -75,7 +57,7 @@ struct Draw {
     // The texture's turn (the game's `m_texture`: a tile's ground turned
     // with it): x = cos, y = sin.
     uv_turn: vec4<f32>,
-    // x = number of lights for this draw, y = 1 if skinned, z = first bone,
+    // x = number of lights for this draw, y = nothing, z = first bone,
     // w = 1 if the mesh's tangents were made (not the model's)
     light_count: vec4<u32>,
     // Up to 32 light indices.
@@ -726,7 +708,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
     ambient = ambient * ao;
     var total = draws[this_draw].emissive.rgb + (1.0 - env_spec) * (ambient + diffuse);
-    total = max(total, min(frame.scene_color.rgb * draws[this_draw].diffuse.rgb, vec3<f32>(1.0)));
+    total = max(total, vec3<f32>(0.0));
     var rgb = color.rgb * total;
     if (draws[this_draw].maps2.x > 0.5) {
         rgb = rgb + lin(textureSampleGrad(tex_illum, samp0, uv, duv1, duv2).rgb);

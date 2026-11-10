@@ -360,13 +360,10 @@ pub(crate) fn copy_source(samples: u32) -> String {
     } else {
         ("texture_depth_2d", "", "textureLoad(depth, vec2<i32>(frag.xy), 0)")
     };
+    let vs = crate::framebuffer::FULLSCREEN_VS;
     format!(
         "@group(0) @binding(0) var depth: {depth};
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
-    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
-    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-}}
-@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @builtin(frag_depth) f32 {{
+{vs}@fragment fn fs(@builtin(position) frag: vec4<f32>{sample}) -> @builtin(frag_depth) f32 {{
     return {load};
 }}
 "
@@ -433,13 +430,16 @@ struct Pipelines {
     darken_layout: wgpu::BindGroupLayout,
 }
 
-/// The stencil volumes' target and what draws into it and reads it, made
-/// at the first frame with High shadows.
+/// A view's depth and stencil target for the volumes, its size and
+/// samples: kept from one of the view's frames to the next
+/// ([`crate::views`]) while it is drawn with High shadows.
+pub(crate) type StencilTarget = (wgpu::TextureView, (u32, u32), u32);
+
+/// What draws into a view's stencil target and reads it, made at the
+/// first frame with High shadows.
 #[derive(Debug)]
 pub(crate) struct ShadowVolumes {
     format: wgpu::TextureFormat,
-    /// The depth and stencil target, its size and samples.
-    target: Option<(wgpu::TextureView, (u32, u32), u32)>,
     pipelines: std::collections::HashMap<(wgpu::TextureFormat, u32), Pipelines>,
     sun: Set,
     lights: Set,
@@ -466,7 +466,6 @@ impl ShadowVolumes {
     pub(crate) fn new(device: &wgpu::Device) -> ShadowVolumes {
         ShadowVolumes {
             format: stencil_format(device),
-            target: None,
             pipelines: Default::default(),
             sun: Set::new(device),
             lights: Set::new(device),
@@ -507,9 +506,10 @@ impl ShadowVolumes {
     /// Lays the shadows of `sun` and of `lights` over what is drawn in
     /// `target` (of `format`, multisampled by its samples), as deep as
     /// `depth` (the scene's) says: each set's volumes counted in the
-    /// stencil target, then black laid over what they mark as the game's
-    /// shadow plane lays it, for `camera` seeing a picture of `size`;
-    /// `fog`: the scene's.
+    /// view's stencil target (`made`: made where the view has none of the
+    /// picture's size and samples), then black laid over what they mark
+    /// as the game's shadow plane lays it, for `camera` seeing a picture
+    /// of `size`; `fog`: the scene's.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn lay(
         &mut self,
@@ -521,9 +521,10 @@ impl ShadowVolumes {
         camera: &Camera,
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
+        made: &mut Option<StencilTarget>,
     ) {
         let samples = format.1;
-        if self.target.as_ref().is_none_or(|(_, s, n)| *s != size || *n != samples) {
+        if made.as_ref().is_none_or(|(_, s, n)| *s != size || *n != samples) {
             let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("shadow volumes"),
                 size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
@@ -534,15 +535,9 @@ impl ShadowVolumes {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-            self.target = Some((texture.create_view(&Default::default()), size, samples));
+            *made = Some((texture.create_view(&Default::default()), size, samples));
         }
-        let Self {
-            format: stencil_format,
-            target: made,
-            pipelines,
-            sun: sun_set,
-            lights: light_set,
-        } = self;
+        let Self { format: stencil_format, pipelines, sun: sun_set, lights: light_set } = self;
         let pipelines = pipelines
             .entry(format)
             .or_insert_with(|| Pipelines::new(&gpu.device, format.0, samples, *stencil_format));
@@ -610,16 +605,8 @@ fn upload(
         camera: [camera.eye.z.max(camera.target.z), camera.near, camera.far, 0.0],
     };
     gpu.queue.write_buffer(&set.frame, 0, bytemuck::bytes_of(&frame));
-    let bytes = std::mem::size_of_val(casters) as u64;
-    if set.casters.size() < bytes {
-        set.casters = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow volume casters"),
-            size: bytes.next_power_of_two(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-    }
-    gpu.queue.write_buffer(&set.casters, 0, bytemuck::cast_slice(casters));
+    let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
+    crate::renderer::upload(gpu, &mut set.casters, "shadow volume casters", usage, casters, 0);
 }
 
 impl Pipelines {
@@ -760,18 +747,7 @@ impl Pipelines {
             Some("shadow volume darkening"),
             &[uniform(0, wgpu::ShaderStages::FRAGMENT), depth_entry(1)],
         );
-        let blend = wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        };
+        let blend = crate::shadow::DARKEN_BLEND;
         let marked = wgpu::StencilFaceState {
             compare: wgpu::CompareFunction::NotEqual,
             fail_op: wgpu::StencilOperation::Keep,

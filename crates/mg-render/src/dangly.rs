@@ -19,6 +19,10 @@ use crate::scene::MeshState;
 
 /// The longest simulation step, seconds.
 const STEP: f32 = 1.0 / 120.0;
+/// The most steps an update takes: no more than two seconds are simulated
+/// at once (past them the steps grew, and near a period of 60 the spring
+/// then ran away).
+const STEPS: f32 = 240.0;
 /// Below this speed (m/s) a vertex is at rest.
 const REST: f32 = 1e-4;
 
@@ -50,9 +54,7 @@ impl Dangly {
         for i in 0..model.meshes.len() {
             let Some(m) = model.mesh_data(i) else { continue };
             let MeshExtra::Dangly(d) = &m.extra else { continue };
-            if d.period >= 60.0 || d.period <= 0.0 || d.displacement <= 0.0 {
-                continue;
-            }
+            let Some((omega, zeta)) = spring(d) else { continue };
             // (As uploaded: a copy's, on a mirrored seam, its original's.)
             let up = uploaded(m);
             let limit: Vec<f32> = up
@@ -63,7 +65,9 @@ impl Dangly {
                     d.displacement * 0.5 * c.copied().unwrap_or(0.0) / 255.0
                 })
                 .collect();
-            if limit.iter().all(|&l| l <= 0.0) {
+            // (None that may stray: fixed. A constraint that is no number
+            // strays nowhere.)
+            if !limit.iter().any(|&l| l > 0.0) {
                 continue;
             }
             meshes.push(DanglyMesh {
@@ -71,8 +75,8 @@ impl Dangly {
                 node: model.meshes[i].node,
                 rest: up.vertices,
                 limit,
-                omega: d.period,
-                zeta: (d.tightness / 10.0).clamp(0.05, 1.0),
+                omega,
+                zeta,
                 pos: Vec::new(),
                 vel: Vec::new(),
             });
@@ -96,13 +100,16 @@ impl Dangly {
                 d.vel = vec![Vec3::ZERO; anchors.len()];
                 continue;
             }
-            let steps = (dt / STEP).ceil().clamp(1.0, 240.0) as usize;
+            // (A time that is no number, or runs back, is none passed.)
+            let dt = if dt.is_finite() { dt.clamp(0.0, STEPS * STEP) } else { 0.0 };
+            let steps = (dt / STEP).ceil().clamp(1.0, STEPS) as usize;
             let h = dt / steps as f32;
             let (k, c) = (d.omega * d.omega, 2.0 * d.zeta * d.omega);
             for ((p, v), (&a, &limit)) in
                 d.pos.iter_mut().zip(&mut d.vel).zip(anchors.iter().zip(&d.limit))
             {
-                if limit <= 0.0 {
+                // (Fixed; so one whose limit is no number.)
+                if limit.is_nan() || limit <= 0.0 {
                     (*p, *v) = (a, Vec3::ZERO);
                     continue;
                 }
@@ -110,6 +117,13 @@ impl Dangly {
                     let offset = *p - a;
                     *v += (wind - k * offset - c * *v) * h;
                     *p += *v * h;
+                }
+                // (A vertex that is nowhere, its wind or its mesh having
+                // been for a frame, is back at its anchor: it never came
+                // back by itself, and the mesh was gone.)
+                if !(p.is_finite() && v.is_finite()) {
+                    (*p, *v) = (a, Vec3::ZERO);
+                    continue;
                 }
                 // Held at the limit: no speed away from the anchor.
                 let offset = *p - a;
@@ -158,6 +172,20 @@ impl Dangly {
         }
         max
     }
+}
+
+/// A dangly mesh's spring (its angular frequency, its damping ratio),
+/// where it is simulated: its period above 0 and below 60 (from 60 up the
+/// game locks the mesh), with somewhere to stray to, and its values
+/// numbers (a `period nan` passed for one below 60, and every vertex was
+/// nowhere from the second update on).
+fn spring(d: &mg_mdl::Dangly) -> Option<(f32, f32)> {
+    let simulated = d.period > 0.0
+        && d.period < 60.0
+        && d.displacement > 0.0
+        && d.displacement.is_finite()
+        && d.tightness.is_finite();
+    simulated.then(|| (d.period, (d.tightness / 10.0).clamp(0.05, 1.0)))
 }
 
 #[cfg(test)]
@@ -213,5 +241,58 @@ mod tests {
         }
         assert!(!d.moving());
         assert!(d.max_offset(&pose, at(1.0)) < 1e-3);
+    }
+
+    /// A long step at a period near 60 (a minute away from the window, by
+    /// a caller that caps nothing) leaves every vertex somewhere, within
+    /// its limit; a vertex made nowhere (a wind that is no number, for a
+    /// frame) is back at its anchor at the next update; and a mesh whose
+    /// values are no numbers is not simulated.
+    #[test]
+    fn a_long_step_or_a_value_that_is_no_number_loses_no_vertex() {
+        let pose = [Mat4::IDENTITY];
+        let at = |x: f32| Mat4::from_translation(Vec3::new(0.0, x, 0.0));
+        let mut stiff = mesh(vec![0.0, 0.05, 0.1, f32::NAN]);
+        (stiff.omega, stiff.zeta) = (59.0, 0.05);
+        let mut d = Dangly { meshes: vec![stiff] };
+        d.update(0.0, &pose, at(0.0), Vec3::ZERO);
+        for step in [60.0, 8.0, f32::INFINITY, f32::NAN, -1.0, 60.0] {
+            d.update(step, &pose, at(1.0), Vec3::new(0.0, 0.0, 3.0));
+            let m = &d.meshes[0];
+            for (p, (v, limit)) in m.pos.iter().zip(m.rest.iter().zip(&m.limit)) {
+                // (A limit that is no number: fixed.)
+                let limit = if limit.is_nan() { 0.0 } else { *limit };
+                let anchor = Vec3::from(v.pos) + Vec3::Y;
+                assert!(p.is_finite() && p.distance(anchor) <= limit + 1e-4, "{step}: {p}");
+            }
+            assert!(m.vel.iter().all(|v| v.is_finite()), "{step}");
+        }
+        // A wind that is no number for a frame.
+        d.update(1.0 / 60.0, &pose, at(1.0), Vec3::NAN);
+        d.update(1.0 / 60.0, &pose, at(1.0), Vec3::ZERO);
+        assert!(d.meshes[0].pos.iter().all(|p| p.is_finite()));
+        for _ in 0..600 {
+            d.update(1.0 / 60.0, &pose, at(1.0), Vec3::ZERO);
+        }
+        assert!(!d.moving() && d.max_offset(&pose, at(1.0)) < 1e-3);
+        // What is simulated: numbers alone.
+        let dangly = |period: f32, displacement: f32, tightness: f32| {
+            spring(&mg_mdl::Dangly { constraints: vec![255.0], displacement, tightness, period })
+        };
+        assert_eq!(dangly(8.0, 1.0, 3.0), Some((8.0, 0.3)));
+        assert_eq!(dangly(8.0, 1.0, 0.0), Some((8.0, 0.05)));
+        for (period, displacement, tightness) in [
+            (f32::NAN, 1.0, 3.0),
+            (60.0, 1.0, 3.0),
+            (0.0, 1.0, 3.0),
+            (f32::INFINITY, 1.0, 3.0),
+            (8.0, f32::NAN, 3.0),
+            (8.0, f32::INFINITY, 3.0),
+            (8.0, 0.0, 3.0),
+            (8.0, 1.0, f32::NAN),
+            (8.0, 1.0, f32::INFINITY),
+        ] {
+            assert_eq!(dangly(period, displacement, tightness), None, "{period} {displacement}");
+        }
     }
 }

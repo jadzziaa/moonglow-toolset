@@ -57,6 +57,15 @@ pub(crate) const SOLID_ALPHA: f32 = 0.95;
 pub(crate) const OVERLAY_DEPTH_BIAS: wgpu::DepthBiasState =
     wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 };
 
+/// Moonglow's own shaders, each as wgpu is given it: the frame's uniforms
+/// (`frame.wgsl`, [`FrameUniform`]'s fields, the one `Frame` of the three)
+/// and its own source.
+pub(crate) const LIT_WGSL: &str = concat!(include_str!("frame.wgsl"), include_str!("shader.wgsl"));
+pub(crate) const PARTICLE_WGSL: &str =
+    concat!(include_str!("frame.wgsl"), include_str!("particle.wgsl"));
+pub(crate) const LINE_WGSL: &str = concat!(include_str!("frame.wgsl"), include_str!("line.wgsl"));
+
+/// The frame's uniforms (`frame.wgsl`'s `Frame`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct FrameUniform {
@@ -68,7 +77,6 @@ struct FrameUniform {
     fog: [f32; 4],
     fog_color: [f32; 4],
     light_params: [f32; 4],
-    scene_color: [f32; 4],
     time: [f32; 4],
 }
 
@@ -121,6 +129,7 @@ enum Pass {
 
 mod kept;
 pub use kept::{STALE_TEXTURES_KEPT, STALE_TEXTURES_KEPT_INTEGRATED, TextureMemory};
+mod values;
 
 /// A texture as the renderer uses it.
 #[derive(Debug)]
@@ -354,7 +363,8 @@ struct Surface {
 }
 
 /// What a model's [`Surface`]s are kept by: the model, and of the
-/// instance its texture renames, its environment map and its PLT
+/// instance its texture renames, its environment map (and whether that
+/// is its own `default`'s: [`Instance::env_map_default`]) and its PLT
 /// colours (the first two by number: [`Renderer::names`],
 /// [`Renderer::renames`]), and the scene's environment map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -362,6 +372,7 @@ struct SurfaceKey {
     model: u64,
     renames: u32,
     env: u32,
+    env_default: bool,
     scene_env: u32,
     plt: Option<[u8; 10]>,
     /// Its material values ([`Renderer::values_id`]).
@@ -445,8 +456,8 @@ pub struct Renderer {
     /// default.
     pub game_shaders: bool,
     /// Shiny water is drawn by the game's `vswater`/`fswater` too, where
-    /// the game's shaders are on ([`GAME_WATER`] by default: Moonglow's own
-    /// water; on, for comparing).
+    /// the game's shaders are on ([`GAME_WATER`] by default: on; off,
+    /// Moonglow's own water, for comparing).
     pub game_water: bool,
     /// The game's programs are compiled, and their pipelines made, while
     /// the frames go on (a view drawn again and again: the area view, the
@@ -462,16 +473,16 @@ pub struct Renderer {
     /// The draw that fills a target's framebuffer copies
     /// ([`crate::framebuffer`]), made the first time one is filled.
     copier: Option<crate::framebuffer::Copier>,
-    /// The sun's shadow map and what draws and reads it
-    /// ([`crate::shadow`]), made at the first frame with shadows.
+    /// What draws and reads the shadow maps ([`crate::shadow`]), made at
+    /// the first frame with shadows.
     shadow_maps: Option<crate::shadow::ShadowMaps>,
     /// The shadows are the game's own kind, stencil shadow volumes
     /// ([`crate::volume`]: the area view's Shadows quality High), where
     /// on; off (the default), a shadow map stands in for them (Fast:
     /// cheaper, its edges a texel of the map wide).
     pub shadow_volumes: bool,
-    /// The stencil volumes' target and pipelines, made at the first frame
-    /// with [`Renderer::shadow_volumes`].
+    /// The stencil volumes' pipelines, made at the first frame with
+    /// [`Renderer::shadow_volumes`].
     volumes: Option<crate::volume::ShadowVolumes>,
     /// Shiny water is drawn by the game's programs this frame: they are
     /// on, [`Renderer::game_water`], and the target has its copies.
@@ -481,6 +492,11 @@ pub struct Renderer {
     /// the slots (their place), what chooses its stock pair, its
     /// `NO_DISCARD`, whether it is skinned, and its pass.
     game_pipelines: crate::game::Fast<GamePipelinesKey, Option<GamePipelines>>,
+    /// The program pair's key of each of a mesh's slots whose pipeline is
+    /// still being made: asked for with it each frame until it is, not
+    /// worked out again (its two names, written anew for every such mesh
+    /// of every frame while an area's programs compile).
+    game_keys_pending: crate::game::Fast<GamePipelinesKey, crate::game::PipelineKey>,
     /// Each material's key, by its place among [`Renderer::groups`].
     material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
@@ -508,11 +524,8 @@ pub struct Renderer {
     line_copy_pipeline: wgpu::RenderPipeline,
     /// The frame's copies of its line shapes, shape after shape.
     line_copy_buffer: wgpu::Buffer,
-    /// The line shapes' lines, by where their `Arc` points: those of the
-    /// last frame's shapes.
-    shape_buffers: HashMap<usize, ShapeBuffer>,
-    /// The lights each mesh took, kept from frame to frame.
-    reach_cache: ReachCache,
+    /// What each view keeps from one of its frames to the next.
+    views: crate::views::Views<ViewState>,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -527,6 +540,8 @@ pub struct Renderer {
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
+    /// The PLTs' palettes, kept while the textures are.
+    palettes: Arc<crate::Palettes>,
     /// When the materials and textures were last drawn, and how much of
     /// what isn't drawn lately is kept ([`kept`]).
     kept: kept::Kept,
@@ -543,9 +558,8 @@ pub struct Renderer {
     #[allow(clippy::type_complexity)]
     renames: HashMap<u64, Vec<(Vec<(String, String)>, u32)>>,
     renames_made: u32,
-    /// Instances' material values, numbered from 1 (0: none) by their
-    /// place here.
-    value_sets: Vec<Arc<[mg_image::mtr::MaterialValue]>>,
+    /// Instances' material values, numbered from 1 (0: none).
+    value_sets: values::ValueSets,
     /// Slots with an instance's material values in their MTR's parameters,
     /// by the slots' place and the values' number: kept, as the game's
     /// programs keep a material's values by where its parameters are
@@ -553,11 +567,15 @@ pub struct Renderer {
     valued: HashMap<(usize, u32), Arc<Slots>>,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
-    /// A frame's uniforms, bones and replaced vertices: kept from frame
-    /// to frame, for their room.
+    /// A frame's uniforms, bones, replaced vertices and particles' vertices:
+    /// kept from frame to frame, for their room.
     uniforms: Vec<DrawUniform>,
     bones: Vec<[[f32; 4]; 4]>,
     dynamic: Vec<Vertex>,
+    particle_vertices: Vec<ParticleVertex>,
+    /// The particles' materials, by their texture's name: a batch's is
+    /// found by that alone (kept while the materials are).
+    particle_materials: HashMap<Option<String>, u32>,
     /// How many draws the last frame made: Moonglow's, the game's solid
     /// ones and its others.
     made: (usize, usize, usize),
@@ -571,6 +589,36 @@ pub struct Renderer {
     pub textures_apart: bool,
     /// What the last frame drew.
     pub drawn: Drawn,
+}
+
+/// What a view keeps from one of its frames to the next
+/// ([`crate::views`]): another view's frame between them leaves it be.
+#[derive(Debug, Default)]
+struct ViewState {
+    /// The lights each mesh took.
+    reach: ReachCache,
+    /// The line shapes' lines, by where their `Arc` points: those of the
+    /// view's last frame's shapes.
+    shapes: HashMap<usize, ShapeBuffer>,
+    /// The sun's shadow map and what it holds, from the view's first
+    /// frame with the sun's shadows as a map.
+    sun: Option<crate::shadow::SunMap>,
+    /// The stencil volumes' target, while the view's frames lay them.
+    stencil: Option<crate::volume::StencilTarget>,
+}
+
+/// What the renderer keeps for a view ([`Renderer::kept_for`]).
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewKept {
+    /// Bind groups on its targets' framebuffer copies.
+    pub copies: bool,
+    /// Its map of the sun's shadows.
+    pub sun_map: bool,
+    /// Its stencil volumes' target, of this size.
+    pub stencil_target: Option<(u32, u32)>,
+    /// How many line shapes' lines.
+    pub line_shapes: usize,
 }
 
 /// What a frame drew ([`Renderer::drawn`]).
@@ -611,6 +659,9 @@ pub struct Drawn {
     /// lights' shadows.
     pub sun_casters: usize,
     pub light_shadows: usize,
+    /// The sun's shadow map was drawn in this frame: not where the view's
+    /// map held the frame's casters as they are already.
+    pub sun_map_drawn: bool,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -684,7 +735,12 @@ fn cols(m: Mat4) -> [[f32; 4]; 4] {
 /// faces `name0`…`name5`), and what its TXI says of it; `None` where there
 /// is none, or where the GPU won't take it (said, as
 /// [`crate::guard::note_gpu_error`]: drawn as one that is missing).
-fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEntry> {
+fn load_texture(
+    gpu: &Gpu,
+    assets: &dyn Assets,
+    name: &str,
+    palettes: &crate::Palettes,
+) -> Option<TextureEntry> {
     if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
         let faces: Option<Vec<mg_image::Texture>> =
             (0..6).map(|i| assets.texture(&format!("{name}{i}")).map(|t| t.texture)).collect();
@@ -706,7 +762,7 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
             });
         }
     }
-    let mut t = assets.texture(name)?;
+    let mut t = assets.texture_kept(name, palettes)?;
     // What the rippling procedure makes of the picture where it doesn't
     // ripple it: of a DDS, a flat gray (the client loses its picture);
     // with `distort 0`, the channels scaled and moved.
@@ -818,6 +874,9 @@ struct TextureReader {
     /// dropped. (Shared with the threads.)
     era: u64,
     eras: Arc<std::sync::atomic::AtomicU64>,
+    /// The PLTs' palettes the threads keep, made anew as the textures
+    /// are forgotten.
+    palettes: Arc<std::sync::Mutex<Arc<crate::Palettes>>>,
 }
 
 impl std::fmt::Debug for TextureReader {
@@ -842,11 +901,12 @@ impl TextureReader {
         let (give, read) = std::sync::mpsc::channel();
         let asked = Arc::new(std::sync::Mutex::new(asked));
         let eras = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let palettes: Arc<std::sync::Mutex<Arc<crate::Palettes>>> = Arc::default();
         let mut started = 0;
         for n in 0..reader_threads() {
             let (gpu, assets, asked, give) =
                 (gpu.clone(), assets.clone(), asked.clone(), give.clone());
-            let (waker, eras) = (waker.clone(), eras.clone());
+            let (waker, eras, palettes) = (waker.clone(), eras.clone(), palettes.clone());
             let spawned = std::thread::Builder::new().name(format!("moonglow textures {n}")).spawn(
                 move || {
                     loop {
@@ -862,10 +922,11 @@ impl TextureReader {
                             continue;
                         }
                         let era = eras.load(std::sync::atomic::Ordering::Relaxed);
+                        let kept = palettes.lock().map(|p| p.clone()).unwrap_or_default();
                         // (A texture that breaks what reads it is none, as
                         // a model that does is left out.)
                         let entry = crate::guard::guarded(&name, || {
-                            load_texture(&gpu, assets.as_ref(), &name).map(Arc::new)
+                            load_texture(&gpu, assets.as_ref(), &name, &kept).map(Arc::new)
                         })
                         .flatten();
                         if give.send((name, era, entry)).is_err() {
@@ -892,6 +953,7 @@ impl TextureReader {
             taken: 0,
             era: 0,
             eras,
+            palettes,
         })
     }
 
@@ -900,13 +962,17 @@ impl TextureReader {
         self.era += 1;
         self.eras.store(self.era, std::sync::atomic::Ordering::Relaxed);
         self.asked.clear();
+        if let Ok(mut palettes) = self.palettes.lock() {
+            *palettes = Arc::default();
+        }
     }
 }
 
 /// Puts `data` into `buffer`, which is made anew, larger, where it is too
 /// small for it (or for `least` bytes, where a binding needs something
-/// to be there with no data).
-fn upload<T: bytemuck::Pod>(
+/// to be there with no data). The one place a frame's buffer is grown and
+/// written: the renderer's, the shadow maps' and the shadow volumes'.
+pub(crate) fn upload<T: bytemuck::Pod>(
     gpu: &Gpu,
     buffer: &mut wgpu::Buffer,
     label: &'static str,
@@ -944,7 +1010,7 @@ impl Renderer {
         let device = &gpu.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lit"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(LIT_WGSL.into()),
         });
         let uniform = |binding, dynamic| wgpu::BindGroupLayoutEntry {
             binding,
@@ -1113,7 +1179,16 @@ impl Renderer {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: color_format,
                         blend,
-                        write_mask: wgpu::ColorWrites::ALL,
+                        // (A pass that doesn't blend leaves the picture's
+                        // alpha as the scene cleared it, as the game's
+                        // programs' do, `GamePass::write_mask`: what a
+                        // solid draw wrote below opaque, a `vertexalpha`
+                        // layer's or a sky's texture's, made the picture
+                        // see-through there.)
+                        write_mask: match blend {
+                            Some(_) => wgpu::ColorWrites::ALL,
+                            None => wgpu::ColorWrites::COLOR,
+                        },
                     })],
                 }),
                 multiview_mask: None,
@@ -1129,7 +1204,7 @@ impl Renderer {
             });
         let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("particles"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(PARTICLE_WGSL.into()),
         });
         let particle_depth_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1227,7 +1302,7 @@ impl Renderer {
         // Lines.
         let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lines"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("line.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(LINE_WGSL.into()),
         });
         let line_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lines"),
@@ -1347,6 +1422,7 @@ impl Renderer {
             water_now: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: Default::default(),
+            game_keys_pending: Default::default(),
             material_keys: Vec::new(),
             instancing: true,
             color_format,
@@ -1364,8 +1440,7 @@ impl Renderer {
             line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_copy_pipeline,
             line_copy_buffer: buffer("line copies", 1 << 12, wgpu::BufferUsages::VERTEX),
-            shape_buffers: HashMap::new(),
-            reach_cache: ReachCache::default(),
+            views: Default::default(),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
@@ -1380,6 +1455,7 @@ impl Renderer {
                 std::array::from_fn(|_| face.clone())
             })),
             textures: HashMap::new(),
+            palettes: Arc::default(),
             kept: Default::default(),
             slots: HashMap::new(),
             materials: HashMap::new(),
@@ -1388,13 +1464,15 @@ impl Renderer {
             names: HashMap::new(),
             renames: HashMap::new(),
             renames_made: 0,
-            value_sets: Vec::new(),
+            value_sets: Default::default(),
             valued: HashMap::new(),
             samplers: HashMap::new(),
             env_sampler,
             uniforms: Vec::new(),
             bones: Vec::new(),
             dynamic: Vec::new(),
+            particle_vertices: Vec::new(),
+            particle_materials: HashMap::new(),
             made: (0, 0, 0),
             reader: None,
             textures_apart: false,
@@ -1408,15 +1486,25 @@ impl Renderer {
             r.forget();
         }
         self.textures.clear();
+        self.palettes = Arc::default();
         self.slots.clear();
+        // (What the surfaces are kept by, numbered anew with them: the
+        // instances' value sets, texture renames and environment maps'
+        // names were numbered for good, across modules.)
         self.valued.clear();
+        self.value_sets.clear();
+        self.renames.clear();
+        self.renames_made = 0;
+        self.names.clear();
         self.materials.clear();
+        self.particle_materials.clear();
         self.kept.materials.clear();
         self.groups.clear();
         self.material_keys.clear();
         self.surfaces.clear();
         self.game.clear();
         self.game_pipelines.clear();
+        self.game_keys_pending.clear();
     }
 
     /// Whether a mesh is one the game's shaders draw (with them on): one
@@ -1457,24 +1545,31 @@ impl Renderer {
         if let Some(p) = self.game_pipelines.get(&at) {
             return p.clone();
         }
-        let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
-        let twosided = slots.twosided;
-        let key = PipelineKey { vs, fs, no_discard, skinned, tangents, twosided, pass };
+        // (As worked out when it was first asked for, while it is made.)
+        let key = self.game_keys_pending.remove(&at).unwrap_or_else(|| {
+            let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
+            let twosided = slots.twosided;
+            PipelineKey { vs, fs, no_discard, skinned, tangents, twosided, pass }
+        });
         let (format, samples, wait) = (self.color_format, self.sample_count, !self.game_background);
         use crate::game::Ready;
-        let p = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
+        let made = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
             Ready::Yes(p) if pass == GamePass::Solid => {
-                let fringe = PipelineKey { pass: GamePass::Fringe, ..key };
+                let fringe = PipelineKey { pass: GamePass::Fringe, ..key.clone() };
                 match self.game.pipeline(gpu, assets, &fringe, format, samples, wait) {
-                    Ready::Yes(q) => Some((p, Some(q))),
-                    Ready::No => None,
-                    Ready::Pending => return None,
+                    Ready::Yes(q) => Some(Some((p, Some(q)))),
+                    Ready::No => Some(None),
+                    Ready::Pending => None,
                 }
             }
-            Ready::Yes(p) => Some((p, None)),
-            Ready::No => None,
-            // (Drawn with Moonglow's own until it is made; not kept.)
-            Ready::Pending => return None,
+            Ready::Yes(p) => Some(Some((p, None))),
+            Ready::No => Some(None),
+            Ready::Pending => None,
+        };
+        // (Drawn with Moonglow's own until it is made; not kept.)
+        let Some(p) = made else {
+            self.game_keys_pending.insert(at, key);
+            return None;
         };
         self.game_pipelines.insert(at, p.clone());
         p
@@ -1536,16 +1631,16 @@ impl Renderer {
         self.game.stats
     }
 
-    /// From now on, each pipeline of the game's programs made is kept in
-    /// what this gives back, its modules and layouts as they go to wgpu
-    /// (a test of what a backend makes of them: Direct3D 12's HLSL).
-    #[doc(hidden)]
     /// Waits until the game's pipelines asked for are made (a test that
     /// moves on once they are, whatever the time they take).
+    #[doc(hidden)]
     pub fn wait_for_game_programs(&mut self) {
         self.game.finish_all();
     }
 
+    /// From now on, each pipeline of the game's programs made is kept in
+    /// what this gives back, its modules and layouts as they go to wgpu
+    /// (a test of what a backend makes of them: Direct3D 12's HLSL).
     #[doc(hidden)]
     pub fn capture_game_modules(&mut self) -> crate::game::Captured {
         self.game.capture.get_or_insert_with(Default::default).clone()
@@ -1746,26 +1841,14 @@ impl Renderer {
     /// An instance's material values' number (0: none): the same for the
     /// same values.
     fn values_id(&mut self, values: &Arc<[mg_image::mtr::MaterialValue]>) -> u32 {
-        if values.is_empty() {
-            return 0;
-        }
-        let at = match self.value_sets.iter().position(|v| v == values) {
-            Some(at) => at,
-            None => {
-                self.value_sets.push(values.clone());
-                self.value_sets.len() - 1
-            }
-        };
-        at as u32 + 1
+        self.value_sets.id(values)
     }
 
     /// `slots` with the material values numbered `id` in its MTR's
     /// parameters, where one is set on it (by its name, or on every MTR
     /// declaring the parameter), in order: a later one wins.
     fn valued_slots(&mut self, slots: Arc<Slots>, id: u32) -> Arc<Slots> {
-        let Some(values) = id.checked_sub(1).and_then(|i| self.value_sets.get(i as usize)) else {
-            return slots;
-        };
+        let Some(values) = self.value_sets.get(id).cloned() else { return slots };
         let Some(mtr) = slots.mtr.as_deref() else { return slots };
         let key = (Arc::as_ptr(&slots) as usize, id);
         if let Some(s) = self.valued.get(&key) {
@@ -1811,6 +1894,7 @@ impl Renderer {
             model: inst.model.id,
             renames: inst.textures.as_deref().map_or(0, |t| self.renames_id(t)),
             env: self.name_id(inst.env_map.as_deref()),
+            env_default: inst.env_map_default,
             scene_env: scene_env_id,
             plt: inst.plt_colors,
             values: inst.material_values.as_ref().map_or(0, |v| self.values_id(v)),
@@ -1860,8 +1944,10 @@ impl Renderer {
             named.as_ref().map(|n| {
                 let renamed = inst.textures.as_ref().and_then(|t| t.get(n)).cloned();
                 let n = renamed.unwrap_or_else(|| n.clone());
+                // (In its colors where it takes them: a plain DDS or TGA
+                // is one texture for every set of colors.)
                 match (i, inst.plt_colors) {
-                    (0, Some(c)) => crate::assets::colored_name(&n, c),
+                    (0, Some(c)) if assets.takes_colors(&n) => crate::assets::colored_name(&n, c),
                     _ => n,
                 }
             })
@@ -1981,7 +2067,10 @@ impl Renderer {
         }
         // (A texture that breaks what reads it is none, as on the threads
         // that read them apart.)
-        let entry = crate::guard::guarded(name, || load_texture(gpu, assets, name).map(Arc::new));
+        let palettes = self.palettes.clone();
+        let entry = crate::guard::guarded(name, || {
+            load_texture(gpu, assets, name, &palettes).map(Arc::new)
+        });
         let entry = stamped(&entry.flatten());
         self.textures.insert(name.to_string(), entry.clone());
         entry
@@ -2159,6 +2248,11 @@ impl Renderer {
         size: (u32, u32),
         copies: Option<&crate::framebuffer::Copies>,
     ) {
+        // (What was kept for views whose targets are gone, let go of: a
+        // view made again at another size.)
+        for gone in self.views.take_gone() {
+            self.forget_copies(gone);
+        }
         // (What isn't drawn lately let go of, where it is too much.)
         self.begin_kept();
         self.let_go_of_stale_textures();
@@ -2173,7 +2267,9 @@ impl Renderer {
         // The lights' shadows: which creatures cast them from which light.
         // (The sun's, what casts them and where their map is, are worked
         // out beside the meshes' draws, below.)
-        let light_plan = crate::shadow::light_plan(scene, camera);
+        // (Planned for a map, or for the stencil volumes.)
+        let for_volumes = self.shadow_volumes;
+        let light_plan = crate::shadow::light_plan(scene, camera, for_volumes);
         // (Whether there may be shadows: what they fall on is drawn first
         // where there are, and among the rest where there aren't.)
         let may_shadow = scene.shadows.is_some_and(|s| s.opacity > 0.0) || light_plan.is_some();
@@ -2190,9 +2286,8 @@ impl Renderer {
             fog_color: scene.fog.map_or([0.0; 4], |f| f.color.extend(1.0).to_array()),
             light_params: {
                 let (max_inv, falloff) = attenuation_params();
-                [max_inv, falloff, scene.lights.len() as f32, size.1 as f32]
+                [max_inv, falloff, 0.0, size.1 as f32]
             },
-            scene_color: [0.0; 4],
             time: [scene.time, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
@@ -2278,7 +2373,11 @@ impl Renderer {
         let frustum = Frustum::new(on_screen);
         let mut reach = LightGrid::new(&scene.lights);
         // (What each mesh took in the frames before, while the lights stay.)
-        let mut reach_cache = std::mem::take(&mut self.reach_cache);
+        // (The view's own: another view's frame since has left them.)
+        let view_key = all_copies.map(|c| c.id);
+        let mut kept_view = self.views.take(view_key);
+        let view_key = all_copies.map(|c| (c.id, Arc::downgrade(&c.alive)));
+        let mut reach_cache = std::mem::take(&mut kept_view.reach);
         reach_cache.begin(&scene.lights);
         let mut chosen = Vec::new();
         let mut places = 0;
@@ -2305,8 +2404,8 @@ impl Renderer {
         let aspect = size.0 as f32 / size.1.max(1) as f32;
         let shadow_plan = std::thread::scope(|threads| {
             let apart = scene.instances.len() >= PLAN_APART && scene.shadows.is_some();
-            let planning =
-                apart.then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect)));
+            let planning = apart
+                .then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect, for_volumes)));
             for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
                 // (Only where the frame has shadows: else the solid draws keep
                 // their order.)
@@ -2471,7 +2570,9 @@ impl Renderer {
                         && inst.opacity < 1.0
                         && alpha / inst.opacity >= 1.0
                         && !see_through;
-                    let discard = ALPHA_DISCARD;
+                    // (None of the sky is cut, whatever its texture's alpha:
+                    // the game's sky program is made with `NO_DISCARD`.)
+                    let discard = if is_sky { -1.0 } else { ALPHA_DISCARD };
                     // The 32 most important lights that reach the mesh.
                     let ball = (centre, radius);
                     let set = reach_cache.reaching(&mut reach, ball, place, &mut chosen);
@@ -2745,7 +2846,7 @@ impl Renderer {
                         // tangent frame is taken from the derivatives.)
                         light_count: [
                             chosen.len() as u32,
-                            u32::from(mesh.skin.is_some()),
+                            0,
                             bone_base,
                             u32::from(mesh.tangents_made),
                         ],
@@ -2803,7 +2904,7 @@ impl Renderer {
             }
             match planning {
                 Some(p) => p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)),
-                None => crate::shadow::plan(scene, camera, aspect),
+                None => crate::shadow::plan(scene, camera, aspect, for_volumes),
             }
         });
         let shadowing = shadow_plan.is_some() || light_plan.is_some();
@@ -2962,13 +3063,18 @@ impl Renderer {
             0,
         );
 
-        // Bones.
+        // Bones: those Moonglow's own shader reads (each skinned draw its
+        // first's place among all of them). With every skinned mesh drawn
+        // by the game's programs, which take theirs to their own buffer,
+        // none is sent here.
+        let own_skinned =
+            !bones.is_empty() && draws.iter().any(|d| d.game.is_none() && d.mesh.skin.is_some());
         upload(
             gpu,
             &mut self.bone_buffer,
             "bones",
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            &bones,
+            if own_skinned { &bones[..] } else { &[] },
             64,
         );
 
@@ -3026,7 +3132,8 @@ impl Renderer {
             };
             (rank, b.render_order)
         });
-        let mut particle_vertices: Vec<ParticleVertex> = Vec::new();
+        let mut particle_vertices = std::mem::take(&mut self.particle_vertices);
+        particle_vertices.clear();
         let mut particle_draws = Vec::new();
         // (Particles whose texture is being read apart: drawn once it is.)
         if self.textures_apart && self.reader.is_some() {
@@ -3043,10 +3150,17 @@ impl Renderer {
         // `soft_particles`.)
         let mut particle_softness: Vec<f32> = Vec::new();
         for b in &batches {
-            let mut names: [Option<String>; SLOTS] = Default::default();
-            names[0] = b.texture.clone();
-            let key: MaterialKey = (names, "chrome1".into(), (false, false));
-            let group = self.material_group(gpu, assets, &key);
+            let group = match self.particle_materials.get(&b.texture) {
+                Some(group) => *group,
+                None => {
+                    let mut names: [Option<String>; SLOTS] = Default::default();
+                    names[0] = b.texture.clone();
+                    let key: MaterialKey = (names, "chrome1".into(), (false, false));
+                    let group = self.material_group(gpu, assets, &key);
+                    self.particle_materials.insert(b.texture.clone(), group);
+                    group
+                }
+            };
             let start = particle_vertices.len() as u32;
             match b.tint {
                 Some(at) => {
@@ -3162,7 +3276,7 @@ impl Renderer {
         );
         // The line shapes: the lines of those not drawn last frame sent,
         // and every copy; each shape's copies drawn by one draw.
-        let shapes = self.line_shapes(gpu, &scene.line_shapes);
+        let shapes = self.line_shapes(gpu, &scene.line_shapes, &mut kept_view.shapes);
         // The game's shaders' blocks and bind groups (the solid draws sorted
         // above).
         // (Those after the framebuffer's copy, last.)
@@ -3244,11 +3358,16 @@ impl Renderer {
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         // The shadow maps, before the scene (none for the volumes).
         let volumes = self.shadow_volumes;
+        // (A view drawn without the volumes lets go of their target: as
+        // large as its picture's own depth, with its samples.)
+        if !(shadowing && volumes) {
+            kept_view.stencil = None;
+        }
         if shadowing && !volumes {
             let maps =
                 self.shadow_maps.get_or_insert_with(|| crate::shadow::ShadowMaps::new(&gpu.device));
             if let Some(plan) = &shadow_plan {
-                maps.cast(gpu, &mut encoder, plan);
+                self.drawn.sun_map_drawn = maps.cast(gpu, &mut encoder, plan, &mut kept_view.sun);
             }
             if let Some(plan) = &light_plan {
                 maps.cast_lights(gpu, &mut encoder, plan);
@@ -3300,10 +3419,11 @@ impl Renderer {
                                 camera,
                                 size,
                                 scene.fog,
+                                &mut kept_view.stencil,
                             );
                     }
-                    if let (false, Some(plan), Some(maps)) =
-                        (volumes, &shadow_plan, &mut self.shadow_maps)
+                    if let (false, Some(plan), Some(maps), Some(map)) =
+                        (volumes, &shadow_plan, &mut self.shadow_maps, &kept_view.sun)
                     {
                         let targets = (target, depth);
                         maps.darken(
@@ -3311,7 +3431,7 @@ impl Renderer {
                             &mut encoder,
                             targets,
                             format,
-                            plan,
+                            (plan, map),
                             camera,
                             size,
                             scene.fog,
@@ -3465,7 +3585,7 @@ impl Renderer {
                 pass.set_bind_group(0, &self.particle_frame, &[]);
                 pass.set_vertex_buffer(1, self.line_copy_buffer.slice(..));
                 for (key, copies) in &shapes {
-                    let shape = &self.shape_buffers[key];
+                    let shape = &kept_view.shapes[key];
                     pass.set_vertex_buffer(0, shape.buffer.slice(..));
                     pass.draw(0..shape.ends, copies.clone());
                 }
@@ -3474,24 +3594,72 @@ impl Renderer {
         gpu.queue.submit([encoder.finish()]);
         drop(draws);
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
-        self.reach_cache = reach_cache;
+        self.particle_vertices = particle_vertices;
+        kept_view.reach = reach_cache;
+        self.views.put(view_key, kept_view);
+    }
+
+    /// Lets go of what is kept for the view drawn into `targets`, which
+    /// are let go of (a view not shown for a while, a tab closed, a
+    /// picture drawn once): the bind groups on their framebuffer copies,
+    /// which held the copies on the GPU, and what the view kept from frame
+    /// to frame (its shadow map, its stencil volumes' target, its meshes'
+    /// lights, its line shapes).
+    ///
+    /// A view that only drops its targets has the same let go of at the
+    /// next frame drawn, of any view; a view that then draws nothing (the
+    /// last 3D view closed) holds its copies until then.
+    pub fn let_go_of(&mut self, targets: &Targets) {
+        self.forget_copies(targets.copies.id);
+        self.views.forget(targets.copies.id);
+    }
+
+    /// Lets go of the bind groups on the framebuffer copies numbered `id`.
+    fn forget_copies(&mut self, id: u64) {
+        if self.particle_depth.as_ref().is_some_and(|(of, _)| *of == id) {
+            self.particle_depth = None;
+        }
+        self.game.forget_framebuffer(id);
+    }
+
+    /// How many views have something kept for them, for tests.
+    #[doc(hidden)]
+    pub fn views_kept(&self) -> usize {
+        self.views.len()
+    }
+
+    /// What is kept for the view drawn into `targets` (`None`: nothing,
+    /// as [`Renderer::let_go_of`] leaves it), for tests.
+    #[doc(hidden)]
+    pub fn kept_for(&self, targets: &Targets) -> Option<ViewKept> {
+        let id = targets.copies.id;
+        let copies = self.particle_depth.as_ref().is_some_and(|(of, _)| *of == id)
+            || self.game.holds_framebuffer(id);
+        let state = self.views.of(Some(id));
+        (copies || state.is_some()).then(|| ViewKept {
+            copies,
+            sun_map: state.is_some_and(|s| s.sun.is_some()),
+            stencil_target: state.and_then(|s| s.stencil.as_ref()).map(|(_, size, _)| *size),
+            line_shapes: state.map_or(0, |s| s.shapes.len()),
+        })
     }
 
     /// The frame's line shapes put on the GPU: the lines of each not drawn
     /// in the frame before sent (and those of shapes no longer drawn let
     /// go), and every copy, shape after shape. Each shape's lines (by
-    /// [`Renderer::shape_buffers`]' key) and the range of its copies.
+    /// their key in `buffers`, the view's) and the range of its copies.
     fn line_shapes(
         &mut self,
         gpu: &Gpu,
         shapes: &[crate::LineShape],
+        buffers: &mut HashMap<usize, ShapeBuffer>,
     ) -> Vec<(usize, std::ops::Range<u32>)> {
         use wgpu::util::DeviceExt;
         let mut copies = Vec::new();
         let mut drawn = Vec::new();
         for shape in shapes.iter().filter(|s| !s.lines.is_empty() && !s.copies.is_empty()) {
             let key = Arc::as_ptr(&shape.lines) as *const () as usize;
-            self.shape_buffers.entry(key).or_insert_with(|| {
+            buffers.entry(key).or_insert_with(|| {
                 let ends: Vec<[f32; 3]> =
                     shape.lines.iter().flat_map(|l| l.map(|p| p.to_array())).collect();
                 ShapeBuffer {
@@ -3511,7 +3679,7 @@ impl Renderer {
             }));
             drawn.push((key, first..copies.len() as u32));
         }
-        self.shape_buffers.retain(|key, _| drawn.iter().any(|(k, _)| k == key));
+        buffers.retain(|key, _| drawn.iter().any(|(k, _)| k == key));
         upload(
             gpu,
             &mut self.line_copy_buffer,
@@ -3554,6 +3722,8 @@ impl Renderer {
     ) -> Rgba {
         let targets = Targets::new(gpu, self.color_format, self.sample_count, width, height);
         self.render_targets(gpu, assets, scene, camera, &targets);
+        // (A picture drawn once: nothing is kept for its targets.)
+        self.let_go_of(&targets);
         gpu.read_rgba(&targets.color)
     }
 }
@@ -3669,10 +3839,7 @@ fn scene_pass<'e>(
 
 /// The box around vertices (an animation's, replacing a mesh's).
 fn vertices_box(vertices: &[Vertex]) -> (Vec3, Vec3) {
-    vertices.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(min, max), v| {
-        let p = Vec3::from(v.pos);
-        (min.min(p), max.max(p))
-    })
+    crate::reach::box_of(vertices.iter().map(|v| Vec3::from(v.pos))).unwrap_or(crate::reach::NO_BOX)
 }
 
 /// The box a skinned mesh bound in the box `min`…`max` lies in, posed by
@@ -3693,16 +3860,16 @@ fn posed_box(
     bones: &[[[f32; 4]; 4]],
 ) -> (Vec3, Vec3) {
     let (centre, half) = ((min + max) * 0.5, (max - min) * 0.5);
-    let empty = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    let (lo, hi) = bones.iter().fold(empty, |(lo, hi), b| {
+    let carried = bones.iter().flat_map(|b| {
         let m = Mat4::from_cols_array_2d(b);
         let turned = glam::Mat3::from_mat4(m);
         let at = m.transform_point3(centre);
         let around = turned.x_axis.abs() * half.x
             + turned.y_axis.abs() * half.y
             + turned.z_axis.abs() * half.z;
-        (lo.min(at - around), hi.max(at + around))
+        [at - around, at + around]
     });
+    let (lo, hi) = crate::reach::box_of(carried).unwrap_or(crate::reach::NO_BOX);
     let (mut lo, mut hi) = (lo.min(lo * least).min(lo * most), hi.max(hi * least).max(hi * most));
     if unweighed {
         (lo, hi) = (lo.min(min).min(Vec3::ZERO), hi.max(max).max(Vec3::ZERO));
@@ -3850,6 +4017,34 @@ mod tests {
     use super::{LOST_RIPPLE_GRAY, procedure_picture, ripple_of};
     use glam::{Mat4, Vec3};
 
+    /// What the surfaces are kept by is numbered anew when they are
+    /// forgotten (the resources changed): the instances' value sets,
+    /// their texture renames and the environment maps' names were kept
+    /// for good, and the search for a set grew with them.
+    #[test]
+    fn what_the_surfaces_are_kept_by_goes_with_them() {
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let mut r = super::Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let tint = mg_image::mtr::MaterialValue {
+            material: None,
+            name: "mgTint1".into(),
+            value: mg_image::mtr::Param::Int(3),
+        };
+        let values: std::sync::Arc<[mg_image::mtr::MaterialValue]> = vec![tint].into();
+        let renames: std::collections::HashMap<String, String> =
+            [("a".to_string(), "b".to_string())].into();
+        let numbered = |r: &mut super::Renderer| {
+            (r.values_id(&values), r.renames_id(&renames), r.name_id(Some("chrome1")))
+        };
+        assert_eq!(numbered(&mut r), (1, 1, 1));
+        assert_eq!(numbered(&mut r), (1, 1, 1), "the same again");
+        assert_eq!(r.name_id(Some("tno01__env")), 2);
+        r.clear_textures();
+        assert_eq!((r.value_sets.len(), r.renames.len(), r.names.len()), (0, 0, 0));
+        assert_eq!(r.name_id(Some("tno01__env")), 1, "numbered anew");
+        assert_eq!(numbered(&mut r), (1, 1, 2));
+    }
+
     /// A skinned mesh's posed box holds where every bone carries it, and
     /// the bound box only where a vertex is weighed to no bone; weights
     /// that add up to more or less than one (as the game's programs take
@@ -3935,6 +4130,37 @@ mod tests {
         assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
     }
 
+    /// Each of Moonglow's own shaders declares the frame's uniforms as the
+    /// renderer writes them: one `Frame`, as large as `FrameUniform` (the
+    /// particles' and the lines' had a copy each, a field short).
+    #[test]
+    fn every_shader_s_frame_is_the_renderer_s() {
+        for (name, source) in [
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
+        ] {
+            assert_eq!(source.matches("struct Frame {").count(), 1, "{name}");
+            let module = naga::front::wgsl::parse_str(source).unwrap_or_else(|e| {
+                panic!("{name}: {}", e.emit_to_string(source));
+            });
+            let (_, frame) = module
+                .types
+                .iter()
+                .find(|(_, t)| t.name.as_deref() == Some("Frame"))
+                .unwrap_or_else(|| panic!("{name}: no Frame"));
+            let naga::TypeInner::Struct { members, span } = &frame.inner else {
+                panic!("{name}: Frame is no struct");
+            };
+            assert_eq!(*span as usize, std::mem::size_of::<super::FrameUniform>(), "{name}");
+            assert_eq!(members.len(), 9, "{name}");
+            // (The last field, which the copies lacked, where it is written.)
+            let time = members.last().unwrap();
+            assert_eq!((time.name.as_deref(), time.offset), (Some("time"), 224), "{name}");
+            assert_eq!(std::mem::offset_of!(super::FrameUniform, time), 224);
+        }
+    }
+
     /// The WGSL shaders' cube maps, by their names.
     fn cube_maps(source: &str) -> Vec<String> {
         source
@@ -3952,9 +4178,9 @@ mod tests {
     #[test]
     fn no_cube_map_is_read_with_gradients() {
         for (name, source) in [
-            ("shader.wgsl", include_str!("shader.wgsl")),
-            ("particle.wgsl", include_str!("particle.wgsl")),
-            ("line.wgsl", include_str!("line.wgsl")),
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
         ] {
             let cubes = cube_maps(source);
             for (i, line) in source.lines().enumerate() {
@@ -3966,7 +4192,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(cube_maps(include_str!("shader.wgsl")), ["tex_env_cube"]);
+        assert_eq!(cube_maps(super::LIT_WGSL), ["tex_env_cube"]);
     }
 
     /// The shaders as naga writes them for Metal: no cube map sampled with
@@ -3974,9 +4200,9 @@ mod tests {
     #[test]
     fn the_shaders_written_for_metal_sample_cube_maps_as_cubes() {
         for (name, source) in [
-            ("shader.wgsl", include_str!("shader.wgsl")),
-            ("particle.wgsl", include_str!("particle.wgsl")),
-            ("line.wgsl", include_str!("line.wgsl")),
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
         ] {
             let module =
                 naga::front::wgsl::parse_str(source).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -4021,9 +4247,9 @@ mod tests {
     #[test]
     fn a_shader_returns_where_it_discards() {
         for (name, source) in [
-            ("shader.wgsl", include_str!("shader.wgsl")),
-            ("particle.wgsl", include_str!("particle.wgsl")),
-            ("line.wgsl", include_str!("line.wgsl")),
+            ("shader.wgsl", super::LIT_WGSL),
+            ("particle.wgsl", super::PARTICLE_WGSL),
+            ("line.wgsl", super::LINE_WGSL),
         ] {
             let lines: Vec<&str> = source.lines().map(str::trim).collect();
             for (i, line) in lines.iter().enumerate() {

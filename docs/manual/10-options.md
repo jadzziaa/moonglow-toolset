@@ -267,8 +267,11 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   like (under a tenth of a second here). Where it draws nothing, the same
   GPU's other backend is checked and taken, and the backend that failed
   is remembered: Automatic passes over it on this GPU until its driver
-  changes. Below the choice, the page lists the backends passed over
-  this way; **Try Again** forgets them (when you choose OK). It lists
+  changes, or Moonglow is updated. Below the choice, the page lists the
+  backends found drawing wrong, with what found it and when: those
+  Automatic passes over, and those it draws with all the same where no
+  other backend is left (one backend on the platform, or every one
+  found wrong); **Try Again** forgets them (when you choose OK). It lists
   too where the notice that the game's shaders draw wrong was hidden
   (**Don't Show Again**); **Show Again** shows it from the next start.
   See
