@@ -191,3 +191,75 @@ fn a_playing_model_waits_while_the_window_has_not_the_focus() {
     h.run_steps(3);
     assert!(again(&h) > std::time::Duration::from_secs(1), "in the background: {:?}", again(&h));
 }
+
+/// A text model named `name` of `quads` square meshes side by side.
+fn quads_model(name: &str, quads: usize) -> Vec<u8> {
+    let mut text = format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nbeginmodelgeom {name}\nnode dummy {name}\n  \
+         parent NULL\nendnode\n"
+    );
+    for i in 0..quads {
+        text += &format!(
+            "node trimesh q{i}\n  parent {name}\n  bitmap NULL\n  verts 4\n    -1 1 0\n    -1 -1 0\n    \
+             1 1 0\n    1 -1 0\n  faces 2\n    0 1 2 1 0 0 0 1\n    3 2 1 1 0 0 0 1\n  position {} 0 \
+             0\nendnode\n",
+            i * 3
+        );
+    }
+    text += &format!("endmodelgeom {name}\ndonemodel {name}\n");
+    text.into_bytes()
+}
+
+/// A model's view looks at the model's bytes again (the review's B16: a
+/// model exported again was drawn as it had been until Moonglow was
+/// started again), and a view no open tab shows is dropped once unseen,
+/// with its models on the GPU; one whose tab is behind another is kept.
+#[test]
+fn a_model_s_view_reads_its_model_again_and_goes_with_its_tab() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let dir = mg_testkit::scratch_dir("ui-model-view-again");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    app.open_module(&path);
+    let key = ResKey::parse("mg_quads", ResType::MDL).unwrap();
+    let set = |quads: usize| {
+        let data = Some(quads_model("mg_quads", quads));
+        let edit = mg_edit::Edit::SetResource { key, data };
+        mg_ui::Action::Apply(mg_edit::Command::new("Model", vec![edit]))
+    };
+    app.actions.push(set(1));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = area_gpu_harness(app, rs, 900.0, 700.0);
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(key);
+    let nodes = |h: &Harness<'_, Moonglow>| h.state().model_views.get(&source).map(|v| v.nodes());
+    assert_eq!(nodes(&h), Some(2), "the model's root and its mesh");
+    // The model with two more meshes: drawn as it is now, its camera kept.
+    let orbit = mg_ui::area_view::Orbit {
+        target: glam::Vec3::new(1.0, 2.0, 3.0),
+        yaw: 0.5,
+        pitch: 0.25,
+        distance: 7.0,
+    };
+    h.state_mut().model_views.get_mut(&source).unwrap().orbit = orbit;
+    h.state_mut().actions.push(set(3));
+    h.run_steps(3);
+    assert_eq!(nodes(&h), Some(4), "read again");
+    assert_eq!(h.state().model_views[&source].orbit, orbit);
+    // Behind another tab: kept, its targets let go of.
+    let app = h.state_mut();
+    let at = app.dock.find_tab(&Tab::Model(key)).unwrap();
+    app.dock
+        .set_focused_node_and_surface(egui_dock::NodePath { surface: at.surface, node: at.node });
+    app.dock.push_to_focused_leaf(Tab::Journal);
+    h.run_steps(PAST_UNSEEN);
+    assert_eq!(nodes(&h), Some(4), "its tab is open still");
+    assert!(!h.state().model_views[&source].holds_targets());
+    // Its tab closed: the view goes.
+    close_tab(h.state_mut(), &Tab::Model(key));
+    h.run_steps(PAST_UNSEEN);
+    assert!(h.state().model_views.is_empty(), "dropped with its tab");
+}

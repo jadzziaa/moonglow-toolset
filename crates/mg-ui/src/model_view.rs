@@ -202,14 +202,62 @@ impl Viewport3d {
 pub(crate) const UNSEEN_AFTER: f64 = 2.0;
 
 /// After a frame: the model views not drawn for [`UNSEEN_AFTER`] let go
-/// of their targets.
+/// of their targets; and those no open tab shows (a Model tab closed, a
+/// Properties window closed, the Preview window's of a blueprint no longer
+/// chosen) go whole, with their models on the GPU and the supermodels
+/// they read. (Kept, every blueprint chosen in the palette with the
+/// Preview window open added a view for the session.) One whose tab is
+/// behind another keeps its models and its camera.
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
     let Some(vp) = app.viewport.as_mut() else { return };
-    for view in app.model_views.values_mut() {
-        if view.targets.is_some() && view.last_frame.is_none_or(|t| now - t > UNSEEN_AFTER) {
+    let mut unseen = Vec::new();
+    for (source, view) in app.model_views.iter_mut() {
+        if view.last_frame.is_some_and(|t| now - t <= UNSEEN_AFTER) {
+            continue;
+        }
+        if view.targets.is_some() {
             view.let_go_of_targets(vp);
         }
+        // (Not drawn yet: opened this frame. A hak's: the hak editor's own
+        // to drop, `hak_view`.)
+        if view.last_frame.is_some() && !matches!(source, Source::Hak { .. }) {
+            unseen.push(source.clone());
+        }
     }
+    if unseen.is_empty() {
+        return;
+    }
+    let shown: Vec<Source> = (app.dock.iter_all_tabs())
+        .filter_map(|(_, tab)| match tab {
+            crate::Tab::Blueprint(key) => Some(Source::Resource(*key)),
+            crate::Tab::Instance { area, path } => {
+                Some(Source::Instance { area: *area, path: path.clone() })
+            }
+            tab => Source::of_tab(tab),
+        })
+        .collect();
+    for source in unseen.into_iter().filter(|s| !shown.contains(s)) {
+        app.model_views.remove(&source);
+    }
+}
+
+/// What a model's view was read for: the load order
+/// ([`Moonglow::load_order`]: a file of the module's folder read again, a
+/// hak or the override changed) and the module's own bytes of the model
+/// (held, and told by `Arc::ptr_eq`: an Import, an Undo of one).
+type ModelRead = (u64, Option<Arc<[u8]>>);
+
+fn model_read(app: &Moonglow, source: &Source) -> ModelRead {
+    let own = source.key().zip(app.ws.as_ref()).and_then(|(k, ws)| ws.module.shared(&k).cloned());
+    (app.load_order, own)
+}
+
+fn same_read(a: &ModelRead, b: &ModelRead) -> bool {
+    a.0 == b.0
+        && match (&a.1, &b.1) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        }
 }
 
 impl ModelView {
@@ -257,6 +305,8 @@ pub struct ModelView {
     /// Whether armor was shown on a woman when it was read (Options ›
     /// General): another choice reads it again.
     female: bool,
+    /// What a model's view was read for.
+    read: ModelRead,
     /// The box around what it shows at rest, as it is stood: where the
     /// ground that takes its shadow lies ([`ground`]); made when first
     /// drawn with the Shadow switch on.
@@ -768,10 +818,18 @@ impl ModelView {
         let revision = app.ws.as_ref().map(Workspace::revision);
         let model = source.is_model();
         let female = app.settings.armor_on_woman;
-        if model || (revision == self.revision && female == self.female) {
+        // (A model is shown as it is: read again when its bytes are
+        // others, exported again from Blender into the module's folder or
+        // the override. It never looked at them again.)
+        let read = model_read(app, source);
+        let unchanged = match model {
+            true => same_read(&read, &self.read),
+            false => revision == self.revision && female == self.female,
+        };
+        if unchanged {
             return;
         }
-        (self.revision, self.female) = (revision, female);
+        (self.revision, self.female, self.read) = (revision, female, read);
         // The editors' working copies, which the preview reads.
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
@@ -787,7 +845,8 @@ impl ModelView {
                 return;
             }
         };
-        if self.preview.as_ref() == Some(&preview) {
+        // (A model's preview is its name, the same whatever its bytes.)
+        if !model && self.preview.as_ref() == Some(&preview) {
             return;
         }
         let composed = compose(app, source, &preview);
@@ -847,10 +906,16 @@ impl ModelView {
             preview: preview.ok(),
             revision: app.ws.as_ref().map(Workspace::revision),
             female: app.settings.armor_on_woman,
+            read: model_read(app, source),
             rest_box: None,
         };
         view.frame();
         view
+    }
+
+    /// How many nodes the model it shows has (none read: 0).
+    pub fn nodes(&self) -> usize {
+        self.model.as_ref().map_or(0, |m| m.model.nodes.len())
     }
 
     /// Whether what it shows is stood up for the viewer (an item modeled
