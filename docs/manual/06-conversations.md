@@ -288,6 +288,11 @@ the source, compiles it and sets it on the line, as one undoable step.
 The script is the module's like any other: open it in the script editor
 to change it later.
 
+An amount of gold or experience is a whole number from 1 to
+2,147,483,647, the most a script's integer holds; anything else typed
+there gives or takes nothing. A float variable's value is a number: `nan`,
+`inf` and numbers past what a float holds are not taken.
+
 ## Backups
 
 While a conversation with unsaved changes is open, Moonglow backs it up
