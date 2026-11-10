@@ -300,7 +300,7 @@ Options › Keyboard):
 | --- | --- |
 | Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
-| Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora) |
+| Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora); with Paint on, in Select Tiles and with a tile brush in hand, Alt + drag always moves it, and paints or selects nothing |
 | Middle drag, Alt + middle drag, with Options › Area › **Middle drag moves the view** | move the camera, turn it: the two middle drags swapped ([Options](10-options.md#view)) |
 | Alt + middle click | look at the ground clicked: the camera's focus goes there at once, at the ground's height (on its walkmesh, else on the tile's floor), its distance, turn and tilt kept, as Alt + middle click in Blender; a click on the sky or off the area does nothing |
 | Wheel, or a pinch on a touchpad | zoom (slowly with Shift, or with Ctrl unless the pointer is on a selected object that takes a scale; when painting tiles, Shift is the brush's) |
@@ -757,7 +757,9 @@ file](03-modules.md#the-project-file-moonglowtoml)'s `[store]`:
 Choose a blueprint in the palette and click in the area to place it, or
 drag it onto the area from the palette or the module tree. Until it is
 placed, a see-through copy in a blue box follows the pointer where it
-would go (on the snapping grid; a door on the nearest hook). **Q** and
+would go (on the snapping grid; a door on the nearest hook). Nothing is
+placed or pasted on the void around the area, where no copy shows, and
+a drag leads what it moves no further than the area's edge. **Q** and
 **E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
 placed facing that way; a door faces as its hook does. With **Onto
 Objects** on (the toolbar, beside Together) it goes onto the top of the
@@ -780,7 +782,10 @@ drops the outline, to begin again point by point. Turn the rectangle
 after, by its ring, if it is to lie another way.
 
 **Edit › Find Instance…** lists the placed objects across the module by
-kind, area, blueprint and tag; double-click one to go to it.
+kind, area, blueprint and tag; double-click one to go to it. Where
+objects were added to or removed from its area since the search, the
+double click searches again instead (the log says so): the list is then
+of the area as it is.
 
 **Prefabs** are groups of placed objects saved under a name, such as a
 camp, a market stall or a furnished room: the way to copy a group of
@@ -990,7 +995,9 @@ shows see-through under the pointer, and a click lays exactly that. What
 a stroke lays shows see-through until you let go; then it goes into the area as one step,
 **Paint Placeables**, which one Undo takes away. Escape or a right click
 during a stroke drops it. Otherwise it turns Paint off, and the
-placeables stay chosen.
+placeables stay chosen. Of a very large dab or stroke the first four
+hundred show see-through, and the status line says how many more are
+laid than are drawn.
 
 ## Painting terrain
 

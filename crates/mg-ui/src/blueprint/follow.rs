@@ -363,8 +363,10 @@ pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
             _ => {}
         }
     }
-    // (And what the windows over the tabs hold: Variables, String Edit.)
+    // (And what the windows over the tabs hold: Variables, String Edit;
+    // and the area views and their tools, of placed objects.)
     open.extend(held(app));
+    open.extend(crate::area_view::held_objects(app, &areas, edits));
     open.retain(|(area, _)| areas.contains(area));
     open.sort_by(|a, b| (a.0, &a.1.0).cmp(&(b.0, &b.1.0)));
     open.dedup();
@@ -496,6 +498,7 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
     if moved.is_empty() {
         return;
     }
+    crate::area_view::objects_moved(app, &moved);
     let mut closed = Vec::new();
     for (_, tab) in app.dock.iter_all_tabs_mut() {
         let was = tab.clone();

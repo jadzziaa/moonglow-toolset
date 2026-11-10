@@ -282,10 +282,7 @@ pub struct TileClip {
 /// The tile under a screen point.
 pub(crate) fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
     let model = view.model.as_ref()?;
-    let p = view.ground_at(pos, 0.0)?;
-    let (x, y) = (p.x / mg_area::TILE_SIZE, p.y / mg_area::TILE_SIZE);
-    (x >= 0.0 && y >= 0.0 && (x as u32) < model.width && (y as u32) < model.height)
-        .then_some((x as u32, y as u32))
+    crate::area_view::tile_of(view.ground_at(pos, 0.0)?, model.width, model.height)
 }
 
 /// The tiles a box dragged from `from` to `to` on screen covers, row by
@@ -318,7 +315,11 @@ pub(crate) fn input(
         return false;
     }
     let (command, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-    if response.drag_started_by(egui::PointerButton::Primary) && view.tile_box.is_none() && !command
+    // (Not a press that is the camera's: Ctrl + drag, Alt + drag.)
+    if response.drag_started_by(egui::PointerButton::Primary)
+        && view.tile_box.is_none()
+        && !command
+        && !view.camera_press
     {
         let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
         view.tile_box = Some((from, from));
@@ -1009,7 +1010,6 @@ fn tile_model(app: &Moonglow, props: &TileProps) -> Option<(String, Option<Strin
     Some((tile.model.clone(), tools.set.general.env_map.clone()))
 }
 
-/// Tile Properties, in its tab, and its colour picker.
 /// Whether Tile Properties' tiles may have left their places in the list
 /// since it opened (Rotate Area, Resize Area, their undo, the list set
 /// whole, the file read again): if so it closes, writing nothing, for its
@@ -1026,6 +1026,7 @@ fn tiles_moved(app: &mut Moonglow, props: &TileProps) -> bool {
     moved
 }
 
+/// Tile Properties, in its tab, and its colour picker.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
     let Some(props) = app.tile_props.take() else { return };

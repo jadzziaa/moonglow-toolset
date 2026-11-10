@@ -133,7 +133,13 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
     }
     let mut open = true;
     let mut done = None;
-    let names: Vec<String> = listed(app).into_iter().map(|(n, _)| n).collect();
+    // (The module's own haks, found in the hak folders as the window
+    // opens: not each of them looked for every frame.)
+    let names = crate::area_tools::kept_while_shown(
+        ui.ctx(),
+        egui::Id::new("custom-light-haks"),
+        || -> Vec<String> { listed(app).into_iter().map(|(n, _)| n).collect() },
+    );
     let title = if d.change.is_empty() { "Custom Light" } else { "Change Light" };
     crate::widgets::dialog(ui.ctx(), title, &mut open).resizable(false).collapsible(false).show(
         ui.ctx(),
@@ -278,7 +284,7 @@ fn made(app: &mut Moonglow, d: &LightDraft, plan: &Plan) {
     let Some(mut view) = app.area_views.remove(&d.area) else { return };
     if !d.change.is_empty() {
         view.selection = d.change.clone();
-        crate::area_view::set_appearance(app, &view, "Change light", plan.row);
+        crate::area_view::set_appearance(app, &view, "Change Light", plan.row);
     } else if let Some(at) = d.at {
         crate::area_view::add_light_row(app, &mut view, plan.row, &plan.spec.label(), at);
     } else {

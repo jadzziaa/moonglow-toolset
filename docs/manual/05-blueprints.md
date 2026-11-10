@@ -467,6 +467,9 @@ and a door's transition. A window lists the objects it would change:
 - **Untick** objects to leave them as they are.
 - **Update** changes the rest as one undoable step, and the log lists
   each object updated: its area, kind, tag and blueprint.
+- **List Again** shows when objects were added to or removed from one of
+  the areas with the window open (the list is of the areas as they
+  were): Update waits until the objects are listed again, all ticked.
 
 An item's blueprint reaches the items that placed objects hold as well:
 in a chest, in a creature's pack and what it has equipped, on a store's

@@ -47,7 +47,7 @@ impl Moonglow {
         let Some(path) = self.dialogs.save_file(dialogs::FileKind::Png, Some(&suggested)) else {
             return;
         };
-        match std::fs::write(&path, data) {
+        match mg_module::write_replacing(&path, &data) {
             Ok(()) => self.log.info(format!(
                 "Saved the minimap of {area} to {}{}",
                 path.display(),
@@ -95,7 +95,8 @@ impl Moonglow {
             let name = format!("{}.png", key.resref);
             let wrote = self.minimap_png(key.resref, notes).and_then(|(data, n)| {
                 let path = crate::transfer::named_in(dir, &key.resref, "png")?;
-                std::fs::write(&path, data).map_err(|e| format!("{}: {e}", path.display()))?;
+                mg_module::write_replacing(&path, &data)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
                 Ok(n)
             });
             match wrote {

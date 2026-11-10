@@ -28,6 +28,12 @@ use crate::{Action, Moonglow};
 pub struct BakeState {
     /// The window, while it is open.
     pub draft: Option<BakeDraft>,
+    /// What the Position menu says of the placeables selected, what for,
+    /// and the pass it was last asked in: worked out as the menu opens
+    /// (and when what it is of changes), not every frame it is open.
+    menu: Option<(MenuFor, MenuSays, u64)>,
+    /// How many times that was worked out (for tests).
+    pub menus_worked: u64,
     /// The rows file as each step of Undo found it and left it.
     pub(crate) steps: Vec<(u64, RowsWritten)>,
     /// The save's question, while it waits.
@@ -59,8 +65,18 @@ pub struct BakeDraft {
     pub area: ResRef,
     /// The placeables baked (their places in the area's list).
     pub objects: Vec<usize>,
-    /// What baking them will do, worked out as the window opened.
+    /// What baking them will do, worked out as the window opened, and
+    /// again when the area's objects changed since.
     pub plan: Result<Plan, String>,
+    /// When the area's GIT last changed as the plan was made
+    /// (`Workspace::changed_at`).
+    planned_at: u64,
+}
+
+/// When `area`'s GIT last changed.
+fn changed_at(app: &Moonglow, area: ResRef) -> u64 {
+    let key = mg_resman::ResKey::new(area, mg_core::ResType::GIT);
+    app.ws.as_ref().map_or(0, |ws| ws.changed_at(&key))
 }
 
 /// The project's rules and rows file, or why nothing can be baked.
@@ -103,6 +119,49 @@ fn plan_for(app: &mut Moonglow, area: ResRef, objects: &[usize]) -> Result<Plan,
     bake::plan(&ready, &rows, &game.resman, game.codepage(), &requests)
 }
 
+/// What the Position menu's items are worked out for: the area, the
+/// module's revision and the placeables selected.
+type MenuFor = (ResRef, u64, Vec<usize>);
+
+/// What the Position menu says of them: why Bake Walkmesh is not offered
+/// (if it is not), and those baked, each with the row it goes back to.
+type MenuSays = (Result<(), String>, Vec<(usize, u32)>);
+
+/// [`MenuSays`] of the placeables `selected` of `area`. (Each one's
+/// struct read from the GIT, and, with the project's `[bake]`, its
+/// model's walkmesh read and parsed: two thousand trees selected were as
+/// many of both every frame the menu was open.)
+fn menu_says(app: &mut Moonglow, area: ResRef, selected: &[usize]) -> MenuSays {
+    let why_not = (|| -> Result<(), String> {
+        let (_, rows) = rules(app)?;
+        let what = if selected.len() == 1 { "It isn't baked" } else { "Not every one" };
+        for &i in selected {
+            let s = placed(app, area, i).ok_or("the placeable is gone")?;
+            bake::transform_of(&s).map_err(|e| format!("{what}: {e}"))?;
+            // (A model with no walkmesh has nothing to bake: the row a baked
+            // one copies, its model.)
+            let a = s.integer("Appearance").unwrap_or(0) as u32;
+            let row = rows.row(a).map_or(a, |r| r.copy_of);
+            let game = app.game.as_deref().ok_or("no game data")?;
+            let table = game.table("placeables").map_err(|e| e.to_string())?;
+            let model = table
+                .get(row as usize, "ModelName")
+                .ok_or_else(|| format!("{what}: row {row} of placeables.2da has no model"))?;
+            bake::walkmesh_of(&game.resman, model).map_err(|e| format!("{what}: {e}"))?;
+        }
+        Ok(())
+    })();
+    let rows = rules(app).map(|(_, r)| r).unwrap_or_default();
+    let baked: Vec<(usize, u32)> = selected
+        .iter()
+        .filter_map(|&i| {
+            let a = placed(app, area, i)?.integer("Appearance")? as u32;
+            Some((i, bake::unbaked_row(&rows, a).ok()?))
+        })
+        .collect();
+    (why_not, baked)
+}
+
 /// The Position menu's items for selected placeables: Bake Walkmesh to
 /// Transform… (offered with the project's `[bake]` and a visual
 /// transform, a tip saying why not otherwise) and Unbake Walkmesh (on
@@ -118,25 +177,19 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         return;
     }
     ui.separator();
-    let why_not = (|| -> Result<(), String> {
-        let (_, rows) = rules(app)?;
-        let what = if selected.len() == 1 { "It isn't baked" } else { "Not every one" };
-        for &i in &selected {
-            let s = placed(app, view.area, i).ok_or("the placeable is gone")?;
-            bake::transform_of(&s).map_err(|e| format!("{what}: {e}"))?;
-            // (A model with no walkmesh has nothing to bake: the row a baked
-            // one copies, its model.)
-            let a = s.integer("Appearance").unwrap_or(0) as u32;
-            let row = rows.row(a).map_or(a, |r| r.copy_of);
-            let game = app.game.as_deref().ok_or("no game data")?;
-            let table = game.table("placeables").map_err(|e| e.to_string())?;
-            let model = table
-                .get(row as usize, "ModelName")
-                .ok_or_else(|| format!("{what}: row {row} of placeables.2da has no model"))?;
-            bake::walkmesh_of(&game.resman, model).map_err(|e| format!("{what}: {e}"))?;
-        }
-        Ok(())
-    })();
+    // (Worked out once for the selection and the module as they are.)
+    let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
+    let wanted: MenuFor = (view.area, revision, selected.clone());
+    let now = ui.ctx().cumulative_pass_nr();
+    let kept = |(of, _, at): &(MenuFor, MenuSays, u64)| *of == wanted && now <= at + 1;
+    if !app.bake.menu.as_ref().is_some_and(kept) {
+        let says = menu_says(app, view.area, &selected);
+        app.bake.menu = Some((wanted, says, now));
+        app.bake.menus_worked += 1;
+    }
+    let Some((_, (why_not, baked), at)) = &mut app.bake.menu else { return };
+    *at = now;
+    let (why_not, baked) = (why_not.clone(), baked.clone());
     let tip =
         "Give each a model copy whose walkmesh blocks as it looks. Shows what it makes first.";
     let r = ui
@@ -147,14 +200,6 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         open(app, view.area, selected.clone());
         ui.close();
     }
-    let rows = rules(app).map(|(_, r)| r).unwrap_or_default();
-    let baked: Vec<(usize, u32)> = selected
-        .iter()
-        .filter_map(|&i| {
-            let a = placed(app, view.area, i)?.integer("Appearance")? as u32;
-            Some((i, bake::unbaked_row(&rows, a).ok()?))
-        })
-        .collect();
     if !baked.is_empty()
         && ui
             .button("Unbake Walkmesh")
@@ -175,7 +220,8 @@ pub(crate) fn open(app: &mut Moonglow, area: ResRef, objects: Vec<usize>) {
     if let Some(v) = app.area_views.get_mut(&area) {
         v.object_walkmesh = true;
     }
-    app.bake.draft = Some(BakeDraft { area, objects, plan });
+    let planned_at = changed_at(app, area);
+    app.bake.draft = Some(BakeDraft { area, objects, plan, planned_at });
 }
 
 /// Sets `objects` (each with the row it goes back to) back: one step.
@@ -195,7 +241,15 @@ fn unbake(app: &mut Moonglow, area: ResRef, objects: &[(usize, u32)]) {
 
 /// Draws the window, when open.
 pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(d) = app.bake.draft.take() else { return };
+    let Some(mut d) = app.bake.draft.take() else { return };
+    // (Its placeables scaled or turned again, or given another
+    // appearance, with the window open: what it would bake is worked out
+    // from them as they are now.)
+    let now = changed_at(app, d.area);
+    if now != d.planned_at {
+        d.plan = plan_for(app, d.area, &d.objects);
+        d.planned_at = now;
+    }
     let mut open = true;
     let mut done = None;
     // (Beside the view, not over the objects whose walkmeshes it shows.)
@@ -404,7 +458,8 @@ fn take_back(
 /// Writes `data` at `path` (none: takes the file away).
 fn put(app: &mut Moonglow, path: &std::path::Path, data: Option<&[u8]>) {
     let done = match data {
-        Some(d) => std::fs::write(path, d),
+        // (Whole or not at all: the project's build reads this file.)
+        Some(d) => mg_module::write_replacing(path, d),
         None => std::fs::remove_file(path).or_else(|e| match e.kind() {
             std::io::ErrorKind::NotFound => Ok(()),
             _ => Err(e),

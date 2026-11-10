@@ -196,10 +196,10 @@ fn pages(
     Some(shown.inner_rect)
 }
 
-/// The fields of a page shared by several areas: in the area (`false`),
 /// The Visual page's fields ([`mg_module::lighting::VISUAL_FIELDS`]).
 pub(crate) use mg_module::lighting::VISUAL_FIELDS;
 
+/// The fields of a page shared by several areas: in the area (`false`),
 /// or in its GIT's `AreaProperties` (`true`).
 fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
     match page {
@@ -483,8 +483,6 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     });
 }
 
-/// Applies an environment.2da scheme: the area's lighting and weather, and
-/// each tile's lights picked anew from the scheme's colours (one command).
 /// Under the schemes: another area's lighting given to this one (and to
 /// those edited with it), and lighting kept under a name, saved from here
 /// or given from it (dansen9191's ask: the colors of one area in another,
@@ -493,16 +491,23 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let targets: Vec<ResRef> =
         std::iter::once(f.key.resref).chain(f.also.iter().map(|(k, _)| k.resref)).collect();
     let by_name = f.app.settings.area_names;
-    let mut areas: Vec<(ResRef, String)> = match &f.app.ws {
-        Some(ws) => (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
-            .filter(|a| !targets.contains(a))
-            .map(|a| (a, f.app.area_names.label(ws, f.app.game.as_deref(), a, by_name)))
-            .collect(),
-        None => Vec::new(),
-    };
-    areas.sort_by_cached_key(|(_, name)| name.to_lowercase());
     let dir = f.app.lighting_dir.clone();
-    let saved = crate::lighting::list(dir.as_deref());
+    // The lighting kept, by name: read from its folder when the menu
+    // opens and after a Save, Rename or Delete here, not every frame the
+    // page shows (kept in between, for every Area Properties window).
+    let saved_id = egui::Id::new("lighting-saved");
+    let menu_id = egui::Id::new("lighting-saved-open");
+    let kept: Option<std::sync::Arc<Vec<String>>> = ui.data(|d| d.get_temp(saved_id));
+    let mut saved = match kept {
+        Some(kept) => kept,
+        None => {
+            let read = std::sync::Arc::new(crate::lighting::list(dir.as_deref()));
+            ui.data_mut(|d| d.insert_temp(saved_id, read.clone()));
+            read
+        }
+    };
+    let was_open: bool = ui.data(|d| d.get_temp(menu_id)).unwrap_or(false);
+    let (mut is_open, mut changed) = (false, false);
     // A name being typed: for Save This Lighting (`None`) or to rename the
     // one named (`Some`).
     let naming = ui.id().with(("lighting-name", f.key.resref));
@@ -517,6 +522,15 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let mut scheme_of = None;
     ui.horizontal(|ui| {
         ui.menu_button("Copy From Area", |ui| {
+            // (The module's other areas, made while the menu is open.)
+            let mut areas: Vec<(ResRef, String)> = match &f.app.ws {
+                Some(ws) => (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
+                    .filter(|a| !targets.contains(a))
+                    .map(|a| (a, f.app.area_names.label(ws, f.app.game.as_deref(), a, by_name)))
+                    .collect(),
+                None => Vec::new(),
+            };
+            areas.sort_by_cached_key(|(_, name)| name.to_lowercase());
             egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
                 for (area, name) in &areas {
                     if ui.button(name).clicked() {
@@ -531,9 +545,16 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             "Takes the lighting, fog, sky and weather from another area. Tiles' lights stay.",
         );
         ui.menu_button("Saved Lighting", |ui| {
+            is_open = true;
+            if !was_open {
+                saved = std::sync::Arc::new(crate::lighting::list(dir.as_deref()));
+                ui.data_mut(|d| d.insert_temp(saved_id, saved.clone()));
+            }
+            let saved = saved.as_slice();
             if let Some((name, text)) = &deleted
                 && ui.button(format!("Undo Delete '{name}'")).clicked()
             {
+                changed = true;
                 match crate::lighting::restore(dir.as_deref(), name, text) {
                     Ok(()) => f.app.log.info(format!("Lighting '{name}' put back")),
                     Err(e) => f.app.log.error(format!("Undo Delete: {e}")),
@@ -544,7 +565,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             if saved.is_empty() {
                 ui.weak("None saved yet");
             }
-            for name in &saved {
+            for name in saved {
                 if ui.button(name).clicked() {
                     give_saved(f, name, relight);
                     ui.close();
@@ -564,7 +585,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 return;
             }
             ui.menu_button("Rename", |ui| {
-                for name in &saved {
+                for name in saved {
                     if ui.button(name).clicked() {
                         ui.data_mut(|d| d.insert_temp(naming, (Some(name.clone()), name.clone())));
                         ui.close();
@@ -572,12 +593,13 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             });
             ui.menu_button("Delete", |ui| {
-                for name in &saved {
+                for name in saved {
                     if ui
                         .button(name)
                         .on_hover_text("Undo Delete, in this menu, puts it back")
                         .clicked()
                     {
+                        changed = true;
                         match crate::lighting::delete(dir.as_deref(), name) {
                             Ok(text) => {
                                 f.app.log.info(format!("Lighting '{name}' deleted"));
@@ -593,7 +615,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.weak("A row of environment.2da: the table to add it to");
                 let key =
                     ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
-                for name in &saved {
+                for name in saved {
                     ui.menu_button(name, |ui| {
                         if let Some(home) = crate::browser::table_homes(f.app, ui, key) {
                             scheme_of = Some((name.clone(), home));
@@ -611,7 +633,13 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
         .response
         .on_hover_text("Lighting kept under a name, for any area of any module");
     });
-    ui.data_mut(|d| d.insert_temp(relight_id, relight));
+    ui.data_mut(|d| {
+        d.insert_temp(relight_id, relight);
+        d.insert_temp(menu_id, is_open);
+        if changed {
+            d.remove::<std::sync::Arc<Vec<String>>>(saved_id);
+        }
+    });
     if let Some((name, home)) = scheme_of {
         make_scheme(f.app, &name, home);
     }
@@ -649,6 +677,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 },
             }
             done = true;
+            ui.data_mut(|d| d.remove::<std::sync::Arc<Vec<String>>>(saved_id));
         }
         if ui.button("Cancel").clicked() {
             done = true;
@@ -719,7 +748,7 @@ fn make_scheme(app: &mut Moonglow, name: &str, home: crate::browser::EditTable) 
     let key = ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
     let Some(id) = crate::browser::open_table(app, key, home) else { return };
     let cells = saved.environment_row(&mg_module::lighting::row_label(name));
-    let label = format!("Lighting scheme {name}");
+    let label = format!("Lighting Scheme {name}");
     if let Some(row) = crate::table_view::add_row_of(app, id, &label, &cells) {
         app.log.info(format!(
             "Lighting '{name}' is row {row} of environment.2da: save the table where it is (a \
@@ -729,6 +758,8 @@ fn make_scheme(app: &mut Moonglow, name: &str, home: crate::browser::EditTable) 
     }
 }
 
+/// Applies an environment.2da scheme: the area's lighting and weather, and
+/// each tile's lights picked anew from the scheme's colours (one command).
 fn apply_scheme(f: &mut Form<'_>, row: usize) {
     let Some(game) = f.app.game.as_deref() else { return };
     let scheme = match mg_module::new::Scheme::read(game, row) {
@@ -756,7 +787,7 @@ fn apply_scheme(f: &mut Form<'_>, row: usize) {
         }));
         edits.extend(tile_light_edits(&scheme.tile_colors(), key, tiles, &mut rng));
     }
-    f.app.actions.push(Action::Apply(Command::new("Lighting scheme", edits)));
+    f.app.actions.push(Action::Apply(Command::new("Lighting Scheme", edits)));
 }
 
 /// The edits that give the `tiles` tiles of area `key` (its ARE) the
@@ -1057,7 +1088,7 @@ fn move_variables(f: &mut Form<'_>, moved: &[(ResRef, Vec<mg_gff::Struct>, bool)
             edits.len() / 2
         )
     });
-    f.app.actions.push(Action::Apply(Command::new("Move area variables", edits)));
+    f.app.actions.push(Action::Apply(Command::new("Move Area Variables", edits)));
     true
 }
 
@@ -1100,7 +1131,14 @@ pub(crate) struct AreaChooser {
     /// again after Save Set and Delete Set (not each frame).
     pub(crate) sets: Option<Vec<String>>,
     pub chosen: std::collections::BTreeSet<ResRef>,
+    /// The module's areas, each with what the filters ask of it and its
+    /// label, in the list's order: made once for a revision of the
+    /// module and a way of naming areas, not every frame.
+    pub(crate) listed: Option<((u64, bool), Listed)>,
 }
+
+/// [`AreaChooser`]'s areas, as its list has them.
+type Listed = std::sync::Arc<Vec<(ResRef, crate::tree::AreaInfo, String)>>;
 
 /// What Edit Areas Together's Holding asks of an area.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1142,17 +1180,56 @@ impl AreaChooser {
     /// [`AreaChooser::has`]).
     /// Whether the filters show an area: its name, tag or ResRef, its
     /// tileset and kind, as `mg areas` chooses (`areas::Filter`).
+    #[cfg(test)]
     pub(crate) fn shows(&self, area: ResRef, info: &crate::tree::AreaInfo) -> bool {
+        self.filters().matches(&crate::tree::AreaInfo { resref: area, ..info.clone() })
+    }
+
+    /// The filters, as `mg areas` has them (`areas::Filter`): made once
+    /// for a frame's list, not for each area of it.
+    fn filters(&self) -> mg_module::areas::Filter {
         let [interior, underground, natural] = self.flags;
-        let filter = mg_module::areas::Filter {
+        mg_module::areas::Filter {
             text: Some(self.filter.clone()).filter(|t| !t.trim().is_empty()),
             tileset: self.tileset,
             interior,
             underground,
             natural,
             ..Default::default()
-        };
-        filter.matches(&crate::tree::AreaInfo { resref: area, ..info.clone() })
+        }
+    }
+
+    /// The module's areas as the list has them, in its order (the module
+    /// tree's: by name when it lists names); made again when the module
+    /// changes, and the areas that went away are then no longer chosen.
+    fn listed(&mut self, app: &mut Moonglow) -> Listed {
+        let Some(ws) = &app.ws else { return Default::default() };
+        let by_name = app.settings.area_names;
+        let stamp = (ws.revision(), by_name);
+        if let Some((at, listed)) = &self.listed
+            && *at == stamp
+        {
+            return listed.clone();
+        }
+        let mut areas: Vec<(ResRef, crate::tree::AreaInfo, String)> = (ws.module)
+            .keys_of(ResType::ARE)
+            .map(|k| {
+                let a = k.resref;
+                let i = app.area_names.info(ws, app.game.as_deref(), a);
+                let label = match (i.name.trim(), by_name) {
+                    ("", _) => a.to_string(),
+                    (name, true) => format!("{name} ({a})"),
+                    (name, false) => format!("{a} ({name})"),
+                };
+                (a, crate::tree::AreaInfo { resref: a, ..i }, label)
+            })
+            .collect();
+        areas.sort_by_cached_key(|(a, _, label)| (label.to_lowercase(), *a));
+        let there: std::collections::HashSet<ResRef> = areas.iter().map(|(a, ..)| *a).collect();
+        self.chosen.retain(|a| there.contains(a));
+        let listed = Listed::new(areas);
+        self.listed = Some((stamp, listed.clone()));
+        listed
     }
 
     /// What the areas must hold, as Holding asks it (none: anything, or
@@ -1207,23 +1284,11 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
         .get_or_insert_with(|| crate::area_sets::list_for(app.area_set_dir.as_deref(), &module)))
     .clone();
     let music = areas_music_choices(app);
-    let Some(ws) = &app.ws else { return };
-    let mut areas: Vec<(ResRef, crate::tree::AreaInfo)> = ws
-        .module
-        .keys_of(ResType::ARE)
-        .map(|k| (k.resref, app.area_names.info(ws, app.game.as_deref(), k.resref)))
-        .collect();
-    // In the module tree's order: by name when it lists names.
-    let by_name = app.settings.area_names;
-    let label = |a: ResRef, i: &crate::tree::AreaInfo| match (i.name.trim(), by_name) {
-        ("", _) => a.to_string(),
-        (name, true) => format!("{name} ({a})"),
-        (name, false) => format!("{a} ({name})"),
-    };
-    areas.sort_by_cached_key(|(a, i)| (label(*a, i).to_lowercase(), *a));
-    // Areas that went away are no longer chosen.
-    c.chosen.retain(|a| areas.iter().any(|(b, _)| a == b));
-    let mut tilesets: Vec<ResRef> = areas.iter().map(|(_, i)| i.tileset).collect();
+    if app.ws.is_none() {
+        return;
+    }
+    let areas = c.listed(app);
+    let mut tilesets: Vec<ResRef> = areas.iter().map(|(_, i, _)| i.tileset).collect();
     tilesets.sort();
     tilesets.dedup();
     let tilesets: Vec<(ResRef, String)> =
@@ -1346,7 +1411,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                         Ok(set) => {
                             c.chosen = set
                                 .into_iter()
-                                .filter(|a| areas.iter().any(|(b, _)| a == b))
+                                .filter(|a| areas.iter().any(|(b, ..)| a == b))
                                 .collect();
                         }
                         Err(e) => app.log.error(format!("The set {name}: {e}")),
@@ -1390,14 +1455,15 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             let holds = |a: &ResRef| holding.as_ref().is_none_or(|h| h.contains(a));
-            let shown: Vec<&(ResRef, crate::tree::AreaInfo)> =
-                areas.iter().filter(|(a, i)| c.shows(*a, i) && holds(a)).collect();
+            let filters = c.filters();
+            let shown: Vec<&(ResRef, crate::tree::AreaInfo, String)> =
+                areas.iter().filter(|(a, i, _)| filters.matches(i) && holds(a)).collect();
             ui.horizontal(|ui| {
                 if ui.button("Tick Shown").clicked() {
-                    c.chosen.extend(shown.iter().map(|(a, _)| *a));
+                    c.chosen.extend(shown.iter().map(|(a, ..)| *a));
                 }
                 if ui.button("Untick Shown").clicked() {
-                    for (a, _) in &shown {
+                    for (a, ..) in &shown {
                         c.chosen.remove(a);
                     }
                 }
@@ -1407,21 +1473,23 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.weak(format!("{} of {} areas shown", shown.len(), areas.len()));
             });
             ui.separator();
-            egui::ScrollArea::vertical().max_height(250.0).auto_shrink([false, false]).show(
-                ui,
-                |ui| {
-                    for (a, info) in shown {
-                        let mut on = c.chosen.contains(a);
-                        if ui.checkbox(&mut on, label(*a, info)).changed() {
-                            if on {
-                                c.chosen.insert(*a);
-                            } else {
-                                c.chosen.remove(a);
-                            }
+            // (The rows in sight alone are laid out: a world has
+            // thousands of areas.)
+            let height = ui.spacing().interact_size.y;
+            let rows = egui::ScrollArea::vertical().max_height(250.0).auto_shrink([false, false]);
+            rows.show_rows(ui, height, shown.len(), |ui, range| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                for (a, _, label) in &shown[range] {
+                    let mut on = c.chosen.contains(a);
+                    if ui.checkbox(&mut on, label.as_str()).changed() {
+                        if on {
+                            c.chosen.insert(*a);
+                        } else {
+                            c.chosen.remove(a);
                         }
                     }
-                },
-            );
+                }
+            });
             ui.separator();
             ui.horizontal(|ui| {
                 let n = c.chosen.len();

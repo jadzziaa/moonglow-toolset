@@ -12,6 +12,25 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
+/// What a window shows that is read from disk (the names in a folder,
+/// the module's haks found there): made by `make` as the window opens,
+/// and kept under `id` for as long as it is asked for every pass, not
+/// read every frame. A window closed and opened again reads anew.
+pub(crate) fn kept_while_shown<T: Clone + Send + Sync + 'static>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    make: impl FnOnce() -> T,
+) -> T {
+    let now = ctx.cumulative_pass_nr();
+    let kept: Option<(u64, T)> = ctx.data(|d| d.get_temp(id));
+    let value = match kept {
+        Some((at, value)) if now <= at + 1 => value,
+        _ => make(),
+    };
+    ctx.data_mut(|d| d.insert_temp(id, (now, value.clone())));
+    value
+}
+
 /// The range of Adjust Location's fields that have none of their own (a
 /// position, a turn, a translation): any number.
 const FAR: std::ops::RangeInclusive<f32> = f32::MIN..=f32::MAX;
@@ -427,10 +446,18 @@ pub(crate) fn previewed(a: &AdjustLocation, objects: &[mg_area::AreaObject]) -> 
     if a.start {
         return (moved, visual);
     }
+    // (Where each is among the area's objects: looked up, not found by
+    // going through them for every object of a large selection.)
+    let places: std::collections::HashMap<(ObjectKind, usize), usize> = match a.objects.len() {
+        0..=4 => Default::default(),
+        _ => objects.iter().enumerate().map(|(at, o)| ((o.kind, o.index), at)).collect(),
+    };
     for &(kind, index) in &a.objects {
-        let Some(i) = objects.iter().position(|o| o.kind == kind && o.index == index) else {
-            continue;
+        let at = match places.is_empty() {
+            true => objects.iter().position(|o| o.kind == kind && o.index == index),
+            false => places.get(&(kind, index)).copied(),
         };
+        let Some(i) = at else { continue };
         let o = &objects[i];
         // (As `apply_location` sets them.)
         let mut p = o.position;
@@ -523,7 +550,7 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
         }
     }
     if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Adjust location", edits)));
+        app.actions.push(Action::Apply(Command::new("Adjust Location", edits)));
     }
 }
 
@@ -537,6 +564,11 @@ pub struct FindInstance {
     pub template: String,
     pub tag: String,
     pub results: Vec<Found>,
+    /// How many times each area's GIT with a result in it had its lists
+    /// rewritten as they were found (`Workspace::rewrites`): a result is
+    /// a place in a list, another object's once one is put in or taken
+    /// out before it.
+    found_at: std::collections::HashMap<ResRef, u64>,
 }
 
 impl Default for FindInstance {
@@ -547,7 +579,25 @@ impl Default for FindInstance {
             template: String::new(),
             tag: String::new(),
             results: Vec::new(),
+            found_at: Default::default(),
         }
+    }
+}
+
+impl FindInstance {
+    /// Searches the module, and keeps what it found.
+    pub(crate) fn find(&mut self, app: &mut Moonglow) {
+        self.results = search(app, self);
+        let Some(ws) = app.ws.as_ref() else { return };
+        self.found_at = (self.results.iter())
+            .map(|r| (r.area, ws.rewrites(&ResKey::new(r.area, ResType::GIT))))
+            .collect();
+    }
+
+    /// Whether objects were put into or taken out of `area` since the
+    /// results were found: its results may be other objects' places.
+    fn stale(&self, ws: &mg_edit::Workspace, area: ResRef) -> bool {
+        self.found_at.get(&area) != Some(&ws.rewrites(&ResKey::new(area, ResType::GIT)))
     }
 }
 
@@ -564,7 +614,7 @@ pub struct Found {
 /// The objects placed in the module's areas that match `f`'s criteria
 /// (tag and blueprint: case-insensitive parts).
 pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
     let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
     areas.sort();
     areas.retain(|a| f.area.is_none_or(|only| only == *a));
@@ -573,13 +623,27 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
         (mg_core::text::Needle::new(&f.tag), mg_core::text::Needle::new(&f.template));
     let mut out = Vec::new();
     for area in areas {
-        let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
+        // (An area not open is read from the module's copy and not kept
+        // as a document: a search of a world left every area's GIT in the
+        // workspace until the next save.)
+        let key = ResKey::new(area, ResType::GIT);
+        let read;
+        let git = match ws.loaded(&key) {
+            Some(doc) => &doc.root,
+            None => match ws.module.get(&key).and_then(|b| mg_gff::Gff::read(b).ok()) {
+                Some(gff) => {
+                    read = gff;
+                    &read.root
+                }
+                None => continue,
+            },
+        };
         for kind in ObjectKind::ALL {
             if !f.kinds[kind.index()] {
                 continue;
             }
             let field = kind.resref_field();
-            for (index, s) in git.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
+            for (index, s) in git.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
                 if tag.finds(&t) && template.finds(&bp) {
@@ -601,10 +665,14 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         a
     });
     // Areas by name, when the module tree lists them so (Options ›
-    // General).
-    let labels: std::collections::HashMap<ResRef, String> =
-        areas.iter().map(|a| (*a, crate::tabs::area_label(app, *a))).collect();
-    let label = |a: &ResRef| labels.get(a).cloned().unwrap_or_else(|| a.to_string());
+    // General): each asked for as it is shown (the rows in sight, the
+    // list while it is open), not every area's every frame.
+    let naming = std::cell::RefCell::new((&mut *app, std::collections::HashMap::new()));
+    let label = |a: &ResRef| -> String {
+        let (app, labels) = &mut *naming.borrow_mut();
+        labels.entry(*a).or_insert_with(|| crate::tabs::area_label(app, *a)).clone()
+    };
+    let mut searching = false;
     crate::widgets::dialog(ui.ctx(), "Find Instance", &mut open).default_width(460.0).show(
         ui.ctx(),
         |ui| {
@@ -636,40 +704,76 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                if ui.button("Search").clicked() {
-                    f.results = search(app, &f);
-                }
+                searching = ui.button("Search").clicked();
                 if ui.button("Clear").clicked() {
                     f = FindInstance::default();
                 }
             });
             ui.separator();
             ui.weak(format!("{} found; double click one to go to it", f.results.len()));
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                egui::Grid::new("found").num_columns(4).striped(true).show(ui, |ui| {
-                    for h in ["Type", "Tag", "Area", "Blueprint"] {
+            // (The rows in sight alone are laid out, in columns of set
+            // widths, a long name cut: with nothing typed every placed
+            // object of the module is found, tens of thousands.)
+            const WIDTHS: [f32; 4] = [76.0, 130.0, 120.0, 120.0];
+            let height = ui.spacing().interact_size.y;
+            let cell = |ui: &mut Ui, width: f32, add: &mut dyn FnMut(&mut Ui)| {
+                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+                    ui.set_min_width(width);
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                    add(ui);
+                });
+            };
+            ui.horizontal(|ui| {
+                for (h, width) in ["Type", "Tag", "Area", "Blueprint"].into_iter().zip(WIDTHS) {
+                    cell(ui, width, &mut |ui| {
                         ui.strong(h);
-                    }
-                    ui.end_row();
-                    for r in &f.results {
-                        let row = [format!("{:?}", r.kind), r.tag.clone(), label(&r.area)];
-                        let mut double = false;
-                        for text in row {
-                            double |= ui.selectable_label(false, text).double_clicked();
+                    });
+                }
+            });
+            let rows = egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]);
+            rows.show_rows(ui, height, f.results.len(), |ui, range| {
+                for at in range {
+                    let r = &f.results[at];
+                    ui.horizontal(|ui| {
+                        if at % 2 == 1 {
+                            let mut stripe = ui.available_rect_before_wrap();
+                            stripe.set_height(height);
+                            ui.painter().rect_filled(stripe, 0.0, ui.visuals().faint_bg_color);
                         }
-                        double |= ui.selectable_label(false, &r.template).double_clicked();
+                        let row = [format!("{:?}", r.kind), r.tag.clone(), label(&r.area)];
+                        let texts = row.iter().map(String::as_str).chain([r.template.as_str()]);
+                        let mut double = false;
+                        for (text, width) in texts.zip(WIDTHS) {
+                            cell(ui, width, &mut |ui| {
+                                double |= ui.selectable_label(false, text).double_clicked();
+                            });
+                        }
                         if double {
                             go = Some(r.clone());
                         }
-                        ui.end_row();
-                    }
-                });
+                    });
+                }
             });
         },
     );
+    if searching {
+        f.find(app);
+    }
     if let Some(r) = go {
-        app.area_focus = Some((r.area, r.kind, r.index));
-        app.actions.push(Action::OpenTab(Tab::Area(r.area)));
+        // (Its place in the area's list may be another's by now: found
+        // again, to go to what the list shows.)
+        if app.ws.as_ref().is_some_and(|ws| f.stale(ws, r.area)) {
+            f.find(app);
+            app.log.warn(format!(
+                "Find Instance: objects were added to or removed from {} since the search: \
+                 searched again",
+                r.area
+            ));
+        } else {
+            app.area_focus = Some((r.area, r.kind, r.index));
+            app.actions.push(Action::OpenTab(Tab::Area(r.area)));
+        }
     }
     if open {
         app.find_instance = Some(f);
@@ -940,5 +1044,36 @@ mod tests {
         let (to, facing) = previewed_start(&a, at);
         assert_eq!(to, Vec3::new(9.0, 6.0, 0.0));
         assert!((facing - std::f32::consts::PI).abs() < 1e-6, "west: {facing}");
+    }
+
+    /// The review's A26: what a window lists from disk is read as it
+    /// opens and kept while it is shown, not read every frame; a window
+    /// closed and opened again reads anew.
+    #[test]
+    fn what_a_window_reads_from_disk_is_kept_while_it_is_shown() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("kept");
+        let made = std::cell::Cell::new(0);
+        let shown = |show: bool| {
+            let out = ctx.run_ui(Default::default(), |ui| {
+                if show {
+                    let v = kept_while_shown(ui.ctx(), id, || {
+                        made.set(made.get() + 1);
+                        made.get()
+                    });
+                    assert_eq!(v, made.get());
+                }
+            });
+            { out }.textures_delta.clear();
+        };
+        for _ in 0..5 {
+            shown(true);
+        }
+        assert_eq!(made.get(), 1, "read once while shown");
+        shown(false);
+        shown(false);
+        shown(true);
+        shown(true);
+        assert_eq!(made.get(), 2, "and again when opened again");
     }
 }

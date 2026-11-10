@@ -897,6 +897,12 @@ pub struct Moonglow {
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
+    /// The waypoints' tags of the areas not open, for Create Waypoint and
+    /// Create Set.
+    pub(crate) waypoint_tags: area_view::WaypointTags,
+    /// The lights of placeables.2da (`area_view::stock_lights`,
+    /// `made_lights`), found once for each reading of the table.
+    pub(crate) lights_kept: std::cell::RefCell<Option<area_view::LightsKept>>,
     /// The interface size was set from the settings (to set it back).
     scaled: bool,
     /// The models' windows open as the frame began.
@@ -1300,6 +1306,8 @@ impl Moonglow {
             placeable_gallery: None,
             script_nav: Default::default(),
             prefab_save: None,
+            waypoint_tags: Default::default(),
+            lights_kept: Default::default(),
             update_draft: None,
             export_dir: None,
             model_export: None,
@@ -4406,6 +4414,11 @@ impl Moonglow {
         // what it turned.)
         if self.area_views.values().any(area_view::AreaView::key_turning) {
             area_view::commit_key_turns(self);
+        }
+        // (So does a Ctrl + wheel scaling: of the objects it was begun
+        // on, which the command may take out or move in their list.)
+        if self.area_views.values().any(area_view::AreaView::wheel_scaling) {
+            area_view::commit_wheel_scales(self);
         }
         self.warn_shadowing(&cmd);
         // Claimed areas kept read-only, protected names asked about.

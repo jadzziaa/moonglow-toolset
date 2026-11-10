@@ -46,16 +46,17 @@ fn material_name(materials: &[Choice], row: u32) -> String {
     }
 }
 
-/// The tileset's grass (`[GRASS]`), read once for each tileset; `None`
-/// when the tileset grows none, or cannot be read.
-fn tileset_grass(app: &Moonglow, ctx: &egui::Context, tileset: ResRef) -> Option<GrassLook> {
-    let id = egui::Id::new(("mg-tileset-grass", tileset));
-    if let Some(known) = ctx.data(|d| d.get_temp::<Option<GrassLook>>(id)) {
-        return known;
+/// The tileset's grass (`[GRASS]`), read once for each tileset, until
+/// the game data is read again (kept with what the palette made of it:
+/// `PaletteView::forget_game_data`); `None` when the tileset grows none,
+/// or cannot be read.
+fn tileset_grass(app: &Moonglow, tileset: ResRef) -> Option<GrassLook> {
+    if let Some(known) = app.palette.tileset_grass.borrow().get(&tileset) {
+        return known.clone();
     }
     app.game.as_ref()?;
     let look = app.tileset(tileset).and_then(|t| GrassLook::of_tileset(&t));
-    ctx.data_mut(|d| d.insert_temp(id, look.clone()));
+    app.palette.tileset_grass.borrow_mut().insert(tileset, look.clone());
     look
 }
 
@@ -157,7 +158,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         .and_then(|ws| ws.doc(&ResKey::new(area, ResType::ARE)).ok())
         .and_then(|are| are.root.resref("Tileset"))
         .unwrap_or(ResRef::EMPTY);
-    let own = tileset_grass(app, ui.ctx(), tileset);
+    let own = tileset_grass(app, tileset);
     let materials = materials(app);
     let present = materials_present(app, ui.ctx(), area, tileset);
     // What is being tried out, in place of the stored values.
@@ -396,4 +397,34 @@ fn color(ui: &mut Ui, id: egui::Id, rgb: [f32; 3]) -> ([f32; 3], bool, bool) {
         return (picked, false, picked != rgb);
     }
     (picked, open, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The review's A15: the tileset's grass shown by Area Properties ›
+    /// Grass was kept for the life of the process, by the tileset's name:
+    /// with a tileset's `[GRASS]` changed and the resources read again,
+    /// the page still said the old texture, density and height, and what
+    /// a drag tried out in the view grew the old grass. It is kept with
+    /// what the palette made of the game data, and forgotten with it.
+    #[test]
+    fn a_tileset_s_grass_is_forgotten_with_the_game_data() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let set = ResRef::from_str("tst01").unwrap();
+        let look = GrassLook {
+            texture: "grass_old".into(),
+            density: 8.0,
+            height: 0.5,
+            ambient: [1.0; 3],
+            diffuse: [1.0; 3],
+        };
+        app.palette.tileset_grass.borrow_mut().insert(set, Some(look.clone()));
+        assert_eq!(tileset_grass(&app, set), Some(look), "kept while the game data is");
+        app.palette.forget_game_data();
+        // (Read again: with no game here, there is none to read.)
+        assert_eq!(tileset_grass(&app, set), None);
+        assert!(app.palette.tileset_grass.borrow().is_empty());
+    }
 }

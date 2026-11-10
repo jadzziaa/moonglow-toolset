@@ -1583,6 +1583,17 @@ fn tiles_copy_and_paste() {
         press(h, at, false, egui::Modifiers::NONE);
         h.run_steps(2);
     };
+    // (Its Replacement Texture row 4, and another on the tile it will be
+    // pasted over: the review's A9, the pasted tile took the old one's.)
+    let replace = |i: usize, row: u8| mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root().item("Tile_List", i),
+        label: "Tile_ReplaceTex".into(),
+        value: Some(mg_gff::Value::Byte(row)),
+    };
+    let rows = mg_edit::Command::new("Rows", vec![replace(5, 4), replace(0, 2)]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(rows));
+    h.run_steps(3);
     // Tile (1, 1): the room's south-west quarter, a Stone corner at its
     // north-east. Copied, pasted with its south-west tile at (0, 0).
     click(&mut h, Vec3::new(15.0, 15.0, 0.0));
@@ -1601,6 +1612,7 @@ fn tiles_copy_and_paste() {
     {
         assert_eq!(pasted.get(label), copied.get(label), "{label}");
     }
+    assert_eq!(pasted.integer("Tile_ReplaceTex"), Some(4), "the copied tile's row");
     // The tiles around fit it: the area's tiles make one lattice.
     let game = h.state().game.as_deref().unwrap();
     let set = mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap();
@@ -3658,6 +3670,18 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     assert_eq!(undo_label(&h), before);
 }
 
+/// An edit of the area (a waypoint's tag), which its view reads.
+fn set_waypoint_tag(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("WaypointList", 0),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"MG_READ".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(3);
+}
+
 /// The tile selection's outline on a tile that isn't flat (the owner's
 /// report on Tile Properties): on Rural's cliff corner, turned away from
 /// the view, it showed as a thin strip, its corners joined straight across
@@ -3684,6 +3708,14 @@ fn the_tile_selection_s_outline_follows_a_cliff_tile() {
     click_pos(&h, at);
     h.run_steps(3);
     assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
+    // (The review's A24: the outline is laid along the ground once, and
+    // put on screen each frame; laid again when the ground changes.)
+    let laid = h.state().area_views[&area].outlines_laid();
+    assert!(laid > 0);
+    h.run_steps(8);
+    assert_eq!(h.state().area_views[&area].outlines_laid(), laid, "not every frame");
+    set_waypoint_tag(&mut h, area);
+    assert!(h.state().area_views[&area].outlines_laid() > laid, "laid again for the area read");
     // Along the ground in half-metre steps, from the plateau down into the
     // corner and back; a flat tile, its four corners.
     let view = &h.state().area_views[&area];
@@ -4127,7 +4159,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
         }
         h.run_steps(3);
         let g = grid(h);
-        for t in &shown {
+        for t in shown.iter() {
             let placed = g.tile(t.column, t.row);
             assert_eq!(
                 (i64::from(placed.tile), placed.orientation, placed.height),
@@ -4188,7 +4220,7 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
         press(h, to, false, egui::Modifiers::NONE);
         h.run_steps(3);
         let g = grid(h);
-        for t in &shown {
+        for t in shown.iter() {
             let placed = g.tile(t.column, t.row);
             assert_eq!(
                 (i64::from(placed.tile), placed.orientation, placed.height),

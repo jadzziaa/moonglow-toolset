@@ -3,19 +3,23 @@
 //! delete, and blueprints from the palette to place, each change one
 //! undoable command on the area's GIT.
 //!
-//! Aurora's bindings: a click selects, a drag on the ground selects what is
-//! in the box, a drag moves the selection over the ground, Shift + right
-//! drag turns it and Alt + drag raises or lowers it; Ctrl + drag moves the
-//! camera, a right (or Ctrl + right) or middle drag turns it, the wheel zooms (Shift or
-//! Ctrl: slowly), numpad 4, 6, 8, 2 (or W, A, S, D) move it, 7, 9, 1, 3 turn it and 5
-//! looks straight down. With a blueprint chosen in the palette, a click
-//! places it (Shift + click keeps it chosen; right click or Escape lets it
-//! go); triggers and encounters are drawn point by point, a double click
-//! closing the outline. Also: a middle drag turns the camera (Shift:
-//! moves it), the arrow keys move it, Z and C (or Ctrl + Shift + the wheel
-//! or a middle drag) move it up and down, Alt + middle click (Blender's)
-//! puts its focus on the ground clicked, Ctrl + click adds to the
-//! selection and Delete deletes it.
+//! The bindings (`input` for what the pointer does to the area,
+//! `camera_input` for the camera), Aurora's where it has them: a click
+//! selects, a drag on the ground selects what is in the box, a drag
+//! moves the selection over the ground, Alt + right drag turns it and
+//! Alt + drag raises or lowers it (with nothing selected, and in every
+//! other mode, Alt + drag moves the camera); Ctrl + drag moves the
+//! camera, a right or a middle drag turns it and Alt + middle drag moves
+//! it (the two middle drags swapped by Options › Area), the wheel zooms
+//! (Shift or Ctrl: slowly), numpad 4, 6, 8, 2 (or W, A, S, D) and the
+//! arrow keys move it, 7, 9, 1, 3 turn it and 5 looks straight down, Z
+//! and C (or Ctrl + Shift + the wheel or a middle drag) move it up and
+//! down, and Alt + middle click (Blender's) puts its focus on the ground
+//! clicked. With a blueprint chosen in the palette, a click places it
+//! (Shift + click keeps it chosen; right click or Escape lets it go);
+//! triggers and encounters are drawn point by point, a double click
+//! closing the outline. Ctrl + click adds to the selection and Delete
+//! deletes it.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -227,10 +231,6 @@ enum Drag {
     Start { turn: bool, grip: Vec2, at: Vec3, facing: f32, was: (Vec3, f32) },
     /// Selects what is inside the box.
     Box { from: Pos2, to: Pos2 },
-    /// Moves the camera, the ground following the pointer: Alt + left
-    /// drag begun off the selection (GitHub issue 25), on until the button
-    /// is let go, Alt held or not.
-    Pan,
 }
 
 /// The ring around the selection for turning it: taken anywhere on it and
@@ -335,6 +335,11 @@ const HANDLE_LEAST: f32 = 0.005;
 /// Half the side of a scale handle's square, points.
 const SCALE_HANDLE: f32 = 5.0;
 
+/// The mode and tool a view's pointer works in: Paint on, Select Tiles
+/// on, the tile brush in hand, objects being pasted, tiles being pasted
+/// (none of them: the objects' own mode).
+type Tool = (bool, bool, Option<mg_area::terrain::Brush>, bool, bool);
+
 /// Ctrl + wheel scaling under way: what is scaled, by how much so far and
 /// when the wheel turned last (the input's time).
 #[derive(Debug, Clone, PartialEq)]
@@ -397,11 +402,37 @@ pub struct AreaView {
     /// asked thousands of times a frame (an overlay's every face).
     projection: std::cell::Cell<Option<(Orbit, f32, glam::Mat4, f32)>>,
     scene: Option<AreaScene>,
+    /// Where each object is in `model.objects`, by kind and place in its
+    /// GIT list: made as the model is shown ([`show`]). The selection is
+    /// looked up in it, each object of thousands every frame of a drag.
+    places: std::collections::HashMap<(ObjectKind, usize), usize>,
+    /// How high above the ground each object being moved stood as its
+    /// drag began ([`AreaView::lift_of`]): asked of the walkmesh once a
+    /// drag, not every frame of it.
+    lifts: std::cell::RefCell<std::collections::HashMap<(ObjectKind, usize), f32>>,
+    /// The outlines of tile-sized squares laid along the ground
+    /// ([`AreaView::tile_outline`]), by the square's place: asked of the
+    /// walkmesh once for the ground as it is, not every frame (every tile
+    /// of a hilly area selected was tens of thousands of lookups a
+    /// frame). And how many were laid (for tests).
+    outlines: std::cell::RefCell<std::collections::HashMap<[u32; 3], std::sync::Arc<Vec<Vec3>>>>,
+    outlines_laid: std::cell::Cell<u64>,
+    /// The model with a drag, Q and E's turning or Adjust Location
+    /// applied to what they move, as the last frame drew it, and which of
+    /// its objects were posed: kept from frame to frame, those objects
+    /// alone set back and posed again ([`pose_kept`]), where the whole
+    /// model was copied every frame.
+    posed: Option<(AreaModel, Vec<usize>)>,
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
     /// The ARE and GIT `model` was read from: what an edit changed of
     /// them is read again, not the whole area (`refresh`).
     read_from: Option<(Gff, Gff)>,
+    /// The objects read again since `read_from` was read, from what the
+    /// workspace said its edits touched: `model` has them as the GIT had
+    /// them then, not as `read_from` does, so a comparison with
+    /// `read_from` reads them again too.
+    read_since: std::collections::HashSet<(ObjectKind, usize)>,
     /// How many times the area was read whole (for tests: an edit of some
     /// of its objects reads only those).
     pub whole_reads: usize,
@@ -504,6 +535,14 @@ pub struct AreaView {
     /// Whether the start location's marker is selected (with no object).
     pub start_selected: bool,
     drag: Option<Drag>,
+    /// The objects the edits about to run take out and put another in
+    /// place of, each at its place (Replace Selected, its Undo and Redo):
+    /// what holds one of them holds the one in its place after
+    /// ([`held_objects`], [`objects_moved`]).
+    replaced: Vec<(ObjectKind, usize)>,
+    /// The mode and tool the view's input was last read for ([`Tool`]):
+    /// when it is another, what was in hand for the old one is let go of.
+    tool: Tool,
     /// The press on the view, as of this frame.
     pub(crate) held: Held,
     /// Options › Area: the turning ring shows around the selection.
@@ -568,7 +607,7 @@ pub struct AreaView {
     pub brush_cursor: CursorShapes,
     /// The tiles a tile brush's click would make, as the last frame showed
     /// them under the pointer.
-    pub tile_preview: Vec<mg_area::AreaTile>,
+    pub tile_preview: std::sync::Arc<Vec<mg_area::AreaTile>>,
     /// Chooses among the tiles that fit for the preview, and so for the
     /// click it shows (then anew).
     pub(crate) preview_seed: u64,
@@ -579,8 +618,9 @@ pub struct AreaView {
     pub(crate) cursor_cache: Option<(crate::terrain_mode::PreviewKey, CursorShapes)>,
     /// A terrain brush's drag: the corners it is painting.
     pub(crate) terrain_drag: Option<crate::terrain_mode::TerrainDrag>,
-    /// The press going on (or the last one) began with Ctrl held: it is
-    /// the camera's, and a tileset brush leaves it alone.
+    /// The press going on (or the last one) began with Ctrl held, or
+    /// with Alt where Alt + drag moves the view: it is the camera's
+    /// ([`camera_input`]), and every mode leaves it alone.
     pub(crate) camera_press: bool,
     /// What the log was told this area lacks (problems reading it, models
     /// not found): told once.
@@ -896,6 +936,7 @@ impl AreaView {
         self.terrain = None;
         self.scene = None;
         self.ground = None;
+        self.outlines.borrow_mut().clear();
         self.walkable = None;
         self.object_walks = Default::default();
         self.object_faces = None;
@@ -971,6 +1012,24 @@ impl AreaView {
     /// others now or none. (The preview and the cursor are worked out
     /// before the pointer's spot is read again: one kept from a larger
     /// area was looked up in the smaller one's lattice, issue 31.)
+    /// Lets go of what the pointer held for the mode or tool before this
+    /// one, without making it a step: a drag of the selection, of a
+    /// handle or of the start location, a terrain or crosser drag, the
+    /// box selecting tiles, a brush's stroke. A key that changes the mode
+    /// in the middle of a drag (a tile tool's, Paint's, Select Tiles',
+    /// Ctrl+V) left the drag held with nothing reading it: the object
+    /// stayed drawn where it was dragged, and the move was made a step
+    /// when the mode was next left.
+    fn let_go(&mut self) {
+        self.drag = None;
+        self.terrain_drag = None;
+        self.crossing.clear();
+        self.crossing_at = None;
+        self.crossing_outline = None;
+        self.tile_box = None;
+        self.paint.drop_stroke();
+    }
+
     fn ground_changed(&mut self) {
         self.spot = None;
         self.terrain_drag = None;
@@ -979,7 +1038,7 @@ impl AreaView {
         self.crossing_outline = None;
         self.preview_cache = None;
         self.cursor_cache = None;
-        self.tile_preview.clear();
+        self.tile_preview = Default::default();
         self.tile_selection.clear();
         self.menu_tile = None;
         self.refused = None;
@@ -991,10 +1050,16 @@ impl AreaView {
             model: None,
             projection: std::cell::Cell::new(None),
             scene: None,
+            places: Default::default(),
+            lifts: Default::default(),
+            outlines: Default::default(),
+            outlines_laid: Default::default(),
+            posed: None,
             reading: None,
             textures_drawn: 0,
             revision: None,
             read_from: None,
+            read_since: Default::default(),
             whole_reads: 0,
             var_previewed: (Vec::new(), None),
             rewrites: None,
@@ -1058,6 +1123,8 @@ impl AreaView {
             ghost_turn: 0.0,
             ghost_step: 0,
             menu_at: None,
+            tool: Default::default(),
+            replaced: Vec::new(),
             menu_tile: None,
             snap: (None, None),
             turn_together: false,
@@ -1068,7 +1135,7 @@ impl AreaView {
             camera_press: false,
             told: Vec::new(),
             left_out: std::collections::HashMap::new(),
-            tile_preview: Vec::new(),
+            tile_preview: Default::default(),
             preview_seed: fastrand::u64(..),
             preview_cache: None,
             cursor_cache: None,
@@ -1129,6 +1196,11 @@ impl AreaView {
         Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
     }
 
+    /// The workspace's revision the area was read at.
+    pub(crate) fn read_at(&self) -> Option<u64> {
+        self.revision
+    }
+
     /// How far Q and E have turned what is about to be placed (radians).
     pub(crate) fn ghost_turn(&self) -> f32 {
         self.ghost_turn
@@ -1172,7 +1244,8 @@ impl AreaView {
     }
 
     /// The selection as a set: the overlays look up every object in it
-    /// each frame (thousands selected, by Ctrl+A).
+    /// each frame (thousands selected, by a box over the area or the
+    /// module tree's Go To).
     fn selected_set(&self) -> std::collections::HashSet<(ObjectKind, usize)> {
         self.selection.iter().copied().collect()
     }
@@ -1210,7 +1283,18 @@ impl AreaView {
 
     /// The position of object (kind, index) in `model.objects`.
     fn object_at(&self, kind: ObjectKind, index: usize) -> Option<usize> {
-        self.model.as_ref()?.objects.iter().position(|o| o.kind == kind && o.index == index)
+        self.place_in(self.model.as_ref()?, kind, index)
+    }
+
+    /// [`AreaView::object_at`] in `model`: the view's own, or a copy of
+    /// it with objects posed. By the places kept as the model was shown;
+    /// where an object is not at its place (the model changed since, by
+    /// a reading of one object), by going through them.
+    fn place_in(&self, model: &AreaModel, kind: ObjectKind, index: usize) -> Option<usize> {
+        let is = |o: &mg_area::AreaObject| o.kind == kind && o.index == index;
+        let kept = self.places.get(&(kind, index)).copied();
+        kept.filter(|&i| model.objects.get(i).is_some_and(is))
+            .or_else(|| model.objects.iter().position(is))
     }
 
     /// The placed object `index` of `kind` as a light with nothing to see
@@ -1271,10 +1355,39 @@ impl AreaView {
     }
 
     /// The ground point under the pointer: on the walkmesh, else on the
-    /// plane at height `z`.
+    /// plane at height `z`. The plane has no end: with the view pitched
+    /// low, a point past the area's far edge is kilometres off
+    /// ([`AreaView::area_point`] for what is put down there).
     pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
         let ray = self.ray(pos)?;
         self.ground.as_ref().and_then(|g| g.hit(&ray)).or_else(|| ray.at_height(z))
+    }
+
+    /// The ground point under the pointer where that is in the area (over
+    /// its tiles' rectangle): where an object, a paste, a light or the
+    /// start location is put down, an outline's corner set and the area's
+    /// menu opened. `None` on the void around the area, as Aurora places
+    /// nothing there.
+    pub(crate) fn area_point(&self, pos: Pos2) -> Option<Vec3> {
+        self.ground_at(pos, 0.0).filter(|p| self.in_area(*p))
+    }
+
+    /// Whether `p` is over the area's tiles (anywhere, before it is
+    /// read): to a centimeter, a point on the very edge being a rounding
+    /// error either side of it.
+    fn in_area(&self, p: Vec3) -> bool {
+        const EDGE: f32 = 0.01;
+        self.model.as_ref().is_none_or(|m| {
+            let (east, north) = m.size();
+            (-EDGE..=east + EDGE).contains(&p.x) && (-EDGE..=north + EDGE).contains(&p.y)
+        })
+    }
+
+    /// `p` kept over the area's tiles: where a drag that strays past the
+    /// area's edge leaves what it leads, at the edge.
+    fn kept_in_area(&self, p: Vec3) -> Vec3 {
+        let Some((east, north)) = self.model.as_ref().map(AreaModel::size) else { return p };
+        Vec3::new(p.x.clamp(0.0, east), p.y.clamp(0.0, north), p.z)
     }
 
     /// The point Alt + middle click puts the camera's focus on: where the ray
@@ -1304,20 +1417,14 @@ impl AreaView {
     /// drawn, so that they lie on the ground the pointer picks.
     pub(crate) fn ground_height(&self, p: Vec3) -> f32 {
         let Some(g) = &self.ground else { return p.z };
-        let index = self.model.as_ref().and_then(|m| {
-            let (x, y) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
-            let inside = x >= 0.0 && y >= 0.0 && (x as u32) < m.width && (y as u32) < m.height;
-            inside.then(|| (y as u32 * m.width + x as u32) as usize)
-        });
+        let index = self
+            .model
+            .as_ref()
+            .and_then(|m| tile_of(p, m.width, m.height).map(|(x, y)| (y * m.width + x) as usize));
         let near = index.and_then(|i| g.tile_level(i)).unwrap_or(p.z);
         g.height(p.truncate(), near).unwrap_or(near)
     }
 
-    /// A shape's corners laid on the ground ([`ground_height`](Self::ground_height),
-    /// a little above it): each corner's height taken a little inside the
-    /// shape, so that at a cliff's edge it takes this side's. Some
-    /// tilesets build their ground above the tiles' heights, and slopes and
-    /// cliffs are not at a corner's.
     /// A tile-sized square ([`tile_square`]) as it lies on the ground the
     /// pointer picks, on screen; `None` where a corner is out of view.
     pub(crate) fn square_on_screen(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
@@ -1335,7 +1442,29 @@ impl AreaView {
     /// view. A tile whose corners and middle are level is its four corners
     /// (a large selection of flat tiles asks the ground no more than that).
     pub(crate) fn square_along_ground(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
-        self.tile_outline(x, y, z).into_iter().map(|p| self.screen_pos(p)).collect()
+        // (The outline in the area is the ground's, kept while the ground
+        // is as it is; where it is on screen is the camera's, each frame.)
+        let key = [x, y, z].map(f32::to_bits);
+        let kept = self.outlines.borrow().get(&key).cloned();
+        let outline = kept.unwrap_or_else(|| {
+            let laid = std::sync::Arc::new(self.tile_outline(x, y, z));
+            self.outlines_laid.set(self.outlines_laid.get() + 1);
+            let mut outlines = self.outlines.borrow_mut();
+            // (Squares that follow the pointer, a paste's: not kept for
+            // ever.)
+            if outlines.len() > 8192 {
+                outlines.clear();
+            }
+            outlines.insert(key, laid.clone());
+            laid
+        });
+        outline.iter().map(|p| self.screen_pos(*p)).collect()
+    }
+
+    /// How many tile outlines were laid along the ground (for tests: not
+    /// every frame).
+    pub fn outlines_laid(&self) -> u64 {
+        self.outlines_laid.get()
     }
 
     /// [`square_along_ground`](Self::square_along_ground)'s points in the
@@ -1357,6 +1486,11 @@ impl AreaView {
         out
     }
 
+    /// A shape's corners laid on the ground ([`ground_height`](Self::ground_height),
+    /// a little above it): each corner's height taken a little inside the
+    /// shape, so that at a cliff's edge it takes this side's. Some
+    /// tilesets build their ground above the tiles' heights, and slopes and
+    /// cliffs are not at a corner's.
     pub(crate) fn on_ground(&self, points: &[Vec3]) -> Vec<Vec3> {
         let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
         points
@@ -1380,7 +1514,8 @@ impl AreaView {
         let to = o.position.truncate() + offset;
         let ground = self.ground.as_ref().filter(|_| !o.kind.has_outline());
         let Some(g) = ground else { return to.extend(o.position.z) };
-        let lift = self.lift_of(o);
+        let lift =
+            *(self.lifts.borrow_mut()).entry((o.kind, o.index)).or_insert_with(|| self.lift_of(o));
         let near = o.position.z - lift;
         g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
     }
@@ -1392,7 +1527,7 @@ impl AreaView {
     /// the ground below it, as Drop onto Object sets it. (Higher, a
     /// tree's canopy: on the ground, as off.)
     pub(crate) fn put_down_at(&self, pos: Pos2) -> Option<Vec3> {
-        let ground = self.ground_at(pos, 0.0)?;
+        let ground = self.area_point(pos)?;
         if !self.onto_objects {
             return Some(self.snapped(ground));
         }
@@ -1523,7 +1658,7 @@ impl AreaView {
     fn chosen<'a>(&'a self, model: &'a AreaModel) -> impl Iterator<Item = &'a mg_area::AreaObject> {
         self.selection
             .iter()
-            .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
+            .filter_map(|&(k, i)| self.place_in(model, k, i).map(|at| &model.objects[at]))
             .filter(|o| self.show[o.kind.index()] && !o.locked)
             .take(TOOLS_MAX)
     }
@@ -1816,11 +1951,22 @@ impl AreaView {
     /// encounter: the encounter's place in the model, the point's in its
     /// list, and where the point is.
     fn spawn_arrow_at(&self, pos: Pos2) -> Option<(usize, usize, Vec3)> {
-        let model = self.model.as_ref()?;
-        model
-            .objects
-            .iter()
-            .enumerate()
+        self.spawn_handles()
+            .find(|&(_, _, p, facing)| {
+                self.screen_pos(spawn_arrow_tip(p, facing))
+                    .is_some_and(|tip| tip.distance(pos) <= RING_REACH)
+            })
+            .map(|(i, k, p, _)| (i, k, p))
+    }
+
+    /// The spawn points that have handles: those of the selected
+    /// encounters that are shown and not locked, on an area that is not
+    /// read-only, in the model's order. Each with its encounter's place in
+    /// the model, its own in the encounter's list, where it is and the
+    /// way it faces.
+    fn spawn_handles(&self) -> impl Iterator<Item = (usize, usize, Vec3, f32)> + '_ {
+        let objects = self.model.iter().flat_map(|m| m.objects.iter().enumerate());
+        objects
             .filter(|(i, o)| {
                 o.kind == ObjectKind::Encounter
                     && self.selected(*i)
@@ -1828,34 +1974,22 @@ impl AreaView {
                     && self.read_only.is_none()
                     && self.show[o.kind.index()]
             })
-            .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, o, k, *p)))
-            .find(|(_, o, k, p)| {
-                let facing = o.spawn_facings.get(*k).copied().unwrap_or(0.0);
-                self.screen_pos(spawn_arrow_tip(*p, facing))
-                    .is_some_and(|tip| tip.distance(pos) <= RING_REACH)
+            .flat_map(|(i, o)| {
+                o.spawn_points
+                    .iter()
+                    .enumerate()
+                    .map(move |(k, p)| (i, k, *p, o.spawn_facings.get(k).copied().unwrap_or(0.0)))
             })
-            .map(|(i, _, k, p)| (i, k, p))
     }
 
     /// The spawn point whose post's foot is under `pos`, of a selected
     /// encounter: as [`spawn_arrow_at`](Self::spawn_arrow_at).
     fn spawn_foot_at(&self, pos: Pos2) -> Option<(usize, usize, Vec3)> {
-        let model = self.model.as_ref()?;
-        model
-            .objects
-            .iter()
-            .enumerate()
-            .filter(|(i, o)| {
-                o.kind == ObjectKind::Encounter
-                    && self.selected(*i)
-                    && !o.locked
-                    && self.read_only.is_none()
-                    && self.show[o.kind.index()]
+        self.spawn_handles()
+            .find(|&(_, _, p, _)| {
+                self.screen_pos(p).is_some_and(|foot| foot.distance(pos) <= RING_REACH)
             })
-            .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, k, *p)))
-            .find(|(_, _, p)| {
-                self.screen_pos(*p).is_some_and(|foot| foot.distance(pos) <= RING_REACH)
-            })
+            .map(|(i, k, p, _)| (i, k, p))
     }
 
     /// Whether `pos` is over the view itself: in it, and not over a window
@@ -2045,11 +2179,14 @@ impl AreaView {
                     | Drag::FaceSpawn { .. }
                     | Drag::MoveSpawn { .. }
                     | Drag::Start { .. }
-                    | Drag::Pan
             )
         };
         // (No drag: Q and E's turning under way, if any.)
         let Some(mut drag) = self.drag.filter(moves) else {
+            // (And nothing stands at a height kept for a drag.)
+            if !self.lifts.borrow().is_empty() {
+                self.lifts.borrow_mut().clear();
+            }
             return self.key_turned();
         };
         if let Drag::Spin { angle, .. } = drag {
@@ -2091,12 +2228,12 @@ impl AreaView {
         // it would turn where it stands, carried along (a turn's drag
         // turns it already). Seen as it goes, and part of the drag's
         // command: an owner's report, it waited until the keys rested.
-        let turning: Vec<(usize, Vec3, f32)> = match drag {
-            Drag::Turn { .. } | Drag::Spin { .. } => Vec::new(),
-            _ => self.key_turned(),
+        let turning: std::collections::HashMap<usize, (Vec3, f32)> = match drag {
+            Drag::Turn { .. } | Drag::Spin { .. } => Default::default(),
+            _ => self.key_turned().into_iter().map(|(i, p, r)| (i, (p, r))).collect(),
         };
-        let with_turn = |(i, p, r): (usize, Vec3, f32)| match turning.iter().find(|t| t.0 == i) {
-            Some(&(_, tp, tr)) => (i, p + (tp - model.objects[i].position), tr),
+        let with_turn = |(i, p, r): (usize, Vec3, f32)| match turning.get(&i) {
+            Some(&(tp, tr)) => (i, p + (tp - model.objects[i].position), tr),
             None => (i, p, r),
         };
         self.selected_indices()
@@ -2124,8 +2261,7 @@ impl AreaView {
                     | Drag::Scale { .. }
                     | Drag::FaceSpawn { .. }
                     | Drag::MoveSpawn { .. }
-                    | Drag::Start { .. }
-                    | Drag::Pan => (i, o.position, o.rotation),
+                    | Drag::Start { .. } => (i, o.position, o.rotation),
                 }
             })
             .map(with_turn)
@@ -2247,6 +2383,7 @@ fn preview_variables(app: &mut Moonglow, view: &mut AreaView) {
         }
         read.push(model.read_object(&game, kind, *index, &s));
     }
+    view.posed = None;
     if let (Some(scene), Some(vp)) = (&mut view.scene, &app.viewport) {
         scene.update_objects(&vp.gpu, &game, model, &read);
     }
@@ -2325,6 +2462,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
             }
         };
         step(&format!("{} of its objects read again", changed.len()));
+        view.read_since.extend(changed.iter().map(|(o, _)| *o));
         if let Some(g) = &mut view.ground {
             g.update(&game, &model);
         }
@@ -2363,8 +2501,15 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         && view.model.is_some()
         && let Some((was_are, was_git)) = &view.read_from
         && *was_are == are
-        && let Some(changed) = AreaModel::changed_objects(&was_git.root, &git.root)
+        && let Some(mut changed) = AreaModel::changed_objects(&was_git.root, &git.root)
     {
+        // (And those the model has as an edit since left them, which may
+        // be set back by now: an object moved, the move undone while
+        // another tab was in front, the module saved.)
+        let since = std::mem::take(&mut view.read_since);
+        let known: std::collections::HashSet<_> = changed.iter().copied().collect();
+        changed.extend(since.into_iter().filter(|o| !known.contains(o)));
+        changed.sort();
         let mut model = view.model.take().expect("checked above");
         if changed.is_empty() {
             step("nothing of it changed");
@@ -2398,6 +2543,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         let (are, git) = (are.clone(), git.clone());
         // (What the thread reads it from.)
         view.read_from = Some((are.clone(), git.clone()));
+        view.read_since.clear();
         view.whole_reads += 1;
         let work = move || {
             let set = mg_area::tileset(&game, tileset_ref).map_err(|e| e.to_string());
@@ -2438,6 +2584,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
     let model = AreaModel::read(&game, &are.root, &git.root, tileset);
     view.read_from = Some((are.clone(), git.clone()));
+    view.read_since.clear();
     view.whole_reads += 1;
     step(&format!(
         "model read: {} by {} tiles, {} objects, tileset {}",
@@ -2529,6 +2676,10 @@ fn show(
     }
     view.error = None;
     view.drawn = None;
+    view.places = model.objects.iter().enumerate().map(|(at, o)| ((o.kind, o.index), at)).collect();
+    view.lifts.borrow_mut().clear();
+    view.outlines.borrow_mut().clear();
+    view.posed = None;
     view.model = Some(model);
 }
 
@@ -2708,14 +2859,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
-        && let Some(o) = view.model.as_ref().and_then(|m| m.object(kind, index))
+        && let Some(model) = &view.model
     {
-        let at = o.position;
-        view.selection = vec![(kind, index)];
-        if let Some(orbit) = &mut view.orbit {
-            orbit.target = at;
-            orbit.distance = orbit.distance.min(25.0);
+        if let Some(o) = model.object(kind, index) {
+            let at = o.position;
+            view.selection = vec![(kind, index)];
+            if let Some(orbit) = &mut view.orbit {
+                orbit.target = at;
+                orbit.distance = orbit.distance.min(25.0);
+            }
         }
+        // (Gone since it was found: not kept for the next object placed
+        // that gets its place in the list.)
         app.area_focus = None;
     }
     // Objects to select (the module tree's Go To on several).
@@ -2741,7 +2896,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.tile_mode = false;
         view.pasting = false;
         view.redraw = None;
-        view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. } | Drag::Pan));
+        view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. }));
     }
     toolbar(app, ui, &mut view);
     // Whose the area is, where it isn't the builder's (the claims table).
@@ -3139,7 +3294,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
     let status = if let Some(paint) = crate::paint_mode::status(app) {
-        paint
+        match view.paint.more {
+            0 => paint,
+            more => format!("{paint} · {more} more are laid than are drawn"),
+        }
     } else if let Some(b) = crate::terrain_mode::active(app, view) {
         let how = match b.brush {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
@@ -3368,8 +3526,10 @@ fn viewport(
                 (instances, hidden)
             }
             _ => {
-                view.tile_preview.clear();
-                (Vec::new(), Vec::new())
+                if !view.tile_preview.is_empty() {
+                    view.tile_preview = Default::default();
+                }
+                (Vec::new(), Default::default())
             }
         };
     let (ghost_instances, ghost_box) =
@@ -3387,7 +3547,7 @@ fn viewport(
     let mut ghost_instances = ghost_instances;
     let pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
         (Some(clip), true) => {
-            let at = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
+            let at = view.pointer_over(ui).and_then(|p| view.area_point(p));
             let at = at.map(|at| view.snapped(at));
             at.map_or_else(Vec::new, |at| {
                 let places = pasted_places(view, clip, at);
@@ -3500,37 +3660,37 @@ fn viewport(
 
     // The scene, with the drag (or Adjust Location) applied to what it
     // moves.
-    let dragged = view.dragged();
-    let mut shown = std::borrow::Cow::Borrowed(model);
-    for &(i, p, r) in adjusting.0.iter().chain(&dragged) {
-        pose(&mut shown.to_mut().objects[i], p, r);
+    let mut poses = adjusting.0;
+    poses.extend(view.dragged());
+    let mut visuals = adjusting.1;
+    visuals.extend(view.tilted());
+    visuals.extend(view.scaled());
+    let spawn = match view.drag {
+        Some(Drag::FaceSpawn { object, point, facing, .. }) => Some((object, point, Err(facing))),
+        Some(Drag::MoveSpawn { object, point, at, .. }) => Some((object, point, Ok(at))),
+        _ => None,
+    };
+    // (A copy of the model kept from frame to frame, the objects posed
+    // set back and posed again: not the whole model copied every frame.)
+    let mut copy = view.posed.take();
+    if poses.is_empty() && visuals.is_empty() && spawn.is_none() {
+        copy = None;
+    } else {
+        let (posed, last) = copy.get_or_insert_with(|| (model.clone(), Vec::new()));
+        pose_kept(&mut posed.objects, last, &model.objects, &poses, &visuals, spawn);
     }
-    for (i, v) in adjusting.1.into_iter().chain(view.tilted()).chain(view.scaled()) {
-        shown.to_mut().objects[i].visual = Some(v);
-    }
-    if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
-        && let Some(o) = shown.to_mut().objects.get_mut(object)
-        && let Some(f) = o.spawn_facings.get_mut(point)
-    {
-        *f = facing;
-    }
-    if let Some(Drag::MoveSpawn { object, point, at, .. }) = view.drag
-        && let Some(o) = shown.to_mut().objects.get_mut(object)
-        && let Some(p) = o.spawn_points.get_mut(point)
-    {
-        *p = at;
-    }
+    let shown: &AreaModel = copy.as_ref().map_or(model, |(posed, _)| posed);
     vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
-        let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+        let mut frame = scene.scene_hiding(shown, &settings, &hidden);
         frame.environment.clock = clock;
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {
             let camera = orbit.camera().view();
             let step = since.map_or(dt, |s| s.clamp(0.0, 0.25));
-            frame.particles = scene.particles(&shown, &settings, &mut view.particles, step, camera);
+            frame.particles = scene.particles(shown, &settings, &mut view.particles, step, camera);
         } else {
             view.particles.clear();
         }
@@ -3539,7 +3699,7 @@ fn viewport(
         frame.instances.extend(ghost_instances);
         frame.instances.extend(preview_instances);
         if view.grid {
-            frame.lines = grid_lines(view, &shown);
+            frame.lines = grid_lines(view, shown);
         }
         let placed: Vec<(usize, Vec3)> = (shown.objects.iter())
             .filter(|o| o.kind == ObjectKind::Sound)
@@ -3572,7 +3732,7 @@ fn viewport(
         // game's `fswater`.)
         vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
         // (The watch: a look at what was drawn, now and then.)
-        let failed = scene.failed_tiles(&shown, &hidden);
+        let failed = scene.failed_tiles(shown, &hidden);
         view.watching.after_drawing(vp, &frame, &failed, &camera, targets, now);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
@@ -3608,18 +3768,18 @@ fn viewport(
         Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
         // About to be placed (the palette's Start Location): under the
         // pointer, facing the way the view looks.
-        _ if app.palette.placing_start => view
-            .pointer_over(ui)
-            .and_then(|p| view.ground_at(p, 0.0))
-            .map(|at| (at, view_facing(view))),
+        _ if app.palette.placing_start => {
+            view.pointer_over(ui).and_then(|p| view.area_point(p)).map(|at| (at, view_facing(view)))
+        }
         // As Adjust Location has it, changed.
         _ => match app.adjust.as_ref().filter(|a| a.start && a.area == view.area) {
             Some(a) => start.map(|s| crate::area_tools::previewed_start(a, s)),
             None => start,
         },
     };
-    overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
-    sound_range_overlay(app, ui, view, &shown);
+    overlays(ui, view, shown, start, app.object_clip.as_ref(), door_brush, marks);
+    sound_range_overlay(app, ui, view, shown);
+    view.posed = copy;
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
     view.pointer = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
     if let Some(p) = view.pointer {
@@ -3627,11 +3787,8 @@ fn viewport(
         let mut text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
         // The tile there (Aurora names a selected tile's model in its
         // status bar), and the tile selected, if it is one.
-        let (column, row) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
-        if column >= 0.0
-            && row >= 0.0
-            && let Some(tile) = view.tile_named(column as u32, row as u32)
-        {
+        let there = view.model.as_ref().and_then(|m| tile_of(p, m.width, m.height));
+        if let Some(tile) = there.and_then(|(column, row)| view.tile_named(column, row)) {
             text.push_str(&format!("   {tile}"));
         }
         if let [(column, row)] = view.tile_selection[..]
@@ -3864,13 +4021,7 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             } else {
                 wall
             };
-            let first = mesh.vertices.len() as u32;
-            for p in points {
-                mesh.colored_vertex(*p, color);
-            }
-            for k in 1..points.len() as u32 - 1 {
-                mesh.add_triangle(first, first + k, first + k + 1);
-            }
+            fan(&mut mesh, points, color);
         }
     }
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
@@ -4115,14 +4266,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         }
         let (r, g, b) = if o.kind == ObjectKind::Door { (70, 140, 255) } else { (255, 150, 40) };
         let alpha = if chosen.contains(&(o.kind, o.index)) { 150 } else { 80 };
-        let color = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
-        let first = mesh.vertices.len() as u32;
-        for p in &points {
-            mesh.colored_vertex(*p, color);
-        }
-        for k in 1..points.len() as u32 - 1 {
-            mesh.add_triangle(first, first + k, first + k + 1);
-        }
+        fan(&mut mesh, &points, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha));
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 200)));
     }
     let green = crate::bake_view::after_color();
@@ -4134,13 +4278,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             continue;
         }
         let [r, g, b, _] = green.to_array();
-        let first = mesh.vertices.len() as u32;
-        for p in &points {
-            mesh.colored_vertex(*p, egui::Color32::from_rgba_unmultiplied(r, g, b, 140));
-        }
-        for k in 1..points.len() as u32 - 1 {
-            mesh.add_triangle(first, first + k, first + k + 1);
-        }
+        fan(&mut mesh, &points, egui::Color32::from_rgba_unmultiplied(r, g, b, 140));
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 230)));
     }
     let painter = ui.painter_at(view.rect);
@@ -4182,9 +4320,6 @@ impl Fits {
     }
 }
 
-/// The toolbar's one button for the walkmeshes: a click shows or hides
-/// the ground's (or hides whichever are shown); held, or right-clicked,
-/// it opens the two to choose from, the ground's and the objects'.
 /// The area toolbar's buttons to show, ticked (its right-click menu, one
 /// to a line, and Options › Area › Toolbar, `wrapped` in rows): `hidden`,
 /// those left out, by name.
@@ -4235,6 +4370,9 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
     }
 }
 
+/// The toolbar's one button for the walkmeshes: a click shows or hides
+/// the ground's (or hides whichever are shown); held, or right-clicked,
+/// it opens the two to choose from, the ground's and the objects'.
 fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
     let on = view.walkmesh || view.object_walkmesh;
     let label = tools.label(crate::icons::WALKMESH, "Walkmesh…");
@@ -4388,6 +4526,13 @@ fn overlays(
 ) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
+    // Where the pointer is over the view itself, not over a window in
+    // front of it: what follows the pointer (a paste's outlines, the door
+    // hooks, an outline's next edge) and the handles lit under it go by
+    // this, as the see-through copies do. (Each asked the pointer on its
+    // own: a paste's boxes showed under a window where its copies did
+    // not.)
+    let hover = view.pointer_over(ui);
     // What a handle says beside itself (an angle, a scale, a height).
     let note = |at: Pos2, text: String| {
         let font = egui::FontId::proportional(13.0);
@@ -4409,6 +4554,9 @@ fn overlays(
     };
     let scene = view.scene.as_ref();
     let chosen = view.selected_set();
+    // (The boxes' edges, painted together after the objects are gone
+    // through.)
+    let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
@@ -4451,10 +4599,7 @@ fn overlays(
                         let held = matches!(view.drag, Some(Drag::FaceSpawn { object, point, .. })
                             if object == i && point == k);
                         let over = view.drag.is_none()
-                            && ui
-                                .ctx()
-                                .pointer_hover_pos()
-                                .is_some_and(|q| q.distance(c) <= RING_REACH);
+                            && hover.is_some_and(|q| q.distance(c) <= RING_REACH);
                         let fill = if held || over { Color32::WHITE } else { stroke.color };
                         painter.circle(
                             c,
@@ -4475,10 +4620,7 @@ fn overlays(
                         let held = matches!(view.drag, Some(Drag::MoveSpawn { object, point, .. })
                             if object == i && point == k);
                         let over = view.drag.is_none()
-                            && ui
-                                .ctx()
-                                .pointer_hover_pos()
-                                .is_some_and(|q| q.distance(c) <= RING_REACH);
+                            && hover.is_some_and(|q| q.distance(c) <= RING_REACH);
                         let fill = if held || over { Color32::WHITE } else { stroke.color };
                         painter.rect(
                             Rect::from_center_size(c, egui::vec2(8.0, 8.0)),
@@ -4565,17 +4707,21 @@ fn overlays(
                 _ => Color32::from_rgb(230, 70, 70),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
-            // (Painted together: one at a time, each of thousands took
-            // the window's lock.)
-            let edges = box_edges(transform, min, max).filter_map(|(a, b)| {
-                segment(a, b).map(|points| egui::Shape::LineSegment { points, stroke })
-            });
-            painter.extend(edges.collect::<Vec<_>>());
+            let edges = box_edges(transform, min, max);
+            boxes.extend(edges.filter_map(|(a, b)| segment(a, b).map(|points| (points, stroke))));
         }
+    }
+    // (Painted together: one at a time, each of thousands took the
+    // window's lock; and past some eighty boxes as one mesh.)
+    if boxes.len() > BOXES_MESHED {
+        painter.add(egui::Shape::mesh(lines_mesh(&boxes)));
+    } else {
+        let lines = boxes.into_iter();
+        painter.extend(lines.map(|(points, stroke)| egui::Shape::LineSegment { points, stroke }));
     }
     if view.pasting
         && let Some(clip) = clip
-        && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0))
+        && let Some(at) = hover.and_then(|p| view.area_point(p))
     {
         let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
         let places = pasted_places(view, clip, view.snapped(at));
@@ -4610,7 +4756,7 @@ fn overlays(
     if door_brush {
         // The door hooks: a short line across the doorway, the nearest to
         // the pointer bright.
-        let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
+        let pointer = hover.and_then(|p| view.ground_at(p, 0.0));
         let near = pointer.and_then(|p| shown.hook_near(p, DOOR_REACH)).copied();
         for h in &shown.hooks {
             let lit = near.is_some_and(|n| n.position == h.position && n.bearing == h.bearing);
@@ -4638,11 +4784,7 @@ fn overlays(
     // (and following the pointer as it is).
     let scaling = matches!(view.drag, Some(Drag::Scale { .. }));
     if scaling || (tilting && view.drag.is_none()) {
-        let over = ui
-            .ctx()
-            .pointer_hover_pos()
-            .filter(|_| view.drag.is_none())
-            .and_then(|p| view.scale_handle_at(p));
+        let over = hover.filter(|_| view.drag.is_none()).and_then(|p| view.scale_handle_at(p));
         let pointer = ui.ctx().pointer_latest_pos();
         let white = Color32::from_rgb(240, 240, 240);
         for (pivot, handle) in view.scale_handles(shown) {
@@ -4687,11 +4829,7 @@ fn overlays(
             Some(Drag::Tilt { ring, .. }) => Some(ring.axis),
             _ => None,
         };
-        let over = ui
-            .ctx()
-            .pointer_hover_pos()
-            .filter(|_| view.drag.is_none())
-            .and_then(|p| view.tilt_ring_at(p));
+        let over = hover.filter(|_| view.drag.is_none()).and_then(|p| view.tilt_ring_at(p));
         for ring in rings {
             // (Led, every ring of the axis; hovered, the one under the
             // pointer.)
@@ -4723,7 +4861,7 @@ fn overlays(
         _ => None,
     };
     if sliding.is_some() || (tilting && view.drag.is_none()) {
-        let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+        let pointer = hover.filter(|_| view.drag.is_none());
         let over = pointer.and_then(|p| view.axis_arrow_at(p));
         for arrow in view.axis_arrows(shown) {
             if sliding.is_some_and(|axis| axis != arrow.axis) {
@@ -4761,7 +4899,7 @@ fn overlays(
         )
     {
         let spinning = matches!(view.drag, Some(Drag::Spin { .. }));
-        let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+        let pointer = hover.filter(|_| view.drag.is_none());
         let color = Color32::from_rgb(255, 170, 60);
         for ring in view.turn_rings(shown) {
             let lit = spinning || pointer.is_some_and(|p| view.on_ring(&ring, p));
@@ -4793,7 +4931,7 @@ fn overlays(
         for w in view.outline.windows(2) {
             line(w[0], w[1], stroke);
         }
-        let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
+        let pointer = hover.and_then(|p| view.ground_at(p, 0.0));
         // (With Alt held after the first corner: the rectangle a click
         // would make.)
         let alt = view.rectangle || view.alt_held == Some(false);
@@ -4849,7 +4987,7 @@ fn overlays(
         // marker.
         if let (true, Some(c)) = (selected, at(m.tip)) {
             let turning = matches!(view.drag, Some(Drag::Start { turn: true, .. }));
-            let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+            let pointer = hover.filter(|_| view.drag.is_none());
             let lit = turning || pointer.is_some_and(|q| q.distance(c) <= RING_REACH);
             let (radius, fill) = if lit {
                 (7.5, Color32::from_rgb(255, 225, 150))
@@ -4919,7 +5057,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     app.area_hovered |= response.hovered();
     let was_tile_mode = view.tile_mode;
     let middle_moves = app.settings.middle_drag_moves;
-    camera_input(ui, view, response, (alt, shift, command), middle_moves, &app.keymap, scaling);
+    // Alt + drag moves the view unless it raises the selection: with
+    // nothing selected, on a read-only area, and in every mode that is
+    // not the objects' (Paint, Select Tiles, a tile brush in hand).
+    let alt_pans = view.selection.is_empty()
+        || view.read_only.is_some()
+        || app.paint
+        || view.tile_mode
+        || crate::terrain_mode::active(app, view).is_some();
+    let camera = (middle_moves, alt_pans);
+    camera_input(ui, view, response, (alt, shift, command), camera, &app.keymap, scaling);
     // F10 into tile mode: the tile brush is put down (it would sit on top).
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;
@@ -5019,6 +5166,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         crate::terrain_mode::tool_keys(app, ui, view);
     }
+    // Another mode or tool than the input was last read for (by a key
+    // just now, or since the last frame): what was in hand is let go of.
+    let tool: Tool = (
+        app.paint,
+        view.tile_mode,
+        crate::terrain_mode::active(app, view).map(|b| b.brush),
+        view.pasting,
+        view.tile_pasting,
+    );
+    if view.tool != tool {
+        view.tool = tool;
+        view.let_go();
+    }
     // Shift + right click on the ground: the tile there steps to the next
     // that fits, in any mode, as Aurora's does (a builder's ask: it took
     // Select Tiles), and no menu opens. On an object, its menu as ever;
@@ -5099,7 +5259,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.pasting = false;
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             paste_at(app, view, at);
             view.pasting = false;
@@ -5115,7 +5275,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.outline.clear();
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             // Alt and a click after the first corner: the rectangle from
             // there to here, closed at once.
@@ -5151,7 +5311,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             app.palette.placing_start = false;
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             set_start_location(app, view, at, view_facing(view));
             view.selection.clear();
@@ -5185,7 +5345,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             app.palette.placing_light = None;
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
             && let Some(light) = light_of_row(app, row)
         {
             add_light(app, view, &light, at);
@@ -5210,7 +5370,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         if response.clicked()
             && (!command || alt || rectangle)
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             let kind = ObjectKind::from_restype(key.restype).expect("a brush places objects");
             if kind.has_outline() {
@@ -5345,7 +5505,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.tile_selection = vec![tile];
     }
     if response.secondary_clicked() {
-        view.menu_at = response.interact_pointer_pos().and_then(|p| view.ground_at(p, 0.0));
+        view.menu_at = response.interact_pointer_pos().and_then(|p| view.area_point(p));
         // On the ground with no object there: the tile's items too (as
         // Aurora's menu has Tile Properties for a tile).
         view.menu_tile = response
@@ -5415,9 +5575,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             // With a selection, it is raised or lowered wherever the drag
             // begins, as Aurora's Alt + drag does (a builder's ask: it
             // took a press on the selection); with none, the camera moves
-            // (GitHub issue 25), as Ctrl + drag moves it always.
-            let raises = !view.selection.is_empty() && !read_only;
-            Some(if raises { Drag::Lift { by: 0.0 } } else { Drag::Pan })
+            // (GitHub issue 25), as Ctrl + drag moves it always: the
+            // press is the camera's then (`camera_input`).
+            (!view.camera_press).then_some(Drag::Lift { by: 0.0 })
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
             if !view.selected(i) {
@@ -5457,19 +5617,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     match view.drag {
         Some(Drag::Move { from, .. }) if held.by(button) => {
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, from.z)) {
+                // (Past the area's edge: led no further than the edge.)
+                let now = view.kept_in_area(now);
                 view.drag = Some(Drag::Move { from, offset: (now - from).truncate() });
             }
         }
         Some(Drag::Lift { by }) if held.by(button) => {
             let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
             view.drag = Some(Drag::Lift { by: by - held.delta.y * scale });
-        }
-        Some(Drag::Pan) if held.by(button) => {
-            if let Some(o) = view.orbit.as_mut() {
-                let per_pixel = o.camera().per_point(response.rect.height());
-                pan(o, Vec2::new(-held.delta.x, held.delta.y) * per_pixel);
-            }
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         Some(Drag::Box { from, .. }) if held.by(button) => {
             if let Some(to) = pointer {
@@ -5493,7 +5648,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         Some(Drag::MoveSpawn { object, point, was, .. }) if held.by(button) => {
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, was.z)) {
                 // On the ground there.
-                let to = view.snapped(now);
+                let to = view.kept_in_area(view.snapped(now));
                 let z = view.ground.as_ref().and_then(|g| g.height(to.truncate(), to.z));
                 let at = to.with_z(z.unwrap_or(to.z));
                 view.drag = Some(Drag::MoveSpawn { object, point, at, was });
@@ -5509,6 +5664,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, was.0.z)) {
                 // On the ground there, as the marker is shown.
                 let to = view.snapped((now.truncate() - grip).extend(now.z));
+                let to = view.kept_in_area(to);
                 let z = view.ground.as_ref().and_then(|g| g.height(to.truncate(), to.z));
                 let at = to.with_z(z.unwrap_or(to.z));
                 view.drag = Some(Drag::Start { turn: false, grip, at, facing, was });
@@ -5607,7 +5763,6 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     move_start_location(app, at);
                 }
             }
-            Some(Drag::Pan) => {}
             Some(drag @ Drag::Tilt { .. }) => {
                 view.drag = Some(drag);
                 let tilted = view.tilted();
@@ -5735,7 +5890,9 @@ fn camera_input(
     view: &mut AreaView,
     response: &egui::Response,
     (alt, shift, command): (bool, bool, bool),
-    middle_moves: bool,
+    // Options › Area's Middle drag moves the view; and Alt + left drag
+    // moves it (it raises nothing here).
+    (middle_moves, alt_pans): (bool, bool),
     keys: &crate::keys::Keymap,
     // The wheel is scaling the selection: it does not zoom.
     scaling: bool,
@@ -5765,6 +5922,17 @@ fn camera_input(
             .flatten()
             .and_then(|pos| view.focus_at(pos));
     let held = view.held;
+    // A press begun with Ctrl held, or with Alt where Alt + drag moves
+    // the view, is the camera's until it is let go, the key held or not:
+    // the one rule for every mode, each of which leaves such a press
+    // alone. (Each mode had its own: Alt + drag moved the view in the
+    // objects' mode only, selected tiles in Select Tiles and painted
+    // with a tile brush.)
+    let (pressed, primary) = ui.input(|i| (i.pointer.any_pressed(), i.pointer.primary_down()));
+    if pressed {
+        view.camera_press = command || (alt && alt_pans && primary);
+    }
+    let camera_drag = view.camera_press && held.by(egui::PointerButton::Primary);
     let Some(o) = &mut view.orbit else { return };
     if let Some(p) = focus {
         o.target = p.clamp(
@@ -5792,7 +5960,7 @@ fn camera_input(
     } else if turning {
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
-    } else if (command && held.by(egui::PointerButton::Primary)) || middle_pans {
+    } else if (command && held.by(egui::PointerButton::Primary)) || camera_drag || middle_pans {
         // The ground follows the pointer, a closed hand showing it held.
         // (GitHub issue 25.)
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);
@@ -6032,6 +6200,29 @@ fn turn_keys(view: &AreaView) -> [(crate::keys::Cmd, f32); 4] {
         (Cmd::TurnLeft90, std::f32::consts::FRAC_PI_2),
         (Cmd::TurnRight90, -std::f32::consts::FRAC_PI_2),
     ]
+}
+
+/// The tile (column, row) of a `width` by `height` area that ground point
+/// `p` is in; `None` off the area. The one rule for it: the tile tools'
+/// tile under the pointer, the ground's level there and the corner's
+/// readout each had their own. (A brush's spot, `terrain_mode::spot`,
+/// reaches half a tile past the edge, to the nearest tile.)
+pub(crate) fn tile_of(p: Vec3, width: u32, height: u32) -> Option<(u32, u32)> {
+    let (x, y) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
+    let inside = x >= 0.0 && y >= 0.0 && x < width as f32 && y < height as f32;
+    inside.then_some((x as u32, y as u32))
+}
+
+/// A polygon's corners (on screen, in order) added to `mesh` as a fan of
+/// triangles in `color`: a walkmesh's face, an object's, a baked one.
+fn fan(mesh: &mut egui::Mesh, points: &[Pos2], color: Color32) {
+    let first = mesh.vertices.len() as u32;
+    for p in points {
+        mesh.colored_vertex(*p, color);
+    }
+    for k in 1..(points.len() as u32).saturating_sub(1) {
+        mesh.add_triangle(first, first + k, first + k + 1);
+    }
 }
 
 /// The twelve edges of the box `min`–`max` placed by `t`.
@@ -6386,6 +6577,16 @@ pub(crate) fn delete_objects(
 ) {
     let edits = mg_area::edit::delete_edits(view.git(), objects);
     view.selection.clear();
+    // (A Ctrl + wheel scaling or Q and E's turning under way of these
+    // alone goes with them: not made a step for what is deleted, nor
+    // given to the objects that take their places.)
+    let all_gone = |held: &[(ObjectKind, usize)]| held.iter().all(|o| objects.contains(o));
+    if view.wheel_scale.as_ref().is_some_and(|w| all_gone(&w.selection)) {
+        view.wheel_scale = None;
+    }
+    if view.key_turn.as_ref().is_some_and(|k| all_gone(&k.selection)) {
+        view.key_turn = None;
+    }
     // Objects after the deleted ones move up their lists: their Properties
     // would show others.
     let area = view.area;
@@ -6456,7 +6657,21 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, ow
         return 0;
     }
     let what = format!("Replace with {}", key.resref);
-    app.actions.push(Action::Apply(Command::new(what, edits)));
+    // (Each is taken out and another put in its place: the selection,
+    // which follows its objects, would let go of them. They stay
+    // selected, as the objects in those places.)
+    let selection = app.area_views.get(&area).map(|v| v.selection.clone());
+    match app.apply_or_ask(Command::new(what, edits), None) {
+        Ok(true) => {}
+        Ok(false) => return 0,
+        Err(e) => {
+            app.log.error(e.to_string());
+            return 0;
+        }
+    }
+    if let (Some(view), Some(selection)) = (app.area_views.get_mut(&area), selection) {
+        view.selection = selection;
+    }
     replaced
 }
 
@@ -6661,6 +6876,102 @@ fn pose(o: &mut mg_area::AreaObject, p: Vec3, r: f32) {
     o.position = p;
 }
 
+/// A spawn point being dragged: its encounter's place in the model, its
+/// place among the encounter's points, and where it is led (`Ok`) or the
+/// way it is turned to face (`Err`).
+type SpawnPosed = (usize, usize, Result<Vec3, f32>);
+
+/// Poses `posed`, a copy of the model's objects `base` kept from frame
+/// to frame: the objects posed last time (`last`) and those posed now are
+/// set back to where `base` has them, then stood at `poses` (place in
+/// the model, position, turn), given `visuals` and the spawn point led.
+/// `last` becomes those posed now. The same as posing a fresh copy of
+/// `base`, without copying it: a selection of thousands dragged copied
+/// the whole area every frame.
+fn pose_kept(
+    posed: &mut [mg_area::AreaObject],
+    last: &mut Vec<usize>,
+    base: &[mg_area::AreaObject],
+    poses: &[(usize, Vec3, f32)],
+    visuals: &[(usize, mg_area::VisualTransform)],
+    spawn: Option<SpawnPosed>,
+) {
+    let now: Vec<usize> = (poses.iter().map(|p| p.0))
+        .chain(visuals.iter().map(|v| v.0))
+        .chain(spawn.map(|s| s.0))
+        .collect();
+    // (What a pose changes of an object, set back; the lists only where
+    // they differ: most objects have none.)
+    for &i in last.iter().chain(&now) {
+        let (Some(o), Some(was)) = (posed.get_mut(i), base.get(i)) else { continue };
+        (o.position, o.rotation, o.visual) = (was.position, was.rotation, was.visual);
+        if o.outline != was.outline {
+            o.outline.clone_from(&was.outline);
+        }
+        if o.spawn_points != was.spawn_points {
+            o.spawn_points.clone_from(&was.spawn_points);
+        }
+        if o.spawn_facings != was.spawn_facings {
+            o.spawn_facings.clone_from(&was.spawn_facings);
+        }
+    }
+    for &(i, p, r) in poses {
+        if let Some(o) = posed.get_mut(i) {
+            pose(o, p, r);
+        }
+    }
+    for &(i, v) in visuals {
+        if let Some(o) = posed.get_mut(i) {
+            o.visual = Some(v);
+        }
+    }
+    if let Some((object, point, to)) = spawn
+        && let Some(o) = posed.get_mut(object)
+    {
+        match to {
+            Ok(at) => {
+                if let Some(p) = o.spawn_points.get_mut(point) {
+                    *p = at;
+                }
+            }
+            Err(facing) => {
+                if let Some(f) = o.spawn_facings.get_mut(point) {
+                    *f = facing;
+                }
+            }
+        }
+    }
+    *last = now;
+}
+
+/// Many lines as one mesh, a quad a line (its edges not smoothed): the
+/// boxes of a selection of hundreds, which as shapes of their own egui
+/// lays out one by one, twelve an object.
+fn lines_mesh(lines: &[([Pos2; 2], Stroke)]) -> egui::Mesh {
+    let mut mesh = egui::Mesh::default();
+    mesh.reserve_vertices(lines.len() * 4);
+    mesh.reserve_triangles(lines.len() * 2);
+    for &([a, b], stroke) in lines {
+        let along = b - a;
+        let length = along.length();
+        if length <= 0.0 || !length.is_finite() {
+            continue;
+        }
+        let side = egui::vec2(-along.y, along.x) / length * (stroke.width / 2.0);
+        let first = mesh.vertices.len() as u32;
+        for p in [a + side, b + side, b - side, a - side] {
+            mesh.colored_vertex(p, stroke.color);
+        }
+        mesh.add_triangle(first, first + 1, first + 2);
+        mesh.add_triangle(first, first + 2, first + 3);
+    }
+    mesh
+}
+
+/// From how many lines on the boxes of the objects selected or marked
+/// are drawn as one mesh ([`lines_mesh`]): some eighty boxes.
+const BOXES_MESHED: usize = 1000;
+
 /// Makes Q and E's turning under way one command, and turns the view's
 /// model with it at once: what is done after it before the area is read
 /// again (G, a drag, another command) starts from where it left them.
@@ -6668,7 +6979,10 @@ fn pose(o: &mut mg_area::AreaObject, p: Vec3, r: f32) {
 /// others: before another edit, which then comes after it.)
 fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
     let Some(k) = view.key_turn.take() else { return };
+    // (What it was begun on, not what is selected by now.)
+    let selected = std::mem::replace(&mut view.selection, k.selection);
     let moved = view.turned(k.by);
+    view.selection = selected;
     if let Some(command) = moves_command(app, view, &moved, "Rotate") {
         if !now {
             app.actions.push(Action::Apply(command));
@@ -6681,6 +6995,8 @@ fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
             pose(&mut model.objects[i], p, r);
         }
     }
+    view.posed = None;
+    view.lifts.borrow_mut().clear();
 }
 
 /// Q and E's turning, each frame: made a command when the keys rest, the
@@ -7206,7 +7522,7 @@ fn editing_items(
                     set_on_selection(
                         app,
                         view,
-                        "Initial state",
+                        "Initial State",
                         "AnimationState",
                         Value::Byte(state),
                     );
@@ -7229,7 +7545,7 @@ fn editing_items(
                     set_on_selection(
                         app,
                         view,
-                        "Initial state",
+                        "Initial State",
                         "AnimationState",
                         Value::Byte(state),
                     );
@@ -7244,7 +7560,7 @@ fn editing_items(
             ui.close();
         }
         if ui.button("Turn On").clicked() {
-            set_on_selection(app, view, "Turn on", "Active", Value::Byte(1));
+            set_on_selection(app, view, "Turn On", "Active", Value::Byte(1));
             ui.close();
         }
     }
@@ -7266,7 +7582,7 @@ fn editing_items(
         let custom = crate::light_maker::generated_lights(app);
         if let Some(at) = view.menu_at {
             ui.menu_button("Add Light Here", |ui| {
-                for light in &lights {
+                for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         add_light(app, view, light, at);
                         ui.close();
@@ -7279,7 +7595,7 @@ fn editing_items(
                     if !made.is_empty() {
                         ui.separator();
                     }
-                    for light in &made {
+                    for light in made.iter() {
                         if light_button(ui, light).clicked() {
                             add_light_row(
                                 app,
@@ -7335,10 +7651,10 @@ fn editing_items(
         }
         if !chosen.is_empty() && chosen.len() == view.selection.len() {
             ui.menu_button("Light Color", |ui| {
-                for light in &lights {
+                for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         let row = Value::Dword(light.row as u32);
-                        set_on_selection(app, view, "Light color", "Appearance", row);
+                        set_on_selection(app, view, "Light Color", "Appearance", row);
                         ui.close();
                     }
                 }
@@ -7530,7 +7846,7 @@ fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing:
     let mut edits = vec![start_field("Mod_Entry_Area", Value::resref(view.area))];
     edits.extend(start_at(at));
     edits.extend(start_facing(facing));
-    app.actions.push(Action::Apply(Command::new("Set start location", edits)));
+    app.actions.push(Action::Apply(Command::new("Set Start Location", edits)));
     if !view.show_start {
         view.show_start = true;
         share_shown(app, view);
@@ -7582,6 +7898,7 @@ fn start_facing(facing: f32) -> [mg_edit::Edit; 2] {
 }
 
 /// A placeable appearance that is a light and nothing to see.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StockLight {
     /// Its placeables.2da row.
     pub row: usize,
@@ -7596,31 +7913,87 @@ const LIGHT_HEIGHT: f32 = 1.5;
 /// `LightColor` whose model is the game's invisible one (`dag_invisible`):
 /// "Light, Blue" to "Light, Yellow" in the game's own table, and any a
 /// hak adds in the same way.
-pub(crate) fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
-    let Some(game) = app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("placeables") else { return Vec::new() };
-    let colors = crate::tile_select::light_colors(app);
-    (0..table.len())
-        .filter_map(|row| {
-            let model = table.get(row, "ModelName")?;
-            let color = table.get_int(row, "LightColor").filter(|c| *c > 0)?;
-            if !model.eq_ignore_ascii_case("dag_invisible") {
-                return None;
-            }
-            let label = table.get(row, "Label").unwrap_or("Light");
-            let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
+pub(crate) fn stock_lights(app: &Moonglow) -> std::sync::Arc<Vec<StockLight>> {
+    lights(app).map(|l| l.0).unwrap_or_default()
+}
+
+/// The lights of placeables.2da, the game's ([`stock_lights`]) and those
+/// Moonglow made ([`made_lights`]): found by going through the table
+/// once for each reading of it (and of lightcolor.2da, which colors the
+/// game's), and kept while the game data has those readings. The
+/// area's menu and the status line of a light being placed asked for
+/// them every frame: a persistent world's table has tens of thousands of
+/// rows, for a list of some ten lights.
+pub(crate) struct LightsKept {
+    tables: [Option<std::sync::Arc<mg_2da::TwoDa>>; 2],
+    lights: Lights,
+}
+
+/// The game's lights, and those Moonglow made.
+type Lights = (std::sync::Arc<Vec<StockLight>>, std::sync::Arc<Vec<StockLight>>);
+
+fn lights(app: &Moonglow) -> Option<Lights> {
+    let game = app.game.as_deref()?;
+    let table = game.table("placeables").ok()?;
+    let tables = [Some(table), game.table("lightcolor").ok()];
+    let same = |a: &Option<std::sync::Arc<mg_2da::TwoDa>>, b: &Option<_>| match (a, b) {
+        (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    };
+    let mut kept = app.lights_kept.borrow_mut();
+    if !kept
+        .as_ref()
+        .is_some_and(|k| same(&k.tables[0], &tables[0]) && same(&k.tables[1], &tables[1]))
+    {
+        let colors = crate::tile_select::light_colors(app);
+        let (stock, made) = lights_of(tables[0].as_deref()?, &colors);
+        let lights = (std::sync::Arc::new(stock), std::sync::Arc::new(made));
+        *kept = Some(LightsKept { tables, lights });
+    }
+    kept.as_ref().map(|k| k.lights.clone())
+}
+
+/// The lights among `table`'s rows (placeables.2da): the game's kind,
+/// colored by `colors` (lightcolor.2da's rows), and those Moonglow made.
+fn lights_of(table: &mg_2da::TwoDa, colors: &[Color32]) -> (Vec<StockLight>, Vec<StockLight>) {
+    let (mut stock, mut made) = (Vec::new(), Vec::new());
+    for row in 0..table.len() {
+        let Some(model) = table.get(row, "ModelName") else { continue };
+        let label = table.get(row, "Label").unwrap_or("Light");
+        let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
+        if mg_module::lights::is_generated(model) {
+            let hex = name.strip_prefix('#').and_then(|h| h.get(..6));
+            let rgb = hex.and_then(|h| u32::from_str_radix(h, 16).ok()).unwrap_or(0);
+            let color = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+            made.push(StockLight { row, name: name.clone(), color });
+        }
+        if model.eq_ignore_ascii_case("dag_invisible")
+            && let Some(color) = table.get_int(row, "LightColor").filter(|c| *c > 0)
+        {
             let color = usize::try_from(color).ok().and_then(|c| colors.get(c).copied());
-            Some(StockLight { row, name, color: color.unwrap_or(Color32::BLACK) })
-        })
-        .collect()
+            stock.push(StockLight { row, name, color: color.unwrap_or(Color32::BLACK) });
+        }
+    }
+    (stock, made)
 }
 
 /// A light's row in a menu: its color and its name.
 fn light_button(ui: &mut egui::Ui, light: &StockLight) -> egui::Response {
+    light_row(ui, light, |ui| ui.button(&light.name))
+}
+
+/// A light's row: a dot of its color, then what `named` puts beside it
+/// (its name, as a button or as a choice).
+fn light_row(
+    ui: &mut egui::Ui,
+    light: &StockLight,
+    named: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 5.0, light.color);
-        ui.button(&light.name)
+        named(ui)
     })
     .inner
 }
@@ -7628,12 +8001,7 @@ fn light_button(ui: &mut egui::Ui, light: &StockLight) -> egui::Response {
 /// A light's row in the palette: its color and its name, chosen (`on`)
 /// while it is about to be placed.
 pub(crate) fn light_toggle(ui: &mut egui::Ui, light: &StockLight, on: bool) -> egui::Response {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-        ui.painter().circle_filled(rect.center(), 5.0, light.color);
-        ui.selectable_label(on, &light.name)
-    })
-    .inner
+    light_row(ui, light, |ui| ui.selectable_label(on, &light.name))
 }
 
 /// Puts light `light` over the ground point `at`: a plain, static
@@ -7669,27 +8037,15 @@ pub(crate) fn set_appearance(app: &mut Moonglow, view: &AreaView, what: &str, ro
 /// The lights Moonglow made that the game data has (placeables.2da rows
 /// whose model is one of `mg_module::lights`'), each with its color as
 /// its label says.
-pub(crate) fn made_lights(app: &Moonglow) -> Vec<StockLight> {
-    let Some(game) = app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("placeables") else { return Vec::new() };
-    (0..table.len())
-        .filter(|&row| table.get(row, "ModelName").is_some_and(mg_module::lights::is_generated))
-        .map(|row| {
-            let label = table.get(row, "Label").unwrap_or("Light");
-            let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
-            let hex = name.strip_prefix('#').and_then(|h| h.get(..6));
-            let rgb = hex.and_then(|h| u32::from_str_radix(h, 16).ok()).unwrap_or(0);
-            let color = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
-            StockLight { row, name, color }
-        })
-        .collect()
+pub(crate) fn made_lights(app: &Moonglow) -> std::sync::Arc<Vec<StockLight>> {
+    lights(app).map(|l| l.1).unwrap_or_default()
 }
 
 /// The light of placeables.2da row `row`: one of the game's, or one
 /// Moonglow made.
 fn light_of_row(app: &Moonglow, row: usize) -> Option<StockLight> {
-    let stock = stock_lights(app).into_iter().find(|l| l.row == row);
-    stock.or_else(|| made_lights(app).into_iter().find(|l| l.row == row))
+    let stock = stock_lights(app).iter().find(|l| l.row == row).cloned();
+    stock.or_else(|| made_lights(app).iter().find(|l| l.row == row).cloned())
 }
 
 /// Sets a field on every selected object (one command).
@@ -7719,7 +8075,7 @@ fn reverse_doors(app: &mut Moonglow, view: &AreaView) {
             Some((at, o.position, turned))
         })
         .collect();
-    commit_moves(app, view, &moved, "Reverse door");
+    commit_moves(app, view, &moved, "Reverse Door");
 }
 
 /// Adds a spawn point to encounter `index` at `at` (Aurora's Add Spawn
@@ -7738,7 +8094,7 @@ fn add_spawn_point(app: &mut Moonglow, view: &AreaView, index: usize, at: Vec3) 
         point.set(label, Value::Float(v));
     }
     let edit = mg_edit::Edit::insert_item(view.git(), path, "SpawnPointList", count, point);
-    app.actions.push(Action::Apply(Command::new("Add spawn point", vec![edit])));
+    app.actions.push(Action::Apply(Command::new("Add Spawn Point", vec![edit])));
 }
 
 /// Replaces a trigger's or encounter's outline with `outline` (relative to
@@ -7774,23 +8130,61 @@ fn redraw_outline(
         label: "Geometry".into(),
         value: Some(Value::List(points)),
     };
-    app.actions.push(Action::Apply(Command::new("Redraw polygon", vec![edit])));
+    app.actions.push(Action::Apply(Command::new("Redraw Polygon", vec![edit])));
+}
+
+/// The waypoints' tags of the module's areas, kept area by area: an area
+/// not open is read from the module's copy of its GIT, once for each
+/// copy of its bytes the module holds, and not kept as a document (as
+/// `mg_module::tags::TagCache` reads tags). Create Waypoint and Create
+/// Set read every area's GIT into the workspace at each click, where
+/// they stayed until the next save: seconds, in a world of thousands of
+/// areas.
+#[derive(Debug, Default)]
+pub(crate) struct WaypointTags {
+    parts: std::collections::HashMap<ResRef, TagsRead>,
+}
+
+/// An area's GIT as the module held it (its bytes), and its waypoints'
+/// tags as read from it.
+type TagsRead = (std::sync::Arc<[u8]>, Vec<Vec<u8>>);
+
+impl WaypointTags {
+    /// Every waypoint's tag in the module as it is now (the documents
+    /// the workspace holds as they are edited, the module's bytes for
+    /// the rest), as the game's codepage reads them.
+    fn of(&mut self, ws: &mg_edit::Workspace) -> Vec<String> {
+        let tags_of = |git: &mg_gff::Struct| -> Vec<Vec<u8>> {
+            let waypoints = git.list(ObjectKind::Waypoint.list()).unwrap_or(&[]);
+            waypoints.iter().filter_map(|w| w.string("Tag").map(<[u8]>::to_vec)).collect()
+        };
+        let git = |area: ResRef| ResKey::new(area, ResType::GIT);
+        // (Those gone, or held by the workspace now, are let go.)
+        self.parts.retain(|a, _| ws.module.contains(&git(*a)) && ws.loaded(&git(*a)).is_none());
+        let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+        areas.sort();
+        let mut tags = Vec::new();
+        for area in areas {
+            if let Some(doc) = ws.loaded(&git(area)) {
+                tags.extend(tags_of(&doc.root).iter().map(|t| crate::text::decode(t)));
+                continue;
+            }
+            let Some(bytes) = ws.module.shared(&git(area)) else { continue };
+            let kept = self.parts.get(&area).filter(|(b, _)| std::sync::Arc::ptr_eq(b, bytes));
+            if kept.is_none() {
+                let read = Gff::read(bytes).map(|g| tags_of(&g.root)).unwrap_or_default();
+                self.parts.insert(area, (bytes.clone(), read));
+            }
+            tags.extend(self.parts[&area].1.iter().map(|t| crate::text::decode(t)));
+        }
+        tags
+    }
 }
 
 /// Every waypoint tag in the module's areas.
 fn waypoint_tags(app: &mut Moonglow) -> Vec<String> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
-    let areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
-    let mut tags = Vec::new();
-    for a in areas {
-        let Ok(git) = ws.doc(&ResKey::new(a, ResType::GIT)) else { continue };
-        for w in git.root.list(ObjectKind::Waypoint.list()).unwrap_or(&[]) {
-            if let Some(t) = w.string("Tag") {
-                tags.push(crate::text::decode(t));
-            }
-        }
-    }
-    tags
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
+    app.waypoint_tags.of(ws)
 }
 
 /// Aurora's Create Waypoint: one of the creature's walk waypoints
@@ -7820,31 +8214,45 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
     let placed =
         mg_plugin::Selected::Object { area: git.resref, kind: ObjectKind::Waypoint, index };
     let made = crate::plugin_events::Made::objects("create-waypoint", vec![placed], false);
-    app.actions.push(Action::ApplyMade(Command::new("Create waypoint", vec![edit]), made));
+    app.actions.push(Action::ApplyMade(Command::new("Create Waypoint", vec![edit]), made));
     view.selection = vec![(ObjectKind::Waypoint, index)];
 }
 
 /// Aurora's Create Set: the selected waypoints named `<name>_01`,
 /// `<name>_02`, … in the order they were selected.
 fn create_set(app: &mut Moonglow, view: &AreaView, name: &str) {
-    let mut tags = waypoint_tags(app);
+    let tags = waypoint_tags(app);
+    let edits = set_edits(view.git(), &view.selection, name, tags);
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new("Create Set", edits)));
+    }
+}
+
+/// [`create_set`]'s edits: the waypoints of `selection` (in `git`) each
+/// given the next tag of the set `name` that is not among `tags` (the
+/// module's waypoints'), written as the game reads text, as Create
+/// Waypoint writes its tag.
+fn set_edits(
+    git: ResKey,
+    selection: &[(ObjectKind, usize)],
+    name: &str,
+    mut tags: Vec<String>,
+) -> Vec<mg_edit::Edit> {
     let mut edits = Vec::new();
-    for &(kind, index) in &view.selection {
+    for &(kind, index) in selection {
         if kind != ObjectKind::Waypoint {
             continue;
         }
         let tag = mg_module::instances::set_tag(name, &tags);
-        tags.push(tag.clone());
         edits.push(mg_edit::Edit::SetField {
-            key: view.git(),
+            key: git,
             path: mg_edit::GffPath::root().item(kind.list(), index),
             label: "Tag".into(),
-            value: Some(Value::String(tag.into_bytes())),
+            value: Some(Value::String(crate::text::encode(&tag))),
         });
+        tags.push(tag);
     }
-    if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Create set", edits)));
-    }
+    edits
 }
 
 /// The Create Set window.
@@ -7956,7 +8364,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let keys = added.blueprints.iter().map(|(k, _)| *k).collect();
     let made = crate::plugin_events::Made::resources("add-to-palette", keys);
     // (With what the plugins do on what is made, in the same command.)
-    let cmd = crate::plugin_events::with_plugins(app, Command::new("Add to palette", edits), &made);
+    let cmd = crate::plugin_events::with_plugins(app, Command::new("Add to Palette", edits), &made);
     // Its window opens on it, whose Cancel takes it back, as Aurora's Add
     // to Palette makes it only at OK.
     crate::blueprint::note_made(app, first, &[(git, at)], &cmd);
@@ -8015,9 +8423,345 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// Where the placed object `index` of `kind` is in `area`'s GIT, as
+/// [`crate::blueprint::follow`] names a place.
+fn place_of(area: ResRef, kind: ObjectKind, index: usize) -> crate::blueprint::follow::Place {
+    (area, mg_edit::GffPath::root().item(kind.list(), index))
+}
+
+/// The placed objects that the area views and the windows and tools over
+/// them hold by kind and place in the GIT's list: a view's selection, a
+/// Ctrl + wheel scaling and Q and E's turning under way, the outline
+/// being drawn anew and the eraser's stroke; Adjust Location's, Bake
+/// Walkmesh's and Change Light's objects. An object put in or taken out
+/// before one of them moves it in its list (Undo, Redo, a plugin's edit,
+/// a delete from the module tree): [`objects_moved`] then points each at
+/// where its object went, as the Properties windows are.
+///
+/// Those in `areas`, and only the places the GITs have now: a view that
+/// places or pastes selects what its command will put in before the
+/// command runs, and those places are no object's yet.
+pub(crate) fn held_objects(
+    app: &mut Moonglow,
+    areas: &[ResRef],
+    edits: &[mg_edit::Edit],
+) -> Vec<crate::blueprint::follow::Place> {
+    // (An object taken out and another put in at its place, one edit
+    // after the other: replaced where it stands, not gone.)
+    for view in app.area_views.values_mut() {
+        view.replaced.clear();
+    }
+    for pair in edits.windows(2) {
+        if let [
+            mg_edit::Edit::RemoveItem { key, path, list, index },
+            mg_edit::Edit::InsertItem { key: k, path: p, list: l, index: i, .. },
+        ] = pair
+            && (key, path, list, index) == (k, p, l, i)
+            && key.restype == ResType::GIT
+            && path.0.is_empty()
+            && let Some(kind) = ObjectKind::from_list(list)
+            && let Some(view) = app.area_views.get_mut(&key.resref)
+        {
+            view.replaced.push((kind, *index));
+        }
+    }
+    let mut out = held_places(app);
+    out.retain(|(area, _)| areas.contains(area));
+    if out.is_empty() {
+        return out;
+    }
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let mut sizes = std::collections::HashMap::new();
+    for &area in areas {
+        let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
+        for kind in ObjectKind::ALL {
+            let n = git.root.list(kind.list()).map_or(0, |l| l.len());
+            sizes.insert((area, kind.list()), n);
+        }
+    }
+    out.retain(|(area, path)| match path.0.as_slice() {
+        [mg_edit::Step::Item(list, i)] => sizes.get(&(*area, list.as_str())).is_some_and(|n| i < n),
+        _ => false,
+    });
+    out
+}
+
+/// [`held_objects`], wherever and whether or not they are.
+fn held_places(app: &Moonglow) -> Vec<crate::blueprint::follow::Place> {
+    let mut out = Vec::new();
+    for (&area, view) in &app.area_views {
+        let lists = [
+            Some(&view.selection),
+            view.wheel_scale.as_ref().map(|w| &w.selection),
+            view.key_turn.as_ref().map(|k| &k.selection),
+        ];
+        for &(kind, index) in lists.into_iter().flatten().flatten().chain(&view.redraw) {
+            out.push(place_of(area, kind, index));
+        }
+        out.extend(view.paint.erasing.iter().map(|&i| place_of(area, ObjectKind::Placeable, i)));
+    }
+    if let Some(a) = &app.adjust {
+        out.extend(a.objects.iter().map(|&(k, i)| place_of(a.area, k, i)));
+    }
+    if let Some(d) = &app.bake.draft {
+        out.extend(d.objects.iter().map(|&i| place_of(d.area, ObjectKind::Placeable, i)));
+    }
+    if let Some(d) = &app.light_draft {
+        out.extend(d.change.iter().map(|&(k, i)| place_of(d.area, k, i)));
+    }
+    out
+}
+
+/// Where the object `(kind, index)` of `area` is after the edits `moved`
+/// tells of: `None` where it is gone (or no longer an object of that
+/// area's lists).
+fn object_now(
+    moved: &crate::blueprint::follow::Followed,
+    area: ResRef,
+    (kind, index): (ObjectKind, usize),
+) -> Option<(ObjectKind, usize)> {
+    match moved.get(&place_of(area, kind, index)) {
+        // (Not among those that moved.)
+        None => Some((kind, index)),
+        Some(Some((to, path))) if *to == area => match path.0.as_slice() {
+            [mg_edit::Step::Item(list, i)] => Some((ObjectKind::from_list(list)?, *i)),
+            _ => None,
+        },
+        Some(_) => None,
+    }
+}
+
+/// Points what [`held_objects`] names at where its objects went (`moved`,
+/// worked out before the edits ran); what is gone is let go of, and a
+/// window or tool whose objects are all gone closes. (Bake Walkmesh
+/// closes where any is: its plan is by its objects, in their order.)
+pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow::Followed) {
+    if moved.is_empty() {
+        return;
+    }
+    // (Replaced where it stands: held still, as the object in its place.)
+    let replaced: std::collections::HashMap<ResRef, Vec<(ObjectKind, usize)>> = (app.area_views)
+        .iter_mut()
+        .map(|(area, view)| (*area, std::mem::take(&mut view.replaced)))
+        .filter(|(_, r)| !r.is_empty())
+        .collect();
+    let object_now = |moved: &crate::blueprint::follow::Followed, area: ResRef, o| {
+        let stays = replaced.get(&area).is_some_and(|r| r.contains(&o));
+        object_now(moved, area, o).or(stays.then_some(o))
+    };
+    let follow = |area: ResRef, objects: &mut Vec<(ObjectKind, usize)>| {
+        if objects.iter().any(|&o| object_now(moved, area, o) != Some(o)) {
+            *objects = objects.iter().filter_map(|&o| object_now(moved, area, o)).collect();
+        }
+    };
+    for (&area, view) in app.area_views.iter_mut() {
+        follow(area, &mut view.selection);
+        if let Some(w) = &mut view.wheel_scale {
+            follow(area, &mut w.selection);
+            if w.selection.is_empty() {
+                view.wheel_scale = None;
+            }
+        }
+        if let Some(k) = &mut view.key_turn {
+            follow(area, &mut k.selection);
+            if k.selection.is_empty() {
+                view.key_turn = None;
+            }
+        }
+        if let Some(o) = view.redraw {
+            view.redraw = object_now(moved, area, o);
+            if view.redraw.is_none() {
+                view.outline.clear();
+            }
+        }
+        view.paint.erasing = (view.paint.erasing.iter())
+            .filter_map(|&i| object_now(moved, area, (ObjectKind::Placeable, i)))
+            .filter(|(k, _)| *k == ObjectKind::Placeable)
+            .map(|(_, i)| i)
+            .collect();
+    }
+    if let Some(a) = app.adjust.as_mut().filter(|a| !a.start) {
+        follow(a.area, &mut a.objects);
+        if a.objects.is_empty() {
+            app.adjust = None;
+        }
+    }
+    if let Some(d) = &mut app.bake.draft {
+        let now: Option<Vec<usize>> = (d.objects.iter())
+            .map(|&i| match object_now(moved, d.area, (ObjectKind::Placeable, i)) {
+                Some((ObjectKind::Placeable, i)) => Some(i),
+                _ => None,
+            })
+            .collect();
+        match now {
+            Some(now) => d.objects = now,
+            None => app.bake.draft = None,
+        }
+    }
+    if let Some(d) = app.light_draft.as_mut().filter(|d| !d.change.is_empty()) {
+        follow(d.area, &mut d.change);
+        // (With none left it would place a new light.)
+        if d.change.is_empty() {
+            app.light_draft = None;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The review's A29: which tile a ground point is in is one rule
+    /// (the tile tools', the ground's level, the corner's readout): the
+    /// tile its column and row fall in, none off the area, the far edges
+    /// the next tile's.
+    #[test]
+    fn a_ground_point_is_in_one_tile_or_off_the_area() {
+        let at = |x: f32, y: f32| tile_of(Vec3::new(x, y, 3.0), 4, 2);
+        assert_eq!(at(0.0, 0.0), Some((0, 0)));
+        assert_eq!(at(9.99, 19.99), Some((0, 1)));
+        assert_eq!(at(10.0, 5.0), Some((1, 0)));
+        assert_eq!(at(39.9, 0.1), Some((3, 0)));
+        for (x, y) in [(-0.01, 5.0), (5.0, -0.01), (40.0, 5.0), (5.0, 20.0), (f32::NAN, 1.0)] {
+            assert_eq!(at(x, y), None, "{x}, {y}");
+        }
+        assert_eq!(tile_of(Vec3::ZERO, 0, 0), None, "an area of no tiles");
+    }
+
+    /// The review's A21: the lights of placeables.2da are found by one
+    /// pass over the table (kept for that reading of it): the game's
+    /// invisible lights with their color from lightcolor.2da, and those
+    /// Moonglow made, named by their color.
+    #[test]
+    fn the_lights_of_a_placeables_table_are_found_in_one_pass() {
+        let spec = mg_module::lights::LightSpec { color: [255, 128, 0], ..Default::default() };
+        let (made, label) = (spec.model_name(), spec.label());
+        assert!(mg_module::lights::is_generated(&made.to_string()));
+        let text = format!(
+            "2DA V2.0\n\n   Label           ModelName      LightColor\n\
+             0  Chest           plc_a01        ****\n\
+             1  \"Light, Blue\"   DAG_Invisible  2\n\
+             2  Torch           plc_torch      3\n\
+             3  \"{label}\" {made} ****\n\
+             4  \"Light, Dark\"   dag_invisible  0\n\
+             5  \"Light, Far\"    dag_invisible  9\n"
+        );
+        let table = mg_2da::TwoDa::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let colors = [Color32::BLACK, Color32::RED, Color32::BLUE];
+        let (stock, ours) = lights_of(&table, &colors);
+        let light = |row: usize, name: &str, color| StockLight { row, name: name.into(), color };
+        // (A light with no color is none; one whose color the table of
+        // colors lacks is shown black.)
+        assert_eq!(stock, [light(1, "Blue", Color32::BLUE), light(5, "Far", Color32::BLACK)]);
+        let name = label.strip_prefix("Light, ").unwrap();
+        assert_eq!(ours, [light(3, name, Color32::from_rgb(255, 128, 0))]);
+    }
+
+    /// The review's A10: Create Set wrote its tags as UTF-8, where Create
+    /// Waypoint and every reader use the game's codepage: a set named
+    /// `Straße` in a Central European module read back as `StraÃŸe_01`,
+    /// and a second set of the name was numbered from 01 again.
+    #[test]
+    fn create_set_writes_its_tags_in_the_game_s_codepage() {
+        crate::text::set_game_codepage(Some(mg_core::Codepage::WINDOWS_1250));
+        let git = ResKey::parse("area", ResType::GIT).unwrap();
+        let selection =
+            [(ObjectKind::Waypoint, 0), (ObjectKind::Placeable, 3), (ObjectKind::Waypoint, 2)];
+        let tag = |e: &mg_edit::Edit| match e {
+            mg_edit::Edit::SetField { label, value: Some(Value::String(b)), .. }
+                if label == "Tag" =>
+            {
+                b.clone()
+            }
+            other => panic!("{other:?}"),
+        };
+        let first = set_edits(git, &selection, "Straße", Vec::new());
+        let tags: Vec<Vec<u8>> = first.iter().map(tag).collect();
+        assert_eq!(tags, [b"Stra\xdfe_01".to_vec(), b"Stra\xdfe_02".to_vec()]);
+        // Read back as the module's waypoints' tags, the next set of the
+        // name goes on from them.
+        let read: Vec<String> = tags.iter().map(|t| crate::text::decode(t)).collect();
+        assert_eq!(read, ["Straße_01", "Straße_02"]);
+        let next = set_edits(git, &selection[..1], "Straße", read);
+        assert_eq!(tag(&next[0]), b"Stra\xdfe_03");
+        crate::text::set_game_codepage(None);
+    }
+
+    /// The review's A16: the model with a drag applied is a copy kept
+    /// from frame to frame, the objects posed set back and posed again.
+    /// Whatever is posed from one frame to the next (a drag, then Q and
+    /// E's turning with it, then another selection scaled, a spawn point
+    /// led, nothing), it is as a fresh copy of the model posed.
+    #[test]
+    fn a_kept_copy_posed_again_is_as_a_fresh_copy_posed() {
+        let placed = |kind: ObjectKind, index: usize, x: f32| {
+            let mut s = mg_gff::Struct::new(0);
+            for (label, v) in [("X", x), ("Y", 20.0), ("Z", 0.0), ("Bearing", 0.5)] {
+                s.set(label, Value::Float(v));
+            }
+            mg_area::AreaObject::placed(kind, index, &s)
+        };
+        let mut base: Vec<mg_area::AreaObject> =
+            (0..6).map(|i| placed(ObjectKind::Placeable, i, 10.0 + i as f32)).collect();
+        let mut encounter = placed(ObjectKind::Encounter, 0, 30.0);
+        encounter.position = Vec3::new(30.0, 20.0, 0.0);
+        encounter.outline = vec![
+            Vec3::new(29.0, 19.0, 0.0),
+            Vec3::new(31.0, 19.0, 0.0),
+            Vec3::new(30.0, 21.0, 0.0),
+        ];
+        encounter.spawn_points = vec![Vec3::new(30.0, 20.0, 0.0), Vec3::new(30.5, 20.0, 0.0)];
+        encounter.spawn_facings = vec![0.0, 1.0];
+        base.push(encounter);
+        let v = |s: f32| mg_area::VisualTransform { scale: Vec3::splat(s), ..Default::default() };
+        type Frame =
+            (Vec<(usize, Vec3, f32)>, Vec<(usize, mg_area::VisualTransform)>, Option<SpawnPosed>);
+        let frames: Vec<Frame> = vec![
+            (vec![(0, Vec3::new(1.0, 2.0, 3.0), 1.0), (2, Vec3::ONE, 2.0)], vec![], None),
+            (vec![(2, Vec3::new(5.0, 5.0, 0.0), 0.2)], vec![(3, v(2.0))], None),
+            (vec![(6, Vec3::new(40.0, 22.0, 1.0), 1.2)], vec![], None),
+            (vec![], vec![], Some((6, 1, Ok(Vec3::new(33.0, 20.0, 0.0))))),
+            (vec![], vec![(4, v(0.5)), (5, v(3.0))], Some((6, 0, Err(2.5)))),
+            (vec![(1, Vec3::ZERO, 0.0)], vec![(1, v(1.5))], None),
+            (vec![], vec![], None),
+        ];
+        let (mut kept, mut last) = (base.clone(), Vec::new());
+        for (n, (poses, visuals, spawn)) in frames.iter().enumerate() {
+            pose_kept(&mut kept, &mut last, &base, poses, visuals, *spawn);
+            let (mut fresh, mut none) = (base.clone(), Vec::new());
+            pose_kept(&mut fresh, &mut none, &base, poses, visuals, *spawn);
+            assert!(kept == fresh, "frame {n}");
+            // (And a pose is one: the copy differs from the model where
+            // something was posed.)
+            let posed = !(poses.is_empty() && visuals.is_empty() && spawn.is_none());
+            assert_eq!(kept != base, posed, "frame {n}");
+        }
+        assert!(kept == base && last.is_empty(), "nothing posed at the end");
+    }
+
+    /// Lines as one mesh: a quad a line, as wide as its stroke, in its
+    /// color; a line of no length left out.
+    #[test]
+    fn lines_are_meshed_a_quad_each() {
+        let red = Stroke::new(2.0, Color32::RED);
+        let lines = [
+            ([Pos2::new(0.0, 0.0), Pos2::new(10.0, 0.0)], red),
+            ([Pos2::new(5.0, 5.0), Pos2::new(5.0, 5.0)], red),
+            ([Pos2::new(0.0, 0.0), Pos2::new(0.0, 4.0)], Stroke::new(4.0, Color32::BLUE)),
+        ];
+        let mesh = lines_mesh(&lines);
+        assert_eq!((mesh.vertices.len(), mesh.indices.len()), (8, 12));
+        assert!(mesh.is_valid());
+        let bounds = |v: &[egui::epaint::Vertex]| {
+            v.iter().fold(Rect::NOTHING, |r, v| r.union(Rect::from_min_max(v.pos, v.pos)))
+        };
+        let first = bounds(&mesh.vertices[..4]);
+        assert_eq!(first, Rect::from_min_max(Pos2::new(0.0, -1.0), Pos2::new(10.0, 1.0)));
+        let second = bounds(&mesh.vertices[4..]);
+        assert_eq!(second, Rect::from_min_max(Pos2::new(-2.0, 0.0), Pos2::new(2.0, 4.0)));
+        assert!(mesh.vertices[..4].iter().all(|v| v.color == Color32::RED));
+        assert!(mesh.vertices[4..].iter().all(|v| v.color == Color32::BLUE));
+    }
 
     /// The toolbar's hidden kinds, saved in the settings by name: Stores
     /// were saved as Merchants before they were renamed, and stay hidden.

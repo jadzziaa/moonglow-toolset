@@ -131,6 +131,10 @@ pub struct PaletteView {
     /// Tilesets' names as Area Properties shows them, read once each (a
     /// big tileset takes milliseconds to read: too long for every frame).
     pub(crate) tileset_names: HashMap<ResRef, String>,
+    /// Tilesets' grass (`[GRASS]`) as Area Properties › Grass shows it and
+    /// tries it out, read once each (`area_grass`).
+    pub(crate) tileset_grass:
+        std::cell::RefCell<HashMap<ResRef, Option<mg_area::grass::GrassLook>>>,
     /// Each type's categories as a blueprint's Category lists them
     /// ([`categories`]), and what they were made for: the workspace's
     /// revision (none without a module) and whether by name.
@@ -434,6 +438,11 @@ impl PaletteView {
         self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
+        self.tileset_grass.borrow_mut().clear();
+        // (A tile, terrain, crosser or group is a number in its tileset's
+        // file, which may be another now.)
+        self.tile_brush = None;
+        self.tile_choice = None;
         self.categories.clear();
         // (The Standard palette's tags read the module's blueprint first:
         // another module, or the game read again, has its own.)
@@ -477,6 +486,7 @@ impl Default for PaletteView {
             area: None,
             tile_palettes: HashMap::new(),
             tileset_names: HashMap::new(),
+            tileset_grass: Default::default(),
             categories: HashMap::new(),
             cursor: None,
             toggle: None,
@@ -974,7 +984,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
         return;
     }
     let tip = "Chosen, a click in an area's view puts this light there (Shift+click: more)";
-    for light in &lights {
+    for light in lights.iter() {
         let on = view.placing_light == Some(light.row);
         if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
             view.placing_light = if on { None } else { Some(light.row) };
@@ -988,7 +998,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
             ui.separator();
             ui.weak("Made by Custom Light, in the module's haks:");
         }
-        for light in &made {
+        for light in made.iter() {
             let on = view.placing_light == Some(light.row);
             if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
                 view.placing_light = if on { None } else { Some(light.row) };

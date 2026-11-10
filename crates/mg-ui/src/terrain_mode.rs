@@ -603,6 +603,9 @@ fn stroke(
         }
         // Exact tile with a group: its tiles as they are, nothing around
         // fitted to them (a staircase among walls).
+        // (A group the tileset no longer has, after its file changed
+        // and was read again: no stroke.)
+        Brush::Group(g) if g >= tools.set.groups.len() => (None, label),
         Brush::Group(g) if brush.exact => {
             let group = &tools.set.groups[g];
             let (cx, cy) = spot.cell;
@@ -740,8 +743,9 @@ pub(crate) fn preview(app: &mut Moonglow, view: &mut AreaView, shift: bool) -> O
 }
 
 /// What a tile preview shows: the changed tiles, and the indices of those
-/// they replace.
-pub(crate) type Preview = (Vec<mg_area::AreaTile>, Vec<usize>);
+/// they replace. (Shared: the one worked out is handed out every frame
+/// it is shown, a thousand tiles of a rectangle over a whole area.)
+pub(crate) type Preview = (Arc<Vec<mg_area::AreaTile>>, Arc<Vec<usize>>);
 
 /// What a tile preview (and the brush's cursor) depends on, with Shift
 /// held or not.
@@ -805,7 +809,7 @@ fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<
         tiles.push(t);
         hidden.push(i);
     }
-    (!tiles.is_empty()).then_some((tiles, hidden))
+    (!tiles.is_empty()).then(|| (Arc::new(tiles), Arc::new(hidden)))
 }
 
 /// One command putting `changes` (cells and their new tiles) into the
@@ -851,6 +855,56 @@ pub(crate) fn tile_command_with(
     }
 }
 
+/// What a cell's tile keeps of the struct it comes from, after
+/// `mg_area::terrain::tile_edits` gave it fresh lights: the lights, the
+/// animation loops and the replacement texture of the struct kept for it
+/// (`kept`: a tile pasted, stepped or turned), by the one list of them
+/// ([`crate::tile_select::FIELDS`]). The replacement texture is a row of
+/// the tileset's table that goes with the tile it was set on: a cell
+/// whose kept struct has none loses the one its old tile had, and so
+/// does a cell given another tile with nothing kept for it (one painted
+/// over). `root` is the ARE's as it is, `width` its tiles across.
+fn kept_edits(
+    key: ResKey,
+    root: &mg_gff::Struct,
+    width: u32,
+    changes: &[((u32, u32), Placement)],
+    kept: &[((u32, u32), mg_gff::Struct)],
+) -> Vec<mg_edit::Edit> {
+    const REPLACE: &str = "Tile_ReplaceTex";
+    let place = |(x, y): (u32, u32)| (y * width + x) as usize;
+    let now = |cell: (u32, u32)| root.list("Tile_List").and_then(|l| l.get(place(cell)));
+    let set =
+        |cell: (u32, u32), label: &str, value: Option<mg_gff::Value>| mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root().item("Tile_List", place(cell)),
+            label: label.into(),
+            value,
+        };
+    let mut edits = Vec::new();
+    for (cell, copied) in kept {
+        for label in crate::tile_select::FIELDS {
+            match copied.get(label) {
+                Some(v) => edits.push(set(*cell, label, Some(v.clone()))),
+                None if label == REPLACE && now(*cell).is_some_and(|t| t.get(label).is_some()) => {
+                    edits.push(set(*cell, label, None));
+                }
+                None => {}
+            }
+        }
+    }
+    for &(cell, p) in changes {
+        if kept.iter().any(|(k, _)| *k == cell) {
+            continue;
+        }
+        let Some(tile) = now(cell).filter(|t| t.get(REPLACE).is_some()) else { continue };
+        if tile.integer("Tile_ID") != Some(i64::from(p.tile)) {
+            edits.push(set(cell, REPLACE, None));
+        }
+    }
+    edits
+}
+
 /// The command [`tile_command_with`] applies, made against the area as
 /// the workspace has it now, for a caller that applies it at once (Tile
 /// Properties, whose own step goes over it); `None` when nothing changes.
@@ -882,27 +936,7 @@ pub(crate) fn tile_command_made(
     let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut lights_rng));
     let mut edits = tile_edits(key, &root, &tools.set, changes, &mut lights);
     let width = root.integer("Width").unwrap_or(0).max(0) as u32;
-    for ((x, y), copied) in kept {
-        let path = mg_edit::GffPath::root().item("Tile_List", (y * width + x) as usize);
-        for label in [
-            "Tile_MainLight1",
-            "Tile_MainLight2",
-            "Tile_SrcLight1",
-            "Tile_SrcLight2",
-            "Tile_AnimLoop1",
-            "Tile_AnimLoop2",
-            "Tile_AnimLoop3",
-        ] {
-            if let Some(v) = copied.get(label) {
-                edits.push(mg_edit::Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: label.into(),
-                    value: Some(v.clone()),
-                });
-            }
-        }
-    }
+    edits.extend(kept_edits(key, &root, width, changes, kept));
     let git_key = ResKey::new(view.area, ResType::GIT);
     if let Ok(git) = ws.doc(&git_key) {
         let git = git.root.clone();
@@ -949,12 +983,9 @@ pub(crate) fn input(
         view.terrain_drag = None;
         return true;
     }
-    // A press begun with Ctrl held moves the view (Ctrl + drag): the brush
-    // paints nothing with it, during it or when it is let go.
-    let (pressed, command) = ui.input(|i| (i.pointer.any_pressed(), i.modifiers.command));
-    if pressed {
-        view.camera_press = command;
-    }
+    // A press that is the camera's (begun with Ctrl or Alt held: Ctrl +
+    // drag, Alt + drag move the view): the brush paints nothing with it,
+    // during it or when it is let go.
     if view.camera_press {
         return true;
     }
@@ -1173,7 +1204,10 @@ fn paint_corners(
         return refine_cells(tools, g, brush, &drag.marked());
     }
     let mut rng = fastrand::Rng::with_seed(seed);
+    // (The cells changed, in the order they first were, each once: asked
+    // of a set, not of the list, for every cell of every stroke.)
     let mut changed: Vec<(u32, u32)> = Vec::new();
+    let mut seen: std::collections::HashSet<(u32, u32)> = Default::default();
     let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
     // A tile's spot is its middle.
     let middle = if drag.tiles { 0.5 } else { 0.0 };
@@ -1190,7 +1224,7 @@ fn paint_corners(
             Some(st) => {
                 label = l;
                 for (cell, _) in g.apply(&tools.index, st, &mut rng) {
-                    if !changed.contains(&cell) {
+                    if seen.insert(cell) {
                         changed.push(cell);
                     }
                 }
@@ -1436,7 +1470,7 @@ fn cursor_shapes(
         Brush::Group(gi) => {
             let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
             let color = if st.is_some() { ok } else { refused };
-            let group = &tools.set.groups[gi];
+            let Some(group) = tools.set.groups.get(gi) else { return };
             for k in 0..group.tiles.len() {
                 let (c, r) = mg_tiles::group_slot(k, group.columns, view.group_turns);
                 let (x, y) = ((s.cell.0 as i64 + c) as f32, (s.cell.1 as i64 + r) as f32);
@@ -2205,6 +2239,95 @@ mod tests {
         assert!(!run.iter().any(|(_, e)| *e == NORTH || *e == SOUTH));
         // One tile: itself.
         assert_eq!(outline((1, 1), (1, 1)).len(), 1);
+    }
+
+    /// The review's A1: a group's brush kept while the tileset's file lost
+    /// that group (Remove Last Group in the tileset editor, then Reload
+    /// Resources) indexed the groups unchecked, and the next frame over
+    /// the view panicked. Such a brush makes no stroke.
+    #[test]
+    fn a_brush_of_a_group_the_tileset_lost_makes_no_stroke() {
+        let text = [
+            "[GENERAL]\nName=TST01\nInterior=1\nTransition=3\nDisplayName=-1",
+            "Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A",
+            "[CROSSER TYPES]\nCount=0\n[PRIMARY RULES]\nCount=0\n[SECONDARY RULES]\nCount=0",
+            "[TILES]\nCount=2",
+            "[TILE0]\nModel=t0\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A",
+            "[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A",
+            "[GROUPS]\nCount=1\n[GROUP0]\nName=G\nRows=1\nColumns=1\nTile0=1\n",
+        ]
+        .join("\n");
+        let set = Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let name = ResRef::from_str("tst01").unwrap();
+        let tools = Tools::new(name, Arc::new(set));
+        let p = Placement { tile: 0, orientation: 0, height: 0 };
+        let grid = Grid::new(&tools.index, 2, 2, vec![p; 4]).unwrap();
+        let at = spot(Vec3::new(5.0, 5.0, 0.0), 2, 2).unwrap();
+        let brush = |g, exact| TileBrush {
+            tileset: name,
+            label: "G".into(),
+            brush: Brush::Group(g),
+            target: None,
+            exact,
+        };
+        // (The group it has is placed.)
+        assert!(stroke(&tools, &grid, &brush(0, false), at, false, false, 0).0.is_some());
+        for exact in [false, true] {
+            assert!(stroke(&tools, &grid, &brush(1, exact), at, false, false, 0).0.is_none());
+        }
+    }
+
+    /// The review's A9: what a cell keeps of a tile's struct was a list
+    /// of seven fields here and of eight in Tile Properties: a pasted
+    /// tile lost its Replacement Texture (and took the old tile's), and a
+    /// tile painted over another inherited the old one's row.
+    #[test]
+    fn a_tile_keeps_the_replacement_texture_of_the_struct_kept_for_it() {
+        use mg_gff::{Struct, Value};
+        let tile = |id: i32, replace: Option<u8>| {
+            let mut t = Struct::new(1);
+            t.set("Tile_ID", Value::Int(id));
+            t.set("Tile_MainLight1", Value::Byte(3));
+            if let Some(r) = replace {
+                t.set("Tile_ReplaceTex", Value::Byte(r));
+            }
+            t
+        };
+        let mut root = Struct::new(u32::MAX);
+        let tiles = vec![tile(0, Some(2)), tile(0, None), tile(5, Some(7)), tile(5, Some(9))];
+        root.set("Tile_List", Value::List(tiles));
+        let key = ResKey::parse("area", ResType::ARE).unwrap();
+        let p = |tile: u32| Placement { tile, orientation: 0, height: 0 };
+        // Cells (0, 0) and (1, 0) pasted from structs with row 4 and with
+        // none; (0, 1) painted with another tile, (1, 1) turned (its own).
+        let changes = [((0, 0), p(8)), ((1, 0), p(8)), ((0, 1), p(6)), ((1, 1), p(5))];
+        let kept = [((0, 0), tile(8, Some(4))), ((1, 0), tile(8, None))];
+        let edits = kept_edits(key, &root, 2, &changes, &kept);
+        let replace: Vec<(usize, Option<Value>)> = edits
+            .iter()
+            .filter_map(|e| match e {
+                mg_edit::Edit::SetField { path, label, value, .. }
+                    if label == "Tile_ReplaceTex" =>
+                {
+                    let [mg_edit::Step::Item(_, i)] = path.0.as_slice() else { panic!("{path:?}") };
+                    Some((*i, value.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        // (The pasted one's row; the old tile's taken off where the new
+        // one has none; nothing to take off cell (1, 0); the turned tile
+        // keeps its own.)
+        assert_eq!(replace, [(0, Some(Value::Byte(4))), (2, None)]);
+        // The lights of the kept structs are written as before.
+        let lights = edits.iter().filter(
+            |e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Tile_MainLight1"),
+        );
+        assert_eq!(lights.count(), 2);
+        // A cell with the row and a struct kept without it: taken off.
+        let edits = kept_edits(key, &root, 2, &changes[..1], &[((0, 0), tile(8, None))]);
+        assert!(edits.iter().any(|e| matches!(e,
+            mg_edit::Edit::SetField { label, value: None, .. } if label == "Tile_ReplaceTex")));
     }
 
     /// The quarters a crosser drag through `points` (metres) takes, as the

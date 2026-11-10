@@ -4,6 +4,7 @@
 //! groups. It also makes the tileset's
 //! palette beside it and checks it with the content doctor.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -35,8 +36,13 @@ pub struct TilesetDoc {
     pub file: SetFile,
     /// The file as read, after each change.
     set: Result<Arc<Tileset>, String>,
-    undo: Vec<SetFile>,
-    redo: Vec<SetFile>,
+    undo: Vec<Step>,
+    redo: Vec<Step>,
+    /// The sections read this revision of the file, each key (upper case)
+    /// with its value, and each tile's door sections: a field asks for
+    /// its value every frame, and each asking went through the file's
+    /// lines from the first to find the section.
+    read: std::cell::RefCell<Read>,
     saved: Option<usize>,
     pub page: Page,
     pub tile: Option<usize>,
@@ -53,7 +59,69 @@ pub struct TilesetDoc {
     scrolled_to: Option<usize>,
 }
 
+/// What [`TilesetDoc`] keeps of the file as it is: sections' values, and
+/// tiles' doors.
+#[derive(Debug, Default)]
+struct Read {
+    sections: HashMap<String, Arc<HashMap<String, String>>>,
+    doors: HashMap<usize, Arc<Vec<(usize, String)>>>,
+}
+
+/// A step of the tileset editor's undo: the lines it changed, as they
+/// were before it (`lines`, from line `at` on), in place of `now` lines
+/// of the file after it. A copy of the whole file was kept for every
+/// step: five hundred door hooks set in a tileset of 28,000 lines, five
+/// hundred copies of them.
+#[derive(Debug, Clone, PartialEq)]
+struct Step {
+    at: usize,
+    now: usize,
+    lines: Vec<String>,
+}
+
+impl Step {
+    /// The step that makes `after` into `before` again: the lines between
+    /// what the two begin and end alike with.
+    fn back(before: &SetFile, after: &SetFile) -> Step {
+        let (a, b) = (before.lines(), after.lines());
+        let head = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+        let most = a.len().min(b.len()) - head;
+        let tail =
+            a.iter().rev().zip(b.iter().rev()).take(most).take_while(|(x, y)| x == y).count();
+        Step { at: head, now: b.len() - head - tail, lines: a[head..a.len() - tail].to_vec() }
+    }
+
+    /// Takes the step on `file`: the step that takes it back again.
+    fn take(self, file: &mut SetFile) -> Step {
+        let now = self.lines.len();
+        let lines = file.splice_lines(self.at, self.now, self.lines);
+        Step { at: self.at, now, lines }
+    }
+}
+
 impl TilesetDoc {
+    /// A key's value in a section of the file (`SetFile::get`), the
+    /// section read once for each revision of the file.
+    fn get(&self, section: &str, key: &str) -> Option<String> {
+        let mut read = self.read.borrow_mut();
+        let values = read.sections.entry(section.to_ascii_uppercase()).or_insert_with(|| {
+            let mut values = HashMap::new();
+            for (k, v) in self.file.entries(section) {
+                // (The first of a key written twice, as the file reads it.)
+                values.entry(k.to_ascii_uppercase()).or_insert(v);
+            }
+            Arc::new(values)
+        });
+        values.get(&key.to_ascii_uppercase()).cloned()
+    }
+
+    /// A tile's doors (`SetFile::doors`), found once for each revision of
+    /// the file.
+    fn doors(&self, tile: usize) -> Arc<Vec<(usize, String)>> {
+        let mut read = self.read.borrow_mut();
+        read.doors.entry(tile).or_insert_with(|| Arc::new(self.file.doors(tile))).clone()
+    }
+
     fn new(id: u32, path: PathBuf, file: SetFile) -> TilesetDoc {
         let set = read(&file);
         TilesetDoc {
@@ -63,6 +131,7 @@ impl TilesetDoc {
             set,
             undo: Vec::new(),
             redo: Vec::new(),
+            read: Default::default(),
             saved: Some(0),
             page: Page::default(),
             tile: None,
@@ -115,7 +184,7 @@ impl TilesetDoc {
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             self.saved = None;
         }
-        self.undo.push(before);
+        self.undo.push(Step::back(&before, &self.file));
         self.redo.clear();
         self.reread();
     }
@@ -131,15 +200,15 @@ impl TilesetDoc {
     }
 
     pub fn undo(&mut self) {
-        if let Some(prev) = self.undo.pop() {
-            self.redo.push(std::mem::replace(&mut self.file, prev));
+        if let Some(step) = self.undo.pop() {
+            self.redo.push(step.take(&mut self.file));
             self.reread();
         }
     }
 
     pub fn redo(&mut self) {
-        if let Some(next) = self.redo.pop() {
-            self.undo.push(std::mem::replace(&mut self.file, next));
+        if let Some(step) = self.redo.pop() {
+            self.undo.push(step.take(&mut self.file));
             self.reread();
         }
     }
@@ -149,6 +218,7 @@ impl TilesetDoc {
     fn reread(&mut self) {
         self.set = read(&self.file);
         self.findings = None;
+        *self.read.borrow_mut() = Read::default();
     }
 
     /// Writes the file; a palette beside it (`<tileset>palstd.itp`) follows
@@ -164,9 +234,9 @@ impl TilesetDoc {
             .ok()
             .and_then(|d| Tileset::parse(&d, Codepage::default()).ok())
             .map(|t| names(&t));
-        let part = self.path.with_extension("set.part");
-        std::fs::write(&part, self.file.text())
-            .and_then(|()| std::fs::rename(&part, &self.path))
+        // (Whole or not at all, as every file Moonglow keeps: the `.set`,
+        // and the palette beside it below.)
+        mg_module::write_replacing(&self.path, self.file.text().as_bytes())
             .map_err(|e| format!("{}: {e}", self.path.display()))?;
         self.saved = Some(self.undo.len());
         let (Some(was), Some(now)) = (was, self.tileset().map(names)) else { return Ok(None) };
@@ -191,7 +261,7 @@ impl TilesetDoc {
         }
         gff.to_bytes()
             .map_err(|e| e.to_string())
-            .and_then(|b| std::fs::write(&palette, b).map_err(|e| e.to_string()))
+            .and_then(|b| mg_module::write_replacing(&palette, &b).map_err(|e| e.to_string()))
             .map_err(|e| format!("{}: {e}", palette.display()))?;
         let names: Vec<String> = renamed.iter().map(|(a, b)| format!("{a} → {b}")).collect();
         Ok(Some(format!("{}: renamed {}", palette.display(), names.join(", "))))
@@ -227,7 +297,7 @@ pub fn new_tileset(app: &mut Moonglow) {
         }
     };
     let file = edit::skeleton(&name);
-    if let Err(e) = std::fs::write(&path, file.text()) {
+    if let Err(e) = mg_module::write_replacing(&path, file.text().as_bytes()) {
         app.log.error(format!("{}: {e}", path.display()));
         return;
     }
@@ -379,7 +449,7 @@ fn text_key(
     key: &str,
     width: f32,
 ) {
-    let current = d.file.get(section, key).unwrap_or_default().to_string();
+    let current = d.get(section, key).unwrap_or_default();
     let id = egui::Id::new(("set", d.id, section, key));
     if let Some(v) = crate::widgets::commit_text(app, ui, id, &current, false, width) {
         d.change(|f| f.set(section, key, v.trim()));
@@ -387,8 +457,7 @@ fn text_key(
 }
 
 fn flag_key(ui: &mut Ui, d: &mut TilesetDoc, section: &str, key: &str, label: &str) {
-    let mut on =
-        d.file.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0) != 0;
+    let mut on = d.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0) != 0;
     if ui.checkbox(&mut on, label).changed() {
         d.change(|f| f.set(section, key, if on { "1" } else { "0" }));
     }
@@ -401,7 +470,7 @@ fn int_key(
     key: &str,
     range: std::ops::RangeInclusive<i32>,
 ) {
-    let current = d.file.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
+    let current = d.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
     if let Some(v) = crate::widgets::commit_number(ui, current, range) {
         d.change(|f| f.set(section, key, &v.to_string()));
     }
@@ -416,7 +485,7 @@ fn name_key(
     names: &[String],
     none: bool,
 ) {
-    let current = d.file.get(section, key).unwrap_or_default().to_string();
+    let current = d.get(section, key).unwrap_or_default();
     // (The tileset's own name for the one set, as it may be written in
     // another case.)
     let named = names.iter().find(|n| n.eq_ignore_ascii_case(&current));
@@ -726,18 +795,18 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
 /// of which `doortypes.2da` row.
 fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
     crate::widgets::section_heading(ui, "Doors");
-    let doors = d.file.doors(i);
+    let doors = d.doors(i);
     let types = app.game.as_deref().and_then(|g| g.table("doortypes").ok());
     egui::Grid::new(("set-doors", d.id, i)).num_columns(7).spacing([10.0, 4.0]).show(ui, |ui| {
         for head in ["", "Type", "", "X", "Y", "Z", "Orientation (°)"] {
             crate::widgets::field_label(ui, head);
         }
         ui.end_row();
-        for (n, section) in &doors {
+        for (n, section) in doors.iter() {
             ui.monospace(format!("{n:>3}"));
             int_key(ui, d, section, "Type", 0..=i32::MAX);
             // (Its row's label, where the game data has the table.)
-            let row = d.file.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
+            let row = d.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
             let label = row.zip(types.as_ref()).and_then(|(r, t)| t.get(r, "Label"));
             ui.weak(label.unwrap_or_default());
             for key in ["X", "Y", "Z", "Orientation"] {
@@ -771,8 +840,7 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
 /// (a drag: when released), written as the game's files write one
 /// (`5.0`).
 fn float_key(ui: &mut Ui, d: &mut TilesetDoc, section: &str, key: &str) {
-    let current =
-        d.file.get(section, key).and_then(|v| v.trim().parse::<f32>().ok()).unwrap_or(0.0);
+    let current = d.get(section, key).and_then(|v| v.trim().parse::<f32>().ok()).unwrap_or(0.0);
     if let Some(v) = crate::widgets::commit_number(ui, current, -10_000.0..=10_000.0) {
         let mut text = v.to_string();
         if !text.contains('.') {
@@ -926,11 +994,8 @@ fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset
         }
         crate::widgets::field_label(ui, "Orientation");
         // Degrees, a quarter turn at a time.
-        let current = d
-            .file
-            .get(&section, "Orientation")
-            .and_then(|v| v.trim().parse::<i32>().ok())
-            .unwrap_or(0);
+        let current =
+            d.get(&section, "Orientation").and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
         let mut chosen = current;
         crate::widgets::dropdown(("set-orientation", d.id, i))
             .selected_text(format!("{current}°"))
@@ -1071,7 +1136,7 @@ fn make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
     match gff
         .to_bytes()
         .map_err(|e| e.to_string())
-        .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()))
+        .and_then(|b| mg_module::write_replacing(&path, &b).map_err(|e| e.to_string()))
     {
         Ok(()) => app.log.info(format!("Wrote {}", path.display())),
         Err(e) => app.log.error(format!("{}: {e}", path.display())),
@@ -1140,7 +1205,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
             }
         };
         match crate::model_view::render_tile_from_above(app, &tile.model, MINIMAP_SIZE) {
-            Some(image) => match std::fs::write(&path, mg_image::write_tga(&image)) {
+            Some(image) => match mg_module::write_replacing(&path, &mg_image::write_tga(&image)) {
                 Ok(()) => written += 1,
                 Err(e) => failed.push(format!("{}: {e}", path.display())),
             },
@@ -1170,4 +1235,104 @@ fn check(app: &mut Moonglow, d: &mut TilesetDoc) {
     let Some(key) = ResKey::parse(&stem, ResType::SET) else { return };
     d.findings =
         Some(mg_module::doctor::examine_tileset(&game.resman, key, d.file.text().as_bytes()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SET: &str = "[GENERAL]\r\nName=TST01\r\n\r\n[TILES]\r\nCount=2\r\n\r\n\
+[TILE0]\r\nModel=t0\r\nmodel=second\r\nDoors=1\r\n\r\n[TILE0DOOR0]\r\nType=3\r\nX=1.0\r\n\r\n\
+[TILE1]\r\nModel=t1\r\nTopLeft=A\r\n";
+
+    fn doc() -> TilesetDoc {
+        TilesetDoc::new(1, PathBuf::from("tst01.set"), SetFile::parse(SET))
+    }
+
+    /// The review's A22: a field's value is asked of the section read
+    /// once for a revision of the file, and is what the file itself says
+    /// (a key in any case, the first of one written twice, none for a
+    /// key or a section that is not there), before and after a change,
+    /// an Undo and a Redo.
+    #[test]
+    fn a_field_s_value_is_the_file_s_through_changes() {
+        let mut d = doc();
+        let same = |d: &TilesetDoc| {
+            for section in ["GENERAL", "general", "TILE0", "TILE0DOOR0", "TILE1", "TILE7"] {
+                for key in ["Name", "Model", "MODEL", "Doors", "Type", "X", "TopLeft", "Nope"] {
+                    let file = d.file.get(section, key).map(str::to_string);
+                    assert_eq!(d.get(section, key), file, "[{section}] {key}");
+                }
+            }
+            assert_eq!(*d.doors(0), d.file.doors(0));
+            assert_eq!(*d.doors(1), d.file.doors(1));
+        };
+        same(&d);
+        assert_eq!(d.get("TILE0", "Model").as_deref(), Some("t0"));
+        d.change(|f| f.set("TILE0", "Model", "other"));
+        assert_eq!(d.get("tile0", "model").as_deref(), Some("other"));
+        same(&d);
+        d.change(|f| {
+            edit::add_door(f, 1, 2);
+        });
+        assert_eq!(d.doors(1).len(), 1);
+        same(&d);
+        d.undo();
+        assert!(d.doors(1).is_empty());
+        same(&d);
+        d.undo();
+        assert_eq!(d.get("TILE0", "Model").as_deref(), Some("t0"));
+        d.redo();
+        same(&d);
+    }
+
+    /// Undo keeps the lines a step changed, not the file: each step taken
+    /// back and made again leaves the file as it was, byte for byte, and
+    /// a step that sets one value keeps one line.
+    #[test]
+    fn undo_keeps_the_lines_a_step_changed() {
+        let mut d = doc();
+        let mut texts = vec![d.file.text()];
+        type Change = Box<dyn Fn(&mut SetFile)>;
+        let steps: Vec<Change> = vec![
+            Box::new(|f| f.set("TILE1", "TopLeft", "B")),
+            Box::new(|f| {
+                edit::add_tile(f, "t2", "A");
+            }),
+            Box::new(|f| f.set("GENERAL", "Name", "TST02")),
+            Box::new(|f| {
+                edit::remove_last_tile(f);
+            }),
+            Box::new(|f| f.remove_key("TILE0", "model")),
+            Box::new(|f| {
+                edit::add_door(f, 0, 1);
+            }),
+        ];
+        for step in &steps {
+            d.change(step);
+            texts.push(d.file.text());
+        }
+        assert_eq!(d.undo.len(), steps.len());
+        assert_eq!((d.undo[0].lines.len(), d.undo[0].now), (1, 1), "one line of one value");
+        assert_eq!((d.undo[2].lines.len(), d.undo[2].now), (1, 1));
+        for back in (0..steps.len()).rev() {
+            d.undo();
+            assert_eq!(d.file.text(), texts[back], "undone to {back}");
+            assert!(d.file == SetFile::parse(&texts[back]));
+        }
+        assert!(!d.has_undo() && !d.is_dirty());
+        for (forward, text) in texts.iter().enumerate().skip(1) {
+            d.redo();
+            assert_eq!(d.file.text(), *text, "redone to {forward}");
+        }
+        // (Lines alike at both ends of a change are counted once.)
+        let before = SetFile::parse("a\nb\nb\nc\n");
+        let after = SetFile::parse("a\nb\nc\n");
+        let step = Step::back(&before, &after);
+        let mut file = after.clone();
+        let again = step.take(&mut file);
+        assert!(file == before);
+        again.take(&mut file);
+        assert!(file == after);
+    }
 }
