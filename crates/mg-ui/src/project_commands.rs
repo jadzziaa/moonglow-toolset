@@ -250,7 +250,11 @@ pub(crate) fn upload_allowed(app: &Moonglow, root: &Path, run: &str) -> bool {
 }
 
 /// Allows a command as it reads (in Moonglow's settings, for this
-/// project), and runs it.
+/// project), and runs it: a project's command as it is chosen from the
+/// menu, through the question about unsaved changes. The window that
+/// asks to allow it doesn't stop the editor, and the module was saved
+/// before it showed: run from here, a checkout ran over what was edited
+/// behind the question.
 fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
     let project = project_key(&ask.root);
     // (One text a command: the one allowed before is forgotten.)
@@ -258,8 +262,15 @@ fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
     app.settings.allowed_commands.push((project, ask.name.clone(), ask.run.clone()));
     match &ask.upload {
         Some(u) => crate::nwsync_view::upload(app, &u.folder, &u.parts),
-        None => start(app, &ask.label, &ask.run, &ask.root, (ask.writes, ask.input)),
+        None => app.actions.push(crate::Action::ProjectCommand(ask.name.clone())),
     }
+}
+
+/// The folder of the project open (a nasher project's or a module
+/// folder's), where the module is one.
+fn project_root(app: &Moonglow) -> Option<PathBuf> {
+    let ws = app.ws.as_ref()?;
+    Some(ws.module.location.as_ref().and_then(ProjectFile::root_of)?.to_path_buf())
 }
 
 /// The shell command that runs `text`, in `root`, its output read and
@@ -863,6 +874,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     output_window(app, ctx);
     let Some(ask) = app.project_commands.ask.clone() else { return };
+    // (Asked of another project than the one open now, or of one closed
+    // since: its command is not this module's to run.)
+    if ask.upload.is_none() && project_root(app).as_deref() != Some(ask.root.as_path()) {
+        app.project_commands.ask = None;
+        return;
+    }
     let mut open = true;
     let (mut run, mut cancel) = (false, false);
     crate::widgets::dialog(ctx, "Run a Project Command?", &mut open)

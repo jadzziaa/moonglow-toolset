@@ -2486,6 +2486,52 @@ fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
     assert!(!logged(&h, "exit code 4"), "not run");
 }
 
+/// "Run a Project Command?" doesn't stop the editor, and the module was
+/// saved before it showed: Allow and Run ran the command at once, over
+/// what was edited behind the question (the review of November 2026,
+/// D12). Allowed, the command is run as from the menu: the unsaved
+/// changes are asked about first. Asked of a project closed since, the
+/// question goes with it.
+#[test]
+fn allow_and_run_asks_about_what_was_edited_behind_the_question() {
+    let update = if cfg!(windows) { "echo ran> ran.txt" } else { "echo ran > ran.txt" };
+    let rules = format!("[commands]\nupdate = {update:?}\n");
+    let dir = project_folder("ui-project-commands-allow", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    settle(&mut h);
+    h.get_by_label("Run a Project Command?");
+    // An edit with the question open, then Allow and Run.
+    h.state_mut().actions.push(rename_start("Market"));
+    settle(&mut h);
+    assert!(h.state().has_unsaved_work());
+    h.get_by_label("Allow and Run").click();
+    settle(&mut h);
+    assert!(!dir.join("ran.txt").exists(), "not run over unsaved changes");
+    assert!(h.state().confirm_discard.is_some(), "asked, as on closing");
+    h.get_by_label("Save").click();
+    settle(&mut h);
+    assert!(!h.state().has_unsaved_work(), "saved before it runs");
+    assert!(dir.join("ran.txt").exists(), "{:?}", h.state().log.entries);
+    assert!(h.query_by_label("Run a Project Command?").is_none(), "allowed: not asked again");
+
+    // Asked, and the project closed: the question is not the next
+    // module's.
+    std::fs::write(dir.join("moonglow.toml"), rules.replace("ran.txt", "again.txt")).unwrap();
+    h.state_mut().reload_project_files();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    settle(&mut h);
+    h.get_by_label("Run a Project Command?");
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    settle(&mut h);
+    assert!(h.query_by_label("Run a Project Command?").is_none());
+    assert!(!dir.join("again.txt").exists());
+}
+
 /// A trust decision is never read from the checkout: a repository that
 /// committed a `.moonglow/user.toml` allowing its own command is still
 /// asked about it (and the log says the file's `[allowed_commands]` is not

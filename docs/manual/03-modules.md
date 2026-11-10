@@ -1374,7 +1374,10 @@ Choosing one:
    files, which a repository could carry. An `[allowed_commands]` found
    in `moonglow.toml` or `.moonglow/user.toml` is not read (the log
    says so). The same project in another folder asks again. A command
-   never runs when a module opens.
+   never runs when a module opens. The question doesn't stop the
+   editor: what you change while it is open is asked about (Save, Don't
+   Save, Cancel) when you choose **Allow and Run**, before the command
+   runs, and the question closes with its project.
 3. **Lets the project's files go**: it stops looking at them for changes
    made outside, and closes the module's haks, so that the command may
    write over any of them (Windows refuses to replace a file another
