@@ -117,6 +117,16 @@ struct DabKey {
 /// its widest is tens of thousands, each a model posed every frame.
 const GHOSTS_MAX: usize = 400;
 
+impl PaintState {
+    /// Drops the stroke going on: nothing of it is laid or taken out.
+    pub(crate) fn drop_stroke(&mut self) {
+        self.pending.clear();
+        self.erasing.clear();
+        self.painting = false;
+        self.row_from = None;
+    }
+}
+
 /// The circle's color, a dab's green.
 const CIRCLE: Color32 = Color32::from_rgb(110, 230, 110);
 
@@ -714,10 +724,7 @@ pub(crate) fn input(
     let stop = crate::area_view::cancelled(ui, response);
     if stop {
         if view.paint.painting {
-            view.paint.pending.clear();
-            view.paint.erasing.clear();
-            view.paint.painting = false;
-            view.paint.row_from = None;
+            view.paint.drop_stroke();
         } else {
             app.paint = false;
         }
@@ -725,10 +732,9 @@ pub(crate) fn input(
     }
     // A press with Ctrl or Alt held is the camera's (Ctrl + drag, Alt +
     // drag move the view): the brush lays nothing with it.
-    let (pressed, down, camera, now) = ui.input(|i| {
-        let p = &i.pointer;
-        (p.primary_pressed(), p.primary_down(), i.modifiers.command || i.modifiers.alt, i.time)
-    });
+    let (pressed, down, now) =
+        ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.time));
+    let camera = view.camera_press;
     let s = app.settings.paint;
     if pressed && hovered && !camera {
         view.paint.painting = true;

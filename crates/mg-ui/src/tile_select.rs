@@ -318,7 +318,11 @@ pub(crate) fn input(
         return false;
     }
     let (command, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-    if response.drag_started_by(egui::PointerButton::Primary) && view.tile_box.is_none() && !command
+    // (Not a press that is the camera's: Ctrl + drag, Alt + drag.)
+    if response.drag_started_by(egui::PointerButton::Primary)
+        && view.tile_box.is_none()
+        && !command
+        && !view.camera_press
     {
         let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
         view.tile_box = Some((from, from));

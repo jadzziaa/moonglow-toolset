@@ -982,12 +982,9 @@ pub(crate) fn input(
         view.terrain_drag = None;
         return true;
     }
-    // A press begun with Ctrl held moves the view (Ctrl + drag): the brush
-    // paints nothing with it, during it or when it is let go.
-    let (pressed, command) = ui.input(|i| (i.pointer.any_pressed(), i.modifiers.command));
-    if pressed {
-        view.camera_press = command;
-    }
+    // A press that is the camera's (begun with Ctrl or Alt held: Ctrl +
+    // drag, Alt + drag move the view): the brush paints nothing with it,
+    // during it or when it is let go.
     if view.camera_press {
         return true;
     }

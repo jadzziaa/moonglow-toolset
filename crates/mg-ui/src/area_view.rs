@@ -227,10 +227,6 @@ enum Drag {
     Start { turn: bool, grip: Vec2, at: Vec3, facing: f32, was: (Vec3, f32) },
     /// Selects what is inside the box.
     Box { from: Pos2, to: Pos2 },
-    /// Moves the camera, the ground following the pointer: Alt + left
-    /// drag begun off the selection (GitHub issue 25), on until the button
-    /// is let go, Alt held or not.
-    Pan,
 }
 
 /// The ring around the selection for turning it: taken anywhere on it and
@@ -334,6 +330,11 @@ const HANDLE_LEAST: f32 = 0.005;
 
 /// Half the side of a scale handle's square, points.
 const SCALE_HANDLE: f32 = 5.0;
+
+/// The mode and tool a view's pointer works in: Paint on, Select Tiles
+/// on, the tile brush in hand, objects being pasted, tiles being pasted
+/// (none of them: the objects' own mode).
+type Tool = (bool, bool, Option<mg_area::terrain::Brush>, bool, bool);
 
 /// Ctrl + wheel scaling under way: what is scaled, by how much so far and
 /// when the wheel turned last (the input's time).
@@ -523,6 +524,9 @@ pub struct AreaView {
     /// Whether the start location's marker is selected (with no object).
     pub start_selected: bool,
     drag: Option<Drag>,
+    /// The mode and tool the view's input was last read for ([`Tool`]):
+    /// when it is another, what was in hand for the old one is let go of.
+    tool: Tool,
     /// The press on the view, as of this frame.
     pub(crate) held: Held,
     /// Options › Area: the turning ring shows around the selection.
@@ -598,8 +602,9 @@ pub struct AreaView {
     pub(crate) cursor_cache: Option<(crate::terrain_mode::PreviewKey, CursorShapes)>,
     /// A terrain brush's drag: the corners it is painting.
     pub(crate) terrain_drag: Option<crate::terrain_mode::TerrainDrag>,
-    /// The press going on (or the last one) began with Ctrl held: it is
-    /// the camera's, and a tileset brush leaves it alone.
+    /// The press going on (or the last one) began with Ctrl held, or
+    /// with Alt where Alt + drag moves the view: it is the camera's
+    /// ([`camera_input`]), and every mode leaves it alone.
     pub(crate) camera_press: bool,
     /// What the log was told this area lacks (problems reading it, models
     /// not found): told once.
@@ -990,6 +995,24 @@ impl AreaView {
     /// others now or none. (The preview and the cursor are worked out
     /// before the pointer's spot is read again: one kept from a larger
     /// area was looked up in the smaller one's lattice, issue 31.)
+    /// Lets go of what the pointer held for the mode or tool before this
+    /// one, without making it a step: a drag of the selection, of a
+    /// handle or of the start location, a terrain or crosser drag, the
+    /// box selecting tiles, a brush's stroke. A key that changes the mode
+    /// in the middle of a drag (a tile tool's, Paint's, Select Tiles',
+    /// Ctrl+V) left the drag held with nothing reading it: the object
+    /// stayed drawn where it was dragged, and the move was made a step
+    /// when the mode was next left.
+    fn let_go(&mut self) {
+        self.drag = None;
+        self.terrain_drag = None;
+        self.crossing.clear();
+        self.crossing_at = None;
+        self.crossing_outline = None;
+        self.tile_box = None;
+        self.paint.drop_stroke();
+    }
+
     fn ground_changed(&mut self) {
         self.spot = None;
         self.terrain_drag = None;
@@ -1081,6 +1104,7 @@ impl AreaView {
             ghost_turn: 0.0,
             ghost_step: 0,
             menu_at: None,
+            tool: Default::default(),
             menu_tile: None,
             snap: (None, None),
             turn_together: false,
@@ -2111,7 +2135,6 @@ impl AreaView {
                     | Drag::FaceSpawn { .. }
                     | Drag::MoveSpawn { .. }
                     | Drag::Start { .. }
-                    | Drag::Pan
             )
         };
         // (No drag: Q and E's turning under way, if any.)
@@ -2194,8 +2217,7 @@ impl AreaView {
                     | Drag::Scale { .. }
                     | Drag::FaceSpawn { .. }
                     | Drag::MoveSpawn { .. }
-                    | Drag::Start { .. }
-                    | Drag::Pan => (i, o.position, o.rotation),
+                    | Drag::Start { .. } => (i, o.position, o.rotation),
                 }
             })
             .map(with_turn)
@@ -2829,7 +2851,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.tile_mode = false;
         view.pasting = false;
         view.redraw = None;
-        view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. } | Drag::Pan));
+        view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. }));
     }
     toolbar(app, ui, &mut view);
     // Whose the area is, where it isn't the builder's (the claims table).
@@ -5017,7 +5039,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     app.area_hovered |= response.hovered();
     let was_tile_mode = view.tile_mode;
     let middle_moves = app.settings.middle_drag_moves;
-    camera_input(ui, view, response, (alt, shift, command), middle_moves, &app.keymap, scaling);
+    // Alt + drag moves the view unless it raises the selection: with
+    // nothing selected, on a read-only area, and in every mode that is
+    // not the objects' (Paint, Select Tiles, a tile brush in hand).
+    let alt_pans = view.selection.is_empty()
+        || view.read_only.is_some()
+        || app.paint
+        || view.tile_mode
+        || crate::terrain_mode::active(app, view).is_some();
+    let camera = (middle_moves, alt_pans);
+    camera_input(ui, view, response, (alt, shift, command), camera, &app.keymap, scaling);
     // F10 into tile mode: the tile brush is put down (it would sit on top).
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;
@@ -5116,6 +5147,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && !crate::palette_view::letters_taken(ui.ctx())
     {
         crate::terrain_mode::tool_keys(app, ui, view);
+    }
+    // Another mode or tool than the input was last read for (by a key
+    // just now, or since the last frame): what was in hand is let go of.
+    let tool: Tool = (
+        app.paint,
+        view.tile_mode,
+        crate::terrain_mode::active(app, view).map(|b| b.brush),
+        view.pasting,
+        view.tile_pasting,
+    );
+    if view.tool != tool {
+        view.tool = tool;
+        view.let_go();
     }
     // Shift + right click on the ground: the tile there steps to the next
     // that fits, in any mode, as Aurora's does (a builder's ask: it took
@@ -5513,9 +5557,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             // With a selection, it is raised or lowered wherever the drag
             // begins, as Aurora's Alt + drag does (a builder's ask: it
             // took a press on the selection); with none, the camera moves
-            // (GitHub issue 25), as Ctrl + drag moves it always.
-            let raises = !view.selection.is_empty() && !read_only;
-            Some(if raises { Drag::Lift { by: 0.0 } } else { Drag::Pan })
+            // (GitHub issue 25), as Ctrl + drag moves it always: the
+            // press is the camera's then (`camera_input`).
+            (!view.camera_press).then_some(Drag::Lift { by: 0.0 })
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
             if !view.selected(i) {
@@ -5563,13 +5607,6 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         Some(Drag::Lift { by }) if held.by(button) => {
             let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
             view.drag = Some(Drag::Lift { by: by - held.delta.y * scale });
-        }
-        Some(Drag::Pan) if held.by(button) => {
-            if let Some(o) = view.orbit.as_mut() {
-                let per_pixel = o.camera().per_point(response.rect.height());
-                pan(o, Vec2::new(-held.delta.x, held.delta.y) * per_pixel);
-            }
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         Some(Drag::Box { from, .. }) if held.by(button) => {
             if let Some(to) = pointer {
@@ -5708,7 +5745,6 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     move_start_location(app, at);
                 }
             }
-            Some(Drag::Pan) => {}
             Some(drag @ Drag::Tilt { .. }) => {
                 view.drag = Some(drag);
                 let tilted = view.tilted();
@@ -5836,7 +5872,9 @@ fn camera_input(
     view: &mut AreaView,
     response: &egui::Response,
     (alt, shift, command): (bool, bool, bool),
-    middle_moves: bool,
+    // Options › Area's Middle drag moves the view; and Alt + left drag
+    // moves it (it raises nothing here).
+    (middle_moves, alt_pans): (bool, bool),
     keys: &crate::keys::Keymap,
     // The wheel is scaling the selection: it does not zoom.
     scaling: bool,
@@ -5866,6 +5904,17 @@ fn camera_input(
             .flatten()
             .and_then(|pos| view.focus_at(pos));
     let held = view.held;
+    // A press begun with Ctrl held, or with Alt where Alt + drag moves
+    // the view, is the camera's until it is let go, the key held or not:
+    // the one rule for every mode, each of which leaves such a press
+    // alone. (Each mode had its own: Alt + drag moved the view in the
+    // objects' mode only, selected tiles in Select Tiles and painted
+    // with a tile brush.)
+    let (pressed, primary) = ui.input(|i| (i.pointer.any_pressed(), i.pointer.primary_down()));
+    if pressed {
+        view.camera_press = command || (alt && alt_pans && primary);
+    }
+    let camera_drag = view.camera_press && held.by(egui::PointerButton::Primary);
     let Some(o) = &mut view.orbit else { return };
     if let Some(p) = focus {
         o.target = p.clamp(
@@ -5893,7 +5942,7 @@ fn camera_input(
     } else if turning {
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
-    } else if (command && held.by(egui::PointerButton::Primary)) || middle_pans {
+    } else if (command && held.by(egui::PointerButton::Primary)) || camera_drag || middle_pans {
         // The ground follows the pointer, a closed hand showing it held.
         // (GitHub issue 25.)
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);

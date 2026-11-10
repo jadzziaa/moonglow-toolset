@@ -7481,3 +7481,121 @@ fn nothing_is_put_down_or_dragged_onto_the_void_around_the_area() {
     h.run_steps(3);
     assert!(h.query_by_label("Set Start Location Here").is_some());
 }
+
+/// The review's A12: a key that changes the mode in the middle of a drag
+/// (here Rotate Tile's, which takes the tile tool in hand) left the drag
+/// held with nothing reading it: the object stayed drawn where it had
+/// been dragged while the module had it where it was, and Escape, putting
+/// the tool down, made the move a step then. The drag is let go of as the
+/// mode changes: the object is drawn where the module has it, and no
+/// step is made, then or later.
+#[test]
+fn a_drag_is_let_go_of_when_a_key_changes_the_mode() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("drag-then-key") else { return };
+    let was = waypoint(&mut h, area, 0).unwrap();
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(on);
+    press(&h, on, true, egui::Modifiers::NONE);
+    press(&h, on, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+    let undo = h.state().ws.as_ref().unwrap().undo_depth();
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    let to = screen(&h, area, Vec3::new(26.0, 20.0, 0.02));
+    press(&h, on, true, egui::Modifiers::NONE);
+    for k in 1..=3 {
+        h.hover_at(on + (to - on) * (k as f32 / 4.0));
+        h.run_steps(1);
+    }
+    assert_eq!(h.state().area_views[&area].dragged().len(), 1, "dragged");
+    // Rotate Tile's key, the button still down.
+    h.key_press(egui::Key::R);
+    h.run_steps(2);
+    assert!(h.state().palette.tile_brush.is_some(), "the tile tool in hand");
+    assert!(h.state().area_views[&area].dragged().is_empty(), "the drag let go of");
+    h.hover_at(to);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    // The tool put down again: no move made then either.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().palette.tile_brush.is_none());
+    assert!(h.state().area_views[&area].dragged().is_empty());
+    assert_eq!(h.state().ws.as_ref().unwrap().undo_depth(), undo, "no step");
+    assert_eq!(waypoint(&mut h, area, 0), Some(was));
+}
+
+/// The review's A14: Alt + left drag moved the view in the objects' mode
+/// only (GitHub issue 25). With Paint on it did nothing, in Select Tiles
+/// it dragged a box over the tiles, and with a tile brush in hand it
+/// painted. It moves the view in each, and nothing else: one rule, kept
+/// by the camera.
+#[test]
+fn alt_and_a_drag_moves_the_view_in_every_mode() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("alt-pan-modes") else { return };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let revision = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().revision();
+    let alt = egui::Modifiers::ALT;
+    // Alt + left drag 6 m east over bare ground: how far the view moved.
+    let drag = |h: &mut Harness<'_, Moonglow>| {
+        let before = orbit(h);
+        let (a, b) = (
+            screen(h, area, Vec3::new(10.0, 10.0, 0.0)),
+            screen(h, area, Vec3::new(16.0, 10.0, 0.0)),
+        );
+        h.event(egui::Event::ModifiersChanged(alt));
+        h.hover_at(a);
+        let button = egui::PointerButton::Primary;
+        h.event(egui::Event::PointerButton { pos: a, button, pressed: true, modifiers: alt });
+        for k in 1..=6 {
+            h.hover_at(a + (b - a) * (k as f32 / 6.0));
+            h.step();
+        }
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        press(h, b, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        let moved = orbit(h).target - before.target;
+        h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(before);
+        h.run_steps(2);
+        moved
+    };
+    let panned = |moved: Vec3| (moved.x + 6.0).abs() < 0.6 && moved.y.abs() < 0.6;
+    let unchanged = revision(&h);
+    // Paint on, a placeable chosen.
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(ResKey::parse("plc_shrub", ResType::UTP).unwrap());
+        app.paint = true;
+    }
+    h.run_steps(2);
+    let moved = drag(&mut h);
+    assert!(panned(moved), "with Paint on: {moved:?}");
+    assert_eq!(revision(&h), unchanged, "nothing painted");
+    {
+        let app = h.state_mut();
+        app.paint = false;
+        app.palette.selected = None;
+    }
+    // Select Tiles.
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].tile_mode);
+    let moved = drag(&mut h);
+    assert!(panned(moved), "in Select Tiles: {moved:?}");
+    assert!(h.state().area_views[&area].tile_selection.is_empty(), "no tiles boxed");
+    // A terrain brush in hand (the Eraser, by its key: out of Select
+    // Tiles).
+    h.hover_at(screen(&h, area, Vec3::new(25.0, 25.0, 0.0)));
+    h.run_steps(1);
+    h.key_press(egui::Key::X);
+    h.run_steps(3);
+    assert!(h.state().palette.tile_brush.is_some());
+    let moved = drag(&mut h);
+    assert!(panned(moved), "with a tile brush: {moved:?}");
+    assert_eq!(revision(&h), unchanged, "no tile erased");
+}
