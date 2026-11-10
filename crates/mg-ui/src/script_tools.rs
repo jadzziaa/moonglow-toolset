@@ -112,6 +112,20 @@ pub struct Search {
     pub results: Vec<(ResKey, usize, String)>,
 }
 
+/// The most lines Search Results keeps (Find In Files, References): a
+/// common word has tens of thousands in a large module's scripts, more
+/// than anyone reads through.
+pub const MAX_RESULTS: usize = 10_000;
+
+/// What the log says after a count of `found` results where not all are
+/// kept ([`MAX_RESULTS`]); nothing where they are.
+pub fn results_cut(found: usize) -> String {
+    match found > MAX_RESULTS {
+        true => format!(": the first {MAX_RESULTS} are in Search Results"),
+        false => String::new(),
+    }
+}
+
 /// An open completion list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Completion {

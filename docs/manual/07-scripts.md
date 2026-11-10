@@ -124,7 +124,8 @@ without Match case, accents are set aside as case is (`arbol` finds
 `Árbol` in a comment or a string).
 **Find In Currently Open Scripts** lists every match in the scripts open
 now under Search Results, and **Find In Files** searches (and replaces
-in) every script in the module. A double click on a function's or a
+in) every script in the module. Search Results keeps the first 10,000
+lines found (the log says how many there were). A double click on a function's or a
 constant's name in a script brings its Help forward (over the
 compiler's messages, say).
 **Used By** (on the toolbar) lists where the module runs or includes the

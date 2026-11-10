@@ -179,9 +179,11 @@ impl Moonglow {
             results.push((k, line, shown));
         }
         let n = results.len();
+        results.truncate(tools::MAX_RESULTS);
         script_tools.search.results = results;
         script_tools.info = InfoTab::SearchResults;
-        self.log.info(format!("{}: {n} reference(s) in the module", d.name));
+        let cut = tools::results_cut(n);
+        self.log.info(format!("{}: {n} reference(s) in the module{cut}", d.name));
     }
 
     /// Renames a declaration everywhere it's used in the module's scripts,

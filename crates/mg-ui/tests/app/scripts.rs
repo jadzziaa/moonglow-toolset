@@ -1540,6 +1540,46 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     assert!(top(&h) < before, "and no line kept for one");
 }
 
+/// Find In Files for a word a large module's scripts have on tens of
+/// thousands of lines: Search Results keeps the first 10,000 (the log
+/// says how many were found) and lays out the rows in sight, not all of
+/// them every frame, each on one line.
+#[test]
+fn search_results_keep_ten_thousand_lines_and_draw_those_in_sight() {
+    let dir = mg_testkit::scratch_dir("ui-script-search-results");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("many", ResType::NSS).unwrap();
+    let long = "x".repeat(400);
+    let text: String = (0..12_500).map(|i| format!("int n{i} = {i}; // word {long}\n")).collect();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.into_bytes());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(4);
+    let search = &mut h.state_mut().script_tools.search;
+    (search.open, search.script, search.in_files) = (true, Some(key), true);
+    search.find = "word".into();
+    h.run_steps(3);
+    h.get_by_label("Find All").click();
+    h.run_steps(3);
+    assert_eq!(h.state().script_tools.search.results.len(), 10_000);
+    let said = "\"word\": 12500 lines found: the first 10000 are in Search Results";
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == said), "{:?}", h.state().log.entries);
+    h.state_mut().script_tools.search.open = false;
+    h.run_steps(3);
+    let rows: Vec<egui::Rect> = h.query_all_by_label_contains("many(").map(|n| n.rect()).collect();
+    assert!((1..200).contains(&rows.len()), "{} rows laid out", rows.len());
+    let line = h.ctx.global_style().spacing.interact_size.y;
+    assert!(rows.iter().all(|r| r.height() <= line + 1.0), "one line each: {:?}", rows[0]);
+    // A row in sight goes to its line.
+    h.get_by_label_contains("many(1):").click();
+    h.run_steps(3);
+    assert_eq!(script_cursor(&h, key), Some((0, 0)));
+}
+
 /// Two scripts for the tests of Rename Symbol's places: `inc_a` (CRLF,
 /// with a character of two bytes) declares `Twice` and uses it near its
 /// end, `main_a` includes it. The harness, the two keys and `inc_a`'s

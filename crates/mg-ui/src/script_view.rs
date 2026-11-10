@@ -1043,7 +1043,24 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 InfoTab::Help => egui::ScrollArea::both(),
                 _ => egui::ScrollArea::vertical(),
             };
-            area.id_salt("script-info-rows").auto_shrink([false, false]).show(ui, |ui| {
+            let area = area.id_salt("script-info-rows").auto_shrink([false, false]);
+            // Search Results by the rows in sight (each a line high, not
+            // wrapped): Find In Files for a common word keeps thousands,
+            // which were all laid out every frame.
+            if t.info == InfoTab::SearchResults {
+                let height = ui.spacing().interact_size.y;
+                area.show_rows(ui, height, t.search.results.len(), |ui, range| {
+                    for (k, line, text) in &t.search.results[range] {
+                        let row = format!("{}({}): {text}", k.resref, line + 1);
+                        // (A long line cut at the pane's edge, on one row.)
+                        if ui.add(egui::Button::selectable(false, row).truncate()).clicked() {
+                            open_other = Some((k.resref.to_string(), line + 1));
+                        }
+                    }
+                });
+                return;
+            }
+            area.show(ui, |ui| {
                 match t.info {
                     InfoTab::Compiler => {
                         for m in t.messages.iter().filter(|m| m.script == key) {
@@ -1120,19 +1137,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                     }
-                    InfoTab::SearchResults => {
-                        for (k, line, text) in &t.search.results {
-                            if ui
-                                .selectable_label(
-                                    false,
-                                    format!("{}({}): {text}", k.resref, line + 1),
-                                )
-                                .clicked()
-                            {
-                                open_other = Some((k.resref.to_string(), line + 1));
-                            }
-                        }
-                    }
+                    // (Drawn above, by its rows in sight.)
+                    InfoTab::SearchResults => {}
                 }
             });
         });
@@ -2713,13 +2719,18 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             };
             keys.sort();
             let mut results = Vec::new();
+            let mut found = 0;
             for k in keys {
                 let text = script_source(&app.scripts, Some(ws), None, &k).unwrap_or_default();
                 for (line, t) in tools::find_lines(&text, &s.find, &s.options) {
-                    results.push((k, line, t));
+                    found += 1;
+                    if results.len() < tools::MAX_RESULTS {
+                        results.push((k, line, t));
+                    }
                 }
             }
-            app.log.info(format!("{:?}: {} lines found", s.find, results.len()));
+            let cut = tools::results_cut(found);
+            app.log.info(format!("{:?}: {found} lines found{cut}", s.find));
             app.script_tools.search.results = results;
             app.script_tools.info = InfoTab::SearchResults;
         }
