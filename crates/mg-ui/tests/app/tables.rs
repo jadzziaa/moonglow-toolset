@@ -1781,7 +1781,7 @@ fn a_game_table_read_only_scrolls() {
     h.hover_at(over);
     h.run_steps(2);
     let label = h.get_by_label("Label").rect().left();
-    for delta in [egui::vec2(0.0, 100_000.0), egui::vec2(-600.0, 0.0)] {
+    let wheel = |h: &mut Harness<'_, Moonglow>, delta: egui::Vec2| {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta,
@@ -1789,11 +1789,21 @@ fn a_game_table_read_only_scrolls() {
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(30);
-    }
+    };
+    wheel(&mut h, egui::vec2(0.0, 100_000.0));
     h.get_by_label("Acid_Fog");
-    assert!(h.query_by_label("Label").is_none_or(|n| n.rect().left() < label - 300.0));
-    let acid = h.get_by_label("Acid_Fog").rect().left();
-    assert!(acid < label - 300.0, "the rows went sideways with the names: {acid}");
+    // (A cell scrolled out of sight sideways is no longer laid out: it is
+    // gone, or as far left as its column's name.)
+    wheel(&mut h, egui::vec2(-600.0, 0.0));
+    let went = |n: egui_kittest::Node<'_>| n.rect().left() < label - 300.0;
+    assert!(h.query_by_label("Label").is_none_or(went));
+    assert!(h.query_by_label("Acid_Fog").is_none_or(went), "the rows went with the names");
+    // (And the columns that came into sight are laid out: row 0's cells.)
+    let cells = h
+        .query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Label))
+        .filter(|n| pane.contains(n.rect().center()))
+        .count();
+    assert!(cells > 20, "{cells} labels in the pane");
     // The rows' numbers stay in sight at the left.
     assert!(numbers(&h).contains(&0), "{:?}", numbers(&h));
 }

@@ -907,11 +907,13 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
             talk_tables(app),
         );
         let table = doc.edit.table();
+        // (Looked up, not looked through: with a custom StrRef column and
+        // no talk table every cell of it is a fault, 20,000 of them.)
+        let theirs = cells_of(&theirs);
         found.retain(|f| {
             let column = &table.columns()[f.column];
             let kept = base.column(column).is_some_and(|c| {
-                base.cell(f.row, c) == table.cell(f.row, f.column)
-                    && theirs.iter().any(|x| (x.row, x.column) == (f.row, c))
+                base.cell(f.row, c) == table.cell(f.row, f.column) && theirs.contains(&(f.row, c))
             });
             !kept
         });
@@ -932,20 +934,36 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
             Some(_) => None,
         };
         let table = doc.edit.table();
+        let mut said = cells_of(&found);
         for f in description.faults(table, &rows_of, talk_tables(app)) {
             let column = &table.columns()[f.column];
             let the_game_s =
                 base.as_ref().is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
-            if !the_game_s && !found.iter().any(|x| (x.row, x.column) == (f.row, f.column)) {
+            if !the_game_s && said.insert((f.row, f.column)) {
                 found.push(f);
             }
         }
-        found.sort_by_key(|f| (f.row, f.column));
     }
+    // (By row, then column, always: the grid takes each row's with
+    // `row_faults`.)
+    found.sort_by_key(|f| (f.row, f.column));
     let found = Arc::new(found);
     let doc = &mut app.tables[at];
     doc.faults = Some(((doc.revision, others), found.clone()));
     found
+}
+
+/// The cells faults are in, to look one up.
+fn cells_of(faults: &[CellFault]) -> std::collections::HashSet<(usize, usize)> {
+    faults.iter().map(|f| (f.row, f.column)).collect()
+}
+
+/// The faults of row `row`, of faults in the order [`faults`] gives them
+/// (by row, then column): found by halving, not by looking through them.
+fn row_faults(faults: &[CellFault], row: usize) -> &[CellFault] {
+    let from = faults.partition_point(|f| f.row < row);
+    let to = from + faults[from..].partition_point(|f| f.row == row);
+    &faults[from..to]
 }
 
 /// The other copies of the table in the load order: each layer's name and
@@ -2221,6 +2239,9 @@ pub(crate) fn grid_in(
             ui.vertical(|ui| {
                 list.show_rows(ui, row_height, rows.len(), |ui, range| {
                     for &r in &rows[range] {
+                        // (The row's own faults: every cell laid out
+                        // looked through all of the table's.)
+                        let wrong_here = row_faults(faults, r);
                         ui.horizontal(|ui| {
                             // (The layer the row comes from, in a view.)
                             if let Some(l) = layered {
@@ -2271,8 +2292,21 @@ pub(crate) fn grid_in(
                                     }
                                     continue;
                                 }
+                                // A cell scrolled out of sight sideways takes
+                                // its place and no more: no text made, nothing
+                                // looked up (spells.2da's 55 columns were all
+                                // laid out for every row shown). It counts as
+                                // many widgets as one drawn, so the ids of
+                                // those after it stay theirs.
+                                let size = egui::vec2(width, row_height);
+                                let place = egui::Rect::from_min_size(ui.cursor().min, size);
+                                if !ui.is_rect_visible(place) {
+                                    ui.allocate_exact_size(size, egui::Sense::hover());
+                                    ui.skip_ahead_auto_ids(1);
+                                    continue;
+                                }
                                 let raw = doc.edit.table().cell(r, c);
-                                let fault = faults.iter().find(|f| f.row == r && f.column == c);
+                                let fault = wrong_here.iter().find(|f| f.column == c);
                                 let (label, text, was_named) =
                                     cell_shows(raw, is_strref, named[c], (talk, game));
                                 let mut rich = egui::RichText::new(label).monospace();
@@ -2684,7 +2718,7 @@ fn inspector(
             }
             None => {}
         }
-        if let Some(f) = faults.iter().find(|f| f.row == row && f.column == column) {
+        if let Some(f) = row_faults(faults, row).iter().find(|f| f.column == column) {
             ui.colored_label(ui.visuals().error_fg_color, &f.message);
         }
     });
@@ -3407,5 +3441,28 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
         doc.taking = None;
     } else {
         doc.taking = (open && !cancelled).then_some(taking);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A row's faults, taken by halving from the faults in their order,
+    /// are those a look through all of them finds (the grid looked every
+    /// cell laid out up so: the review of November 2026, D20).
+    #[test]
+    fn a_row_s_faults_are_those_a_look_through_all_finds() {
+        let fault = |row, column| CellFault { row, column, message: format!("{row}:{column}") };
+        let mut all = vec![fault(7, 2), fault(0, 3), fault(7, 0), fault(3, 1), fault(9, 9)];
+        all.sort_by_key(|f| (f.row, f.column));
+        for row in 0..12 {
+            let by_look: Vec<&CellFault> = all.iter().filter(|f| f.row == row).collect();
+            let halved: Vec<&CellFault> = row_faults(&all, row).iter().collect();
+            assert_eq!(halved, by_look, "row {row}");
+        }
+        assert!(row_faults(&[], 3).is_empty());
+        assert_eq!(cells_of(&all).len(), 5);
+        assert!(cells_of(&all).contains(&(7, 0)) && !cells_of(&all).contains(&(0, 7)));
     }
 }
