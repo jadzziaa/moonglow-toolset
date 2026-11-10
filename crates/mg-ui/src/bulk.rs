@@ -62,6 +62,38 @@ impl UpdateDraft {
 const UPDATE_STALE: &str = "Objects were added to or removed from these areas since they were \
      listed";
 
+/// The ticked objects of a draft, to ask of each object of an area
+/// whether it is one: the placed objects by area, list and place, and
+/// the items held by area and where. (Asked of every object of every
+/// area listed: looked up in the list itself, Update All Instances of
+/// 30,000 among 90,000 placed took thousands of millions of steps.)
+struct Ticked<'a> {
+    placed: HashSet<(ResRef, &'a str, usize)>,
+    held: HashSet<(ResRef, &'a [(&'static str, usize)])>,
+}
+
+impl<'a> Ticked<'a> {
+    fn of(objects: &'a [Affected]) -> Ticked<'a> {
+        let mut t = Ticked { placed: HashSet::new(), held: HashSet::new() };
+        for o in objects.iter().filter(|o| o.on) {
+            if o.held.is_empty() {
+                t.placed.insert((o.area, o.list, o.index));
+            } else {
+                t.held.insert((o.area, o.held.as_slice()));
+            }
+        }
+        t
+    }
+
+    fn placed(&self, area: ResRef, list: &str, index: usize) -> bool {
+        self.placed.contains(&(area, list, index))
+    }
+
+    fn held(&self, area: ResRef, at: &[(&'static str, usize)]) -> bool {
+        self.held.contains(&(area, at))
+    }
+}
+
 /// The kind of object a GIT list holds, for people.
 fn kind_name(list: &str) -> &'static str {
     ObjectKind::from_list(list).map_or("object", ObjectKind::name)
@@ -174,26 +206,17 @@ impl Moonglow {
             })
             .collect();
         let blueprint = |t: ResType, r: ResRef| blueprints.get(&ResKey::new(r, t)).cloned();
+        let ticked = Ticked::of(&draft.objects);
         // (The items the objects hold, as their editors have them.)
         let made = crate::area_view::placing(self, |placing, _| {
             let mut edits = Vec::new();
             let mut total = 0;
             for (key, git) in &gits {
                 let (key, area) = (*key, key.resref);
-                let which = |list: &str, index: usize| {
-                    draft.objects.iter().any(|o| {
-                        o.area == area
-                            && o.held.is_empty()
-                            && o.list == list
-                            && o.index == index
-                            && o.on
-                    })
-                };
+                let which = |list: &str, index: usize| ticked.placed(area, list, index);
                 // The items held first (where they are is by their places
                 // now), then the placed objects.
-                let held = |at: &[(&'static str, usize)]| {
-                    draft.objects.iter().any(|o| o.area == area && o.held == at && o.on)
-                };
+                let held = |at: &[(&'static str, usize)]| ticked.held(area, at);
                 let item = |r: ResRef| blueprint(ResType::UTI, r);
                 let (with_held, held_n) =
                     update_held(placing, git, &item, &held).unwrap_or_else(|| (git.clone(), 0));
@@ -549,5 +572,53 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
     }
     if open {
         app.text_replace = Some(draft);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The review's A19: the ticked objects are asked for in sets made
+    /// once, and answer as the list itself, scanned, did: by area, list
+    /// and place for the placed, by area and where for the items held,
+    /// the unticked left out.
+    #[test]
+    fn the_ticked_objects_are_found_as_a_scan_of_the_list_finds_them() {
+        let areas = ["a", "b"].map(|a| ResRef::from_str(a).unwrap());
+        let lists = ["Placeable List", "Creature List"];
+        let mut objects = Vec::new();
+        for (n, area) in areas.into_iter().enumerate() {
+            for list in lists {
+                for index in 0..6 {
+                    let on = (index + n) % 3 != 0;
+                    let held = Vec::new();
+                    objects.push(Affected { area, list, index, held, label: String::new(), on });
+                    let held: Held = vec![(list, index), ("ItemList", index % 2)];
+                    let on = (index + n) % 2 == 0;
+                    objects.push(Affected { area, list, index, held, label: String::new(), on });
+                }
+            }
+        }
+        let ticked = Ticked::of(&objects);
+        for area in areas {
+            for list in lists.into_iter().chain(["SoundList"]) {
+                for index in 0..8 {
+                    let scan = objects.iter().any(|o| {
+                        o.area == area
+                            && o.held.is_empty()
+                            && o.list == list
+                            && o.index == index
+                            && o.on
+                    });
+                    assert_eq!(ticked.placed(area, list, index), scan, "{area} {list} {index}");
+                    for slot in 0..2 {
+                        let at: Held = vec![(list, index), ("ItemList", slot)];
+                        let scan = objects.iter().any(|o| o.area == area && o.held == at && o.on);
+                        assert_eq!(ticked.held(area, &at), scan, "{area} {at:?}");
+                    }
+                }
+            }
+        }
     }
 }
