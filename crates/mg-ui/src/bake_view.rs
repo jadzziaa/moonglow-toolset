@@ -458,7 +458,8 @@ fn take_back(
 /// Writes `data` at `path` (none: takes the file away).
 fn put(app: &mut Moonglow, path: &std::path::Path, data: Option<&[u8]>) {
     let done = match data {
-        Some(d) => std::fs::write(path, d),
+        // (Whole or not at all: the project's build reads this file.)
+        Some(d) => mg_module::write_replacing(path, d),
         None => std::fs::remove_file(path).or_else(|e| match e.kind() {
             std::io::ErrorKind::NotFound => Ok(()),
             _ => Err(e),

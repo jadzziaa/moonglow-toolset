@@ -234,9 +234,9 @@ impl TilesetDoc {
             .ok()
             .and_then(|d| Tileset::parse(&d, Codepage::default()).ok())
             .map(|t| names(&t));
-        let part = self.path.with_extension("set.part");
-        std::fs::write(&part, self.file.text())
-            .and_then(|()| std::fs::rename(&part, &self.path))
+        // (Whole or not at all, as every file Moonglow keeps: the `.set`,
+        // and the palette beside it below.)
+        mg_module::write_replacing(&self.path, self.file.text().as_bytes())
             .map_err(|e| format!("{}: {e}", self.path.display()))?;
         self.saved = Some(self.undo.len());
         let (Some(was), Some(now)) = (was, self.tileset().map(names)) else { return Ok(None) };
@@ -261,7 +261,7 @@ impl TilesetDoc {
         }
         gff.to_bytes()
             .map_err(|e| e.to_string())
-            .and_then(|b| std::fs::write(&palette, b).map_err(|e| e.to_string()))
+            .and_then(|b| mg_module::write_replacing(&palette, &b).map_err(|e| e.to_string()))
             .map_err(|e| format!("{}: {e}", palette.display()))?;
         let names: Vec<String> = renamed.iter().map(|(a, b)| format!("{a} → {b}")).collect();
         Ok(Some(format!("{}: renamed {}", palette.display(), names.join(", "))))
@@ -297,7 +297,7 @@ pub fn new_tileset(app: &mut Moonglow) {
         }
     };
     let file = edit::skeleton(&name);
-    if let Err(e) = std::fs::write(&path, file.text()) {
+    if let Err(e) = mg_module::write_replacing(&path, file.text().as_bytes()) {
         app.log.error(format!("{}: {e}", path.display()));
         return;
     }
@@ -1136,7 +1136,7 @@ fn make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
     match gff
         .to_bytes()
         .map_err(|e| e.to_string())
-        .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()))
+        .and_then(|b| mg_module::write_replacing(&path, &b).map_err(|e| e.to_string()))
     {
         Ok(()) => app.log.info(format!("Wrote {}", path.display())),
         Err(e) => app.log.error(format!("{}: {e}", path.display())),
@@ -1205,7 +1205,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
             }
         };
         match crate::model_view::render_tile_from_above(app, &tile.model, MINIMAP_SIZE) {
-            Some(image) => match std::fs::write(&path, mg_image::write_tga(&image)) {
+            Some(image) => match mg_module::write_replacing(&path, &mg_image::write_tga(&image)) {
                 Ok(()) => written += 1,
                 Err(e) => failed.push(format!("{}: {e}", path.display())),
             },
