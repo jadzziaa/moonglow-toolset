@@ -56,7 +56,8 @@ pub struct HakDoc {
 pub(crate) enum Viewing {
     Picture(egui::TextureHandle),
     Sound(std::sync::Arc<[u8]>),
-    Table(Box<mg_module::table_layers::Layered>),
+    /// (With which reading of it this is: `browser::made`.)
+    Table(Box<mg_module::table_layers::Layered>, u64),
     /// Drawn in the model viewer: from the load order where the game reads
     /// this copy (`true`: it can pop out into a tab of its own), else from
     /// the hak as it is now over the load order ([`resources`]).
@@ -76,7 +77,7 @@ impl Viewing {
         match self {
             Viewing::Picture(_) => "picture",
             Viewing::Sound(_) => "sound",
-            Viewing::Table(_) => "table",
+            Viewing::Table(..) => "table",
             Viewing::Model(_) => "model",
             Viewing::Plain(_) => "plain",
         }
@@ -130,10 +131,12 @@ fn viewing(
         ResType::TWODA => {
             let codepage = app.game.as_deref().map(|g| g.codepage()).unwrap_or_default();
             match mg_2da::TwoDa::parse(&data, codepage) {
-                Ok(t) => Viewing::Table(Box::new(mg_module::table_layers::Layered::single(
-                    app.haks[doc].title().trim_end_matches(" *"),
-                    t,
-                ))),
+                Ok(t) => {
+                    let name = app.haks[doc].title();
+                    let table =
+                        mg_module::table_layers::Layered::single(name.trim_end_matches(" *"), t);
+                    Viewing::Table(Box::new(table), crate::browser::made())
+                }
                 Err(_) => plain(&data),
             }
         }
@@ -903,9 +906,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             Viewing::Sound(data) => {
                 ui.weak(format!("A sound, {} bytes: Play plays it", data.len()));
             }
-            Viewing::Table(table) => {
+            Viewing::Table(table, made) => {
                 let label = table.copies[0].0.clone();
-                crate::browser::two_da(app, ui, key, Some(&label), table);
+                crate::browser::two_da(app, ui, key, Some(&label), (table, *made));
             }
             Viewing::Model(true) => {
                 use crate::model_view::Source;

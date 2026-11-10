@@ -87,9 +87,9 @@ pub struct Browser {
 /// A 2DA's read-only view.
 #[derive(Debug)]
 pub(crate) struct TableView {
-    /// The table's layers it was made for (where they are): another is
-    /// made for others.
-    of: usize,
+    /// The reading of the table's layers it was made for ([`made`]):
+    /// another is made for another.
+    of: u64,
     /// The layer whose rows alone it shows (Rows from), as last set.
     rows_from: Option<usize>,
     pub(crate) doc: crate::table_view::TableDoc,
@@ -658,6 +658,19 @@ pub(crate) struct Viewed {
     data: Vec<u8>,
     origin: String,
     content: Content,
+    /// Which reading this is, of all made ([`made`]): what is kept for
+    /// its content (a 2DA's view) is this one's alone.
+    made: u64,
+}
+
+/// A number no other reading of a resource has had: what is made from
+/// one and kept (a 2DA's view, with its own copy of the cells) is told
+/// from another's by it. It was told by where the table lay in memory,
+/// and a table read again after a change may lie where the old one did:
+/// the view then showed the old cells under the new table's marks.
+pub(crate) fn made() -> u64 {
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Debug)]
@@ -704,7 +717,7 @@ impl Viewed {
         } else {
             Content::Binary(hex(&data[..data.len().min(512)]))
         };
-        Some(Viewed { data, origin, content })
+        Some(Viewed { data, origin, content, made: made() })
     }
 }
 
@@ -831,7 +844,7 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         }
     }
     if let Content::TwoDa(l) = &viewed.content {
-        two_da(app, ui, key, layer, l);
+        two_da(app, ui, key, layer, (l, viewed.made));
         return;
     }
     let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
@@ -956,7 +969,7 @@ pub(crate) fn two_da(
     ui: &mut Ui,
     key: ResKey,
     layer: Option<&str>,
-    l: &mg_module::table_layers::Layered,
+    (l, of): (&mg_module::table_layers::Layered, u64),
 ) {
     use crate::table_view::{GridOf, TableDoc, grid_in, keys_in, view_header};
     let name = key.resref.to_string();
@@ -996,9 +1009,9 @@ pub(crate) fn two_da(
             .collect();
         ui.weak(format!("{} copies, lowest first. {}", l.copies.len(), parts.join("; ")));
     }
-    // The view, kept while it is of these layers.
+    // The view, kept while it is of these layers (`of`: which reading of
+    // them, [`made`]).
     let at = (key, layer.map(str::to_string));
-    let of = l as *const mg_module::table_layers::Layered as usize;
     let kept = browser.table_views.get(&at).is_some_and(|v| {
         let had = v.doc.edit.table();
         v.of == of && had.len() == t.len() && had.columns() == t.columns()

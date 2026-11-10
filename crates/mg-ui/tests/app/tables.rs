@@ -1354,6 +1354,56 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"), "the module's Undo takes the save");
 }
 
+/// The hak editor's view of a table shows the table as the hak has it
+/// now: viewed, changed in the 2DA editor (a cell, no row or column),
+/// saved into the hak and viewed again, it shows the new cell. The view
+/// was kept by where its table lay in memory, and a table read again
+/// could lie where the old one did (the review of November 2026, D28):
+/// it is kept by which reading it was made for.
+#[test]
+fn a_hak_s_table_viewed_again_shows_it_as_it_is_now() {
+    use mg_module::hak_edit::{Hak, Source};
+    let dir = mg_testkit::scratch_dir("ui-table-hak-view");
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    let hak_path = dir.join("stuff.hak");
+    let mut hak = Hak::new();
+    hak.add_sources(vec![(key, Source::Bytes(SMALL_TABLE.to_vec().into()))]).unwrap();
+    hak.save(Some(&hak_path)).unwrap();
+    let dialogs = NoDialogs { open: vec![hak_path.clone()], ..Default::default() };
+    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1200.0, 800.0);
+    h.run();
+    mg_ui::hak_view::open_hak(h.state_mut());
+    settle(&mut h);
+    let hak_id = h.state().haks[0].id;
+    let view = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Hak(hak_id)));
+        settle(h);
+        h.get_all_by_label("mystore.2da").next().unwrap().click_secondary();
+        settle(h);
+        h.get_all_by_label("View").last().unwrap().click();
+        settle(h);
+        assert_eq!(h.state().haks[0].viewing().map(|v| v.1), Some("table"));
+    };
+    // (Several times over: a table read again often lies where the last
+    // one did.)
+    let mut was = "Bread".to_string();
+    for now in ["Toast", "Rolls", "Buns", "Loaf"] {
+        view(&mut h);
+        h.get_by_label(was.as_str());
+        let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
+        settle(&mut h);
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(0, 0, Some(now.into())).unwrap();
+        assert!(mg_ui::table_view::save(h.state_mut(), id));
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+        settle(&mut h);
+        view(&mut h);
+        h.get_by_label(now);
+        assert!(h.query_by_label(was.as_str()).is_none(), "{was} was the cell before");
+        was = now.to_string();
+    }
+}
+
 /// A table of a hak open in the hak editor is saved into the hak (a step
 /// of the hak's, written by its own Save); one of a file, to the file.
 #[test]
