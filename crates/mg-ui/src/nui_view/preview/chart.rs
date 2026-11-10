@@ -1,6 +1,10 @@
 //! NuiChart: lines and columns as Nuklear draws them.
 use super::*;
 
+/// A pixel of a chart's line as its samples are gathered: which, and the
+/// lowest and the highest of them, each with its place among the samples.
+type Gathered = (usize, (usize, f64), (usize, f64));
+
 /// The points of a line through `data`'s numbers, a `step` apart from
 /// `left`, each at the height `y` gives its value: every one of them
 /// while there are no more than two a pixel, and of more the lowest and
@@ -27,8 +31,8 @@ pub(super) fn line_points(
     let mut points = Vec::new();
     // The pixel being gathered: its lowest and highest values, with where
     // they came.
-    let mut gathered: Option<(usize, (usize, f64), (usize, f64))> = None;
-    let mut put = |g: (usize, (usize, f64), (usize, f64))| {
+    let mut gathered: Option<Gathered> = None;
+    let mut put = |g: Gathered| {
         let (_, low, high) = g;
         let (first, second) = if low.0 <= high.0 { (low, high) } else { (high, low) };
         points.push(at(first.0, first.1));

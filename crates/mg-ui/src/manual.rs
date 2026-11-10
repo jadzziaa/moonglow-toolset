@@ -66,14 +66,17 @@ const PICTURES: [(&str, &[u8]); 1] = [(
 pub(crate) struct Manual {
     pub(crate) chapter: usize,
     cache: CommonMarkCache,
-    /// The chapter as shown ([`blocks`]) with each block's heading
-    /// ([`anchors`]), and the chapter and width it was made for.
-    shown: Option<(usize, u32, Vec<Block>, Vec<Option<String>>)>,
+    /// The chapter as shown, and the chapter and width it was made for.
+    shown: Option<(usize, u32, Shown)>,
     /// The heading a link asked for: scrolled to as the chapter is shown.
     scroll_to: Option<ScrollTo>,
     /// The [`PICTURES`] shown so far (`None`: one that does not read).
     pictures: std::collections::HashMap<usize, Option<egui::TextureHandle>>,
 }
+
+/// A chapter as shown: its [`blocks`], and each block's heading
+/// ([`anchors`]).
+type Shown = (Vec<Block>, Vec<Option<String>>);
 
 /// A heading being scrolled to.
 #[derive(Debug)]
@@ -556,9 +559,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         let measure = |cell: &str| measured(&ctx, &style, cell);
                         let shown = blocks(body(CHAPTERS[chapter].1), step as f32 * 20.0, &measure);
                         let anchors = anchors(&shown);
-                        m.shown = Some((chapter, step, shown, anchors));
+                        m.shown = Some((chapter, step, (shown, anchors)));
                     }
-                    let Some((_, _, shown, anchors)) = &m.shown else { return };
+                    let Some((_, _, (shown, anchors))) = &m.shown else { return };
                     // (A heading the chapter doesn't have: its top.)
                     let scroll_to = m.scroll_to.as_ref().map(|to| to.heading.clone());
                     let mut heading_at = None;
