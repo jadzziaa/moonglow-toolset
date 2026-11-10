@@ -638,10 +638,18 @@ impl Moonglow {
         draft.hits = self.search_kept.search(&ws.module, &q, game, cp);
         draft.ticked = draft.hits.iter().map(|h| h.layer.is_none()).collect();
         draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
+        let asked_anew = draft.searched.as_ref() != Some(&q);
         draft.searched = Some(q);
         draft.found_at = Some(ws.revision());
-        // (A change's field follows what is looked for.)
-        if let Some(field) = draft.first.field() {
+        // (A field to set follows what is looked for, when another thing
+        // is looked for. Every search wrote the field's label over the
+        // name, which is a variable's and an item's too: a variable typed
+        // as nBoss was Appearance_Type after the search a change ends
+        // with, and the next change set a variable of that name.)
+        if asked_anew
+            && draft.act.act == Act::SetField
+            && let Some(field) = draft.first.field()
+        {
             draft.act.name = field;
         }
     }
@@ -1108,13 +1116,22 @@ fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
 /// The change to make, and its button; true when it is asked.
 fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>) -> bool {
     let mut go = false;
+    // (The field of what was looked for, offered as the one to set.)
+    let offered = d.first.field();
     let a = &mut d.act;
     egui::Grid::new("advanced-search-act").num_columns(2).show(ui, |ui| {
         crate::widgets::field_label(ui, "Change");
+        let was = a.act;
         crate::widgets::dropdown("advanced-search-act")
             .selected_text(a.act.label())
             .width(260.0)
             .show(ui, &mut a.act, &Act::ALL, |a| a.label());
+        if a.act != was
+            && a.act == Act::SetField
+            && let Some(field) = offered
+        {
+            a.name = field;
+        }
         ui.end_row();
         let edit = |ui: &mut Ui, v: &mut String, hint: &str| {
             ui.add(egui::TextEdit::singleline(v).hint_text(hint).desired_width(260.0));

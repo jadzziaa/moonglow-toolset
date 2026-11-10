@@ -125,7 +125,10 @@ fn a_rename_says_which_of_its_scripts_no_longer_compile() {
         .filter(|(level, _)| matches!(level, mg_ui::Level::Error))
         .map(|(_, m)| m.as_str())
         .collect();
-    assert!(errors.iter().any(|m| m.contains("quest.nss") && m.contains("inc_utils")), "{errors:?}");
+    assert!(
+        errors.iter().any(|m| m.contains("quest.nss") && m.contains("inc_utils")),
+        "{errors:?}"
+    );
     assert!(!errors.iter().any(|m| m.contains("quest_other")), "not the rename's: {errors:?}");
     let said = |s: &str| app.log.entries.iter().any(|e| e.1.contains(s));
     assert!(said("Some scripts the rename changed aren't compiled"));
@@ -603,6 +606,59 @@ fn advanced_search_finds_again_before_it_acts_in_a_changed_module() {
         GffPath::root().item("Creature List", 1),
         "found again, where Undo put it back"
     );
+}
+
+/// Every search wrote the field looked for over the change's name, which
+/// is a variable's too: after a search of appearances, a variable typed
+/// as nBoss read Appearance_Type once the change had run (it ends with a
+/// search), and the next change set a variable of that name on everything
+/// found (the review of November 2026, D10). The field is offered where
+/// a field is what is set, and when another thing is looked for.
+#[test]
+fn advanced_search_keeps_the_name_typed_for_a_change() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Act, AdvancedSearch, Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-name");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut c = Struct::new(4);
+    c.set("Tag", Value::String(b"OGRE".to_vec()));
+    c.set("Appearance_Type", Value::Word(6));
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List(vec![c]));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Appearance, row: Some(6), ..Default::default() },
+        ..Default::default()
+    };
+    d.act.act = Act::SetVariable;
+    d.act.name = "nBoss".into();
+    d.act.value = "1".into();
+    app.advanced_search(&mut d);
+    assert_eq!(d.hits.len(), 1, "{:?}", d.hits);
+    assert_eq!(d.act.name, "nBoss", "after the search");
+    app.change_found(&mut d);
+    assert_eq!(d.act.name, "nBoss", "after the change, which searches again");
+    let ws = app.ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let g = ws.module.gff(&start).unwrap().unwrap();
+    let vars = g.root.list("Creature List").unwrap()[0].list("VarTable").unwrap().to_vec();
+    assert_eq!(vars.len(), 1);
+    assert_eq!(vars[0].string("Name"), Some(b"nBoss".as_slice()));
+    // A field to set is the one looked for, once another thing is asked.
+    d.act.act = Act::SetField;
+    d.first.row = Some(7);
+    app.advanced_search(&mut d);
+    assert_eq!(d.act.name, "Appearance_Type");
+    // (And what is typed over it stays through the same question.)
+    d.act.name = "Tag".into();
+    app.advanced_search(&mut d);
+    assert_eq!(d.act.name, "Tag");
 }
 
 /// Advanced Search's changes to lists, through Edit Together's rules
