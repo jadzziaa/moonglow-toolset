@@ -250,6 +250,10 @@ pub(crate) struct Plan<'a> {
     pub(crate) floor: f32,
 }
 
+/// A caster met, before the cut to the map's region: its box, and a
+/// skinned one's pose.
+type Met<'a> = (Caster<'a>, (Vec3, Vec3), Option<&'a [Mat4]>);
+
 /// The shadow map a scene needs, seen by `camera` in a picture of
 /// `aspect`: `None` where it has no shadows (none asked for, none to cast
 /// or none to receive one in sight). `skins`: skinned meshes cast (the
@@ -263,7 +267,7 @@ pub(crate) fn plan<'a>(
     let shadows = scene.shadows.filter(|s| s.opacity > 0.0)?;
     // (Each with its box, and a skinned one's pose: its bones are worked
     // out once it is known to cast into the map's region.)
-    let mut casters: Vec<(Caster<'a>, (Vec3, Vec3), Option<&'a [Mat4]>)> = Vec::new();
+    let mut casters: Vec<Met<'a>> = Vec::new();
     let mut bones = Vec::new();
     let (mut rmin, mut rmax) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for inst in &scene.instances {
