@@ -34,6 +34,12 @@ pub(crate) struct Dragged(pub(crate) ResKey);
 /// Blueprints' tags, by resref.
 type Tags = Arc<HashMap<ResRef, String>>;
 
+/// What a palette was grouped for: the palette itself (held, and told by
+/// `Arc::ptr_eq`: kept by its address alone, a later palette made at the
+/// address of one let go of was shown as the old one was grouped), the
+/// groupings as read, the grouping and whether by category within.
+type GroupedFor = (Arc<Palette>, u64, String, bool);
+
 /// The palette pane's state.
 #[derive(Debug)]
 pub struct PaletteView {
@@ -48,11 +54,17 @@ pub struct PaletteView {
     standard: HashMap<BlueprintKind, Arc<Palette>>,
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
-    /// Each palette grouped as Group by asks (`grouped`), and what for:
-    /// the palette (its place), the groupings as read, the grouping and
-    /// whether by category within.
+    /// For a module that has no custom palette of a type: the one made
+    /// for it, and the module it was made from with it in
+    /// ([`custom_palette_now`]).
+    made: HashMap<BlueprintKind, mg_module::Module>,
+    /// The module's own blueprints of a type (their ResRefs), and the
+    /// workspace revision they were listed at: the custom palette asks
+    /// which of its rows are the module's every frame.
     #[allow(clippy::type_complexity)]
-    grouped: HashMap<(BlueprintKind, bool), ((usize, u64, String, bool), Arc<Grouped>)>,
+    own: Option<((u64, BlueprintKind), Arc<std::collections::HashSet<ResRef>>)>,
+    /// Each palette grouped as Group by asks (`grouped`), and what for.
+    grouped: HashMap<(BlueprintKind, bool), (GroupedFor, Arc<Grouped>)>,
     pub selected: Option<ResKey>,
     /// The hovered blueprint's thumbnail, once rendered.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
@@ -74,6 +86,8 @@ pub struct PaletteView {
     arrived: std::collections::HashSet<ResRef>,
     /// Blueprints' tags, for the search: by palette (and module revision).
     tags: HashMap<(BlueprintKind, bool), (Option<u64>, Tags)>,
+    /// Each blueprint's tag as it was read, for [`tags_read`].
+    tags_read: HashMap<ResKey, TagRead>,
     /// More blueprints chosen with Ctrl+click (with `selected`): custom
     /// ones for bulk edits, placeables to paint (`paint_mode`).
     pub chosen: Vec<ResKey>,
@@ -415,6 +429,7 @@ impl PaletteView {
     pub(crate) fn forget_game_data(&mut self) {
         self.standard.clear();
         self.custom_cache.clear();
+        self.own = None;
         self.grouped.clear();
         self.kept = Default::default();
         self.tile_palettes.clear();
@@ -423,6 +438,8 @@ impl PaletteView {
         // (The Standard palette's tags read the module's blueprint first:
         // another module, or the game read again, has its own.)
         self.tags.clear();
+        self.tags_read.clear();
+        self.made.clear();
     }
 }
 
@@ -436,6 +453,8 @@ impl Default for PaletteView {
             filter: String::new(),
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
+            made: HashMap::new(),
+            own: None,
             grouped: HashMap::new(),
             selected: None,
             thumb: None,
@@ -444,6 +463,7 @@ impl Default for PaletteView {
             found: None,
             arrived: Default::default(),
             tags: HashMap::new(),
+            tags_read: HashMap::new(),
             chosen: Vec::new(),
             tiles: false,
             prefabs: false,
@@ -564,17 +584,55 @@ pub(crate) fn palette(
         let built = ws
             .flush()
             .ok()
-            .and_then(|()| {
-                match update_custom_palette(&ws.module, ws.saved(), game, kind).ok()? {
-                    Some(g) => Some(g),
-                    None => ws.module.gff(&kind.custom_key())?.ok(),
-                }
-            })
+            .and_then(|()| custom_palette_now(&ws.module, ws.saved(), game, kind, &mut view.made))
             .map(|g| Palette::read(&g))
             .unwrap_or_default();
         view.custom_cache.insert(kind, (rev, Arc::new(built)));
     }
     view.custom_cache.get(&kind).map(|(_, p)| p.clone())
+}
+
+/// The custom palette of `kind` as the next save writes it: `module`'s,
+/// with the blueprints changed since it was saved (`saved`).
+///
+/// A module that has no such palette (a project's, whose palettes are
+/// made when it is built) has it made from every blueprint of the type:
+/// once, kept in `made` with the module it was made from, and brought up
+/// to date from there with the blueprints changed since, as a module's
+/// own is. (Made anew at every change, a search left in the Custom
+/// palette read and parsed every blueprint again at each command.)
+fn custom_palette_now(
+    module: &mg_module::Module,
+    saved: &mg_module::Module,
+    game: &mg_rules::GameData,
+    kind: BlueprintKind,
+    made: &mut HashMap<BlueprintKind, mg_module::Module>,
+) -> Option<Gff> {
+    let key = kind.custom_key();
+    if module.contains(&key) {
+        made.remove(&kind);
+        return match update_custom_palette(module, saved, game, kind).ok()? {
+            Some(g) => Some(g),
+            None => module.gff(&key)?.ok(),
+        };
+    }
+    // The module as it is, with the palette made before in it: brought
+    // up to date from the module that one was made from.
+    let mut now = module.clone();
+    let palette = match made.get(&kind).and_then(|was| Some((was, was.shared(&key)?.clone()))) {
+        Some((was, itp)) => {
+            now.set(key, itp);
+            match update_custom_palette(&now, was, game, kind).ok()? {
+                Some(g) => g,
+                // (As it was: kept as it is, for the next time too.)
+                None => return was.gff(&key)?.ok(),
+            }
+        }
+        None => mg_module::palette::rebuild_custom_palette(module, game, kind).ok()?,
+    };
+    now.set(key, palette.to_bytes().ok()?);
+    made.insert(kind, now);
+    Some(palette)
 }
 
 /// More › Refresh Palette (Aurora's, on a palette's right-click menu): the
@@ -712,22 +770,58 @@ fn tags(
         return t.clone();
     }
     let (Some(game), ws) = (app.game.as_deref(), app.ws.as_ref()) else { return Arc::default() };
-    let read = |r: ResRef| -> Option<String> {
-        let k = ResKey::new(r, kind.restype());
-        let data = ws
-            .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        let g = Gff::read(&data).ok()?;
-        Some(crate::text::decode(g.root.string("Tag")?))
-    };
-    let tags: HashMap<ResRef, String> = palette
-        .blueprints()
-        .into_iter()
-        .filter_map(|(_, b)| Some((b.resref, read(b.resref)?)))
-        .collect();
+    let module = ws.map(|w| &w.module);
+    let (tags, _) = tags_read(palette, kind, module, game, &mut app.palette.tags_read);
     let tags = Arc::new(tags);
     app.palette.tags.insert((kind, custom), (revision, tags.clone()));
     tags
+}
+
+/// A blueprint's tag as it was read: from which bytes of the module's
+/// (held, and told by `Arc::ptr_eq`; `None`: the game's or a hak's), and
+/// the tag (`None`: not read, or it has none).
+type TagRead = (Option<Arc<[u8]>>, Option<String>);
+
+/// The tags of `palette`'s blueprints, and how many of them were read for
+/// it: one read before (`kept`) from the same bytes is not read again.
+/// (With a search typed in the Custom palette, every command anywhere
+/// copied and parsed every blueprint of the type again for its tag.)
+fn tags_read(
+    palette: &Palette,
+    kind: BlueprintKind,
+    module: Option<&mg_module::Module>,
+    game: &mg_rules::GameData,
+    kept: &mut HashMap<ResKey, TagRead>,
+) -> (HashMap<ResRef, String>, usize) {
+    let (mut tags, mut read) = (HashMap::new(), 0);
+    let mut listed = std::collections::HashSet::new();
+    for (_, b) in palette.blueprints() {
+        let k = ResKey::new(b.resref, kind.restype());
+        listed.insert(k);
+        let own = module.and_then(|m| m.shared(&k));
+        let same = |from: &Option<Arc<[u8]>>| match (from, own) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        let tag = match kept.get(&k) {
+            Some((from, tag)) if same(from) => tag.clone(),
+            _ => {
+                read += 1;
+                let tag = (own.map(|d| Gff::read(d)))
+                    .or_else(|| game.resman.get(&k).ok().map(|d| Gff::read(&d)))
+                    .and_then(Result::ok)
+                    .and_then(|g| g.root.string("Tag").map(crate::text::decode));
+                kept.insert(k, (own.cloned(), tag.clone()));
+                tag
+            }
+        };
+        if let Some(tag) = tag {
+            tags.insert(b.resref, tag);
+        }
+    }
+    // (Those of the type the palette lists no more: let go of.)
+    kept.retain(|k, _| k.restype != kind.restype() || listed.contains(k));
+    (tags, read)
 }
 
 enum Pick {
@@ -1345,10 +1439,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let game = app.game.as_deref().expect("checked");
     let grouping = by.map(|i| offered[i]);
     let grouped = grouping.map(|g| {
-        let made_for =
-            (Arc::as_ptr(&palette) as usize, groupings.fingerprint, g.id.clone(), nested);
+        let made_for = (palette.clone(), groupings.fingerprint, g.id.clone(), nested);
+        let same = |at: &GroupedFor| {
+            Arc::ptr_eq(&at.0, &made_for.0)
+                && (at.1, &at.2, at.3) == (made_for.1, &made_for.2, nested)
+        };
         match view.grouped.get(&(kind, custom)) {
-            Some((at, made)) if *at == made_for => made.clone(),
+            Some((at, made)) if same(at) => made.clone(),
             _ => {
                 let started = std::time::Instant::now();
                 let made = Arc::new(mg_module::palette_groups::group_palette(
@@ -1392,9 +1489,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let menu_commands = app.plugin_menu_commands();
     // (The custom palette's blueprints the module has: the others, a
     // hak's, the override folder's or none, are looked at, not edited.)
+    // (Listed once a revision of the module, not every frame.)
     let own = match (&app.ws, custom) {
-        (Some(ws), true) => ws.module.keys_of(kind.restype()).map(|k| k.resref).collect(),
-        _ => std::collections::HashSet::new(),
+        (Some(ws), true) => {
+            let at = (ws.revision(), kind);
+            match &view.own {
+                Some((was, own)) if *was == at => own.clone(),
+                _ => {
+                    let own: std::collections::HashSet<ResRef> =
+                        ws.module.keys_of(kind.restype()).map(|k| k.resref).collect();
+                    let own = Arc::new(own);
+                    view.own = Some((at, own.clone()));
+                    own
+                }
+            }
+        }
+        _ => Arc::default(),
     };
     let new_label = new_label(kind);
     let mut tree = Tree {
@@ -1718,7 +1828,7 @@ struct Tree<'a> {
     /// The custom palette's blueprints the module has (the palette also
     /// lists its haks', the override folder's and blueprints there are no
     /// more, as Aurora's does: those are viewed, as the game's are).
-    own: std::collections::HashSet<ResRef>,
+    own: Arc<std::collections::HashSet<ResRef>>,
     /// Every category opened or closed this frame.
     fold: Option<bool>,
     /// The categories left open (`Settings::palette_open`), and whether a
@@ -2026,6 +2136,23 @@ impl Tree<'_> {
             ui.allocate_space(egui::vec2(1.0, height));
             return;
         }
+        // (So a picture's: its room, in this line of them or, this one
+        // full, the next, before its name and label are made.)
+        if self.gallery && !reveal {
+            let size = egui::vec2(self.side, self.side + crate::widgets::tile_label_height(ui));
+            let top = ui.cursor().min.y;
+            let lines = egui::Rect::from_x_y_ranges(
+                ui.max_rect().x_range(),
+                top..=top + 2.0 * size.y + ui.spacing().item_spacing.y,
+            );
+            if !ui.is_rect_visible(lines) {
+                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+                if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
+                    listed.places.insert(listed.rows.len() - 1, rect);
+                }
+                return;
+            }
+        }
         let name = shown_name(&b.name, self.game);
         let favorite = self.favorites.contains(&b.resref);
         let label =
@@ -2275,15 +2402,17 @@ impl Tree<'_> {
         ui: &mut egui::Ui,
         title: &'static str,
         list: &[String],
-        palette: &Palette,
+        palette: &Arc<Palette>,
     ) {
-        let ext = self.kind.restype().extension().unwrap_or_default();
-        let all = palette.blueprints();
-        let here: Vec<&PaletteBlueprint> = list
-            .iter()
-            .filter_map(|r| r.strip_prefix(&format!("{ext}:")))
-            .filter_map(|r| all.iter().find(|(_, b)| b.resref.to_string() == r).map(|(_, b)| *b))
-            .collect();
+        // (Found once for the palette and the list, and kept: every
+        // blueprint of the palette was listed twice a frame and each of
+        // the list's looked for among them by its text.)
+        let id = egui::Id::new(("palette-remembered-kept", title, self.kind, self.custom));
+        let kind = self.kind;
+        let kept = crate::blueprint::kept_for(ui.ctx(), id, palette, &list.to_vec(), || {
+            Arc::new(remembered_in(palette, kind, list))
+        });
+        let here: Vec<&PaletteBlueprint> = kept.iter().collect();
         if here.is_empty() {
             return;
         }
@@ -2378,6 +2507,23 @@ impl Tree<'_> {
         }
         r
     }
+}
+
+/// The blueprints of `list` (Favorites or Recent: `ext:resref` each) that
+/// `palette` has, of `kind`, in the list's order.
+fn remembered_in(palette: &Palette, kind: BlueprintKind, list: &[String]) -> Vec<PaletteBlueprint> {
+    let ext = kind.restype().extension().unwrap_or_default();
+    let wanted: Vec<ResRef> = list
+        .iter()
+        .filter_map(|r| r.strip_prefix(ext)?.strip_prefix(':'))
+        .filter_map(|r| ResRef::from_str(r).ok())
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let all: HashMap<ResRef, &PaletteBlueprint> =
+        palette.blueprints().into_iter().rev().map(|(_, b)| (b.resref, b)).collect();
+    wanted.iter().filter_map(|r| all.get(r).map(|b| (*b).clone())).collect()
 }
 
 /// A picture's mark for an appearance with no model: a frame and "No
@@ -2605,6 +2751,153 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A module of waypoint blueprints `names` (each tagged for its name,
+    /// in category 1), its skeleton of two categories, and no custom
+    /// palette; and the game data of no resources.
+    fn waypoints(names: &[&str]) -> (mg_module::Module, mg_rules::GameData) {
+        use mg_gff::{Struct, Value};
+        let mut m = mg_module::Module::new();
+        let mut skeleton = Gff::new(*b"ITP ");
+        let node = |id: u8, name: &str| {
+            let mut s = Struct::new(0);
+            s.set("ID", Value::Byte(id));
+            s.set("NAME", Value::String(name.as_bytes().to_vec()));
+            s
+        };
+        skeleton.root.set("MAIN", Value::List(vec![node(0, "Plain"), node(1, "Posts")]));
+        m.set_gff(BlueprintKind::Waypoint.skeleton_key(), &skeleton).unwrap();
+        for name in names {
+            set_waypoint(&mut m, name, name);
+        }
+        let game = mg_rules::GameData::new(
+            mg_resman::ResMan::new(),
+            mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+        );
+        (m, game)
+    }
+
+    fn set_waypoint(m: &mut mg_module::Module, resref: &str, name: &str) {
+        let r = ResRef::from_str(resref).unwrap();
+        let g = mg_module::blueprints::waypoint(r, &name.to_uppercase(), 1, 1);
+        m.set_gff(ResKey::new(r, mg_core::ResType::UTW), &g).unwrap();
+    }
+
+    /// A blueprint's tag is read again only when its bytes are others
+    /// (the review's B24: every blueprint was read and parsed for its tag
+    /// at every change of the module).
+    #[test]
+    fn a_palette_s_tags_are_read_again_for_the_blueprints_that_changed() {
+        let kind = BlueprintKind::Waypoint;
+        let (mut m, game) = waypoints(&["gate", "inn", "well"]);
+        let palette = |m: &mg_module::Module| {
+            Palette::read(&mg_module::palette::rebuild_custom_palette(m, &game, kind).unwrap())
+        };
+        let mut kept = HashMap::new();
+        let (tags, read) = tags_read(&palette(&m), kind, Some(&m), &game, &mut kept);
+        assert_eq!(read, 3);
+        let tag = |tags: &HashMap<ResRef, String>, r: &str| {
+            tags.get(&ResRef::from_str(r).unwrap()).cloned()
+        };
+        assert_eq!(tag(&tags, "inn").as_deref(), Some("INN"));
+        // Nothing changed: none read; one changed, one added: those two.
+        let (again, read) = tags_read(&palette(&m), kind, Some(&m), &game, &mut kept);
+        assert_eq!((again, read), (tags, 0));
+        set_waypoint(&mut m, "inn", "tavern");
+        set_waypoint(&mut m, "mill", "mill");
+        let (tags, read) = tags_read(&palette(&m), kind, Some(&m), &game, &mut kept);
+        assert_eq!(read, 2);
+        assert_eq!(tag(&tags, "inn").as_deref(), Some("TAVERN"));
+        assert_eq!(tag(&tags, "mill").as_deref(), Some("MILL"));
+        assert_eq!(tag(&tags, "gate").as_deref(), Some("GATE"));
+        // One deleted: its tag is let go of.
+        m.remove(&ResKey::parse("well", mg_core::ResType::UTW).unwrap());
+        let (tags, read) = tags_read(&palette(&m), kind, Some(&m), &game, &mut kept);
+        assert_eq!((read, tags.len(), kept.len()), (0, 3, 3));
+    }
+
+    /// A module with no custom palette has it made once, and brought up
+    /// to date with what changed since: as it would be made anew.
+    #[test]
+    fn a_palette_made_for_a_module_without_one_is_kept_up_to_date() {
+        let kind = BlueprintKind::Waypoint;
+        let (mut m, game) = waypoints(&["gate", "inn", "well"]);
+        let saved = m.clone();
+        let anew = |m: &mg_module::Module| {
+            Palette::read(&mg_module::palette::rebuild_custom_palette(m, &game, kind).unwrap())
+        };
+        let mut made = HashMap::new();
+        let mut now = |m: &mg_module::Module| {
+            Palette::read(&custom_palette_now(m, &saved, &game, kind, &mut made).unwrap())
+        };
+        let first = now(&m);
+        assert_eq!(first, anew(&m));
+        assert_eq!(first.blueprints().len(), 3);
+        assert_eq!(now(&m), first, "nothing changed");
+        // One named anew, one added, one deleted; then another kind's
+        // resource, which changes nothing of it.
+        set_waypoint(&mut m, "inn", "tavern");
+        assert_eq!(now(&m), anew(&m));
+        set_waypoint(&mut m, "mill", "mill");
+        assert_eq!(now(&m), anew(&m));
+        m.remove(&ResKey::parse("well", mg_core::ResType::UTW).unwrap());
+        let after = now(&m);
+        assert_eq!(after, anew(&m));
+        assert_eq!(after.blueprints().len(), 3);
+        m.set(ResKey::parse("hello", mg_core::ResType::NSS).unwrap(), b"void main() {}".to_vec());
+        assert_eq!(now(&m), after);
+        assert!(!m.contains(&kind.custom_key()), "nothing written into the module");
+    }
+
+    /// Favorites and Recent are found in a palette as they were when every
+    /// blueprint was compared by its text for each (the review's B23): in
+    /// the list's order, those of the palette's type that it has, the
+    /// first of a ResRef it has twice.
+    #[test]
+    fn remembered_blueprints_are_found_as_by_looking_through_them_all() {
+        let named = |resref: &str, n: u32| PaletteBlueprint {
+            resref: ResRef::from_str(resref).unwrap(),
+            name: mg_module::palette::PaletteName::StrRef(n),
+            cr: None,
+            faction: None,
+        };
+        let node = |children, blueprints| PaletteNode {
+            name: mg_module::palette::PaletteName::StrRef(0),
+            id: Some(1),
+            children,
+            blueprints,
+        };
+        let inner = node(Vec::new(), vec![named("wolf", 3), named("bat", 4)]);
+        let palette = Palette {
+            nodes: vec![
+                node(vec![inner], vec![named("orc", 1), named("bat", 2)]),
+                node(vec![], vec![]),
+            ],
+        };
+        let list: Vec<String> = [
+            "utc:bat",
+            "uti:orc",
+            "utc:gone",
+            "utc:wolf",
+            "utcx:orc",
+            "utc:orc",
+            "utc:Not A Name!",
+        ]
+        .map(String::from)
+        .into();
+        let kind = BlueprintKind::Creature;
+        let all = palette.blueprints();
+        let by_text: Vec<PaletteBlueprint> = list
+            .iter()
+            .filter_map(|r| r.strip_prefix("utc:"))
+            .filter_map(|r| all.iter().find(|(_, b)| b.resref.to_string() == r).map(|(_, b)| *b))
+            .cloned()
+            .collect();
+        let found = remembered_in(&palette, kind, &list);
+        assert_eq!(found, by_text);
+        assert_eq!(found, [named("bat", 2), named("wolf", 3), named("orc", 1)]);
+        assert!(remembered_in(&palette, BlueprintKind::Item, &list[..1]).is_empty());
+    }
 
     /// The arrow keys in the Gallery: a category's five pictures three to
     /// a row; Up and Down a row at a time (to the nearest picture across),

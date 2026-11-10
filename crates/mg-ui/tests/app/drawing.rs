@@ -493,6 +493,11 @@ fn reload_resources_reads_an_area_again_on_a_thread() {
         h.run_steps(1);
     }
     h.run_steps(6);
+    // (The textures too: the renderer kept those it had by name, so one
+    // repainted in the override, or missing and now there, was drawn as
+    // before. The review's B15.)
+    let read = h.state().viewport.as_ref().unwrap().renderer.textures_read();
+    assert!(read > 0, "the area's textures are read again");
     h.state_mut().background_jobs = false;
     assert_eq!(h.state().area_views[&area].orbit, camera, "the camera stays");
     let again = view_picture(&mut h, area);
@@ -1932,4 +1937,33 @@ fn a_tint_being_picked_draws_on_the_rug() {
     h.run_steps(2);
     let differ = (0..3).map(|c| (before[c] - picking[c]).abs()).sum::<f32>();
     assert!(differ > 15.0, "drawn as picked: {before:?} then {picking:?}");
+}
+
+/// One source shown in two places in a frame (the Preview window's
+/// blueprint, and its model's own tab) shared one view and one set of
+/// targets, made twice a frame at two sizes, both pictures sampling the
+/// last (the review's B19): the second place says where the preview is.
+#[test]
+fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
+    let Some((mut h, _area)) = area_harness("preview-twice") else { return };
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(chest)));
+    h.state_mut().palette.selected = Some(chest);
+    h.state_mut().preview_window = true;
+    h.run_steps(12);
+    let dir = mg_testkit::scratch_dir("ui-preview-twice");
+    h.render().expect("render").save(dir.join("twice.png")).unwrap();
+    let source = mg_ui::model_view::Source::Resource(chest);
+    assert!(h.state().model_views[&source].holds_targets(), "drawn in the one place");
+    assert_eq!(
+        h.query_all_by_label("The preview is shown elsewhere in the window.").count(),
+        1,
+        "and said in the other"
+    );
+    // Its tab closed: the Preview window draws it.
+    close_tab(h.state_mut(), &Tab::Model(chest));
+    h.run_steps(6);
+    assert!(h.query_by_label("The preview is shown elsewhere in the window.").is_none());
+    assert!(h.state().model_views[&source].holds_targets());
+    h.render().expect("render").save(dir.join("once.png")).unwrap();
 }

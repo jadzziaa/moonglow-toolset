@@ -2,6 +2,8 @@
 //! prepared by level), Special Abilities, and the inventory (Aurora's
 //! Inventory… dialog: equipment slots and the backpack).
 
+use std::sync::Arc;
+
 use egui::Ui;
 use mg_core::ResRef;
 use mg_edit::{Command, Edit, GffPath, lists};
@@ -9,7 +11,7 @@ use mg_gff::{Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_module::script_set::ListedSpell;
 use mg_resman::ResKey;
-use mg_rules::{ChoiceColumns, GameData};
+use mg_rules::{Choice, ChoiceColumns, GameData};
 
 use super::{Form, inventory};
 use crate::Action;
@@ -187,14 +189,18 @@ fn row_line(t: &mg_2da::TwoDa, table: &str, row: usize) -> String {
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let key = f.key;
-    let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")).to_vec());
+    // (By name, sorted once for the table: a server's feat.2da has tens of
+    // thousands of rows.)
+    let all = f.choices("feat", Some("FEAT"), Some("LABEL"));
+    let all = super::by_name_kept(ui.ctx(), "feats", &all);
     let targets = f.list_targets();
     let total = targets.len();
     // Each feat any of them has, and how many have it.
     let merged = lists::merged(&targets, "FeatList", lists::feat);
-    let having =
-        |row: usize| merged.iter().find(|m| m.key == row as i64).map_or(0, |m| m.having.len());
-    let id = egui::Id::new(("utc-feats", key));
+    let have: std::collections::HashMap<i64, usize> =
+        merged.iter().map(|m| (m.key, m.having.len())).collect();
+    let having = |row: usize| have.get(&(row as i64)).copied().unwrap_or(0);
+    let id = f.id("utc-feats");
     let mut assigned_only: bool = ui.data(|d| d.get_temp(id.with("only"))).unwrap_or(false);
     let feat_table = f.app.game.as_ref().and_then(|g| g.table("feat").ok());
     let categories: Vec<(i32, String)> =
@@ -222,22 +228,41 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     // The feats to choose from, and beside them those the creature has
     // (as the Special Abilities page lists its own): a click on one there
     // takes it away.
+    // (The feats to offer, told once for the table; the rows to show
+    // picked each frame, and those in sight alone laid out.)
+    let offer = super::kept_for(ui.ctx(), id.with("offered"), &all, &(), || {
+        // (A feat is stored by its row in a WORD: one past what it holds
+        // is not offered.)
+        let rows = all.iter().map(|c| c.row).filter(|r| u16::try_from(*r).is_ok());
+        let offer: std::collections::HashSet<usize> = match &feat_table {
+            Some(t) => rows.filter(|&r| offered(t, r, "FEAT", "LABEL")).collect(),
+            None => rows.collect(),
+        };
+        Arc::new(offer)
+    });
+    let shown: Vec<(&Choice, usize)> = (all.iter())
+        .map(|c| (c, having(c.row)))
+        .filter(|&(c, n)| {
+            !(assigned_only && n == 0)
+                && (n > 0 || offer.contains(&c.row))
+                && needle.finds(&c.text)
+                && in_category(c.row)
+        })
+        .collect();
     ui.columns(2, |columns| {
         let ui = &mut columns[0];
-        egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false).show(
+        let row_height = ui
+            .spacing()
+            .interact_size
+            .y
+            .max(ui.spacing().icon_width)
+            .max(ui.text_style_height(&egui::TextStyle::Button));
+        egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false).show_rows(
             ui,
-            |ui| {
-                for c in &all {
-                    let n = having(c.row);
-                    let offer =
-                        feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
-                    if (assigned_only && n == 0)
-                        || (n == 0 && !offer)
-                        || !needle.finds(&c.text)
-                        || !in_category(c.row)
-                    {
-                        continue;
-                    }
+            row_height,
+            shown.len(),
+            |ui, rows| {
+                for &(c, n) in &shown[rows] {
                     // (Half-ticked where some have it: ticked, it is given
                     // to the others.)
                     let mut v = n == total;
@@ -307,19 +332,35 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
 /// together have.
 pub(super) const GIVE_TIP: &str = "Add it to those of them that lack it";
 
-/// A class's spells: (spell row, name, level), from its spells.2da column.
-fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {
+/// A spells.2da row's name: its talk-table string, else its label.
+const SPELL_NAMES: ChoiceColumns<'static> =
+    ChoiceColumns { name: Some("Name"), label: Some("Label") };
+
+/// A class's spells: (spell row, name, level), from its spells.2da column,
+/// by name. Made once for the spells' names and the class, and kept: the
+/// whole table was copied and sorted twice a frame.
+fn class_spells(
+    ctx: &egui::Context,
+    game: &GameData,
+    class: usize,
+) -> Arc<Vec<(usize, String, usize)>> {
+    let Ok(names) = game.choice_list("spells", SPELL_NAMES) else { return Arc::default() };
+    super::kept_for(ctx, egui::Id::new("class-spells"), &names, &class, || {
+        Arc::new(class_spells_of(game, &names, class))
+    })
+}
+
+fn class_spells_of(game: &GameData, names: &[Choice], class: usize) -> Vec<(usize, String, usize)> {
     let Ok(classes) = game.table("classes") else { return Vec::new() };
     let Some(column) = classes.get(class, "SpellTableColumn").map(str::to_string) else {
         return Vec::new();
     };
-    let names = game
-        .choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
     let Ok(spells) = game.table("spells") else { return Vec::new() };
-    names
+    mg_rules::by_name(names.to_vec())
         .into_iter()
+        // (A spell is stored by its row in a WORD: one past what it holds
+        // is not offered, where it was cut to another spell's row.)
+        .filter(|c| u16::try_from(c.row).is_ok())
         .filter(|c| offered(&spells, c.row, "Name", "Label"))
         .filter_map(|c| {
             let level = spells.get_int(c.row, &column)?;
@@ -454,7 +495,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             }
         }
     }
-    let id = egui::Id::new(("utc-spells", key));
+    let id = f.id("utc-spells");
     let (mut which, mut level): (usize, Option<usize>) =
         ui.data(|d| d.get_temp(id)).unwrap_or_default();
     which = which.min(casters.len() - 1);
@@ -510,12 +551,10 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     });
     let (index, class, _, slots) = casters[which].clone();
     let prepares = slots.prepares;
-    let spells = class_spells(game, class);
+    let spells = class_spells(ui.ctx(), game, class);
     let innate = game.table("spells").ok();
-    let names = game
-        .choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
+    // (To name a spell by its row: as the game data keeps them.)
+    let names = game.choice_list("spells", SPELL_NAMES).unwrap_or_default();
     let lists: Vec<Vec<Struct>> =
         (0..=9).map(|l| class_list[index].list(&slots.list(l)).unwrap_or(&[]).to_vec()).collect();
     let groups: Vec<Vec<SpellGroup>> = lists.iter().map(|l| spell_groups(l)).collect();
@@ -563,7 +602,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                                 .on_hover_text("The spell level, raised by the metamagic");
                         }
                         ui.end_row();
-                        for (row, name, l) in &spells {
+                        for (row, name, l) in spells.iter() {
                             if level.is_some_and(|x| x != *l)
                                 || !needle.finds(name)
                                 || !in_category(*row)
@@ -723,7 +762,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     {
         let list: Vec<ListedSpell> = held.iter().map(|(_, s)| *s).collect();
         let text = mg_module::script_set::write_spells(class as u32, &list);
-        if let Err(e) = std::fs::write(&file, text) {
+        if let Err(e) = mg_module::write_replacing(&file, text.as_bytes()) {
             f.app.log.error(format!("{}: {e}", file.display()));
         }
     }
@@ -831,7 +870,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     // The spellcasting classes any of them has, in the first one's order,
     // then the others', with how many have each.
     let mut caster_classes: Vec<(i64, usize)> = Vec::new();
-    for t in &targets {
+    for t in targets.iter() {
         for c in t.list("ClassList") {
             let Some(row) = lists::class(c) else { continue };
             if game.spell_slots(&t.at, c).is_none() {
@@ -858,7 +897,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     if !f.app.settings.no_spell_warning {
         let color = ui.visuals().warn_fg_color;
         let mut any = false;
-        for t in &targets {
+        for t in targets.iter() {
             for w in game.spell_warnings(&t.at) {
                 let text = statement(&game.spell_warning_text(&w)).to_string();
                 ui.colored_label(color, format!("{}: {text}", t.name));
@@ -875,7 +914,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     let total = targets.len();
-    let id = egui::Id::new(("utc-spells", key));
+    let id = f.id("utc-spells");
     let (mut which, mut level): (usize, Option<usize>) =
         ui.data(|d| d.get_temp(id)).unwrap_or_default();
     which = which.min(caster_classes.len() - 1);
@@ -955,12 +994,9 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
             .on_disabled_hover_text("It saves one creature's list: open one to save it");
         load = ui.button("Load Class Spell List").clicked();
     });
-    let spells = class_spells(game, class.max(0) as usize);
+    let spells = class_spells(ui.ctx(), game, class.max(0) as usize);
     let innate = game.table("spells").ok();
-    let names = game
-        .choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
+    let names = game.choice_list("spells", SPELL_NAMES).unwrap_or_default();
     let categories = spell_categories(game);
     let (needle, category) = ui
         .horizontal_wrapped(|ui| {
@@ -994,7 +1030,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             ui.strong("Casting");
                         }
                         ui.end_row();
-                        for (row, name, l) in &spells {
+                        for (row, name, l) in spells.iter() {
                             if level.is_some_and(|x| x != *l)
                                 || !needle.finds(name)
                                 || !in_category(*row)
@@ -1279,7 +1315,8 @@ fn creature_level(c: &Struct) -> i64 {
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let key = f.key;
-    let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")).to_vec());
+    let names = f.choices("spells", Some("Name"), Some("Label"));
+    let names = super::by_name_kept(ui.ctx(), "special-abilities", &names);
     let name_of = |row: i64| mg_rules::choice_text(&names, row);
     let targets = f.list_targets();
     let total = targets.len();
@@ -1305,8 +1342,10 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
-                    let offer =
-                        |row: usize| spell_table.as_ref().is_none_or(|t| special_ability(t, row));
+                    let offer = |row: usize| {
+                        u16::try_from(row).is_ok()
+                            && spell_table.as_ref().is_none_or(|t| special_ability(t, row))
+                    };
                     for c in names
                         .iter()
                         .filter(|c| needle.finds(&c.text) && in_category(c.row) && offer(c.row))
@@ -1317,7 +1356,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         if described(r, game, "spells", "SpellDesc", c.row).clicked() {
                             // A use more on each, at its own level.
                             let mut out = lists::Outcome::default();
-                            for t in &targets {
+                            for t in targets.iter() {
                                 let mut s = Struct::new(SPECIAL_ID);
                                 s.set("Spell", Value::Word(c.row as u16));
                                 let level = creature_level(&t.at).min(255) as u8;
@@ -1730,6 +1769,22 @@ fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
 pub(super) struct Moving {
     item: Struct,
     taken: Vec<Edit>,
+}
+
+/// The Missing Feats question kept while it is asked: the slot, the item's
+/// blueprint, the feats, the item moved (if one is), and the pass it was
+/// last drawn in.
+type Asked = (u32, ResRef, Vec<u16>, Option<Moving>, u64);
+
+/// Whether the item `moving` is to take from where it was is still there:
+/// each of its removals finds that item at its place.
+fn still_there(f: &mut Form<'_>, moving: &Moving) -> bool {
+    moving.taken.iter().all(|e| {
+        let Edit::RemoveItem { key, path, list, index } = e else { return true };
+        let Some(Ok(doc)) = f.app.ws.as_mut().map(|ws| ws.doc(key)) else { return false };
+        let items = path.get(&doc.root).and_then(|s| s.list(list));
+        items.and_then(|l| l.get(*index)) == Some(&moving.item)
+    })
 }
 
 /// The creature's `items` of its list `of` once `taken` has run: without
@@ -2186,12 +2241,28 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     apply(f, "Equip", e);
                 }
             } else {
-                ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing, moving)));
+                let asked: Asked = (bit, r, missing, moving, ui.ctx().cumulative_pass_nr());
+                ui.data_mut(|d| d.insert_temp(ask, asked));
             }
         }
     }
-    type Asked = (u32, ResRef, Vec<u16>, Option<Moving>);
-    if let Some((bit, r, missing, moving)) = ui.data(|d| d.get_temp::<Asked>(ask)) {
+    // (The question's window doesn't block. One left unanswered when the
+    // page was (not drawn in the pass before) is dropped, not asked again
+    // of whatever creature is at this place later; so is one whose item is
+    // no longer where it was to be taken from: its Yes took out whatever
+    // stood there by then, and equipped the copy it kept.)
+    let pass = ui.ctx().cumulative_pass_nr();
+    let asked = ui.data(|d| d.get_temp::<Asked>(ask)).filter(|(.., moving, drawn)| {
+        drawn + 1 >= pass && moving.as_ref().is_none_or(|m| still_there(f, m))
+    });
+    ui.data_mut(|d| match &asked {
+        Some((bit, r, missing, moving, _)) => {
+            let drawn: Asked = (*bit, *r, missing.clone(), moving.clone(), pass);
+            d.insert_temp(ask, drawn);
+        }
+        None => d.remove::<Asked>(ask),
+    });
+    if let Some((bit, r, missing, moving, _)) = asked {
         let game = f.app.game.as_deref();
         let names: Vec<String> = missing
             .iter()

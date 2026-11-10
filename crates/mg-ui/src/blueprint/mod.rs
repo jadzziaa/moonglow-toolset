@@ -4,6 +4,7 @@
 //! type they are stored with, and fields the editor does not show are kept.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::{LocString, ResRef, ResType};
@@ -680,7 +681,7 @@ pub(crate) fn side_panel<R>(ui: &mut Ui, id: egui::Id, add: impl FnOnce(&mut Ui)
 }
 
 /// A value of an integer field, of the type the field has (else `default`).
-pub(super) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
+pub(crate) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
     let t = existing.map_or(default, Value::field_type);
     match t {
         FieldType::Byte => Value::Byte(v.clamp(0, 255) as u8),
@@ -692,6 +693,102 @@ pub(super) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> V
         FieldType::Int64 => Value::Int64(v),
         _ => Value::Int(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32),
     }
+}
+
+/// What `make` makes of the game data, kept in egui's memory under `id`
+/// while the load order is the one it was made for (`load_order`:
+/// [`Moonglow::load_order`]), and made again when a hak, the override or
+/// the module's own files change what the game data has.
+pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
+    ui: &Ui,
+    load_order: u64,
+    id: egui::Id,
+    make: impl FnOnce() -> T,
+) -> T {
+    if let Some((was, kept)) = ui.data(|d| d.get_temp::<(u64, T)>(id))
+        && was == load_order
+    {
+        return kept;
+    }
+    let made = make();
+    ui.data_mut(|d| d.insert_temp(id, (load_order, made.clone())));
+    made
+}
+
+/// The id a Properties window keeps a piece of its state by (`name`): its
+/// own, by the object it shows (`key`, and `path` in it), so two windows
+/// of one area's objects share none. A placed object's window keeps its
+/// ids as it follows its object ([`Moonglow::window_ids`]).
+fn window_state_id(app: &Moonglow, key: ResKey, path: &GffPath, name: &str) -> egui::Id {
+    if key.restype == ResType::GIT
+        && let Some(id) = app.window_ids.get(&(key.resref, path.clone()))
+    {
+        return id.with(("blueprint", name));
+    }
+    egui::Id::new(("blueprint", key, path, name))
+}
+
+/// After a frame: what the pages keep while they are drawn, let go of
+/// for those that were not (`replacements::let_go_of_unseen`).
+pub(crate) fn let_go_of_unseen(app: &mut Moonglow, ctx: &egui::Context) {
+    replacements::let_go_of_unseen(app, ctx);
+}
+
+/// What `make` makes of a list the game data keeps (`of`: a table, or
+/// its rows as choices, made once and handed out as the same `Arc`) and
+/// of `key`, kept in egui's memory under `id` while both are the same: a
+/// long table's rows sorted by name, narrowed by what is typed, or told
+/// which to offer, once and not every frame. The list is held, and told
+/// by `Arc::ptr_eq`.
+pub(crate) fn kept_for<S, K, T>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    of: &Arc<S>,
+    key: &K,
+    make: impl FnOnce() -> T,
+) -> T
+where
+    S: Send + Sync + 'static,
+    K: PartialEq + Clone + Send + Sync + 'static,
+    T: Clone + Send + Sync + 'static,
+{
+    if let Some((was, k, kept)) = ctx.data(|d| d.get_temp::<(Arc<S>, K, T)>(id))
+        && Arc::ptr_eq(&was, of)
+        && k == *key
+    {
+        return kept;
+    }
+    let made = make();
+    ctx.data_mut(|d| d.insert_temp(id, (of.clone(), key.clone(), made.clone())));
+    made
+}
+
+/// `choices` (a table's: `widgets::table_choices`) in the order of their
+/// names ([`mg_rules::by_name`]), sorted once for the list and kept under
+/// `what`: sorted every frame, a table of 15,000 appearances or 20,000
+/// feats was copied whole and given as many sort keys, each frame.
+pub(crate) fn by_name_kept(
+    ctx: &egui::Context,
+    what: &str,
+    choices: &Arc<Vec<Choice>>,
+) -> Arc<Vec<Choice>> {
+    let id = egui::Id::new(("choices-by-name", what));
+    kept_for(ctx, id, choices, &(), || Arc::new(mg_rules::by_name(choices.to_vec())))
+}
+
+/// The places in `choices` of those whose text `find` finds, kept under
+/// `what` for the list and what is typed.
+pub(crate) fn found_kept(
+    ctx: &egui::Context,
+    what: &str,
+    choices: &Arc<Vec<Choice>>,
+    find: &str,
+) -> Arc<Vec<usize>> {
+    let id = egui::Id::new(("choices-found", what));
+    kept_for(ctx, id, choices, &find.to_string(), || {
+        let needle = mg_core::text::Needle::new(find);
+        Arc::new((0..choices.len()).filter(|&i| needle.finds(&choices[i].text)).collect())
+    })
 }
 
 /// The color of text that is the talk table's (a StrRef's), not a
@@ -820,14 +917,13 @@ impl Form<'_> {
     }
 
     fn id(&self, name: &str) -> egui::Id {
-        // (A placed object's window keeps its widgets' ids as it follows
-        // its object.)
-        if self.key.restype == ResType::GIT
-            && let Some(id) = self.app.window_ids.get(&(self.key.resref, self.path.clone()))
-        {
-            return id.with(("blueprint", name));
-        }
-        egui::Id::new(("blueprint", self.key, &self.path, name))
+        window_state_id(self.app, self.key, &self.path, name)
+    }
+
+    /// The id its lists are kept by (`situated::pick_list` and the
+    /// others): the window's own.
+    pub(crate) fn picks(&self) -> egui::Id {
+        self.id("pick")
     }
 
     fn target(&self, label: &str) -> FieldTarget {
@@ -940,8 +1036,20 @@ impl Form<'_> {
     }
 
     /// The objects edited (this one first) as the list rules take them
-    /// (`mg_edit::lists`), each as it is now.
-    pub(crate) fn list_targets(&mut self) -> Vec<lists::Target> {
+    /// (`mg_edit::lists`), each as it is now. Kept while the module is as
+    /// it was read (its revision) and the window's objects are the same:
+    /// read every frame, a hundred creatures selected were copied whole,
+    /// with all they carry, each frame a list page was shown.
+    pub(crate) fn list_targets(&mut self) -> Arc<Vec<lists::Target>> {
+        let revision = self.app.ws.as_ref().map(mg_edit::Workspace::revision);
+        if let Some(((at, key, path, also), kept)) = &self.app.palette.kept.targets
+            && (*at, *key) == (revision, self.key)
+            && *path == self.path
+            && *also == self.also
+            && kept.first().is_some_and(|t| t.at == self.root)
+        {
+            return kept.clone();
+        }
         let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
         if let Some(ws) = self.app.ws.as_mut() {
             for (key, path) in &self.also {
@@ -950,6 +1058,9 @@ impl Form<'_> {
                 }
             }
         }
+        let out = Arc::new(out);
+        let read_for = (revision, self.key, self.path.clone(), self.also.clone());
+        self.app.palette.kept.targets = Some((read_for, out.clone()));
         out
     }
 
@@ -1055,10 +1166,26 @@ impl Form<'_> {
         self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc });
     }
 
+    /// The type the game's files give field `label` of the struct the
+    /// form edits: a blueprint's or a placed object's own field, or a
+    /// journal category's or entry's (the form edits one in its list, and
+    /// the journal's root has neither's fields: a category's XP the file
+    /// lacked was written as a BYTE, 255 for 500, and an entry's End as
+    /// one where the game reads a WORD).
+    fn schema_type(&self, label: &str) -> Option<FieldType> {
+        use mg_gff::Step::Item;
+        let fields = match (self.key.restype, &self.path.0[..]) {
+            (ResType::JRL, [Item(..)]) => mg_schema::jrl::categories::FIELDS,
+            (ResType::JRL, [Item(..), Item(..)]) => mg_schema::jrl::categories::entry_list::FIELDS,
+            _ => return mg_schema::root_field_type(self.restype(), label),
+        };
+        fields.iter().find(|f| f.label == label).map(|f| f.field_type)
+    }
+
     /// Sets an integer field, keeping its stored type (for a field the
     /// blueprint lacks: the type the game's files give it, else `default`).
     pub(crate) fn set_int(&mut self, what: &str, label: &str, v: i64, default: FieldType) {
-        let default = mg_schema::root_field_type(self.restype(), label).unwrap_or(default);
+        let default = self.schema_type(label).unwrap_or(default);
         let value = integer(self.root.get(label), v, default);
         self.set(what, label, value);
     }
@@ -1168,7 +1295,7 @@ impl Form<'_> {
         let values: Vec<(&str, Value)> = fields
             .iter()
             .map(|(label, v, t)| {
-                let t = mg_schema::root_field_type(self.restype(), label).unwrap_or(*t);
+                let t = self.schema_type(label).unwrap_or(*t);
                 (*label, integer(self.root.get(label), *v, t))
             })
             .collect();
@@ -1305,7 +1432,7 @@ impl Form<'_> {
         if !ui.checkbox(&mut v, text).changed() {
             return v;
         }
-        let default = mg_schema::root_field_type(self.restype(), label).unwrap_or(FieldType::Byte);
+        let default = self.schema_type(label).unwrap_or(FieldType::Byte);
         let value = integer(self.root.get(label), i64::from(v), default);
         let mut command = self.setting(text, label, Some(value));
         if v {
@@ -1401,7 +1528,7 @@ impl Form<'_> {
             };
             l.palette(palette)
         };
-        let id = ("palette-color", self.key, label);
+        let id = ("palette-color", self.id(label));
         crate::widgets::palette_color(ui, id, pal.as_deref(), what, current, text)
     }
 
@@ -1582,7 +1709,8 @@ impl Form<'_> {
                 })
                 .collect();
             let pairs: Vec<(&str, &str)> = names.iter().map(|(k, v)| (*k, v.as_str())).collect();
-            if let Err(e) = std::fs::write(&path, encode(&script_set::write(&pairs))) {
+            let text = encode(&script_set::write(&pairs));
+            if let Err(e) = mg_module::write_replacing(&path, &text) {
                 self.app.log.error(format!("{}: {e}", path.display()));
             }
         }
@@ -1965,9 +2093,19 @@ pub(crate) fn edit_many(
             also.len() + 1
         ));
     }
-    let note_id = egui::Id::new(("several-note", key));
-    if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
-        ui.colored_label(ui.visuals().warn_fg_color, note);
+    // (Its own, by its first object: by the document, every Properties
+    // window of that area's objects, a single one's too, showed it. And
+    // while the window is shown: one not drawn in the pass before is of a
+    // window closed since.)
+    let note_id = window_state_id(app, key, &path, "several-note");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let note = ui.data(|d| d.get_temp::<(String, u64)>(note_id));
+    match note.filter(|(_, drawn)| several && drawn + 1 >= pass) {
+        Some((note, _)) => {
+            ui.colored_label(ui.visuals().warn_fg_color, &note);
+            ui.data_mut(|d| d.insert_temp(note_id, (note, pass)));
+        }
+        None => ui.data_mut(|d| d.remove::<(String, u64)>(note_id)),
     }
     let pending = app.actions.len();
     if viewed {
@@ -2025,12 +2163,17 @@ pub(crate) fn edit_many(
                 kept.push(action);
             }
         }
+        // (A change made, with nothing to say of it: the note of the one
+        // before is taken down.)
+        let changed = kept.iter().any(|a| matches!(a, Action::Apply(_) | Action::ApplyTyped(_)));
         app.actions.extend(kept);
         if dropped {
             let note = format!("That change can only be made to one {one} at a time.");
-            ui.data_mut(|d| d.insert_temp(note_id, note));
+            ui.data_mut(|d| d.insert_temp(note_id, (note, pass)));
         } else if let Some(said) = form.together.said.take() {
-            ui.data_mut(|d| d.insert_temp(note_id, said));
+            ui.data_mut(|d| d.insert_temp(note_id, (said, pass)));
+        } else if changed {
+            ui.data_mut(|d| d.remove::<(String, u64)>(note_id));
         }
     }
     window_drawn(form.app, pending, &tab, &targets, pressed);
@@ -2138,6 +2281,42 @@ pub(crate) fn read_only_look(ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long table's rows by name and narrowed by what is typed, kept
+    /// (the review's B22: copied and sorted every frame), are what sorting
+    /// and searching them each time gives; kept while the list is the
+    /// same one, and made again for another.
+    #[test]
+    fn choices_kept_by_name_and_found_are_those_made_each_time() {
+        let choices = |names: &[&str]| -> Arc<Vec<Choice>> {
+            let rows = names.iter().enumerate();
+            Arc::new(rows.map(|(row, n)| Choice { row, text: n.to_string() }).collect())
+        };
+        let table = choices(&["Zombie", "ant", "Árbol", "Bat", "ant"]);
+        let ctx = egui::Context::default();
+        let sorted = by_name_kept(&ctx, "test", &table);
+        assert_eq!(*sorted, mg_rules::by_name(table.to_vec()));
+        assert!(Arc::ptr_eq(&sorted, &by_name_kept(&ctx, "test", &table)), "kept, not made again");
+        let needle = mg_core::text::Needle::new("a");
+        let each_time: Vec<usize> =
+            (0..sorted.len()).filter(|&i| needle.finds(&sorted[i].text)).collect();
+        let found = found_kept(&ctx, "test", &sorted, "a");
+        assert_eq!(*found, each_time);
+        assert!(Arc::ptr_eq(&found, &found_kept(&ctx, "test", &sorted, "a")));
+        assert_eq!(found_kept(&ctx, "test", &sorted, "zom").len(), 1, "another search");
+        assert_eq!(found_kept(&ctx, "test", &sorted, "").len(), 5);
+        // Another list (the tables read again): made for it.
+        let other = choices(&["Wolf", "Asp"]);
+        let sorted = by_name_kept(&ctx, "test", &other);
+        assert_eq!(sorted.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(), ["Asp", "Wolf"]);
+        // What is kept for the load order is made again when it changes.
+        egui::__run_test_ui(|ui| {
+            let id = egui::Id::new("test-kept");
+            assert_eq!(kept_for_load_order(ui, 1, id, || 10), 10);
+            assert_eq!(kept_for_load_order(ui, 1, id, || 20), 10);
+            assert_eq!(kept_for_load_order(ui, 2, id, || 20), 20);
+        });
+    }
 
     #[test]
     fn a_change_to_some_of_the_objects_edited_together_is_partial() {

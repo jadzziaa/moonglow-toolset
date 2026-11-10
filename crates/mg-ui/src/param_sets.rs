@@ -179,7 +179,7 @@ pub fn save_file(path: &Path, set: &ParamSet) -> Result<PathBuf, String> {
         }
         None => path.to_path_buf(),
     };
-    std::fs::write(&path, to_text(set)).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::saved::write_whole(&path, &to_text(set))?;
     Ok(path)
 }
 

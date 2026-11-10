@@ -614,7 +614,10 @@ palette shows the tileset's brushes instead. The row's last three are
 then put where an area is clicked) and **Start Location** (where a
 player's character enters the module: chosen, a click in an area puts
 it there). **Preview** (toolbar) shows
-the chosen blueprint in a window of its own. After a click in it, the
+the chosen blueprint in a window of its own (a 3D view is drawn in one
+place at a time: where the same blueprint or model is on screen
+already, the second place says the preview is shown elsewhere). After a
+click in it, the
 arrow keys move through its rows and open and close its categories (see
 [Blueprints](05-blueprints.md)). Tools › Options › General › **Hide
 empty categories in the palettes** leaves out the categories with no

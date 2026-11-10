@@ -289,7 +289,15 @@ pub(crate) struct Kept {
     /// with the palette and the search it was found for.
     #[allow(clippy::type_complexity)]
     found: HashMap<(BlueprintKind, bool), (Arc<Palette>, String, Arc<Found>)>,
+    /// The objects a window of several edits together, as its list pages
+    /// take them (`Form::list_targets`), and what they were read for.
+    pub(super) targets: Option<(TargetsFor, Arc<Vec<mg_edit::lists::Target>>)>,
 }
+
+/// What a window's list targets were read for: the module's revision, and
+/// the window's objects (the first, then the others).
+pub(super) type TargetsFor =
+    (Option<u64>, ResKey, mg_edit::GffPath, Vec<(ResKey, mg_edit::GffPath)>);
 
 /// A blueprint's fields: the module's, else the game's.
 pub(crate) fn blueprint(

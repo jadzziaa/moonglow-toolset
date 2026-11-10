@@ -522,7 +522,8 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             let mut numbers: Vec<u16> = Vec::new();
             for skeleton in prefix.iter().take(if prefix[0] == prefix[1] { 1 } else { 2 }) {
                 let models = format!("{skeleton}_{part}");
-                numbers.extend(super::item::model_numbers(ui, game, &models).iter());
+                let load_order = f.app.load_order;
+                numbers.extend(super::item::model_numbers(ui, game, load_order, &models).iter());
             }
             numbers.sort_unstable();
             numbers.dedup();
@@ -530,7 +531,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
             f.mark_mixed(ui, label);
-            if let Some(v) = situated::pick_part(ui, f.key, label, &choices, current, 220.0) {
+            if let Some(v) = situated::pick_part(ui, f.picks(), label, &choices, current, 220.0) {
                 super::item::set_part(f, text, &[label], v);
             }
             ui.end_row();
@@ -630,14 +631,30 @@ fn class_list(
 ) {
     let base = f.path.clone();
     let key = f.key;
+    let picks = f.picks();
+    // (This one alone, as the rule for several takes them.)
+    let this = f.list_targets();
+    let mut refused = None;
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
     egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
             let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
             let class = c.integer("Class").unwrap_or(0);
-            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), all, class) {
-                edits.push(("Class", vec![set(key, &path, "Class", Value::Int(v as i32))]));
+            if let Some(v) = situated::pick(ui, picks, &format!("class{i}"), all, class) {
+                // By the rule several creatures' classes are changed by
+                // (`lists::change_class`): not to a class it has already,
+                // which this let through, and in the field's own type.
+                match i32::try_from(v) {
+                    Ok(to) => {
+                        let out = lists::change_class(&this, class, to);
+                        refused = out.left.first().map(|why| format!("Class not changed: {why}"));
+                        if !out.edits.is_empty() {
+                            edits.push(("Class", out.edits));
+                        }
+                    }
+                    Err(_) => refused = Some(format!("Class not changed: row {v} is no class")),
+                }
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
             if let Some(v) = spin_number(ui, level, 1..=60) {
@@ -662,11 +679,14 @@ fn class_list(
                 ui.horizontal(|ui| {
                     for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
                         let name = format!("class{i}-domain{n}");
-                        if let Some(v) = optional_pick(ui, key, &name, domains, c.integer(label)) {
-                            edits.push((
-                                "Domain",
-                                vec![set(key, &path, label, Value::Byte(v as u8))],
-                            ));
+                        if let Some(v) = optional_pick(ui, picks, &name, domains, c.integer(label))
+                        {
+                            match byte_row(v, "domains.2da") {
+                                Ok(row) => {
+                                    edits.push(("Domain", vec![set(key, &path, label, row)]))
+                                }
+                                Err(why) => refused = Some(why),
+                            }
                         }
                     }
                 });
@@ -675,9 +695,12 @@ fn class_list(
                 ui.label("School");
                 let current = c.integer("School");
                 if let Some(v) =
-                    optional_pick(ui, key, &format!("class{i}-school"), schools, current)
+                    optional_pick(ui, picks, &format!("class{i}-school"), schools, current)
                 {
-                    edits.push(("School", vec![set(key, &path, "School", Value::Byte(v as u8))]));
+                    match byte_row(v, "spellschools.2da") {
+                        Ok(row) => edits.push(("School", vec![set(key, &path, "School", row)])),
+                        Err(why) => refused = Some(why),
+                    }
                 }
                 ui.end_row();
             }
@@ -694,6 +717,9 @@ fn class_list(
             "Add class",
             vec![Edit::insert_item(key, base.clone(), "ClassList", list.len(), s)],
         ));
+    }
+    if let Some(why) = refused {
+        f.app.log.warn(why);
     }
     for (what, e) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, e)));
@@ -715,6 +741,7 @@ fn classes_together(
     class_int: &dyn Fn(i64, &str) -> Option<i64>,
 ) {
     let key = f.key;
+    let picks = f.picks();
     let targets = f.list_targets();
     let total = targets.len();
     let merged = lists::merged(&targets, "ClassList", lists::class);
@@ -725,7 +752,7 @@ fn classes_together(
             let is = move |e: &Struct| lists::class(e) == Some(class);
             let c = &m.entry;
             ui.label(format!("Class {}", i + 1));
-            if let Some(v) = situated::pick(ui, key, &format!("class{i}"), all, class) {
+            if let Some(v) = situated::pick(ui, picks, &format!("class{i}"), all, class) {
                 change = Some(("Class", lists::change_class(&targets, class, v as i32), "Set on"));
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
@@ -765,12 +792,20 @@ fn classes_together(
             let mut picked = |ui: &mut Ui, name: &str, label: &str, choices: &[Choice]| {
                 let differs = lists::differs(&targets, "ClassList", is, |e| e.integer(label));
                 f.mark_if(ui, &format!("{label}#{class}"), differs);
-                if let Some(v) = optional_pick(ui, key, name, choices, c.integer(label)) {
-                    let out = lists::set(&targets, "ClassList", is, &[label], |_, _| {
-                        Some(Value::Byte(v as u8))
-                    });
-                    change =
-                        Some((if label == "School" { "School" } else { "Domain" }, out, "Set on"));
+                if let Some(v) = optional_pick(ui, picks, name, choices, c.integer(label)) {
+                    let (what, table) = match label {
+                        "School" => ("School", "spellschools.2da"),
+                        _ => ("Domain", "domains.2da"),
+                    };
+                    match byte_row(v, table) {
+                        Ok(row) => {
+                            let out = lists::set(&targets, "ClassList", is, &[label], |_, _| {
+                                Some(row.clone())
+                            });
+                            change = Some((what, out, "Set on"));
+                        }
+                        Err(why) => f.app.log.warn(why),
+                    }
                 }
             };
             if class_int(class, "PickDomains") == Some(1) {
@@ -799,16 +834,29 @@ fn classes_together(
     }
 }
 
+/// Row `row` of `table` as a class's domain or school is stored, a BYTE;
+/// or why it can't be: a row past 255 (a server's domains.2da) was cut
+/// to the field's width, and another domain written than the one picked
+/// (row 300 as 44).
+fn byte_row(row: i64, table: &str) -> Result<Value, String> {
+    match u8::try_from(row) {
+        Ok(row) => Ok(Value::Byte(row)),
+        Err(_) => Err(format!(
+            "{table}'s row {row} is not set: the field holds a row up to 255, as the game reads it"
+        )),
+    }
+}
+
 /// A 2DA row picked for a field that may be left out (`None`: the game
 /// decides, as it does for a cleric without domains); the row picked.
 fn optional_pick(
     ui: &mut Ui,
-    key: ResKey,
+    of: egui::Id,
     name: &str,
     choices: &[Choice],
     current: Option<i64>,
 ) -> Option<i64> {
-    let id = egui::Id::new(("pick", key, name));
+    let id = of.with(name);
     crate::widgets::row_choice(id, choices, current).unset("Not set").width(100.0).show(ui)
 }
 
@@ -855,7 +903,7 @@ fn associates(
             crate::widgets::field_label(ui, title);
             f.mark_mixed(ui, type_label);
             let current = f.root.integer(type_label);
-            if let Some(v) = optional_pick(ui, f.key, type_label, kinds, current) {
+            if let Some(v) = optional_pick(ui, f.picks(), type_label, kinds, current) {
                 f.set_int(title, type_label, v, FieldType::Int);
             }
             crate::widgets::field_label(ui, "Name");
@@ -1055,6 +1103,19 @@ fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A domain or a school is stored in a BYTE: a row past 255 is said,
+    /// not cut to the field's width (the review's B30: row 300 was
+    /// written as 44, another domain).
+    #[test]
+    fn a_domain_s_row_past_the_field_is_said_not_cut() {
+        assert_eq!(byte_row(44, "domains.2da"), Ok(Value::Byte(44)));
+        assert_eq!(byte_row(255, "domains.2da"), Ok(Value::Byte(255)));
+        for row in [300, 256, -1] {
+            let said = byte_row(row, "domains.2da").unwrap_err();
+            assert!(said.starts_with(&format!("domains.2da's row {row} is not set")), "{said}");
+        }
+    }
 
     #[test]
     fn every_right_body_part_has_its_left() {

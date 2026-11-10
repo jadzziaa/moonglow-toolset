@@ -20,7 +20,7 @@ use crate::Action;
 /// The section.
 pub(super) fn section(f: &mut Form<'_>, ui: &mut Ui) {
     let Some(game) = f.app.game.clone() else { return };
-    let materials = tintable(ui, &game, &f.root);
+    let materials = tintable(ui, &game, f.app.load_order, &f.root);
     let tints = tint::of_object(&f.root);
     if materials.is_empty() && tints.is_empty() {
         return;
@@ -128,16 +128,20 @@ fn picker(f: &Form<'_>, ui: &mut Ui, local: &str, shown: Option<[f32; 3]>) -> Pi
 }
 
 /// The model's tintable materials ([`mg_preview::tintable_materials`]),
-/// worked out once a model (and game data) and kept.
-fn tintable(ui: &Ui, game: &Arc<mg_rules::GameData>, utp: &Struct) -> Arc<Vec<String>> {
+/// worked out once a model and kept while the load order is the same
+/// (`load_order`: a material given `tdodTint` in the override shows the
+/// section once the resources are read again).
+fn tintable(
+    ui: &Ui,
+    game: &Arc<mg_rules::GameData>,
+    load_order: u64,
+    utp: &Struct,
+) -> Arc<Vec<String>> {
     let appearance = utp.integer("Appearance").unwrap_or(-1);
-    let id = egui::Id::new(("tintable", Arc::as_ptr(game) as usize, appearance));
-    if let Some(m) = ui.data(|d| d.get_temp::<Arc<Vec<String>>>(id)) {
-        return m;
-    }
-    let m = Arc::new(mg_preview::tintable_materials(game, utp));
-    ui.data_mut(|d| d.insert_temp(id, m.clone()));
-    m
+    let id = egui::Id::new(("tintable", appearance));
+    super::kept_for_load_order(ui, load_order, id, || {
+        Arc::new(mg_preview::tintable_materials(game, utp))
+    })
 }
 
 /// Sets a string local (or takes it out: `None`) on each object edited,

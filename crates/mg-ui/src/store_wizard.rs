@@ -67,6 +67,14 @@ pub struct StoreWizard {
     pub tag: Option<String>,
 }
 
+impl StoreWizard {
+    /// Where the shopkeeper is in its area's GIT (for
+    /// `blueprint::follow`, which keeps `creature` its index).
+    pub(crate) fn keeper(&self) -> GffPath {
+        GffPath::root().item(self.list, self.creature)
+    }
+}
+
 fn factions(app: &mut Moonglow) -> Option<Factions> {
     let key = ResKey::parse("repute", ResType::FAC)?;
     let ws = app.ws.as_mut()?;
@@ -172,6 +180,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let faction_names: Vec<String> = factions(app)
         .map(|f| f.factions.iter().map(|x| x.name.clone()).collect())
         .unwrap_or_else(|| mg_module::factions::STANDARD.iter().map(|s| s.to_string()).collect());
+    // (A name the module has already: Finish replaces what is there.)
+    let there = |name: &str, types: &[ResType]| {
+        let name = ResRef::from_str(name.trim()).ok().filter(|r| *r != ResRef::EMPTY);
+        name.zip(app.ws.as_ref())
+            .is_some_and(|(r, ws)| types.iter().any(|t| ws.module.contains(&ResKey::new(r, *t))))
+    };
+    let dialog_there = there(&w.dialog, &[ResType::DLG]);
+    let script_there = there(&w.script, &[ResType::NSS, ResType::NCS]);
+    let replaced = |ui: &mut egui::Ui, what: &str| {
+        let note = format!("A {what} of that name is replaced.");
+        ui.colored_label(ui.visuals().warn_fg_color, note);
+    };
     crate::widgets::modal(ctx, "Store Setup Wizard").show(ctx, |ui| {
         match w.page {
             Page::Conversation => {
@@ -192,6 +212,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
                 ui.label("(optional) Enter the filename for the shopkeeper's conversation");
                 ui.add(resref_edit(&mut ResRefText(&mut w.dialog)));
+                if dialog_there {
+                    replaced(ui, "conversation");
+                }
                 match opens {
                     Some(script) => {
                         ui.label(format!(
@@ -205,6 +228,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                  the store",
                         );
                         ui.add(resref_edit(&mut ResRefText(&mut w.script)));
+                        if script_there {
+                            replaced(ui, "script");
+                        }
                     }
                 }
             }
@@ -434,7 +460,7 @@ fn build(
             Err(e) => app.log.warn(format!("Setup Store: {script}: {}", e.message)),
         }
     }
-    let path = GffPath::root().item(w.list, w.creature);
+    let path = w.keeper();
     let set = |label: &str, value: Value| Edit::SetField {
         key: git,
         path: path.clone(),
@@ -458,7 +484,15 @@ fn build(
         edits.push(set("VarTable", Value::List(vars)));
     }
     if w.hostile && w.use_faction {
-        edits.push(set(faction_field(w.list), Value::Dword(w.faction)));
+        // (In the type the field is stored in, else its own: a creature's
+        // is a WORD, a placeable's a DWORD.)
+        let field = faction_field(w.list);
+        let own = match w.list {
+            "Creature List" => mg_gff::FieldType::Word,
+            _ => mg_gff::FieldType::Dword,
+        };
+        let faction = crate::blueprint::integer(creature.get(field), i64::from(w.faction), own);
+        edits.push(set(field, faction));
     }
     let (list, _) = git_list(ResType::UTM).expect("stores have a list");
     edits.push(Edit::insert_item(git, GffPath::root(), list, count, placed));
@@ -494,6 +528,15 @@ pub struct PopupText {
 }
 
 impl PopupText {
+    /// The list of an area's GIT its object is in.
+    pub(crate) const LIST: &'static str = "Placeable List";
+
+    /// Where the placeable is in its area's GIT (for
+    /// `blueprint::follow`, which keeps `placeable` its index).
+    pub(crate) fn object(&self) -> GffPath {
+        GffPath::root().item(Self::LIST, self.placeable)
+    }
+
     /// The window for a placeable of an area (its right-click menu's Add
     /// Popup Text…): no text yet, and the conversation's name starting
     /// with the builder's code.
@@ -544,7 +587,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
                     Edit::SetResource { key: ResKey::new(name, ResType::DLG), data: Some(data) },
                     Edit::SetField {
                         key: git,
-                        path: GffPath::root().item("Placeable List", p.placeable),
+                        path: p.object(),
                         label: "Conversation".into(),
                         value: Some(Value::resref(name)),
                     },

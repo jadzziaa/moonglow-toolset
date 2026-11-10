@@ -31,22 +31,37 @@ pub fn list(dir: Option<&Path>) -> Vec<String> {
     SHELF.list(dir)
 }
 
-/// Variables as a set's text (only int, float and string variables).
-pub fn to_text(rows: &[VarRow]) -> String {
-    let vars: Vec<Value> = rows
-        .iter()
-        .filter_map(|r| {
-            let (kind, value) = match r.kind {
-                1 => ("int", json!(r.value.trim().parse::<i32>().ok()?)),
+/// Variables as a set's text (only int, float and string variables), or
+/// which of them has a value that is none of its type's.
+///
+/// A value is read as the Variables window reads it (`VarType::value`):
+/// read by another rule here, an int typed `0x10`, which the window
+/// takes, was left out of the set without a word, and a float typed
+/// `nan` was written as `null`, a set that then read "(not a set)".
+pub fn to_text(rows: &[VarRow]) -> Result<String, String> {
+    use mg_module::vars::VarType;
+    let codepage = crate::text::game_codepage();
+    let mut vars: Vec<Value> = Vec::new();
+    for r in rows {
+        let typed =
+            |t: VarType| t.value(&r.value, codepage).map_err(|e| format!("{}: {e}", r.name));
+        let (kind, value) = match VarType::of(r.kind.into()) {
+            Some(t @ VarType::Int) => match typed(t)? {
+                mg_gff::Value::Int(v) => ("int", json!(v)),
+                _ => continue,
+            },
+            Some(t @ VarType::Float) => {
+                typed(t)?;
                 // As typed (an f32 would print 0.1 as 0.10000000149…).
-                2 => ("float", json!(r.value.trim().parse::<f64>().ok()?)),
-                3 => ("string", json!(r.value)),
-                _ => return None,
-            };
-            Some(json!({ "name": r.name, "type": kind, "value": value }))
-        })
-        .collect();
-    serde_json::to_string_pretty(&json!({ "variables": vars })).expect("JSON") + "\n"
+                let v = r.value.trim().parse::<f64>().map_err(|e| format!("{}: {e}", r.name))?;
+                ("float", json!(v))
+            }
+            Some(VarType::String) => ("string", json!(r.value)),
+            _ => continue,
+        };
+        vars.push(json!({ "name": r.name, "type": kind, "value": value }));
+    }
+    Ok(serde_json::to_string_pretty(&json!({ "variables": vars })).expect("JSON") + "\n")
 }
 
 /// A set's text as variables.
@@ -88,7 +103,7 @@ pub fn merge(rows: &mut Vec<VarRow>, set: Vec<VarRow>) {
 
 /// Saves variables as a set named `name`.
 pub fn save(dir: &Path, name: &str, rows: &[VarRow]) -> Result<PathBuf, String> {
-    SHELF.write(Some(dir), name, &to_text(rows))
+    SHELF.write(Some(dir), name, &to_text(rows)?)
 }
 
 /// Reads the set named `name`.
@@ -175,7 +190,7 @@ pub fn save_file(path: &Path, rows: &[VarRow]) -> Result<PathBuf, String> {
         }
         None => path.to_path_buf(),
     };
-    std::fs::write(&path, to_text(rows)).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::saved::write_whole(&path, &to_text(rows)?)?;
     Ok(path)
 }
 
@@ -189,6 +204,26 @@ pub fn load_file(path: &Path) -> Result<Vec<VarRow>, String> {
 mod tests {
     use super::*;
 
+    /// A value is read for a set as the Variables window reads it (the
+    /// review's B29): an int typed in hexadecimal is kept, and a value
+    /// that is none of its type's is said, not left out or written as
+    /// `null`.
+    #[test]
+    fn a_set_s_values_are_read_as_the_variables_window_reads_them() {
+        let rows = vec![VarRow::new("MG_MASK", 1, " 0x10 "), VarRow::new("MG_SPEED", 2, "2.50")];
+        let back = from_text(&to_text(&rows).unwrap()).unwrap();
+        assert_eq!(
+            back.iter().map(|r| (r.name.as_str(), r.kind, r.value.as_str())).collect::<Vec<_>>(),
+            [("MG_MASK", 1, "16"), ("MG_SPEED", 2, "2.5")]
+        );
+        for (kind, value) in [(1, "three"), (1, "99999999999"), (2, "nan"), (2, "inf"), (2, "")] {
+            let said = to_text(&[VarRow::new("MG_ODD", kind, value)]).unwrap_err();
+            assert!(said.starts_with("MG_ODD: "), "{value:?}: {said}");
+        }
+        // (An object or a location, which a set doesn't hold: left out.)
+        assert_eq!(from_text(&to_text(&[VarRow::new("oGuard", 4, "")]).unwrap()).unwrap(), []);
+    }
+
     #[test]
     fn sets_read_back_and_merge_by_name() {
         let rows = vec![
@@ -196,7 +231,7 @@ mod tests {
             VarRow::new("MG_SPEED", 2, "0.1"),
             VarRow::new("MG_SAY", 3, "Hello \"there\""),
         ];
-        let text = to_text(&rows);
+        let text = to_text(&rows).unwrap();
         assert!(text.contains("\"type\": \"int\""), "{text}");
         let back = from_text(&text).unwrap();
         assert_eq!(
@@ -244,7 +279,7 @@ mod tests {
         let file = scratch.join("shared").join("loot.vars.json");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         assert_eq!(save_file(&file, &rows).unwrap(), file);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), to_text(&rows));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), to_text(&rows).unwrap());
         let back = load_file(&file).unwrap();
         assert_eq!(back.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["MG_LOOT", "MG_SAY"]);
         // A name given without the whole ending is given it.

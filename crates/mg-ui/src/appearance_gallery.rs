@@ -232,10 +232,11 @@ fn grid(
     let game = app.game.clone()?;
     let (name, cols) = kind.table();
     let table = game.table(name).ok()?;
-    let mut all = game.choices(name, cols).ok()?;
-    // (Creatures by name: the table's order is no one's.)
+    // (The table's rows as the game data keeps them, not a copy a frame;
+    // creatures by name, sorted once: the table's order is no one's.)
+    let mut all = game.choice_list(name, cols).ok()?;
     if kind == Kind::Creature {
-        all = mg_rules::by_name(all);
+        all = crate::blueprint::by_name_kept(ui.ctx(), "gallery", &all);
     }
     ui.horizontal(|ui| {
         let field = ui.id().with("gallery-filter-field");
@@ -248,8 +249,8 @@ fn grid(
         ui.weak(format!("{} appearances ({name}.2da)", all.len()));
     });
     let side = tile_side(app);
-    let needle = mg_core::text::Needle::new(&state.filter);
-    let rows: Vec<&mg_rules::Choice> = all.iter().filter(|c| needle.finds(&c.text)).collect();
+    let found = crate::blueprint::found_kept(ui.ctx(), "gallery", &all, &state.filter);
+    let rows: Vec<&mg_rules::Choice> = found.iter().map(|&i| &all[i]).collect();
     let ready = &app.thumbnails;
     let (mut shown, mut pick) = (Vec::new(), Clicked::default());
     let gap = 4.0;
@@ -326,10 +327,11 @@ fn grid(
 }
 
 /// The objects a gallery gives appearances to: their document, their
-/// places in its list, and the first one's appearance and (a creature)
-/// its fields to picture it by
-/// ([`Thumbnails::creature`](crate::model_view::Thumbnails::creature)).
-type Chosen = (ResKey, Vec<usize>, Option<i64>, Option<u64>);
+/// places in its list, the first one's appearance and (a creature) its
+/// fields to picture it by
+/// ([`Thumbnails::creature`](crate::model_view::Thumbnails::creature)),
+/// and whether they all have the first one's appearance.
+type Chosen = (ResKey, Vec<usize>, Option<i64>, Option<u64>, bool);
 
 /// The objects of the gallery's kind selected in the area shown (in its
 /// GIT).
@@ -342,9 +344,12 @@ fn selected(app: &mut Moonglow, kind: Kind) -> Option<Chosen> {
     let git = ResKey::new(area, ResType::GIT);
     let first = *chosen.first()?;
     let doc = app.ws.as_mut()?.doc(&git).ok()?;
-    let of = doc.root.list(object.list())?.get(first)?.clone();
+    let list = doc.root.list(object.list())?;
+    let of = list.get(first)?.clone();
+    let now = of.integer(kind.field());
+    let alike = chosen.iter().all(|&i| list.get(i).and_then(|s| s.integer(kind.field())) == now);
     let dressed = (kind == Kind::Creature).then(|| app.thumbnails.creature(&of));
-    Some((git, chosen, of.integer(kind.field()), dressed))
+    Some((git, chosen, now, dressed, alike))
 }
 
 /// The gallery's tab: to look through, and to give an appearance with a
@@ -377,9 +382,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let chosen = if one.is_none() { selected(app, kind) } else { None };
     let (current, dressed) = match (&one, &chosen) {
         (Some((_, _, now, dressed)), _) => (*now, *dressed),
-        (None, Some((_, _, now, dressed))) => (*now, *dressed),
+        (None, Some((_, _, now, dressed, _))) => (*now, *dressed),
         _ => (None, None),
     };
+    // (Nothing to give where every object it is given to has it: the
+    // first's alone was looked at, and a click on its appearance did
+    // nothing for the others selected with it.)
+    let alike = chosen.as_ref().is_none_or(|c| c.4);
     ui.horizontal_wrapped(|ui| match (&one, &chosen) {
         (Some((key, path, ..)), _) => {
             let what = if path.0.is_empty() { key.to_string() } else { "the placed object".into() };
@@ -443,7 +452,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         true => clicked.give,
         false => clicked.click.or(clicked.give),
     }
-    .filter(|row| Some(*row) != current);
+    .filter(|row| Some(*row) != current || !alike);
     let set = |key: ResKey, path: GffPath, row: i64| -> Vec<Edit> {
         kind.fields(row)
             .into_iter()

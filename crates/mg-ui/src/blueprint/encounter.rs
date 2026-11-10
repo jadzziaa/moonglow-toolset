@@ -151,13 +151,14 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     let mut add = None;
     let mut remove = None;
     let mut unique = None;
+    let selected_id = f.id("ute-selected");
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(280.0);
             add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
         });
         ui.separator();
-        let sel_id = egui::Id::new(("ute-selected", key));
+        let sel_id = selected_id;
         let mut selected: Option<usize> =
             ui.data(|d| d.get_temp(sel_id)).filter(|&i: &usize| i < list.len());
         ui.vertical(|ui| {

@@ -2743,3 +2743,88 @@ fn tabs_follow_a_rename_and_close_with_what_they_show() {
     assert!(!has(&app, &Tab::AreaProperties(area)));
     assert!(has(&app, &Tab::Journal), "the journal's stays");
 }
+
+/// The other windows that hold a placed object by its place in its list
+/// (the review's B6): the Appearance Gallery opened for one object, the
+/// Levelup Wizard, Setup Store and Add Popup Text. Each gave another
+/// object what was meant for its own once one before it was deleted
+/// behind the window; they follow it now, and close when it is gone.
+#[test]
+fn the_wizards_on_a_placed_object_follow_it_through_its_list() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir("ui-wizards-follow");
+    let path = sample_module(&dir);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    let area = git.resref;
+    let mut m = Module::open(&path).unwrap();
+    let mut g = Gff::new(*b"GIT ");
+    let placed = |tag: &str| {
+        let mut s = Struct::new(9);
+        s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        s
+    };
+    g.root.set("Placeable List", Value::List(["A", "B", "C", "D"].map(placed).to_vec()));
+    g.root.set("Creature List", Value::List(["a", "b", "c", "d"].map(placed).to_vec()));
+    m.set(git, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.run();
+    let at = |list: &str, i: usize| GffPath::root().item(list, i);
+    {
+        let app = h.state_mut();
+        // The gallery for placeable C, Add Popup Text on D; the Levelup
+        // Wizard on creature c, Setup Store on d.
+        let mut gallery = mg_ui::appearance_gallery::Gallery::default();
+        gallery.target = Some((git, at("Placeable List", 2)));
+        app.placeable_gallery = Some(gallery);
+        app.popup_text = Some(mg_ui::store_wizard::PopupText::of(app, area, 3));
+        app.levelup = Some(mg_ui::levelup_view::LevelupWizard::new(
+            git,
+            at("Creature List", 2),
+            &Struct::new(0),
+        ));
+        mg_ui::store_wizard::open(app, area, "Creature List", 3);
+        assert!(app.store_wizard.is_some());
+    }
+    h.run();
+    type Held = (Option<GffPath>, Option<usize>, Option<GffPath>, Option<usize>);
+    let held = |h: &Harness<'_, Moonglow>| -> Held {
+        let app = h.state();
+        (
+            app.placeable_gallery.as_ref().and_then(|g| g.target.clone()).map(|t| t.1),
+            app.popup_text.as_ref().map(|w| w.placeable),
+            app.levelup.as_ref().map(|w| w.path.clone()),
+            app.store_wizard.as_ref().map(|w| w.creature),
+        )
+    };
+    let remove = |list: &str, i: usize| {
+        let e = Edit::RemoveItem { key: git, path: GffPath::root(), list: list.into(), index: i };
+        mg_ui::Action::Apply(Command::new("Delete", vec![e]))
+    };
+    // The first of each list deleted: each window's object is one up.
+    h.state_mut().actions.push(remove("Placeable List", 0));
+    h.state_mut().actions.push(remove("Creature List", 0));
+    h.run();
+    let up = (Some(at("Placeable List", 1)), Some(2), Some(at("Creature List", 1)), Some(2));
+    assert_eq!(held(&h), up);
+    // Undo puts the creature back, then the placeable.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    let first = (Some(at("Placeable List", 2)), Some(3), Some(at("Creature List", 2)), Some(3));
+    assert_eq!(held(&h), first);
+    // The objects themselves deleted, last first: the gallery is no longer
+    // one object's, and the wizards close.
+    for (list, i) in
+        [("Placeable List", 3), ("Placeable List", 2), ("Creature List", 3), ("Creature List", 2)]
+    {
+        h.state_mut().actions.push(remove(list, i));
+        h.run();
+    }
+    assert_eq!(held(&h), (None, None, None, None));
+    assert!(h.state().placeable_gallery.is_some(), "the gallery itself stays");
+}

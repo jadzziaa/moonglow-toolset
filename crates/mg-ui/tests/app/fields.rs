@@ -2703,3 +2703,50 @@ fn the_form_widgets_and_the_color_chooser_are_exported() {
     h.run();
     assert_eq!(*h.state(), 42);
 }
+
+/// A journal from a tool that leaves out fields at zero: a category's XP
+/// and an entry's End set in the Journal Editor are written in their own
+/// types, a DWORD and a WORD. The form took a field its struct lacked for
+/// a BYTE unless the file's root had it, which a list's entry's are not:
+/// 500 XP was stored as 255 (the review's B27).
+#[test]
+fn a_journal_field_its_file_lacks_is_written_in_its_own_type() {
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir("ui-journal-field-types");
+    let path = sample_module(&dir);
+    let jrl = ResKey::parse("module", ResType::JRL).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let mut entry = Struct::new(0);
+    entry.set("ID", Value::Dword(1));
+    let mut category = Struct::new(0);
+    category.set("Tag", Value::String(b"quest".to_vec()));
+    category.set("EntryList", Value::List(vec![entry]));
+    let mut g = Gff::new(*b"JRL ");
+    g.root.set("Categories", Value::List(vec![category]));
+    m.set(jrl, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    close_tab(&mut app, &Tab::ModuleProperties);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Journal));
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run_steps(4);
+    let category = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&jrl).unwrap().root.list("Categories").unwrap()[0].clone()
+    };
+    use mg_ui::journal_view::Node;
+    h.state_mut().journal_view.selected = Some(Node::Category(0));
+    h.run_steps(3);
+    assert_eq!(category(&mut h).get("XP"), None);
+    set_number(&h, &number_beside(&h, "XP", 0), 500.0);
+    h.run_steps(3);
+    assert_eq!(category(&mut h).get("XP"), Some(&Value::Dword(500)));
+    h.state_mut().journal_view.selected = Some(Node::Entry(0, 0));
+    h.run_steps(3);
+    h.get_by_label("Finish Category").click();
+    h.run_steps(3);
+    let entry = category(&mut h).list("EntryList").unwrap()[0].clone();
+    assert_eq!(entry.get("End"), Some(&Value::Word(1)));
+}

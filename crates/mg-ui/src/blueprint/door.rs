@@ -60,26 +60,26 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 /// Tileset doors (doortypes.2da; row 0 is the generic door): the name and
 /// the tileset.
-fn door_types(f: &Form<'_>) -> Vec<Choice> {
-    let Some(game) = f.app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("doortypes") else { return Vec::new() };
-    let names = game
-        .choices("doortypes", ChoiceColumns { name: Some("StringRefGame"), label: Some("Label") })
-        .unwrap_or_default();
-    names
-        .into_iter()
-        .map(|c| {
+/// (Made once for the table's rows, and kept: not every frame.)
+fn door_types(f: &Form<'_>, ui: &Ui) -> std::sync::Arc<Vec<Choice>> {
+    let Some(game) = f.app.game.as_deref() else { return Default::default() };
+    let Ok(table) = game.table("doortypes") else { return Default::default() };
+    let columns = ChoiceColumns { name: Some("StringRefGame"), label: Some("Label") };
+    let Ok(names) = game.choice_list("doortypes", columns) else { return Default::default() };
+    super::kept_for(ui.ctx(), egui::Id::new("door-types"), &names, &(), || {
+        let named = names.iter().map(|c| {
             let tileset = table.get(c.row, "TileSet").filter(|t| *t != "****");
             match tileset {
                 Some(t) => Choice { row: c.row, text: format!("{} ({t})", c.text) },
-                None => c,
+                None => c.clone(),
             }
-        })
-        .collect()
+        });
+        std::sync::Arc::new(named.collect())
+    })
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
-    let types = door_types(f);
+    let types = door_types(f, ui);
     let types = f.appearance_rows(mg_rules::ObjectKind::Door, &types);
     let generic = f.choices("genericdoors", Some("Name"), Some("Label"));
     egui::Grid::new(("utd-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -102,9 +102,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Generic Appearance");
         f.mark_mixed(ui, mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
+            let picks = f.picks();
             let app = &mut *f.app;
             let mut shown = |ui: &mut Ui, row| super::generic_door_picture(app, ui, row);
-            let list = situated::pick_list(f.key, "generic", &generic, current, 220.0);
+            let list = situated::pick_list(picks, "generic", &generic, current, 220.0);
             if let Some(v) = list.about(&mut shown).show(ui) {
                 let mut fields = vec![("GenericType_New", v, FieldType::Dword)];
                 if f.root.get("GenericType").is_some() && v <= 255 {

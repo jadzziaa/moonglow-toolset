@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit, GffPath, lists};
 use mg_gff::{Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
@@ -15,7 +15,7 @@ use crate::Action;
 use crate::images::{ICON_MAX, Picture};
 
 /// An inventory is a grid this many cells wide.
-pub(super) const GRID_WIDTH: u32 = 10;
+pub(super) const GRID_WIDTH: u32 = mg_rules::levelup::INVENTORY_WIDTH as u32;
 
 /// What an item's base item says about it: its baseitems.2da `StorePanel`
 /// and its size in cells.
@@ -196,18 +196,16 @@ impl Form<'_> {
     }
 
     fn base_item_fit(&self, base: i64) -> ItemFit {
-        let table = self.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
-        let cell = |col: &str| {
-            let t = table.as_ref()?;
-            t.get_int(usize::try_from(base).ok()?, col).and_then(|v| u32::try_from(v).ok())
-        };
-        ItemFit {
-            panel: cell("StorePanel"),
-            w: cell("InvSlotWidth").unwrap_or(1).clamp(1, GRID_WIDTH),
-            // (A hak's 2DA may say anything: kept within reason, so the
-            // places' sums in `place` cannot overflow.)
-            h: cell("InvSlotHeight").unwrap_or(1).clamp(1, 255),
-        }
+        let game = self.app.game.as_deref();
+        let row = usize::try_from(base).ok();
+        let panel = game.zip(row).and_then(|(g, row)| {
+            let v = g.table("baseitems").ok()?.get_int(row, "StorePanel")?;
+            u32::try_from(v).ok()
+        });
+        // (The room it takes by the one reading of it, which keeps what a
+        // hak's 2DA says within the grid: `GameData::inventory_size`.)
+        let (w, h) = game.zip(row).map_or((1, 1), |(g, row)| g.inventory_size(row));
+        ItemFit { panel, w: u32::from(w), h: u32::from(h) }
     }
 
     /// The whole item a placed object holds for blueprint `resref` (`id`:
@@ -246,8 +244,7 @@ impl Form<'_> {
             .iter()
             .map(|it| {
                 let fit = self.entry_fit(it);
-                let x = it.integer("Repos_PosX").unwrap_or(0) as u32;
-                let y = it.integer("Repos_Posy").unwrap_or(0) as u32;
+                let (x, y) = lists::placed_at(it);
                 (x, y, fit.w, fit.h)
             })
             .collect();
@@ -257,7 +254,7 @@ impl Form<'_> {
             Added::Item(item) => self.carried(item, id),
         };
         let fit = self.added_fit(added);
-        let (x, y) = place(&taken, fit.w, fit.h);
+        let (x, y) = lists::place(&taken, GRID_WIDTH, fit.w, fit.h);
         mg_module::instances::listed_item(&item, id, x as u16, y as u16)
     }
 
@@ -307,19 +304,6 @@ pub(super) fn is_whole(entry: &Struct) -> bool {
 pub(super) enum Added {
     Blueprint(ResRef),
     Item(Struct),
-}
-
-/// The first free place for a `w`×`h` item, row by row, among `taken`
-/// rectangles (x, y, w, h).
-pub(super) fn place(taken: &[(u32, u32, u32, u32)], w: u32, h: u32) -> (u32, u32) {
-    let free = |x: u32, y: u32| {
-        taken
-            .iter()
-            .all(|&(tx, ty, tw, th)| x + w <= tx || tx + tw <= x || y + h <= ty || ty + th <= y)
-    };
-    (0..)
-        .find_map(|y| (0..=GRID_WIDTH - w).find(|&x| free(x, y)).map(|x| (x, y)))
-        .expect("an empty row fits any item")
 }
 
 /// Whether a creature's item has its flag (`Dropable`, `Pickpocketable`)
@@ -957,6 +941,29 @@ mod tests {
         ws.undo().unwrap();
         ws.flush().unwrap();
         assert_eq!(ws.module.get(&key).unwrap(), &before[..], "undone: the bytes it had");
+    }
+
+    /// An item whose file has a place below 0 (an INT of -1) is at 0 for
+    /// the next one's place: cast to an unsigned number it was at the far
+    /// end of what the field holds, and its place and width overflowed
+    /// when added (the review's B29). Placed as Advanced Search's Add an
+    /// Item places one: by the one rule (`mg_edit::lists`).
+    #[test]
+    fn an_item_at_a_place_below_zero_is_at_the_grid_s_start() {
+        let mut at_minus = item(&[]);
+        at_minus.set("Repos_PosX", Value::Int(-1));
+        at_minus.set("Repos_Posy", Value::Int(-7));
+        assert_eq!(lists::placed_at(&at_minus), (0, 0));
+        assert_eq!(lists::placed_at(&item(&[])), (0, 0), "left out");
+        let (x, y) = lists::placed_at(&at_minus);
+        assert_eq!(place(&[(x, y, 1, 1)], 1, 1), (1, 0), "beside it");
+        // (The far end of what a field holds: no row wraps.)
+        assert_eq!(place(&[(u32::MAX, u32::MAX, 2, 2)], 1, 1), (0, 0));
+    }
+
+    /// (The grid's rule, at the inventory's width.)
+    fn place(taken: &[(u32, u32, u32, u32)], w: u32, h: u32) -> (u32, u32) {
+        lists::place(taken, GRID_WIDTH, w, h)
     }
 
     #[test]

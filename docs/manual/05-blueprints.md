@@ -422,7 +422,8 @@ marked **≠** and shows the first one's.
 
 The rules still hold, and what one of them can't take is left, and
 said: a creature takes up to 8 classes, and keeps its last one; a class
-changed into one a creature has already leaves that creature; an item
+changed into one a creature has already leaves that creature (one
+creature's own Classes page refuses it too, and the log says so); an item
 property goes only to an item whose base item takes it. Item properties
 are told apart by their type, subtype and value: an Enhancement Bonus
 +1 and a +2 are two entries, and +1 added to an item with +2 gives it
@@ -483,6 +484,9 @@ category and a name, then opens the new blueprint's properties. The Name
 page shows the ResRef and Tag the blueprint gets, made from the name as
 Aurora makes them (after [your builder code](03-modules.md#your-builder-code),
 in a project where you have one): type others there to choose your own.
+A ResRef the module has already is refused there; one taken between that
+page and **Finish** gives the next free one from it, and no blueprint is
+replaced.
 
 The Item Wizard's Name page has Aurora's **Magical**: ticked, choose an
 **Item Level** (1-5, 6-10, 11-15, 16-20) and an **Item Quality** (Low,
@@ -579,7 +583,8 @@ Shared parts:
   shown as you drag across the picker). A placed object's opens from its right-click menu too, in
   the area or the module tree. **Variable sets** carry variables from
   one object to another, in any module. **Save Set…** keeps them under a
-  name; **Save to File…** saves them as a set file (`.vars.json`)
+  name (a set of that name is replaced, which is said under the name);
+  **Save to File…** saves them as a set file (`.vars.json`)
   wherever you choose, to share or to keep beside a module. **Add Set**
   adds a set to the variables: a saved one, chosen by its name (with the
   pointer resting on it, what it holds), or a file's (**Add from
@@ -590,8 +595,10 @@ Shared parts:
   file's text, to paste in another object's or blueprint's Variables, in
   any module, or into a message to another builder), and Paste Set adds
   what is there as Add Set adds a saved set (text that isn't a set is
-  said so in the log, and nothing is changed). As with Add Set, **OK**
-  writes them. In Add Set's menu, **Manage Sets…** opens the Variable
+  said so in the log, and nothing is changed). A set's values are read
+  as the Variables window reads them (an int may be typed `0x10`); a
+  value that is no number of its type isn't saved or copied, and the log
+  names it. As with Add Set, **OK** writes them. In Add Set's menu, **Manage Sets…** opens the Variable
   Sets window, where a saved set is renamed (**Rename…**: a name another
   set has, in any case, or one that can't name a file is refused) or
   deleted (**Delete**; **Undo Delete** puts the last one back while the
@@ -654,7 +661,8 @@ Shared parts:
     drawn with (item, feat and spell icons, portraits, load screens, the
     area map's tiles and the GUI's own: more than three quarters of the
     game's textures), are left out unless **Interface textures too** is
-    ticked. The name can also be typed after **Drawn as**.
+    ticked. The gallery closes when its page is left. The name can
+    also be typed after **Drawn as**.
     **Reset** removes a replacement. PLT textures are marked *PLT*: a
     replacement draws the texture picked in their place, as it is,
     without the object's colors, as the game does. A texture whose name is longer than 16 characters is listed

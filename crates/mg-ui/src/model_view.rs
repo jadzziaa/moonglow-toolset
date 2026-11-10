@@ -202,14 +202,74 @@ impl Viewport3d {
 pub(crate) const UNSEEN_AFTER: f64 = 2.0;
 
 /// After a frame: the model views not drawn for [`UNSEEN_AFTER`] let go
-/// of their targets.
+/// of their targets; and those no open tab shows (a Model tab closed, a
+/// Properties window closed, the Preview window's of a blueprint no longer
+/// chosen) go whole, with their models on the GPU and the supermodels
+/// they read. (Kept, every blueprint chosen in the palette with the
+/// Preview window open added a view for the session.) One whose tab is
+/// behind another keeps its models and its camera.
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
     let Some(vp) = app.viewport.as_mut() else { return };
-    for view in app.model_views.values_mut() {
-        if view.targets.is_some() && view.last_frame.is_none_or(|t| now - t > UNSEEN_AFTER) {
+    let mut unseen = Vec::new();
+    for (source, view) in app.model_views.iter_mut() {
+        if view.last_frame.is_some_and(|t| now - t <= UNSEEN_AFTER) {
+            continue;
+        }
+        if view.targets.is_some() {
             view.let_go_of_targets(vp);
         }
+        // (Not drawn yet: opened this frame. A hak's: the hak editor's own
+        // to drop, `hak_view`.)
+        if view.last_frame.is_some() && !matches!(source, Source::Hak { .. }) {
+            unseen.push(source.clone());
+        }
     }
+    if unseen.is_empty() {
+        return;
+    }
+    // (A Properties window's page shows its object, the first of several;
+    // a tile's tab its tile's model, whichever that is.)
+    let mut tiles = false;
+    let shown: Vec<Source> = (app.dock.iter_all_tabs())
+        .filter_map(|(_, tab)| match tab {
+            crate::Tab::Blueprint(key) => Some(Source::Resource(*key)),
+            crate::Tab::Blueprints(keys) => keys.first().map(|key| Source::Resource(*key)),
+            crate::Tab::Instance { area, path } => {
+                Some(Source::Instance { area: *area, path: path.clone() })
+            }
+            crate::Tab::Instances { area, paths } => {
+                paths.first().map(|path| Source::Instance { area: *area, path: path.clone() })
+            }
+            crate::Tab::Tile { .. } => {
+                tiles = true;
+                None
+            }
+            tab => Source::of_tab(tab),
+        })
+        .collect();
+    let a_tile_s = |s: &Source| tiles && matches!(s, Source::Resource(_)) && s.is_model();
+    for source in unseen.into_iter().filter(|s| !shown.contains(s) && !a_tile_s(s)) {
+        app.model_views.remove(&source);
+    }
+}
+
+/// What a model's view was read for: the load order
+/// ([`Moonglow::load_order`]: a file of the module's folder read again, a
+/// hak or the override changed) and the module's own bytes of the model
+/// (held, and told by `Arc::ptr_eq`: an Import, an Undo of one).
+type ModelRead = (u64, Option<Arc<[u8]>>);
+
+fn model_read(app: &Moonglow, source: &Source) -> ModelRead {
+    let own = source.key().zip(app.ws.as_ref()).and_then(|(k, ws)| ws.module.shared(&k).cloned());
+    (app.load_order, own)
+}
+
+fn same_read(a: &ModelRead, b: &ModelRead) -> bool {
+    a.0 == b.0
+        && match (&a.1, &b.1) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        }
 }
 
 impl ModelView {
@@ -242,6 +302,8 @@ pub struct ModelView {
     /// end, as its icon shows it; all else as it is.
     stand: Mat4,
     targets: Option<(Targets, egui::TextureId)>,
+    /// The pass it was last shown in ([`show`]: once a pass).
+    shown_in: Option<u64>,
     last_frame: Option<f64>,
     particles: Option<Particles>,
     dangly: Option<Dangly>,
@@ -257,6 +319,8 @@ pub struct ModelView {
     /// Whether armor was shown on a woman when it was read (Options ›
     /// General): another choice reads it again.
     female: bool,
+    /// What a model's view was read for.
+    read: ModelRead,
     /// The box around what it shows at rest, as it is stood: where the
     /// ground that takes its shadow lies ([`ground`]); made when first
     /// drawn with the Shadow switch on.
@@ -618,7 +682,10 @@ fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
             Exported::Text(text) => (Ok(dir.join(&f.name)), Some(text.clone().into_bytes())),
         };
         let Some(data) = data else { continue };
-        if let Err(e) = path.and_then(|path| std::fs::write(path, &data)) {
+        // (Whole or not at all, as every file Moonglow keeps: a model cut
+        // short by a full disk stood where a whole one had.)
+        let whole = |path: std::path::PathBuf| mg_module::write_replacing_one_of_many(&path, &data);
+        if let Err(e) = path.and_then(whole) {
             return app.log.error(format!("Could not write to {}: {e}", dir.display()));
         }
         written.push(format!("{} ({})", f.name, f.origin));
@@ -768,10 +835,18 @@ impl ModelView {
         let revision = app.ws.as_ref().map(Workspace::revision);
         let model = source.is_model();
         let female = app.settings.armor_on_woman;
-        if model || (revision == self.revision && female == self.female) {
+        // (A model is shown as it is: read again when its bytes are
+        // others, exported again from Blender into the module's folder or
+        // the override. It never looked at them again.)
+        let read = model_read(app, source);
+        let unchanged = match model {
+            true => same_read(&read, &self.read),
+            false => revision == self.revision && female == self.female,
+        };
+        if unchanged {
             return;
         }
-        (self.revision, self.female) = (revision, female);
+        (self.revision, self.female, self.read) = (revision, female, read);
         // The editors' working copies, which the preview reads.
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
@@ -787,7 +862,8 @@ impl ModelView {
                 return;
             }
         };
-        if self.preview.as_ref() == Some(&preview) {
+        // (A model's preview is its name, the same whatever its bytes.)
+        if !model && self.preview.as_ref() == Some(&preview) {
             return;
         }
         let composed = compose(app, source, &preview);
@@ -839,6 +915,7 @@ impl ModelView {
             // Models face +Y: from the front, a little to the side.
             orbit: Orbit { target: Vec3::ZERO, yaw, pitch, distance: 5.0 },
             targets: None,
+            shown_in: None,
             last_frame: None,
             particles: None,
             dangly: None,
@@ -847,10 +924,16 @@ impl ModelView {
             preview: preview.ok(),
             revision: app.ws.as_ref().map(Workspace::revision),
             female: app.settings.armor_on_woman,
+            read: model_read(app, source),
             rest_box: None,
         };
         view.frame();
         view
+    }
+
+    /// How many nodes the model it shows has (none read: 0).
+    pub fn nodes(&self) -> usize {
+        self.model.as_ref().map_or(0, |m| m.model.nodes.len())
     }
 
     /// Whether what it shows is stood up for the viewer (an item modeled
@@ -1033,6 +1116,18 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         app.model_views.insert(key.clone(), view);
     }
     let mut view = app.model_views.remove(&key).expect("just inserted");
+    // (Shown in another place in this pass already: the Preview window's
+    // blueprint and its Properties' page, a tile's view and its model's
+    // tab. A view has one camera and one set of targets: drawn here too,
+    // they were made twice a frame at two sizes, and both pictures showed
+    // the last.)
+    let pass = ui.ctx().cumulative_pass_nr();
+    if view.shown_in == Some(pass) {
+        ui.weak("The preview is shown elsewhere in the window.");
+        app.model_views.insert(key, view);
+        return false;
+    }
+    view.shown_in = Some(pass);
     view.refresh(app, &source);
     let model = match &view.model {
         Ok(m) => m.clone(),
@@ -1633,9 +1728,17 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
         app.thumbnails.flushed = revision;
     }
     app.thumbnails.take_read();
-    // (Read apart and no longer asked for: let go of.)
+    // (Read apart and no longer asked for: let go of; and those waiting
+    // to be read, taken out of the readers' queue. Left in it, first in,
+    // first out, a gallery of thousands dragged to its end had every row
+    // seen for a frame read, uploaded and dropped before those in sight.)
     let asked: std::collections::HashSet<Kept> = wanted.iter().copied().collect();
     app.thumbnails.ready.retain(|k, _| asked.contains(k));
+    if let Some(reader) = &app.thumbnails.reader {
+        for kept in reader.keep(&asked) {
+            app.thumbnails.loading.remove(&kept);
+        }
+    }
     let (mut made, mut waiting) = (0, Vec::new());
     for key in wanted {
         let current = app
@@ -1935,6 +2038,27 @@ impl PictureReader {
         if let Ok(mut q) = self.queue.0.lock() {
             q.jobs.clear();
         }
+    }
+
+    /// Takes the jobs waiting whose pictures are not `asked` for any more
+    /// out of the queue: those pictures.
+    fn keep(&self, asked: &std::collections::HashSet<Kept>) -> Vec<Kept> {
+        self.queue.0.lock().map(|mut q| q.keep(asked)).unwrap_or_default()
+    }
+}
+
+impl PictureQueue {
+    /// [`PictureReader::keep`].
+    fn keep(&mut self, asked: &std::collections::HashSet<Kept>) -> Vec<Kept> {
+        let mut gone = Vec::new();
+        self.jobs.retain(|job| {
+            let kept = asked.contains(&job.kept);
+            if !kept {
+                gone.push(job.kept);
+            }
+            kept
+        });
+        gone
     }
 }
 
@@ -2441,6 +2565,37 @@ pub(crate) fn render_tile_from_above(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pictures scrolled past are not made before those in sight (the
+    /// review's B25): a thousand asked for in one frame and ten others in
+    /// the next, the ten are served first, the thousand taken out of what
+    /// waits (they are asked for again if shown again).
+    #[test]
+    fn pictures_no_longer_asked_for_are_taken_out_of_the_queue() {
+        let game = Arc::new(mg_rules::GameData::new(
+            mg_resman::ResMan::new(),
+            mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+        ));
+        let job = |i: u64| PictureJob {
+            kept: (Pictured::Item(i), false),
+            era: 0,
+            parts: Vec::new(),
+            module: Arc::default(),
+            game: game.clone(),
+        };
+        let mut queue = PictureQueue::default();
+        queue.jobs.extend((0..1000).map(job));
+        // The next frame asks for ten others, and two of the thousand.
+        let next: Vec<Kept> =
+            [998, 999].into_iter().chain(1000..1010).map(|i| (Pictured::Item(i), false)).collect();
+        let asked: std::collections::HashSet<Kept> = next.iter().copied().collect();
+        let gone = queue.keep(&asked);
+        assert_eq!(gone.len(), 998);
+        assert!(gone.iter().all(|k| !asked.contains(k)));
+        queue.jobs.extend((1000..1010).map(job));
+        let served: Vec<Kept> = queue.jobs.iter().map(|j| j.kept).collect();
+        assert_eq!(served, next, "those asked for, in their order");
+    }
 
     /// A creature pictured in another appearance (its Appearance list,
     /// the Appearance Gallery) wears what it wears: the bandit's armor

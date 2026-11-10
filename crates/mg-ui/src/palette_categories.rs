@@ -92,13 +92,14 @@ fn name_of(app: &Moonglow, node: &Struct) -> String {
     // (As the game reads text in its language; UTF-8 as Moonglow wrote
     // names before 1.19.4.)
     let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.codepage());
-    let text = |label: &str| node.string(label).map(|t| palette::text_of(t, codepage));
-    let named = text("NAME").or_else(|| {
-        let strref = u32::try_from(node.integer("STRREF")?).ok()?;
-        app.game.as_deref()?.string(mg_core::StrRef(strref))
-    });
-    let strref = || Some(format!("(StrRef {})", node.integer("STRREF")?));
-    named.or_else(|| text("DELETE_ME")).or_else(strref).unwrap_or_default()
+    // (By the one reading of a node's name, Aurora's: its STRREF before a
+    // NAME written out, `palette::node_name`. This read the NAME first.)
+    match palette::node_name(node) {
+        palette::PaletteName::Text(t) => palette::text_of(&t, codepage),
+        palette::PaletteName::StrRef(r) => (app.game.as_deref())
+            .and_then(|g| g.string(mg_core::StrRef(r)))
+            .unwrap_or_else(|| format!("(StrRef {r})")),
+    }
 }
 
 /// The skeleton's categories (not groups), each by its name and the
@@ -536,4 +537,40 @@ fn remove(app: &mut Moonglow, w: &mut PaletteCategories, path: &[usize]) -> Resu
     }
     w.removing = Some(Removing { without: trial, blueprints, to: None });
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_gff::Value;
+
+    /// The window names a node as every other reader of a palette does
+    /// (`palette::node_name`, Aurora's reading): by its STRREF before a
+    /// NAME written out. It read the NAME first (the review's B29).
+    #[test]
+    fn a_node_is_named_by_its_strref_before_its_name_written_out() {
+        let app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let node = |fields: &[(&str, Value)]| {
+            let mut s = Struct::new(0);
+            for (label, value) in fields {
+                s.set(label, value.clone());
+            }
+            s
+        };
+        let text = |t: &str| Value::String(t.as_bytes().to_vec());
+        let both = node(&[("NAME", text("Sk")), ("STRREF", Value::Dword(6688))]);
+        assert_eq!(name_of(&app, &both), "(StrRef 6688)", "no talk table here: the number");
+        assert_eq!(name_of(&app, &node(&[("NAME", text("Named"))])), "Named");
+        assert_eq!(name_of(&app, &node(&[("DELETE_ME", text("Older"))])), "Older");
+        let named = node(&[("NAME", text("Named")), ("DELETE_ME", text("Old"))]);
+        assert_eq!(name_of(&app, &named), "Named");
+        for n in [&both, &named] {
+            let codepage = mg_core::Codepage::default();
+            let read = match palette::node_name(n) {
+                palette::PaletteName::Text(t) => palette::text_of(&t, codepage),
+                palette::PaletteName::StrRef(r) => format!("(StrRef {r})"),
+            };
+            assert_eq!(name_of(&app, n), read, "as the one reading names it");
+        }
+    }
 }

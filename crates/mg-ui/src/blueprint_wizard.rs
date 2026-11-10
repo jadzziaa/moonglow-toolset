@@ -229,8 +229,16 @@ impl BlueprintWizard {
         taken: impl Fn(&ResRef) -> bool,
     ) -> (ResRef, mg_gff::Gff) {
         let name = self.name.trim();
+        // The ResRef typed, unless the module has it by now (it is checked
+        // on the Name page, which isn't every kind's last, and the window
+        // doesn't block): then the next free one from it, as the Creature
+        // Wizard takes, and no blueprint is replaced.
         let own = ResRef::from_str(self.resref.trim()).ok().filter(|r| !r.is_empty());
-        let resref = own.unwrap_or_else(|| blueprints::resref_named(name, naming, taken));
+        let resref = match own {
+            Some(r) if !taken(&r) => r,
+            Some(r) => blueprints::resref_named(&r.to_string(), naming, &taken),
+            None => blueprints::resref_named(name, naming, &taken),
+        };
         let category = self.category.unwrap_or(0);
         let mut g = match self.kind {
             BlueprintKind::Waypoint => {
@@ -275,12 +283,22 @@ impl BlueprintWizard {
 /// and 1 (the empty "assign" branch, and the creatures' Familiars and
 /// Summoned Monsters: Aurora's Creature Wizard offers Monsters, NPCs,
 /// Special and Tutorial, captured 2026-10-30).
-pub(crate) fn categories(game: &GameData, kind: BlueprintKind) -> Vec<PaletteNode> {
-    let skeleton = game
-        .resman
-        .get_named(&format!("{}pal", kind.name()), ResType::ITP)
-        .ok()
-        .and_then(|d| mg_gff::Gff::read(&d).ok())
+///
+/// Of the skeleton the palettes go by (`mg_module::palette::skeleton`):
+/// the module's own where it has one (as it is now, its categories just
+/// changed too), else the load order's.
+pub(crate) fn categories(
+    game: &GameData,
+    module: Option<&mg_module::Module>,
+    kind: BlueprintKind,
+) -> Vec<PaletteNode> {
+    let skeleton = match module {
+        Some(m) => mg_module::palette::skeleton(m, game, kind).ok(),
+        None => {
+            (game.resman.get(&kind.skeleton_key()).ok()).and_then(|d| mg_gff::Gff::read(&d).ok())
+        }
+    };
+    let skeleton = skeleton
         .map(|mut g| {
             if let Some(main) = g.root.list_mut("MAIN") {
                 main.retain(|n| !matches!(n.integer("TYPE"), Some(0 | 1)));
@@ -531,7 +549,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.heading("Assign Palette Category");
                 ui.label("Choose the palette category that this new blueprint should appear under");
                 let game = app.game.as_deref().expect("checked");
-                let nodes = categories(game, w.kind);
+                let nodes = categories(game, app.ws.as_ref().map(|ws| &ws.module), w.kind);
                 let before = w.category;
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     category_tree(ui, &nodes, game, &mut w.category);
@@ -574,6 +592,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.add(
                         egui::TextEdit::singleline(&mut w.tag)
                             .hint_text(blueprints::tag(w.name.trim()))
+                            .char_limit(mg_module::tags::MAX_TAG)
                             .desired_width(180.0),
                     )
                     .on_hover_text("Left empty: made from the name");
@@ -649,5 +668,56 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if !close {
         app.blueprint_wizard = Some(w);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A ResRef typed that the module has by the time Finish is clicked
+    /// (free when the Name page checked it) is not taken as it is, which
+    /// replaced that blueprint (the review's B10): the next free one from
+    /// it is, as in the Creature Wizard.
+    /// The wizards list the categories of the skeleton the palettes go by:
+    /// the module's own where it has one (the review's B29: they read the
+    /// load order's by its name, whatever the module's was by then).
+    #[test]
+    fn the_wizards_categories_are_the_module_s_own_skeleton_s() {
+        use mg_gff::{Struct, Value};
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let kind = BlueprintKind::Waypoint;
+        let mut skeleton = mg_gff::Gff::new(*b"ITP ");
+        let node = |id: u8, name: &str| {
+            let mut s = Struct::new(0);
+            s.set("ID", Value::Byte(id));
+            s.set("NAME", Value::String(name.as_bytes().to_vec()));
+            s
+        };
+        skeleton.root.set("MAIN", Value::List(vec![node(1, "Posts"), node(0, "Gates")]));
+        let mut m = mg_module::Module::new();
+        m.set_gff(kind.skeleton_key(), &skeleton).unwrap();
+        let names = |nodes: Vec<PaletteNode>| -> Vec<String> {
+            nodes.iter().map(|n| n.name.text(&game)).collect()
+        };
+        assert_eq!(names(categories(&game, Some(&m), kind)), ["Gates", "Posts"], "by name");
+        assert!(categories(&game, None, kind).is_empty(), "the load order has none");
+        assert!(categories(&game, Some(&mg_module::Module::new()), kind).is_empty());
+    }
+
+    #[test]
+    fn a_typed_resref_taken_by_finish_gives_the_next_free_one() {
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut w = BlueprintWizard::new(BlueprintKind::Waypoint);
+        w.name = "Post".into();
+        w.resref = "wp_post".into();
+        let naming = Naming::default();
+        let (free, _) = w.build(&game, &naming, |_| false);
+        assert_eq!(free.to_string(), "wp_post");
+        let (next, g) = w.build(&game, &naming, |r| r.to_string() == "wp_post");
+        assert_eq!(next.to_string(), "wp_post001");
+        assert_eq!(g.root.resref("TemplateResRef"), Some(next));
     }
 }

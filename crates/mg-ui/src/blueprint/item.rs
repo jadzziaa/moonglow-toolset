@@ -269,23 +269,32 @@ fn number_after(name: &str, prefix: &str) -> Option<u16> {
     rest.parse().ok()
 }
 
-/// The numbers `nnn` for which a model `{prefix}{nnn:03}` exists, cached:
-/// an item's parts, and a part-based creature's body parts (`pmh0_chest`).
-pub(super) fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
+/// The numbers `nnn` for which a model `{prefix}{nnn:03}` exists, kept
+/// for the load order `load_order` ([`crate::Moonglow::load_order`]: a
+/// part added to a hak or the override is listed once the resources are
+/// read again): an item's parts, and a part-based creature's body parts
+/// (`pmh0_chest`).
+pub(super) fn model_numbers(
+    ui: &Ui,
+    game: &GameData,
+    load_order: u64,
+    prefix: &str,
+) -> Arc<Vec<u16>> {
     let id = egui::Id::new(("model-numbers", prefix));
-    if let Some(v) = ui.data(|d| d.get_temp::<Arc<Vec<u16>>>(id)) {
-        return v;
-    }
-    let mut v: Vec<u16> = game
-        .resman
-        .list(ResType::MDL)
-        .iter()
+    super::kept_for_load_order(ui, load_order, id, || {
+        Arc::new(numbered(game, &[ResType::MDL], prefix))
+    })
+}
+
+/// The numbers `nnn` for which the game data has a resource
+/// `{prefix}{nnn:03}` of one of `types`, in order, each once.
+fn numbered(game: &GameData, types: &[ResType], prefix: &str) -> Vec<u16> {
+    let mut v: Vec<u16> = (types.iter())
+        .flat_map(|t| game.resman.list(*t))
         .filter_map(|r| number_after(&r.to_string(), prefix))
         .collect();
     v.sort_unstable();
     v.dedup();
-    let v = Arc::new(v);
-    ui.data_mut(|d| d.insert_temp(id, v.clone()));
     v
 }
 
@@ -293,9 +302,9 @@ pub(super) fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u
 /// for, and those it has an icon for (a potion has one model whatever its
 /// parts, and its icons alone tell them apart: with models only, its
 /// lists were empty).
-fn part_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
-    let models = model_numbers(ui, game, prefix);
-    let icons = icon_numbers(ui, game, prefix);
+fn part_numbers(ui: &Ui, game: &GameData, load_order: u64, prefix: &str) -> Arc<Vec<u16>> {
+    let models = model_numbers(ui, game, load_order, prefix);
+    let icons = icon_numbers(ui, game, load_order, prefix);
     if icons.is_empty() {
         return models;
     }
@@ -306,24 +315,15 @@ fn part_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
 }
 
 /// The numbers `nnn` for which an inventory icon `i{prefix}{nnn:03}` exists
-/// (TGA, DDS or PLT), cached: what Aurora offers simple and layered items
-/// ("the icon determines availability", nwn.wiki's baseitems.2da).
-fn icon_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
+/// (TGA, DDS or PLT), kept as [`model_numbers`] are: what Aurora offers
+/// simple and layered items ("the icon determines availability",
+/// nwn.wiki's baseitems.2da).
+fn icon_numbers(ui: &Ui, game: &GameData, load_order: u64, prefix: &str) -> Arc<Vec<u16>> {
     let id = egui::Id::new(("icon-numbers", prefix));
-    if let Some(v) = ui.data(|d| d.get_temp::<Arc<Vec<u16>>>(id)) {
-        return v;
-    }
-    let icon = format!("i{prefix}");
-    let mut v: Vec<u16> = [ResType::TGA, ResType::DDS, ResType::PLT]
-        .into_iter()
-        .flat_map(|t| game.resman.list(t))
-        .filter_map(|r| number_after(&r.to_string(), &icon))
-        .collect();
-    v.sort_unstable();
-    v.dedup();
-    let v = Arc::new(v);
-    ui.data_mut(|d| d.insert_temp(id, v.clone()));
-    v
+    super::kept_for_load_order(ui, load_order, id, || {
+        let types = [ResType::TGA, ResType::DDS, ResType::PLT];
+        Arc::new(numbered(game, &types, &format!("i{prefix}")))
+    })
 }
 
 /// Sets a model or body part number: the BYTE field and its EE twin (an
@@ -378,7 +378,7 @@ fn pictured(
     wheel: bool,
 ) -> Option<i64> {
     let female = on_woman(f);
-    let key = f.key;
+    let picks = f.picks();
     let (app, root) = (&mut *f.app, &f.root);
     // (An armor's part: that part alone too.)
     let pieces = (ARMOR_PARTS.iter().chain(&LOWER_PARTS))
@@ -389,7 +389,7 @@ fn pictured(
         let item = labels.iter().fold(root.clone(), |item, label| with_model(&item, label, n));
         super::item_part_picture(app, ui, &item, female, pieces);
     };
-    let list = super::situated::pick_list(key, name, choices, current, PART_WIDTH).ordered();
+    let list = super::situated::pick_list(picks, name, choices, current, PART_WIDTH).ordered();
     let list = if wheel { list.wheel() } else { list };
     list.about(&mut shown).show(ui)
 }
@@ -591,9 +591,39 @@ fn part_grid(
         None => height,
     };
     let mut tallest: f32 = 0.0;
+    // (A choice out of sight takes its room, and nothing of it is made: a
+    // base item with a thousand icons had them all read and drawn at
+    // once, and the item copied for each every frame. A whole item's
+    // icons are of one size, the first one drawn's; a part alone is as
+    // large as it was when last drawn.)
+    let mut usual: Option<egui::Vec2> = None;
+    let sizes_id = egui::Id::new(id).with("sizes");
+    type Sizes = std::collections::HashMap<u16, egui::Vec2>;
+    let mut sizes: Sizes = match letter {
+        Some(_) => ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default(),
+        None => Sizes::new(),
+    };
+    let mut learned = false;
     egui::ScrollArea::vertical().max_height(height).id_salt(id).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for &n in numbers {
+                let known = match letter {
+                    Some(_) => sizes.get(&n).copied(),
+                    None => usual,
+                };
+                if let Some(size) = known {
+                    // (In this line of them or, this one full, the next.)
+                    let top = ui.cursor().min.y;
+                    let lines = egui::Rect::from_x_y_ranges(
+                        ui.max_rect().x_range(),
+                        top..=top + tallest.max(size.y) + gap + size.y,
+                    );
+                    if !ui.is_rect_visible(lines) {
+                        ui.allocate_exact_size(size, egui::Sense::click());
+                        tallest = tallest.max(size.y);
+                        continue;
+                    }
+                }
                 let item = with_model(&f.root, label, n);
                 let alt = format!("{what} {n}");
                 let alone = letter.and_then(|l| part_icon(f, ui, game, &item, (label, l)));
@@ -615,6 +645,10 @@ fn part_grid(
                 }
                 .on_hover_text(alt);
                 tallest = tallest.max(r.rect.height());
+                usual.get_or_insert(r.rect.size());
+                if letter.is_some() && sizes.insert(n, r.rect.size()) != Some(r.rect.size()) {
+                    learned = true;
+                }
                 if i64::from(n) == current {
                     let stroke = ui.visuals().selection.stroke;
                     // (Within the icon's own room: outside it, the grid's
@@ -627,6 +661,9 @@ fn part_grid(
             }
         });
     });
+    if learned {
+        ui.data_mut(|d| d.insert_temp(sizes_id, sizes));
+    }
     if ui.data(|d| d.get_temp::<f32>(row_id)) != Some(tallest) {
         ui.data_mut(|d| d.insert_temp(row_id, tallest));
         ui.ctx().request_repaint();
@@ -781,6 +818,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
         .response
         .on_hover_text("The body the item is shown on, here, in inventories and in the palette");
     }
+    let load_order = f.app.load_order;
     match kind {
         // Composite: bottom, middle, top, each a shape and a colour (the
         // number's tens and units).
@@ -789,7 +827,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                 ui,
                 |ui| {
                     for (text, label, part) in COMPOSITE_PARTS {
-                        let numbers = part_numbers(ui, game, &format!("{class}_{part}_"));
+                        let numbers =
+                            part_numbers(ui, game, load_order, &format!("{class}_{part}_"));
                         let current = part_number(&f.root, label).unwrap_or(0);
                         let (shape, color) = (current / 10, current % 10);
                         let mut shapes: Vec<u16> = numbers.iter().map(|n| n / 10).collect();
@@ -840,7 +879,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             // Each part's shapes and colors as pictures: the item as it
             // would be with each, a click chooses it.
             for (text, label, part) in COMPOSITE_PARTS {
-                let numbers = part_numbers(ui, game, &format!("{class}_{part}_"));
+                let numbers = part_numbers(ui, game, load_order, &format!("{class}_{part}_"));
                 if numbers.len() < 2 {
                     continue;
                 }
@@ -888,7 +927,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                     })
                     .unwrap_or_default()
             } else {
-                icon_numbers(ui, game, &prefix).to_vec()
+                icon_numbers(ui, game, load_order, &prefix).to_vec()
             };
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Appearance");
@@ -936,7 +975,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         let list = f.root.list("PropertiesList").unwrap_or(&[]);
         list.iter().map(|e| Assigned { p: ItemProperty::from_gff(e), having: 1 }).collect()
     };
-    let state_id = egui::Id::new(("uti-props", key));
+    let state_id = f.id("uti-props");
     // (available type chosen, its subtype chosen, assigned index chosen)
     let (mut chosen, mut chosen_sub, mut selected): (Option<u16>, Option<u16>, Option<usize>) =
         ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
@@ -1153,9 +1192,13 @@ fn property_editor(
             let subtypes = game.property_subtype_list(&t, base);
             if !subtypes.is_empty() {
                 crate::widgets::field_label(ui, "Sub-Property");
-                if let Some(v) =
-                    super::situated::pick(ui, f.key, "prop-sub", &subtypes, i64::from(p.subtype))
-                {
+                if let Some(v) = super::situated::pick(
+                    ui,
+                    f.picks(),
+                    "prop-sub",
+                    &subtypes,
+                    i64::from(p.subtype),
+                ) {
                     changes.push(("Subtype", Value::Word(v as u16)));
                     // The parameter follows the subtype's table.
                     let table = game.property_param_table(&t, v as u16);
@@ -1173,7 +1216,7 @@ fn property_editor(
                 crate::widgets::field_label(ui, "Cost Parameter");
                 if let Some(v) = super::situated::pick_ordered(
                     ui,
-                    f.key,
+                    f.picks(),
                     "prop-cost",
                     &costs,
                     i64::from(p.cost_value),
@@ -1189,7 +1232,7 @@ fn property_editor(
                 crate::widgets::field_label(ui, "Parameter 1");
                 if let Some(v) = super::situated::pick_ordered(
                     ui,
-                    f.key,
+                    f.picks(),
                     "prop-param",
                     &params,
                     i64::from(p.param1_value),
@@ -1259,7 +1302,40 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
 
 #[cfg(test)]
 mod tests {
-    use super::number_after;
+    use super::*;
+
+    /// The numbers a part has models and icons of were listed once a
+    /// session (the review's B13): a part added to a hak or the override
+    /// was not offered until Moonglow was started again. They are listed
+    /// again when the load order has changed, and kept while it has not.
+    #[test]
+    fn part_numbers_are_listed_again_when_the_load_order_changes() {
+        let game = |models: &[&str], icons: &[&str]| {
+            let mut c = mg_resman::MemContainer::new();
+            for (names, t) in [(models, ResType::MDL), (icons, ResType::TGA)] {
+                for n in names {
+                    c.insert(mg_resman::ResKey::parse(n, t).unwrap(), Vec::new());
+                }
+            }
+            let mut rm = mg_resman::ResMan::new();
+            rm.add(mg_resman::priority::HAK, "hak:parts", mg_resman::LayerClass::Erf, c);
+            GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH))
+        };
+        let before = game(&["pmh0_chest001", "pmh0_chest003"], &["iit_midmisc_001"]);
+        let after = game(
+            &["pmh0_chest001", "pmh0_chest003", "pmh0_chest180"],
+            &["iit_midmisc_001", "iit_midmisc_250"],
+        );
+        egui::__run_test_ui(|ui| {
+            assert_eq!(*model_numbers(ui, &before, 1, "pmh0_chest"), [1, 3]);
+            assert_eq!(*icon_numbers(ui, &before, 1, "it_midmisc_"), [1]);
+            // (Kept while the load order is the same: not read again.)
+            assert_eq!(*model_numbers(ui, &after, 1, "pmh0_chest"), [1, 3]);
+            assert_eq!(*model_numbers(ui, &after, 2, "pmh0_chest"), [1, 3, 180]);
+            assert_eq!(*icon_numbers(ui, &after, 2, "it_midmisc_"), [1, 250]);
+            assert_eq!(*part_numbers(ui, &after, 2, "it_midmisc_"), [1, 250]);
+        });
+    }
 
     /// Three digits, and past 999 the number as it is (a hak's it_gem_1000):
     /// nwn-issues 658's appearances of 100 and more are listed.

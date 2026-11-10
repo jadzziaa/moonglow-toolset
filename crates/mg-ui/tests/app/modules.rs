@@ -1442,6 +1442,98 @@ fn faction_editor_adds_and_removes_factions() {
     assert_eq!(factions(h.state()).factions.len(), 6);
 }
 
+/// The sample module with `fac` as its `repute.fac`, the Faction Editor
+/// open.
+fn faction_harness(name: &str, fac: Vec<u8>) -> Harness<'static, Moonglow> {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::parse("repute", ResType::FAC).unwrap(), fac);
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    // (Wide enough for the list's three buttons in a row.)
+    let mut h = harness(app, 1400.0, 800.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    h.run();
+    h
+}
+
+/// The standard factions' file with only its first `n` factions.
+fn factions_cut_to(n: usize) -> Vec<u8> {
+    let mut g = mg_module::factions::Factions::of_module(&Module::new()).to_gff();
+    let Some(mg_gff::Value::List(list)) = g.root.get_mut("FactionList") else { panic!() };
+    list.truncate(n);
+    g.to_bytes().unwrap()
+}
+
+#[test]
+fn a_factions_file_short_of_the_standard_five_or_unreadable_is_said_and_kept() {
+    // (The review's B1: the editor indexed the standard five unchecked,
+    // and showed a file it couldn't read as the standard five, which the
+    // first change then wrote over it.)
+    let key = ResKey::parse("repute", ResType::FAC).unwrap();
+    let cases = [
+        ("three", factions_cut_to(3), "repute.fac has 3 of the 5 standard factions"),
+        ("none", factions_cut_to(0), "repute.fac has 0 of the 5 standard factions"),
+        ("garbage", b"not a faction file at all".to_vec(), "repute.fac can't be read"),
+    ];
+    for (name, fac, said) in cases {
+        let mut h = faction_harness(&format!("ui-factions-{name}"), fac.clone());
+        h.get_by_label_contains(said);
+        assert!(h.query_by_label("Add Faction…").is_none(), "{name}: no editor over it");
+        h.run();
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&key), Some(&fac[..]), "{name}: the file is as it was");
+    }
+}
+
+#[test]
+fn change_faction_name_closes_when_its_faction_is_removed_behind_it() {
+    // (The review's B2: the window kept the faction's number, and its OK
+    // indexed past the end, or renamed the faction that slid into it.)
+    let mut f = mg_module::factions::Factions::of_module(&Module::new());
+    f.add("Guards", true, 4);
+    f.add("Thieves", true, 2);
+    let mut h = faction_harness("ui-factions-rename", f.to_gff().to_bytes().unwrap());
+    let names = |app: &Moonglow| -> Vec<String> {
+        let f = mg_module::factions::Factions::of_module(&app.ws.as_ref().unwrap().module);
+        f.factions.iter().map(|x| x.name.clone()).collect()
+    };
+    // Change Name… on Guards (5), and Guards removed behind the window:
+    // Thieves slides into 5.
+    h.state_mut().faction_view.selected = 5;
+    h.run();
+    h.get_by_label("Change Name…").click();
+    h.run();
+    assert_eq!(h.state().faction_view.renaming.as_ref().map(|r| r.0), Some(5));
+    h.get_by_label("Remove Faction").click();
+    h.run();
+    h.run();
+    assert_eq!(names(h.state())[5..], ["Thieves"]);
+    assert!(h.state().faction_view.renaming.is_none(), "the window went with its faction");
+    assert!(h.query_by_label("Change Faction Name").is_none());
+
+    // On the last one, and that one removed: nothing to index.
+    h.state_mut().faction_view.selected = 5;
+    h.run();
+    h.get_by_label("Change Name…").click();
+    h.run();
+    h.state_mut().faction_view.renaming.as_mut().unwrap().1 = "Rogues".into();
+    h.get_by_label("Remove Faction").click();
+    h.run();
+    h.run();
+    assert_eq!(names(h.state()).len(), 5);
+    assert!(h.state().faction_view.renaming.is_none());
+
+    // And an Undo of the removal doesn't bring the window back.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(names(h.state())[5..], ["Thieves"]);
+    assert!(h.state().faction_view.renaming.is_none());
+}
+
 #[test]
 fn journal_editor_builds_what_aurora_builds() {
     let dir = mg_testkit::scratch_dir("ui-journal");
@@ -1487,6 +1579,29 @@ fn journal_editor_builds_what_aurora_builds() {
         mg_module::journal::entries(&doc.root.items(&mg_schema::jrl::CATEGORIES)[0]).len(),
         2
     );
+    // String Edit of the second entry's text holds the entry by its place:
+    // with the first deleted behind it, its OK set the text of whatever
+    // stood there (the review's B11). It follows its entry, and closes
+    // when the entry is deleted.
+    use mg_ui::widgets::{FieldTarget, LocStringEdit};
+    let entry = |e: usize| mg_edit::GffPath::root().item("Categories", 0).item("EntryList", e);
+    let target = FieldTarget::new(key, entry(1), "Text");
+    h.state_mut().loc_edit = Some(LocStringEdit::new(target, "Text", &LocString::default()));
+    h.run();
+    let held =
+        |h: &Harness<'_, Moonglow>| h.state().loc_edit.as_ref().map(|w| w.target.path.clone());
+    use mg_ui::journal_view::Node;
+    h.state_mut().journal_view.selected = Some(Node::Entry(0, 0));
+    h.run();
+    click(&mut h, "Delete");
+    assert_eq!(held(&h), Some(entry(0)));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(held(&h), Some(entry(1)), "back with the Undo");
+    h.state_mut().journal_view.selected = Some(Node::Entry(0, 1));
+    h.run();
+    click(&mut h, "Delete");
+    assert_eq!(held(&h), None, "its entry is gone");
 }
 
 /// A waypoint's editor in a module whose hak has (or, `table` off, has

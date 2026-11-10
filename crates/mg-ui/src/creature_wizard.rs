@@ -123,6 +123,25 @@ fn portraits(
     of_gender
 }
 
+/// [`portraits`] for the wizard's choices, kept while the table, the
+/// module (its revision: a portrait of its own) and the choices are the
+/// same: every row of portraits.2da was looked up as a picture each frame
+/// the page was shown.
+fn portraits_kept(
+    ctx: &egui::Context,
+    game: &GameData,
+    ws: Option<&mg_edit::Workspace>,
+    w: &CreatureWizard,
+) -> std::sync::Arc<Vec<(u16, String)>> {
+    let Ok(table) = game.table("portraits") else { return Default::default() };
+    let (race, gender, all) = (w.race.unwrap_or(6), w.gender, w.all_portraits);
+    let key = (ws.map(mg_edit::Workspace::revision), race, gender, all);
+    let id = egui::Id::new("creature-wizard-portraits");
+    crate::blueprint::kept_for(ctx, id, &table, &key, || {
+        std::sync::Arc::new(portraits(game, ws, race, gender, all))
+    })
+}
+
 /// The racial types a creature can be given: racialtypes.2da's rows that
 /// have a name (its `DELETED` and `INVALID_RACE` rows have none).
 fn races(game: &GameData) -> std::sync::Arc<Vec<Choice>> {
@@ -422,15 +441,14 @@ fn page(
             });
             // The appearances as pictures (a plain body of each), narrowed by
             // Find: the list of names alone is long, and many are alike.
-            let appearances = mg_rules::by_name(
-                crate::widgets::table_choices(
-                    Some(game),
-                    "appearance",
-                    Some("STRING_REF"),
-                    Some("LABEL"),
-                )
-                .to_vec(),
+            let appearances = crate::widgets::table_choices(
+                Some(game),
+                "appearance",
+                Some("STRING_REF"),
+                Some("LABEL"),
             );
+            let appearances =
+                crate::blueprint::by_name_kept(ui.ctx(), "creature-wizard", &appearances);
             let chosen = appearances
                 .iter()
                 .find(|c| c.row == usize::from(w.appearance))
@@ -447,9 +465,13 @@ fn page(
                 .find_over()
                 .show(ui);
             });
-            let needle = mg_core::text::Needle::new(&w.appearance_find);
-            let shown: Vec<&Choice> =
-                appearances.iter().filter(|c| needle.finds(&c.text)).collect();
+            let found = crate::blueprint::found_kept(
+                ui.ctx(),
+                "creature-wizard",
+                &appearances,
+                &w.appearance_find,
+            );
+            let shown: Vec<&Choice> = found.iter().map(|&i| &appearances[i]).collect();
             let gap = 4.0;
             let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
             let (per_row, side) = crate::appearance_gallery::fitted(room, 96.0, gap);
@@ -496,8 +518,7 @@ fn page(
             {
                 // The race's and gender's portraits as pictures, the chosen one
                 // large beside them (as Select Portrait shows them).
-                let list =
-                    portraits(game, loader.ws, w.race.unwrap_or(6), w.gender, w.all_portraits);
+                let list = portraits_kept(ui.ctx(), game, loader.ws, w);
                 w.no_portraits = list.is_empty();
                 if list.is_empty() {
                     ui.weak(
@@ -642,6 +663,7 @@ fn page(
                 ui.add(
                     egui::TextEdit::singleline(&mut w.tag)
                         .hint_text(blueprints::tag(&name))
+                        .char_limit(mg_module::tags::MAX_TAG)
                         .desired_width(180.0),
                 )
                 .on_hover_text("Left empty: made from the name");
@@ -657,7 +679,8 @@ fn page(
         }
         6 => {
             ui.label("Please select the category in the palette that you wish this blueprint to appear under.");
-            let nodes = crate::blueprint_wizard::categories(game, BlueprintKind::Creature);
+            let module = loader.ws.map(|ws| &ws.module);
+            let nodes = crate::blueprint_wizard::categories(game, module, BlueprintKind::Creature);
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 crate::blueprint_wizard::category_tree(ui, &nodes, game, &mut w.category);
             });

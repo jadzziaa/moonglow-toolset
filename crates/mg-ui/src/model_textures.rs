@@ -62,8 +62,11 @@ impl Row {
     }
 }
 
-/// What a listing was read for: the module's revision and the game data.
-type Stamp = (Option<u64>, usize);
+/// What a listing was read for: the module's revision and the load order
+/// ([`Moonglow::load_order`]; not the game data's address, which Reload
+/// Resources leaves as it was: a texture put in the override stayed
+/// "missing").
+type Stamp = (Option<u64>, u64);
 
 /// The model `model`'s textures: what [`section`] shows.
 fn listing(app: &Moonglow, ui: &Ui, model: &str, area_env: Option<&str>) -> Arc<Listing> {
@@ -73,7 +76,7 @@ fn listing(app: &Moonglow, ui: &Ui, model: &str, area_env: Option<&str>) -> Arc<
     let model = model.trim().to_ascii_lowercase();
     let area_env = area_env.map(str::to_ascii_lowercase).filter(|e| !e.is_empty());
     let id = egui::Id::new(("model-textures", &model, &area_env));
-    let stamp: Stamp = (app.ws.as_ref().map(|w| w.revision()), Arc::as_ptr(&game) as usize);
+    let stamp: Stamp = (app.ws.as_ref().map(|w| w.revision()), app.load_order);
     if let Some((was, l)) = ui.data(|d| d.get_temp::<(Stamp, Arc<Listing>)>(id))
         && was == stamp
     {

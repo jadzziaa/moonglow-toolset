@@ -1012,6 +1012,28 @@ fn an_object_s_factions_leave_out_the_pc_faction() {
 /// draws; Clear takes one out, and a static placeable is said to draw as
 /// made.
 #[test]
+fn a_material_made_tintable_shows_the_tint_section_once_resources_are_read_again() {
+    // (The review's B14: what was kept for the game data's address stayed
+    // when Reload Resources changed the game data in place.)
+    let user = mg_testkit::scratch_dir("ui-bp-chest-tint-later-user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let Some((mut h, _)) =
+        blueprint_harness_with("plc_chest1", "chest_tint_later", ResType::UTP, Some(user.clone()))
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    assert!(h.query_by_label("Whole object").is_none(), "nothing to tint yet");
+    let mtr = "texture0 plc_rugdmtlbrk\nparameter float tdodTint 1.0 1.0 1.0 0.0\n";
+    std::fs::write(user.join("override/plc_rugdmtlbrk.mtr"), mtr).unwrap();
+    h.state_mut().reload_resources(true);
+    settle(&mut h);
+    assert!(h.query_by_label("Whole object").is_some(), "the Tint section");
+}
+
+#[test]
 fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
     let user = mg_testkit::scratch_dir("ui-bp-chest-tint-user");
     std::fs::create_dir_all(user.join("override")).unwrap();
@@ -1332,6 +1354,18 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert_eq!(replacements(&mut h, &key, TEXTURES).unwrap().0.len(), 2);
+    // Opened and its page left: it closes (and lets go of its pictures,
+    // which it kept until its OK or Cancel: the review's B26), and is not
+    // there when the page is shown again.
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    settle(&mut h);
+    h.get_by_label("Select Texture");
+    h.get_by_label("Basic").click();
+    h.run();
+    assert!(h.query_by_label("Select Texture").is_none());
+    h.get_by_label("Visuals").click();
+    h.run();
+    assert!(h.query_by_label("Select Texture").is_none(), "left with its page");
     // Reset, the model's texture's (first), then the other's.
     h.get_all_by_label("Reset").next().unwrap().click();
     h.run();
@@ -3322,6 +3356,22 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let w = h.state().store_wizard.clone().unwrap();
     assert_eq!((w.dialog.as_str(), w.script.as_str()), ("store001", "openstore001"));
     assert!(w.hostile, "the bandit's faction");
+    // A name the module has already is said to be replaced, as Add Popup
+    // Text says it (the review's B10: Finish replaced the shopkeeper's
+    // own conversation without a word).
+    let said = "A conversation of that name is replaced.";
+    assert!(h.query_by_label(said).is_none());
+    let merchant = ResKey::parse("merchant", ResType::DLG).unwrap();
+    let data = Gff::new(*b"DLG ").to_bytes().unwrap();
+    let made = mg_edit::Edit::SetResource { key: merchant, data: Some(data) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("dlg", vec![made])));
+    h.state_mut().store_wizard.as_mut().unwrap().dialog = "merchant".into();
+    h.run();
+    h.get_by_label(said);
+    assert!(h.query_by_label("A script of that name is replaced.").is_none());
+    h.state_mut().store_wizard.as_mut().unwrap().dialog = "store001".into();
+    h.run();
+    assert!(h.query_by_label(said).is_none());
     h.get_by_label("Next >").click();
     h.run();
     type_into_hint(&mut h, "Find a store", "nw_storethief001");
@@ -3342,7 +3392,8 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let g = ws.doc(&git).unwrap();
     let c = &g.root.list("Creature List").unwrap()[0];
     assert_eq!(c.resref("Conversation"), Some(ResRef::from_str("store001").unwrap()));
-    assert_eq!(c.integer("FactionID"), Some(3), "Merchant");
+    // (As the field is stored, a WORD: the wizard wrote a DWORD, the review's B9.)
+    assert_eq!(c.get("FactionID"), Some(&mg_gff::Value::Word(3)), "Merchant");
     let store = &g.root.list("StoreList").unwrap()[0];
     assert_eq!(store.resref("ResRef"), Some(ResRef::from_str("nw_storethief001").unwrap()));
     assert_eq!((store.float("XPosition"), store.float("YPosition")), (Some(5.0), Some(5.0)));
@@ -3375,6 +3426,57 @@ fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(field(&mut h, &key).list("ClassList").unwrap()[0].integer("ClassLevel"), Some(1));
+}
+
+/// A class a file has past level 60 (another tool's): the wizard's level
+/// field had a range from 70 to 60, and drawing its arrows panicked (the
+/// review's B3).
+#[test]
+fn the_levelup_wizard_takes_a_class_past_level_sixty() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_70", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "level",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root().item("ClassList", 0),
+            label: "ClassLevel".into(),
+            value: Some(mg_gff::Value::Short(70)),
+        }],
+    )));
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    h.get_by_label("Levelup Wizard").click();
+    h.run();
+    assert_eq!(h.state().levelup.as_ref().expect("the wizard").slots[0].1, 70, "as it is");
+    // One less comes back to the most the wizard gives; one more does not
+    // go further out.
+    let last = |h: &Harness<'_, Moonglow>, glyph: &str| {
+        let arrow = h.query_all_by_label(glyph).last().expect("an arrow");
+        (arrow.rect().center(), arrow.accesskit_node().is_disabled())
+    };
+    assert!(last(&h, "⏶").1, "no more than it has");
+    let (down, off) = last(&h, "⏷");
+    assert!(!off);
+    h.hover_at(down);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: down,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    assert_eq!(h.state().levelup.as_ref().unwrap().slots[0].1, 60);
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.state().levelup.is_none());
+    let level = field(&mut h, &key).list("ClassList").unwrap()[0].integer("ClassLevel");
+    assert_eq!(level, Some(70), "the wizard takes no level away");
 }
 
 #[test]
@@ -4493,4 +4595,56 @@ fn an_armor_s_part_is_chosen_by_its_picture() {
     let s = field(&mut h, &key);
     assert_eq!(s.integer("ArmorPart_LThigh"), Some(i64::from(other)));
     assert_eq!(s.integer("ArmorPart_RThigh"), Some(i64::from(other)), "both legs");
+}
+
+/// One creature's class is changed by the rule several creatures' are
+/// (`mg_edit::lists::change_class`): not to a class it has already, which
+/// its own Classes page let through (the review's B29).
+#[test]
+fn a_creature_s_class_is_not_made_one_it_has_already() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_twice", ResType::UTC) else {
+        return;
+    };
+    let (fighter, rogue, wizard) = (4, 8, 10);
+    let class = |row: i32, level: i16| {
+        let mut e = mg_gff::Struct::new(2);
+        e.set("Class", mg_gff::Value::Int(row));
+        e.set("ClassLevel", mg_gff::Value::Short(level));
+        e
+    };
+    let set = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "ClassList".into(),
+        value: Some(mg_gff::Value::List(vec![class(fighter, 3), class(rogue, 2)])),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("classes", vec![set])));
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    let classes = |h: &mut Harness<'_, Moonglow>| -> Vec<i64> {
+        let s = field(h, &key);
+        s.list("ClassList").unwrap().iter().map(|c| c.integer("Class").unwrap()).collect()
+    };
+    let pick = |h: &mut Harness<'_, Moonglow>, from: &str, to: &str| {
+        h.get_all_by_value(from).next().expect("the class's list").click();
+        h.run();
+        // (A long list, laid out where in sight: the row found by the
+        // filter.)
+        type_into_hint(h, "Filter", to);
+        h.get_by_label(to).click();
+        h.run();
+    };
+    // Class 2, the rogue's, to Fighter: refused, and said.
+    pick(&mut h, "Rogue", "Fighter");
+    assert_eq!(classes(&mut h), [i64::from(fighter), i64::from(rogue)]);
+    let said = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains("has that class already"))
+    };
+    assert!(said(&h), "{:?}", h.state().log.entries);
+    // To Wizard: changed, the field an INT still.
+    pick(&mut h, "Rogue", "Wizard");
+    assert_eq!(classes(&mut h), [i64::from(fighter), i64::from(wizard)]);
+    let s = field(&mut h, &key);
+    assert_eq!(s.list("ClassList").unwrap()[1].get("Class"), Some(&mg_gff::Value::Int(wizard)));
 }

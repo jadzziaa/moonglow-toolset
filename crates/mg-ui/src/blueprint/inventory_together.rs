@@ -29,23 +29,48 @@ pub(super) enum Holder {
 /// The places a target keeps its items in: its `ItemList` (a creature's
 /// backpack), or each of a store's pages'; each the path of the struct
 /// the list is in, and the items.
-fn bags(t: &lists::Target, holder: Holder) -> Vec<(GffPath, Vec<Struct>)> {
+fn bags(t: &lists::Target, holder: Holder) -> Vec<(GffPath, &[Struct])> {
     match holder {
         Holder::Store => (t.list("StoreList").iter().enumerate())
-            .map(|(i, p)| {
-                (t.path.clone().item("StoreList", i), p.list("ItemList").unwrap_or(&[]).to_vec())
-            })
+            .map(|(i, p)| (t.path.clone().item("StoreList", i), p.list("ItemList").unwrap_or(&[])))
             .collect(),
-        _ => vec![(t.path.clone(), t.list("ItemList").to_vec())],
+        _ => vec![(t.path.clone(), t.list("ItemList"))],
     }
 }
 
-/// How many items of blueprint `r` a target holds (in its bags).
-fn held(t: &lists::Target, holder: Holder, r: ResRef) -> usize {
-    let bags = bags(t, holder);
-    bags.iter()
-        .map(|(_, items)| items.iter().filter(|e| lists::item_of(e) == Some(r)).count())
-        .sum()
+/// The items the targets hold, counted once for a page's rows: how many
+/// of each blueprint each target holds, and every target's items of each
+/// (for the flags they have).
+struct Holdings<'a> {
+    counts: Vec<std::collections::HashMap<ResRef, usize>>,
+    of: std::collections::HashMap<ResRef, Vec<&'a Struct>>,
+}
+
+impl<'a> Holdings<'a> {
+    /// Of each target's items (`items`, a target's bags in one).
+    fn of(items: &[Vec<&'a Struct>]) -> Holdings<'a> {
+        let mut h = Holdings { counts: Vec::with_capacity(items.len()), of: Default::default() };
+        for held in items {
+            let mut counts = std::collections::HashMap::new();
+            for &e in held {
+                let Some(r) = lists::item_of(e) else { continue };
+                *counts.entry(r).or_insert(0) += 1;
+                h.of.entry(r).or_default().push(e);
+            }
+            h.counts.push(counts);
+        }
+        h
+    }
+
+    /// How many items of blueprint `r` each target holds.
+    fn held(&self, r: ResRef) -> Vec<usize> {
+        self.counts.iter().map(|c| c.get(&r).copied().unwrap_or(0)).collect()
+    }
+
+    /// Every target's items of blueprint `r`.
+    fn items(&self, r: ResRef) -> &[&'a Struct] {
+        self.of.get(&r).map_or(&[], Vec::as_slice)
+    }
 }
 
 /// Runs `with` on the form as if it edited target `t` alone (the edits a
@@ -107,12 +132,12 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     let names = f.blueprint_names(BlueprintKind::Item);
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     // Every item blueprint any of them holds, in the first one's order.
-    let lists_of: Vec<Vec<Struct>> = targets
+    let lists_of: Vec<Vec<&Struct>> = targets
         .iter()
         .map(|t| bags(t, holder).into_iter().flat_map(|(_, items)| items).collect())
         .collect();
-    let slices: Vec<&[Struct]> = lists_of.iter().map(Vec::as_slice).collect();
-    let merged = lists::merge(&slices, lists::item_of);
+    let merged = lists::merge_refs(&lists_of, lists::item_of);
+    let holdings = Holdings::of(&lists_of);
     let flags: &[(&'static str, &str)] = match holder {
         Holder::Creature => &ITEM_FLAGS,
         Holder::Store => &[("Infinite", "The store never runs out of it")],
@@ -165,7 +190,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                         ui.label(name_of(r)).on_hover_text(r.to_string());
                         super::entry_mark(ui, m.having.len(), total);
                     });
-                    let counts: Vec<usize> = targets.iter().map(|t| held(t, holder, r)).collect();
+                    let counts = holdings.held(r);
                     let first = counts[m.having[0]];
                     ui.horizontal(|ui| {
                         if counts.iter().any(|c| *c != first && *c > 0) {
@@ -177,11 +202,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                         ui.label(format!("×{first}"));
                     });
                     for (flag, tip) in flags {
-                        let of_it: Vec<&Struct> = lists_of
-                            .iter()
-                            .flatten()
-                            .filter(|e| lists::item_of(e) == Some(r))
-                            .collect();
+                        let of_it = holdings.items(r);
                         let (on, mixed) = inventory::flag_state(of_it.iter().copied(), flag);
                         let mut v = on;
                         let r_box = ui
@@ -237,7 +258,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     });
     if !adds.is_empty() {
         let mut out = lists::Outcome::default();
-        for t in &targets {
+        for t in targets.iter() {
             if let Some(why) = takes_none(t, holder) {
                 out.left.push(format!("{}: {why}", t.name));
                 continue;
@@ -255,7 +276,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     }
     if let Some((bit, r)) = equip {
         let mut out = lists::Outcome::default();
-        for t in &targets {
+        for t in targets.iter() {
             if item_slots(f, r, None) & bit == 0 {
                 out.left.push(format!("{}: it doesn't go in that slot", t.name));
                 continue;
@@ -270,7 +291,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
     }
     if let Some((bit, stow)) = slot_out {
         let mut out = lists::Outcome::default();
-        for t in &targets {
+        for t in targets.iter() {
             let equipped = t.list("Equip_ItemList");
             let Some(i) = equipped.iter().position(|s| s.id == bit) else { continue };
             out.edits.push(Edit::remove_item(t.key, t.path.clone(), "Equip_ItemList", i));
@@ -427,4 +448,76 @@ fn equipment(
             ui.end_row();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_core::ResType;
+    use mg_resman::ResKey;
+
+    fn item(resref: &str, flag: u8) -> Struct {
+        let mut s = Struct::new(0);
+        s.set("InventoryRes", Value::resref(ResRef::from_str(resref).unwrap()));
+        s.set("Dropable", Value::Byte(flag));
+        s
+    }
+
+    /// The items counted once for the page (the review's B20: each row
+    /// copied every target's whole list, and walked every item of every
+    /// target for each flag) say what counting them a row at a time said.
+    #[test]
+    fn holdings_counted_once_are_those_counted_a_row_at_a_time() {
+        let key = ResKey::parse("area", ResType::GIT).unwrap();
+        let creature = |i: usize, items: Vec<Struct>| {
+            let mut s = Struct::new(0);
+            s.set("ItemList", Value::List(items));
+            lists::Target::new(key, GffPath::root().item("Creature List", i), s)
+        };
+        let targets = [
+            creature(0, vec![item("sword", 1), item("potion", 0), item("potion", 1)]),
+            creature(1, vec![item("potion", 0)]),
+            creature(2, Vec::new()),
+        ];
+        let lists_of: Vec<Vec<&Struct>> = (targets.iter())
+            .map(|t| bags(t, Holder::Creature).into_iter().flat_map(|(_, items)| items).collect())
+            .collect();
+        let holdings = Holdings::of(&lists_of);
+        let merged = lists::merge_refs(&lists_of, lists::item_of);
+        let slices: Vec<&[Struct]> = targets.iter().map(|t| t.list("ItemList")).collect();
+        assert_eq!(merged, lists::merge(&slices, lists::item_of));
+        for m in &merged {
+            let r = m.key;
+            let a_row_at_a_time: Vec<usize> = (targets.iter())
+                .map(|t| t.list("ItemList").iter().filter(|e| lists::item_of(e) == Some(r)).count())
+                .collect();
+            assert_eq!(holdings.held(r), a_row_at_a_time, "{r}");
+            let of_it: Vec<&Struct> = lists_of
+                .iter()
+                .flatten()
+                .copied()
+                .filter(|e| lists::item_of(e) == Some(r))
+                .collect();
+            assert_eq!(holdings.items(r), of_it, "{r}");
+        }
+        let potion = ResRef::from_str("potion").unwrap();
+        assert_eq!(holdings.held(potion), [2, 1, 0]);
+        assert_eq!(holdings.held(ResRef::from_str("none").unwrap()), [0, 0, 0]);
+        // A store's pages: each its own bag, at its own path.
+        let mut store = Struct::new(0);
+        let page = |id: u32, items: Vec<Struct>| {
+            let mut p = Struct::new(id);
+            p.set("ItemList", Value::List(items));
+            p
+        };
+        store.set(
+            "StoreList",
+            Value::List(vec![page(0, vec![item("sword", 0)]), page(4, vec![item("potion", 0)])]),
+        );
+        let t = lists::Target::new(key, GffPath::root().item("StoreList", 0), store);
+        let bags = bags(&t, Holder::Store);
+        assert_eq!(bags.len(), 2);
+        assert_eq!(bags[1].0, t.path.clone().item("StoreList", 1));
+        assert_eq!(bags[1].1.len(), 1);
+    }
 }

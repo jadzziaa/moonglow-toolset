@@ -139,19 +139,28 @@ fn screen_parts(model: &[u8]) -> Option<ScreenParts> {
         if !replaced || mesh.uvs[0].is_empty() {
             continue;
         }
-        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
-        for uv in &mesh.uvs[0] {
-            for i in 0..2 {
-                lo[i] = lo[i].min(uv[i].clamp(0.0, 1.0));
-                hi[i] = hi[i].max(uv[i].clamp(0.0, 1.0));
-            }
-        }
+        let Some(part) = uv_rect(&mesh.uvs[0]) else { continue };
         let left = mesh.vertices.iter().map(|v| v[0]).fold(f32::MAX, f32::min);
-        parts.push((node.position[0] + left, [lo[0], lo[1], hi[0], hi[1]]));
+        parts.push((node.position[0] + left, part));
     }
     parts.sort_by(|a, b| a.0.total_cmp(&b.0));
     let parts: ScreenParts = parts.into_iter().map(|(_, r)| r).collect();
     (!parts.is_empty()).then_some(parts)
+}
+
+/// The rectangle `[u0, v0, u1, v1]` of a mesh's texture coordinates,
+/// within the texture. `None` where one of its sides has no number to go
+/// by (every U, or every V, a NaN): such a mesh shows no part of a
+/// picture.
+fn uv_rect(uvs: &[[f32; 2]]) -> Option<[f32; 4]> {
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for uv in uvs {
+        for i in 0..2 {
+            lo[i] = lo[i].min(uv[i].clamp(0.0, 1.0));
+            hi[i] = hi[i].max(uv[i].clamp(0.0, 1.0));
+        }
+    }
+    (lo[0] <= hi[0] && lo[1] <= hi[1]).then_some([lo[0], lo[1], hi[0], hi[1]])
 }
 
 /// A loading screen's picture from its texture (rows from the bottom, as
@@ -165,8 +174,13 @@ fn stitched(whole: &mg_image::Rgba, parts: &[[f32; 4]]) -> Option<mg_image::Rgba
     let px = |f: f32, n: usize| ((f * n as f32).round() as usize).min(n);
     let rects: Vec<[usize; 4]> =
         parts.iter().map(|p| [px(p[0], w), px(p[1], h), px(p[2], w), px(p[3], h)]).collect();
-    let height = rects.iter().map(|r| r[3].saturating_sub(r[1])).min()?;
-    let width: usize = rects.iter().map(|r| r[2].saturating_sub(r[0])).sum();
+    // (A part that runs backwards covers nothing, and is no range of a
+    // row.)
+    if rects.iter().any(|r| r[2] < r[0] || r[3] < r[1]) {
+        return None;
+    }
+    let height = rects.iter().map(|r| r[3] - r[1]).min()?;
+    let width: usize = rects.iter().map(|r| r[2] - r[0]).sum();
     if height == 0 || width == 0 {
         return None;
     }
@@ -735,6 +749,21 @@ mod tests {
         assert_eq!((out.width, out.height), (96, 16));
         let at = |x: usize| (out.data[x * 4], out.data[x * 4 + 1]);
         assert_eq!([at(0), at(32), at(64)], [(0, 0), (32, 0), (32, 16)]);
+        // A mesh whose U coordinates are no numbers is left out (the
+        // review's B5: its part ran from the texture's right edge to its
+        // left, and the stitching sliced a row backwards), and parts that
+        // run backwards make no picture.
+        assert_eq!(uv_rect(&[[f32::NAN, 0.0], [f32::NAN, 0.5]]), None);
+        assert_eq!(uv_rect(&[[0.25, f32::NAN], [0.5, f32::NAN]]), None);
+        assert_eq!(uv_rect(&[]), None);
+        assert_eq!(
+            uv_rect(&[[f32::NAN, 0.0], [0.25, 0.5], [2.0, -1.0]]),
+            Some([0.25, 0.0, 1.0, 0.5])
+        );
+        let backwards = [[0.0, 0.0, 0.5, 0.5], [1.0, 0.0, 0.0, 0.5]];
+        assert!(stitched(&where_texture(64, 32), &backwards).is_none());
+        let nowhere = [[0.0, 0.0, 0.5, 0.5], [f32::MAX, 0.0, f32::MIN, 0.5]];
+        assert!(stitched(&where_texture(64, 32), &nowhere).is_none());
         // A model with no such mesh, or not a model: the stock layout.
         let bare = "newmodel x\nbeginmodelgeom x\nnode dummy x\n  parent NULL\nendnode\n\
                     endmodelgeom x\ndonemodel x\n";

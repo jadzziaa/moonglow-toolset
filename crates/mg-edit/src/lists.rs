@@ -75,9 +75,25 @@ pub fn merge<K: PartialEq + Clone>(
     lists: &[&[Struct]],
     key: impl Fn(&Struct) -> Option<K>,
 ) -> Vec<Merged<K>> {
+    merge_each(lists.iter().map(|l| l.iter()), key)
+}
+
+/// [`merge`] of entries borrowed from where they are: each object's, of
+/// several lists of its (a store's pages) in one.
+pub fn merge_refs<K: PartialEq + Clone>(
+    lists: &[Vec<&Struct>],
+    key: impl Fn(&Struct) -> Option<K>,
+) -> Vec<Merged<K>> {
+    merge_each(lists.iter().map(|l| l.iter().copied()), key)
+}
+
+fn merge_each<'a, K: PartialEq + Clone>(
+    lists: impl Iterator<Item = impl Iterator<Item = &'a Struct>>,
+    key: impl Fn(&Struct) -> Option<K>,
+) -> Vec<Merged<K>> {
     let mut out: Vec<Merged<K>> = Vec::new();
-    for (n, list) in lists.iter().enumerate() {
-        for entry in *list {
+    for (n, list) in lists.enumerate() {
+        for entry in list {
             let Some(k) = key(entry) else { continue };
             match out.iter_mut().find(|m| m.key == k) {
                 Some(m) => {
@@ -483,6 +499,16 @@ pub const STORE_PANEL_PAGE: [u32; 5] = {
     let pages = mg_rules::rows::STORE_PAGES;
     [pages[0].0, pages[1].0, pages[2].0, pages[3].0, pages[4].0]
 };
+
+/// Where an inventory's entry is in its grid (`Repos_PosX`, `Repos_Posy`),
+/// for [`place`]: a number below 0 (a file's INT of -1) is 0, as a place
+/// left out is. The one reading of it: cast to an unsigned number, -1
+/// was the grid's far end, and a sum with it overflowed.
+pub fn placed_at(entry: &Struct) -> (u32, u32) {
+    let at =
+        |label: &str| u32::try_from(entry.integer(label).unwrap_or(0).max(0)).unwrap_or(u32::MAX);
+    (at("Repos_PosX"), at("Repos_Posy"))
+}
 
 /// The first free place for a `w`×`h` item in an inventory grid
 /// `width` wide, row by row, among `taken` rectangles (x, y, w, h).

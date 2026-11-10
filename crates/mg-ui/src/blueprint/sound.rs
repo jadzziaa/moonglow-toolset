@@ -52,7 +52,7 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
         .iter()
         .map(|s| s.resref("Sound").unwrap_or(ResRef::EMPTY))
         .collect();
-    let sel_id = egui::Id::new(("uts-selected", f.key));
+    let sel_id = f.id("uts-selected");
     let mut selected: Option<usize> =
         ui.data(|d| d.get_temp(sel_id)).filter(|&i: &usize| i < sounds.len());
     egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -65,6 +65,7 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
         }
     });
     let key = f.key;
+    let add_id = f.id("uts-add");
     let edit = |what: &str, edits: Vec<Edit>| Action::Apply(Command::new(what, edits));
     let item = |r: ResRef| {
         let mut s = Struct::new(0);
@@ -72,7 +73,7 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
         s
     };
     ui.horizontal(|ui| {
-        let pick_id = egui::Id::new(("uts-add", key));
+        let pick_id = add_id;
         if let Some(r) = f.app.take_pick(pick_id).filter(|r| !r.is_empty()) {
             f.app.actions.push(edit(
                 "Add sound",
