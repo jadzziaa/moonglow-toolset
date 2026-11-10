@@ -60,26 +60,26 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 /// Tileset doors (doortypes.2da; row 0 is the generic door): the name and
 /// the tileset.
-fn door_types(f: &Form<'_>) -> Vec<Choice> {
-    let Some(game) = f.app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("doortypes") else { return Vec::new() };
-    let names = game
-        .choices("doortypes", ChoiceColumns { name: Some("StringRefGame"), label: Some("Label") })
-        .unwrap_or_default();
-    names
-        .into_iter()
-        .map(|c| {
+/// (Made once for the table's rows, and kept: not every frame.)
+fn door_types(f: &Form<'_>, ui: &Ui) -> std::sync::Arc<Vec<Choice>> {
+    let Some(game) = f.app.game.as_deref() else { return Default::default() };
+    let Ok(table) = game.table("doortypes") else { return Default::default() };
+    let columns = ChoiceColumns { name: Some("StringRefGame"), label: Some("Label") };
+    let Ok(names) = game.choice_list("doortypes", columns) else { return Default::default() };
+    super::kept_for(ui.ctx(), egui::Id::new("door-types"), &names, &(), || {
+        let named = names.iter().map(|c| {
             let tileset = table.get(c.row, "TileSet").filter(|t| *t != "****");
             match tileset {
                 Some(t) => Choice { row: c.row, text: format!("{} ({t})", c.text) },
-                None => c,
+                None => c.clone(),
             }
-        })
-        .collect()
+        });
+        std::sync::Arc::new(named.collect())
+    })
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
-    let types = door_types(f);
+    let types = door_types(f, ui);
     let types = f.appearance_rows(mg_rules::ObjectKind::Door, &types);
     let generic = f.choices("genericdoors", Some("Name"), Some("Label"));
     egui::Grid::new(("utd-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {

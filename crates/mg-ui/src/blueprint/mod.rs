@@ -715,6 +715,63 @@ pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
     made
 }
 
+/// What `make` makes of a list the game data keeps (`of`: a table, or
+/// its rows as choices, made once and handed out as the same `Arc`) and
+/// of `key`, kept in egui's memory under `id` while both are the same: a
+/// long table's rows sorted by name, narrowed by what is typed, or told
+/// which to offer, once and not every frame. The list is held, and told
+/// by `Arc::ptr_eq`.
+pub(crate) fn kept_for<S, K, T>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    of: &Arc<S>,
+    key: &K,
+    make: impl FnOnce() -> T,
+) -> T
+where
+    S: Send + Sync + 'static,
+    K: PartialEq + Clone + Send + Sync + 'static,
+    T: Clone + Send + Sync + 'static,
+{
+    if let Some((was, k, kept)) = ctx.data(|d| d.get_temp::<(Arc<S>, K, T)>(id))
+        && Arc::ptr_eq(&was, of)
+        && k == *key
+    {
+        return kept;
+    }
+    let made = make();
+    ctx.data_mut(|d| d.insert_temp(id, (of.clone(), key.clone(), made.clone())));
+    made
+}
+
+/// `choices` (a table's: `widgets::table_choices`) in the order of their
+/// names ([`mg_rules::by_name`]), sorted once for the list and kept under
+/// `what`: sorted every frame, a table of 15,000 appearances or 20,000
+/// feats was copied whole and given as many sort keys, each frame.
+pub(crate) fn by_name_kept(
+    ctx: &egui::Context,
+    what: &str,
+    choices: &Arc<Vec<Choice>>,
+) -> Arc<Vec<Choice>> {
+    let id = egui::Id::new(("choices-by-name", what));
+    kept_for(ctx, id, choices, &(), || Arc::new(mg_rules::by_name(choices.to_vec())))
+}
+
+/// The places in `choices` of those whose text `find` finds, kept under
+/// `what` for the list and what is typed.
+pub(crate) fn found_kept(
+    ctx: &egui::Context,
+    what: &str,
+    choices: &Arc<Vec<Choice>>,
+    find: &str,
+) -> Arc<Vec<usize>> {
+    let id = egui::Id::new(("choices-found", what));
+    kept_for(ctx, id, choices, &find.to_string(), || {
+        let needle = mg_core::text::Needle::new(find);
+        Arc::new((0..choices.len()).filter(|&i| needle.finds(&choices[i].text)).collect())
+    })
+}
+
 /// The color of text that is the talk table's (a StrRef's), not a
 /// blueprint's own.
 pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
@@ -2170,6 +2227,42 @@ pub(crate) fn read_only_look(ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long table's rows by name and narrowed by what is typed, kept
+    /// (the review's B22: copied and sorted every frame), are what sorting
+    /// and searching them each time gives; kept while the list is the
+    /// same one, and made again for another.
+    #[test]
+    fn choices_kept_by_name_and_found_are_those_made_each_time() {
+        let choices = |names: &[&str]| -> Arc<Vec<Choice>> {
+            let rows = names.iter().enumerate();
+            Arc::new(rows.map(|(row, n)| Choice { row, text: n.to_string() }).collect())
+        };
+        let table = choices(&["Zombie", "ant", "Árbol", "Bat", "ant"]);
+        let ctx = egui::Context::default();
+        let sorted = by_name_kept(&ctx, "test", &table);
+        assert_eq!(*sorted, mg_rules::by_name(table.to_vec()));
+        assert!(Arc::ptr_eq(&sorted, &by_name_kept(&ctx, "test", &table)), "kept, not made again");
+        let needle = mg_core::text::Needle::new("a");
+        let each_time: Vec<usize> =
+            (0..sorted.len()).filter(|&i| needle.finds(&sorted[i].text)).collect();
+        let found = found_kept(&ctx, "test", &sorted, "a");
+        assert_eq!(*found, each_time);
+        assert!(Arc::ptr_eq(&found, &found_kept(&ctx, "test", &sorted, "a")));
+        assert_eq!(found_kept(&ctx, "test", &sorted, "zom").len(), 1, "another search");
+        assert_eq!(found_kept(&ctx, "test", &sorted, "").len(), 5);
+        // Another list (the tables read again): made for it.
+        let other = choices(&["Wolf", "Asp"]);
+        let sorted = by_name_kept(&ctx, "test", &other);
+        assert_eq!(sorted.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(), ["Asp", "Wolf"]);
+        // What is kept for the load order is made again when it changes.
+        egui::__run_test_ui(|ui| {
+            let id = egui::Id::new("test-kept");
+            assert_eq!(kept_for_load_order(ui, 1, id, || 10), 10);
+            assert_eq!(kept_for_load_order(ui, 1, id, || 20), 10);
+            assert_eq!(kept_for_load_order(ui, 2, id, || 20), 20);
+        });
+    }
 
     #[test]
     fn a_change_to_some_of_the_objects_edited_together_is_partial() {

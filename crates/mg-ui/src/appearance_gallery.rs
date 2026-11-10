@@ -232,10 +232,11 @@ fn grid(
     let game = app.game.clone()?;
     let (name, cols) = kind.table();
     let table = game.table(name).ok()?;
-    let mut all = game.choices(name, cols).ok()?;
-    // (Creatures by name: the table's order is no one's.)
+    // (The table's rows as the game data keeps them, not a copy a frame;
+    // creatures by name, sorted once: the table's order is no one's.)
+    let mut all = game.choice_list(name, cols).ok()?;
     if kind == Kind::Creature {
-        all = mg_rules::by_name(all);
+        all = crate::blueprint::by_name_kept(ui.ctx(), "gallery", &all);
     }
     ui.horizontal(|ui| {
         let field = ui.id().with("gallery-filter-field");
@@ -248,8 +249,8 @@ fn grid(
         ui.weak(format!("{} appearances ({name}.2da)", all.len()));
     });
     let side = tile_side(app);
-    let needle = mg_core::text::Needle::new(&state.filter);
-    let rows: Vec<&mg_rules::Choice> = all.iter().filter(|c| needle.finds(&c.text)).collect();
+    let found = crate::blueprint::found_kept(ui.ctx(), "gallery", &all, &state.filter);
+    let rows: Vec<&mg_rules::Choice> = found.iter().map(|&i| &all[i]).collect();
     let ready = &app.thumbnails;
     let (mut shown, mut pick) = (Vec::new(), Clicked::default());
     let gap = 4.0;
