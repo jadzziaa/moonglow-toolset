@@ -98,7 +98,13 @@ again in the script they do nothing (they are not grayed). With the
 keyboard anywhere else (after a click in the module tree, say), even
 with the pointer over the script, Edit › Undo and the toolbar's are
 the module's and name its step, as the Save key saves the module
-there (Ctrl+Z in a field typed in is that field's). Making each
+there (Ctrl+Z in a field typed in is that field's). **Replace** and
+**Replace All** are each a step of the script's history, and while the
+Replace (or Find) window is where you are at work (the keyboard in one
+of its fields, or its button just clicked) Edit › Undo and Redo are
+its script's, so that Undo right after Replace All takes the
+replacements back. From a menu, a step that would only move the cursor
+is passed over to the one that changes the text. Making each
 burst of typing a step of the module's history would have put it
 under the module's Undo from any other tab too, where it would have
 taken back typing in a script you were not looking at.

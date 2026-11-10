@@ -540,6 +540,66 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     assert_eq!(script(&h), text, "the script as it was");
 }
 
+/// Replace All and Replace are steps of the script's own Undo, and Edit ›
+/// Undo with the keys still in the Replace window takes them back: it
+/// took back the module's last change, somewhere else, and for an editor
+/// never clicked in the script's own history had nothing to go back to.
+#[test]
+fn replace_all_and_replace_are_steps_of_the_script_s_undo() {
+    let dir = mg_testkit::scratch_dir("ui-replace-undo");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int a = a + a;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run();
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    let menu_undo = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Edit").click();
+        h.run_steps(2);
+        assert_eq!(edit_row(h, "Undo"), "Undo Ctrl+Z", "the script's step, not the module's");
+        h.get_by_label("Undo Ctrl+Z").click();
+        h.run_steps(3);
+    };
+    // Replace… from the toolbar, the text never clicked in.
+    h.get_by_label("Replace…").click();
+    h.run_steps(3);
+    assert!(!script_has_keys(&h, key));
+    let search = &mut h.state_mut().script_tools.search;
+    (search.find, search.replace) = ("a".into(), "total".into());
+    search.options.whole_word = true;
+    h.run_steps(2);
+    h.get_by_label("Replace All").click();
+    h.run_steps(3);
+    let replaced = "void main()\n{\n    int total = total + total;\n}\n";
+    assert_eq!(script(&h), replaced);
+    menu_undo(&mut h);
+    assert_eq!(script(&h), text, "Replace All taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "the module's step stays");
+    // Replace: the match selected is replaced, one step too.
+    h.get_by_label("Find Next").click();
+    h.run_steps(3);
+    h.get_by_label("Replace").click();
+    h.run_steps(3);
+    let once = "void main()\n{\n    int total = a + a;\n}\n";
+    assert_eq!(script(&h), once);
+    menu_undo(&mut h);
+    assert_eq!(script(&h), text, "Replace taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+}
+
 /// The same for a script in a window of its own.
 #[test]
 fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {

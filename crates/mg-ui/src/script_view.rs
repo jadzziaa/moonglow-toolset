@@ -424,7 +424,10 @@ pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
     // (An editor not drawn the frame its keys were to come back: none.)
     app.script_tools.keys_back = None;
     if app.menu_open.is_none() {
-        app.undo_script = with_keys(app, ctx);
+        // (Or the script the Find or Replace window works on, while that
+        // window has the keys: what Replace All just changed is what Undo
+        // is for, not the module's last step somewhere else.)
+        app.undo_script = with_keys(app, ctx).or(app.script_tools.find_keys);
     }
     app.undo_script = app.undo_script.filter(|k| app.scripts.contains_key(k));
 }
@@ -448,17 +451,29 @@ pub(crate) fn undo(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, redo: b
 }
 
 /// A step of the editor's own history taken, back or (`redo`) again, as
-/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is).
+/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is). A step that
+/// only moves the cursor (the history keeps the cursor with the text: the
+/// same text a second on, the selection let go by the click on the menu)
+/// is passed over to the one that changes the text: Undo from a menu
+/// takes something back.
 fn step_history(buf: &mut ScriptBuffer, ctx: &egui::Context, key: ResKey, redo: bool) {
     let id = editor_id(key);
     let Some(mut state) = egui::text_edit::TextEditState::load(ctx, id) else { return };
     let end = egui::text::CCursorRange::one(egui::text::CCursor::new(buf.text.chars().count()));
-    let now = (state.cursor.char_range().unwrap_or(end), buf.text.clone());
+    let mut now = (state.cursor.char_range().unwrap_or(end), buf.text.clone());
     let mut undoer = state.undoer();
-    let Some((range, text)) = (if redo { undoer.redo(&now) } else { undoer.undo(&now) }).cloned()
-    else {
-        return;
-    };
+    let mut step = None;
+    for _ in 0..8 {
+        let to = if redo { undoer.redo(&now) } else { undoer.undo(&now) };
+        let Some(to) = to.cloned() else { break };
+        let moved_only = to.1 == buf.text;
+        step = Some(to.clone());
+        if !moved_only {
+            break;
+        }
+        now = to;
+    }
+    let Some((range, text)) = step else { return };
     buf.text = text;
     state.cursor.set_char_range(Some(range));
     state.set_undoer(undoer);
@@ -499,6 +514,20 @@ fn insert(
     buf.text.replace_range(bf..bt, text);
     let at = from + text.chars().count();
     set_cursor(ctx, key, at, at);
+}
+
+/// Makes the text as it is a point for the editor's own Undo to go back
+/// to, before something other than typing changes it (Replace, Replace
+/// All): the field makes points of what is typed in it while it has the
+/// keys, and an editor never clicked in has none.
+fn undo_point(buf: &ScriptBuffer, ctx: &egui::Context, key: ResKey) {
+    let id = editor_id(key);
+    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    let at = state.cursor.char_range().unwrap_or_default();
+    let mut undoer = state.undoer();
+    undoer.add_undo(&(at, buf.text.clone()));
+    state.set_undoer(undoer);
+    state.store(ctx, id);
 }
 
 /// The editor's context menu's conversions (Edit › Convert Indentation
@@ -2660,9 +2689,12 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut f3 = false;
         let keys = &app.keymap;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
-        crate::widgets::dialog(&ctx, title, &mut s.open).collapsible(false).resizable(false).show(
-            &ctx,
-            |ui| {
+        let mut layer = None;
+        let shown = crate::widgets::dialog(&ctx, title, &mut s.open)
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                layer = Some(ui.layer_id());
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
@@ -2719,19 +2751,41 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                         replace_all = ui.button("Replace All").clicked();
                     }
                 });
-            },
-        );
+            });
         app.script_tools.search = s.clone();
         app.script_tools.search.results = results;
         let target = s.script.filter(|k| app.scripts.contains_key(k));
+        // Whether the window is where the user is at work: the keys in
+        // one of its fields, or a click in it (a button of its takes no
+        // keys), until the keys or a click go somewhere else. Edit › Undo
+        // is then its script's (`undo_target`, the frame after). The click on
+        // the menu itself is somewhere else: it is taken when the button is
+        // let go, in the frame whose `undo_target` has run and the menu
+        // opens, which holds the script while it is open.
+
+        let focused = ctx.memory(|m| m.focused()).and_then(|id| ctx.read_response(id));
+        let keys_in = focused.as_ref().map(|r| r.layer_id) == layer && layer.is_some();
+        let rect = shown.map(|r| r.response.rect);
+        let clicked = ctx.input(|i| i.pointer.any_click().then(|| i.pointer.interact_pos()));
+        let click_in = clicked.flatten().zip(rect).map(|(at, rect)| rect.contains(at));
+        if !s.open {
+            app.script_tools.find_keys = None;
+        } else if keys_in || click_in == Some(true) {
+            app.script_tools.find_keys = target;
+        } else if focused.is_some() || click_in == Some(false) {
+            app.script_tools.find_keys = None;
+        }
         if find_next && let Some(k) = target {
             find_in_script(app, &ctx, k);
         }
+        // (Each a step of the editor's own Undo: the text before it is a
+        // point to go back to, as before Convert Indentation.)
         if replace && let Some(k) = target {
             // Replace the selection when it is a match, then find the next.
             if let Some((a, b)) = cursor(&ctx, k) {
                 let buf = app.scripts.get_mut(&k).expect("open");
                 if tools::is_match_at(&buf.text, &s.find, a, b, &s.options) {
+                    undo_point(buf, &ctx, k);
                     insert(buf, &ctx, k, a, b, &s.replace);
                 }
             }
@@ -2740,7 +2794,10 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         if replace_all && let Some(k) = target {
             let buf = app.scripts.get_mut(&k).expect("open");
             let (text, n) = tools::replace_all(&buf.text, &s.find, &s.replace, &s.options);
-            buf.text = text;
+            if text != buf.text {
+                undo_point(buf, &ctx, k);
+                buf.text = text;
+            }
             app.log.info(format!("Replaced {n} in {k}"));
         }
         if find_all {
@@ -2767,6 +2824,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             app.script_tools.search.results = results;
             app.script_tools.info = InfoTab::SearchResults;
         }
+    } else {
+        app.script_tools.find_keys = None;
     }
 
     use crate::widgets::{NameWindow, Named};
