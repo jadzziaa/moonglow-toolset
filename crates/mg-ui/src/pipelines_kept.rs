@@ -28,23 +28,29 @@ pub(crate) struct PipelinesKept {
     /// The renderer's count of pipelines made when the list was last
     /// written, and for which module.
     written: Option<(PathBuf, usize)>,
-    /// The open module's list as its file had it, and how many pipelines
-    /// the renderer had made when the module opened: its own are those
+    /// The open module's list as its file had it, and the renderer's
+    /// mark when the module opened
+    /// ([`mg_render::Renderer::game_pipelines_mark`]): its own are those
     /// and the ones made since ([`own_lines`]).
     had: Vec<String>,
-    since: usize,
+    since: u32,
 }
 
 /// The pipelines to keep for a module: those of its kept list (`had`)
-/// that are made (`made`: every pipeline made in this run, the earliest
-/// first), then those made since it opened (from `since` on). The whole
-/// of `made` was written: a second module opened in one run had the
-/// first's pipelines written as its own before a view of it had drawn.
-pub fn own_lines(had: &[String], made: &[String], since: usize) -> Vec<String> {
+/// that are made (`made`: every pipeline the renderer holds, the earliest
+/// first), then those made since it opened (`since`:
+/// [`mg_render::Renderer::game_pipelines_made_after`] the mark taken as
+/// it opened). The whole of `made` was written: a second module opened
+/// in one run had the first's pipelines written as its own before a view
+/// of it had drawn. (And `since` was a place in `made`, the count of
+/// pipelines made in the run: the renderer's list starts again when the
+/// resources change, the count does not, so a module opened after that
+/// kept none of its new ones.)
+pub fn own_lines(had: &[String], made: &[String], since: &[String]) -> Vec<String> {
     let all: std::collections::HashSet<&String> = made.iter().collect();
     let mut seen = std::collections::HashSet::new();
     (had.iter().filter(|l| all.contains(l)))
-        .chain(&made[since.min(made.len())..])
+        .chain(since)
         .filter(|l| seen.insert(*l))
         .cloned()
         .collect()
@@ -94,7 +100,7 @@ impl Moonglow {
                 let lines = read(&path);
                 // (Before its own are asked for: those made so far are
                 // another module's, or none.)
-                self.pipelines_kept.since = vp.renderer.game_shader_stats().pipelines;
+                self.pipelines_kept.since = vp.renderer.game_pipelines_mark();
                 self.pipelines_kept.had = lines.clone();
                 let asked = vp.renderer.prepare_game_pipelines(&vp.gpu, &game.resman, &lines);
                 log::debug!(
@@ -111,7 +117,8 @@ impl Moonglow {
         let more = written.is_none_or(|(m, n)| *m != module || *n != made);
         if more && made > 0 && vp.renderer.drawn.game_pending == 0 {
             let kept = &self.pipelines_kept;
-            let lines = own_lines(&kept.had, &vp.renderer.game_pipelines_made(), kept.since);
+            let since = vp.renderer.game_pipelines_made_after(kept.since);
+            let lines = own_lines(&kept.had, &vp.renderer.game_pipelines_made(), &since);
             if let Err(e) = write(&path, &lines) {
                 log::warn!("the module's pipelines not kept in {}: {e}", path.display());
             }
@@ -155,10 +162,14 @@ mod tests {
         // it since.)
         let made = [line("a"), line("b"), line("c")];
         let had = [line("b"), line("z")];
-        assert_eq!(own_lines(&had, &made, 2), ["b", "c"]);
+        assert_eq!(own_lines(&had, &made, &made[2..]), ["b", "c"]);
         // The first module of a run: all that is made, its list's first.
-        assert_eq!(own_lines(&[line("b")], &made, 0), ["b", "a", "c"]);
-        assert!(own_lines(&[], &made, 3).is_empty(), "nothing of its own yet");
-        assert!(own_lines(&had, &[], 5).is_empty());
+        assert_eq!(own_lines(&[line("b")], &made, &made), ["b", "a", "c"]);
+        assert!(own_lines(&[], &made, &[]).is_empty(), "nothing of its own yet");
+        assert!(own_lines(&had, &[], &[]).is_empty());
+        // After the resources changed (the renderer's list began again,
+        // five pipelines into the run): what was made since is the
+        // module's, wherever it stands in the list.
+        assert_eq!(own_lines(&had, &[line("c")], &[line("c")]), ["c"]);
     }
 }

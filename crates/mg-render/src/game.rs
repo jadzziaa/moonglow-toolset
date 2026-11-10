@@ -2393,12 +2393,22 @@ impl GameShaders {
         self.send(gpu, job)
     }
 
-    /// The pipelines made, as their keys, the earliest made first.
-    pub(crate) fn made(&self) -> Vec<&PipelineKey> {
-        let mut made: Vec<(u32, &PipelineKey)> =
-            (self.pipelines.iter()).filter_map(|(k, p)| Some((p.as_ref()?.id, k))).collect();
+    /// The pipelines made after `mark` ([`GamePrograms::mark`]; 0: all
+    /// there are), as their keys, the earliest made first.
+    pub(crate) fn made_after(&self, mark: u32) -> Vec<&PipelineKey> {
+        let mut made: Vec<(u32, &PipelineKey)> = (self.pipelines.iter())
+            .filter_map(|(k, p)| Some((p.as_ref()?.id, k)))
+            .filter(|(id, _)| *id > mark)
+            .collect();
         made.sort_unstable_by_key(|(id, _)| *id);
         made.into_iter().map(|(_, k)| k).collect()
+    }
+
+    /// The newest pipeline's number ([`GamePipeline::id`]: given once,
+    /// never again, also across [`GamePrograms::clear`]): those made
+    /// later have a greater one.
+    pub(crate) fn mark(&self) -> u32 {
+        self.next_id
     }
 
     /// Takes what the worker has made since: whether anything.

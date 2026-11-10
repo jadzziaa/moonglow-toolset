@@ -1589,7 +1589,23 @@ impl Renderer {
     /// areas, to make them again as the module opens in the next session
     /// ([`Renderer::prepare_game_pipelines`]).
     pub fn game_pipelines_made(&self) -> Vec<String> {
-        self.game.made().into_iter().map(crate::game::PipelineKey::line).collect()
+        self.game_pipelines_made_after(0)
+    }
+
+    /// A mark of now among the pipelines of the game's programs: those
+    /// made from here on are [`Renderer::game_pipelines_made_after`] it.
+    /// It holds across [`Renderer::clear_textures`], which forgets the
+    /// pipelines made (unlike a place in [`Renderer::game_pipelines_made`]'s
+    /// list, which starts again there, or
+    /// [`Renderer::game_shader_stats`]' count, which does not).
+    pub fn game_pipelines_mark(&self) -> u32 {
+        self.game.mark()
+    }
+
+    /// [`Renderer::game_pipelines_made`], those made after `mark` alone
+    /// ([`Renderer::game_pipelines_mark`]).
+    pub fn game_pipelines_made_after(&self, mark: u32) -> Vec<String> {
+        self.game.made_after(mark).into_iter().map(crate::game::PipelineKey::line).collect()
     }
 
     /// Asks for the pipelines `lines` name ([`Renderer::game_pipelines_made`]
