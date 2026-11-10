@@ -54,6 +54,11 @@ pub struct PaletteView {
     standard: HashMap<BlueprintKind, Arc<Palette>>,
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
+    /// The module's own blueprints of a type (their ResRefs), and the
+    /// workspace revision they were listed at: the custom palette asks
+    /// which of its rows are the module's every frame.
+    #[allow(clippy::type_complexity)]
+    own: Option<((u64, BlueprintKind), Arc<std::collections::HashSet<ResRef>>)>,
     /// Each palette grouped as Group by asks (`grouped`), and what for.
     grouped: HashMap<(BlueprintKind, bool), (GroupedFor, Arc<Grouped>)>,
     pub selected: Option<ResKey>,
@@ -418,6 +423,7 @@ impl PaletteView {
     pub(crate) fn forget_game_data(&mut self) {
         self.standard.clear();
         self.custom_cache.clear();
+        self.own = None;
         self.grouped.clear();
         self.kept = Default::default();
         self.tile_palettes.clear();
@@ -439,6 +445,7 @@ impl Default for PaletteView {
             filter: String::new(),
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
+            own: None,
             grouped: HashMap::new(),
             selected: None,
             thumb: None,
@@ -1398,9 +1405,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let menu_commands = app.plugin_menu_commands();
     // (The custom palette's blueprints the module has: the others, a
     // hak's, the override folder's or none, are looked at, not edited.)
+    // (Listed once a revision of the module, not every frame.)
     let own = match (&app.ws, custom) {
-        (Some(ws), true) => ws.module.keys_of(kind.restype()).map(|k| k.resref).collect(),
-        _ => std::collections::HashSet::new(),
+        (Some(ws), true) => {
+            let at = (ws.revision(), kind);
+            match &view.own {
+                Some((was, own)) if *was == at => own.clone(),
+                _ => {
+                    let own: std::collections::HashSet<ResRef> =
+                        ws.module.keys_of(kind.restype()).map(|k| k.resref).collect();
+                    let own = Arc::new(own);
+                    view.own = Some((at, own.clone()));
+                    own
+                }
+            }
+        }
+        _ => Arc::default(),
     };
     let new_label = new_label(kind);
     let mut tree = Tree {
@@ -1724,7 +1744,7 @@ struct Tree<'a> {
     /// The custom palette's blueprints the module has (the palette also
     /// lists its haks', the override folder's and blueprints there are no
     /// more, as Aurora's does: those are viewed, as the game's are).
-    own: std::collections::HashSet<ResRef>,
+    own: Arc<std::collections::HashSet<ResRef>>,
     /// Every category opened or closed this frame.
     fold: Option<bool>,
     /// The categories left open (`Settings::palette_open`), and whether a
@@ -2032,6 +2052,23 @@ impl Tree<'_> {
             ui.allocate_space(egui::vec2(1.0, height));
             return;
         }
+        // (So a picture's: its room, in this line of them or, this one
+        // full, the next, before its name and label are made.)
+        if self.gallery && !reveal {
+            let size = egui::vec2(self.side, self.side + crate::widgets::tile_label_height(ui));
+            let top = ui.cursor().min.y;
+            let lines = egui::Rect::from_x_y_ranges(
+                ui.max_rect().x_range(),
+                top..=top + 2.0 * size.y + ui.spacing().item_spacing.y,
+            );
+            if !ui.is_rect_visible(lines) {
+                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+                if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
+                    listed.places.insert(listed.rows.len() - 1, rect);
+                }
+                return;
+            }
+        }
         let name = shown_name(&b.name, self.game);
         let favorite = self.favorites.contains(&b.resref);
         let label =
@@ -2281,15 +2318,17 @@ impl Tree<'_> {
         ui: &mut egui::Ui,
         title: &'static str,
         list: &[String],
-        palette: &Palette,
+        palette: &Arc<Palette>,
     ) {
-        let ext = self.kind.restype().extension().unwrap_or_default();
-        let all = palette.blueprints();
-        let here: Vec<&PaletteBlueprint> = list
-            .iter()
-            .filter_map(|r| r.strip_prefix(&format!("{ext}:")))
-            .filter_map(|r| all.iter().find(|(_, b)| b.resref.to_string() == r).map(|(_, b)| *b))
-            .collect();
+        // (Found once for the palette and the list, and kept: every
+        // blueprint of the palette was listed twice a frame and each of
+        // the list's looked for among them by its text.)
+        let id = egui::Id::new(("palette-remembered-kept", title, self.kind, self.custom));
+        let kind = self.kind;
+        let kept = crate::blueprint::kept_for(ui.ctx(), id, palette, &list.to_vec(), || {
+            Arc::new(remembered_in(palette, kind, list))
+        });
+        let here: Vec<&PaletteBlueprint> = kept.iter().collect();
         if here.is_empty() {
             return;
         }
@@ -2384,6 +2423,23 @@ impl Tree<'_> {
         }
         r
     }
+}
+
+/// The blueprints of `list` (Favorites or Recent: `ext:resref` each) that
+/// `palette` has, of `kind`, in the list's order.
+fn remembered_in(palette: &Palette, kind: BlueprintKind, list: &[String]) -> Vec<PaletteBlueprint> {
+    let ext = kind.restype().extension().unwrap_or_default();
+    let wanted: Vec<ResRef> = list
+        .iter()
+        .filter_map(|r| r.strip_prefix(ext)?.strip_prefix(':'))
+        .filter_map(|r| ResRef::from_str(r).ok())
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let all: HashMap<ResRef, &PaletteBlueprint> =
+        palette.blueprints().into_iter().rev().map(|(_, b)| (b.resref, b)).collect();
+    wanted.iter().filter_map(|r| all.get(r).map(|b| (*b).clone())).collect()
 }
 
 /// A picture's mark for an appearance with no model: a frame and "No
@@ -2611,6 +2667,56 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Favorites and Recent are found in a palette as they were when every
+    /// blueprint was compared by its text for each (the review's B23): in
+    /// the list's order, those of the palette's type that it has, the
+    /// first of a ResRef it has twice.
+    #[test]
+    fn remembered_blueprints_are_found_as_by_looking_through_them_all() {
+        let named = |resref: &str, n: u32| PaletteBlueprint {
+            resref: ResRef::from_str(resref).unwrap(),
+            name: mg_module::palette::PaletteName::StrRef(n),
+            cr: None,
+            faction: None,
+        };
+        let node = |children, blueprints| PaletteNode {
+            name: mg_module::palette::PaletteName::StrRef(0),
+            id: Some(1),
+            children,
+            blueprints,
+        };
+        let inner = node(Vec::new(), vec![named("wolf", 3), named("bat", 4)]);
+        let palette = Palette {
+            nodes: vec![
+                node(vec![inner], vec![named("orc", 1), named("bat", 2)]),
+                node(vec![], vec![]),
+            ],
+        };
+        let list: Vec<String> = [
+            "utc:bat",
+            "uti:orc",
+            "utc:gone",
+            "utc:wolf",
+            "utcx:orc",
+            "utc:orc",
+            "utc:Not A Name!",
+        ]
+        .map(String::from)
+        .into();
+        let kind = BlueprintKind::Creature;
+        let all = palette.blueprints();
+        let by_text: Vec<PaletteBlueprint> = list
+            .iter()
+            .filter_map(|r| r.strip_prefix("utc:"))
+            .filter_map(|r| all.iter().find(|(_, b)| b.resref.to_string() == r).map(|(_, b)| *b))
+            .cloned()
+            .collect();
+        let found = remembered_in(&palette, kind, &list);
+        assert_eq!(found, by_text);
+        assert_eq!(found, [named("bat", 2), named("wolf", 3), named("orc", 1)]);
+        assert!(remembered_in(&palette, BlueprintKind::Item, &list[..1]).is_empty());
+    }
 
     /// The arrow keys in the Gallery: a category's five pictures three to
     /// a row; Up and Down a row at a time (to the nearest picture across),
