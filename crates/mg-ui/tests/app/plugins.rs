@@ -2273,3 +2273,43 @@ fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
     assert!(h.query_by_label("Areas Not Yours").is_none(), "the claims are not asked again");
     assert!(!h.state().has_unsaved_work(), "saved");
 }
+
+/// Save Anyway on a Save As (which the claims are not asked about) leaves
+/// no "not asked again" behind for them: the next Save that would write
+/// another builder's area asks. (It took the flag a Save As's answer had
+/// set, and wrote without the question.)
+#[test]
+fn save_anyway_on_a_save_as_does_not_answer_the_claims_for_the_next_save() {
+    let (dir, mut app) = claimed_project(
+        "ui-claims-after-save-as",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("cd", "claimed"),
+    );
+    app.plugin_dir = Some(example_plugins());
+    app.load_plugins();
+    app.enable_plugin("example.house-rules", true);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    // A new area whose tag the plugin warns of; Save As, to where it is.
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", mg_gff::Value::String(b"Cellar".to_vec()));
+    let key = ResKey::parse("cellar", ResType::ARE).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cellar",
+        vec![mg_edit::Edit::SetResource { key, data: Some(are.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::SaveAt(ModuleLocation::Folder(dir)));
+    h.run_steps(3);
+    h.get_by_label("Before saving");
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    assert!(!h.state().has_unsaved_work(), "saved");
+    // Another builder's area changed, and Save: the claims ask.
+    h.state_mut().actions.push(rename_start("Market"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Areas Not Yours");
+    assert!(h.state().has_unsaved_work(), "held");
+}
