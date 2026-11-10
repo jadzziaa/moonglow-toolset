@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:47:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T16:03:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -224,7 +224,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - **TGA and PLT textures are uncompressed** (RGBA8: Tyrants of the
     Moonsea's 70 of 96 MB of textures). Compressing them on the CPU as
     they are read would take a quarter to an eighth of that, at a cost
-    in reading time and an encoder of its own. (M)
+    in reading time (the encoder is there since 2026-11-10,
+    `mg_image::encode::compress`; what it costs a module's load is not
+    measured). (M)
   - **The animation step could follow what a picture costs:** a slow GPU
     stepping less often while the window is in front, measured with the
     GPU's timestamps (not on every backend). (M)

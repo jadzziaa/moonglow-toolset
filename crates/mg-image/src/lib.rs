@@ -16,6 +16,7 @@
 
 pub mod bc;
 pub mod dds;
+pub mod encode;
 pub mod mtr;
 pub mod plt;
 pub mod png;
