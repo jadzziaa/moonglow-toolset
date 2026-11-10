@@ -49,6 +49,15 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn fingerprint(&self) -> u64 {
         0
     }
+    /// A number of what the container lists, where it is an archive: each
+    /// resource's name, where its data starts and how long it is, in the
+    /// archive's order. It tells two archives of one time and size apart
+    /// (one built again with a fixed time, as reproducible builds stamp
+    /// them), which [`Container::fingerprint`] does not; not two whose
+    /// data alone differs. 0 for containers that say none.
+    fn listing(&self) -> u64 {
+        0
+    }
     /// The file or folder on disk the container reads, where it is one
     /// that may change ([`Container::fingerprint`] looks at it).
     fn watched(&self) -> Option<&Path> {
@@ -302,6 +311,16 @@ impl Container for ErfContainer {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         if let Ok(meta) = std::fs::metadata(&self.path) {
             hash_file(&mut h, &meta);
+        }
+        std::hash::Hasher::finish(&h).max(1)
+    }
+
+    fn listing(&self) -> u64 {
+        use std::hash::Hash;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (key, _) in &self.order {
+            let Some(e) = self.entries.get(key) else { continue };
+            (key, e.offset, e.disk_size, e.size).hash(&mut h);
         }
         std::hash::Hasher::finish(&h).max(1)
     }

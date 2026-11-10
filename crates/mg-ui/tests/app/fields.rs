@@ -1146,6 +1146,55 @@ fn a_faction_s_removal_cancelled_numbers_its_objects_back() {
     );
 }
 
+/// A faction an object was given a moment ago, the object not yet written
+/// into the module (open, its change in its document), is in use and is
+/// not removed (the review's V19: its users were asked of the module
+/// before the open documents were written into it, none was found, and
+/// the object was left with the number of the faction that moved into the
+/// removed one's place).
+#[test]
+fn a_faction_an_open_object_was_just_given_is_not_removed() {
+    use mg_module::factions::Factions;
+    let dir = mg_testkit::scratch_dir("ui-faction-in-use-unsaved");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut f = Factions::of_module(&m);
+    let guards = f.add("Guards", true, 1);
+    f.add("Thieves", true, 1);
+    m.set_gff(ResKey::parse("repute", ResType::FAC).unwrap(), &f.to_gff()).unwrap();
+    let thief = ResKey::parse("thief", ResType::UTC).unwrap();
+    let mut g = mg_gff::Gff::new(*b"UTC ");
+    g.root.set("FactionID", mg_gff::Value::Word(1));
+    m.set_gff(thief, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    close_tab(&mut app, &Tab::ModuleProperties);
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+    let joins = mg_edit::Edit::SetField {
+        key: thief,
+        path: mg_edit::GffPath::root(),
+        label: "FactionID".into(),
+        value: Some(mg_gff::Value::Word(guards as u16)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Joins", vec![joins])));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    h.run_steps(4);
+    h.get_by_label("Guards").click();
+    h.run_steps(2);
+    h.get_by_label("Remove Faction").click();
+    h.run_steps(3);
+    let module = &h.state().ws.as_ref().unwrap().module;
+    assert_eq!(Factions::of_module(module).factions.len(), 7, "Guards are not removed");
+    let said = h.state().log.entries.iter().any(|e| e.1.contains("Guards is used by thief.utc"));
+    assert!(said, "{:?}", h.state().log.entries);
+    let root = h.state_mut().ws.as_mut().unwrap().doc(&thief).unwrap().root.clone();
+    assert_eq!(root.integer("FactionID"), Some(i64::from(guards)));
+}
+
 /// Module Properties' and the journal's fields are a blueprint's
 /// (`blueprint::Form`): the module's tag and a category's take 32
 /// characters as typed; the XP slider dragged back to where it began

@@ -63,12 +63,15 @@ pub fn compile_models_each(
     each: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Vec<Compiled> {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    let own = |name: &str, t: ResType| {
-        files
-            .iter()
-            .find(|(k, _)| k.restype == t && k.resref.to_string().eq_ignore_ascii_case(name))
-            .map(|(_, d)| d.to_vec())
-    };
+    // The files' own models and materials by name (lower case; of two of
+    // a name, the first), made once: each model asks for its supermodel
+    // and its materials, and a hak folder holds tens of thousands.
+    let mut by_name: std::collections::HashMap<(ResType, String), &[u8]> = Default::default();
+    for (k, d) in files.iter().filter(|(k, _)| matches!(k.restype, ResType::MDL | ResType::MTR)) {
+        by_name.entry((k.restype, k.resref.to_string().to_ascii_lowercase())).or_insert(d);
+    }
+    let own =
+        |name: &str, t: ResType| by_name.get(&(t, name.to_ascii_lowercase())).map(|d| d.to_vec());
     let find = |name: &str| own(name, ResType::MDL).or_else(|| lookup(name, ResType::MDL));
     // (A mesh with no render hint takes its material's.)
     let material = |name: &str| own(name, ResType::MTR).or_else(|| lookup(name, ResType::MTR));
@@ -195,6 +198,18 @@ doneanim wave base\ndonemodel base\n";
         };
         let out = compile_models(&files[2..3], &outside);
         assert!(out[0].result.is_ok(), "{:?}", out[0].result);
+        // A supermodel named in another case is the files' own, the first
+        // of two files of its name (nothing is found outside them).
+        let shouting = child.replace("setsupermodel child base", "setsupermodel child BASE");
+        let other = BASE.replace("node dummy arm", "node dummy leg");
+        let files: Vec<(ResKey, &[u8])> = vec![
+            (key("child", ResType::MDL), shouting.as_bytes()),
+            (key("base", ResType::MDL), BASE.as_bytes()),
+            (key("base", ResType::MDL), other.as_bytes()),
+        ];
+        let out = compile_models(&files, &|_, _| None);
+        let (bin, _) = out[0].result.clone().unwrap();
+        assert_eq!(numbers(&bin), numbers(&out[1].result.clone().unwrap().0));
     }
 
     /// The linter's notes on a text come with the compiler's: what the

@@ -1261,7 +1261,23 @@ impl ProjectFile {
                             "first_row" => match e.1.get_ref() {
                                 DeValue::Integer(i) if i.radix() == 10 => {
                                     match i.as_str().parse::<usize>() {
-                                        Ok(n) => self.lights.first_row = Some(n),
+                                        Ok(n) => {
+                                            // (Kept, so that Make Light
+                                            // refuses rather than take
+                                            // another row.)
+                                            self.lights.first_row = Some(n);
+                                            let last = crate::bake::LAST_ROW;
+                                            if n > last as usize {
+                                                r.warn(
+                                                    e.1.span().start,
+                                                    format!(
+                                                        "first_row {n} is past row {last}, the \
+                                                         last the game can use: no light can be \
+                                                         made"
+                                                    ),
+                                                );
+                                            }
+                                        }
                                         Err(_) => r.warn(
                                             e.1.span().start,
                                             "first_row is a row: 0 or more",
@@ -2106,6 +2122,13 @@ keeper_variable = "tdod_store"
                 "moonglow.toml:3: first_row is a row: 0 or more",
                 "moonglow.toml:4: \"colour\" is not a key of [lights]",
             ]
+        );
+        // A row the game can't carry (16 bits) is said where it is written.
+        let past = read("[lights]\nfirst_row = 70000\n");
+        assert_eq!(
+            past.warnings,
+            ["moonglow.toml:2: first_row 70000 is past row 65535, the last the game can use: no \
+              light can be made"]
         );
     }
 

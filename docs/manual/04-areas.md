@@ -484,7 +484,10 @@ the hak must be the one whose copy the game reads, or above it: a hak
 below another that has placeables.2da is refused, and the window says
 which to choose. A light of the same settings as one written before is
 the same model and row: nothing is written again. A hak open in the
-hak editor is refused too (close it there first).
+hak editor is refused too (close it there first). So is a light whose
+row would be past 65535, the last the game can carry (a table that
+long, or a `first_row` past it): the game would draw another row's
+model.
 
 A light made so shows as the game's do: a small sun in its color, a
 ring where its light ends when it is selected, and the view lit by it.

@@ -311,13 +311,13 @@ impl RowsFile {
         out
     }
 
-    /// Writes the file's text at `path` (its folder made if need be).
+    /// Writes the file's text at `path` (its folder made if need be), whole
+    /// or not at all ([`crate::write_replacing`]): a file cut short would
+    /// not be read, and nothing baked until it is.
     pub fn write(&self, path: &Path) -> Result<(), String> {
         let name = path.file_name().map_or(DEFAULT_ROWS_FILE.into(), |n| n.to_string_lossy());
-        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        std::fs::write(path, self.text(&name)).map_err(|e| format!("{}: {e}", path.display()))
+        crate::write_replacing(path, self.text(&name).as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 
     /// Row `row`, if the file has it.
@@ -335,6 +335,14 @@ impl RowsFile {
         self.rows.push(row);
         self.rows.sort_by_key(|r| r.row);
     }
+}
+
+/// The layer whose copy of a resource the game reads (its place in
+/// [`ResMan::layers`]): the first that has it, [`PENDING_LABEL`]'s
+/// stepped over, which holds what the project's build will make and is
+/// no file the game or a builder has.
+pub fn layer_read(rm: &ResMan, key: &ResKey) -> Option<usize> {
+    rm.layers().iter().position(|l| l.label != PENDING_LABEL && l.container.contains(key))
 }
 
 /// The placeables.2da the game reads with these resources, but for the
@@ -821,21 +829,25 @@ pub fn rows_held(rules: &Rows, table: &TwoDa, rows: &RowsFile) -> Vec<u32> {
 /// Each `Appearance` the module's placeables have, placed and blueprints,
 /// with how many have it.
 pub fn appearances(module: &Module) -> BTreeMap<u32, usize> {
+    use rayon::prelude::*;
+    // (Each file read on a core of its own: a persistent world's areas
+    // are thousands, and the count is the same in any order.)
+    let keys: Vec<&ResKey> =
+        module.keys_of(ResType::UTP).chain(module.keys_of(ResType::GIT)).collect();
+    let of_each: Vec<Vec<u32>> = keys
+        .par_iter()
+        .map(|key| {
+            let Some(Ok(g)) = module.gff(key) else { return Vec::new() };
+            let placed = match key.restype {
+                ResType::UTP => std::slice::from_ref(&g.root),
+                _ => g.root.list("Placeable List").unwrap_or(&[]),
+            };
+            placed.iter().filter_map(|p| p.integer("Appearance")).map(|a| a as u32).collect()
+        })
+        .collect();
     let mut out = BTreeMap::new();
-    for key in module.keys_of(ResType::UTP) {
-        if let Some(Ok(g)) = module.gff(key)
-            && let Some(a) = g.root.integer("Appearance")
-        {
-            *out.entry(a as u32).or_default() += 1;
-        }
-    }
-    for key in module.keys_of(ResType::GIT) {
-        let Some(Ok(g)) = module.gff(key) else { continue };
-        for p in g.root.list("Placeable List").unwrap_or(&[]) {
-            if let Some(a) = p.integer("Appearance") {
-                *out.entry(a as u32).or_default() += 1;
-            }
-        }
+    for a in of_each.into_iter().flatten() {
+        *out.entry(a).or_default() += 1;
     }
     out
 }

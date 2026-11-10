@@ -981,10 +981,15 @@ impl Kept {
                     }
                 }
             }
+            // (What is kept of a blueprint is kept while the layer the game
+            // reads it from is the one it was read from, as it was then:
+            // looked up by its key, each key wanted once, not found by
+            // walking the wanted ones for each one kept.)
+            let layer_of: HashMap<ResKey, usize> = wanted.iter().map(|(i, k)| (*k, *i)).collect();
             self.outside.retain(|(label, key), (print, _)| {
-                wanted.iter().any(|(i, k)| {
-                    k == key && layers[*i].label == *label && layers[*i].fingerprint == *print
-                })
+                layer_of
+                    .get(key)
+                    .is_some_and(|i| layers[*i].label == *label && layers[*i].fingerprint == *print)
             });
             let new: Vec<(usize, ResKey)> = (wanted.into_iter())
                 .filter(|(i, k)| !self.outside.contains_key(&(layers[*i].label.clone(), *k)))
@@ -1759,7 +1764,8 @@ mod tests {
         // Asked again, nothing is read again; without them, the module's.
         kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1252);
         assert_eq!(kept.read, 0);
-        let module_only = kept.search(&m, &Query::new(p), Some(&game), Codepage::WINDOWS_1252);
+        let only = Query::new(p.clone());
+        let module_only = kept.search(&m, &only, Some(&game), Codepage::WINDOWS_1252);
         assert_eq!(module_only.len(), 3);
         assert!(module_only.iter().all(|h| h.layer.is_none()));
         // A hak's creature, by its class, with the module's.
@@ -1771,6 +1777,17 @@ mod tests {
         let q = Query { placed: Some(true), ..q };
         let hits = search(&m, &q, Some(&game), Codepage::WINDOWS_1252);
         assert!(hits.iter().all(|h| h.layer.is_none()));
+        // What is kept of their blueprints is kept by the layer the game
+        // reads each from: one the module now has is let go, the rest are
+        // not read again, and the answer is the one a search anew gives.
+        let q = Query { haks_and_game: true, ..Query::new(p.clone()) };
+        let mut kept = Kept::default();
+        kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1252);
+        m.set(key("nw_ring", ResType::UTI), gff(b"UTI ", bonus(3)));
+        let again = kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1252);
+        assert_eq!(kept.read, 1, "the module's new ring alone");
+        assert_eq!(again, search(&m, &q, Some(&game), Codepage::WINDOWS_1252));
+        assert!(again.iter().all(|h| h.layer.as_deref() != Some("hak:monsters")), "{again:?}");
     }
 
     #[test]

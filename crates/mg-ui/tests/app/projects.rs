@@ -2918,6 +2918,67 @@ fn an_nwsync_upload_canceled_sends_nothing_more() {
     h.get_by_label("Canceled (stopped).");
 }
 
+/// Verify Module says what `mg_module::verify::run` finds: Verify is put
+/// together there, once, for the window and `mg verify` alike (the
+/// review's V20: each had its own copy, and they had drifted). Every
+/// line of the report of what it finds of this module is in the log, in
+/// its order.
+#[test]
+fn verify_module_says_what_verify_run_finds() {
+    use mg_module::doctor::{Skip, TalkTables, Timings};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-verify-run");
+    let path = sample_module(&dir);
+    {
+        let mut m = Module::open(&path).unwrap();
+        let area = ResKey::parse("start", ResType::GIT).unwrap();
+        let mut g = m.gff(&area).and_then(Result::ok).unwrap_or_else(|| Gff::new(*b"GIT "));
+        let mut p = mg_gff::Struct::new(9);
+        p.set("Tag", mg_gff::Value::String(b"BROKEN".to_vec()));
+        p.set("Appearance", mg_gff::Value::Dword(60_000));
+        p.set("OnUsed", mg_gff::Value::resref(ResRef::from_str("mg_nowhere").unwrap()));
+        g.root.set("Placeable List", mg_gff::Value::List(vec![p]));
+        m.set_gff(area, &g).unwrap();
+        m.save().unwrap();
+    }
+    let mut h = window_harness(game_app(&root, None));
+    h.state_mut().open_module(&path);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let app = h.state();
+    let (game, module) = (app.game.as_deref().unwrap(), &app.ws.as_ref().unwrap().module);
+    let asked = mg_module::verify::Verify {
+        module,
+        compiled: None,
+        resman: &game.resman,
+        tlk: TalkTables {
+            base: game.tlk().entries.len(),
+            custom: game.custom_tlk().map(|t| t.entries.len()),
+        },
+        custom_tlk: game.custom_tlk(),
+        codepage: game.codepage(),
+        palette_name: &|n| n.text(game),
+        skip: &Skip::NONE,
+        cache: None,
+        references: None,
+    };
+    let (missing, findings) =
+        mg_module::verify::run(asked, &mut Timings::default(), &mut |_| true).unwrap();
+    assert!(missing.iter().any(|m| m.reference.target.to_string() == "mg_nowhere"));
+    assert!(findings.iter().any(|f| f.check == "object-row"), "{findings:#?}");
+    let report: Vec<String> =
+        mg_ui::verify_report(&missing, &findings).into_iter().map(|(_, text)| text).collect();
+    let logged: Vec<String> = (app.log.entries.iter())
+        .map(|(_, text)| text.clone())
+        .filter(|text| report.contains(text))
+        .collect();
+    assert_eq!(logged, report, "{:#?}", app.log.entries);
+}
+
 /// Verify Module on a project, whose tree holds its scripts as sources
 /// alone (their compiled scripts are build output): a source that
 /// compiles satisfies what names it, one that doesn't is said not

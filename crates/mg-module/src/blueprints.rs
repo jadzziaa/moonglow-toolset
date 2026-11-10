@@ -440,7 +440,9 @@ pub fn door(resref: ResRef, display: &str, category: u8) -> Gff {
     gff(b"UTD ", fields)
 }
 
-const COLORS: [&str; 6] =
+/// An item's color fields: its layers' (a new item's, and what a placed
+/// item is given where its blueprint has none).
+pub(crate) const COLORS: [&str; 6] =
     ["Leather1Color", "Leather2Color", "Cloth1Color", "Cloth2Color", "Metal1Color", "Metal2Color"];
 
 /// An item of a base item: its model fields by the base item's model type

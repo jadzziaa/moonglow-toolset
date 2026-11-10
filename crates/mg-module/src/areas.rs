@@ -729,6 +729,12 @@ fn set_var(
 /// is written in `codepage`, as the game reads a module's strings. A
 /// lighting scheme's colors for each tile are picked at random from
 /// `seed`: the same seed, areas and changes, the same picks.
+///
+/// An area's GIT is read only where a change is to it (its variables, its
+/// placeables, its sounds and music, its grass): a flag or a lighting
+/// scheme set over a persistent world's areas reads their AREs alone. Each
+/// changed file is kept as its bytes until the last area is done, not as
+/// its tree, which is several times its size.
 pub fn apply(
     m: &mut Module,
     areas: &[ResRef],
@@ -743,6 +749,22 @@ pub fn apply(
         rules = rules.with_scripts(m);
     }
     let mut rng = fastrand::Rng::with_seed(seed);
+    // Whether any change is to the GIT (a field by another name is the
+    // ARE's, as below).
+    let wants_git = changes.iter().any(|c| match c {
+        Change::Set { field, .. } => {
+            !FLAG_FIELDS.iter().any(|(n, _)| n.eq_ignore_ascii_case(field))
+                && AUDIO_FIELDS.contains(&field.as_str())
+        }
+        Change::LightingScheme(_) | Change::Lighting(..) => false,
+        Change::Var { .. }
+        | Change::RemoveVar(_)
+        | Change::StaticPlaceables
+        | Change::DynamicPlaceables
+        | Change::Grass(_)
+        | Change::RemoveGrass(_)
+        | Change::TilesetGrass(_) => true,
+    });
     for &area in areas {
         let are_key = ResKey::new(area, ResType::ARE);
         let git_key = ResKey::new(area, ResType::GIT);
@@ -753,7 +775,7 @@ pub fn apply(
         };
         let mut are =
             read(&are_key)?.ok_or_else(|| format!("{area} is not an area of the module"))?;
-        let mut git = read(&git_key)?;
+        let mut git = if wants_git { read(&git_key)? } else { None };
         let (mut are_changed, mut git_changed) = (false, false);
         let mut note = |what: String, from: Option<String>, to: Option<String>| {
             done.push(Changed { area, what, from, to });
@@ -961,15 +983,16 @@ pub fn apply(
                 }
             }
         }
+        // (As bytes: what can't be written is said before anything is set.)
         if are_changed {
-            write.push((are_key, are));
+            write.push((are_key, are.to_bytes().map_err(|e| format!("{are_key}: {e}"))?));
         }
         if let (true, Some(git)) = (git_changed, git) {
-            write.push((git_key, git));
+            write.push((git_key, git.to_bytes().map_err(|e| format!("{git_key}: {e}"))?));
         }
     }
-    for (key, gff) in write {
-        m.set_gff(key, &gff).map_err(|e| format!("{key}: {e}"))?;
+    for (key, bytes) in write {
+        m.set(key, bytes);
     }
     Ok(done)
 }
@@ -1422,6 +1445,37 @@ mod tests {
         assert!(apply(&mut m, &[r("nowhere")], &[], CP, 1).is_err());
         assert!(Change::parse_set("SunFogAmount").is_err());
         assert!(Change::parse_var("x:bool=1").is_err());
+    }
+
+    /// An area's GIT is read only for a change to it: a flag or a field of
+    /// the ARE is set on an area whose GIT can't be read (the review's
+    /// V11: every area's GIT was parsed whatever the change, and such an
+    /// area failed), and a change to the GIT still says what is wrong.
+    #[test]
+    fn an_are_s_change_does_not_read_the_git() {
+        let mut m = module();
+        let git_key = ResKey::new(r("cave1"), ResType::GIT);
+        m.set(git_key, b"not a GIT".to_vec());
+        let all = [r("cave1"), r("cave2")];
+        let of_the_are = [
+            Change::parse_set("Interior=no").unwrap(),
+            Change::parse_set("SunFogAmount=5").unwrap(),
+        ];
+        let done = apply(&mut m, &all, &of_the_are, CP, 1).unwrap();
+        assert!(done.iter().any(|c| c.area == r("cave1") && c.what == "SunFogAmount"), "{done:?}");
+        assert_eq!(are(&m, "cave1").integer("SunFogAmount"), Some(5));
+        assert_eq!(m.get(&git_key), Some(&b"not a GIT"[..]), "left as it was");
+        for of_the_git in [
+            Change::parse_var("nDepth:int=2").unwrap(),
+            Change::parse_set("MusicDay=3").unwrap(),
+            Change::DynamicPlaceables,
+        ] {
+            let before = are(&m, "cave2");
+            let ok = Change::parse_set("SunFogAmount=9").unwrap();
+            let e = apply(&mut m, &all, &[ok, of_the_git.clone()], CP, 1).unwrap_err();
+            assert!(e.starts_with("cave1.git:"), "{of_the_git:?}: {e}");
+            assert_eq!(are(&m, "cave2"), before, "nothing is changed");
+        }
     }
 
     /// A lighting scheme, found by its label or its row, sets the area's

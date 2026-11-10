@@ -64,12 +64,19 @@ impl VarType {
     }
 
     /// The type of a value typed with none given: int, else float, else
-    /// string.
+    /// string. A float is digits with a point, signed or not (`2.5`,
+    /// `-.5`, `3.`), as the game's own text-to-float reads one: `nan`,
+    /// `inf`, `infinity` and `1e5`, which Rust reads as numbers too, are
+    /// the words a builder typed.
     pub fn of_text(text: &str) -> VarType {
         let t = text.trim();
+        let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
+        let pointed = digits.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+            && digits.bytes().filter(|b| *b == b'.').count() == 1
+            && digits.len() > 1;
         if t.parse::<i32>().is_ok() {
             VarType::Int
-        } else if t.parse::<f32>().is_ok() {
+        } else if pointed && t.parse::<f32>().is_ok_and(f32::is_finite) {
             VarType::Float
         } else {
             VarType::String
@@ -92,5 +99,25 @@ mod tests {
         assert_eq!(VarType::of_text("2"), VarType::Int);
         assert_eq!(VarType::of_text("2.5"), VarType::Float);
         assert_eq!(VarType::of_text("two"), VarType::String);
+    }
+
+    /// A value typed with no type is a float only where it is digits with
+    /// a point (the review's V24: `nan`, `inf` and `infinity` were stored
+    /// as FLOAT NaN and infinity, and `1e5` as a float, where a builder
+    /// meant the words).
+    #[test]
+    fn a_word_rust_reads_as_a_number_is_a_string() {
+        for word in ["nan", "NaN", "inf", "-inf", "infinity", "+Infinity", "1e5", "1.5e3", "."] {
+            assert_eq!(VarType::of_text(word), VarType::String, "{word}");
+        }
+        for float in ["2.5", " -0.25 ", "+3.", "-.5", "100.0"] {
+            assert_eq!(VarType::of_text(float), VarType::Float, "{float}");
+            assert!(VarType::Float.value(float.trim(), Codepage::WINDOWS_1252).is_ok(), "{float}");
+        }
+        for int in ["0", "-7", "+7"] {
+            assert_eq!(VarType::of_text(int), VarType::Int, "{int}");
+        }
+        // (A number too large for an int is no float either: it has no point.)
+        assert_eq!(VarType::of_text("99999999999"), VarType::String);
     }
 }

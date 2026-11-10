@@ -169,7 +169,14 @@ back:
   and comments.
 - **What follows the new name:** objects' and areas' events, conversation
   lines, the module's area list and start area, objects placed from a
-  blueprint, inventories and stores, `#include` lines.
+  blueprint, inventories and stores, `#include` lines, and a script's
+  name in the module's own 2DAs: the columns the game runs a script from
+  (a `spells.2da`'s ImpactScript, a `traps.2da`'s TrapScript) and those
+  a table's [description](#a-tables-description) says hold a script.
+- **The haks' tables** are not the module's to change: where a cell of
+  one still names a renamed script, the log says which (the hak, the
+  table, the row and column), and the game runs nothing there until the
+  hak's table names the new script.
 - **Strings in scripts** change too if you tick **Also change … in
   scripts**. Check them in Find References first: a string may also be a
   tag or something else (Neverwinter Chess compares tags to `"pawn_b"`, its
@@ -825,7 +832,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[pack] compile_models` | a nasher project's **Build › Pack** (and `mg build`) compiles the models kept as text (ASCII `.mdl`) into the target's file on the way in, as **Compile Models** does a hak's: each against its supermodel from the project, its haks or the game; one that can't be (errors in its text, its supermodel found nowhere) goes in as the text it is, and the log says why. The project's sources stay text | the models go in as text |
 | `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
 | `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |
-| `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later | the end of the table |
+| `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later; at most 65535 (the last row the game can carry: past it is a warning, and no light is made) | the end of the table |
 | `[bake] rows` | the placeables.2da rows [Bake Walkmesh to Transform](#baked-walkmeshes) takes (`"16500-16999"`), at most 65535 (the last row the game can carry); a bake never takes a row the game's table holds already | the command isn't offered |
 | `[bake] hak` | the hak (its name; `.hak` may be left out) the baked models (`.mdl`, `.pwk`) go into, in your user folder's `hak`; the first bake puts it at the top of the module's hak list | the command isn't offered |
 | `[bake] names` | what baked models' names begin with (letters, digits and `_`, at most 12: four digits follow) | `"mgbk_"` |

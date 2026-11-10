@@ -2,7 +2,7 @@
 //! compiler): references to resources that exist nowhere, and module
 //! resources nothing references.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use mg_core::ResType;
 use mg_resman::{ResKey, ResMan, priority};
@@ -225,9 +225,103 @@ impl Missing {
     }
 }
 
-/// Every reference in the module.
+/// What Verify checks a module by: what [`run`] is given, by the window
+/// (Build › Verify Module) and by `mg verify` alike.
+pub struct Verify<'a> {
+    /// The module the custom content's checks look at.
+    pub module: &'a Module,
+    /// The module its references are looked for in, where that is another:
+    /// a copy with a project's scripts compiled
+    /// ([`crate::build::compiled_for_checks`]: its compiled scripts are
+    /// build output, and a source that compiles satisfies a reference).
+    pub compiled: Option<&'a Module>,
+    /// The game data, the module's haks and the module layered in.
+    pub resman: &'a ResMan,
+    /// How many strings the talk tables have.
+    pub tlk: crate::doctor::TalkTables,
+    /// The module's custom talk table, where it was found: the lines
+    /// typed text takes are held to it.
+    pub custom_tlk: Option<&'a mg_tlk::Tlk>,
+    /// The game's codepage: the tables' text is read in it.
+    pub codepage: mg_core::Codepage,
+    /// A palette's name as the palette shows it (a talk-table string
+    /// looked up).
+    pub palette_name: &'a dyn Fn(&crate::palette::PaletteName) -> String,
+    /// What is left out: not checked where that can be told beforehand.
+    pub skip: &'a crate::doctor::Skip,
+    /// Where the shader programs that compiled and what was found of the
+    /// haks' models are kept between runs.
+    pub cache: Option<&'a crate::doctor::Cache>,
+    /// The references of the module they are looked for in, where the
+    /// caller gathered them already (for the unused resources too:
+    /// [`module_references`]); else they are gathered here.
+    pub references: Option<Vec<Reference>>,
+}
+
+impl std::fmt::Debug for Verify<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Verify").field("tlk", &self.tlk).finish_non_exhaustive()
+    }
+}
+
+/// Verify, put together once for every tool that runs it: the references
+/// nothing satisfies ([`missing_of`]), then the custom content's problems
+/// in the order they are reported in (the doctor's
+/// [`crate::doctor::examine_groups`], the lines typed text takes, the
+/// walkmesh bake's rules and rows, the palettes' groupings), each part
+/// timed. A group left out is not run. What a caller adds of its own (the
+/// plugins' findings) goes after these, and [`crate::doctor::Skip::leave_out`]
+/// is its to call once it has: it takes out what could not be told
+/// beforehand.
+///
+/// `step` is told each part as it starts ("Looking for what is missing",
+/// "Checking the custom content") and says whether to go on: `None` where
+/// it said no.
+pub fn run(
+    asked: Verify<'_>,
+    timings: &mut crate::doctor::Timings,
+    step: &mut dyn FnMut(&str) -> bool,
+) -> Option<(Vec<Missing>, Vec<crate::doctor::Finding>)> {
+    use crate::doctor::{self, Group};
+    let Verify { module, resman, skip, .. } = asked;
+    let missing = match skip.group(Group::References) {
+        true => Vec::new(),
+        false => {
+            if !step("Looking for what is missing") {
+                return None;
+            }
+            let of = asked.compiled.unwrap_or(module);
+            let references = match asked.references {
+                Some(references) => references,
+                None => timings.time("the module's references", || module_references(of)),
+            };
+            timings.time("missing references", || missing_of(of, resman, references))
+        }
+    };
+    if !step("Checking the custom content") {
+        return None;
+    }
+    let mut findings =
+        doctor::examine_groups(module, resman, asked.tlk, skip, timings, asked.cache);
+    // (The lines typed text takes, held to the table.)
+    findings.extend(doctor::talk_range(module, asked.custom_tlk, skip));
+    // (The walkmesh bake's rules, rows and leftovers.)
+    findings.extend(doctor::bake(module, resman, asked.codepage, skip));
+    // (The palettes' groupings, held to the palettes.)
+    findings.extend(timings.time("palette groupings", || {
+        doctor::palette_groups(module, resman, asked.palette_name, skip)
+    }));
+    Some((missing, findings))
+}
+
+/// Every reference in the module, in its resources' order: each resource
+/// read on a core of its own.
 pub fn module_references(module: &Module) -> Vec<Reference> {
-    module.keys().flat_map(|k| references(*k, module.get(k).unwrap_or_default())).collect()
+    use rayon::prelude::*;
+    let keys: Vec<&ResKey> = module.keys().collect();
+    let of_each: Vec<Vec<Reference>> =
+        keys.par_iter().map(|k| references(**k, module.get(k).unwrap_or_default())).collect();
+    of_each.into_iter().flatten().collect()
 }
 
 /// References that neither the module nor `resman` (the game, haks, and
@@ -249,13 +343,17 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
     // stack has it.
     let local = resman.layers().iter().any(|l| Local::of_priority(l.priority).is_some());
     let only_local = |k: &ResKey| if local { only_local(module, resman, k) } else { None };
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for r in references {
-        let candidates = r.candidates();
+    // What is wrong with a name of a kind, if anything (whether it is not
+    // compiled, and where alone it is found): the same for every reference
+    // to it, so each is looked for in the layers once, however many
+    // creatures name the script (a quarter of a million placed creatures
+    // each name the same dozen default scripts, found under every hak).
+    type Wrong = Option<(bool, Option<Local>)>;
+    let verdict = |kind: RefKind, target: mg_core::ResRef| -> Wrong {
+        let candidates = kind.candidates(target);
         // The game runs compiled scripts; a source alone does not satisfy a
         // script reference (but is reported as uncompiled, not missing).
-        let satisfying: Vec<&ResKey> = match r.kind {
+        let satisfying: Vec<&ResKey> = match kind {
             RefKind::Script => {
                 candidates.iter().filter(|k| k.restype == ResType::NCS && has(k)).collect()
             }
@@ -267,16 +365,24 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
         let local_only =
             if !locals.is_empty() && locals.iter().all(Option::is_some) { locals[0] } else { None };
         if candidates.is_empty() || (!satisfying.is_empty() && local_only.is_none()) {
-            continue;
+            return None;
         }
+        let uncompiled = local_only.is_none()
+            && kind == RefKind::Script
+            && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
+        Some((uncompiled, local_only))
+    };
+    let mut verdicts: HashMap<(RefKind, mg_core::ResRef), Wrong> = HashMap::new();
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for r in references {
+        let found = verdicts.entry((r.kind, r.target)).or_insert_with(|| verdict(r.kind, r.target));
+        let Some((uncompiled, local_only)) = *found else { continue };
         // Each missing target once per referencing resource (a dialog may
         // use the same script on hundreds of nodes).
         if !seen.insert((r.from, r.kind, r.target)) {
             continue;
         }
-        let uncompiled = local_only.is_none()
-            && r.kind == RefKind::Script
-            && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
         out.push(Missing {
             category: Category::of(&r),
             reference: r,
@@ -400,30 +506,17 @@ pub fn table_scripts_in(rm: &ResMan) -> Vec<Reference> {
 /// of a script's constants read the module's script, else the one `rm`
 /// finds (the game's `nwscript`).
 pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference> {
-    use crate::table_desc::{Description, Kind, description_in_module};
     let mut out = Vec::new();
     let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
     keys.sort();
     for key in keys {
-        let Some(text) =
-            description_in_module(module, &key).and_then(|p| std::fs::read_to_string(p).ok())
-        else {
+        let columns = described_script_columns(module, rm, &key, false);
+        if columns.is_empty() {
             continue;
-        };
-        let script = |name: &str| {
-            let k = ResKey::parse(name, ResType::NSS)?;
-            module
-                .get(&k)
-                .map(<[u8]>::to_vec)
-                .or_else(|| rm.and_then(|rm| rm.get(&k).ok()).map(|d| d.into_owned()))
-        };
-        let Ok(d) = Description::parse(&text, &script) else { continue };
+        }
         let data = module.get(&key).unwrap_or_default();
         let Ok(t) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default()) else { continue };
-        for (column, c) in &d.columns {
-            if c.kind != Kind::Script {
-                continue;
-            }
+        for column in &columns {
             for row in 0..t.len() {
                 let Some(cell) = t.get(row, column) else { continue };
                 let Ok(target) = mg_core::ResRef::from_str(cell.trim()) else { continue };
@@ -432,6 +525,57 @@ pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference>
                     out.push(Reference { from: key, path, kind: RefKind::Script, target });
                 }
             }
+        }
+    }
+    out
+}
+
+/// The columns of one of the module's own tables that its description
+/// says hold a script's name (`kind = "script"`), in the description's
+/// order; none where it has no description that reads. With `lenient` (a
+/// rename, which has the module alone) a column that can't be read, as
+/// one whose list is the game's script's constants, is left out and the
+/// rest are read.
+fn described_script_columns(
+    module: &Module,
+    rm: Option<&ResMan>,
+    key: &ResKey,
+    lenient: bool,
+) -> Vec<String> {
+    use crate::table_desc::{Description, Kind, description_in_module};
+    let Some(text) =
+        description_in_module(module, key).and_then(|p| std::fs::read_to_string(p).ok())
+    else {
+        return Vec::new();
+    };
+    let script = |name: &str| {
+        let k = ResKey::parse(name, ResType::NSS)?;
+        module
+            .get(&k)
+            .map(<[u8]>::to_vec)
+            .or_else(|| rm.and_then(|rm| rm.get(&k).ok()).map(|d| d.into_owned()))
+    };
+    let read = match lenient {
+        false => Description::parse(&text, &script),
+        true => Description::read(&text, &script),
+    };
+    let Ok(d) = read else { return Vec::new() };
+    let named = d.columns.iter().filter(|(_, c)| c.kind == Kind::Script);
+    named.map(|(column, _)| column.to_string()).collect()
+}
+
+/// The columns of one of the module's own tables whose cells name a
+/// script: those the game runs one from where it is one of the game's
+/// tables ([`crate::doctor::SCRIPT_COLUMNS`]), and those its description
+/// says hold one ([`described_scripts`]). What Find References lists of
+/// the table, and what a rename of a script rewrites in it.
+pub fn script_columns(module: &Module, key: &ResKey) -> Vec<String> {
+    let name = key.resref.to_string().to_ascii_lowercase();
+    let game = crate::doctor::SCRIPT_COLUMNS.iter().filter(|(t, _)| *t == name);
+    let mut out: Vec<String> = game.map(|(_, column)| column.to_string()).collect();
+    for column in described_script_columns(module, None, key, true) {
+        if !out.iter().any(|c| c.eq_ignore_ascii_case(&column)) {
+            out.push(column);
         }
     }
     out
@@ -678,6 +822,53 @@ mod tests {
         );
         let unused: Vec<String> = unused(&m).iter().map(|k| k.to_string()).collect();
         assert_eq!(unused, ["lonely.ncs (compiled only (no source))", "spare_bp.utc"]);
+    }
+
+    /// A name many references share is looked for once and said for each
+    /// resource that names it, once: missing, not compiled, found only in
+    /// the player's own content, or fine (the review's V12: each of a
+    /// world's millions of references walked every layer again).
+    #[test]
+    fn a_name_many_references_share_is_said_once_a_resource() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        for area in ["area1", "area2"] {
+            let mut g = Gff::new(*b"GIT ");
+            for _ in 0..3 {
+                let mut c = git::CREATURE_LIST.new_item();
+                c.write(&git::creature_list::SCRIPT_SPAWN, rr("nowhere"));
+                c.write(&git::creature_list::SCRIPT_HEARTBEAT, rr("src_only"));
+                c.write(&git::creature_list::SCRIPT_DEATH, rr("base_script"));
+                c.write(&git::creature_list::SCRIPT_ATTACKED, rr("mine_only"));
+                g.root.items_mut(&git::CREATURE_LIST).push(c);
+            }
+            m.set_gff(key(area, ResType::GIT), &g).unwrap();
+        }
+        m.set(key("src_only", ResType::NSS), Vec::new());
+        let (mut base, mut mine) = (MemContainer::new(), MemContainer::new());
+        base.insert(key("base_script", ResType::NCS), Vec::new());
+        mine.insert(key("mine_only", ResType::NCS), Vec::new());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, mine);
+        let refs = module_references(&m);
+        assert_eq!(refs.len(), 24);
+        let mut got: Vec<(String, String, bool, Option<Local>)> = missing_of(&m, &rm, refs)
+            .iter()
+            .map(|x| {
+                let r = &x.reference;
+                (r.from.to_string(), r.target.to_string(), x.uncompiled, x.only_local)
+            })
+            .collect();
+        got.sort();
+        let of = |area: &str| {
+            [
+                (format!("{area}.git"), "mine_only".to_string(), false, Some(Local::Override)),
+                (format!("{area}.git"), "nowhere".to_string(), false, None),
+                (format!("{area}.git"), "src_only".to_string(), true, None),
+            ]
+        };
+        assert_eq!(got, [of("area1"), of("area2")].concat());
     }
 
     /// A script is said once, with the files the module has of it.

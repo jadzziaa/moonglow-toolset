@@ -80,6 +80,54 @@ fn a_csv_export_is_translated_and_read_back() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("\"xx\" isn't a language"));
 }
 
+/// A conversation written as Ink and read back over itself ends as it
+/// did: its own end script, and none where it has none (the review's V7:
+/// both became Aurora's `nw_walk_wp`). A story that says nothing of them,
+/// as one written in Inky, leaves the conversation's as they are.
+#[test]
+fn a_story_read_back_keeps_the_conversation_s_end_scripts() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("mg-dialog-end-scripts");
+    let path = dir.join("town.mod");
+    let mut m = Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello.");
+    add_node(&mut g, Parent::Node(Kind::Entry, hello), "Bye.");
+    let script = |name: &str| mg_gff::Value::resref(mg_core::ResRef::from_str(name).unwrap());
+    g.root.set("EndConversation", script("gate_done"));
+    g.root.set("EndConverAbort", script(""));
+    let key = ResKey::parse("gate", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let ink = dir.join("gate.ink");
+    let (p, i) = (path.to_str().unwrap(), ink.to_str().unwrap());
+    let run = |args: &[&str]| {
+        let out = crate::mg_alone().args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+    let ends = || {
+        let g = Module::open(&path).unwrap().gff(&key).unwrap().unwrap();
+        let name = |label: &str| g.root.resref(label).unwrap().to_string();
+        (name("EndConversation"), name("EndConverAbort"))
+    };
+    run(&["dialog-export", p, "gate.dlg", i]);
+    let story = std::fs::read_to_string(&ink).unwrap();
+    assert!(story.starts_with("# end:gate_done\n# abort:\n"), "{story}");
+    // As a new conversation, and over the one it came from.
+    run(&["dialog-import", p, i, "--name", "gate_copy"]);
+    run(&["dialog-import", p, i]);
+    assert_eq!(ends(), ("gate_done".to_string(), String::new()));
+    let copy = ResKey::parse("gate_copy", ResType::DLG).unwrap();
+    let copy = Module::open(&path).unwrap().gff(&copy).unwrap().unwrap();
+    assert_eq!(copy.root.get("EndConversation"), g.root.get("EndConversation"));
+    assert_eq!(copy.root.get("EndConverAbort"), g.root.get("EndConverAbort"));
+    // Edited in Inky, its tags gone: the conversation's own stay.
+    std::fs::write(&ink, "-> a\n=== a ===\nHello again.\n+ [Bye.] -> END\n").unwrap();
+    run(&["dialog-import", p, i]);
+    assert_eq!(ends(), ("gate_done".to_string(), String::new()));
+}
+
 /// Several conversations into a folder (`--to`, `--format`), each as
 /// NAME.ink after its name, as the one-file form writes it; `--all` for
 /// every one; files there already only with `--force`; a name the module

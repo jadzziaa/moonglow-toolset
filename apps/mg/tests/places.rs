@@ -340,3 +340,34 @@ fn a_rename_to_a_name_with_other_characters_is_refused() {
         m.keys_of(ResType::UTC).map(|k| k.resref.as_str().unwrap().to_string()).collect();
     assert!(names.contains(&"sentry".to_string()), "lowered: {names:?}");
 }
+
+/// A script's rename follows into the module's own `spells.2da`: the cell
+/// that named it names the new one, and the command says so (the review's
+/// V4: the cell kept the name of a script that was gone).
+#[test]
+fn a_script_s_rename_follows_into_the_module_s_tables() {
+    let dir = mg_testkit::scratch_dir("mg-rename-tables");
+    let path = dir.join("spells.mod");
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.set(key("x_s0_mine", ResType::NSS), b"void main() {}\n".to_vec());
+    m.set(key("x_s0_mine", ResType::NCS), b"NCS V1.0".to_vec());
+    let table = "2DA V2.0\n\n   Label ImpactScript\n0  Mine  X_S0_Mine\n1  Other x_s0_other\n";
+    m.set(key("spells", ResType::TWODA), table.as_bytes().to_vec());
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let nowhere = dir.join("no-game");
+    let out = crate::mg_on(&nowhere, None)
+        .args(["--json", "rename", path.to_str().unwrap(), "x_s0_mine.nss", "x_s0_mine2"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(said["in_tables"], 1, "{said}");
+    assert!(said["changed"].as_array().unwrap().contains(&"spells.2da".into()), "{said}");
+    let notes = said["notes"].to_string();
+    assert!(notes.contains("1 in the module's 2DAs"), "{said}");
+    let m = Module::open(&path).unwrap();
+    let saved = String::from_utf8(m.get(&key("spells", ResType::TWODA)).unwrap().to_vec()).unwrap();
+    assert_eq!(saved, table.replace("X_S0_Mine", "x_s0_mine2"));
+}

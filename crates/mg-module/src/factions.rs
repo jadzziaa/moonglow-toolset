@@ -18,6 +18,9 @@ use crate::Module;
 /// The five factions every module has; they cannot be removed.
 pub const STANDARD: [&str; 5] = ["PC", "Hostile", "Commoner", "Merchant", "Defender"];
 
+/// The standard faction that fights no one, in [`STANDARD`].
+const COMMONER: u32 = 2;
+
 /// A reputation looked up where the file has none (Aurora's value, which it
 /// also writes into the file when it looks one up).
 pub const DEFAULT_REPUTATION: u32 = 100;
@@ -172,17 +175,22 @@ impl Factions {
 
     /// Removes a faction (not a standard one): its reputations go, and the
     /// factions after it move down one id. Returns the old-to-new id map
-    /// for objects that refer to factions ([`renumber_faction_users`]).
+    /// for objects that refer to factions ([`renumber_faction_users`]). An
+    /// object still of the removed faction (the caller asks
+    /// [`faction_users`] first, and removes none in use) goes to the
+    /// faction it started from, its parent, or to Commoner where it has
+    /// none: never left with its number, which is now another faction's.
     pub fn remove(&mut self, id: u32) -> Option<impl Fn(u32) -> Option<u32> + use<>> {
         if (id as usize) < STANDARD.len() || id as usize >= self.factions.len() {
             return None;
         }
-        self.factions.remove(id as usize);
+        let removed = self.factions.remove(id as usize);
         let map = move |old: u32| match old.cmp(&id) {
             std::cmp::Ordering::Less => Some(old),
             std::cmp::Ordering::Equal => None,
             std::cmp::Ordering::Greater => Some(old - 1),
         };
+        let heir = removed.parent.and_then(map).unwrap_or(COMMONER);
         for f in &mut self.factions {
             f.parent = f.parent.and_then(map);
         }
@@ -190,7 +198,7 @@ impl Factions {
             .into_iter()
             .filter_map(|((t, p), r)| Some(((map(t)?, map(p)?), r)))
             .collect();
-        Some(map)
+        Some(move |old: u32| map(old).or(Some(heir)))
     }
 }
 
@@ -233,7 +241,8 @@ pub fn faction_users(m: &Module, id: u32) -> Vec<ResKey> {
         .collect()
 }
 
-/// Rewrites the faction ids of the module's objects after a removal;
+/// Rewrites the faction ids of the module's objects after a removal
+/// (`map`: [`Factions::remove`]'s; an id it gives none for is left);
 /// returns the resources changed.
 pub fn renumber_faction_users(m: &mut Module, map: impl Fn(u32) -> Option<u32>) -> Vec<ResKey> {
     let keys: Vec<ResKey> =
@@ -284,5 +293,37 @@ mod tests {
         assert_eq!(id, 5);
         assert!(f.remove(id).is_some());
         assert_eq!(f.factions, standard.factions);
+    }
+
+    /// The objects of the factions after a removed one follow them down,
+    /// and one still of the removed faction goes to the faction it started
+    /// from: it is not left with the number, which is the next faction's
+    /// now (the review's V19).
+    #[test]
+    fn an_object_of_a_removed_faction_is_not_left_with_its_number() {
+        let mut f = Factions::read(&crate::new::default_factions());
+        let (a, b) = (f.add("A", true, 4), f.add("B", true, 3));
+        let c = f.add("C", true, b);
+        let mut m = Module::new();
+        let key = |n: &str| ResKey::parse(n, ResType::UTC).unwrap();
+        let of = |m: &Module, n: &str| m.gff(&key(n)).unwrap().unwrap().root.integer("FactionID");
+        for (name, faction) in [("in_a", a), ("in_b", b), ("in_c", c), ("hostile", 1)] {
+            let mut g = Gff::new(*b"UTC ");
+            g.root.set("FactionID", Value::Word(faction as u16));
+            m.set_gff(key(name), &g).unwrap();
+        }
+        assert_eq!(faction_users(&m, b), [key("in_b")]);
+        let map = f.remove(b).unwrap();
+        assert_eq!(f.factions[b as usize].name, "C", "C has B's number now");
+        assert_eq!(f.factions[b as usize].parent, None, "and no parent: its was B");
+        let changed = renumber_faction_users(&mut m, map);
+        assert_eq!(changed, [key("in_b"), key("in_c")]);
+        assert_eq!(of(&m, "in_a"), Some(i64::from(a)));
+        assert_eq!(of(&m, "in_b"), Some(3), "to Merchant, which B started from");
+        assert_eq!(of(&m, "in_c"), Some(i64::from(b)), "C's new number");
+        assert_eq!(of(&m, "hostile"), Some(1));
+        // One with no parent: its objects are Commoners.
+        let map = f.remove(b).unwrap();
+        assert_eq!(map(b), Some(COMMONER));
     }
 }

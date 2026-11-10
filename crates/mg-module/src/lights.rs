@@ -236,7 +236,10 @@ pub fn plan(
 ) -> Result<Plan, String> {
     let spec = spec.normalized();
     let key = placeables_key();
-    let top = rm.find(&key).ok_or("the game data has no placeables.2da")?;
+    // (Not the walkmesh bake's pending rows' layer, which is over every hak
+    // while a baked row waits for the project's build: no hak can be moved
+    // above it.)
+    let top = crate::bake::layer_read(rm, &key).ok_or("the game data has no placeables.2da")?;
     let layers = rm.layers();
     let label = format!("hak:{}", hak.name.to_lowercase());
     let at = layers.iter().position(|l| l.label.eq_ignore_ascii_case(&label));
@@ -283,7 +286,22 @@ pub fn plan(
     let row = match had {
         Some(row) => row,
         None => {
-            while table.len() < first_row.unwrap_or(0) {
+            // The row it would take: held to the last the game can use
+            // before the table is padded to it.
+            let next = table.len().max(first_row.unwrap_or(0));
+            let last = crate::bake::LAST_ROW as usize;
+            if next > last {
+                let why = match first_row {
+                    Some(first) if first > last => format!("the project's first_row is {first}"),
+                    _ => format!("placeables.2da has {} rows", table.len()),
+                };
+                return Err(format!(
+                    "a light would take row {next} of placeables.2da, past row {last}, the last \
+                     the game can use ({why}): it carries an object's row as a 16-bit number and \
+                     would draw another row's model"
+                ));
+            }
+            while table.len() < next {
                 table.add_row();
             }
             let row = table.add_row();
@@ -466,6 +484,51 @@ mod tests {
         assert!(again.describe().contains("Nothing is written"));
         let other = plan(&rm, cp, LightSpec { radius: 8.0, ..spec }, listed, None).unwrap();
         assert_eq!((other.row, other.reused), (20001, false));
+    }
+
+    /// While a baked row waits for the project's build, Moonglow reads
+    /// placeables.2da from a layer of its own over the haks: a light still
+    /// goes into the hak whose copy the game reads, listed or new (the
+    /// review's V3: both were refused, with advice to move the hak above a
+    /// layer that is no hak).
+    #[test]
+    fn pending_baked_rows_do_not_refuse_a_light() {
+        let dir = mg_testkit::scratch_dir("mg-lights-pending");
+        let base = table(&["Chest **** plc_c01 **** 1 0 0"]);
+        let theirs = table(&["Chest **** plc_c01 **** 1 0 0", "Their_Own **** x_own **** 1 0 0"]);
+        let pending = table(&[
+            "Chest **** plc_c01 **** 1 0 0",
+            "Their_Own **** x_own **** 1 0 0",
+            "Baked **** mgbk_0001 **** 1 0 0",
+        ]);
+        let rm = game(&[
+            (crate::bake::PENDING_LABEL, crate::bake::PENDING_PRIORITY, Some(pending)),
+            ("hak:theirs", priority::HAK_USER, Some(theirs)),
+            ("game", priority::KEY, Some(base)),
+        ]);
+        let (cp, spec) = (Codepage::default(), LightSpec::default());
+        let listed = HakChoice { name: "theirs".into(), path: dir.join("theirs.hak"), new: false };
+        let p = plan(&rm, cp, spec, listed, None).unwrap();
+        assert_eq!((p.row, p.table_from.as_str()), (2, "hak:theirs"));
+        let p = plan(&rm, cp, spec, new_hak(&dir, "lights").unwrap(), None).unwrap();
+        assert_eq!((p.row, p.table_from.as_str()), (2, "hak:theirs"));
+    }
+
+    /// A light's row is one the game can carry (16 bits): a first row past
+    /// 65535 is refused before the table is padded to it (the review's V8:
+    /// four billion rows were added, or row 70000 written, which the game
+    /// draws as row 4464), and the last row itself is taken.
+    #[test]
+    fn a_row_past_the_last_the_game_carries_is_refused() {
+        let dir = mg_testkit::scratch_dir("mg-lights-last-row");
+        let rm = game(&[("game", priority::KEY, Some(table(&["A **** a **** 1 0 0"])))]);
+        let (cp, spec) = (Codepage::default(), LightSpec::default());
+        let new = || new_hak(&dir, "lights").unwrap();
+        for first in [65536, 70000, 4_000_000_000] {
+            let e = plan(&rm, cp, spec, new(), Some(first)).unwrap_err();
+            assert!(e.contains("past row 65535") && e.contains("first_row"), "{e}");
+        }
+        assert_eq!(plan(&rm, cp, spec, new(), Some(65535)).unwrap().row, 65535);
     }
 
     /// A development folder above the haks with its own table: a new hak

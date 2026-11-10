@@ -262,7 +262,8 @@ fn script_strrefs(src: &[u8], tokens: &[mg_script::lex::Token]) -> Vec<(Location
     out
 }
 
-/// A cell of a hak's 2DA that names a talk-table line ([`hak_strrefs`]).
+/// A cell of a hak's 2DA that names a talk-table line ([`hak_strrefs`])
+/// or a script ([`hak_scripts`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HakCell {
     /// The hak (its name, without `.hak`).
@@ -310,6 +311,62 @@ pub fn hak_strrefs(resman: &ResMan, strref: u32) -> Vec<HakCell> {
         }
     }
     out
+}
+
+/// Where the module's haks' 2DAs name the script `script`, in the columns
+/// the game runs a script from (`doctor::SCRIPT_COLUMNS`: a spell's impact
+/// script, a trap's...): each hak's own copy of a table, in the haks'
+/// order. A rename of a module's script can't rewrite them ([`rename`]
+/// rewrites the module's own tables): asked after one of the old name,
+/// they are the cells that still name it. `resman` is the module's game
+/// data (its haks among its layers, `hak:NAME`).
+pub fn hak_scripts(resman: &ResMan, script: ResRef) -> Vec<HakCell> {
+    let haks = resman.layers().iter().enumerate().filter(|(_, l)| {
+        matches!(l.priority, mg_resman::priority::HAK | mg_resman::priority::HAK_USER)
+    });
+    let mut tables: Vec<&str> = crate::doctor::SCRIPT_COLUMNS.iter().map(|(t, _)| *t).collect();
+    tables.dedup();
+    let name = script.to_string();
+    let mut out = Vec::new();
+    for (i, layer) in haks {
+        let hak = layer.label.strip_prefix("hak:").unwrap_or(&layer.label).to_string();
+        for table_name in &tables {
+            let Some(key) = ResKey::parse(table_name, ResType::TWODA) else { continue };
+            let Ok(data) = resman.get_in(i, &key) else { continue };
+            let Ok(table) = mg_2da::TwoDa::parse(&data, Codepage::default()) else { continue };
+            let columns = crate::doctor::SCRIPT_COLUMNS.iter().filter(|(t, _)| t == table_name);
+            for (_, column) in columns {
+                for row in 0..table.len() {
+                    if table.get(row, column).is_some_and(|c| c.trim().eq_ignore_ascii_case(&name))
+                    {
+                        let cell = format!("row {row}, {column}");
+                        out.push(HakCell { hak: hak.clone(), table: key, cell });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What a rename says of the cells of the haks' tables that still name a
+/// script by its old name ([`hak_scripts`]), for both front ends: nothing
+/// where there are none.
+pub fn hak_scripts_warning(old: ResRef, cells: &[HakCell]) -> Option<String> {
+    let (first, rest) = cells.split_first()?;
+    let places: Vec<String> =
+        std::iter::once(first).chain(rest).take(5).map(HakCell::place).collect();
+    let more = match cells.len().saturating_sub(places.len()) {
+        0 => String::new(),
+        n => format!(" and {n} more"),
+    };
+    Some(format!(
+        "{} of the haks' tables still {} {old} ({}{more}); the game will run nothing there until \
+         the hak's table names the new script",
+        if rest.is_empty() { "A cell".to_string() } else { format!("{} cells", cells.len()) },
+        if rest.is_empty() { "names" } else { "name" },
+        places.join(", ")
+    ))
 }
 
 /// A script's integer literal: decimal, `0x`, `0b` or `0o`.
@@ -401,22 +458,22 @@ impl UsageIndex {
         // (An object's own: a field of a struct the root holds.)
         let own = |path: &GffPath| matches!(&path.0[..], [_, Step::Field(l)] if l == "Tag");
         let Some(read) = self.seen.get(&git) else { return Vec::new() };
-        let mut tags: Vec<&[u8]> = (read.tags.iter())
+        let mut tags: std::collections::HashSet<&[u8]> = (read.tags.iter())
             .filter(|(path, tag)| own(path) && !tag.is_empty())
             .map(|(_, tag)| &tag[..])
             .collect();
         // (A tag another area's object has too: a transition to it still
-        // goes there.)
-        let elsewhere = |tag: &[u8]| {
-            self.seen.iter().any(|(k, r)| {
-                k.restype == ResType::GIT
-                    && k.resref != area
-                    && r.tags.iter().any(|(path, t)| own(path) && t == tag)
-            })
-        };
-        tags.sort();
-        tags.dedup();
-        tags.retain(|t| !elsewhere(t));
+        // goes there. The other areas' tags are walked once, not once for
+        // each tag of this one.)
+        let others = (self.seen.iter())
+            .filter(|(k, _)| k.restype == ResType::GIT && k.resref != area)
+            .flat_map(|(_, r)| r.tags.iter().filter(|(path, _)| own(path)));
+        for (_, tag) in others {
+            tags.remove(&tag[..]);
+        }
+        if tags.is_empty() {
+            return Vec::new();
+        }
         let leads = |path: &GffPath, tag: &[u8]| {
             matches!(path.0.last(), Some(Step::Field(l)) if l == "LinkedTo") && tags.contains(&tag)
         };
@@ -438,6 +495,29 @@ impl UsageIndex {
             }
         }
         out
+    }
+
+    /// The resources a rename of `target` has to read ([`rename_among`]):
+    /// those that name it (the ones [`usages`](Self::usages) lists) and,
+    /// with `literals`, the scripts with a string that spells its name, in
+    /// order. From what [`refresh`](Self::refresh) read, with no resource
+    /// read again: ask an index refreshed for the module as it is.
+    pub fn holders(&self, target: ResKey, literals: bool) -> Vec<ResKey> {
+        let kinds = kinds(target.restype);
+        let name = target.resref.to_string();
+        let names = |r: &Reference| kinds.contains(&r.kind) && r.target == target.resref;
+        let spells = |read: &Read| {
+            let spelled = |&(a, b): &(usize, usize)| {
+                read.data.get(a..b).is_some_and(|s| s.eq_ignore_ascii_case(name.as_bytes()))
+            };
+            literals && read.strings.iter().any(spelled)
+        };
+        let mut keys: Vec<ResKey> = (self.seen.iter())
+            .filter(|(_, read)| read.refs.iter().any(names) || spells(read))
+            .map(|(k, _)| *k)
+            .collect();
+        keys.sort();
+        keys
     }
 
     /// [`usages`] of `target`, from what [`refresh`](Self::refresh) read.
@@ -761,6 +841,9 @@ pub struct RenameReport {
     pub references: usize,
     /// `#include` lines and script strings rewritten.
     pub in_scripts: usize,
+    /// Cells of the module's own 2DAs that named a renamed script,
+    /// rewritten ([`crate::verify::script_columns`]).
+    pub in_tables: usize,
     /// Scripts whose source changed; their compiled code was removed, to be
     /// compiled again.
     pub recompile: Vec<ResKey>,
@@ -799,12 +882,32 @@ pub fn recompile(
 /// `.git` and `.gic`) to `to` and points everything in the module that names
 /// it at the new name: references, its own name fields (an area's `ResRef`,
 /// a blueprint's `TemplateResRef`, a store's `ResRef`), `#include` lines,
-/// and, with `literals`, script strings spelling the old name.
+/// a script's name in the cells of the module's own 2DAs that hold one
+/// ([`crate::verify::script_columns`]; the haks' tables are not the
+/// module's: [`hak_scripts`] finds what is left in them) and, with
+/// `literals`, script strings spelling the old name.
 pub fn rename(
     module: &mut Module,
     from: ResKey,
     to: ResRef,
     literals: bool,
+) -> Result<RenameReport, RenameError> {
+    rename_among(module, from, to, literals, None)
+}
+
+/// [`rename`] that reads, for what names the resource, only `holders`:
+/// the resources an index of the module's references says name it
+/// ([`UsageIndex::holders`], asked with the same `literals` of an index
+/// refreshed for `module` as it is). Without them every GFF resource and
+/// script of the module is read, as [`rename`] does (0.8 s of a
+/// persistent world, on one core: the window has the index, and the
+/// command line has not). The module's own tables are read either way.
+pub fn rename_among(
+    module: &mut Module,
+    from: ResKey,
+    to: ResRef,
+    literals: bool,
+    holders: Option<&[ResKey]>,
 ) -> Result<RenameReport, RenameError> {
     let kinds = kinds(from.restype);
     if kinds.is_empty() {
@@ -824,6 +927,10 @@ pub fn rename(
     }
     let mut report = RenameReport::default();
     let bad = |k: ResKey| move |e: String| RenameError::Resource(k, e);
+    // (The resource itself is read under its new name, whatever names it.)
+    let held: Option<std::collections::HashSet<ResKey>> = holders
+        .map(|h| h.iter().copied().chain(family.iter().map(|t| ResKey::new(to, *t))).collect());
+    let read = |k: &ResKey| held.as_ref().is_none_or(|h| h.contains(k));
 
     // The resources themselves, under the new name, with their own name.
     for t in moving {
@@ -848,7 +955,7 @@ pub fn rename(
     }
 
     // References in GFF resources.
-    let keys: Vec<ResKey> = module.keys().copied().collect();
+    let keys: Vec<ResKey> = module.keys().copied().filter(&read).collect();
     for key in keys {
         if key.restype.is_gff() {
             let Some(Ok(mut g)) = module.gff(&key) else { continue };
@@ -874,8 +981,46 @@ pub fn rename(
         }
     }
 
+    // A script's name in the module's own tables: the columns the game
+    // runs a script from, and those a table's description says hold one
+    // (a whole cell, in any case, as the game looks a script up).
+    if kinds.contains(&RefKind::Script) {
+        let (old, new) = (from.resref.to_string(), to.to_string());
+        let mut tables: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
+        tables.sort();
+        for key in tables {
+            let columns = crate::verify::script_columns(module, &key);
+            if columns.is_empty() {
+                continue;
+            }
+            let data = module.get(&key).expect("present").to_vec();
+            let codepage = Codepage::default();
+            let Ok(mut table) = mg_2da::TwoDa::parse(&data, codepage) else { continue };
+            let mut cells = 0;
+            for column in &columns {
+                let Some(c) = table.column(column) else { continue };
+                for row in 0..table.len() {
+                    let names = |cell: &str| cell.trim().eq_ignore_ascii_case(&old);
+                    if table.get(row, column).is_some_and(names) {
+                        table
+                            .set(row, c, Some(new.clone()))
+                            .map_err(|e| bad(key)(e.to_string()))?;
+                        cells += 1;
+                    }
+                }
+            }
+            if cells > 0 {
+                let written =
+                    table.to_bytes_like(codepage, &data).map_err(|e| bad(key)(e.to_string()))?;
+                module.set(key, written);
+                report.in_tables += cells;
+                report.changed.push(key);
+            }
+        }
+    }
+
     // Script sources: #include lines, and strings if asked.
-    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
+    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().filter(&read).collect();
     for key in scripts {
         let src = module.get(&key).expect("present").to_vec();
         let mut spans = Vec::new();
@@ -1110,6 +1255,133 @@ mod tests {
             rename(&mut m, key("guard_spawn", ResType::NSS), rr("x"), false),
             Err(RenameError::Missing(key("guard_spawn", ResType::NSS)))
         );
+    }
+
+    /// A script's name in the module's own tables follows a rename: in the
+    /// columns the game runs a script from (`spells.2da`'s ImpactScript)
+    /// and in those a table's description says hold a script, a whole cell
+    /// in any case; another column's cell and a longer name are left, and
+    /// the table keeps its layout (the review's V4: the cells still named
+    /// a script that was gone, and nothing said so).
+    #[test]
+    fn renaming_a_script_rewrites_the_module_s_own_tables() {
+        let dir = mg_testkit::scratch_dir("rename-script-tables");
+        let mut m = module();
+        let spells = "2DA V2.0\r\n\r\n   Label  ImpactScript  Other\r\n0  Wake   GUARD_SPAWN   \
+                      guard_spawn\r\n1  Sleep  guard_spawnx  ****\r\n";
+        m.set(key("spells", ResType::TWODA), spells.as_bytes().to_vec());
+        let modes = "2DA V2.0\n\n Label Script Mode\n0 Fight guard_spawn J_ONE\n";
+        m.set(key("j_modes", ResType::TWODA), modes.as_bytes().to_vec());
+        m.set(key("plain", ResType::TWODA), modes.as_bytes().to_vec());
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        // (Its other column a list of the game's constants, which a rename
+        // has no game data to read: the script column is still known.)
+        std::fs::write(
+            dir.join("j_modes.2da.toml"),
+            "[columns.Script]\nkind = \"script\"\n[columns.Mode]\nkind = \"list\"\n\
+             constants = \"nwscript\"\nprefix = \"J_\"\n",
+        )
+        .unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        let r = rename(&mut m, key("guard_spawn", ResType::NSS), rr("guard_wake"), false).unwrap();
+        assert_eq!(r.in_tables, 2);
+        for table in ["spells", "j_modes"] {
+            assert!(r.changed.contains(&key(table, ResType::TWODA)), "{table}: {:?}", r.changed);
+        }
+        let text = |name: &str| {
+            String::from_utf8(m.get(&key(name, ResType::TWODA)).unwrap().to_vec()).unwrap()
+        };
+        assert_eq!(
+            text("spells"),
+            "2DA V2.0\r\n\r\n   Label  ImpactScript  Other\r\n0  Wake   guard_wake    \
+             guard_spawn\r\n1  Sleep  guard_spawnx  ****\r\n"
+        );
+        assert_eq!(text("j_modes"), "2DA V2.0\n\n Label Script Mode\n0 Fight guard_wake J_ONE\n");
+        assert_eq!(text("plain"), modes, "no description: its columns are not known");
+        // A conversation's rename leaves the tables alone.
+        let r = rename(&mut m, key("guard_talk", ResType::DLG), rr("guard_spawnx"), false);
+        assert_eq!(r.map(|r| r.in_tables), Ok(0));
+    }
+
+    /// A rename given the resources the index says name the resource reads
+    /// those alone, and gives the module and the report a rename that
+    /// reads every resource gives: for a script (with and without its
+    /// strings), a blueprint, an area and an include.
+    #[test]
+    fn a_rename_among_the_index_s_holders_is_the_rename() {
+        let mut m = module();
+        // (A script that names nothing: never among the holders.)
+        m.set(key("idle", ResType::NSS), b"void main() {}\n".to_vec());
+        let mut index = UsageIndex::default();
+        index.refresh(&m);
+        let spawn = key("guard_spawn", ResType::NSS);
+        assert_eq!(
+            index.holders(spawn, false),
+            [
+                key("guard", ResType::UTC),
+                key("guard_talk", ResType::DLG),
+                key("keep", ResType::GIT)
+            ]
+        );
+        let with_strings = index.holders(spawn, true);
+        assert!(with_strings.contains(&key("on_load", ResType::NSS)), "{with_strings:?}");
+        let asked = [
+            (spawn, false),
+            (spawn, true),
+            (key("guard", ResType::UTC), true),
+            (key("keep", ResType::ARE), false),
+            (key("inc_guard", ResType::NSS), false),
+        ];
+        for (from, literals) in asked {
+            let (mut whole, mut among) = (m.clone(), m.clone());
+            let holders = index.holders(from, literals);
+            assert!(!holders.contains(&key("idle", ResType::NSS)), "{from}: {holders:?}");
+            let a = rename(&mut whole, from, rr("renamed"), literals).unwrap();
+            let b =
+                rename_among(&mut among, from, rr("renamed"), literals, Some(&holders)).unwrap();
+            assert_eq!(a, b, "{from}");
+            assert!(a.references + a.in_scripts > 0, "{from}: something names it");
+            let keys = |m: &Module| {
+                let mut keys: Vec<ResKey> = m.keys().copied().collect();
+                keys.sort();
+                keys
+            };
+            assert_eq!(keys(&whole), keys(&among), "{from}");
+            for k in keys(&whole) {
+                assert_eq!(whole.get(&k), among.get(&k), "{from}: {k}");
+            }
+        }
+    }
+
+    /// The haks' tables are not the module's to rewrite: the cells that
+    /// name a script are found, each hak's own copy, for the rename to say.
+    #[test]
+    fn the_haks_tables_cells_that_name_a_script_are_found() {
+        use mg_resman::{LayerClass, MemContainer, priority};
+        let table = |cell: &str| {
+            format!("2DA V2.0\n\n   Label ImpactScript\n0  A {cell}\n1  B ****\n").into_bytes()
+        };
+        let spells = key("spells", ResType::TWODA);
+        let (mut game, mut hak) = (MemContainer::new(), MemContainer::new());
+        game.insert(spells, table("guard_spawn"));
+        hak.insert(spells, table("Guard_Spawn"));
+        hak.insert(
+            key("traps", ResType::TWODA),
+            b"2DA V2.0\n\n   Label TrapScript\n0  T guard_spawn2\n".to_vec(),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "hak:kz_2da", LayerClass::Erf, hak);
+        let found = hak_scripts(&rm, rr("guard_spawn"));
+        let places: Vec<String> = found.iter().map(HakCell::place).collect();
+        assert_eq!(places, ["kz_2da › spells.2da › row 0, ImpactScript"]);
+        assert_eq!(
+            hak_scripts_warning(rr("guard_spawn"), &found).unwrap(),
+            "A cell of the haks' tables still names guard_spawn (kz_2da › spells.2da › row 0, \
+             ImpactScript); the game will run nothing there until the hak's table names the new \
+             script"
+        );
+        assert_eq!(hak_scripts_warning(rr("x"), &hak_scripts(&rm, rr("x"))), None);
     }
 
     /// The index answers as one read anew for the question does (the

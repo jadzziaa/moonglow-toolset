@@ -265,8 +265,13 @@ impl Moonglow {
             self.log.error(e.to_string());
             return;
         }
+        // (What names it is read from the references the window keeps,
+        // where they are at hand: not every resource of the module again.)
+        let holders = (self.references.index(&ws.module, self.background_jobs))
+            .map(|index| index.holders(from, literals));
         let mut staged = ws.module.clone();
-        let report = match rename::rename(&mut staged, from, to, literals) {
+        let renamed = rename::rename_among(&mut staged, from, to, literals, holders.as_deref());
+        let report = match renamed {
             Ok(r) => r,
             Err(e) => {
                 self.log.error(format!("Rename: {e}"));
@@ -322,11 +327,26 @@ impl Moonglow {
             return;
         }
         self.retarget(from, to);
+        let in_tables = match report.in_tables {
+            0 => String::new(),
+            n => format!(", {n} in the module's 2DAs"),
+        };
         self.log.info(format!(
-            "Renamed {from} to {new}: {} reference(s), {} in scripts",
+            "Renamed {from} to {new}: {} reference(s), {} in scripts{in_tables}",
             report.references, report.in_scripts
         ));
         self.warn_still_spelled(&from.resref.to_string());
+        // (A script's name in the haks' tables, which a rename can't
+        // rewrite.)
+        if matches!(from.restype, ResType::NSS | ResType::NCS | ResType::NDB)
+            && let Some(game) = &self.game
+            && let Some(warning) = rename::hak_scripts_warning(
+                from.resref,
+                &rename::hak_scripts(&game.resman, from.resref),
+            )
+        {
+            self.log.warn(warning);
+        }
         if !compiled_ok {
             self.log.warn(
                 "Some scripts the rename changed aren't compiled; compile them before testing",

@@ -236,7 +236,23 @@ written in those tools and brought in. The mapping:
   a parameter's are (below), and in a Twine passage's tags, which can't
   hold a space, its spaces too (`comment:Asked%20about%20the%20sword`).
   In a Twine reply they go in braces as the action does:
-  `[[Bye. {anim bow} {comment Leaves for good}->END]]`.
+  `[[Bye. {anim bow} {comment Leaves for good}->END]]`. An animation
+  that plays once (Other Actions' Loop off) has `loop:0` beside it.
+- **The conversation's own settings** (Current File): the scripts run
+  when it ends and when it is aborted, and, where they are not Aurora's
+  own, the delays before NPC lines and replies and the camera kept from
+  zooming in.
+  - Ink: tags before the first knot, `# end:gate_done` and
+    `# abort:gate_done` (nothing after the colon: no script is run),
+    `# delay-entry:500`, `# delay-reply:500`, `# zoom:no`.
+  - Twine: an object of Moonglow's in the story's data,
+    `"moonglow": {"end":"gate_done","abort":"gate_done"}` (and
+    `"delay-entry"`, `"delay-reply"`, `"zoom"`). Twine itself may not
+    keep it when it saves the story again.
+  - A story that says none of them (one written in Twine or Inky) makes
+    a conversation with Aurora's (`nw_walk_wp` for both scripts); where
+    `mg dialog-import` puts it in the place of a conversation, that
+    conversation's stay as they are.
 - **Player replies** are a passage's links or a knot's choices, leading
   to the next NPC line or to `END`.
   - Twine: `[[Who are you? {if c_curious} {do a_note}->E5]]`.

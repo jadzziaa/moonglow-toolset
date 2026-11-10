@@ -208,6 +208,49 @@ fn find_references_finds_a_line_in_scripts_and_the_haks_2das() {
     assert!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), "the script opens");
 }
 
+/// A script's rename follows into the module's own `spells.2da`, and the
+/// log says which cell of a hak's table still names the old script: that
+/// table is not the module's to rewrite (the review's V4).
+#[test]
+fn a_script_s_rename_rewrites_the_module_s_tables_and_warns_of_the_haks() {
+    use mg_schema::{StructExt, ifo};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-rename-script-tables");
+    let user = user_folder(&dir, &["hak"]);
+    let table = b"2DA V2.0\n\n   Label ImpactScript\n0  Mine  hello\n1  Other x_other\n".to_vec();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    hak.add(ResRef::from_str("spells").unwrap(), ResType::TWODA, table.clone()).unwrap();
+    std::fs::write(user.join("hak/kz_spells.hak"), hak.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, mg_schema::ExoString::from("kz_spells"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(item);
+    m.set_info(&info).unwrap();
+    let spells = ResKey::parse("spells", ResType::TWODA).unwrap();
+    m.set(spells, table);
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    app.rename_resource(hello, ResRef::from_str("greet").unwrap(), false);
+    let module = &app.ws.as_ref().unwrap().module;
+    let text = String::from_utf8_lossy(module.get(&spells).unwrap()).into_owned();
+    assert!(text.contains("0  Mine  greet\n"), "{text}");
+    let said = |s: &str| app.log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said("1 in the module's 2DAs"), "{:?}", app.log);
+    assert!(
+        said(
+            "A cell of the haks' tables still names hello (kz_spells › spells.2da › row 0, \
+             ImpactScript)"
+        ),
+        "{:?}",
+        app.log
+    );
+}
+
 #[test]
 fn find_and_replace_text_across_the_module() {
     use mg_edit::{Command, Edit};
