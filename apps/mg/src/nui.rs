@@ -231,7 +231,10 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
 /// Creator's Rename… renames it (`mg_nui::rename`: its settings, its two
 /// scripts and the module's scripts that open it), and built again under
 /// its new name as `mg nui generate` builds, the one with the other, and
-/// saved. A window that can't be built is renamed all the same, and said.
+/// saved. A window that can't be built is renamed all the same, and said;
+/// and the exit says it, and that a script that opens the window does not
+/// compile under the new name, as `mg nui generate`'s does: the module is
+/// saved with old compiled scripts, and a pipeline should stop there.
 pub(crate) fn rename(
     cli: &Cli,
     module: &Path,
@@ -245,6 +248,7 @@ pub(crate) fn rename(
         mg_nui::rename(&ws.module, from, to, strings).with_context(|| window_text(module, from))?;
     let mut compile = json!(null);
     let mut remembered = None;
+    let mut failed = false;
     if made.build {
         let gi = install(cli)?;
         let rm = module_resman(&gi, &ws.module, &mut out)?;
@@ -255,13 +259,17 @@ pub(crate) fn rename(
         match mg_nui::build_renamed(&ws.module, &mut made, to, &how) {
             Ok(Some(built)) => {
                 compile = compiled(&mut out, &built.failed);
+                failed = !built.failed.is_empty();
                 remembered = Some(built.remembered);
             }
             Ok(None) => {}
-            Err(e) => out.note(format!(
-                "warning: {to}'s scripts, and the scripts that open it, are not compiled under \
-                 its new name ({e}): run mg nui generate"
-            )),
+            Err(e) => {
+                failed = true;
+                out.note(format!(
+                    "warning: {to}'s scripts, and the scripts that open it, are not compiled \
+                     under its new name ({e}): run mg nui generate"
+                ));
+            }
         }
     }
     let changed: Vec<String> = made.command.edits.iter().map(|e| e.key().to_string()).collect();
@@ -295,6 +303,7 @@ pub(crate) fn rename(
         made.in_scripts,
         if remembered.is_some() { ", built under its new name" } else { "" }
     ));
+    out.failed = failed;
     Ok(out)
 }
 

@@ -207,6 +207,50 @@ fn rename_renames_a_window_and_builds_it_under_its_new_name() {
     assert_eq!(again["resources"], json!([]), "{again}");
 }
 
+/// A script that opens the window and does not compile under the new
+/// name: the window is renamed, built and saved all the same, the script
+/// is printed, and the command
+/// fails, as `mg nui generate` does (it exited 0, and a pipeline went on
+/// with a module of old scripts).
+#[test]
+fn a_rename_fails_when_a_script_that_opens_the_window_does_not_compile() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-rename-bad-caller");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    m.set(
+        key("my_enter.nss"),
+        b"#include \"shop_o\"\nvoid main() { Open_shop(GetEnteringObject()); }\n".to_vec(),
+    );
+    m.save().unwrap();
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    m.set(
+        key("my_broken.nss"),
+        b"#include \"shop_o\"\nvoid main() { Open_shop(NoSuchFunction()); }\n".to_vec(),
+    );
+    m.set(key("my_broken.ncs"), b"NCS as it was".to_vec());
+    m.save().unwrap();
+    let (ok, renamed) = crate::quiet_json_out(&mut command(
+        Some(&root),
+        &["--json", "rename", p, "shop.jui", "store"],
+    ));
+    assert!(!ok, "{renamed}");
+    assert_eq!((&renamed["built"], &renamed["compiled"]["failed"]), (&json!(true), &json!(1)));
+    assert_eq!(renamed["compiled"]["errors"][0]["script"], "my_broken", "{renamed}");
+    let m = Module::open(&path).unwrap();
+    for name in ["store.jui", "store_o.nss", "store_e.ncs", "my_enter.ncs"] {
+        assert!(m.contains(&key(name)), "{name}");
+    }
+    assert!(!m.contains(&key("shop.jui")), "renamed and saved all the same");
+    // (Its compiled script was of its text before the rename: gone, as
+    // a rename leaves no compiled script of another text.)
+    assert!(!m.contains(&key("my_broken.ncs")));
+    let broken = String::from_utf8_lossy(m.get(&key("my_broken.nss")).unwrap()).into_owned();
+    assert!(broken.contains("#include \"store_o\""), "{broken}");
+}
+
 #[test]
 fn a_second_generate_changes_nothing() {
     let root = mg_testkit::corpus!();
