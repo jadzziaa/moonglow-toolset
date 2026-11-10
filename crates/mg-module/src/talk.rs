@@ -309,6 +309,31 @@ pub struct Table {
     /// since the table was saved: they are the module's changes, outside
     /// the table's own history, and make it unsaved.
     typed_unsaved: bool,
+    /// The lines as they are now ([`Table::revision`]).
+    revision: u64,
+}
+
+/// A number no table has had as its [`Table::revision`].
+fn next_revision() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// What [`Table::find`] looks for: the words, lowered, and the number
+/// typed, if it is one.
+struct Sought {
+    number: Option<u64>,
+    words: Vec<String>,
+}
+
+impl Sought {
+    fn new(query: &str) -> Sought {
+        let query = query.trim();
+        Sought {
+            number: query.parse().ok(),
+            words: query.split_whitespace().map(str::to_lowercase).collect(),
+        }
+    }
 }
 
 /// A line put in the table for a field's text typed
@@ -345,6 +370,7 @@ impl Table {
             saved: Some(0),
             game: None,
             typed_unsaved: false,
+            revision: next_revision(),
         })
     }
 
@@ -367,6 +393,7 @@ impl Table {
             saved: None,
             game: None,
             typed_unsaved: false,
+            revision: next_revision(),
         }
     }
 
@@ -384,6 +411,15 @@ impl Table {
     /// not part of a hak.
     pub fn editable(&self) -> bool {
         self.source.writable() && self.feminine.as_ref().is_none_or(|f| f.0.writable())
+    }
+
+    /// A number that changes whenever a line of the table does (set,
+    /// typed, taken back, undone, read again from its file), and that no
+    /// other table has had: what is worked out from its lines (which are
+    /// free, where the next one goes) can be kept by it. (A change made by
+    /// writing [`Table::tlk`] directly does not move it.)
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn len(&self) -> usize {
@@ -442,6 +478,7 @@ impl Table {
             changed = true;
         }
         if changed {
+            self.revision = next_revision();
             self.undo.clear();
             self.redo.clear();
             self.saved = Some(0);
@@ -529,6 +566,7 @@ impl Table {
     /// feminine table is padded with copies of the table's lines to reach
     /// it.
     fn put(&mut self, row: usize, (m, f): Entries) {
+        self.revision = next_revision();
         let last = self.tlk.entries.len().saturating_sub(1);
         match m {
             Some(m) => {
@@ -979,21 +1017,26 @@ impl Table {
     /// The lines whose text (either table's) has every word, ignoring case,
     /// or whose StrRef or row number is the query.
     pub fn find(&self, query: &str) -> Vec<usize> {
-        let query = query.trim();
-        let number: Option<u64> = query.parse().ok();
-        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        (0..self.len())
-            .filter(|&row| {
-                if let Some(n) = number
-                    && (n == row as u64 || n == u64::from(Self::strref(row).0))
-                {
-                    return true;
-                }
-                let l = self.line(row);
-                let text = format!("{}\n{}", l.text, l.feminine.unwrap_or_default()).to_lowercase();
-                words.iter().all(|w| text.contains(w.as_str()))
-            })
-            .collect()
+        let sought = Sought::new(query);
+        (0..self.len()).filter(|&row| self.has(row, &sought)).collect()
+    }
+
+    /// Whether line `row` is one [`find`](Self::find) finds for `query`:
+    /// for what was found to be kept up with one line changed, without
+    /// looking through them all again.
+    pub fn finds(&self, row: usize, query: &str) -> bool {
+        row < self.len() && self.has(row, &Sought::new(query))
+    }
+
+    fn has(&self, row: usize, sought: &Sought) -> bool {
+        if let Some(n) = sought.number
+            && (n == row as u64 || n == u64::from(Self::strref(row).0))
+        {
+            return true;
+        }
+        let l = self.line(row);
+        let text = format!("{}\n{}", l.text, l.feminine.unwrap_or_default()).to_lowercase();
+        sought.words.iter().all(|w| text.contains(w.as_str()))
     }
 
     /// Writes the table (and the feminine table) to their files: a

@@ -678,7 +678,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
 /// it, and how many are left.
 fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
     use mg_module::project_file::ProjectFile;
-    use mg_module::talk_range::{self, Allowed, Lines};
+    use mg_module::talk_range::{Allowed, Lines};
     // (The table opened, to say how much of it is left.)
     crate::talk_view::load(app);
     let Some(ws) = &app.ws else { return };
@@ -764,41 +764,36 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
         ui.weak(format!("Builders' own lines ({file} [talk.builders]): {}", parts.join(", ")));
     }
     // Where the next one goes, and how many are left.
-    let said = match (&allowed, app.talk.as_ref()) {
-        (_, None) => None,
-        (_, Some(t)) => {
-            let next = crate::talk_typed::next_line(app, t);
-            let map_lines = map.clone().unwrap_or_default();
-            let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
-            let left =
-                talk_range::free_lines(&allowed, len, |l| t.is_blank(l as usize), &map_lines);
-            Some(match (next, left) {
-                (Err(e), _) => (e, true),
-                (Ok(row), Some((free, total))) => (
-                    format!(
-                        "Next: line {row} (StrRef {}); {free} of {total} left{}",
-                        mg_module::talk::Table::strref(row).0,
-                        match (&allowed, code.as_deref()) {
-                            (Allowed::Range { but, .. }, _) if !but.is_empty() => {
-                                " (the others' parts passed over)".to_string()
-                            }
-                            (_, Some(c)) if rules.builders.contains_key(c) => {
-                                format!(" of your own ({c})")
-                            }
-                            _ => String::new(),
+    // (Kept while the table, the range and the map are as they were: the
+    // used part of the range was gone through twice a frame.)
+    let said = match crate::talk_typed::room(app) {
+        None => None,
+        Some((next, left)) => Some(match (next, left) {
+            (Err(e), _) => (e, true),
+            (Ok(row), Some((free, total))) => (
+                format!(
+                    "Next: line {row} (StrRef {}); {free} of {total} left{}",
+                    mg_module::talk::Table::strref(row).0,
+                    match (&allowed, code.as_deref()) {
+                        (Allowed::Range { but, .. }, _) if !but.is_empty() => {
+                            " (the others' parts passed over)".to_string()
                         }
-                    ),
-                    free * 10 <= total,
+                        (_, Some(c)) if rules.builders.contains_key(c) => {
+                            format!(" of your own ({c})")
+                        }
+                        _ => String::new(),
+                    }
                 ),
-                (Ok(row), None) => (
-                    format!(
-                        "Next: line {row} (StrRef {}), at the table's end",
-                        mg_module::talk::Table::strref(row).0
-                    ),
-                    false,
+                free * 10 <= total,
+            ),
+            (Ok(row), None) => (
+                format!(
+                    "Next: line {row} (StrRef {}), at the table's end",
+                    mg_module::talk::Table::strref(row).0
                 ),
-            })
-        }
+                false,
+            ),
+        }),
     };
     match said {
         Some((text, true)) => {
