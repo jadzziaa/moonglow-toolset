@@ -1846,6 +1846,7 @@ impl Moonglow {
         let now = ui.input(|i| i.time);
         area_view::let_go_of_unseen(self, now);
         model_view::let_go_of_unseen(self, now);
+        blueprint::let_go_of_unseen(self, ui.ctx());
         // A Properties text field that was typed in and is not drawn any
         // more: set now, as it would have been when left, and among what
         // its window's Cancel sets back.

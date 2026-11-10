@@ -715,6 +715,12 @@ pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
     made
 }
 
+/// After a frame: what the pages keep while they are drawn, let go of
+/// for those that were not (`replacements::let_go_of_unseen`).
+pub(crate) fn let_go_of_unseen(app: &mut Moonglow, ctx: &egui::Context) {
+    replacements::let_go_of_unseen(app, ctx);
+}
+
 /// What `make` makes of a list the game data keeps (`of`: a table, or
 /// its rows as choices, made once and handed out as the same `Arc`) and
 /// of `key`, kept in egui's memory under `id` while both are the same: a

@@ -1354,6 +1354,18 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert_eq!(replacements(&mut h, &key, TEXTURES).unwrap().0.len(), 2);
+    // Opened and its page left: it closes (and lets go of its pictures,
+    // which it kept until its OK or Cancel: the review's B26), and is not
+    // there when the page is shown again.
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    settle(&mut h);
+    h.get_by_label("Select Texture");
+    h.get_by_label("Basic").click();
+    h.run();
+    assert!(h.query_by_label("Select Texture").is_none());
+    h.get_by_label("Visuals").click();
+    h.run();
+    assert!(h.query_by_label("Select Texture").is_none(), "left with its page");
     // Reset, the model's texture's (first), then the other's.
     h.get_all_by_label("Reset").next().unwrap().click();
     h.run();

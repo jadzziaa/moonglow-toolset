@@ -657,7 +657,8 @@ Shared parts:
     drawn with (item, feat and spell icons, portraits, load screens, the
     area map's tiles and the GUI's own: more than three quarters of the
     game's textures), are left out unless **Interface textures too** is
-    ticked. The name can also be typed after **Drawn as**.
+    ticked. The gallery closes when its page is left. The name can
+    also be typed after **Drawn as**.
     **Reset** removes a replacement. PLT textures are marked *PLT*: a
     replacement draws the texture picked in their place, as it is,
     without the object's colors, as the game does. A texture whose name is longer than 16 characters is listed

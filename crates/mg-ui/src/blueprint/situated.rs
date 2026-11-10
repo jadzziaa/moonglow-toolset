@@ -176,14 +176,23 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         return;
     };
     let base = |row: usize| table.get(row, "BaseResRef").filter(|b| *b != "****");
-    let choices: Vec<(usize, &str)> =
-        (0..table.len()).filter_map(|row| base(row).map(|b| (row, b))).collect();
+    // (The rows with a portrait's name, as a list's choices: made once
+    // for the table, and kept. Every page with a portrait made a name for
+    // every row each frame.)
+    let list = super::kept_for(ui.ctx(), egui::Id::new("portrait-rows"), &table, &(), || {
+        let rows = (0..table.len()).filter_map(|row| Some(Choice { row, text: base(row)?.into() }));
+        std::sync::Arc::new(rows.collect::<Vec<Choice>>())
+    });
     let resref = f.root.resref("Portrait").filter(|r| !r.is_empty());
     let current = match f.root.integer("PortraitId") {
         Some(id) if id != 0xFFFF => Some(id as usize),
         _ => resref.and_then(|r| {
             let name = r.to_string();
-            choices.iter().find(|(_, b)| format!("po_{b}").eq_ignore_ascii_case(&name)).map(|c| c.0)
+            let named = |c: &&Choice| {
+                name.get(..3).is_some_and(|po| po.eq_ignore_ascii_case("po_"))
+                    && name[3..].eq_ignore_ascii_case(&c.text)
+            };
+            list.iter().find(named).map(|c| c.row)
         }),
     };
     let shown = match (current.and_then(base), resref) {
@@ -193,8 +202,6 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     };
     let pick_id = egui::Id::new(("portrait-pick", f.key));
     let mut pick = None;
-    let list: Vec<Choice> =
-        choices.iter().map(|&(row, b)| Choice { row, text: b.to_string() }).collect();
     // A little room below, so the picture doesn't sit on the next row.
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
@@ -230,15 +237,23 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             names("placeabletypes", "StrRef", Some("Label")),
         );
         let int = |r: usize, c: &str| table.get_int(r, c);
-        // Those with a picture (and the one chosen, whatever it has).
+        // Those with a picture (and the one chosen, whatever it has):
+        // looked for once for the table, the module and the load order,
+        // not for every row each frame the window is open.
         let ws = f.app.ws.as_ref();
-        let pictured = |r: usize| {
-            state.chosen == Some(r)
-                || game.zip(base(r)).is_some_and(|(g, b)| crate::images::has_portrait(g, ws, b))
-        };
-        let rows: Vec<usize> = choices
+        let read_for = (ws.map(mg_edit::Workspace::revision), f.app.load_order);
+        let with_picture =
+            super::kept_for(ui.ctx(), pick_id.with("pictured"), &table, &read_for, || {
+                let has =
+                    |c: &&Choice| game.is_some_and(|g| crate::images::has_portrait(g, ws, &c.text));
+                let rows: std::collections::HashSet<usize> =
+                    list.iter().filter(has).map(|c| c.row).collect();
+                std::sync::Arc::new(rows)
+            });
+        let pictured = |r: usize| state.chosen == Some(r) || with_picture.contains(&r);
+        let rows: Vec<usize> = list
             .iter()
-            .map(|c| c.0)
+            .map(|c| c.row)
             .filter(|&r| {
                 let (plot, inanimate) = (int(r, "Plot") == Some(1), int(r, "InanimateType"));
                 let kind = match state.mode {

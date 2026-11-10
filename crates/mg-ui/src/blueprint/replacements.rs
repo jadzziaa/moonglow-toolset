@@ -546,10 +546,16 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     let mut state: TexturePick = ui.data(|d| d.get_temp(id))?;
     let needle = mg_core::text::Needle::new(&state.filter);
     let textures = state.textures.clone();
-    let shown: Vec<&String> = (textures.names.iter().zip(&textures.interface))
-        .filter(|(n, i)| (state.interface || !**i) && needle.finds(n))
-        .map(|(n, _)| n)
-        .collect();
+    // (The places of those shown, found once for the list, what is typed
+    // and the switch: 60,000 names were searched every frame.)
+    let shown_for = (state.filter.clone(), state.interface);
+    let shown = super::kept_for(ui.ctx(), id.with("shown"), &textures, &shown_for, || {
+        let listed = textures.names.iter().zip(&textures.interface).enumerate();
+        let shown = listed.filter(|(_, (n, i))| (state.interface || !**i) && needle.finds(n));
+        Arc::new(shown.map(|(at, _)| at as u32).collect::<Vec<u32>>())
+    });
+    let name_at = |i: u32| &textures.names[i as usize];
+    registered(ui, id);
     let (mut ok, mut cancel, mut wanted, mut in_sight) = (false, false, Vec::new(), Vec::new());
     let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 960.0);
     let tall = (ui.ctx().content_rect().height() * 0.6).clamp(300.0, 700.0);
@@ -598,8 +604,8 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                     .auto_shrink([false, false]);
                 if !state.placed {
                     state.placed = true;
-                    if let Some(at) =
-                        state.chosen.as_ref().and_then(|c| shown.iter().position(|n| *n == c))
+                    if let Some(at) = (state.chosen.as_ref())
+                        .and_then(|c| shown.iter().position(|&i| name_at(i) == c))
                     {
                         area = area.vertical_scroll_offset(
                             (at / per_row) as f32 * (height + ui.spacing().item_spacing.y),
@@ -610,7 +616,8 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                     ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
                     for line in lines {
                         ui.horizontal(|ui| {
-                            for name in shown.iter().skip(line * per_row).take(per_row) {
+                            for &i in shown.iter().skip(line * per_row).take(per_row) {
+                                let name = name_at(i);
                                 let made = picture_made(f, name);
                                 let chosen = state.chosen.as_deref() == Some(name.as_str());
                                 let (r, seen) =
@@ -619,13 +626,13 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                                     in_sight.push(thumb_key(name, GALLERY_THUMB));
                                 }
                                 if seen && made.is_none() {
-                                    wanted.push((*name).clone());
+                                    wanted.push(name.clone());
                                 }
                                 if r.clicked() {
-                                    state.chosen = Some((*name).clone());
+                                    state.chosen = Some(name.clone());
                                 }
                                 if r.double_clicked() {
-                                    state.chosen = Some((*name).clone());
+                                    state.chosen = Some(name.clone());
                                     ok = true;
                                 }
                             }
@@ -703,6 +710,48 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
         ui.data_mut(|d| d.insert_temp(id, state));
     }
     picked
+}
+
+/// The Select Texture windows open, each with the pass it was last drawn
+/// in ([`registered`], [`let_go_of_unseen`]).
+type Open = Vec<(egui::Id, u64)>;
+
+fn open_id() -> egui::Id {
+    egui::Id::new("select-texture-open")
+}
+
+/// Notes that the Select Texture window `id` is drawn in this pass.
+fn registered(ui: &Ui, id: egui::Id) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    ui.data_mut(|d| {
+        let open = d.get_temp_mut_or_default::<Open>(open_id());
+        match open.iter_mut().find(|(i, _)| *i == id) {
+            Some(entry) => entry.1 = pass,
+            None => open.push((id, pass)),
+        }
+    });
+}
+
+/// After a frame: a Select Texture window that was not drawn (its page
+/// left, its Properties window closed) is closed, and the pictures it
+/// made let go of. They were let go of by its OK and Cancel alone: left
+/// behind, it kept up to [`PICTURES_KEPT`] of them for the session.
+pub(crate) fn let_go_of_unseen(app: &mut crate::Moonglow, ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    let gone: Vec<egui::Id> = ctx.data_mut(|d| {
+        let Some(open) = d.get_temp::<Open>(open_id()).filter(|o| !o.is_empty()) else {
+            return Vec::new();
+        };
+        let (seen, unseen): (Open, Open) = open.into_iter().partition(|(_, at)| *at >= pass);
+        d.insert_temp(open_id(), seen);
+        unseen.into_iter().map(|(id, _)| id).collect()
+    });
+    for id in gone {
+        let Some(state) = ctx.data_mut(|d| d.remove_temp::<TexturePick>(id)) else { continue };
+        for k in &state.made {
+            app.pictures.remove(k);
+        }
+    }
 }
 
 /// A gallery picture: made (`Some(None)`: there is none), or not yet.

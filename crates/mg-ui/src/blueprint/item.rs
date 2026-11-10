@@ -591,9 +591,39 @@ fn part_grid(
         None => height,
     };
     let mut tallest: f32 = 0.0;
+    // (A choice out of sight takes its room, and nothing of it is made: a
+    // base item with a thousand icons had them all read and drawn at
+    // once, and the item copied for each every frame. A whole item's
+    // icons are of one size, the first one drawn's; a part alone is as
+    // large as it was when last drawn.)
+    let mut usual: Option<egui::Vec2> = None;
+    let sizes_id = egui::Id::new(id).with("sizes");
+    type Sizes = std::collections::HashMap<u16, egui::Vec2>;
+    let mut sizes: Sizes = match letter {
+        Some(_) => ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default(),
+        None => Sizes::new(),
+    };
+    let mut learned = false;
     egui::ScrollArea::vertical().max_height(height).id_salt(id).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for &n in numbers {
+                let known = match letter {
+                    Some(_) => sizes.get(&n).copied(),
+                    None => usual,
+                };
+                if let Some(size) = known {
+                    // (In this line of them or, this one full, the next.)
+                    let top = ui.cursor().min.y;
+                    let lines = egui::Rect::from_x_y_ranges(
+                        ui.max_rect().x_range(),
+                        top..=top + tallest.max(size.y) + gap + size.y,
+                    );
+                    if !ui.is_rect_visible(lines) {
+                        ui.allocate_exact_size(size, egui::Sense::click());
+                        tallest = tallest.max(size.y);
+                        continue;
+                    }
+                }
                 let item = with_model(&f.root, label, n);
                 let alt = format!("{what} {n}");
                 let alone = letter.and_then(|l| part_icon(f, ui, game, &item, (label, l)));
@@ -615,6 +645,10 @@ fn part_grid(
                 }
                 .on_hover_text(alt);
                 tallest = tallest.max(r.rect.height());
+                usual.get_or_insert(r.rect.size());
+                if letter.is_some() && sizes.insert(n, r.rect.size()) != Some(r.rect.size()) {
+                    learned = true;
+                }
                 if i64::from(n) == current {
                     let stroke = ui.visuals().selection.stroke;
                     // (Within the icon's own room: outside it, the grid's
@@ -627,6 +661,9 @@ fn part_grid(
             }
         });
     });
+    if learned {
+        ui.data_mut(|d| d.insert_temp(sizes_id, sizes));
+    }
     if ui.data(|d| d.get_temp::<f32>(row_id)) != Some(tallest) {
         ui.data_mut(|d| d.insert_temp(row_id, tallest));
         ui.ctx().request_repaint();
