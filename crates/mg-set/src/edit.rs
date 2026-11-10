@@ -69,6 +69,20 @@ impl SetFile {
         Ini::parse(&self.text())
     }
 
+    /// Its lines, without their ends.
+    pub fn lines(&self) -> &[String] {
+        &self.lines
+    }
+
+    /// Puts `with` in place of `remove` lines from line `at` on (clamped
+    /// to the file), and gives back the lines taken out: for an editor's
+    /// undo to keep the lines a step changed, not a copy of the file.
+    pub fn splice_lines(&mut self, at: usize, remove: usize, with: Vec<String>) -> Vec<String> {
+        let at = at.min(self.lines.len());
+        let end = at.saturating_add(remove).min(self.lines.len());
+        self.lines.splice(at..end, with).collect()
+    }
+
     /// The line range of a section's body (after its header), if it is
     /// there.
     fn body(&self, section: &str) -> Option<(usize, usize)> {
@@ -560,6 +574,20 @@ pub fn remove_last_door(f: &mut SetFile, tile: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lines_are_spliced_and_given_back() {
+        let mut f = SetFile::parse("[A]\r\nx=1\r\ny=2\r\n[B]\r\n");
+        assert_eq!(f.lines(), ["[A]", "x=1", "y=2", "[B]"]);
+        let out = f.splice_lines(1, 2, vec!["z=3".into()]);
+        assert_eq!(out, ["x=1", "y=2"]);
+        assert_eq!(f.text(), "[A]\r\nz=3\r\n[B]\r\n");
+        // Put back; and past the end is the end.
+        assert_eq!(f.splice_lines(1, 1, out), ["z=3"]);
+        assert_eq!(f.text(), "[A]\r\nx=1\r\ny=2\r\n[B]\r\n");
+        assert!(f.splice_lines(9, 5, vec!["[C]".into()]).is_empty());
+        assert_eq!(f.lines().last().map(String::as_str), Some("[C]"));
+    }
 
     const SAMPLE: &str = "; made by hand\r\n[GENERAL]\r\nName=ZZZ01\r\nTransition=5\r\n\r\n[TERRAIN TYPES]\r\nCount=1\r\n\r\n[TERRAIN0]\r\nName=Grass\r\n\r\n[TILES]\r\nCount=1\r\n\r\n[TILE0]\r\nModel=zzz01_a01_01\r\nDoors=1\r\n\r\n[TILE0DOOR0]\r\nType=1\r\n\r\n[GROUPS]\r\nCount=0\r\n";
 
