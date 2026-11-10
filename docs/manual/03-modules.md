@@ -169,7 +169,14 @@ back:
   and comments.
 - **What follows the new name:** objects' and areas' events, conversation
   lines, the module's area list and start area, objects placed from a
-  blueprint, inventories and stores, `#include` lines.
+  blueprint, inventories and stores, `#include` lines, and a script's
+  name in the module's own 2DAs: the columns the game runs a script from
+  (a `spells.2da`'s ImpactScript, a `traps.2da`'s TrapScript) and those
+  a table's [description](#a-tables-description) says hold a script.
+- **The haks' tables** are not the module's to change: where a cell of
+  one still names a renamed script, the log says which (the hak, the
+  table, the row and column), and the game runs nothing there until the
+  hak's table names the new script.
 - **Strings in scripts** change too if you tick **Also change … in
   scripts**. Check them in Find References first: a string may also be a
   tag or something else (Neverwinter Chess compares tags to `"pawn_b"`, its

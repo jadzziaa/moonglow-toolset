@@ -1295,6 +1295,8 @@ $ mg --json rename COPY guard.utc sentry
   "to": "sentry",
   "references": 14,
   "in_scripts": 0,
+  "in_tables": 0,
+  "hak_cells": [],
   "changed": [
     "sentry.utc",
     "keep.git",

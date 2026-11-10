@@ -400,30 +400,17 @@ pub fn table_scripts_in(rm: &ResMan) -> Vec<Reference> {
 /// of a script's constants read the module's script, else the one `rm`
 /// finds (the game's `nwscript`).
 pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference> {
-    use crate::table_desc::{Description, Kind, description_in_module};
     let mut out = Vec::new();
     let mut keys: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
     keys.sort();
     for key in keys {
-        let Some(text) =
-            description_in_module(module, &key).and_then(|p| std::fs::read_to_string(p).ok())
-        else {
+        let columns = described_script_columns(module, rm, &key, false);
+        if columns.is_empty() {
             continue;
-        };
-        let script = |name: &str| {
-            let k = ResKey::parse(name, ResType::NSS)?;
-            module
-                .get(&k)
-                .map(<[u8]>::to_vec)
-                .or_else(|| rm.and_then(|rm| rm.get(&k).ok()).map(|d| d.into_owned()))
-        };
-        let Ok(d) = Description::parse(&text, &script) else { continue };
+        }
         let data = module.get(&key).unwrap_or_default();
         let Ok(t) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default()) else { continue };
-        for (column, c) in &d.columns {
-            if c.kind != Kind::Script {
-                continue;
-            }
+        for column in &columns {
             for row in 0..t.len() {
                 let Some(cell) = t.get(row, column) else { continue };
                 let Ok(target) = mg_core::ResRef::from_str(cell.trim()) else { continue };
@@ -432,6 +419,57 @@ pub fn described_scripts(module: &Module, rm: Option<&ResMan>) -> Vec<Reference>
                     out.push(Reference { from: key, path, kind: RefKind::Script, target });
                 }
             }
+        }
+    }
+    out
+}
+
+/// The columns of one of the module's own tables that its description
+/// says hold a script's name (`kind = "script"`), in the description's
+/// order; none where it has no description that reads. With `lenient` (a
+/// rename, which has the module alone) a column that can't be read, as
+/// one whose list is the game's script's constants, is left out and the
+/// rest are read.
+fn described_script_columns(
+    module: &Module,
+    rm: Option<&ResMan>,
+    key: &ResKey,
+    lenient: bool,
+) -> Vec<String> {
+    use crate::table_desc::{Description, Kind, description_in_module};
+    let Some(text) =
+        description_in_module(module, key).and_then(|p| std::fs::read_to_string(p).ok())
+    else {
+        return Vec::new();
+    };
+    let script = |name: &str| {
+        let k = ResKey::parse(name, ResType::NSS)?;
+        module
+            .get(&k)
+            .map(<[u8]>::to_vec)
+            .or_else(|| rm.and_then(|rm| rm.get(&k).ok()).map(|d| d.into_owned()))
+    };
+    let read = match lenient {
+        false => Description::parse(&text, &script),
+        true => Description::read(&text, &script),
+    };
+    let Ok(d) = read else { return Vec::new() };
+    let named = d.columns.iter().filter(|(_, c)| c.kind == Kind::Script);
+    named.map(|(column, _)| column.to_string()).collect()
+}
+
+/// The columns of one of the module's own tables whose cells name a
+/// script: those the game runs one from where it is one of the game's
+/// tables ([`crate::doctor::SCRIPT_COLUMNS`]), and those its description
+/// says hold one ([`described_scripts`]). What Find References lists of
+/// the table, and what a rename of a script rewrites in it.
+pub fn script_columns(module: &Module, key: &ResKey) -> Vec<String> {
+    let name = key.resref.to_string().to_ascii_lowercase();
+    let game = crate::doctor::SCRIPT_COLUMNS.iter().filter(|(t, _)| *t == name);
+    let mut out: Vec<String> = game.map(|(_, column)| column.to_string()).collect();
+    for column in described_script_columns(module, None, key, true) {
+        if !out.iter().any(|c| c.eq_ignore_ascii_case(&column)) {
+            out.push(column);
         }
     }
     out

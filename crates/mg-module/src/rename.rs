@@ -262,7 +262,8 @@ fn script_strrefs(src: &[u8], tokens: &[mg_script::lex::Token]) -> Vec<(Location
     out
 }
 
-/// A cell of a hak's 2DA that names a talk-table line ([`hak_strrefs`]).
+/// A cell of a hak's 2DA that names a talk-table line ([`hak_strrefs`])
+/// or a script ([`hak_scripts`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HakCell {
     /// The hak (its name, without `.hak`).
@@ -310,6 +311,62 @@ pub fn hak_strrefs(resman: &ResMan, strref: u32) -> Vec<HakCell> {
         }
     }
     out
+}
+
+/// Where the module's haks' 2DAs name the script `script`, in the columns
+/// the game runs a script from (`doctor::SCRIPT_COLUMNS`: a spell's impact
+/// script, a trap's...): each hak's own copy of a table, in the haks'
+/// order. A rename of a module's script can't rewrite them ([`rename`]
+/// rewrites the module's own tables): asked after one of the old name,
+/// they are the cells that still name it. `resman` is the module's game
+/// data (its haks among its layers, `hak:NAME`).
+pub fn hak_scripts(resman: &ResMan, script: ResRef) -> Vec<HakCell> {
+    let haks = resman.layers().iter().enumerate().filter(|(_, l)| {
+        matches!(l.priority, mg_resman::priority::HAK | mg_resman::priority::HAK_USER)
+    });
+    let mut tables: Vec<&str> = crate::doctor::SCRIPT_COLUMNS.iter().map(|(t, _)| *t).collect();
+    tables.dedup();
+    let name = script.to_string();
+    let mut out = Vec::new();
+    for (i, layer) in haks {
+        let hak = layer.label.strip_prefix("hak:").unwrap_or(&layer.label).to_string();
+        for table_name in &tables {
+            let Some(key) = ResKey::parse(table_name, ResType::TWODA) else { continue };
+            let Ok(data) = resman.get_in(i, &key) else { continue };
+            let Ok(table) = mg_2da::TwoDa::parse(&data, Codepage::default()) else { continue };
+            let columns = crate::doctor::SCRIPT_COLUMNS.iter().filter(|(t, _)| t == table_name);
+            for (_, column) in columns {
+                for row in 0..table.len() {
+                    if table.get(row, column).is_some_and(|c| c.trim().eq_ignore_ascii_case(&name))
+                    {
+                        let cell = format!("row {row}, {column}");
+                        out.push(HakCell { hak: hak.clone(), table: key, cell });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What a rename says of the cells of the haks' tables that still name a
+/// script by its old name ([`hak_scripts`]), for both front ends: nothing
+/// where there are none.
+pub fn hak_scripts_warning(old: ResRef, cells: &[HakCell]) -> Option<String> {
+    let (first, rest) = cells.split_first()?;
+    let places: Vec<String> =
+        std::iter::once(first).chain(rest).take(5).map(HakCell::place).collect();
+    let more = match cells.len().saturating_sub(places.len()) {
+        0 => String::new(),
+        n => format!(" and {n} more"),
+    };
+    Some(format!(
+        "{} of the haks' tables still {} {old} ({}{more}); the game will run nothing there until \
+         the hak's table names the new script",
+        if rest.is_empty() { "A cell".to_string() } else { format!("{} cells", cells.len()) },
+        if rest.is_empty() { "names" } else { "name" },
+        places.join(", ")
+    ))
 }
 
 /// A script's integer literal: decimal, `0x`, `0b` or `0o`.
@@ -761,6 +818,9 @@ pub struct RenameReport {
     pub references: usize,
     /// `#include` lines and script strings rewritten.
     pub in_scripts: usize,
+    /// Cells of the module's own 2DAs that named a renamed script,
+    /// rewritten ([`crate::verify::script_columns`]).
+    pub in_tables: usize,
     /// Scripts whose source changed; their compiled code was removed, to be
     /// compiled again.
     pub recompile: Vec<ResKey>,
@@ -799,7 +859,10 @@ pub fn recompile(
 /// `.git` and `.gic`) to `to` and points everything in the module that names
 /// it at the new name: references, its own name fields (an area's `ResRef`,
 /// a blueprint's `TemplateResRef`, a store's `ResRef`), `#include` lines,
-/// and, with `literals`, script strings spelling the old name.
+/// a script's name in the cells of the module's own 2DAs that hold one
+/// ([`crate::verify::script_columns`]; the haks' tables are not the
+/// module's: [`hak_scripts`] finds what is left in them) and, with
+/// `literals`, script strings spelling the old name.
 pub fn rename(
     module: &mut Module,
     from: ResKey,
@@ -871,6 +934,44 @@ pub fn rename(
         {
             module.set_gff(key, &g).map_err(|e| bad(key)(e.to_string()))?;
             report.changed.push(key);
+        }
+    }
+
+    // A script's name in the module's own tables: the columns the game
+    // runs a script from, and those a table's description says hold one
+    // (a whole cell, in any case, as the game looks a script up).
+    if kinds.contains(&RefKind::Script) {
+        let (old, new) = (from.resref.to_string(), to.to_string());
+        let mut tables: Vec<ResKey> = module.keys_of(ResType::TWODA).copied().collect();
+        tables.sort();
+        for key in tables {
+            let columns = crate::verify::script_columns(module, &key);
+            if columns.is_empty() {
+                continue;
+            }
+            let data = module.get(&key).expect("present").to_vec();
+            let codepage = Codepage::default();
+            let Ok(mut table) = mg_2da::TwoDa::parse(&data, codepage) else { continue };
+            let mut cells = 0;
+            for column in &columns {
+                let Some(c) = table.column(column) else { continue };
+                for row in 0..table.len() {
+                    let names = |cell: &str| cell.trim().eq_ignore_ascii_case(&old);
+                    if table.get(row, column).is_some_and(names) {
+                        table
+                            .set(row, c, Some(new.clone()))
+                            .map_err(|e| bad(key)(e.to_string()))?;
+                        cells += 1;
+                    }
+                }
+            }
+            if cells > 0 {
+                let written =
+                    table.to_bytes_like(codepage, &data).map_err(|e| bad(key)(e.to_string()))?;
+                module.set(key, written);
+                report.in_tables += cells;
+                report.changed.push(key);
+            }
         }
     }
 
@@ -1110,6 +1211,83 @@ mod tests {
             rename(&mut m, key("guard_spawn", ResType::NSS), rr("x"), false),
             Err(RenameError::Missing(key("guard_spawn", ResType::NSS)))
         );
+    }
+
+    /// A script's name in the module's own tables follows a rename: in the
+    /// columns the game runs a script from (`spells.2da`'s ImpactScript)
+    /// and in those a table's description says hold a script, a whole cell
+    /// in any case; another column's cell and a longer name are left, and
+    /// the table keeps its layout (the review's V4: the cells still named
+    /// a script that was gone, and nothing said so).
+    #[test]
+    fn renaming_a_script_rewrites_the_module_s_own_tables() {
+        let dir = mg_testkit::scratch_dir("rename-script-tables");
+        let mut m = module();
+        let spells = "2DA V2.0\r\n\r\n   Label  ImpactScript  Other\r\n0  Wake   GUARD_SPAWN   \
+                      guard_spawn\r\n1  Sleep  guard_spawnx  ****\r\n";
+        m.set(key("spells", ResType::TWODA), spells.as_bytes().to_vec());
+        let modes = "2DA V2.0\n\n Label Script Mode\n0 Fight guard_spawn J_ONE\n";
+        m.set(key("j_modes", ResType::TWODA), modes.as_bytes().to_vec());
+        m.set(key("plain", ResType::TWODA), modes.as_bytes().to_vec());
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        // (Its other column a list of the game's constants, which a rename
+        // has no game data to read: the script column is still known.)
+        std::fs::write(
+            dir.join("j_modes.2da.toml"),
+            "[columns.Script]\nkind = \"script\"\n[columns.Mode]\nkind = \"list\"\n\
+             constants = \"nwscript\"\nprefix = \"J_\"\n",
+        )
+        .unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        let r = rename(&mut m, key("guard_spawn", ResType::NSS), rr("guard_wake"), false).unwrap();
+        assert_eq!(r.in_tables, 2);
+        for table in ["spells", "j_modes"] {
+            assert!(r.changed.contains(&key(table, ResType::TWODA)), "{table}: {:?}", r.changed);
+        }
+        let text = |name: &str| {
+            String::from_utf8(m.get(&key(name, ResType::TWODA)).unwrap().to_vec()).unwrap()
+        };
+        assert_eq!(
+            text("spells"),
+            "2DA V2.0\r\n\r\n   Label  ImpactScript  Other\r\n0  Wake   guard_wake    \
+             guard_spawn\r\n1  Sleep  guard_spawnx  ****\r\n"
+        );
+        assert_eq!(text("j_modes"), "2DA V2.0\n\n Label Script Mode\n0 Fight guard_wake J_ONE\n");
+        assert_eq!(text("plain"), modes, "no description: its columns are not known");
+        // A conversation's rename leaves the tables alone.
+        let r = rename(&mut m, key("guard_talk", ResType::DLG), rr("guard_spawnx"), false);
+        assert_eq!(r.map(|r| r.in_tables), Ok(0));
+    }
+
+    /// The haks' tables are not the module's to rewrite: the cells that
+    /// name a script are found, each hak's own copy, for the rename to say.
+    #[test]
+    fn the_haks_tables_cells_that_name_a_script_are_found() {
+        use mg_resman::{LayerClass, MemContainer, priority};
+        let table = |cell: &str| {
+            format!("2DA V2.0\n\n   Label ImpactScript\n0  A {cell}\n1  B ****\n").into_bytes()
+        };
+        let spells = key("spells", ResType::TWODA);
+        let (mut game, mut hak) = (MemContainer::new(), MemContainer::new());
+        game.insert(spells, table("guard_spawn"));
+        hak.insert(spells, table("Guard_Spawn"));
+        hak.insert(
+            key("traps", ResType::TWODA),
+            b"2DA V2.0\n\n   Label TrapScript\n0  T guard_spawn2\n".to_vec(),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "hak:kz_2da", LayerClass::Erf, hak);
+        let found = hak_scripts(&rm, rr("guard_spawn"));
+        let places: Vec<String> = found.iter().map(HakCell::place).collect();
+        assert_eq!(places, ["kz_2da › spells.2da › row 0, ImpactScript"]);
+        assert_eq!(
+            hak_scripts_warning(rr("guard_spawn"), &found).unwrap(),
+            "A cell of the haks' tables still names guard_spawn (kz_2da › spells.2da › row 0, \
+             ImpactScript); the game will run nothing there until the hak's table names the new \
+             script"
+        );
+        assert_eq!(hak_scripts_warning(rr("x"), &hak_scripts(&rm, rr("x"))), None);
     }
 
     /// The index answers as one read anew for the question does (the

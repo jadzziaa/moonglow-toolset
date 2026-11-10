@@ -3373,9 +3373,10 @@ fn run(cli: &Cli) -> Result<Output> {
             let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
             let mut out = Output::default();
             let mut compile = json!(null);
+            let mut rm = None;
             if !report.recompile.is_empty() {
-                let rm = module_resman(&install(cli)?, &m, &mut out)?;
-                let results = mg_module::rename::recompile(&mut m, &rm, &report, None, false);
+                let game = rm.insert(module_resman(&install(cli)?, &m, &mut out)?);
+                let results = mg_module::rename::recompile(&mut m, game, &report, None, false);
                 compile = compiled(&mut out, &results);
             }
             save_asked(cli, &was, &mut m, &mut out)?;
@@ -3387,16 +3388,37 @@ fn run(cli: &Cli) -> Result<Output> {
                     x.script, x.line, from.resref, x.text
                 ));
             }
+            // A script's name in the haks' tables, which are not the
+            // module's to rewrite (where the game is found, to read them).
+            let mut hak_cells = Vec::new();
+            if matches!(from.restype, ResType::NSS | ResType::NCS | ResType::NDB) {
+                if rm.is_none() {
+                    rm = install(cli).ok().and_then(|gi| module_resman(&gi, &m, &mut out).ok());
+                }
+                if let Some(game) = &rm {
+                    hak_cells = mg_module::rename::hak_scripts(game, from.resref);
+                }
+            }
+            if let Some(w) = mg_module::rename::hak_scripts_warning(from.resref, &hak_cells) {
+                out.note(format!("warning: {w}"));
+            }
             out.json = json!({
                 "from": from.to_string(),
                 "to": to.to_string(),
                 "references": report.references,
                 "in_scripts": report.in_scripts,
+                "in_tables": report.in_tables,
+                "hak_cells": hak_cells.iter().map(|c| c.place()).collect::<Vec<_>>(),
                 "changed": report.changed.iter().map(ToString::to_string).collect::<Vec<_>>(),
                 "compiled": compile,
             });
+            let in_tables = match report.in_tables {
+                0 => String::new(),
+                n => format!(" {n} in the module's 2DAs,"),
+            };
             out.note(format!(
-                "renamed {from} to {to}: {} references, {} in scripts, {} scripts compiled again",
+                "renamed {from} to {to}: {} references, {} in scripts,{in_tables} {} scripts \
+                 compiled again",
                 report.references,
                 report.in_scripts,
                 report.recompile.len()
