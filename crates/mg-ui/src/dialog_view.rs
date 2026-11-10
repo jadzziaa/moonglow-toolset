@@ -823,6 +823,32 @@ pub struct DialogClip {
     pub target: Option<(Kind, u32)>,
 }
 
+/// What is kept by line number outside a conversation's editor follows
+/// its lines whether or not the editor is drawn: String Edit of a line,
+/// open over a conversation's tab behind another, wrote its OK by the old
+/// number after an Undo elsewhere renumbered the lines (each frame of
+/// the window, before its OK is read; nothing is read where the
+/// conversation has not changed since its view last looked).
+pub(crate) fn follow_unseen(app: &mut Moonglow) {
+    let Some(key) = app.loc_edit.as_ref().map(|w| w.target.key) else { return };
+    if key.restype != ResType::DLG {
+        return;
+    }
+    let Some(mut view) = app.dialog_views.remove(&key) else { return };
+    let followed = match app.ws.as_mut() {
+        Some(ws) if view.seen.is_some_and(|(r, _)| r != ws.revision()) => {
+            let revision = ws.revision();
+            match ws.doc(&key) {
+                Ok(g) => view.follow(key, g, revision),
+                Err(_) => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    };
+    app.dialog_views.insert(key, view);
+    follow_outside(app, key, &followed);
+}
+
 /// Has what is kept by a line's number outside conversation `key`'s view
 /// follow its lines across the renumberings the view followed
 /// ([`DialogView::follow`]): the conversation clipboard, where it was

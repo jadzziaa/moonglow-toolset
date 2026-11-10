@@ -1117,6 +1117,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.game.as_deref()?.string(StrRef(n))
     };
 
+    // (A conversation's line follows its renumberings with its editor
+    // behind another tab.)
+    crate::dialog_view::follow_unseen(app);
     if let Some(edit) = app.loc_edit.take() {
         let mut edit = edit;
         let mut close = false;

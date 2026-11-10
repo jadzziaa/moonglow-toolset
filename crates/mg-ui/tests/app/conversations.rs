@@ -1049,6 +1049,43 @@ fn string_edit_of_a_line_follows_the_line() {
     assert!(h.state().loc_edit.is_none(), "its line is gone");
 }
 
+/// String Edit of a line follows it with the conversation's tab behind
+/// another, where the editor is not drawn: an OK after a line was deleted
+/// (or an Undo elsewhere put one back) wrote by the old number (the last
+/// pass's item 13, seen by the NUI drawing fixer).
+#[test]
+fn string_edit_of_a_line_follows_it_with_the_conversation_behind_another_tab() {
+    use mg_edit::GffPath;
+    use mg_module::dialog::{Kind, Parent, remove};
+    use mg_ui::widgets::{FieldTarget, LocStringEdit};
+    let (mut h, key) = dialog_from_tree("ui-dialog-string-edit-behind", &replies_dialog());
+    let path = |i: usize| GffPath::root().item(Kind::Reply.list(), i);
+    let target = FieldTarget::new(key, path(2), "Text");
+    h.state_mut().loc_edit = Some(LocStringEdit::new(target, "Line text", &LocString::default()));
+    h.run();
+    // Another tab in front of the conversation's, in its place.
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let at = h.state().dock.find_tab(&Tab::Dialog(key)).unwrap();
+    h.state_mut()
+        .dock
+        .set_focused_node_and_surface(egui_dock::NodePath { surface: at.surface, node: at.node });
+    h.state_mut().dock.push_to_focused_leaf(Tab::Resource(ifo));
+    h.run();
+    h.run();
+    let behind = h.state().dock.find_tab(&Tab::Dialog(key)).unwrap();
+    let front = h.state().dock.find_tab(&Tab::Resource(ifo)).unwrap();
+    let place = |p: egui_dock::TabPath| (p.surface, p.node);
+    assert_eq!(place(front), place(behind), "in the conversation's place, in front of it");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let mut g = ws.doc(&key).unwrap().clone();
+    remove(&mut g, Parent::Node(Kind::Entry, 0), 0);
+    let edit = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+    ws.apply(mg_edit::Command::new("Delete line", vec![edit])).unwrap();
+    h.run();
+    h.run();
+    assert_eq!(h.state().loc_edit.as_ref().map(|w| w.target.path.clone()), Some(path(1)));
+}
+
 /// The Script Wizard holds its line by its number too, and is a window over
 /// a conversation that stays live behind it: with an earlier reply deleted
 /// while it was up, Finish set the script on the reply that had taken the
