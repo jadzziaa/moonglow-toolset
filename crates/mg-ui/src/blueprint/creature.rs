@@ -1091,18 +1091,38 @@ fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
     let game = app.game.as_deref()?;
     let name = game.table("soundset").ok()?.get(usize::try_from(set).ok()?, "RESREF")?.to_string();
     let data = game.resman.get_named(&name, mg_core::ResType::SSF).ok()?;
-    let ssf = mg_ssf::Ssf::read(&data).ok()?;
-    // SSF entry 21 is Selected.
-    let sound = |e: &mg_ssf::SsfEntry| {
-        let s = String::from_utf8_lossy(&e.sound).trim_end_matches('\0').to_string();
-        ResRef::from_str(&s).ok().filter(|r| !r.is_empty())
-    };
+    sample_of(&mg_ssf::Ssf::read(&data).ok()?)
+}
+
+/// The sound a sound set is sampled by: its Selected sound (SSF entry
+/// 21), else its first. A sound's name is its field up to the first NUL,
+/// as the game reads it ([`mg_ssf::SsfEntry::sound_name`]).
+fn sample_of(ssf: &mg_ssf::Ssf) -> Option<ResRef> {
+    let sound =
+        |e: &mg_ssf::SsfEntry| ResRef::from_bytes(e.sound_name()).ok().filter(|r| !r.is_empty());
     ssf.entries.get(21).and_then(sound).or_else(|| ssf.entries.iter().find_map(sound))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sound set's sample is named by its field up to the first NUL:
+    /// bytes a tool left after it are not part of the name (the field
+    /// taken whole named no sound, so the button played nothing).
+    #[test]
+    fn a_sound_set_s_sample_is_its_field_up_to_the_first_nul() {
+        let entry = |sound: &[u8]| mg_ssf::SsfEntry {
+            sound: sound.to_vec(),
+            strref: mg_core::StrRef::NONE,
+        };
+        let mut ssf = mg_ssf::Ssf { entries: vec![entry(b""), entry(b"vs_first\0junk")] };
+        assert_eq!(sample_of(&ssf).unwrap().as_str(), Some("vs_first"));
+        ssf.entries.resize(21, entry(b""));
+        ssf.entries.push(entry(b"vs_sel\0\0\0\0\0\0xyz\0"));
+        assert_eq!(sample_of(&ssf).unwrap().as_str(), Some("vs_sel"), "Selected, not the first");
+        assert_eq!(sample_of(&mg_ssf::Ssf { entries: vec![entry(b"\0vs_x")] }), None);
+    }
 
     /// A domain or a school is stored in a BYTE: a row past 255 is said,
     /// not cut to the field's width (the review's B30: row 300 was
