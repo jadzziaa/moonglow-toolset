@@ -155,13 +155,7 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
         NuiCmd::Generate { module, name, dry_run, ndb } => {
             let ws = Workspace::new(crate::open_module(module)?);
             let mut out = Output::default();
-            let gi = install(cli)?;
-            let rm = module_resman(&gi, &ws.module, &mut out)?;
-            // What `mg compile` and the window remember of the scripts
-            // they compiled is kept in one place: these are noted there.
-            let dir = build::compiled_dir();
-            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
-            let known = build::Remembered::kept(dir.as_deref(), Some(module), made_with);
+            let (rm, dir, known) = for_building(cli, &ws.module, module, &mut out)?;
             let how = mg_nui::Build { known: Some(&known), debug: *ndb, ..mg_nui::Build::new(&rm) };
             let made = mg_nui::generate(&ws.module, name, &how)
                 .with_context(|| window_text(module, name))?;
@@ -227,6 +221,24 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
     }
 }
 
+/// What a window's scripts are built with: the game's and the module's
+/// resources, the folder of what was compiled, and what is remembered
+/// there of the module's scripts (`mg compile` and the window remember
+/// the scripts they compiled in one place: a build's are noted there).
+fn for_building(
+    cli: &Cli,
+    m: &Module,
+    module: &Path,
+    out: &mut Output,
+) -> Result<(mg_resman::ResMan, Option<PathBuf>, build::Remembered)> {
+    let gi = install(cli)?;
+    let rm = module_resman(&gi, m, out)?;
+    let dir = build::compiled_dir();
+    let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
+    let known = build::Remembered::kept(dir.as_deref(), Some(module), made_with);
+    Ok((rm, dir, known))
+}
+
 /// `mg rename MODULE NAME.jui NEW`: a NUI window renamed as the NUI
 /// Creator's Rename… renames it (`mg_nui::rename`: its settings, its two
 /// scripts and the module's scripts that open it), and built again under
@@ -250,11 +262,7 @@ pub(crate) fn rename(
     let mut remembered = None;
     let mut failed = false;
     if made.build {
-        let gi = install(cli)?;
-        let rm = module_resman(&gi, &ws.module, &mut out)?;
-        let dir = build::compiled_dir();
-        let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
-        let known = build::Remembered::kept(dir.as_deref(), Some(module), made_with);
+        let (rm, _, known) = for_building(cli, &ws.module, module, &mut out)?;
         let how = mg_nui::Build { known: Some(&known), ..mg_nui::Build::new(&rm) };
         match mg_nui::build_renamed(&ws.module, &mut made, to, &how) {
             Ok(Some(built)) => {
