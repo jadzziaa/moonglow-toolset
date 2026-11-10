@@ -1021,7 +1021,7 @@ pub fn update_from_csv_in(g: &mut Gff, csv: &str, game: Codepage) -> Result<usiz
 /// the scripts run when it ends and when it is aborted, the delays before
 /// NPC lines and replies, and whether the camera zooms in. `None`: the
 /// story does not say (one written in Twine or Inky, or by a Moonglow
-/// before 3.18.2), and the conversation it replaces keeps its own, a new
+/// before 4.0.0), and the conversation it replaces keeps its own, a new
 /// one Aurora's ([`new_dialog`]).
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Settings {

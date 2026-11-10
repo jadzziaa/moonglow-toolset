@@ -190,8 +190,7 @@ impl ScriptBuffer {
     /// in its codepage. An editor does so as it is drawn, and whatever
     /// takes places in every open script's text (References, Rename
     /// Symbol) before it does: a tab behind another is not drawn.
-    pub(crate) fn follow_module(&mut self, bytes: &[u8]) {
-        let source = (bytes.as_ptr() as usize, bytes.len());
+    pub(crate) fn follow_module(&mut self, bytes: &[u8], source: crate::tree::Stamp) {
         let codepage = script_codepage();
         let recoded = self.codepage != codepage && !self.is_dirty();
         if self.source != source || recoded {
@@ -622,7 +621,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let Some(ws) = &app.ws else { return };
     let Some(bytes) = ws.module.get(&key) else { return };
-    app.scripts.get_mut(&key).expect("just inserted").follow_module(bytes);
+    app.scripts
+        .get_mut(&key)
+        .expect("just inserted")
+        .follow_module(bytes, crate::tree::stored_stamp(ws, &key, bytes));
     let ctx = ui.ctx().clone();
 
     // This script edited, or the module changed: what other scripts found

@@ -114,7 +114,7 @@ impl Moonglow {
             // module only when it is: a script the NUI Creator, a plugin
             // or Undo wrote meanwhile is read here as the module has it.)
             if let Some(bytes) = ws.module.get(k) {
-                b.follow_module(bytes);
+                b.follow_module(bytes, crate::tree::stored_stamp(ws, k, bytes));
             }
             let h = crate::script_tools::hash(&b.text);
             if self.script_nav.texts.get(k) != Some(&h) {

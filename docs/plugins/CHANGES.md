@@ -57,7 +57,7 @@ with the reason rather than failing in its panel.
   the command's title alone (`Tint`, not `Pick tint: Tint`; the plugin's
   name shows on hover), and no longer dims the window behind it.
 
-Since Moonglow 3.18.2, still as API 0.9, a plugin meets limits and
+Since Moonglow 4.0.0, still as API 0.9, a plugin meets limits and
 refusals it did not before ([Limits](../manual/17-plugin-api.md#limits)).
 A plugin that stayed within what the manual said has nothing to change;
 one that leaned on what follows fails where it used to go on:
