@@ -833,12 +833,22 @@ struct Doctor<'a> {
     /// What Verify leaves out: never pushed.
     skip: &'a Skip,
     out: Vec<Finding>,
+    /// The 2DAs this doctor has looked at, in front of [`Doctor::tables_read`].
     tables: HashMap<String, Option<std::sync::Arc<TwoDa>>>,
+    /// Every 2DA read in this run, by name: shared by the doctors beside
+    /// this one, so that each is parsed once a run (a worker's own were
+    /// begun again at each of rayon's splits of the module's resources:
+    /// a persistent world's 17,000-row appearance.2da parsed hundreds of
+    /// times, ten times the run's whole time).
+    tables_read: TablesRead,
     /// Why each model an object names couldn't be read (`None`: it was,
     /// or it is the game's own), read once a run: shared by the doctors
     /// beside this one, which look at the module's objects on other cores.
     models_read: ModelsRead,
 }
+
+/// [`Doctor::tables_read`].
+type TablesRead = std::sync::Arc<std::sync::Mutex<HashMap<String, Option<std::sync::Arc<TwoDa>>>>>;
 
 /// [`Doctor::models_read`].
 type ModelsRead = std::sync::Arc<std::sync::Mutex<HashMap<ResKey, Option<String>>>>;
@@ -858,6 +868,7 @@ impl<'a> Doctor<'a> {
             skip: self.skip,
             out: Vec::new(),
             tables: HashMap::new(),
+            tables_read: self.tables_read.clone(),
             models_read: self.models_read.clone(),
         }
     }
@@ -900,11 +911,20 @@ impl<'a> Doctor<'a> {
     /// A 2DA as the game resolves it.
     fn table(&mut self, name: &str) -> Option<&TwoDa> {
         if !self.tables.contains_key(name) {
-            let t = ResRef::from_str(name)
-                .ok()
-                .and_then(|r| self.rm.get(&ResKey::new(r, ResType::TWODA)).ok())
-                .and_then(|d| TwoDa::parse(&d, Codepage::default()).ok());
-            self.tables.insert(name.to_string(), t.map(std::sync::Arc::new));
+            let read = &self.tables_read;
+            let known = read.lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned();
+            let t = known.unwrap_or_else(|| {
+                // (Parsed with the lock let go: another doctor may read
+                // another table meanwhile; the first one in is kept.)
+                let t = ResRef::from_str(name)
+                    .ok()
+                    .and_then(|r| self.rm.get(&ResKey::new(r, ResType::TWODA)).ok())
+                    .and_then(|d| TwoDa::parse(&d, Codepage::default()).ok())
+                    .map(std::sync::Arc::new);
+                let mut kept = read.lock().unwrap_or_else(|e| e.into_inner());
+                kept.entry(name.to_string()).or_insert(t).clone()
+            });
+            self.tables.insert(name.to_string(), t);
         }
         self.tables[name].as_deref()
     }
@@ -1004,6 +1024,7 @@ pub fn examine_groups(
         skip,
         out: Vec::new(),
         tables: HashMap::new(),
+        tables_read: TablesRead::default(),
         models_read: ModelsRead::default(),
     };
     // (Looked up in parallel: a module with a hundred haks has hundreds of
@@ -1057,7 +1078,8 @@ pub fn examine_groups(
     let each: Vec<(&ResKey, usize)> =
         (custom.iter()).filter(|(k, _)| checked(k.restype)).map(|(k, l)| (k, *l)).collect();
     let started = Instant::now();
-    // (A worker's 2DAs are read once for the resources it takes.)
+    // (A 2DA is read once a run, for every worker.)
+    let tables_read = d.tables_read.clone();
     let found: Vec<(ResKey, Vec<Finding>, Learned, Duration)> = each
         .par_iter()
         .map_init(HashMap::new, |tables, &(key, layer)| {
@@ -1071,6 +1093,7 @@ pub fn examine_groups(
                 skip,
                 out: Vec::new(),
                 tables: std::mem::take(tables),
+                tables_read: tables_read.clone(),
                 models_read: ModelsRead::default(),
             };
             let source = &layers[layer].label;
@@ -1511,6 +1534,7 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         skip: &NOTHING,
         out: Vec::new(),
         tables: HashMap::new(),
+        tables_read: TablesRead::default(),
         models_read: ModelsRead::default(),
     };
     tileset_data(&mut d, "tileset", key, data);
@@ -4256,6 +4280,35 @@ mod tests {
 
     fn checks(f: &[Finding]) -> Vec<(&str, String)> {
         f.iter().map(|f| (f.check.as_ref(), f.at.clone())).collect()
+    }
+
+    /// A 2DA is parsed once a run, for every doctor beside the first (the
+    /// workers of the module's resources): the table one reads is the
+    /// one the others are handed, as the game resolves it; a table that
+    /// isn't there is not looked for again either.
+    #[test]
+    fn a_table_is_read_once_for_the_doctors_beside() {
+        let rm = resman(&[]);
+        let d = Doctor {
+            rm: &rm,
+            tlk: TalkTables::default(),
+            shaders: None,
+            memo: None,
+            learned: Vec::new(),
+            skip: &NOTHING,
+            out: Vec::new(),
+            tables: HashMap::new(),
+            tables_read: TablesRead::default(),
+            models_read: ModelsRead::default(),
+        };
+        let (mut one, mut two) = (d.beside(), d.beside());
+        let first = one.table_shared("placeables").unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(std::sync::Arc::ptr_eq(&first, &two.table_shared("placeables").unwrap()));
+        assert!(one.table("nothere").is_none() && two.table("nothere").is_none());
+        let read = d.tables_read.lock().unwrap();
+        assert_eq!(read.len(), 2);
+        assert!(read["nothere"].is_none());
     }
 
     /// A program that compiles at the game's highest settings and not at

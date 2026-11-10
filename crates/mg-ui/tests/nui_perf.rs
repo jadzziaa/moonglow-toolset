@@ -133,6 +133,30 @@ fn a_window_of_text() {
     report("text-heavy idle frame", (0..count).map(|_| frame(&mut app)).collect());
 }
 
+/// A chart of a million samples (a log a script would fill): its line
+/// drawn by what its pixels show, not a point and a mark a sample (the
+/// review's N16).
+#[test]
+#[ignore]
+fn a_chart_of_a_million_samples() {
+    let root = mg_testkit::corpus!();
+    let mut window = mg_nui::window();
+    window["geometry"] = json!({"x": -1.0, "y": -1.0, "w": 1100.0, "h": 760.0});
+    let mut chart = mg_nui::template("chart");
+    let data: Vec<f64> = (0..1_000_000).map(|i| (f64::from(i) * 0.001).sin()).collect();
+    chart["value"][0]["data"] = json!(data);
+    chart["height"] = json!(400.0);
+    window["root"]["children"] = json!([chart]);
+    let (mut app, _, frame) = open(&root, "chart", &window);
+    let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(30);
+    let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    println!("chart opening: {opening:?}");
+    report(
+        "a chart of 1,000,000 samples, idle frame",
+        (0..count).map(|_| frame(&mut app)).collect(),
+    );
+}
+
 #[test]
 #[ignore]
 fn a_large_window() {

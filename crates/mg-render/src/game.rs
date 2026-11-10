@@ -1436,7 +1436,7 @@ impl Bound3 {
     /// bound in it. (The counts go on.)
     pub(crate) fn new_pass(&mut self) {
         self.lost();
-        self.mesh = crate::renderer::BoundMesh::default();
+        self.mesh.new_pass();
     }
 }
 

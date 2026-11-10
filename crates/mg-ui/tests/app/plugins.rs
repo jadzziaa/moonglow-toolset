@@ -702,7 +702,9 @@ fn a_plugin_asks_in_its_job_s_window() {
     // The form, as the plugin described it, with its defaults; the
     // window headed by the command's title alone (API 0.9), which is the
     // form's too, said once; the plugin's name on hover (the log has both).
-    wait_for(&mut h, "Prefix Tags");
+    // (Waited for by a field of the form: the job's window shows the
+    // heading from the job's start, before its thread has asked.)
+    wait_for(&mut h, "At most");
     assert_eq!(h.get_all_by_label("Prefix Tags").count(), 1);
     assert!(h.query_by_label("Forms: Prefix Tags").is_none());
     // (Hovered until the tip shows, with a deadline: on a busy machine
@@ -736,7 +738,7 @@ fn a_plugin_asks_in_its_job_s_window() {
 
     // Canceled at the form: nothing changes.
     h.state_mut().run_plugin_command("test.forms", "rename");
-    wait_for(&mut h, "Prefix Tags");
+    wait_for(&mut h, "At most");
     h.get_by_label("Cancel").click();
     // (Clicked again while the form still shows: on Windows CI a click
     // as the window settled was once not taken.)

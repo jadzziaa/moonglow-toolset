@@ -8871,7 +8871,9 @@ fn area_shadows_menu() {
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(5);
-        let label = if icons_only { "◑" } else { "◑ Shadows" };
+        // (With icons only the button shows its glyph and is named by its
+        // word, for a screen reader.)
+        let label = if icons_only { "Shadows" } else { "◑ Shadows" };
         h.get_by_label(label).click_secondary();
         let name = if icons_only { "shadows-menu-icons" } else { "shadows-menu" };
         shoot(&mut h, &dir, name);

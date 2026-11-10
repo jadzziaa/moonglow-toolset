@@ -1088,7 +1088,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             "    {what:32} first frame {:6.0} ms, scene {:5.2} ms, particles {:5.2} ms, draws \
              encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
-             meshes in {} draws of {} materials and {} pipelines in turn, {} of the game's, {} \
+             meshes in {} draws of {} materials, {} pipelines and {} chunks in turn, {} of the game's, {} \
              meshes out of sight; {} casting the sun's shadows, {} creatures the lights')",
             ms(first),
             ms(pick(build, 0.5)),
@@ -1102,6 +1102,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             did.batches,
             did.materials,
             did.pipelines,
+            did.chunks,
             did.game,
             did.hidden,
             did.sun_casters,
@@ -1607,7 +1608,11 @@ fn frames_at_144_in_a_persistent_world() {
         h.event(egui::Event::Text("door".into()));
         h.run_steps(300);
         view(&mut h, &mut r, "module tree, a word in the Filter (300 areas' objects)", None);
-        click(&mut h, "×");
+        // Cleared, and the groups the word opened closed again, as the
+        // tree was for the views after (open, they cost what the tree
+        // listed whole does).
+        assert!(click(&mut h, "×"), "the Filter's clear button");
+        click(&mut h, "⏶");
     }
 
     palette(&mut h, BlueprintKind::Item, true, "");
@@ -1652,6 +1657,39 @@ fn frames_at_144_in_a_persistent_world() {
     tab(&mut h, &mut r, "resource browser (300,000)", Tab::Resources);
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));
+    // Advanced Search for any variable, every hit ticked: the rows in
+    // sight laid out, not one a hit (the review's D23).
+    {
+        use mg_ui::search::{AdvancedSearch, Condition, Kind};
+        let mut d = AdvancedSearch {
+            first: Condition { kind: Kind::Variable, name: "*".into(), ..Default::default() },
+            ..Default::default()
+        };
+        h.state_mut().advanced_search(&mut d);
+        let found = d.hits.len();
+        d.ticked = vec![true; found];
+        h.state_mut().advanced_search = d;
+        tab(&mut h, &mut r, &format!("Advanced Search, {found} hits ticked"), Tab::AdvancedSearch);
+    }
+    // The Appearance Gallery of creatures over the haks' appearance.2da
+    // (17,100 rows): its names sorted once for the table, not a frame
+    // (the review's B22).
+    {
+        let mut gallery = mg_ui::appearance_gallery::Gallery::default();
+        gallery.kind = mg_ui::appearance_gallery::Kind::Creature;
+        h.state_mut().placeable_gallery = Some(gallery);
+        tab(&mut h, &mut r, "Appearance Gallery, creatures (17,100 rows)", Tab::PlaceableGallery);
+        h.state_mut().placeable_gallery = None;
+    }
+    // Find Instance with nothing typed: every placed object of the 300
+    // areas found, the rows in sight laid out (the review's A18).
+    h.state_mut().find_instance = Some(Default::default());
+    h.run_steps(2);
+    if click(&mut h, "Search") {
+        let found = h.state().find_instance.as_ref().map_or(0, |f| f.results.len());
+        view(&mut h, &mut r, &format!("Find Instance, {found} found"), None);
+    }
+    h.state_mut().find_instance = None;
 
     // placeables.2da with the haks' 4,000 rows, in the 2DA editor, a
     // filter typed.

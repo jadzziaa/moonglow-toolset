@@ -48,7 +48,7 @@
     <release version="4.0.0" date="2026-11-10">
       <description>
         <p>The fixes of a review of the whole codebase: of its 349
-        findings, 346 are fixed whole or in part. Work is no longer lost
+        findings, 348 are fixed whole or in part. Work is no longer lost
         after an Undo past a save, by the module's Undo in a script's
         unsaved text, or by an open window writing to the object that
         took its object's place. Crafted tilesets, models, archives,
@@ -61,7 +61,8 @@
         in Paint, Select Tiles and with a tile brush; the built-in
         manual follows its links; mg gff writes neverwinter.nim's
         notation; files linked into development and override are
-        read, as the game reads them.</p>
+        read, as the game reads them; Light Shadows need Creature
+        Shadows, as in the game.</p>
       </description>
     </release>
     <release version="3.18.1" date="2026-11-09">

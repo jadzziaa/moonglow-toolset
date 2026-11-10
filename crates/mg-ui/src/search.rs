@@ -1099,9 +1099,13 @@ fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
     let mut blueprints: BTreeMap<ResType, Vec<ResKey>> = BTreeMap::new();
     let mut placed: BTreeMap<(ResRef, &'static str), Vec<GffPath>> = BTreeMap::new();
     let mut areas: Vec<ResRef> = Vec::new();
+    // (Each area looked for in a set, not the list: a persistent world's
+    // 8,800 hits in 300 areas were a scan of the list a hit, most of a
+    // frame of the window, every frame it showed.)
+    let mut areas_seen = std::collections::HashSet::new();
     let mut seen = std::collections::HashSet::new();
     for h in hits {
-        if matches!(h.key.restype, ResType::ARE | ResType::GIT) && !areas.contains(&h.key.resref) {
+        if matches!(h.key.restype, ResType::ARE | ResType::GIT) && areas_seen.insert(h.key.resref) {
             areas.push(h.key.resref);
         }
         let Some(o): Option<Object> = h.object() else { continue };
@@ -1503,6 +1507,38 @@ mod tests {
         assert_eq!(object_label(Some(ResType::UTM)), "Stores");
         assert_eq!(object_label(Some(ResType::IFO)), "The module");
         assert_eq!(object_label(None), "Everything");
+    }
+
+    /// The areas of the hits are each named once, in the order their
+    /// first hit came, as a look through the list made them.
+    #[test]
+    fn the_hits_areas_are_named_once_in_their_order() {
+        let hit = |area: &str, t: ResType| Hit {
+            key: ResKey::new(ResRef::from_str(area).unwrap(), t),
+            path: GffPath::root(),
+            place: String::new(),
+            matched: String::new(),
+            object: t,
+            carried: None,
+            spawned: None,
+            layer: None,
+        };
+        let names = ["b", "a", "b", "c", "a", "d", "c"];
+        let mut hits: Vec<Hit> = names.iter().map(|n| hit(n, ResType::GIT)).collect();
+        hits.push(hit("e", ResType::ARE));
+        hits.push(hit("f", ResType::UTC));
+        let chosen: Vec<&Hit> = hits.iter().collect();
+        let mut looked: Vec<ResRef> = Vec::new();
+        for h in &chosen {
+            if matches!(h.key.restype, ResType::ARE | ResType::GIT)
+                && !looked.contains(&h.key.resref)
+            {
+                looked.push(h.key.resref);
+            }
+        }
+        let (_, areas) = together(&chosen);
+        assert_eq!(areas, looked);
+        assert_eq!(areas.len(), 5);
     }
 
     /// The conditions ticked Not are those the query leaves out, the

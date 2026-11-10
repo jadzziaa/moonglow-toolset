@@ -838,6 +838,29 @@ mod tests {
         assert!(find_all(&dir.join("recovery")).is_empty());
     }
 
+    /// Waits, with a deadline, until `done` holds of a copy a window let
+    /// go of: a child process another test's thread is starting holds a
+    /// copy of every file open at its start, the lock with it, until it
+    /// runs its program (a moment, and longer on a loaded machine: this
+    /// test found the copy still held in three of six full runs beside
+    /// other suites).
+    fn once_let_go<T>(mut look: impl FnMut() -> T, done: impl Fn(&T) -> bool) -> T {
+        let started = std::time::Instant::now();
+        loop {
+            let found = look();
+            if done(&found) || started.elapsed() > Duration::from_secs(20) {
+                return found;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The copies [`find`] offers in `dir` once a dropped window's hold on
+    /// one is gone ([`once_let_go`]).
+    fn found_let_go(dir: &Path) -> Vec<Copy> {
+        once_let_go(|| find(dir), |f| !f.is_empty())
+    }
+
     /// An application with a module open, a change unsaved, its copies in
     /// `dir/recovery`.
     fn changed(dir: &Path) -> Moonglow {
@@ -889,7 +912,7 @@ mod tests {
         app.write_recovery().unwrap();
         // (Gone with the crash, and its hold on the copy with it.)
         drop(app);
-        let copy = find(&dir.join("recovery")).remove(0);
+        let copy = found_let_go(&dir.join("recovery")).remove(0);
         let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         app.recovery_dir = Some(dir.join("recovery"));
         app.recover(&copy);
@@ -1005,13 +1028,13 @@ mod tests {
         assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
         // (The window gone with the crash, and its hold on the copy.)
         drop(app);
-        let copy = find(&dir.join("recovery")).remove(0);
+        let copy = found_let_go(&dir.join("recovery")).remove(0);
         let mut again = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         again.recover(&copy);
         let ws = again.ws.as_ref().unwrap();
         assert!(ws.is_modified() && ws.module.location.is_none(), "never saved");
         drop(again);
-        assert!(copy.remove());
+        assert!(once_let_go(|| copy.remove(), |removed| *removed));
         assert!(!archive.exists() && find_all(&dir.join("recovery")).is_empty());
         // A note alone (the copy's first writing stopped after it).
         std::fs::write(&note, &whole).unwrap();
@@ -1074,8 +1097,11 @@ mod tests {
         drop(first);
         let mut third = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         third.recovery_dir = Some(recovery.clone());
-        third.find_recoveries();
-        assert_eq!(third.recoveries.len(), 1);
+        let offered = || {
+            third.find_recoveries();
+            third.recoveries.len()
+        };
+        assert_eq!(once_let_go(offered, |n| *n == 1), 1);
         let copy = third.recoveries[0].clone();
         assert_eq!(copy.archive, one);
         third.recover(&copy);

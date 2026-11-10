@@ -640,6 +640,9 @@ pub struct Drawn {
     /// How many times a draw's pipeline was another than the draw's before
     /// it (Moonglow's own, or a program pair's of the game's).
     pub pipelines: usize,
+    /// How many times a draw's mesh lay in another of the meshes' chunks
+    /// than the draw's before it, its buffers bound anew (`pool.rs`).
+    pub chunks: usize,
     /// The meshes drawn with the game's own shaders
     /// ([`Renderer::game_shaders`]), each a draw of its own (two for a
     /// see-through one).
@@ -3018,7 +3021,15 @@ impl Renderer {
                         Some(Some((pipeline, _))) => pipeline + 4,
                         _ => u32::from(d.mesh.skin.is_some()) * 2 + u32::from(d.twosided),
                     };
-                    let state = (pipeline, key.1);
+                    // (And, for Moonglow's own pipelines, the chunk its
+                    // mesh lies in: a dense area's see-through meshes of
+                    // one material lie in a dozen, and a run of them in
+                    // the order they came bound another chunk's buffers
+                    // at most of its draws. The game's are left by
+                    // material: their pipelines and groups cost more to
+                    // set again than a chunk's buffers.)
+                    let chunk = if pipeline < 4 { d.mesh.chunk() as u32 } else { 0 };
+                    let state = (pipeline, key.1, chunk);
                     batcher.place(key, Some(state), d.bounds, None)
                 };
                 batch_of.push(batch);
@@ -3567,6 +3578,7 @@ impl Renderer {
                 pass.set_bind_group(1, &self.groups[*group as usize], &[]);
                 pass.draw(range.clone(), 0..1);
             }
+            self.drawn.chunks = game_bound.mesh.chunks;
             if !line_vertices.is_empty() {
                 pass.set_pipeline(&self.line_pipeline);
                 pass.set_bind_group(0, &self.particle_frame, &[]);
@@ -3729,6 +3741,9 @@ pub(crate) struct BoundMesh {
     indices: Option<u64>,
     /// The slot, the chunk, and replaced vertices' first.
     skin: Option<(u32, u64, Option<i32>)>,
+    /// How many times a draw bound another chunk's indices than the
+    /// draw's before it ([`Drawn::chunks`]).
+    pub(crate) chunks: usize,
 }
 
 impl BoundMesh {
@@ -3737,6 +3752,12 @@ impl BoundMesh {
     /// and weights are bound again.
     pub(crate) fn forget_skin(&mut self) {
         self.skin = None;
+    }
+
+    /// A new render pass began: nothing is bound in it. (The count goes
+    /// on.)
+    pub(crate) fn new_pass(&mut self) {
+        *self = BoundMesh { chunks: self.chunks, ..BoundMesh::default() };
     }
 
     /// Something else than a mesh's vertices was bound at the first slot
@@ -3768,6 +3789,7 @@ impl BoundMesh {
         if self.indices != Some(chunk) {
             pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
             self.indices = Some(chunk);
+            self.chunks += 1;
         }
         // (Replaced vertices begin at the first; a skinned mesh's bones
         // and weights are then bound from its own.)
