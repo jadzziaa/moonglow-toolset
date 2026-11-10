@@ -7599,3 +7599,58 @@ fn alt_and_a_drag_moves_the_view_in_every_mode() {
     assert!(panned(moved), "with a tile brush: {moved:?}");
     assert_eq!(revision(&h), unchanged, "no tile erased");
 }
+
+/// The review's A29: objects about to be pasted are shown as see-through
+/// copies and as outlines, and each asked where the pointer is on its
+/// own: with the pointer over a window in front of the view, the copies
+/// stopped and the outlines were still drawn, on the ground under the
+/// window. Both go by the pointer over the view itself. Pictures in
+/// `target/test-output/ui-area-paste-under-window/`.
+#[test]
+fn a_paste_s_outlines_stop_under_a_window_as_its_copies_do() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("paste-under-window") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    let size = egui::vec2(300.0, 260.0);
+    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    h.run();
+    // The two waypoints copied, about to be pasted.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    let centre = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(centre);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].pasting);
+    // The paste's outlines are of their own blue: how much of it shows.
+    let blue = |img: &image::RgbaImage| {
+        img.pixels()
+            .filter(|p| {
+                let [r, g, b, _] = p.0;
+                r.abs_diff(120) < 24 && g.abs_diff(230) < 24 && b.abs_diff(255) < 24
+            })
+            .count()
+    };
+    let dir = mg_testkit::output_dir("ui-area-paste-under-window");
+    let img = h.render().expect("render");
+    img.save(dir.join("over-the-view.png")).unwrap();
+    let over = blue(&img);
+    assert!(over > 50, "the outlines over the view: {over}");
+    assert_eq!(h.state().area_views[&area].pasted_shown, 2, "and the copies");
+    // The window over the view, the pointer on it near its left edge.
+    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    h.run();
+    h.hover_at(centre + egui::vec2(10.0, 0.0));
+    h.run_steps(3);
+    h.run();
+    let img = h.render().expect("render");
+    img.save(dir.join("under-a-window.png")).unwrap();
+    assert_eq!(h.state().area_views[&area].pasted_shown, 0, "no copies under a window");
+    let left = blue(&img);
+    assert!(left * 10 < over, "nor outlines: {left} pixels of {over}");
+}

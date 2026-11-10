@@ -282,10 +282,7 @@ pub struct TileClip {
 /// The tile under a screen point.
 pub(crate) fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
     let model = view.model.as_ref()?;
-    let p = view.ground_at(pos, 0.0)?;
-    let (x, y) = (p.x / mg_area::TILE_SIZE, p.y / mg_area::TILE_SIZE);
-    (x >= 0.0 && y >= 0.0 && (x as u32) < model.width && (y as u32) < model.height)
-        .then_some((x as u32, y as u32))
+    crate::area_view::tile_of(view.ground_at(pos, 0.0)?, model.width, model.height)
 }
 
 /// The tiles a box dragged from `from` to `to` on screen covers, row by

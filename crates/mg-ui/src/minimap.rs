@@ -15,7 +15,7 @@ use crate::Moonglow;
 const TILE_PIXELS: u32 = 32;
 
 /// A tile's side, metres.
-const TILE: f32 = 10.0;
+const TILE: f32 = mg_area::TILE_SIZE;
 
 /// An area's map, kept while its tiles stay as they are.
 #[derive(Clone)]

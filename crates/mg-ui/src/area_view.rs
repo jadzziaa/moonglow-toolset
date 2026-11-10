@@ -535,6 +535,11 @@ pub struct AreaView {
     /// Whether the start location's marker is selected (with no object).
     pub start_selected: bool,
     drag: Option<Drag>,
+    /// The objects the edits about to run take out and put another in
+    /// place of, each at its place (Replace Selected, its Undo and Redo):
+    /// what holds one of them holds the one in its place after
+    /// ([`held_objects`], [`objects_moved`]).
+    replaced: Vec<(ObjectKind, usize)>,
     /// The mode and tool the view's input was last read for ([`Tool`]):
     /// when it is another, what was in hand for the old one is let go of.
     tool: Tool,
@@ -1119,6 +1124,7 @@ impl AreaView {
             ghost_step: 0,
             menu_at: None,
             tool: Default::default(),
+            replaced: Vec::new(),
             menu_tile: None,
             snap: (None, None),
             turn_together: false,
@@ -1366,11 +1372,14 @@ impl AreaView {
         self.ground_at(pos, 0.0).filter(|p| self.in_area(*p))
     }
 
-    /// Whether `p` is over the area's tiles (anywhere, before it is read).
+    /// Whether `p` is over the area's tiles (anywhere, before it is
+    /// read): to a centimeter, a point on the very edge being a rounding
+    /// error either side of it.
     fn in_area(&self, p: Vec3) -> bool {
+        const EDGE: f32 = 0.01;
         self.model.as_ref().is_none_or(|m| {
             let (east, north) = m.size();
-            (0.0..=east).contains(&p.x) && (0.0..=north).contains(&p.y)
+            (-EDGE..=east + EDGE).contains(&p.x) && (-EDGE..=north + EDGE).contains(&p.y)
         })
     }
 
@@ -1408,11 +1417,10 @@ impl AreaView {
     /// drawn, so that they lie on the ground the pointer picks.
     pub(crate) fn ground_height(&self, p: Vec3) -> f32 {
         let Some(g) = &self.ground else { return p.z };
-        let index = self.model.as_ref().and_then(|m| {
-            let (x, y) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
-            let inside = x >= 0.0 && y >= 0.0 && (x as u32) < m.width && (y as u32) < m.height;
-            inside.then(|| (y as u32 * m.width + x as u32) as usize)
-        });
+        let index = self
+            .model
+            .as_ref()
+            .and_then(|m| tile_of(p, m.width, m.height).map(|(x, y)| (y * m.width + x) as usize));
         let near = index.and_then(|i| g.tile_level(i)).unwrap_or(p.z);
         g.height(p.truncate(), near).unwrap_or(near)
     }
@@ -1943,11 +1951,22 @@ impl AreaView {
     /// encounter: the encounter's place in the model, the point's in its
     /// list, and where the point is.
     fn spawn_arrow_at(&self, pos: Pos2) -> Option<(usize, usize, Vec3)> {
-        let model = self.model.as_ref()?;
-        model
-            .objects
-            .iter()
-            .enumerate()
+        self.spawn_handles()
+            .find(|&(_, _, p, facing)| {
+                self.screen_pos(spawn_arrow_tip(p, facing))
+                    .is_some_and(|tip| tip.distance(pos) <= RING_REACH)
+            })
+            .map(|(i, k, p, _)| (i, k, p))
+    }
+
+    /// The spawn points that have handles: those of the selected
+    /// encounters that are shown and not locked, on an area that is not
+    /// read-only, in the model's order. Each with its encounter's place in
+    /// the model, its own in the encounter's list, where it is and the
+    /// way it faces.
+    fn spawn_handles(&self) -> impl Iterator<Item = (usize, usize, Vec3, f32)> + '_ {
+        let objects = self.model.iter().flat_map(|m| m.objects.iter().enumerate());
+        objects
             .filter(|(i, o)| {
                 o.kind == ObjectKind::Encounter
                     && self.selected(*i)
@@ -1955,34 +1974,22 @@ impl AreaView {
                     && self.read_only.is_none()
                     && self.show[o.kind.index()]
             })
-            .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, o, k, *p)))
-            .find(|(_, o, k, p)| {
-                let facing = o.spawn_facings.get(*k).copied().unwrap_or(0.0);
-                self.screen_pos(spawn_arrow_tip(*p, facing))
-                    .is_some_and(|tip| tip.distance(pos) <= RING_REACH)
+            .flat_map(|(i, o)| {
+                o.spawn_points
+                    .iter()
+                    .enumerate()
+                    .map(move |(k, p)| (i, k, *p, o.spawn_facings.get(k).copied().unwrap_or(0.0)))
             })
-            .map(|(i, _, k, p)| (i, k, p))
     }
 
     /// The spawn point whose post's foot is under `pos`, of a selected
     /// encounter: as [`spawn_arrow_at`](Self::spawn_arrow_at).
     fn spawn_foot_at(&self, pos: Pos2) -> Option<(usize, usize, Vec3)> {
-        let model = self.model.as_ref()?;
-        model
-            .objects
-            .iter()
-            .enumerate()
-            .filter(|(i, o)| {
-                o.kind == ObjectKind::Encounter
-                    && self.selected(*i)
-                    && !o.locked
-                    && self.read_only.is_none()
-                    && self.show[o.kind.index()]
+        self.spawn_handles()
+            .find(|&(_, _, p, _)| {
+                self.screen_pos(p).is_some_and(|foot| foot.distance(pos) <= RING_REACH)
             })
-            .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, k, *p)))
-            .find(|(_, _, p)| {
-                self.screen_pos(*p).is_some_and(|foot| foot.distance(pos) <= RING_REACH)
-            })
+            .map(|(i, k, p, _)| (i, k, p))
     }
 
     /// Whether `pos` is over the view itself: in it, and not over a window
@@ -3780,11 +3787,8 @@ fn viewport(
         let mut text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
         // The tile there (Aurora names a selected tile's model in its
         // status bar), and the tile selected, if it is one.
-        let (column, row) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
-        if column >= 0.0
-            && row >= 0.0
-            && let Some(tile) = view.tile_named(column as u32, row as u32)
-        {
+        let there = view.model.as_ref().and_then(|m| tile_of(p, m.width, m.height));
+        if let Some(tile) = there.and_then(|(column, row)| view.tile_named(column, row)) {
             text.push_str(&format!("   {tile}"));
         }
         if let [(column, row)] = view.tile_selection[..]
@@ -4017,13 +4021,7 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             } else {
                 wall
             };
-            let first = mesh.vertices.len() as u32;
-            for p in points {
-                mesh.colored_vertex(*p, color);
-            }
-            for k in 1..points.len() as u32 - 1 {
-                mesh.add_triangle(first, first + k, first + k + 1);
-            }
+            fan(&mut mesh, points, color);
         }
     }
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
@@ -4268,14 +4266,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         }
         let (r, g, b) = if o.kind == ObjectKind::Door { (70, 140, 255) } else { (255, 150, 40) };
         let alpha = if chosen.contains(&(o.kind, o.index)) { 150 } else { 80 };
-        let color = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
-        let first = mesh.vertices.len() as u32;
-        for p in &points {
-            mesh.colored_vertex(*p, color);
-        }
-        for k in 1..points.len() as u32 - 1 {
-            mesh.add_triangle(first, first + k, first + k + 1);
-        }
+        fan(&mut mesh, &points, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha));
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 200)));
     }
     let green = crate::bake_view::after_color();
@@ -4287,13 +4278,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             continue;
         }
         let [r, g, b, _] = green.to_array();
-        let first = mesh.vertices.len() as u32;
-        for p in &points {
-            mesh.colored_vertex(*p, egui::Color32::from_rgba_unmultiplied(r, g, b, 140));
-        }
-        for k in 1..points.len() as u32 - 1 {
-            mesh.add_triangle(first, first + k, first + k + 1);
-        }
+        fan(&mut mesh, &points, egui::Color32::from_rgba_unmultiplied(r, g, b, 140));
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 230)));
     }
     let painter = ui.painter_at(view.rect);
@@ -4541,6 +4526,13 @@ fn overlays(
 ) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
+    // Where the pointer is over the view itself, not over a window in
+    // front of it: what follows the pointer (a paste's outlines, the door
+    // hooks, an outline's next edge) and the handles lit under it go by
+    // this, as the see-through copies do. (Each asked the pointer on its
+    // own: a paste's boxes showed under a window where its copies did
+    // not.)
+    let hover = view.pointer_over(ui);
     // What a handle says beside itself (an angle, a scale, a height).
     let note = |at: Pos2, text: String| {
         let font = egui::FontId::proportional(13.0);
@@ -4607,10 +4599,7 @@ fn overlays(
                         let held = matches!(view.drag, Some(Drag::FaceSpawn { object, point, .. })
                             if object == i && point == k);
                         let over = view.drag.is_none()
-                            && ui
-                                .ctx()
-                                .pointer_hover_pos()
-                                .is_some_and(|q| q.distance(c) <= RING_REACH);
+                            && hover.is_some_and(|q| q.distance(c) <= RING_REACH);
                         let fill = if held || over { Color32::WHITE } else { stroke.color };
                         painter.circle(
                             c,
@@ -4631,10 +4620,7 @@ fn overlays(
                         let held = matches!(view.drag, Some(Drag::MoveSpawn { object, point, .. })
                             if object == i && point == k);
                         let over = view.drag.is_none()
-                            && ui
-                                .ctx()
-                                .pointer_hover_pos()
-                                .is_some_and(|q| q.distance(c) <= RING_REACH);
+                            && hover.is_some_and(|q| q.distance(c) <= RING_REACH);
                         let fill = if held || over { Color32::WHITE } else { stroke.color };
                         painter.rect(
                             Rect::from_center_size(c, egui::vec2(8.0, 8.0)),
@@ -4735,7 +4721,7 @@ fn overlays(
     }
     if view.pasting
         && let Some(clip) = clip
-        && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.area_point(p))
+        && let Some(at) = hover.and_then(|p| view.area_point(p))
     {
         let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
         let places = pasted_places(view, clip, view.snapped(at));
@@ -4770,7 +4756,7 @@ fn overlays(
     if door_brush {
         // The door hooks: a short line across the doorway, the nearest to
         // the pointer bright.
-        let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
+        let pointer = hover.and_then(|p| view.ground_at(p, 0.0));
         let near = pointer.and_then(|p| shown.hook_near(p, DOOR_REACH)).copied();
         for h in &shown.hooks {
             let lit = near.is_some_and(|n| n.position == h.position && n.bearing == h.bearing);
@@ -4798,11 +4784,7 @@ fn overlays(
     // (and following the pointer as it is).
     let scaling = matches!(view.drag, Some(Drag::Scale { .. }));
     if scaling || (tilting && view.drag.is_none()) {
-        let over = ui
-            .ctx()
-            .pointer_hover_pos()
-            .filter(|_| view.drag.is_none())
-            .and_then(|p| view.scale_handle_at(p));
+        let over = hover.filter(|_| view.drag.is_none()).and_then(|p| view.scale_handle_at(p));
         let pointer = ui.ctx().pointer_latest_pos();
         let white = Color32::from_rgb(240, 240, 240);
         for (pivot, handle) in view.scale_handles(shown) {
@@ -4847,11 +4829,7 @@ fn overlays(
             Some(Drag::Tilt { ring, .. }) => Some(ring.axis),
             _ => None,
         };
-        let over = ui
-            .ctx()
-            .pointer_hover_pos()
-            .filter(|_| view.drag.is_none())
-            .and_then(|p| view.tilt_ring_at(p));
+        let over = hover.filter(|_| view.drag.is_none()).and_then(|p| view.tilt_ring_at(p));
         for ring in rings {
             // (Led, every ring of the axis; hovered, the one under the
             // pointer.)
@@ -4883,7 +4861,7 @@ fn overlays(
         _ => None,
     };
     if sliding.is_some() || (tilting && view.drag.is_none()) {
-        let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+        let pointer = hover.filter(|_| view.drag.is_none());
         let over = pointer.and_then(|p| view.axis_arrow_at(p));
         for arrow in view.axis_arrows(shown) {
             if sliding.is_some_and(|axis| axis != arrow.axis) {
@@ -4921,7 +4899,7 @@ fn overlays(
         )
     {
         let spinning = matches!(view.drag, Some(Drag::Spin { .. }));
-        let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+        let pointer = hover.filter(|_| view.drag.is_none());
         let color = Color32::from_rgb(255, 170, 60);
         for ring in view.turn_rings(shown) {
             let lit = spinning || pointer.is_some_and(|p| view.on_ring(&ring, p));
@@ -4953,7 +4931,7 @@ fn overlays(
         for w in view.outline.windows(2) {
             line(w[0], w[1], stroke);
         }
-        let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
+        let pointer = hover.and_then(|p| view.ground_at(p, 0.0));
         // (With Alt held after the first corner: the rectangle a click
         // would make.)
         let alt = view.rectangle || view.alt_held == Some(false);
@@ -5009,7 +4987,7 @@ fn overlays(
         // marker.
         if let (true, Some(c)) = (selected, at(m.tip)) {
             let turning = matches!(view.drag, Some(Drag::Start { turn: true, .. }));
-            let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+            let pointer = hover.filter(|_| view.drag.is_none());
             let lit = turning || pointer.is_some_and(|q| q.distance(c) <= RING_REACH);
             let (radius, fill) = if lit {
                 (7.5, Color32::from_rgb(255, 225, 150))
@@ -6222,6 +6200,29 @@ fn turn_keys(view: &AreaView) -> [(crate::keys::Cmd, f32); 4] {
         (Cmd::TurnLeft90, std::f32::consts::FRAC_PI_2),
         (Cmd::TurnRight90, -std::f32::consts::FRAC_PI_2),
     ]
+}
+
+/// The tile (column, row) of a `width` by `height` area that ground point
+/// `p` is in; `None` off the area. The one rule for it: the tile tools'
+/// tile under the pointer, the ground's level there and the corner's
+/// readout each had their own. (A brush's spot, `terrain_mode::spot`,
+/// reaches half a tile past the edge, to the nearest tile.)
+pub(crate) fn tile_of(p: Vec3, width: u32, height: u32) -> Option<(u32, u32)> {
+    let (x, y) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
+    let inside = x >= 0.0 && y >= 0.0 && x < width as f32 && y < height as f32;
+    inside.then_some((x as u32, y as u32))
+}
+
+/// A polygon's corners (on screen, in order) added to `mesh` as a fan of
+/// triangles in `color`: a walkmesh's face, an object's, a baked one.
+fn fan(mesh: &mut egui::Mesh, points: &[Pos2], color: Color32) {
+    let first = mesh.vertices.len() as u32;
+    for p in points {
+        mesh.colored_vertex(*p, color);
+    }
+    for k in 1..(points.len() as u32).saturating_sub(1) {
+        mesh.add_triangle(first, first + k, first + k + 1);
+    }
 }
 
 /// The twelve edges of the box `min`–`max` placed by `t`.
@@ -7979,10 +7980,20 @@ fn lights_of(table: &mg_2da::TwoDa, colors: &[Color32]) -> (Vec<StockLight>, Vec
 
 /// A light's row in a menu: its color and its name.
 fn light_button(ui: &mut egui::Ui, light: &StockLight) -> egui::Response {
+    light_row(ui, light, |ui| ui.button(&light.name))
+}
+
+/// A light's row: a dot of its color, then what `named` puts beside it
+/// (its name, as a button or as a choice).
+fn light_row(
+    ui: &mut egui::Ui,
+    light: &StockLight,
+    named: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 5.0, light.color);
-        ui.button(&light.name)
+        named(ui)
     })
     .inner
 }
@@ -7990,12 +8001,7 @@ fn light_button(ui: &mut egui::Ui, light: &StockLight) -> egui::Response {
 /// A light's row in the palette: its color and its name, chosen (`on`)
 /// while it is about to be placed.
 pub(crate) fn light_toggle(ui: &mut egui::Ui, light: &StockLight, on: bool) -> egui::Response {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-        ui.painter().circle_filled(rect.center(), 5.0, light.color);
-        ui.selectable_label(on, &light.name)
-    })
-    .inner
+    light_row(ui, light, |ui| ui.selectable_label(on, &light.name))
 }
 
 /// Puts light `light` over the ground point `at`: a plain, static
@@ -8136,8 +8142,12 @@ fn redraw_outline(
 /// areas.
 #[derive(Debug, Default)]
 pub(crate) struct WaypointTags {
-    parts: std::collections::HashMap<ResRef, (std::sync::Arc<[u8]>, Vec<Vec<u8>>)>,
+    parts: std::collections::HashMap<ResRef, TagsRead>,
 }
+
+/// An area's GIT as the module held it (its bytes), and its waypoints'
+/// tags as read from it.
+type TagsRead = (std::sync::Arc<[u8]>, Vec<Vec<u8>>);
 
 impl WaypointTags {
     /// Every waypoint's tag in the module as it is now (the documents
@@ -8434,7 +8444,27 @@ fn place_of(area: ResRef, kind: ObjectKind, index: usize) -> crate::blueprint::f
 pub(crate) fn held_objects(
     app: &mut Moonglow,
     areas: &[ResRef],
+    edits: &[mg_edit::Edit],
 ) -> Vec<crate::blueprint::follow::Place> {
+    // (An object taken out and another put in at its place, one edit
+    // after the other: replaced where it stands, not gone.)
+    for view in app.area_views.values_mut() {
+        view.replaced.clear();
+    }
+    for pair in edits.windows(2) {
+        if let [
+            mg_edit::Edit::RemoveItem { key, path, list, index },
+            mg_edit::Edit::InsertItem { key: k, path: p, list: l, index: i, .. },
+        ] = pair
+            && (key, path, list, index) == (k, p, l, i)
+            && key.restype == ResType::GIT
+            && path.0.is_empty()
+            && let Some(kind) = ObjectKind::from_list(list)
+            && let Some(view) = app.area_views.get_mut(&key.resref)
+        {
+            view.replaced.push((kind, *index));
+        }
+    }
     let mut out = held_places(app);
     out.retain(|(area, _)| areas.contains(area));
     if out.is_empty() {
@@ -8509,6 +8539,16 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
     if moved.is_empty() {
         return;
     }
+    // (Replaced where it stands: held still, as the object in its place.)
+    let replaced: std::collections::HashMap<ResRef, Vec<(ObjectKind, usize)>> = (app.area_views)
+        .iter_mut()
+        .map(|(area, view)| (*area, std::mem::take(&mut view.replaced)))
+        .filter(|(_, r)| !r.is_empty())
+        .collect();
+    let object_now = |moved: &crate::blueprint::follow::Followed, area: ResRef, o| {
+        let stays = replaced.get(&area).is_some_and(|r| r.contains(&o));
+        object_now(moved, area, o).or(stays.then_some(o))
+    };
     let follow = |area: ResRef, objects: &mut Vec<(ObjectKind, usize)>| {
         if objects.iter().any(|&o| object_now(moved, area, o) != Some(o)) {
             *objects = objects.iter().filter_map(|&o| object_now(moved, area, o)).collect();
@@ -8570,6 +8610,23 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The review's A29: which tile a ground point is in is one rule
+    /// (the tile tools', the ground's level, the corner's readout): the
+    /// tile its column and row fall in, none off the area, the far edges
+    /// the next tile's.
+    #[test]
+    fn a_ground_point_is_in_one_tile_or_off_the_area() {
+        let at = |x: f32, y: f32| tile_of(Vec3::new(x, y, 3.0), 4, 2);
+        assert_eq!(at(0.0, 0.0), Some((0, 0)));
+        assert_eq!(at(9.99, 19.99), Some((0, 1)));
+        assert_eq!(at(10.0, 5.0), Some((1, 0)));
+        assert_eq!(at(39.9, 0.1), Some((3, 0)));
+        for (x, y) in [(-0.01, 5.0), (5.0, -0.01), (40.0, 5.0), (5.0, 20.0), (f32::NAN, 1.0)] {
+            assert_eq!(at(x, y), None, "{x}, {y}");
+        }
+        assert_eq!(tile_of(Vec3::ZERO, 0, 0), None, "an area of no tiles");
+    }
 
     /// The review's A21: the lights of placeables.2da are found by one
     /// pass over the table (kept for that reading of it): the game's

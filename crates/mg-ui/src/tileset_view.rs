@@ -1293,7 +1293,8 @@ mod tests {
     fn undo_keeps_the_lines_a_step_changed() {
         let mut d = doc();
         let mut texts = vec![d.file.text()];
-        let steps: Vec<Box<dyn Fn(&mut SetFile)>> = vec![
+        type Change = Box<dyn Fn(&mut SetFile)>;
+        let steps: Vec<Change> = vec![
             Box::new(|f| f.set("TILE1", "TopLeft", "B")),
             Box::new(|f| {
                 edit::add_tile(f, "t2", "A");
@@ -1320,9 +1321,9 @@ mod tests {
             assert!(d.file == SetFile::parse(&texts[back]));
         }
         assert!(!d.has_undo() && !d.is_dirty());
-        for forward in 1..=steps.len() {
+        for (forward, text) in texts.iter().enumerate().skip(1) {
             d.redo();
-            assert_eq!(d.file.text(), texts[forward], "redone to {forward}");
+            assert_eq!(d.file.text(), *text, "redone to {forward}");
         }
         // (Lines alike at both ends of a change are counted once.)
         let before = SetFile::parse("a\nb\nb\nc\n");
