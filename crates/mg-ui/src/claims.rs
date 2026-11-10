@@ -35,12 +35,16 @@ pub(crate) struct ClaimsState {
     pub(crate) cleared: bool,
     /// The Protected Area window.
     pub(crate) protected_ask: Option<ProtectedAsk>,
-    /// A change the builder said to make anyway: let through once.
-    let_through: Option<Pass>,
+    /// The changes the builder said to make anyway (those the window
+    /// named): let through once.
+    let_through: Vec<Pass>,
     /// A command was held just now (for the window): Apply says no more.
     pub(crate) held: bool,
     /// The Claims Table window (Edit › Claims Table…).
     pub(crate) table: Option<TableWindow>,
+    /// The Claims Table window's listing, kept while the claims and the
+    /// module's areas are what it was made by ([`listing`]).
+    listed: Option<(ClaimsNow, Vec<ResRef>, std::sync::Arc<Vec<mg_module::claims::Listed>>)>,
 }
 
 /// The Claims Table window: what is being answered in it.
@@ -83,14 +87,15 @@ fn whose(p: &ProjectFile) -> ClaimsNow {
     (p.claim_table.clone(), p.claims.clone(), p.user.builder_code.clone())
 }
 
-/// A change to a protected area, held until the builder answers.
+/// A change to protected areas, held until the builder answers.
 #[derive(Debug, Clone)]
 pub(crate) struct ProtectedAsk {
-    pub area: ResRef,
-    /// Why it is protected.
-    pub why: String,
-    pub what: Protected,
-    /// What goes ahead if it is changed anyway.
+    /// Every protected area it would change (one command may change
+    /// several: areas chosen together and deleted, a field set on all an
+    /// Advanced Search found), each with why it is protected and what of
+    /// it would change. Never empty.
+    pub changes: Vec<(ResRef, String, Protected)>,
+    /// What goes ahead if they are changed anyway.
     pub then: Action,
 }
 
@@ -169,21 +174,27 @@ fn tag_now(app: &mut Moonglow, area: ResRef) -> Option<Vec<u8>> {
     doc.root.string("Tag").map(<[u8]>::to_vec)
 }
 
-/// What a command changes of a protected area, if it changes any: its
+/// What a command changes of protected areas, each one it changes: its
 /// Tag, its ResRef (a rename: the area goes, another comes), or the area
-/// itself (deleted).
-fn protected_change(app: &mut Moonglow, cmd: &Command) -> Option<(ResRef, String, Protected)> {
+/// itself (deleted). All of them: the first alone was asked about, and
+/// its answer let the others through unnamed.
+fn protected_changes(app: &mut Moonglow, cmd: &Command) -> Vec<(ResRef, String, Protected)> {
     // (The protected areas' edits, each with why.)
     let candidates: Vec<(&Edit, String)> = {
-        let p = project(app)?;
+        let Some(p) = project(app) else { return Vec::new() };
         let protected = |e: &Edit| {
             let key = e.key();
             (key.restype == ResType::ARE).then(|| p.protected(key.resref)).flatten()
         };
         cmd.edits.iter().filter_map(|e| protected(e).map(|why| (e, why))).collect()
     };
+    let mut out: Vec<(ResRef, String, Protected)> = Vec::new();
     for (e, why) in candidates {
         let area = e.key().resref;
+        // (An area gone or renamed is said once, not its Tag too.)
+        if out.iter().any(|(a, _, w)| *a == area && *w != Protected::Tag) {
+            continue;
+        }
         let new_tag = match e {
             Edit::SetField { path, label, value, .. }
                 if *path == GffPath::root() && label == "Tag" =>
@@ -200,7 +211,9 @@ fn protected_change(app: &mut Moonglow, cmd: &Command) -> Option<(ResRef, String
                         if k.restype == ResType::ARE && k.resref != area)
                 });
                 let what = if renamed { Protected::ResRef } else { Protected::Deleted };
-                return Some((area, why, what));
+                out.retain(|(a, ..)| *a != area);
+                out.push((area, why, what));
+                continue;
             }
             Edit::SetResource { data: Some(bytes), .. } => {
                 mg_gff::Gff::read(bytes).ok().and_then(|g| g.root.string("Tag").map(<[u8]>::to_vec))
@@ -208,11 +221,11 @@ fn protected_change(app: &mut Moonglow, cmd: &Command) -> Option<(ResRef, String
             _ => continue,
         };
         // (A Tag set to what it is: no change.)
-        if new_tag != tag_now(app, area) {
-            return Some((area, why, Protected::Tag));
+        if new_tag != tag_now(app, area) && !out.iter().any(|(a, ..)| *a == area) {
+            out.push((area, why, Protected::Tag));
         }
     }
-    None
+    out
 }
 
 /// Whether a command may change the module, as the project's claims
@@ -236,20 +249,51 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
             });
         }
     }
-    if let Some((area, why, what)) = protected_change(app, cmd) {
-        if app.claims.let_through == Some(Pass { area, what }) {
-            app.claims.let_through = None;
-            return Ok(());
-        }
-        app.claims.protected_ask =
-            Some(ProtectedAsk { area, why, what, then: Action::Apply(cmd.clone()) });
-        app.claims.held = true;
-        return Err(EditError::Invalid {
-            key: ResKey::new(area, ResType::ARE),
-            message: format!("not changed yet: {}'s {} is kept: asked first", area, what.noun()),
-        });
+    let changes = protected_changes(app, cmd);
+    let Some(&(area, _, what)) = changes.first() else { return Ok(()) };
+    // (Let through only where the builder was shown every one of them.)
+    let passed = |app: &Moonglow, (area, _, what): &(ResRef, String, Protected)| {
+        app.claims.let_through.contains(&Pass { area: *area, what: *what })
+    };
+    if changes.iter().all(|c| passed(app, c)) {
+        app.claims.let_through.clear();
+        return Ok(());
     }
-    Ok(())
+    app.claims.protected_ask = Some(ProtectedAsk { changes, then: Action::Apply(cmd.clone()) });
+    app.claims.held = true;
+    Err(EditError::Invalid {
+        key: ResKey::new(area, ResType::ARE),
+        message: format!("not changed yet: {}'s {} is kept: asked first", area, what.noun()),
+    })
+}
+
+impl Moonglow {
+    /// [`Moonglow::apply`] for a caller that goes on once its command is
+    /// applied: `Ok(true)` when it was; `Ok(false)` when it was held for
+    /// the Protected Area window (asked first: the caller stops without a
+    /// word, and nothing is to be said of an error); an error otherwise.
+    /// `then`: what goes ahead if the builder says to change it anyway,
+    /// where the caller has an action of its own for it (its follow-ups
+    /// happen then too); none: the command alone. A caller that asked
+    /// plain `apply` and said the error left the mark of a held command
+    /// set, and the next command that failed for another reason failed
+    /// without a word.
+    pub(crate) fn apply_or_ask(
+        &mut self,
+        cmd: Command,
+        then: Option<Action>,
+    ) -> Result<bool, EditError> {
+        match self.apply(cmd) {
+            Ok(()) => Ok(true),
+            Err(_) if std::mem::take(&mut self.claims.held) => {
+                if let (Some(ask), Some(then)) = (&mut self.claims.protected_ask, then) {
+                    ask.then = then;
+                }
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl Protected {
@@ -271,13 +315,13 @@ pub(crate) fn asks_first(app: &mut Moonglow, action: &Action) -> bool {
     };
     let key = crate::references::main_key(key);
     if key.restype != ResType::ARE
-        || app.claims.let_through == Some(Pass { area: key.resref, what })
+        || app.claims.let_through.contains(&Pass { area: key.resref, what })
     {
         return false;
     }
     let Some(why) = project(app).and_then(|p| p.protected(key.resref)) else { return false };
-    app.claims.protected_ask =
-        Some(ProtectedAsk { area: key.resref, why, what, then: action.clone() });
+    let changes = vec![(key.resref, why, what)];
+    app.claims.protected_ask = Some(ProtectedAsk { changes, then: action.clone() });
     true
 }
 
@@ -543,16 +587,36 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
 /// The Claims Table window: every area of the table and the module, whose
 /// each is, and what this builder may do with each (Claim, Release, Hand
 /// To…, Take Over…), as `mg claims` lists and changes them.
-fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(mut w) = app.claims.table.take() else { return };
-    let Some(p) = project(app).filter(|p| p.claim_table.is_some() || p.claims.file.is_some())
-    else {
-        return;
-    };
+/// Every area of the claims table and the module, whose each is
+/// (`ProjectFile::claims_listing`): made when the claims (the table, the
+/// rules, the builder's code) or the module's areas change, and kept
+/// between. It was made anew every frame the window showed, each area
+/// looked for in the table and the module's list: eight million
+/// comparisons a frame for a world of 1,400 areas.
+fn listing(app: &mut Moonglow) -> Option<std::sync::Arc<Vec<mg_module::claims::Listed>>> {
+    let p = project(app).filter(|p| p.claim_table.is_some() || p.claims.file.is_some())?;
     let areas: Vec<ResRef> = (app.ws.as_ref())
         .map(|ws| ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect())
         .unwrap_or_default();
-    let listed = p.claims_listing(Some(&areas));
+    let by = whose(p);
+    if let Some((was, of, listed)) = &app.claims.listed
+        && *was == by
+        && *of == areas
+    {
+        return Some(listed.clone());
+    }
+    let listed = std::sync::Arc::new(p.claims_listing(Some(&areas)));
+    app.claims.listed = Some((by, areas, listed.clone()));
+    Some(listed)
+}
+
+fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut w) = app.claims.table.take() else {
+        app.claims.listed = None;
+        return;
+    };
+    let Some(listed) = listing(app) else { return };
+    let Some(p) = project(app) else { return };
     let file = p.claims.file.clone().unwrap_or_default();
     let code = p.user.builder_code.clone();
     let mut open = true;
@@ -571,21 +635,43 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                 )),
             };
             ui.add_space(4.0);
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                egui::Grid::new("claims-table").striped(true).num_columns(4).show(ui, |ui| {
-                    for l in &listed {
+            // (The rows in sight alone are laid out: a world has 1,400
+            // areas. Columns of set widths, a long holder's name cut and
+            // whole on hover.)
+            let height = ui.spacing().interact_size.y;
+            let rows = egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]);
+            rows.show_rows(ui, height, listed.len(), |ui, range| {
+                ui.set_min_width(600.0);
+                let cell = |ui: &mut egui::Ui, width: f32, text: egui::RichText| {
+                    let layout = egui::Layout::left_to_right(egui::Align::Center);
+                    ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+                        ui.set_min_width(width);
+                        let said = text.text().to_string();
+                        ui.add(egui::Label::new(text).truncate()).on_hover_text(said);
+                    });
+                };
+                for at in range {
+                    let l = &listed[at];
+                    ui.horizontal(|ui| {
+                        if at % 2 == 1 {
+                            let mut stripe = ui.available_rect_before_wrap();
+                            stripe.set_height(height);
+                            ui.painter().rect_filled(stripe, 0.0, ui.visuals().faint_bg_color);
+                        }
                         let c = l.claim.as_ref();
-                        ui.label(l.area.to_string());
+                        cell(ui, 130.0, egui::RichText::new(l.area.to_string()));
                         let whose = match (l.whose, c.and_then(|c| c.holder())) {
                             (Whose::Mine, Some(h)) => format!("yours: {h}"),
                             (_, Some(h)) => h,
                             (_, None) => "free".to_string(),
                         };
-                        if l.whose == Whose::Others {
-                            ui.colored_label(ui.visuals().warn_fg_color, whose);
-                        } else {
-                            ui.label(whose);
-                        }
+                        let whose = match l.whose {
+                            Whose::Others => {
+                                egui::RichText::new(whose).color(ui.visuals().warn_fg_color)
+                            }
+                            _ => egui::RichText::new(whose),
+                        };
+                        cell(ui, 190.0, whose);
                         let mut notes = Vec::new();
                         if c.is_some_and(|c| c.merged()) {
                             notes.push("merged");
@@ -595,8 +681,8 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                         if !l.in_module {
                             notes.push("not in the module");
                         }
-                        ui.weak(notes.join(", "));
-                        ui.horizontal(|ui| match l.whose {
+                        cell(ui, 140.0, egui::RichText::new(notes.join(", ")).weak());
+                        match l.whose {
                             Whose::Mine => {
                                 if ui.button("Release").clicked() {
                                     chosen = Some((l.area, How::Release));
@@ -632,10 +718,9 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                                     chosen = Some((l.area, How::Claim));
                                 }
                             }
-                        });
-                        ui.end_row();
-                    }
-                });
+                        }
+                    });
+                }
             });
             if let Some(area) = w.take {
                 let who = listed
@@ -716,8 +801,10 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
 /// (or never opened), or an action that ran without making it, takes it
 /// away, so that the area's next change is asked about again.
 fn end_pass(app: &mut Moonglow) {
-    let Some(pass) = app.claims.let_through else { return };
-    let open = match pass.what {
+    if app.claims.let_through.is_empty() {
+        return;
+    }
+    let open = app.claims.let_through.iter().any(|pass| match pass.what {
         Protected::ResRef => app
             .rename
             .as_ref()
@@ -727,9 +814,9 @@ fn end_pass(app: &mut Moonglow) {
             app.confirm_delete.as_ref().is_some_and(|keys| keys.iter().any(asked))
         }
         Protected::Tag => false,
-    };
+    });
     if !open && app.actions.is_empty() {
-        app.claims.let_through = None;
+        app.claims.let_through.clear();
     }
 }
 
@@ -794,27 +881,63 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.set_max_width(460.0);
-            let change = match ask.what {
+            let doing = |what: Protected| match what {
                 Protected::Tag => "Changing its Tag",
                 Protected::ResRef => "Renaming it",
                 Protected::Deleted => "Deleting it",
             };
-            ui.label(format!("{}.", ask.why));
+            match ask.changes.as_slice() {
+                [(_, why, what)] => {
+                    ui.label(format!("{why}."));
+                    ui.add_space(4.0);
+                    ui.label(format!(
+                        "{} loses what the game keeps of it: a character's position is kept by \
+                         the area's Tag, and its first visits by the area's ResRef. Players who \
+                         were there come back somewhere else, and see it as new.",
+                        doing(*what)
+                    ));
+                }
+                // (Every one named: the answer is for them all.)
+                several => {
+                    ui.label(format!("This changes {} protected areas:", several.len()));
+                    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                        for (_, why, what) in several {
+                            let done = match what {
+                                Protected::Tag => "its Tag would change",
+                                Protected::ResRef => "it would be renamed",
+                                Protected::Deleted => "it would be deleted",
+                            };
+                            ui.label(format!("• {why}: {done}"));
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.label(
+                        "That loses what the game keeps of them: a character's position is \
+                         kept by the area's Tag, and its first visits by the area's ResRef. \
+                         Players who were there come back somewhere else, and see them as new.",
+                    );
+                }
+            }
             ui.add_space(4.0);
-            ui.label(format!(
-                "{change} loses what the game keeps of it: a character's position is kept by \
-                 the area's Tag, and its first visits by the area's ResRef. Players who were \
-                 there come back somewhere else, and see it as new."
-            ));
-            ui.add_space(4.0);
-            ui.weak("A copy of it, under a new ResRef and Tag, is a new area and loses nothing.");
+            let one = ask.changes.len() == 1;
+            ui.weak(match one {
+                true => "A copy of it, under a new ResRef and Tag, is a new area and loses nothing.",
+                false => "A copy of an area, under a new ResRef and Tag, is a new area and loses nothing.",
+            });
             ui.separator();
             ui.horizontal(|ui| {
-                copy = ui.button("Make a Copy Instead…").clicked();
-                let label = match ask.what {
-                    Protected::Tag => "Change It Anyway",
-                    Protected::ResRef => "Rename It Anyway",
-                    Protected::Deleted => "Delete It Anyway",
+                if one {
+                    copy = ui.button("Make a Copy Instead…").clicked();
+                }
+                let first = ask.changes[0].2;
+                let same = ask.changes.iter().all(|c| c.2 == first);
+                let label = match (first, one) {
+                    (Protected::Tag, true) => "Change It Anyway",
+                    (Protected::ResRef, true) => "Rename It Anyway",
+                    (Protected::Deleted, true) => "Delete It Anyway",
+                    (Protected::ResRef, false) if same => "Rename Them Anyway",
+                    (Protected::Deleted, false) if same => "Delete Them Anyway",
+                    (_, false) => "Change Them Anyway",
                 };
                 anyway = ui.button(label).clicked();
                 cancel = crate::widgets::cancel(ui);
@@ -822,11 +945,12 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if anyway {
         app.claims.protected_ask = None;
-        app.claims.let_through = Some(Pass { area: ask.area, what: ask.what });
+        app.claims.let_through =
+            ask.changes.iter().map(|(area, _, what)| Pass { area: *area, what: *what }).collect();
         app.actions.push(ask.then);
     } else if copy {
         app.claims.protected_ask = None;
-        app.actions.push(Action::CopyDialog(ResKey::new(ask.area, ResType::ARE)));
+        app.actions.push(Action::CopyDialog(ResKey::new(ask.changes[0].0, ResType::ARE)));
     } else if cancel || !open {
         app.claims.protected_ask = None;
     }

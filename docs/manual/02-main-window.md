@@ -339,7 +339,8 @@ its ResRef (`gate.ink`, `gate.twee`, `gate.txt`, `gate.csv`), exactly as
 the conversation editor's [Export](06-conversations.md) writes it (a
 conversation open in an editor goes as it is there, changes not saved
 yet included). Files of those names in the folder are asked about once,
-each named, before they are overwritten (**Overwrite** or **Cancel**).
+each named, before they are overwritten (**Replace** them, **Skip Those**
+and write the rest, or **Cancel**).
 The log says how many were written and where; one that can't be
 written is named there with why, and the rest are written. `mg
 dialog-export --to` does the same from the [command
@@ -632,7 +633,10 @@ it so). **Export N as
 Files…** writes all the resources listed into a folder, once a type or
 part of a name narrows the list. Files go out as they are; with
 **Models as text** ticked (shown when models are listed), compiled
-models go out as the text they compile from.
+models go out as the text they compile from. Where the folder has some
+of the files already, it asks first (**Replace** them, **Skip Those**,
+or **Cancel**), and the files are written while a window shows how far
+it is, with **Cancel**.
 
 A resource that several layers have (a portraits.2da in two haks, a
 texture in a hak and in the game's files) is listed once for the copy

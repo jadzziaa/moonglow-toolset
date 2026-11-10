@@ -1074,7 +1074,7 @@ pub fn write_replacing_with(
 /// millisecond a file on a fast disk, half a minute for the 30,000 files
 /// of a module's first save into a folder, and these files were never
 /// flushed.
-pub(crate) fn write_replacing_one_of_many(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub fn write_replacing_one_of_many(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     replace(path, false, false, |out| std::io::Write::write_all(out, bytes))
 }
 

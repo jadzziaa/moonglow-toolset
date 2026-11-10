@@ -14,7 +14,7 @@ use mg_gff::{Gff, Struct, Value};
 use mg_module::dialog::{
     ANIMATIONS, Branch, Kind, Parent, Renumbering, add_node, copy_branch, is_link, link_index,
     link_lines, links, move_link_to, new_dialog, node, paste_branch, remove, shift_link,
-    word_count,
+    word_count, words_of,
 };
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
@@ -148,15 +148,20 @@ impl DialogView {
     /// last: by the changes between (a delete, its undo or redo, in any
     /// number of steps); a change it doesn't know (made elsewhere, or
     /// further back than it remembers) by the lines found again in it.
-    fn follow(&mut self, key: ResKey, g: &Gff, revision: u64) {
+    /// The Input Text popup's parent follows too (the popup closes when
+    /// its line is gone). Returns the renumberings it followed, in turn,
+    /// for what is kept by line number outside the view (the conversation
+    /// clipboard, an open String Edit of a line: [`follow_outside`]).
+    fn follow(&mut self, key: ResKey, g: &Gff, revision: u64) -> Vec<Renumbering> {
+        let mut followed = Vec::new();
         if self.seen.is_some_and(|(r, _)| r == revision) {
-            return;
+            return followed;
         }
         let now = fingerprint(g);
         let before = self.last.replace(g.clone());
-        let Some((_, was)) = self.seen.replace((revision, now)) else { return };
+        let Some((_, was)) = self.seen.replace((revision, now)) else { return followed };
         if was == now {
-            return;
+            return followed;
         }
         let steps = match self.steps(was, now) {
             Some(steps) => steps,
@@ -235,15 +240,29 @@ impl DialogView {
                 }
                 line((*kind, *index)).map(|(_, n)| *index = n).is_some()
             });
+            // (The line Input Text adds a line under: OK went by its
+            // number, under whatever line had it by then.)
+            if let Some(Parent::Node(k, i)) = self.input.as_ref().map(|n| n.parent) {
+                match line((k, i)) {
+                    Some((k, n)) => {
+                        if let Some(input) = &mut self.input {
+                            input.parent = Parent::Node(k, n);
+                        }
+                    }
+                    None => self.input = None,
+                }
+            }
+            followed.push(map);
         }
         if !renumbered {
-            return;
+            return followed;
         }
         self.selected = selection.and_then(|(parent, shown)| {
             let (_, index) = shown?;
             let pos = links(g, parent).iter().position(|l| link_index(l) == index)?;
             Some(Row { parent, pos })
         });
+        followed
     }
 
     /// The changes that lead from fingerprint `from` to `to`, each forward
@@ -709,6 +728,14 @@ fn row_label(
 /// Linked (and a double click on it, as Aurora's), a bookmark.
 pub(crate) fn go_to_line(view: &mut DialogView, g: &Gff, kind: Kind, index: u32) {
     let Some((parent, pos)) = mg_module::dialog::owner(g, kind, index) else { return };
+    go_to_row(view, g, Row { parent, pos });
+}
+
+/// Selects a row (a link under its parent), its parents opened out, and
+/// has it scrolled to: what a search's result or a reference names. They
+/// selected it where it was, under a folded line and out of sight.
+pub(crate) fn go_to_row(view: &mut DialogView, g: &Gff, row: Row) {
+    let Row { parent, pos } = row;
     let mut up = parent;
     let mut seen = HashSet::new();
     while let Parent::Node(k, i) = up {
@@ -784,13 +811,46 @@ pub struct DialogSearch {
 }
 
 /// What Copy and Cut put aside (shared by all conversations, like Aurora's
-/// Scrap).
+/// Scrap). It names lines of the conversation it was copied from by their
+/// numbers (the copied line, the branch's links out), and follows them as
+/// that conversation's bookmarks do ([`follow_outside`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DialogClip {
     pub from: ResKey,
     pub branch: Branch,
-    /// The copied line, for Paste As Link.
-    pub target: (Kind, u32),
+    /// The copied line, for Paste As Link; none once it is gone (cut, or
+    /// deleted since).
+    pub target: Option<(Kind, u32)>,
+}
+
+/// Has what is kept by a line's number outside conversation `key`'s view
+/// follow its lines across the renumberings the view followed
+/// ([`DialogView::follow`]): the conversation clipboard, where it was
+/// copied here (its line for Paste As Link, and its branch's links to
+/// lines outside it), and an open String Edit of a line's text, which
+/// closes when its line is gone. Each wrote to whatever line had the
+/// number once an earlier line was deleted, or an Undo put one back.
+fn follow_outside(app: &mut Moonglow, key: ResKey, followed: &[Renumbering]) {
+    for map in followed.iter().filter(|m| !m.is_identity()) {
+        if let Some(clip) = app.dialog_clip.as_mut().filter(|c| c.from == key) {
+            clip.target = clip.target.and_then(|(k, i)| Some((k, map.line(k, i)?)));
+            clip.branch.renumber(map);
+        }
+        let edited = app.loc_edit.as_mut().filter(|w| w.target.key == key);
+        let line = edited.as_ref().and_then(|w| match w.target.path.0.first() {
+            Some(mg_edit::Step::Item(list, i)) => {
+                let kind = [Kind::Entry, Kind::Reply].into_iter().find(|k| k.list() == list)?;
+                Some((kind, *i))
+            }
+            _ => None,
+        });
+        if let (Some(w), Some((kind, i))) = (edited, line) {
+            match u32::try_from(i).ok().and_then(|i| map.line(kind, i)) {
+                Some(n) => w.target.path.0[0] = mg_edit::Step::Item(kind.list().into(), n as usize),
+                None => app.loc_edit = None,
+            }
+        }
+    }
 }
 
 /// A line's own text: in the language edited (Options › Language), else,
@@ -834,7 +894,41 @@ fn set(key: ResKey, what: &str, path: GffPath, label: &str, value: Value) -> Act
 }
 
 fn replace(key: ResKey, what: &str, g: &Gff) -> Action {
-    Action::Apply(Command::new(what, vec![Edit::SetResource { key, data: g.to_bytes().ok() }]))
+    Action::Apply(Command::new(what, written(key, g).into_iter().collect()))
+}
+
+/// The edit that keeps conversation `key`'s count of words (`NumWords`,
+/// which the status line shows and the file keeps) with a line's text
+/// changed from `was` to `now`: the count stayed as it was when a line
+/// was typed over.
+fn words_edit(
+    app: &mut Moonglow,
+    key: ResKey,
+    was: &mg_core::LocString,
+    now: &mg_core::LocString,
+) -> Option<Edit> {
+    let g = app.ws.as_mut()?.doc(&key).ok()?;
+    let words = word_count(g).saturating_sub(words_of(was)) + words_of(now);
+    Some(Edit::SetField {
+        key,
+        path: GffPath::root(),
+        label: "NumWords".into(),
+        value: Some(Value::Dword(words)),
+    })
+}
+
+/// The edit that makes conversation `key` what `g` is; none where `g`
+/// can't be written (the conversation stays as it is). With `data:
+/// g.to_bytes().ok()` a write that failed would have been the edit that
+/// deletes the conversation.
+fn written(key: ResKey, g: &Gff) -> Option<Edit> {
+    match g.to_bytes() {
+        Ok(data) => Some(Edit::SetResource { key, data: Some(data) }),
+        Err(e) => {
+            crate::trace::note(format!("{key} could not be written, and is left as it is: {e}"));
+            None
+        }
+    }
 }
 
 /// The key/value pairs of a parameter list, in the game's codepage (as
@@ -892,7 +986,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut view = app.dialog_views.remove(&key).unwrap_or_default();
     // The bookmarks, folded lines and selection follow their lines, if a
     // delete (or its undo) numbered them anew since the last frame.
-    view.follow(key, &g, revision);
+    let followed = view.follow(key, &g, revision);
+    follow_outside(app, key, &followed);
     let folds = view.collapsed.len();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
@@ -1006,7 +1101,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             copy_branch(&g, r.parent, r.pos).map(|b| DialogClip {
                 from: key,
                 branch: b,
-                target: target_of(r),
+                target: Some(target_of(r)),
             })
         };
         if button(ui, sel.is_some(), glyph::COPY, "Copy", "").clicked()
@@ -1037,6 +1132,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let mut ng = g.clone();
             if paste_branch(&mut ng, p, &c.branch, c.from == key) {
                 view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
+                // (Under a folded line: opened, so that what was pasted
+                // shows.)
+                if let Parent::Node(k, i) = p {
+                    view.collapsed.remove(&(k, i));
+                }
                 actions.push(replace(key, "Paste lines", &ng));
             }
         }
@@ -1044,10 +1144,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // copied one (Link Destination To Source); the other way round,
         // the copied line gets a link to the selected one.
         let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
-        let pair = match (selected_line, clip.filter(|c| c.from == key)) {
-            (Some(dest), Some(c)) => {
-                let (from, to) =
-                    if paste_source_first { (c.target, dest) } else { (dest, c.target) };
+        let copied = clip.filter(|c| c.from == key).and_then(|c| c.target);
+        let pair = match (selected_line, copied) {
+            (Some(dest), Some(copied)) => {
+                let (from, to) = if paste_source_first { (copied, dest) } else { (dest, copied) };
                 (from.0.child() == to.0).then_some((from, to))
             }
             _ => None,
@@ -1434,6 +1534,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 let at = move_link_to(&mut ng, d.from.parent, d.from.pos, onto, d.before);
                 if let Some(pos) = at {
                     view.selected = Some(Row { parent: onto, pos });
+                    // (Dropped under a folded line: opened, to show it.)
+                    if let Parent::Node(k, i) = onto {
+                        view.collapsed.remove(&(k, i));
+                    }
                 }
                 at.is_some()
             }
@@ -1496,8 +1600,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 label: "Text".into(),
                 value: Some(Value::LocString(t)),
             };
-            let made = Edit::SetResource { key, data: ng.to_bytes().ok() };
-            actions.push(Action::ApplyTyped(Command::new("Add line", vec![made, text])));
+            if let Some(made) = written(key, &ng) {
+                actions.push(Action::ApplyTyped(Command::new("Add line", vec![made, text])));
+            }
         } else if !cancel {
             view.input = Some(input);
         }
@@ -1875,13 +1980,16 @@ fn text_panel(
     if let Some(v) = typed {
         // (Put in the module's talk table first, where Options › Language
         // says so.)
+        let now = with_english(ls.clone(), &v);
+        let words = words_edit(app, key, &ls, &now);
         let edit = Edit::SetField {
             key,
             path: path.clone(),
             label: "Text".into(),
-            value: Some(with_english(ls.clone(), &v).into_value()),
+            value: Some(now.into_value()),
         };
-        actions.push(Action::ApplyTyped(Command::new("Line text", vec![edit])));
+        let edits = std::iter::once(edit).chain(words).collect();
+        actions.push(Action::ApplyTyped(Command::new("Line text", edits)));
     }
     if let Some(t) = from_tlk {
         ui.weak(format!("From the talk table (string {}): {t}", ls.strref.0));
@@ -1889,7 +1997,7 @@ fn text_panel(
     if view.token_picker {
         // (Those of the language edited: Options › General.)
         let tokens = crate::widgets::language_tokens(app, crate::text::edit_language());
-        let mut close = false;
+        let (mut close, mut with_token) = (false, None);
         let ctx = ui.ctx().clone();
         let window = crate::widgets::modal(&ctx, "Select Token");
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(260.0, 340.0))
@@ -1902,14 +2010,7 @@ fn text_panel(
             list.show(ui, |ui| {
                 for t in &tokens {
                     if ui.selectable_label(false, t).clicked() {
-                        let v = crate::widgets::with_token(ui.ctx(), id, &shown, t);
-                        actions.push(set(
-                            key,
-                            "Insert token",
-                            path.clone(),
-                            "Text",
-                            with_english(ls.clone(), &v).into_value(),
-                        ));
+                        with_token = Some(crate::widgets::with_token(ui.ctx(), id, &shown, t));
                         close = true;
                     }
                 }
@@ -1918,6 +2019,18 @@ fn text_panel(
                 close = true;
             }
         });
+        if let Some(v) = with_token {
+            let now = with_english(ls.clone(), &v);
+            let words = words_edit(app, key, &ls, &now);
+            let edit = Edit::SetField {
+                key,
+                path: path.clone(),
+                label: "Text".into(),
+                value: Some(now.into_value()),
+            };
+            let edits = std::iter::once(edit).chain(words).collect();
+            actions.push(Action::Apply(Command::new("Insert token", edits)));
+        }
         if close {
             view.token_picker = false;
         }
@@ -2444,14 +2557,25 @@ fn search_pane(
         };
         let mut results = Vec::new();
         for k in keys {
-            let doc = if k == key {
-                Some(g.clone())
+            // (Another conversation as an editor has it, else read from
+            // the module for this look and let go: each was made a
+            // document of the workspace and copied whole.)
+            let read;
+            let d: &Gff = if k == key {
+                g
+            } else if let Some(open) = app.ws.as_ref().and_then(|w| w.loaded(&k)) {
+                open
             } else {
-                app.ws.as_mut().and_then(|w| w.doc(&k).ok().cloned())
+                match app.ws.as_ref().and_then(|w| w.module.gff(&k)) {
+                    Some(Ok(other)) => {
+                        read = other;
+                        &read
+                    }
+                    _ => continue,
+                }
             };
-            let Some(d) = doc else { continue };
             for kind in [Kind::Entry, Kind::Reply] {
-                for (i, n) in mg_module::dialog::nodes(&d, kind).iter().enumerate() {
+                for (i, n) in mg_module::dialog::nodes(d, kind).iter().enumerate() {
                     let t = line_text(app.game.as_deref(), n);
                     if matches(&t, &s.find, s) {
                         results.push((k, kind, i as u32, t));
@@ -2479,25 +2603,45 @@ fn search_pane(
             }
         }
         if n > 0 {
+            // (With the count of its words as it is now.)
+            let words = word_count(&ng);
+            ng.root.set("NumWords", Value::Dword(words));
             actions.push(replace(key, "Replace text", &ng));
         }
         app.log.info(format!("Replaced {n} in {key}"));
     }
     ui.separator();
-    for (k, kind, index, t) in s.results.clone() {
-        let label = if k == key {
-            format!("{kind:?} {index}: {t}")
+    // The results in sight are laid out, a line each (a line's first,
+    // its whole text on hover), the others taking a row's room: a search
+    // for "the" over a world's conversations is tens of thousands, and
+    // each was copied and drawn with its whole text every frame.
+    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    let mut clicked = None;
+    for (at, (k, kind, index, t)) in s.results.iter().enumerate() {
+        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+        if !ui.is_rect_visible(room) {
+            ui.add_space(row);
+            continue;
+        }
+        let line = t.lines().next().unwrap_or_default();
+        let label = if *k == key {
+            format!("{kind:?} {index}: {line}")
         } else {
-            format!("{k}: {kind:?} {index}: {t}")
+            format!("{k}: {kind:?} {index}: {line}")
         };
-        if ui.selectable_label(false, label).clicked() {
-            if k == key {
-                if let Some((parent, pos)) = mg_module::dialog::owner(g, kind, index) {
-                    view.selected = Some(Row { parent, pos });
-                }
-            } else {
-                actions.push(Action::OpenTab(Tab::Dialog(k)));
-            }
+        let found = ui.add(egui::Button::selectable(false, label).truncate());
+        let found = if line.len() < t.len() { found.on_hover_text(t) } else { found };
+        if found.clicked() {
+            clicked = Some(at);
+        }
+    }
+    let clicked = clicked.and_then(|at| s.results.get(at)).map(|r| (r.0, r.1, r.2));
+    if let Some((k, kind, index)) = clicked {
+        if k == key {
+            // (Its parents opened out, and scrolled to.)
+            go_to_line(view, g, kind, index);
+        } else {
+            actions.push(Action::OpenTab(Tab::Dialog(k)));
         }
     }
 }
@@ -2539,9 +2683,13 @@ impl Moonglow {
         })?;
         let lines = mg_module::dialog::nodes(&g, Kind::Entry).len()
             + mg_module::dialog::nodes(&g, Kind::Reply).len();
+        let Some(made) = written(key, &g) else {
+            self.log.error(format!("{} could not be made a conversation", path.display()));
+            return None;
+        };
         self.actions.push(Action::Apply(mg_edit::Command::new(
             format!("Import conversation {}", key.resref),
-            vec![mg_edit::Edit::SetResource { key, data: g.to_bytes().ok() }],
+            vec![made],
         )));
         self.actions.push(Action::OpenTab(Tab::Dialog(key)));
         self.log.info(format!("Imported {} as {key}: {lines} lines", path.display()));

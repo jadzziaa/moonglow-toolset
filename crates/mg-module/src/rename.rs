@@ -563,11 +563,20 @@ impl UsageIndex {
     }
 
     /// [`tag_usages`] of `tag`, from what [`refresh`](Self::refresh) read.
+    /// (A tag that is ASCII: one with other letters is asked for as the
+    /// module has it, [`tag_usages_of`](Self::tag_usages_of).)
     pub fn tag_usages(&self, tag: &str) -> Vec<Usage> {
+        self.tag_usages_of(tag.as_bytes())
+    }
+
+    /// Where the module names the tag `tag`, given as the module's files
+    /// have it (in the module's codepage: `Señor` is `Se\xF1or` in
+    /// Windows-1252, and its UTF-8 bytes are found nowhere).
+    pub fn tag_usages_of(&self, tag: &[u8]) -> Vec<Usage> {
         if tag.is_empty() {
             return Vec::new();
         }
-        let hit = |t: &&(GffPath, Vec<u8>)| t.1 == tag.as_bytes();
+        let hit = |t: &&(GffPath, Vec<u8>)| t.1 == tag;
         let mut keys: Vec<&ResKey> = self
             .seen
             .iter()
@@ -617,6 +626,13 @@ impl UsageIndex {
 
     /// [`mentions`] of `name`, from what [`refresh`](Self::refresh) read.
     pub fn mentions(&self, name: &str, ignore_case: bool, codepage: Codepage) -> Vec<Mention> {
+        self.mentions_of(name.as_bytes(), ignore_case, codepage)
+    }
+
+    /// The scripts' strings that spell `name`, given as the scripts'
+    /// files have it (a tag with a letter outside ASCII, in their
+    /// codepage); `codepage` reads the lines shown.
+    pub fn mentions_of(&self, name: &[u8], ignore_case: bool, codepage: Codepage) -> Vec<Mention> {
         let mut keys: Vec<&ResKey> =
             self.seen.iter().filter(|(_, r)| !r.strings.is_empty()).map(|(k, _)| k).collect();
         keys.sort();
@@ -628,8 +644,8 @@ impl UsageIndex {
             for &(a, b) in &read.strings {
                 let s = &src[a..b];
                 let same = match ignore_case {
-                    true => s.eq_ignore_ascii_case(name.as_bytes()),
-                    false => s == name.as_bytes(),
+                    true => s.eq_ignore_ascii_case(name),
+                    false => s == name,
                 };
                 if same {
                     let lines = lines.get_or_insert_with(|| line_starts(src));

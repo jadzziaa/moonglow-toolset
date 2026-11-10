@@ -153,7 +153,7 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     into(&mut h, "Export Minimaps…");
     let ask = h.state().dialog_export_ask.clone().expect("asked before writing over them");
     assert_eq!(ask.existing, ["chess.png", "chess2.png"]);
-    h.get_by_label("Overwrite").click();
+    h.get_by_label("Replace 2").click();
     h.run_steps(3);
     assert_eq!(read("chess.png"), drawn(&h, chess, false), "unmarked now");
     let said = h.state().log.entries.last().unwrap().1.clone();
@@ -170,7 +170,7 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     into(&mut h, "Export Minimaps with Map Notes…");
     h.get_by_label("Always do this").click();
     h.run_steps(2);
-    h.get_by_label("Overwrite").click();
+    h.get_by_label("Replace 2").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.files_there, FilesThere::Replace);
     assert_eq!(read("chess.png"), one, "written over");
@@ -602,6 +602,137 @@ fn retag_all_follows_the_copy_s_transitions_and_names_the_scripts() {
     assert!(said("Retagged 4 objects, and 1 transition of what was made to them"));
     assert!(said("Retag: scripts spell the tags it changed, and still find the original's"));
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Retag"));
+}
+
+/// The Duplicate Tags window keeps the new objects by their places in
+/// their lists and doesn't stop the editor: with another object of the
+/// list deleted behind it, Retag gave whatever stood at the place the new
+/// tag (the review of November 2026, D2). In a module changed since the
+/// tags were checked it retags nothing, and says so.
+#[test]
+fn retag_leaves_a_module_changed_since_the_check_alone() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir("ui-retag-stale");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let placeable = |tag: &str| {
+        let mut p = Struct::new(9);
+        p.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        p
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let list = vec![placeable("LAMP"), placeable("LAMP"), placeable("CHEST")];
+    git.root.set("Placeable List", Value::List(list));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let tags = |app: &mut Moonglow| -> Vec<String> {
+        let ws = app.ws.as_mut().unwrap();
+        let doc = ws.doc(&start).unwrap();
+        (doc.root.list("Placeable List").unwrap().iter())
+            .map(|p| String::from_utf8_lossy(p.string("Tag").unwrap()).into_owned())
+            .collect()
+    };
+    // The second lamp was pasted: the window holds it at place 1.
+    let made =
+        mg_ui::tag_clash::Made { key: start, path: GffPath::root().item("Placeable List", 1) };
+    let clash = |app: &Moonglow| mg_ui::tag_clash::TagClash {
+        what: "“Paste”".into(),
+        clashes: vec![mg_module::tags::Clash {
+            tag: "LAMP".into(),
+            raw: b"LAMP".to_vec(),
+            count: 2,
+            unique: None,
+            area: None,
+        }],
+        objects: vec![(made.clone(), "LAMP".into())],
+        others: 0,
+        more: Vec::new(),
+        made: vec![made.clone()],
+        scripts: Vec::new(),
+        from_option: true,
+        revision: app.ws.as_ref().unwrap().revision(),
+    };
+    app.tag_clash = Some(clash(&app));
+    // The first lamp deleted behind the window: the chest is at place 1.
+    let remove = Edit::remove_item(start, GffPath::root(), "Placeable List", 0);
+    app.ws.as_mut().unwrap().apply(Command::new("Delete", vec![remove])).unwrap();
+    let mut h = harness(app, 1100.0, 760.0);
+    h.run();
+    h.get_by_label("Retag").click();
+    h.run_steps(2);
+    assert_eq!(tags(h.state_mut()), ["LAMP", "CHEST"], "nothing retagged");
+    assert!(h.state().tag_clash.is_none());
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, l)| l.contains(what))
+    };
+    assert!(said(&h, "Nothing was retagged"), "{:?}", h.state().log.entries);
+    // In the module as it was checked, the object held gets the new tag.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    let fresh = clash(h.state());
+    h.state_mut().tag_clash = Some(fresh);
+    h.run();
+    h.get_by_label("Retag").click();
+    h.run_steps(2);
+    assert_eq!(tags(h.state_mut()), ["LAMP", "LAMP_2", "CHEST"]);
+}
+
+/// A tag with a letter outside ASCII is bytes in the module's codepage
+/// (`Señor`: `Se\xF1or` in Windows-1252). Compared as UTF-8 text, Find
+/// References found it nowhere, and the Duplicate Tags window listed it
+/// with a mark in place of the letter, matched no object and retagged
+/// none (the review of November 2026, D17). It is compared as the module
+/// has it, and read as the game reads it.
+#[test]
+fn a_tag_outside_ascii_is_found_and_retagged() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir("ui-tag-outside-ascii");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.warn_duplicate_tags = true;
+    app.open_module(&path);
+    let senor = b"Se\xF1or";
+    let placeable = || {
+        let mut p = Struct::new(9);
+        p.set("Tag", Value::String(senor.to_vec()));
+        p
+    };
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Placeable List", Value::List(vec![placeable()]));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = harness(app, 1100.0, 760.0);
+    h.run();
+    // Found by its tag, typed as it reads.
+    h.state_mut().find_references(mg_ui::references::Query::Tag("Señor".into()));
+    settle(&mut h);
+    let found = h.state().references.usages.clone();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].from, start);
+    // A second object with the tag, as a paste makes one: said as it
+    // reads, and Retag gives the new one a tag of its own.
+    let paste = Edit::insert_item(start, GffPath::root(), "Placeable List", 1, placeable());
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Paste", vec![paste])));
+    settle(&mut h);
+    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
+    assert_eq!(clash.clashes[0].tag, "Señor");
+    assert_eq!(clash.objects.len(), 1, "the object pasted: {:?}", clash.objects);
+    h.get_by_label("• Señor is now on two objects");
+    h.get_by_label("Retag").click();
+    settle(&mut h);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let doc = ws.doc(&start).unwrap();
+    let tags: Vec<Vec<u8>> = (doc.root.list("Placeable List").unwrap().iter())
+        .map(|p| p.string("Tag").unwrap().to_vec())
+        .collect();
+    assert_eq!(tags, [senor.to_vec(), b"Se\xF1or_2".to_vec()]);
 }
 
 /// An area copied whose tags the project wants unique in each area

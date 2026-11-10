@@ -176,7 +176,12 @@ impl Moonglow {
                 if opens {
                     self.properties_changed.remove(&(new, mg_edit::GffPath::root()));
                 }
-                self.log.error(e.to_string());
+                // (Held for the Protected Area window, which says it: the
+                // mark taken, or the next command that failed for another
+                // reason failed without a word.)
+                if !std::mem::take(&mut self.claims.held) {
+                    self.log.error(e.to_string());
+                }
                 None
             }
         }
@@ -201,7 +206,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.end_row();
                 if let Some(tag) = &mut draft.tag {
                     crate::widgets::field_label(ui, "Tag");
-                    ui.add(egui::TextEdit::singleline(tag).desired_width(200.0));
+                    // (As many characters as the game keeps of a tag.)
+                    let limit = mg_module::tags::MAX_TAG;
+                    ui.add(egui::TextEdit::singleline(tag).char_limit(limit).desired_width(200.0));
                     ui.end_row();
                 }
             });

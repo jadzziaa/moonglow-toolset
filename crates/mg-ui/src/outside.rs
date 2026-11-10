@@ -25,7 +25,7 @@ use mg_module::palette::BlueprintKind;
 use mg_module::watch::Watch;
 use mg_resman::ResKey;
 
-use crate::{Moonglow, Tab};
+use crate::Moonglow;
 
 /// What is known of the files changed outside.
 #[derive(Debug, Default)]
@@ -76,6 +76,8 @@ struct Looking {
     /// What the thread found, kept while a text field typed in sets its
     /// text first ([`Moonglow::take_looked`]).
     found: Option<Looked>,
+    /// The files looked at; `None`: all of the module's.
+    files: Option<Vec<PathBuf>>,
     /// The keyboard was taken from such a field in the frame before.
     left_text: bool,
 }
@@ -211,6 +213,8 @@ impl Moonglow {
             None => ws.module.outside_scan(),
         };
         let Some(scan) = scan else { return };
+        // (A module kept in one file is read whole whatever was named.)
+        let files = files.filter(|_| ws.module.project.is_some() || ws.module.folder.is_some());
         // (The areas as they are now, for their locks: only the project's
         // files leave them out. Those of the files named, where they are:
         // all of them were 1,400 a look.)
@@ -244,7 +248,7 @@ impl Moonglow {
             Ok(_) => {
                 let started = Instant::now();
                 self.outside.looking =
-                    Some(Looking { root, started, done, found: None, left_text: false });
+                    Some(Looking { root, started, done, found: None, files, left_text: false });
             }
             Err(_) => self.reload_project_files(),
         }
@@ -345,7 +349,7 @@ impl Moonglow {
         crate::trace::changed("outside", || {
             format!("{} changed, looked at in {:.0?}", changes.len(), looking.started.elapsed())
         });
-        self.take_found(changes, problems, &looked.locks);
+        self.take_found(changes, problems, &looked.locks, looking.files.as_deref());
         false
     }
 
@@ -442,19 +446,32 @@ impl Moonglow {
         self.reread_project_file();
         let Some(ws) = self.ws.as_mut() else { return };
         let Some((changes, problems)) = ws.module.outside() else { return };
-        self.take_found(changes, problems, &HashMap::new());
+        self.take_found(changes, problems, &HashMap::new(), None);
     }
 
     /// Takes the files found changed outside: those the module has no
     /// unsaved change to are read into it, the others wait for an answer.
     /// `locks`: the locks of areas, found off the window's thread, as the
-    /// module had them then.
+    /// module had them then. `only`: the files the look was of (those a
+    /// watch heard of), where it was not of all: the conflicts waiting on
+    /// other files are no business of such a look and stay, weighed again
+    /// with what it found (one whose change here was undone since is read
+    /// now). They were dropped with every look, and a file saved outside
+    /// while another's question was open closed the question for good.
     fn take_found(
         &mut self,
-        changes: Vec<Outside>,
+        mut changes: Vec<Outside>,
         problems: Vec<String>,
         locks: &HashMap<ResKey, (Arc<[u8]>, Vec<Lock>)>,
+        only: Option<&[PathBuf]>,
     ) {
+        if let Some(only) = only {
+            let waiting = std::mem::take(&mut self.outside.conflicts);
+            let kept: Vec<Outside> = (waiting.into_iter())
+                .filter(|c| !only.contains(&c.path) && !changes.iter().any(|n| n.key == c.key))
+                .collect();
+            changes.extend(kept);
+        }
         // (A file moved where the project's include doesn't look is said.)
         self.take_project_warnings();
         let Some(ws) = self.ws.as_mut() else { return };
@@ -603,16 +620,9 @@ impl Moonglow {
         // What is gone has no editor any more.
         let gone: Vec<_> = changes.iter().filter(|c| c.resource.is_none()).map(|c| c.key).collect();
         if !gone.is_empty() {
-            crate::tabs::close_tabs(&mut self.dock, |t| match t {
-                Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
-                    !gone.contains(k)
-                }
-                Tab::Nui(k) => !gone.contains(k),
-                Tab::Area(r) | Tab::AreaProperties(r) => {
-                    !gone.iter().any(|k| k.restype == mg_core::ResType::ARE && k.resref == *r)
-                }
-                _ => true,
-            });
+            // (As Delete closes them: an area's objects' windows, and an
+            // Edit Together tab that holds one, were left open here.)
+            crate::tabs::close_tabs(&mut self.dock, |t| !t.shows_any(&gone));
         }
         // Names shown from the module are read again.
         self.area_names = Default::default();

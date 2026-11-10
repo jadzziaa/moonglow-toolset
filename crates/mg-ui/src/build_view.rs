@@ -161,7 +161,15 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(
                 ui,
                 |ui| {
+                    // (The results in sight are laid out, the others take a
+                    // row's room: a world's first Unused check is 20,000.)
+                    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
                     for (i, f) in w.results.iter().enumerate() {
+                        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+                        if !ui.is_rect_visible(room) && !f.text.contains('\n') {
+                            ui.add_space(row);
+                            continue;
+                        }
                         let r = ui.selectable_label(w.selected == Some(i), &f.text);
                         if r.clicked() {
                             w.selected = Some(i);

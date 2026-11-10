@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use egui::Ui;
-use mg_core::{Gender, Language};
+
 use mg_edit::{Command, Edit, GffPath, Step};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
@@ -206,6 +206,13 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                                 // each named.
                                 let labels = labels(path);
                                 for (i, item) in items.iter().enumerate() {
+                                    // (An item closed and out of sight takes
+                                    // its header's room: an area's thousands
+                                    // of placeables were each named and laid
+                                    // out every frame.)
+                                    if closed_out_of_sight(ui, (id, i)) {
+                                        continue;
+                                    }
                                     let item_path = path.item(&label, i);
                                     let at = (i, item.id);
                                     let name = list_item_name(
@@ -361,11 +368,12 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
                         ui.weak(shortened(&text, 48));
                     }
                 }
-                let english = crate::text::codepage_of(Language::ENGLISH);
-                let current = ls
-                    .text_in(Language::ENGLISH, Gender::Male, english)
-                    .map(|t| t.into_owned())
-                    .unwrap_or_default();
+                // The text in the language edited (Options › Language), which
+                // is the one `with_english` writes: the box showed the
+                // English text whatever was edited, so with another
+                // language what was typed replaced that language's text
+                // and the box went back to the English, as if refused.
+                let current = crate::text::edited_text(ls);
                 if let Some(t) = ctx.loc_text(ui, id, &current) {
                     ctx.set(path, label, Value::LocString(with_english(ls.clone(), &t)));
                 }
@@ -376,6 +384,25 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
         }
         Value::Struct(_) | Value::List(_) => {}
     }
+}
+
+/// For a list's item drawn as a header that opens (`salt`: what its
+/// `CollapsingHeader` is given as `id_salt`): whether it is closed and
+/// out of sight, in which case a closed header's room is taken in its
+/// place and the caller draws nothing. An open one is always drawn, at
+/// its own height.
+pub(crate) fn closed_out_of_sight(ui: &mut Ui, salt: impl egui::AsIdSalt) -> bool {
+    // (As `CollapsingHeader` makes its id of the salt it is given.)
+    let id = ui.make_persistent_id(egui::IdSalt::new(salt));
+    let open = egui::collapsing_header::CollapsingState::load(ui.ctx(), id)
+        .is_some_and(|state| state.is_open());
+    let height = ui.spacing().interact_size.y;
+    let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
+    let hidden = !open && !ui.is_rect_visible(room);
+    if hidden {
+        ui.add_space(height + ui.spacing().item_spacing.y);
+    }
+    hidden
 }
 
 #[cfg(test)]

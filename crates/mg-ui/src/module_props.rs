@@ -401,6 +401,9 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     }
                     if state.reveal && state.cursor == Some(i) {
                         name.scroll_to_me(None);
+                        // (Once: asked every frame after an arrow key, it
+                        // pulled the row back against the wheel.)
+                        state.reveal = false;
                     }
                     if name.clicked() {
                         let (command, shift) =
@@ -687,7 +690,8 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
     let file = place
         .as_ref()
         .map_or_else(|| mg_module::project_file::FILE_NAME.to_string(), |p| p.team_name());
-    let map = pf.talk_map();
+    // (Its lines as kept while the file is as it was: not read again.)
+    let map = crate::talk_typed::map_lines(app);
     let id = egui::Id::new("typed-lines");
     let shown = |l: Option<Lines>| {
         l.map_or((String::new(), String::new()), |l| (l.from.to_string(), l.to.to_string()))
@@ -764,12 +768,7 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
         (_, None) => None,
         (_, Some(t)) => {
             let next = crate::talk_typed::next_line(app, t);
-            let map_lines = map
-                .as_ref()
-                .ok()
-                .and_then(|m| m.as_ref())
-                .map(talk_range::map_lines)
-                .unwrap_or_default();
+            let map_lines = map.clone().unwrap_or_default();
             let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
             let left =
                 talk_range::free_lines(&allowed, len, |l| t.is_blank(l as usize), &map_lines);
@@ -851,11 +850,23 @@ fn start_attach(app: &mut Moonglow) {
     if files.is_empty() {
         return;
     }
-    match mg_module::attach::placements(&hak_dir, &tlk_dir, &files) {
-        Ok(placements) => app.attach = Some(AttachDraft { placements, replace: false }),
-        Err(e) => app.log.error(format!("Add Haks and Talk Table: {e}")),
-    }
+    // (As a job: an archive's haks are listed, and each file is compared
+    // with the one of its name in the user folder, gigabytes of them.)
+    app.start_job(
+        ATTACH,
+        move |cx| {
+            cx.progress.say("Looking at the files chosen");
+            mg_module::attach::placements(&hak_dir, &tlk_dir, &files)
+        },
+        |app, placements| match placements {
+            Ok(placements) => app.attach = Some(AttachDraft { placements, replace: false }),
+            Err(e) => app.log.error(format!("{ATTACH}: {e}")),
+        },
+    );
 }
+
+/// Add Haks and Talk Table's name, its window's and its jobs'.
+const ATTACH: &str = "Add Haks and Talk Table";
 
 /// The Add Haks and Talk Table window: the haks in their order (highest
 /// first), the talk table, and what's copied where.
@@ -931,16 +942,29 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
-/// Copies the files and attaches them, as one undoable step (the copies
-/// stay).
+/// Copies the files (as a job: haks of gigabytes were copied inside the
+/// frame) and attaches them, as one undoable step (the copies stay).
+/// Canceled, the module is as it was; what was copied by then stays in
+/// the user folder.
 fn attach(app: &mut Moonglow, draft: &AttachDraft) {
-    let copied = match mg_module::attach::copy(&draft.placements, draft.replace) {
-        Ok(n) => n,
-        Err(e) => {
-            app.log.error(format!("Add Haks and Talk Table: {e}"));
-            return;
-        }
-    };
+    let draft = draft.clone();
+    let copying = draft.clone();
+    app.start_job(
+        ATTACH,
+        move |cx| {
+            cx.progress.say("Copying into the user folder");
+            mg_module::attach::copy(&copying.placements, copying.replace)
+        },
+        move |app, copied| match copied {
+            Ok(copied) => attached(app, &draft, copied),
+            Err(e) => app.log.error(format!("{ATTACH}: {e}")),
+        },
+    );
+}
+
+/// The files copied: the module's hak list and talk table set, as one
+/// undoable step.
+fn attached(app: &mut Moonglow, draft: &AttachDraft, copied: usize) {
     let Some(ws) = &mut app.ws else { return };
     let Ok(info) = ws.doc(&info_key()) else { return };
     let haks: Vec<String> =

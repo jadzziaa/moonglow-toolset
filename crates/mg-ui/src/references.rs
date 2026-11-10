@@ -290,14 +290,18 @@ impl Moonglow {
                         external.as_ref(),
                         debug,
                     );
+                    // (Told by the script compiled, not by its name being
+                    // somewhere in the message: a failure in an include
+                    // names the include's file.)
                     for r in &results {
                         if let Err(e) = &r.result
-                            && report
-                                .recompile
-                                .iter()
-                                .any(|k| e.message.contains(&k.resref.to_string()))
+                            && report.recompile.iter().any(|k| k.resref == r.script.resref)
                         {
-                            self.log.error(e.message.clone());
+                            let file = format!("{}.nss", r.script.resref);
+                            self.log.error(match e.message.contains(&file) {
+                                true => e.message.clone(),
+                                false => format!("{file}: {}", e.message),
+                            });
                             compiled_ok = false;
                         }
                     }
@@ -322,9 +326,11 @@ impl Moonglow {
             .map(|k| Edit::SetResource { key: k, data: staged.get(&k).map(<[u8]>::to_vec) })
             .collect();
         let new = ResKey::new(to, from.restype);
-        if let Err(e) = self.apply(Command::new(format!("Rename {from} to {new}"), edits)) {
-            self.log.error(e.to_string());
-            return;
+        match self.apply_or_ask(Command::new(format!("Rename {from} to {new}"), edits), None) {
+            Ok(true) => {}
+            // (Held for the Protected Area window: asked there.)
+            Ok(false) => return,
+            Err(e) => return self.log.error(e.to_string()),
         }
         self.retarget(from, to);
         let in_tables = match report.in_tables {
@@ -352,7 +358,9 @@ impl Moonglow {
                 "Some scripts the rename changed aren't compiled; compile them before testing",
             );
         }
-        if self.references.query.is_some() {
+        // (Where it shows the resource renamed: any rename pointed it at
+        // that resource, whatever it was showing.)
+        if self.references.query == Some(Query::Resource(main_key(from))) {
             self.references.query = Some(Query::Resource(new));
             self.references.input = to.to_string();
             self.references.revision = None;
@@ -434,9 +442,10 @@ impl Moonglow {
             None => Ok(None),
         };
         let new = ResKey::new(to, from.restype);
-        if let Err(e) = self.apply(made.command) {
-            self.log.error(e.to_string());
-            return;
+        match self.apply_or_ask(made.command, None) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => return self.log.error(e.to_string()),
         }
         // The window's tab and what it keeps, and the tabs and buffers of
         // its two scripts where they moved with it. (Only those: another
@@ -514,26 +523,12 @@ impl Moonglow {
         };
         let is_area = with(ResType::ARE);
         let from = from.resref;
-        let moved = |k: &mut ResKey| {
-            if k.resref == from && with(k.restype) {
-                k.resref = to;
-            }
-        };
-        let moved_ref = |r: &mut ResRef| {
-            if *r == from && is_area {
-                *r = to;
-            }
-        };
+        // (Every tab that shows it, a tab of several too: `Tab::retarget`
+        // knows them as `Tab::tree_keys` does.)
+        let moved =
+            |k: ResKey| (k.resref == from && with(k.restype)).then(|| ResKey::new(to, k.restype));
         for (_, tab) in self.dock.iter_all_tabs_mut() {
-            match tab {
-                Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => moved(k),
-                Tab::Nui(k) => moved(k),
-                Tab::Area(r) | Tab::AreaProperties(r) => moved_ref(r),
-                Tab::Instance { area, .. }
-                | Tab::Instances { area, .. }
-                | Tab::InstanceModel { area, .. } => moved_ref(area),
-                _ => {}
-            }
+            tab.retarget(&moved);
         }
         let old_keys: Vec<ResKey> =
             self.scripts.keys().filter(|k| k.resref == from && with(k.restype)).copied().collect();
@@ -668,9 +663,10 @@ impl Moonglow {
                     Some(Edit::SetResource { key: *k, data })
                 })
                 .collect();
-            if let Err(e) = self.apply(Command::new(format!("Edit {}", unsaved[0]), edits)) {
-                self.log.error(e.to_string());
-                return;
+            match self.apply_or_ask(Command::new(format!("Edit {}", unsaved[0]), edits), None) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(e) => return self.log.error(e.to_string()),
             }
         }
         let mut gone: Vec<ResKey> = going.iter().flat_map(|k| self.deleted_with(*k)).collect();
@@ -698,21 +694,17 @@ impl Moonglow {
             [key] => format!("Delete {key}"),
             several => format!("Delete {} resources", several.len()),
         };
-        if let Err(e) = self.apply(Command::new(label, edits)) {
-            self.log.error(e.to_string());
-            return;
+        // (Held for the Protected Area window: what goes ahead from there
+        // is this deletion whole, its tabs closed too.)
+        let again = Action::DeleteResources(keys.to_vec());
+        match self.apply_or_ask(Command::new(label, edits), Some(again)) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => return self.log.error(e.to_string()),
         }
-        let area_gone = |r: &ResRef| areas.contains(r);
-        crate::tabs::close_tabs(&mut self.dock, |t| match t {
-            Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Nui(k) => {
-                !gone.contains(k)
-            }
-            Tab::Area(r) | Tab::AreaProperties(r) => !area_gone(r),
-            Tab::Instance { area: r, .. }
-            | Tab::Instances { area: r, .. }
-            | Tab::InstanceModel { area: r, .. } => !area_gone(r),
-            _ => true,
-        });
+        // (Every tab that shows one of them: `Tab::tree_keys`'s, an Edit
+        // Together tab of several too.)
+        crate::tabs::close_tabs(&mut self.dock, |t| !t.shows_any(&gone));
         for area in areas {
             self.area_views.remove(&area);
         }
@@ -807,7 +799,13 @@ impl Moonglow {
             ResType::GIT => self.actions.push(Action::OpenTab(Tab::Area(u.from.resref))),
             ResType::DLG => {
                 if let Some(row) = self.ws.as_ref().and_then(|ws| dialog_row(&ws.module, u)) {
-                    self.dialog_views.entry(u.from).or_default().selected = Some(row);
+                    // (Its parents opened out, and scrolled to.)
+                    let doc = self.ws.as_mut().and_then(|ws| ws.doc(&u.from).ok().cloned());
+                    let view = self.dialog_views.entry(u.from).or_default();
+                    match doc {
+                        Some(g) => crate::dialog_view::go_to_row(view, &g, row),
+                        None => view.selected = Some(row),
+                    }
                 }
                 self.actions.push(Action::OpenTab(Tab::Dialog(u.from)));
             }
@@ -935,7 +933,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 Query::Resource(k) => {
                     (index.usages(*k), index.mentions(&k.resref.to_string(), true, codepage))
                 }
-                Query::Tag(t) => (index.tag_usages(t), index.mentions(t, false, codepage)),
+                // (A tag as the files have it: an object's in the game's
+                // codepage, a script's string in the scripts'. Asked as
+                // UTF-8, a tag with a letter outside ASCII was found
+                // nowhere.)
+                Query::Tag(t) => (
+                    index.tag_usages_of(&crate::text::encode(t)),
+                    index.mentions_of(&codepage.encode_lossy(t), false, codepage),
+                ),
                 Query::StrRef(n) => (index.strref_usages(*n), Vec::new()),
             });
         reading = found.is_none();

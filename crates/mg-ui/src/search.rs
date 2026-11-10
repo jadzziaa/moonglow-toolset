@@ -542,6 +542,15 @@ pub struct AdvancedSearch {
     pub act: ActDraft,
     /// The events the objects found have (script fields' labels).
     pub events: Vec<String>,
+    /// The module's revision (`Workspace::revision`) the hits were found
+    /// at. A hit is a place (`keep.git /Creature List[3]`): once the
+    /// module has changed (an object deleted, an Undo, a file read again)
+    /// another object may stand there, so nothing acts on the hits before
+    /// they are found again.
+    pub found_at: Option<u64>,
+    /// Why a click did not do what it says (the hits were found again
+    /// first), until the next Find or change.
+    pub note: Option<String>,
 }
 
 impl AdvancedSearch {
@@ -629,15 +638,58 @@ impl Moonglow {
         draft.hits = self.search_kept.search(&ws.module, &q, game, cp);
         draft.ticked = draft.hits.iter().map(|h| h.layer.is_none()).collect();
         draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
+        let asked_anew = draft.searched.as_ref() != Some(&q);
         draft.searched = Some(q);
-        // (A change's field follows what is looked for.)
-        if let Some(field) = draft.first.field() {
+        draft.found_at = Some(ws.revision());
+        // (A field to set follows what is looked for, when another thing
+        // is looked for. Every search wrote the field's label over the
+        // name, which is a variable's and an item's too: a variable typed
+        // as nBoss was Appearance_Type after the search a change ends
+        // with, and the next change set a variable of that name.)
+        if asked_anew
+            && draft.act.act == Act::SetField
+            && let Some(field) = draft.first.field()
+        {
             draft.act.name = field;
         }
     }
 
+    /// Whether the module changed since `draft`'s hits were found (its
+    /// pending edits written first): they are found again then, all
+    /// ticked, with a note of why, and the caller does nothing with them
+    /// this time. The hits name places, and whatever stands there now
+    /// would be changed, opened or edited together.
+    pub fn found_again(&mut self, draft: &mut AdvancedSearch) -> bool {
+        let Some(ws) = self.ws.as_mut() else { return false };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return true;
+        }
+        if draft.searched.is_none() || draft.found_at == Some(ws.revision()) {
+            return false;
+        }
+        // (What was asked then, not what the fields say now.)
+        let asked = draft.searched.clone();
+        let game = self.game.as_deref();
+        let cp = game.map_or(Codepage::WINDOWS_1252, GameData::codepage);
+        if let Some(q) = &asked {
+            draft.hits = self.search_kept.search(&ws.module, q, game, cp);
+            draft.ticked = draft.hits.iter().map(|h| h.layer.is_none()).collect();
+            draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
+            draft.found_at = Some(ws.revision());
+        }
+        draft.note = Some(
+            "The module changed since this was found. Found again, everything ticked: look the \
+             list over first."
+                .into(),
+        );
+        true
+    }
+
     /// Makes the window's change to what it found and ticked, in one
-    /// step, then finds again.
+    /// step, then finds again. Where the module changed since they were
+    /// found, they are found again and nothing is changed
+    /// ([`Moonglow::found_again`]).
     pub fn change_found(&mut self, draft: &mut AdvancedSearch) {
         let change = match draft.act.change(self.game.as_deref()) {
             Ok(c) => c,
@@ -646,6 +698,11 @@ impl Moonglow {
                 return;
             }
         };
+        if self.found_again(draft) {
+            draft.act.said = draft.note.clone();
+            return;
+        }
+        draft.note = None;
         let Some(ws) = self.ws.as_mut() else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
@@ -669,9 +726,17 @@ impl Moonglow {
             return;
         }
         let label = format!("{} on {} found", change.describe(), out.changed);
-        if let Err(e) = self.apply(Command::new(label.clone(), out.edits)) {
-            draft.act.said = Some(e.to_string());
-            return;
+        match self.apply_or_ask(Command::new(label.clone(), out.edits), None) {
+            Ok(true) => {}
+            // (Held: the Protected Area window names what it would change.)
+            Ok(false) => {
+                draft.act.said = Some("Asked first: it changes a protected area".into());
+                return;
+            }
+            Err(e) => {
+                draft.act.said = Some(e.to_string());
+                return;
+            }
         }
         draft.act.said = Some(format!("{label}{left}"));
         self.advanced_search(draft);
@@ -733,9 +798,19 @@ fn row_picker_in(
 
 /// The choices of a table, as the game names them.
 pub(crate) fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Choice> {
-    let Some(game) = game else { return Vec::new() };
+    listed(game, table).to_vec()
+}
+
+/// [`choices`], as the game data keeps them: the window's own rows ask
+/// every frame, and each got a copy of the whole list (feat.2da's
+/// thousand rows and more, with their names).
+fn listed(
+    game: Option<&GameData>,
+    table: &mg_rules::rows::RowTable,
+) -> std::sync::Arc<Vec<Choice>> {
+    let Some(game) = game else { return Default::default() };
     let columns = ChoiceColumns { name: table.name, label: table.label };
-    game.choice_list(table.table, columns).map(|c| c.to_vec()).unwrap_or_default()
+    game.choice_list(table.table, columns).unwrap_or_default()
 }
 
 /// A condition's rows of the window's grid; `salt` keeps its widgets'
@@ -767,7 +842,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             let table = c.table().expect("a table");
             crate::widgets::field_label(ui, "Property");
             let was = c.row;
-            row_picker(ui, &id("property"), &choices(game, &table), &mut c.row, None);
+            row_picker(ui, &id("property"), &listed(game, &table), &mut c.row, None);
             if c.row != was {
                 (c.subtype, c.cost, c.param) = (None, None, None);
             }
@@ -825,7 +900,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             };
             crate::widgets::field_label(ui, label);
             let table = c.table().expect("a table");
-            row_picker(ui, &id("row"), &choices(game, &table), &mut c.row, None);
+            row_picker(ui, &id("row"), &listed(game, &table), &mut c.row, None);
             ui.end_row();
             if c.kind == Kind::Spell {
                 crate::widgets::field_label(ui, "As class")
@@ -834,7 +909,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
                 row_picker(
                     ui,
                     &id("spell-class"),
-                    &choices(game, &classes),
+                    &listed(game, &classes),
                     &mut c.class,
                     Some("Any"),
                 );
@@ -1059,13 +1134,22 @@ fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
 /// The change to make, and its button; true when it is asked.
 fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>) -> bool {
     let mut go = false;
+    // (The field of what was looked for, offered as the one to set.)
+    let offered = d.first.field();
     let a = &mut d.act;
     egui::Grid::new("advanced-search-act").num_columns(2).show(ui, |ui| {
         crate::widgets::field_label(ui, "Change");
+        let was = a.act;
         crate::widgets::dropdown("advanced-search-act")
             .selected_text(a.act.label())
             .width(260.0)
             .show(ui, &mut a.act, &Act::ALL, |a| a.label());
+        if a.act != was
+            && a.act == Act::SetField
+            && let Some(field) = offered
+        {
+            a.name = field;
+        }
         ui.end_row();
         let edit = |ui: &mut Ui, v: &mut String, hint: &str| {
             ui.add(egui::TextEdit::singleline(v).hint_text(hint).desired_width(260.0));
@@ -1106,7 +1190,7 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
                 row_picker(
                     ui,
                     "advanced-search-act-row",
-                    &choices(game, &table),
+                    &listed(game, &table),
                     &mut a.entry.row,
                     None,
                 );
@@ -1161,6 +1245,17 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
     go
 }
 
+/// A hit's place as its row shows it, with areas named as the rest of
+/// the window names them (Options › General: Show areas by name).
+fn place_shown(app: &mut Moonglow, h: &mg_module::search::Hit) -> String {
+    let of_area = matches!(h.key.restype, ResType::ARE | ResType::GIT);
+    if !of_area || !app.settings.area_names {
+        return h.place.clone();
+    }
+    let name = crate::tabs::area_label(app, h.key.resref);
+    h.place.replacen(&h.key.resref.to_lowercase().to_string(), &name, 1)
+}
+
 /// The Advanced Search tab.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if app.ws.is_none() {
@@ -1169,20 +1264,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     let mut draft = std::mem::take(&mut app.advanced_search);
     let (mut find, mut go, mut change) = (false, None, false);
-    // The places, with areas named as the rest of the window names them
-    // (Options › General: Show areas by name).
-    let places: Vec<String> = draft
-        .hits
-        .iter()
-        .map(|h| {
-            let of_area = matches!(h.key.restype, ResType::ARE | ResType::GIT);
-            if !of_area || !app.settings.area_names {
-                return h.place.clone();
-            }
-            let name = crate::tabs::area_label(app, h.key.resref);
-            h.place.replacen(&h.key.resref.to_lowercase().to_string(), &name, 1)
-        })
-        .collect();
     let game = app.game.clone();
     ui.weak(
         "The module's blueprints, placed objects (and the items they hold), areas and \
@@ -1203,6 +1284,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let current = query.as_ref().ok() == draft.searched.as_ref();
     if draft.searched.is_some() && !current {
         ui.weak("Find again for what's asked now.");
+    }
+    if let Some(note) = &draft.note {
+        ui.colored_label(ui.visuals().warn_fg_color, note);
     }
     let mut open = Vec::new();
     let mut choose_areas = None;
@@ -1289,19 +1373,38 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let path = mg_edit::GffPath(h.path.0.iter().take(1).cloned().collect());
             crate::plugins::selected_at(h.key, &path)
         };
+        // What a plugin's command is run on from a ticked row: every
+        // ticked hit's. Made once a frame, when a ticked row in sight
+        // first asks, and whether a command fits it: it was made again
+        // for every ticked row, 8,785 times 8,785 for a world's variables.
+        let mut ticked: Option<(Vec<mg_plugin::Selected>, bool)> = None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for (i, place) in places.iter().enumerate() {
+            // (Only the rows in sight are named and laid out; the others
+            // take a row's room, as Find References' do.)
+            let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            for i in 0..draft.hits.len() {
+                let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+                if !ui.is_rect_visible(room) {
+                    ui.add_space(row);
+                    continue;
+                }
+                let place = place_shown(app, &draft.hits[i]);
                 ui.horizontal(|ui| {
                     let h = &draft.hits[i];
                     let mine = h.layer.is_none();
                     let tick = egui::Checkbox::without_text(&mut draft.ticked[i]);
                     let tick = ui.add_enabled(mine, tick);
-                    let mut hover = format!("{} {}", h.key, h.path);
-                    if let Some(layer) = &h.layer {
-                        hover = format!("{hover}\nRead from {layer}: read-only");
+                    let r = ui.link(place).on_hover_ui(|ui| {
+                        ui.label(match &h.layer {
+                            Some(layer) => {
+                                format!("{} {}\nRead from {layer}: read-only", h.key, h.path)
+                            }
+                            None => format!("{} {}", h.key, h.path),
+                        });
+                    });
+                    if h.layer.is_some() {
                         tick.on_disabled_hover_text("Read-only: the module has no copy of it");
                     }
-                    let r = ui.link(place).on_hover_text(hover);
                     if r.clicked() {
                         go = Some(i);
                     }
@@ -1312,18 +1415,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // The plugins' commands for it, or (one of those
                     // ticked) for each ticked.
                     if !commands.is_empty() {
-                        let mut on: Vec<mg_plugin::Selected> = if draft.ticked[i] {
-                            (draft.hits.iter().zip(&draft.ticked))
-                                .filter(|(_, t)| **t)
-                                .map(|(h, _)| on_hit(h))
-                                .collect()
-                        } else {
-                            vec![on_hit(h)]
+                        let fits = |on: &[mg_plugin::Selected]| {
+                            commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(on)))
                         };
-                        on.dedup();
-                        if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
+                        let alone;
+                        let (on, fits): (&[mg_plugin::Selected], bool) = if draft.ticked[i] {
+                            let (on, fits) = ticked.get_or_insert_with(|| {
+                                let mut on: Vec<mg_plugin::Selected> =
+                                    (draft.hits.iter().zip(&draft.ticked))
+                                        .filter(|(_, t)| **t)
+                                        .map(|(h, _)| on_hit(h))
+                                        .collect();
+                                on.dedup();
+                                let fits = fits(&on);
+                                (on, fits)
+                            });
+                            (on, *fits)
+                        } else {
+                            alone = [on_hit(h)];
+                            (&alone, fits(&alone))
+                        };
+                        if fits {
                             r.context_menu(|ui| {
-                                crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
+                                crate::plugins::menu_on(ui, &commands, on, &mut app.actions);
                             });
                         }
                     }
@@ -1333,10 +1447,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if find && draft.query().is_ok() {
         draft.act.said = None;
+        draft.note = None;
         app.advanced_search(&mut draft);
     }
     if change {
         app.change_found(&mut draft);
+    }
+    // (A place opened or edited together is the hit's as it was found:
+    // in a module changed since, they are found again instead.)
+    let acts = go.is_some() || !open.is_empty() || choose_areas.is_some();
+    if acts && app.found_again(&mut draft) {
+        (go, choose_areas) = (None, None);
+        open.clear();
     }
     if let Some(i) = go {
         let h = &draft.hits[i];

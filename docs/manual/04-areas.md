@@ -863,6 +863,10 @@ the team's own rule; without those, nothing.
   (below), retags the tags only counted too.
 - **Keep Tags** leaves them (objects that no script looks up).
 
+The window doesn't stop the editor. Where the module was changed behind
+it (another object deleted, an Undo), Retag retags nothing and the log
+says so: the objects may no longer be where the window found them.
+
 Scripts that spell one of the tags (a string `"KZ_INN_EXIT"`, as Find
 References finds it) are named in the window ("Spelled in scripts (1:
 kz_exit.nss line 1)"), and in the log after a Retag: a script is the

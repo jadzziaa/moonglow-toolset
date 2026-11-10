@@ -9,7 +9,7 @@
 //! without a word).
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -580,33 +580,27 @@ impl Hak {
     }
 
     fn read(&self, item: &Item) -> Result<Vec<u8>, String> {
-        match &item.source {
-            Source::Archive => {
-                let a = self.archive.as_ref().ok_or("no archive")?;
-                // (Wherever it lies in the file: a hak past 2 GiB is split by
-                // taking out what the game cannot reach.)
-                a.read_anywhere(&item.key).map(Cow::into_owned).map_err(|e| e.to_string())
-            }
-            Source::File(p) => std::fs::read(p).map_err(|e| format!("{}: {e}", p.display())),
-            Source::Bytes(b) => Ok(b.to_vec()),
-        }
+        read_item(self.archive.as_deref(), item)
     }
 
-    /// Writes resources as files into a folder; returns how many.
+    /// Writes resources as files into a folder (over those there);
+    /// returns how many.
     pub fn extract(&self, keys: &[ResKey], dir: &Path) -> Result<usize, String> {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let mut n = 0;
+        self.extraction(keys).write(dir, &HashSet::new(), &mut |_| true)
+    }
+
+    /// The resources `keys` as they are now, to be written as files away
+    /// from the hak ([`Extraction::write`]): a hak of gigabytes is
+    /// extracted off the window's thread, which draws meanwhile.
+    pub fn extraction(&self, keys: &[ResKey]) -> Extraction {
         let mut places: Vec<usize> =
             keys.iter().filter_map(|k| self.places.get(k)).copied().collect();
         places.sort_unstable();
         places.dedup();
-        for item in places.into_iter().map(|at| &self.items[at]) {
-            let path = item.key.path_in(dir).map_err(|e| e.to_string())?;
-            std::fs::write(&path, self.read(item)?)
-                .map_err(|e| format!("{}: {e}", path.display()))?;
-            n += 1;
+        Extraction {
+            archive: self.archive.clone(),
+            items: places.into_iter().map(|at| self.items[at].clone()).collect(),
         }
-        Ok(n)
     }
 
     /// The resources that would start past 2 GiB, which the game can't read.
@@ -621,9 +615,21 @@ impl Hak {
 
     /// Saves to `path` (its own when `None`), then reads the archive back.
     pub fn save(&mut self, path: Option<&Path>) -> Result<(), String> {
+        let saving = self.saving(path)?;
+        match saving.write(&mut |_| true)? {
+            Some(saved) => self.saved(saved),
+            None => Err("the save was stopped".into()),
+        }
+    }
+
+    /// A save to `path` (the hak's own when `None`), ready to be written
+    /// away from the hak ([`Saving::write`], then [`Hak::saved`]): a hak
+    /// of gigabytes is written off the window's thread.
+    pub fn saving(&self, path: Option<&Path>) -> Result<Saving, String> {
         let path = path.or(self.path.as_deref()).ok_or("no file to save to")?.to_path_buf();
         // Sizes now: an added file may have changed since.
-        for item in &mut self.items {
+        let mut items = self.items.clone();
+        for item in &mut items {
             if let Source::File(p) = &item.source {
                 item.size =
                     std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?.len();
@@ -642,30 +648,173 @@ impl Hak {
         let (year, day) = crate::build_date();
         header.build_year = year;
         header.build_day = day;
-        let entries: Vec<_> =
-            self.items.iter().map(|i| (i.key.resref, i.key.restype, i.size)).collect();
-        // (Beside it under the one name Moonglow writes files by, a
-        // resource at a time, then moved over it: `x.hak` and `x.erf` no
-        // longer share `x.part`.)
-        crate::write_replacing_with(&path, |w| {
-            mg_erf::write_streamed(w, &header, &entries, |i| {
-                self.read(&self.items[i]).map(Cow::Owned).map_err(std::io::Error::other)
-            })
-            .map_err(|e| std::io::Error::other(e.to_string()))
-        })
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-        let archive = ErfContainer::open(&path).map_err(|e| e.to_string())?;
-        for item in &mut self.items {
-            item.source = Source::Archive;
+        Ok(Saving { path, header, items, archive: self.archive.clone() })
+    }
+
+    /// Takes a save written ([`Saving::write`]) as the hak's own: its
+    /// resources are the archive's from now on. An error where the hak's
+    /// resources are no longer those that were written (it was changed
+    /// meanwhile): the file is as written, the hak as it is.
+    pub fn saved(&mut self, saved: Saved) -> Result<(), String> {
+        let same = self.items.len() == saved.sizes.len()
+            && self.items.iter().zip(&saved.sizes).all(|(i, (key, _))| i.key == *key);
+        if !same {
+            return Err(format!(
+                "the hak was changed while it was saved: {} has it as it was",
+                saved.path.display()
+            ));
         }
-        self.header = archive.header.clone();
-        self.archive = Some(Arc::new(archive));
-        self.path = Some(path);
+        for (item, (_, size)) in self.items.iter_mut().zip(&saved.sizes) {
+            item.source = Source::Archive;
+            item.size = *size;
+        }
+        self.header = saved.archive.header.clone();
+        self.archive = Some(Arc::new(saved.archive));
+        self.path = Some(saved.path);
         // Undo now would point at sources that may be gone: start afresh.
         self.undo.clear();
         self.redo.clear();
         self.saved = Some(0);
         Ok(())
+    }
+}
+
+/// A resource's bytes, wherever they are: in `archive` (the hak's, as it
+/// was opened or last saved), a file, or bytes given.
+fn read_item(archive: Option<&ErfContainer>, item: &Item) -> Result<Vec<u8>, String> {
+    match &item.source {
+        Source::Archive => {
+            let a = archive.ok_or("no archive")?;
+            // (Wherever it lies in the file: a hak past 2 GiB is split by
+            // taking out what the game cannot reach.)
+            a.read_anywhere(&item.key).map(Cow::into_owned).map_err(|e| e.to_string())
+        }
+        Source::File(p) => std::fs::read(p).map_err(|e| format!("{}: {e}", p.display())),
+        Source::Bytes(b) => Ok(b.to_vec()),
+    }
+}
+
+/// Resources of a hak as they were when taken ([`Hak::extraction`]), to
+/// be written as files.
+#[derive(Debug, Clone)]
+pub struct Extraction {
+    archive: Option<Arc<ErfContainer>>,
+    items: Vec<Item>,
+}
+
+impl Extraction {
+    /// How many resources, and their bytes in all.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn size(&self) -> u64 {
+        self.items.iter().map(|i| i.size).sum()
+    }
+
+    /// Those of them that `dir` has a file of already (which a write puts
+    /// its own over, unless told to skip them).
+    pub fn there(&self, dir: &Path) -> Vec<ResKey> {
+        (self.items.iter())
+            .filter(|i| i.key.path_in(dir).is_ok_and(|p| p.exists()))
+            .map(|i| i.key)
+            .collect()
+    }
+
+    /// Writes them as files into `dir`, but for `skip` (left as the
+    /// folder has them): each beside its place and moved there, so that
+    /// one stopped or failed leaves no file cut short. `step` is told the
+    /// bytes written so far before each file, and stops the work by
+    /// saying `false` (the files written stay). Returns how many were
+    /// written.
+    pub fn write(
+        &self,
+        dir: &Path,
+        skip: &HashSet<ResKey>,
+        step: &mut dyn FnMut(u64) -> bool,
+    ) -> Result<usize, String> {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let (mut n, mut done) = (0, 0u64);
+        for item in self.items.iter().filter(|i| !skip.contains(&i.key)) {
+            if !step(done) {
+                break;
+            }
+            let path = item.key.path_in(dir).map_err(|e| e.to_string())?;
+            let data = read_item(self.archive.as_deref(), item)?;
+            crate::write_replacing_one_of_many(&path, &data)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            done += data.len() as u64;
+            n += 1;
+        }
+        Ok(n)
+    }
+}
+
+/// A save of a hak ready to be written ([`Hak::saving`]).
+#[derive(Debug)]
+pub struct Saving {
+    path: PathBuf,
+    header: Header,
+    items: Vec<Item>,
+    archive: Option<Arc<ErfContainer>>,
+}
+
+/// A hak's save, written: what [`Hak::saved`] takes.
+#[derive(Debug)]
+pub struct Saved {
+    path: PathBuf,
+    archive: ErfContainer,
+    /// Each resource written, and its size as written.
+    sizes: Vec<(ResKey, u64)>,
+}
+
+impl Saving {
+    /// The bytes of the resources it writes.
+    pub fn size(&self) -> u64 {
+        self.items.iter().map(|i| i.size).sum()
+    }
+
+    /// Where it writes.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Writes the hak (beside its place, then moved over it) and reads
+    /// the archive back. `step` is told the bytes of resources written so
+    /// far before each resource, and stops the save by saying `false`:
+    /// then nothing is left of it, the file is as it was, and `None` is
+    /// returned.
+    pub fn write(self, step: &mut dyn FnMut(u64) -> bool) -> Result<Option<Saved>, String> {
+        let Saving { path, header, items, archive } = self;
+        let entries: Vec<_> = items.iter().map(|i| (i.key.resref, i.key.restype, i.size)).collect();
+        let (mut done, mut stopped) = (0u64, false);
+        // (Beside it under the one name Moonglow writes files by, a
+        // resource at a time, then moved over it: `x.hak` and `x.erf` no
+        // longer share `x.part`.)
+        let written = crate::write_replacing_with(&path, |w| {
+            mg_erf::write_streamed(w, &header, &entries, |i| {
+                if !step(done) {
+                    stopped = true;
+                    return Err(std::io::Error::other("stopped"));
+                }
+                done += items[i].size;
+                read_item(archive.as_deref(), &items[i])
+                    .map(Cow::Owned)
+                    .map_err(std::io::Error::other)
+            })
+            .map_err(|e| std::io::Error::other(e.to_string()))
+        });
+        if stopped {
+            return Ok(None);
+        }
+        written.map_err(|e| format!("{}: {e}", path.display()))?;
+        let archive = ErfContainer::open(&path).map_err(|e| e.to_string())?;
+        let sizes = items.iter().map(|i| (i.key, i.size)).collect();
+        Ok(Some(Saved { path, archive, sizes }))
     }
 }
 
@@ -965,6 +1114,77 @@ mod tests {
         assert_eq!(hak.data(key("byhand")).unwrap(), b"h");
         hak.redo();
         assert_eq!(names(&hak), ["a.txt", "c.txt"]);
+    }
+
+    /// A save and an extraction are written away from the hak (as a job
+    /// of the window, the review of November 2026, D19), told how far
+    /// they are and stopped when asked: a save stopped leaves the file as
+    /// it was and nothing beside it, an extraction the files it wrote and
+    /// none cut short; files told to be skipped stay as the folder has
+    /// them. Written to their end, they give what `save` and `extract`
+    /// give.
+    #[test]
+    fn a_save_and_an_extraction_are_told_of_and_stopped() {
+        let dir = mg_testkit::scratch_dir("mg-hak-jobs");
+        let src = dir.join("src");
+        for (name, data) in [("a.txt", &b"aaaa"[..]), ("b.txt", b"bb"), ("c.txt", b"c")] {
+            write(&src, name, data);
+        }
+        let mut hak = Hak::new();
+        hak.add_folder(&src);
+        let path = dir.join("made.hak");
+        std::fs::write(&path, b"as it was").unwrap();
+        // Stopped before its second resource: the file as it was.
+        let saving = hak.saving(Some(&path)).unwrap();
+        assert_eq!(saving.size(), 7);
+        let mut told = Vec::new();
+        let stopped = saving.write(&mut |done| {
+            told.push(done);
+            told.len() < 2
+        });
+        assert!(matches!(stopped, Ok(None)), "{stopped:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"as it was");
+        let left: Vec<_> =
+            std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left.len(), 2, "the folder and the file, nothing beside them: {left:?}");
+        assert!(hak.is_dirty() && hak.path.is_none(), "the hak as it was");
+        // Written whole: as `save`.
+        let saving = hak.saving(Some(&path)).unwrap();
+        let mut told = Vec::new();
+        let saved = saving.write(&mut |done| {
+            told.push(done);
+            true
+        });
+        hak.saved(saved.unwrap().expect("written")).unwrap();
+        assert_eq!(told.len(), 3);
+        assert_eq!((told[0], *told.last().unwrap() < 7), (0, true));
+        assert!(!hak.is_dirty());
+        let back = Hak::open(&path).unwrap();
+        assert_eq!(back.data(key("a")).unwrap(), b"aaaa");
+        assert_eq!(back.items().len(), 3);
+
+        // Extracted: one there already is skipped, and one stop is heeded.
+        let out = dir.join("out");
+        write(&out, "b.txt", b"mine");
+        let all: Vec<ResKey> = hak.items().iter().map(|i| i.key).collect();
+        let plan = hak.extraction(&all);
+        assert_eq!((plan.len(), plan.size()), (3, 7));
+        assert_eq!(plan.there(&out), [key("b")]);
+        let skip: HashSet<ResKey> = [key("b")].into();
+        assert_eq!(plan.write(&out, &skip, &mut |_| true), Ok(2));
+        assert_eq!(std::fs::read(out.join("b.txt")).unwrap(), b"mine", "skipped");
+        assert_eq!(std::fs::read(out.join("a.txt")).unwrap(), b"aaaa");
+        let again = dir.join("again");
+        let mut calls = 0;
+        let wrote = plan.write(&again, &HashSet::new(), &mut |_| {
+            calls += 1;
+            calls < 2
+        });
+        assert_eq!(wrote, Ok(1), "stopped before the second");
+        assert_eq!(std::fs::read_dir(&again).unwrap().count(), 1);
+        // (And `extract`, over what is there.)
+        assert_eq!(hak.extract(&all, &out), Ok(3));
+        assert_eq!(std::fs::read(out.join("b.txt")).unwrap(), b"bb");
     }
 
     /// A folder of renamed bytes that a Moonglow no longer running left in

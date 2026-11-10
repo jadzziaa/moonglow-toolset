@@ -298,33 +298,37 @@ impl Moonglow {
         }
     }
 
-    /// Import Resources for loose files and folders.
+    /// Import Resources for loose files and folders. A folder (another
+    /// module's, unpacked: tens of thousands of files) or many files are
+    /// read as a job, the window opened when they are: read here, on the
+    /// window's thread, they held it still with no word of why.
     fn import_files(&mut self, paths: Vec<PathBuf>) {
         let name = named(&paths);
-        let mut incoming = Incoming::files(&paths);
-        // (Named from the folder given, or the files' own: the window has
-        // no room for whole paths.)
-        let base = match paths.as_slice() {
-            [one] if one.is_dir() => Some(one.clone()),
-            [first, rest @ ..] => {
-                let parent = first.parent();
-                let same = rest.iter().all(|p| p.parent() == parent);
-                parent.filter(|_| same).map(Path::to_path_buf)
+        let took = |app: &mut Moonglow, incoming: Incoming| {
+            if incoming.resources.is_empty() && incoming.refused.is_empty() {
+                app.log.warn(format!("Import: {name} has no files"));
+                return;
             }
-            [] => None,
+            app.plan_import(name, None, incoming);
         };
-        if let Some(base) = base {
-            let at = format!("{}{}", base.display(), std::path::MAIN_SEPARATOR);
-            for r in &mut incoming.refused {
-                r.what = r.what.replace(&at, "");
-                r.why = r.why.replace(&at, "");
-            }
+        if paths.len() <= FILES_READ_AT_ONCE && !paths.iter().any(|p| p.is_dir()) {
+            return took(self, read_files(&paths));
         }
-        if incoming.resources.is_empty() && incoming.refused.is_empty() {
-            self.log.warn(format!("Import: {name} has no files"));
-            return;
-        }
-        self.plan_import(name, None, incoming);
+        self.start_job_anywhere(
+            "Import Files",
+            move |cx| {
+                cx.progress.say("Reading the files");
+                read_files(&paths)
+            },
+            took,
+        );
+    }
+
+    /// Whether the files to import are being read ([`Moonglow::busy`],
+    /// for a test of the job).
+    #[cfg(test)]
+    fn reading_import(&self) -> bool {
+        self.job.as_ref().is_some_and(|j| j.title == "Import Files")
     }
 
     /// Files and folders dropped onto the window (from the desktop's file
@@ -749,10 +753,9 @@ impl Moonglow {
             return;
         };
         self.erf_chosen(&path);
-        match bytes
-            .map_err(|e| e.to_string())
-            .and_then(|b| std::fs::write(&path, b).map_err(|e| format!("{}: {e}", path.display())))
-        {
+        match bytes.map_err(|e| e.to_string()).and_then(|b| {
+            mg_module::write_replacing(&path, &b).map_err(|e| format!("{}: {e}", path.display()))
+        }) {
             Ok(()) => {
                 let held = roots.len() - 1;
                 let others = plan.resources.len() - roots.len();
@@ -869,7 +872,7 @@ impl Moonglow {
             None => mg_module::transfer::export_erf(&ws.module, resources, comments, reset),
         }
         .map_err(|e| e.to_string())
-        .and_then(|bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()));
+        .and_then(|bytes| mg_module::write_replacing(path, &bytes).map_err(|e| e.to_string()));
         match result {
             Ok(()) => self.log.info(format!(
                 "{} {} resources to {}, stamped with {}",
@@ -923,6 +926,34 @@ fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
     if let Some(a) = answer {
         app.answer_export(a);
     }
+}
+
+/// How many loose files an import reads on the window's thread; more, or
+/// a folder, are read as a job.
+const FILES_READ_AT_ONCE: usize = 64;
+
+/// The resources of the files and folders an import was given, and what
+/// of them was refused, said by the names under the folder given (or the
+/// files' own: the window has no room for whole paths).
+fn read_files(paths: &[PathBuf]) -> Incoming {
+    let mut incoming = Incoming::files(paths);
+    let base = match paths {
+        [one] if one.is_dir() => Some(one.clone()),
+        [first, rest @ ..] => {
+            let parent = first.parent();
+            let same = rest.iter().all(|p| p.parent() == parent);
+            parent.filter(|_| same).map(Path::to_path_buf)
+        }
+        [] => None,
+    };
+    if let Some(base) = base {
+        let at = format!("{}{}", base.display(), std::path::MAIN_SEPARATOR);
+        for r in &mut incoming.refused {
+            r.what = r.what.replace(&at, "");
+            r.why = r.why.replace(&at, "");
+        }
+    }
+    incoming
 }
 
 /// What an import is called, in its window and the log: the file's name,
@@ -1155,18 +1186,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 );
             });
             ui.horizontal(|ui| {
-                let all = listed.iter().all(|k| draft.selected.contains(k));
+                // (How many of those listed are ticked, counted once for
+                // both buttons: each asked every listed key of the
+                // selection.)
+                let mut ticked = listed.iter().filter(|k| draft.selected.contains(k)).count();
                 if ui
                     .add_enabled(
-                        !all,
+                        ticked < listed.len(),
                         egui::Button::new(format!("Select the {} Listed", listed.len())),
                     )
                     .clicked()
                 {
                     draft.selected.extend(listed.iter().copied());
+                    ticked = listed.len();
                 }
-                let any = listed.iter().any(|k| draft.selected.contains(k));
-                if ui.add_enabled(any, egui::Button::new("Clear Them")).clicked() {
+                if ui.add_enabled(ticked > 0, egui::Button::new("Clear Them")).clicked() {
                     for k in listed.iter() {
                         draft.selected.remove(k);
                     }
@@ -1213,7 +1247,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
 
     if let Some(draft) = &mut app.import {
-        let mut close = false;
+        let (mut close, mut import) = (false, false);
         let name = draft.name.clone();
         let auto_compile = app.settings.auto_compile;
         // Resized as a builder likes (GitHub issue 40: an archive of
@@ -1339,7 +1373,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if ui.add_enabled(any, egui::Button::new("Import")).clicked()
                     || (any && crate::widgets::enter(ui))
                 {
-                    app.actions.push(Action::Import(draft.clone()));
+                    import = true;
                     close = true;
                 }
                 if crate::widgets::cancel(ui) {
@@ -1354,8 +1388,64 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
         });
+        // (The import itself, not a copy of it: every incoming resource's
+        // bytes were copied once to run it.)
+        if import && let Some(draft) = app.import.take() {
+            app.actions.push(Action::Import(draft));
+        }
         if close {
             app.import = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_module::{Module, ModuleLocation};
+
+    /// A folder dropped on the window (another module's, unpacked) is
+    /// read as a job, and the Import window opens when it is: its files
+    /// were read whole on the window's thread, which stood still
+    /// meanwhile (the review of November 2026, D18). A few files chosen
+    /// are read at once, as before, and what is imported is the same.
+    #[test]
+    fn a_folder_to_import_is_read_as_a_job() {
+        let dir = mg_testkit::scratch_dir("ui-import-folder-job");
+        Module::new().save_as(&ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
+        let folder = dir.join("files");
+        std::fs::create_dir_all(&folder).unwrap();
+        for i in 0..40 {
+            std::fs::write(folder.join(format!("mg_s{i}.nss")), "void main() {}\n").unwrap();
+        }
+        std::fs::write(folder.join("not a resource.xyz"), "x").unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir.join("m.mod"));
+        app.background_jobs = true;
+        app.take_dropped(vec![folder.clone()]);
+        assert!(app.reading_import(), "read off the window's thread");
+        assert!(app.import.is_none(), "the window waits for the files");
+        let ctx = egui::Context::default();
+        let started = std::time::Instant::now();
+        while app.busy() {
+            app.poll_job(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed().as_secs() < 20, "the job never ended");
+        }
+        let job = app.import.take().expect("the Import window");
+        assert_eq!(job.resources.len(), 40);
+        // A few files, chosen: read at once, and the same resources.
+        let mut files: Vec<PathBuf> =
+            (0..40).map(|i| folder.join(format!("mg_s{i}.nss"))).collect();
+        files.sort();
+        app.take_dropped(files);
+        assert!(!app.busy());
+        let at_once = app.import.take().expect("the Import window");
+        let keys = |d: &ImportDraft| {
+            let mut keys: Vec<String> = d.resources.iter().map(|r| r.to_string()).collect();
+            keys.sort();
+            keys
+        };
+        assert_eq!(keys(&job), keys(&at_once));
     }
 }

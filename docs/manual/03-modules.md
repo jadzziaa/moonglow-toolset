@@ -346,6 +346,13 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
   Edit Areas Together with the areas of what is ticked (areas found, or
   those the objects found are placed in) ticked.
 
+What was found is a list of places as the module was then. Once the
+module has changed (an object deleted, an Undo, a file read again from
+outside), a change, an Edit Together or a click on a place first finds
+again, ticks everything found and says so ("The module changed since
+this was found…"), and does nothing else: look the new list over, then
+ask again.
+
 ## nasher projects (version control)
 
 A `.mod` is one binary file, so version control (git) can't show what
@@ -1321,7 +1328,10 @@ a new area, and loses nothing. **Change It Anyway** (or Rename, or
 Delete) goes ahead, for that one change: **Rename It Anyway** opens the
 Rename window, and closed without renaming, the area's next rename or
 change of its Tag is asked about again (as is a Tag changed while the
-Rename window is open).
+Rename window is open). One step that changes several protected areas
+(Advanced Search's **Set a field** on the Tags of what it found) names
+each of them in the window, and **Change Them Anyway** is the answer
+for those it named.
 
 **Verify Module** (and `mg verify`) holds the merged areas to the table:
 
@@ -1371,7 +1381,10 @@ Choosing one:
    files, which a repository could carry. An `[allowed_commands]` found
    in `moonglow.toml` or `.moonglow/user.toml` is not read (the log
    says so). The same project in another folder asks again. A command
-   never runs when a module opens.
+   never runs when a module opens. The question doesn't stop the
+   editor: what you change while it is open is asked about (Save, Don't
+   Save, Cancel) when you choose **Allow and Run**, before the command
+   runs, and the question closes with its project.
 3. **Lets the project's files go**: it stops looking at them for changes
    made outside, and closes the module's haks, so that the command may
    write over any of them (Windows refuses to replace a file another
@@ -1379,7 +1392,9 @@ Choosing one:
    A command with `writes = false` leaves the haks open, so the open
    areas aren't drawn again after it.
 4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
-   Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
+   Linux and macOS, `cmd /S /C` on Windows, so that a text beginning
+   with a quoted program, `"%MOONGLOW_MG%" tlk-alloc "my module"`, runs
+   as written), with `MOONGLOW_PROJECT` (the
    folder), `MOONGLOW_BUILDER` (your code, where you have one) and
    `MOONGLOW_MG` set. `MOONGLOW_MG` is the whole path of the `mg` that
    came with Moonglow (`mg.exe` in its folder on Windows, whose installer
@@ -1391,7 +1406,10 @@ Choosing one:
    ended (a question, `Continue? [y/N] `) shows there at once.
    **Cancel** stops it, and what it started (a `git` it runs, the
    shell's process group on Linux and macOS, asked to end and then made
-   to after two seconds; the shell's tree of processes on Windows). The
+   to after two seconds; the shell's tree of processes on Windows). A
+   command is over when its shell ends: a program its script leaves
+   running (`mg watch . &`, a server) runs on, and what it says after
+   the first second is no longer read. The
    log says how it ended: done, or its exit code. **File › Project ›
    Command Output** shows the last command's output afterwards, all of
    it (its last 20,000 lines; the log keeps the rest), how it ended,
@@ -1788,7 +1806,9 @@ the module's custom talk table and the field names it by its StrRef:
 - **A text the table has already:** Moonglow asks: **Use Line N** (the
   field names that line), **Add a Line**, or **Keep in the File**
   (Aurora's way, for this text). Options › Language can say Use that
-  line or Add a line without asking.
+  line or Add a line without asking. The question stops the editor
+  until it is answered (Escape keeps the text in the file), and a
+  second such text set meanwhile is asked about after it.
 - **Undo** takes the field and its line back together, and Redo puts
   both back. A line changed in the talk table editor since is left as it
   is; Redo whose line has been given another text since says so and
@@ -1893,13 +1913,19 @@ folder's files, subfolders included, to look over and save.
   tools silently cut it short), or a type the game doesn't know. Hidden
   files, `Thumbs.db` and `desktop.ini` are skipped.
 - **Extracting:** **Extract…** and **Extract All…** write resources as
-  files into a folder.
+  files into a folder. Where the folder has some of the files already
+  (the folder the hak was built from, its files edited since), it asks
+  first, listing them: **Replace** them, **Skip Those** and write the
+  rest, or **Cancel**. The files are written while a window shows how
+  far it is, with **Cancel** (those written by then stay).
 - **Undo** and **Redo** in its toolbar, and Undo's and Redo's keys
   with the pointer over the editor (the hak's steps, not the module's).
   **Description** is the hak's own note, for people.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
-  in memory, and a failed save leaves the old one whole. It warns when
+  in memory, and a failed save leaves the old one whole. The hak
+  editor's Save and Save As… show how far the save is, with **Cancel**,
+  which leaves the old one as it was. It warns when
   resources would start past 2 GiB, which the game can't read. The hak
   editor itself reads all of such a hak: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.
@@ -1956,7 +1982,11 @@ numbers at the left as it scrolls.
   them, so rows go from one table to another (or to and from a
   spreadsheet). Rows are added at the end where the paste runs past it;
   where the table has fewer columns than what is pasted, the first ones
-  that fit are taken.
+  that fit are taken. While **Find** narrows the rows, a paste goes into
+  the rows shown, a line each from the cursor's row on (what was cut
+  from them goes back into them, and the rows between are left alone);
+  one with more lines than there are rows shown from there is not
+  pasted, and says so: clear Find first.
 - **Add Row** puts an empty row at the end, or as many as the number
   beside it says (padding, up to the row your own begin at), in one
   step. No row is put between others.

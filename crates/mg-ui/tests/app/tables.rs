@@ -1101,6 +1101,57 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
 /// Undo and Redo in a 2DA's grid go through the keymap: a key given to
 /// Undo in Options › Keyboard reaches the grid that has the keys (the
 /// pointer elsewhere), and takes the table's step back, not the module's.
+/// Under a Find, what is cut from the rows shown goes back into them:
+/// the lines of a paste were counted on from the cursor's row number,
+/// into the rows between that the Find hides, where nothing showed it
+/// (the review of November 2026, D8). A paste with more lines than the
+/// Find shows rows for is refused, and says so.
+#[test]
+fn a_paste_under_a_find_goes_into_the_rows_shown() {
+    let dir = mg_testkit::scratch_dir("ui-table-paste-find");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mypeople", ResType::TWODA).unwrap();
+    let table =
+        b"2DA V2.0\r\n\r\n   Label  Race\r\n0  Ann    elf\r\n1  Bob    orc\r\n2  Cid    elf\r\n";
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(table.to_vec()) }],
+    )));
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    settle(&mut h);
+    h.state_mut().tables[0].filter = "elf".into();
+    settle(&mut h);
+    assert!(h.query_by_label("Bob").is_none(), "hidden by the Find");
+    // Ann's and Cid's names selected (the rows shown), and cut.
+    h.get_by_label("Ann").click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_eq!(h.state().tables[0].area(), Some((0, 2, 0, 0)));
+    h.event(egui::Event::Cut);
+    settle(&mut h);
+    let labels = |h: &Harness<'_, Moonglow>| -> Vec<Option<String>> {
+        let t = table_of(h, id);
+        (0..t.len()).map(|r| t.get(r, "Label").map(str::to_string)).collect()
+    };
+    assert_eq!(labels(&h), [None, Some("Bob".into()), None]);
+    // Pasted on the same selection: back where they were, Bob as he was.
+    h.event(egui::Event::Paste("Ann\nCid".into()));
+    settle(&mut h);
+    assert_eq!(labels(&h), [Some("Ann".into()), Some("Bob".into()), Some("Cid".into())]);
+    // Three lines, and the Find shows two rows: nothing pasted, and said.
+    h.event(egui::Event::Paste("x\ny\nz".into()));
+    settle(&mut h);
+    assert_eq!(labels(&h), [Some("Ann".into()), Some("Bob".into()), Some("Cid".into())]);
+    let problem = h.state().tables[0].problem.clone().unwrap_or_default();
+    assert!(problem.contains("Not pasted: 3 lines"), "{problem}");
+}
+
 #[test]
 fn a_rebound_undo_key_reaches_a_table_s_grid() {
     let dir = mg_testkit::scratch_dir("ui-table-undo-key");
@@ -1301,6 +1352,56 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"), "the module's Undo takes the save");
+}
+
+/// The hak editor's view of a table shows the table as the hak has it
+/// now: viewed, changed in the 2DA editor (a cell, no row or column),
+/// saved into the hak and viewed again, it shows the new cell. The view
+/// was kept by where its table lay in memory, and a table read again
+/// could lie where the old one did (the review of November 2026, D28):
+/// it is kept by which reading it was made for.
+#[test]
+fn a_hak_s_table_viewed_again_shows_it_as_it_is_now() {
+    use mg_module::hak_edit::{Hak, Source};
+    let dir = mg_testkit::scratch_dir("ui-table-hak-view");
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    let hak_path = dir.join("stuff.hak");
+    let mut hak = Hak::new();
+    hak.add_sources(vec![(key, Source::Bytes(SMALL_TABLE.to_vec().into()))]).unwrap();
+    hak.save(Some(&hak_path)).unwrap();
+    let dialogs = NoDialogs { open: vec![hak_path.clone()], ..Default::default() };
+    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1200.0, 800.0);
+    h.run();
+    mg_ui::hak_view::open_hak(h.state_mut());
+    settle(&mut h);
+    let hak_id = h.state().haks[0].id;
+    let view = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Hak(hak_id)));
+        settle(h);
+        h.get_all_by_label("mystore.2da").next().unwrap().click_secondary();
+        settle(h);
+        h.get_all_by_label("View").last().unwrap().click();
+        settle(h);
+        assert_eq!(h.state().haks[0].viewing().map(|v| v.1), Some("table"));
+    };
+    // (Several times over: a table read again often lies where the last
+    // one did.)
+    let mut was = "Bread".to_string();
+    for now in ["Toast", "Rolls", "Buns", "Loaf"] {
+        view(&mut h);
+        h.get_by_label(was.as_str());
+        let id = mg_ui::table_view::open_in_hak(h.state_mut(), hak_id, key).unwrap();
+        settle(&mut h);
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(0, 0, Some(now.into())).unwrap();
+        assert!(mg_ui::table_view::save(h.state_mut(), id));
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+        settle(&mut h);
+        view(&mut h);
+        h.get_by_label(now);
+        assert!(h.query_by_label(was.as_str()).is_none(), "{was} was the cell before");
+        was = now.to_string();
+    }
 }
 
 /// A table of a hak open in the hak editor is saved into the hak (a step
@@ -1730,7 +1831,7 @@ fn a_game_table_read_only_scrolls() {
     h.hover_at(over);
     h.run_steps(2);
     let label = h.get_by_label("Label").rect().left();
-    for delta in [egui::vec2(0.0, 100_000.0), egui::vec2(-600.0, 0.0)] {
+    let wheel = |h: &mut Harness<'_, Moonglow>, delta: egui::Vec2| {
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta,
@@ -1738,11 +1839,21 @@ fn a_game_table_read_only_scrolls() {
             modifiers: egui::Modifiers::NONE,
         });
         h.run_steps(30);
-    }
+    };
+    wheel(&mut h, egui::vec2(0.0, 100_000.0));
     h.get_by_label("Acid_Fog");
-    assert!(h.query_by_label("Label").is_none_or(|n| n.rect().left() < label - 300.0));
-    let acid = h.get_by_label("Acid_Fog").rect().left();
-    assert!(acid < label - 300.0, "the rows went sideways with the names: {acid}");
+    // (A cell scrolled out of sight sideways is no longer laid out: it is
+    // gone, or as far left as its column's name.)
+    wheel(&mut h, egui::vec2(-600.0, 0.0));
+    let went = |n: egui_kittest::Node<'_>| n.rect().left() < label - 300.0;
+    assert!(h.query_by_label("Label").is_none_or(went));
+    assert!(h.query_by_label("Acid_Fog").is_none_or(went), "the rows went with the names");
+    // (And the columns that came into sight are laid out: row 0's cells.)
+    let cells = h
+        .query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Label))
+        .filter(|n| pane.contains(n.rect().center()))
+        .count();
+    assert!(cells > 20, "{cells} labels in the pane");
     // The rows' numbers stay in sight at the left.
     assert!(numbers(&h).contains(&0), "{:?}", numbers(&h));
 }

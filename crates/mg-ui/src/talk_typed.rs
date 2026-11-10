@@ -57,6 +57,17 @@ pub struct TypedState {
     /// applied at.
     redo: Vec<(usize, Vec<Typed>)>,
     pub ask: Option<Ask>,
+    /// The commands typed while a question is asked (with what was
+    /// answered of their texts), in turn: each goes on once the question
+    /// is answered. The one slot held the last of them alone, and the
+    /// edit asked about before it was dropped without a word.
+    waiting: std::collections::VecDeque<(Command, Vec<(String, Answer)>)>,
+    /// The lines of the project's `[talk] map` ([`map_lines`]), kept
+    /// while its file is as it was read.
+    map: std::cell::RefCell<Option<MapKept>>,
+    /// The game data could not be given the table's new lines (it was
+    /// held): given them once it is free ([`show_when_free`]).
+    unshown: bool,
     /// Why typed text stayed in the file, each said once.
     said: BTreeSet<String>,
 }
@@ -133,6 +144,42 @@ fn note(app: &mut Moonglow, why: String) {
     }
 }
 
+/// The map's file as it was when its lines were read: where it is, its
+/// time and its size (none: not there), and what was read.
+type MapKept = (
+    std::path::PathBuf,
+    Option<(std::time::SystemTime, u64)>,
+    Result<std::sync::Arc<BTreeSet<u32>>, String>,
+);
+
+/// The lines of the project's `[talk] map` (`mg tlk-alloc`'s, which typed
+/// text never takes; none where the project names no map), or why the
+/// map can't be read. Read again when the file's time or size changes,
+/// and kept between: Module Properties › Custom Content read and parsed
+/// it twice every frame it showed, a megabyte of JSON for a map of
+/// 20,000 lines.
+pub(crate) fn map_lines(app: &Moonglow) -> Result<std::sync::Arc<BTreeSet<u32>>, String> {
+    let path = app.ws.as_ref().and_then(|ws| ws.module.project_file.talk_map_path());
+    let Some(path) = path else {
+        *app.typed.map.borrow_mut() = None;
+        return Ok(Default::default());
+    };
+    let stamp = std::fs::metadata(&path).ok().map(|m| (m.modified().ok(), m.len()));
+    let stamp = stamp.and_then(|(time, len)| Some((time?, len)));
+    let mut kept = app.typed.map.borrow_mut();
+    if let Some((of, was, lines)) = &*kept
+        && *of == path
+        && *was == stamp
+    {
+        return lines.clone();
+    }
+    let read = app.ws.as_ref().map_or(Ok(None), |ws| ws.module.project_file.talk_map());
+    let lines =
+        read.map(|m| std::sync::Arc::new(m.map(|m| talk_range::map_lines(&m)).unwrap_or_default()));
+    *kept = Some((path, stamp, lines.clone()));
+    lines
+}
+
 /// The next line text typed (or Move to Talk Table) takes: in the
 /// builder's lines of the project's range, past lines with text, `mg
 /// tlk-alloc`'s and those Redo would put back; the table's end without a
@@ -141,7 +188,7 @@ pub(crate) fn next_line(app: &Moonglow, t: &Table) -> Result<usize, String> {
     let Some(ws) = &app.ws else { return Ok(t.len()) };
     let pf = &ws.module.project_file;
     let allowed = pf.talk_allowed();
-    let map = pf.talk_map()?.map(|m| talk_range::map_lines(&m)).unwrap_or_default();
+    let map = map_lines(app)?;
     let held = app.typed.held();
     let len = u32::try_from(t.len()).unwrap_or(u32::MAX);
     let row = talk_range::next_free(
@@ -186,6 +233,15 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
     let loc = |e: &Edit| matches!(e, Edit::SetField { value: Some(Value::LocString(_)), .. });
     if !enabled(app) || app.ws.is_none() || !cmd.edits.iter().any(loc) {
         return plain(app, cmd);
+    }
+    // (A question is being asked: this one waits its turn behind it. Not
+    // the command asked about again, nor one that waits already: a field
+    // left with its text not yet set says so again.)
+    if let Some(ask) = &app.typed.ask {
+        if ask.cmd != cmd && !app.typed.waiting.iter().any(|(c, _)| *c == cmd) {
+            app.typed.waiting.push_back((cmd, answers));
+        }
+        return;
     }
     let (language, has_feminine) = match table_language(app) {
         Ok(l) => l,
@@ -279,7 +335,8 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
         let row = match choice {
             Answer::File => continue,
             Answer::Use(row) => {
-                said.push(format!("uses line {row} of the talk table ({})", strref(row)));
+                let uses = format!("uses line {row} of the talk table ({})", strref(row));
+                said.push((short(&w.text), uses));
                 row
             }
             Answer::Add => {
@@ -305,7 +362,8 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
                         continue;
                     }
                 }
-                said.push(format!("is line {row} of the talk table ({})", strref(row)));
+                let is = format!("is line {row} of the talk table ({})", strref(row));
+                said.push((short(&w.text), is));
                 row
             }
         };
@@ -327,8 +385,10 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
             if !typed.is_empty() {
                 app.typed.undo.push((now, typed));
             }
-            for (w, s) in wanted.iter().zip(&said) {
-                app.log.info(format!("“{}” {s}", short(&w.text)));
+            // (Each with its own text: paired by place, a text kept in the
+            // file before it gave its line to the next text.)
+            for (text, s) in &said {
+                app.log.info(format!("“{text}” {s}"));
             }
         }
         // (Nothing changed: a blueprint only looked at.)
@@ -368,12 +428,40 @@ fn short(text: &str) -> String {
 /// the module is saved.
 fn shown(app: &mut Moonglow) {
     app.talk_view.changed_outside();
-    let Some(t) = app.talk.as_ref().filter(|_| !app.talk_view.outside) else { return };
-    let tlk = t.tlk.clone();
     app.release_game_data();
-    if let Some(game) = crate::exclusive(&mut app.game) {
-        game.set_custom_tlk(Some(tlk));
-        game.invalidate();
+    if !show(app) && !std::mem::replace(&mut app.typed.unshown, true) {
+        // (Held past the wait by something that still reads it: the line
+        // is in the table, and its fields show no text of it until then.
+        // It was left so without a word.)
+        app.log.warn(
+            "The game data is in use: the talk table's new lines show in the fields once it is \
+             free",
+        );
+    }
+}
+
+/// Gives the game data the talk table as it is now, where it can be
+/// changed (nothing else reads it): whether it was (or there was nothing
+/// to give). Only what is made from the custom table's strings is
+/// forgotten (`GameData::set_custom_tlk`: the choice lists): the 2DAs
+/// read and the appearances judged have none of them, and every typed
+/// text made the open editors read `appearance.2da` and the rest again.
+fn show(app: &mut Moonglow) -> bool {
+    let Some(t) = app.talk.as_ref().filter(|_| !app.talk_view.outside) else {
+        app.typed.unshown = false;
+        return true;
+    };
+    let Some(game) = crate::exclusive(&mut app.game) else { return app.game.is_none() };
+    game.set_custom_tlk(Some(t.tlk.clone()));
+    app.typed.unshown = false;
+    true
+}
+
+/// Each frame: a talk table the game data could not be given while it
+/// was held ([`shown`]) is given it once it is free.
+fn show_when_free(app: &mut Moonglow) {
+    if app.typed.unshown && show(app) {
+        app.log.info("The talk table's new lines show in the fields now");
     }
 }
 
@@ -437,15 +525,24 @@ pub(crate) fn stepped(app: &mut Moonglow, redo: bool, depth: usize) {
     }
 }
 
-/// The question asked of a text the table has a line with already.
+/// The question asked of a text the table has a line with already. It
+/// stops the editor until it is answered (an `egui::Modal`): it holds the
+/// command as it was typed, which for a conversation's new line is the
+/// conversation as it was then, and edits made behind the question were
+/// taken back when the answer applied it.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+    show_when_free(app);
     let Some(ask) = app.typed.ask.clone() else { return };
     let mut answer = None;
-    let mut open = true;
     let mut always = false;
     let title = "Text in the Talk Table";
-    crate::widgets::modal(ctx, title).open(&mut open).show(ctx, |ui| {
+    // (Escape is this question's, as a dialog's is: the Properties window
+    // under it doesn't take it for its Cancel.)
+    let escape = crate::widgets::escape_closes(ctx, title);
+    let modal = egui::Modal::new(egui::Id::new("talk-typed-ask")).show(ctx, |ui| {
         ui.set_max_width(420.0);
+        ui.heading(title);
+        ui.add_space(4.0);
         ui.label(format!(
             "The talk table has this text already, at line {} (StrRef {}):",
             ask.row,
@@ -493,7 +590,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             Answer::File => TalkReuse::File,
         };
     }
-    if !open || crate::widgets::escape_closes(ctx, title) {
+    if escape || modal.should_close() {
         answer = answer.or(Some(Answer::File));
     }
     if let Some(answer) = answer {
@@ -501,5 +598,51 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         let mut answers = ask.answers;
         answers.push((ask.text, answer));
         app.actions.push(Action::ApplyTypedWith(ask.cmd, answers));
+        // (Then those typed while it was asked, each asked about in its
+        // turn where the table has its text.)
+        for (cmd, answers) in std::mem::take(&mut app.typed.waiting) {
+            app.actions.push(Action::ApplyTypedWith(cmd, answers));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_module::{Module, ModuleLocation};
+
+    /// The lines of the project's `[talk] map` are read once and kept
+    /// while the file is as it was (Module Properties read and parsed it
+    /// twice a frame: the review of November 2026, D25), read again when
+    /// it changes, and none where the project names no map.
+    #[test]
+    fn the_talk_map_s_lines_are_kept_while_its_file_is_as_it_was() {
+        let dir = mg_testkit::scratch_dir("ui-talk-map-kept").join("project");
+        Module::new().save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(dir.join("moonglow.toml"), "[talk]\nmap = \"lines.json\"\n").unwrap();
+        let map = |lines: &str| {
+            format!("{{\"version\": 1, \"lines\": {{{lines}}}, \"retired\": {{\"old\": 7}}}}")
+        };
+        std::fs::write(dir.join("lines.json"), map("\"a\": 3")).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&dir);
+        let first = map_lines(&app).unwrap();
+        assert_eq!(first.iter().copied().collect::<Vec<u32>>(), [3, 7], "in use and retired");
+        let again = map_lines(&app).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &again), "kept: not read again");
+        // Changed (another line: another size): read again.
+        std::fs::write(dir.join("lines.json"), map("\"a\": 3, \"b\": 12")).unwrap();
+        let next = map_lines(&app).unwrap();
+        assert_eq!(next.iter().copied().collect::<Vec<u32>>(), [3, 7, 12]);
+        // One that does not read is said, and gone is none.
+        std::fs::write(dir.join("lines.json"), "not a map").unwrap();
+        assert!(map_lines(&app).is_err());
+        std::fs::remove_file(dir.join("lines.json")).unwrap();
+        assert!(map_lines(&app).unwrap().is_empty());
+        // No map named: none, and nothing kept.
+        std::fs::write(dir.join("moonglow.toml"), "").unwrap();
+        app.reload_project_files();
+        assert!(map_lines(&app).unwrap().is_empty());
+        assert!(app.typed.map.borrow().is_none());
     }
 }

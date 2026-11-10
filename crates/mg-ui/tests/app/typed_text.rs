@@ -183,6 +183,94 @@ fn a_text_the_talk_table_has_is_asked_about() {
     assert_eq!(h.state().talk.as_ref().unwrap().line(1).text, "The Keep");
 }
 
+/// The question held one command: a second text the table has, typed
+/// while the first was asked about, took its place, and the first field's
+/// edit was dropped without a word (the review of November 2026, D15).
+/// The second waits its turn and is asked about once the first is
+/// answered; the question stops the editor meanwhile, and Escape keeps
+/// the text in the file.
+#[test]
+fn two_texts_the_talk_table_has_are_each_asked_about() {
+    let Some((mut h, _, _)) = typed_harness("ui-typed-two-asks", true) else { return };
+    let key = ResKey::parse("module", ResType::IFO).unwrap();
+    let typed = |label: &str| {
+        let text = LocString::from_text(Language::ENGLISH, Gender::Male, "The Keep");
+        mg_ui::Action::ApplyTyped(mg_edit::Command::new(
+            label,
+            vec![mg_edit::Edit::SetField {
+                key,
+                path: mg_edit::GffPath::root(),
+                label: label.into(),
+                value: Some(mg_gff::Value::LocString(text)),
+            }],
+        ))
+    };
+    h.state_mut().actions.push(typed("Mod_Name"));
+    h.state_mut().actions.push(typed("Mod_Description"));
+    settle(&mut h);
+    let info = |h: &mut Harness<'_, Moonglow>| -> (LocString, LocString) {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&key).unwrap().root.clone();
+        (root.read(&ifo::MOD_NAME), root.read(&ifo::MOD_DESCRIPTION))
+    };
+    h.get_by_label("Text in the Talk Table");
+    assert_eq!(info(&mut h).0.strref, mg_core::StrRef::NONE, "nothing set before the answer");
+    // The first answered: its field set, and the second asked about.
+    h.get_by_label("Use Line 0").click();
+    settle(&mut h);
+    let (name, description) = info(&mut h);
+    assert_eq!(name.strref.0, BASE, "the first field's edit was not dropped");
+    assert_eq!(description.strref, mg_core::StrRef::NONE, "asked about in its turn");
+    h.get_by_label("Text in the Talk Table");
+    // Escape: kept in the file, as its Keep in the File.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.query_by_label("Text in the Talk Table").is_none());
+    let (name, description) = info(&mut h);
+    assert_eq!(name.strref.0, BASE);
+    assert_eq!(
+        (description.strref, english(&description)),
+        (mg_core::StrRef::NONE, Some(&b"The Keep"[..]))
+    );
+    assert_eq!(h.state().talk.as_ref().unwrap().len(), 1, "no line added");
+}
+
+/// A text typed into the talk table leaves the game data's tables as they
+/// were read: every one forgot `appearance.2da` and the rest, which the
+/// open editors then read again (the review of November 2026, D27). With
+/// the game data held by something else past the wait, the new line was
+/// silently not shown: the log says so, and it shows once the game data
+/// is free.
+#[test]
+fn a_typed_text_keeps_the_tables_read_and_shows_once_the_game_data_is_free() {
+    let Some((mut h, _, _)) = typed_harness("ui-typed-tables-kept", true) else { return };
+    let table =
+        |h: &Harness<'_, Moonglow>| h.state().game.as_deref().unwrap().table("appearance").unwrap();
+    let before = table(&h);
+    retype(&mut h, "Sample", "Castle Krezk");
+    assert_eq!(module_name(&mut h).strref.0, BASE + 1);
+    assert!(std::sync::Arc::ptr_eq(&before, &table(&h)), "appearance.2da as it was read");
+    let shown = |h: &Harness<'_, Moonglow>, line: u32| {
+        h.state().game.as_deref().unwrap().string(mg_core::StrRef(BASE + line))
+    };
+    assert_eq!(shown(&h, 1).as_deref(), Some("Castle Krezk"));
+    drop(before);
+    // Held by another reader (past the wait for it): said, and shown when
+    // it lets go.
+    let held = h.state().game.clone();
+    retype(&mut h, "Castle Krezk", "Castle Ravenloft");
+    assert_eq!(h.state().talk.as_ref().unwrap().line(2).text, "Castle Ravenloft");
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, e)| e.contains(what))
+    };
+    assert!(said(&h, "The game data is in use"), "{:?}", h.state().log.entries);
+    assert_eq!(shown(&h, 2), None, "not yet");
+    drop(held);
+    h.step();
+    assert_eq!(shown(&h, 2).as_deref(), Some("Castle Ravenloft"));
+    assert!(said(&h, "show in the fields now"));
+}
+
 /// Off (as by default), the text is the field's own, as Aurora writes it.
 #[test]
 fn off_by_default_typed_text_is_the_field_s_own() {

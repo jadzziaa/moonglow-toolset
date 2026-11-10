@@ -318,18 +318,43 @@ impl Editing {
     /// (`row`, `column`) on, adding rows at the end as needed; cells past
     /// the last column are left out. How many cells changed.
     pub fn paste(&mut self, row: usize, column: usize, text: &str) -> Result<usize, TwoDaError> {
+        self.paste_into(&[row], column, text)
+    }
+
+    /// How many rows a text pasted would go into: its lines that have
+    /// text.
+    pub fn pasted_lines(text: &str) -> usize {
+        text.lines().filter(|l| !l.is_empty()).count()
+    }
+
+    /// [`paste`](Self::paste) into the rows given, a line each in their
+    /// order (the rows an editor shows under a Find, from the cursor on:
+    /// what is copied or cut there is of those rows, and goes back into
+    /// them, not into the rows between that the Find hides); lines past
+    /// the last of them go into the rows after it. With no row, nothing
+    /// is pasted.
+    pub fn paste_into(
+        &mut self,
+        rows: &[usize],
+        column: usize,
+        text: &str,
+    ) -> Result<usize, TwoDaError> {
+        let Some(&end) = rows.last() else { return Ok(0) };
         let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        let row_of =
+            |dr: usize| rows.get(dr).copied().unwrap_or_else(|| end + (dr + 1 - rows.len()));
         let mut cells = Vec::new();
         for (dr, line) in lines.iter().enumerate() {
             for (dc, value) in line.split('\t').enumerate() {
                 let value = Some(value.trim().to_string()).filter(|v| !v.is_empty());
-                cells.push((row + dr, column + dc, value));
+                cells.push((row_of(dr), column + dc, value));
             }
         }
         if cells.iter().any(|(_, _, v)| v.as_ref().is_some_and(|v| v.contains('"'))) {
             return Err(TwoDaError::Unquotable);
         }
-        let added = (row + lines.len()).saturating_sub(self.table.len());
+        let past = cells.iter().map(|c| c.0 + 1).max().unwrap_or(0);
+        let added = past.saturating_sub(self.table.len());
         for _ in 0..added {
             self.table.add_row();
         }
@@ -361,13 +386,18 @@ impl Editing {
         rows: &[usize],
         cells: &[(usize, usize)],
     ) -> (usize, usize) {
+        let rows: Vec<usize> = rows.iter().copied().filter(|r| *r < other.len()).collect();
+        // (The rows taken whole, to look one up: each changed cell was
+        // looked for in the list of them, twice, and a module's
+        // placeables.2da taking CEP's 20,000 rows made four billion
+        // comparisons of it.)
+        let whole: std::collections::HashSet<usize> = rows.iter().copied().collect();
         let cells: Vec<(usize, usize)> = cells
             .iter()
             .copied()
             .filter(|(r, c)| *r < other.len() && *c < self.table.columns().len())
-            .filter(|(r, _)| !rows.contains(r))
+            .filter(|(r, _)| !whole.contains(r))
             .collect();
-        let rows: Vec<usize> = rows.iter().copied().filter(|r| *r < other.len()).collect();
         let last = rows.iter().chain(cells.iter().map(|(r, _)| r)).copied().max();
         let Some(last) = last else { return (0, 0) };
         let added = (last + 1).saturating_sub(self.table.len());
@@ -388,9 +418,9 @@ impl Editing {
         put.retain(|(_, _, value)| !value.as_ref().is_some_and(|v| v.contains('"')));
         let changed = self.put(put).unwrap_or_default();
         let mut taken: Vec<usize> =
-            changed.iter().map(|c| c.0).filter(|r| rows.contains(r)).collect();
+            changed.iter().map(|c| c.0).filter(|r| whole.contains(r)).collect();
         taken.dedup();
-        let one_by_one = changed.iter().filter(|c| !rows.contains(&c.0)).count();
+        let one_by_one = changed.iter().filter(|c| !whole.contains(&c.0)).count();
         let label = match (taken.len(), one_by_one) {
             (n, 0) => format!("Take {n} rows"),
             (0, m) => format!("Take {m} cells"),
@@ -593,6 +623,62 @@ mod tests {
         assert_eq!(e.table().len(), 2);
         assert_eq!(e.table().get(1, "Label"), Some("b"));
         assert_eq!(e.paste(0, 0, "a \"b\""), Err(TwoDaError::Unquotable));
+    }
+
+    /// Taking many rows looks each changed cell's row up, not through the
+    /// list of the rows taken: 20,000 rows of ten cells took four billion
+    /// comparisons, a freeze of the window (the review of November 2026,
+    /// D22). What is taken, and what it says, are as for a few.
+    #[test]
+    fn many_rows_are_taken_in_time() {
+        use std::fmt::Write;
+        const ROWS: usize = 20_000;
+        let columns = "  A B C D E F G H I J";
+        let mut theirs = format!("{columns}\n");
+        for r in 0..ROWS {
+            writeln!(theirs, "{r} a{r} b c d e f g h i j").unwrap();
+        }
+        let theirs = table(&theirs);
+        let mut e = Editing::new(table(&format!("{columns}\n0 mine b c d e f g h i j\n")));
+        let all: Vec<usize> = (0..ROWS).collect();
+        // (A cell of a row taken whole is the row's, not counted alone;
+        // one past the other copy's end is none.)
+        let cells = [(5, 0), (ROWS + 5, 0)];
+        let began = std::time::Instant::now();
+        assert_eq!(e.take(&theirs, &all, &cells), (ROWS, 0));
+        let took = began.elapsed();
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+        assert_eq!(e.table().len(), ROWS);
+        assert_eq!(e.table().get(0, "A"), Some("a0"));
+        assert_eq!(e.table().get(ROWS - 1, "A"), Some(format!("a{}", ROWS - 1).as_str()));
+        assert_eq!(e.undo_label(), Some(format!("Take {ROWS} rows").as_str()));
+        assert!(e.undo());
+        assert_eq!((e.table().len(), e.table().get(0, "A")), (1, Some("mine")));
+        // Rows and cells alone, in one step.
+        assert_eq!(e.take(&theirs, &[3], &[(1, 0), (3, 1)]), (1, 1));
+        assert_eq!(e.undo_label(), Some("Take 1 rows and 1 cells"));
+        assert_eq!((e.table().get(1, "A"), e.table().get(1, "B")), (Some("a1"), None));
+    }
+
+    /// Pasted into the rows an editor shows under a Find, a line goes into
+    /// each of those rows, not into the rows between them that the Find
+    /// hides (the review of November 2026, D8); lines past the last row
+    /// given go on after it.
+    #[test]
+    fn cells_are_pasted_into_the_rows_given() {
+        let mut e = Editing::new(table("  Label\n0 a\n1 b\n2 c\n3 d\n"));
+        assert_eq!(Editing::pasted_lines("x\n\ny\n"), 2);
+        assert_eq!(e.paste_into(&[1, 3], 0, "x\ny\n").unwrap(), 2);
+        let labels = |e: &Editing| -> Vec<String> {
+            (0..e.table().len()).map(|r| e.table().get(r, "Label").unwrap_or("").into()).collect()
+        };
+        assert_eq!(labels(&e), ["a", "x", "c", "y"]);
+        assert!(e.undo());
+        assert_eq!(labels(&e), ["a", "b", "c", "d"]);
+        // More lines than rows: on from the last, a row added at the end.
+        assert_eq!(e.paste_into(&[0, 2], 0, "p\nq\nr\ns\n").unwrap(), 4);
+        assert_eq!(labels(&e), ["p", "b", "q", "r", "s"]);
+        assert_eq!(e.paste_into(&[], 0, "p\n").unwrap(), 0);
     }
 
     #[test]

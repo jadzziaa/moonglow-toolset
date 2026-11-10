@@ -46,6 +46,12 @@ pub struct TagClash {
     /// Shown as the builder's option says (the project's moonglow.toml
     /// doesn't set `paste_warning`): the window offers Don't warn again.
     pub from_option: bool,
+    /// The module's revision (`Workspace::revision`) the objects were
+    /// found at. They are kept by their places in their lists, and the
+    /// window doesn't stop the editor: once the module has changed
+    /// (another object of a list deleted, an Undo), Retag would give
+    /// whatever stands there the new tag, so it retags nothing then.
+    pub revision: u64,
 }
 
 /// The module's objects by tag, as they are now (unsaved edits too). An
@@ -111,6 +117,13 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
         })
         .collect();
     let mut found = clashes(&index, &tags, &rules, warning);
+    // (Said as the game reads them: a tag is bytes in the module's
+    // codepage, kept in `raw`, which the objects' are compared with. As
+    // UTF-8 text, a tag with a letter outside ASCII, `Señor`, was listed
+    // with a mark in it, matched no object, and Retag passed it over.)
+    for c in &mut found {
+        c.tag = crate::text::decode(&c.raw);
+    }
     let tagged: Vec<(Made, Vec<u8>)> = weighed
         .iter()
         .filter(|(_, w)| !w.is_static)
@@ -118,10 +131,9 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
         .collect();
     let mut counted = Vec::new();
     if whole_area && warning == PasteWarning::Any {
-        let own = |t: &str| {
-            tagged.iter().any(|(m, tag)| m.key.restype == ResType::ARE && tag == t.as_bytes())
-        };
-        (found, counted) = found.into_iter().partition(|c| c.unique.is_some() || own(&c.tag));
+        let own =
+            |t: &[u8]| tagged.iter().any(|(m, tag)| m.key.restype == ResType::ARE && tag == t);
+        (found, counted) = found.into_iter().partition(|c| c.unique.is_some() || own(&c.raw));
     }
     let others = counted.len();
     if found.is_empty() && others == 0 {
@@ -129,7 +141,7 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     }
     let of = |clashes: &[Clash]| -> Vec<(Made, String)> {
         (tagged.iter())
-            .filter(|(_, t)| clashes.iter().any(|c| c.tag.as_bytes() == t.as_slice()))
+            .filter(|(_, t)| clashes.iter().any(|c| c.raw == *t))
             .map(|(m, t)| (m.clone(), crate::text::decode(t)))
             .collect()
     };
@@ -147,9 +159,18 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     }
     let scripts = spelled(app, &[&found[..], &counted[..]].concat());
     let what = what.to_string();
-    let clash =
-        TagClash { what, clashes: found, objects, others, more, made, scripts, from_option };
-    app.tag_clash = Some(clash);
+    let revision = app.ws.as_ref().map_or(0, Workspace::revision);
+    app.tag_clash = Some(TagClash {
+        what,
+        clashes: found,
+        objects,
+        others,
+        more,
+        made,
+        scripts,
+        from_option,
+        revision,
+    });
 }
 
 /// The strings in the module's scripts that spell one of the tags
@@ -164,7 +185,8 @@ fn spelled(app: &mut Moonglow, clashes: &[Clash]) -> Vec<String> {
     };
     let mut out = Vec::new();
     for c in clashes {
-        for m in index.mentions(&c.tag, false, codepage) {
+        // (As the scripts' files spell it, in their codepage.)
+        for m in index.mentions_of(&codepage.encode_lossy(&c.tag), false, codepage) {
             out.push(format!("{} line {}", m.script, m.line));
         }
     }
@@ -337,15 +359,24 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             });
         });
     if retag_them || retag_all {
+        if app.ws.as_ref().map(Workspace::revision) != Some(clash.revision) {
+            app.log.warn(format!(
+                "Retag: the module changed since {} was checked, and the objects may have moved \
+                 in their lists. Nothing was retagged.",
+                clash.what
+            ));
+            return;
+        }
         let edits = retag_edits(app, &clash, retag_all);
         let n = edits
             .iter()
             .filter(|e| matches!(e, Edit::SetField { label, .. } if label == "Tag"))
             .count();
         let links = edits.len() - n;
-        if let Err(e) = app.apply(Command::new("Retag", edits)) {
+        let applied = app.apply_or_ask(Command::new("Retag", edits), None);
+        if let Err(e) = &applied {
             app.log.error(e.to_string());
-        } else {
+        } else if matches!(applied, Ok(true)) {
             let s = |n: usize| if n == 1 { "" } else { "s" };
             let led = match links {
                 0 => String::new(),

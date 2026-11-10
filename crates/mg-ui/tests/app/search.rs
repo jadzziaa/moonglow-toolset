@@ -92,6 +92,48 @@ fn a_rename_says_which_strings_still_spell_the_old_name() {
     assert!(said("A string still spelled “hello” in scripts (caller.nss line 1)"), "{:?}", app.log);
 }
 
+/// A rename takes the compiled code of the scripts it rewrote and
+/// compiles them again. Whether a failure was one of theirs was told by
+/// the script's name being somewhere in the error's message: a script
+/// whose compile failed in another include (the message names that file)
+/// lost its compiled code without a word, and an unrelated script whose
+/// name holds a rewritten one's was said to be the rename's (the review
+/// of November 2026, D9). The failures are told by the script compiled.
+#[test]
+fn a_rename_says_which_of_its_scripts_no_longer_compile() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-rename-recompile");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let script = |name: &str| ResKey::parse(name, ResType::NSS).unwrap();
+    m.set(script("inc_old"), b"void Old() {}\n".to_vec());
+    m.set(script("inc_utils"), b"void Utils() { int x = ; }\n".to_vec());
+    let main = b"#include \"inc_old\"\n#include \"inc_utils\"\nvoid main() { Old(); }\n";
+    m.set(script("quest"), main.to_vec());
+    // (Compiled once, before inc_utils was broken: the rename takes it.)
+    m.set(ResKey::parse("quest", ResType::NCS).unwrap(), b"NCS V1.0B".to_vec());
+    // Another script that never compiled, its name holding the first's.
+    m.set(script("quest_other"), b"void main() { nothing here }\n".to_vec());
+    m.save().unwrap();
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.rename_resource(script("inc_old"), ResRef::from_str("inc_new").unwrap(), false);
+    let module = &app.ws.as_ref().unwrap().module;
+    assert!(module.contains(&script("inc_new")), "{:?}", app.log.entries);
+    assert!(!module.contains(&ResKey::parse("quest", ResType::NCS).unwrap()));
+    let errors: Vec<&str> = (app.log.entries.iter())
+        .filter(|(level, _)| matches!(level, mg_ui::Level::Error))
+        .map(|(_, m)| m.as_str())
+        .collect();
+    assert!(
+        errors.iter().any(|m| m.contains("quest.nss") && m.contains("inc_utils")),
+        "{errors:?}"
+    );
+    assert!(!errors.iter().any(|m| m.contains("quest_other")), "not the rename's: {errors:?}");
+    let said = |s: &str| app.log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said("Some scripts the rename changed aren't compiled"));
+}
+
 /// The first Find References in a module reads its references on a
 /// thread of its own, as the desktop app runs (the window draws, and says
 /// it is reading); the next ones read only what changed, at once; the
@@ -474,6 +516,9 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_eq!(var(&creature(&mut h, 0)), None, "undone as one");
+    // (The module changed under what was found: found again first.)
+    h.get_by_label("Find").click();
+    h.run();
     // An event's script, on both.
     {
         let a = &mut h.state_mut().advanced_search.act;
@@ -512,6 +557,219 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.run_steps(2);
     // (The chooser's button: one area ticked.)
     h.get_by_label("Edit 1 Together");
+}
+
+/// What Advanced Search found is a list of places (`start.git /Creature
+/// List[1]`). With an object before one deleted since, Change wrote to
+/// whatever stood at the place by then, another creature (the review of
+/// November 2026, D2): in a module changed since they were found, the
+/// hits are found again and nothing is changed, opened or edited together
+/// until the builder has seen the new list.
+#[test]
+fn advanced_search_finds_again_before_it_acts_in_a_changed_module() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Act, Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-stale");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let creature = |tag: &str, quest: bool| {
+        let mut c = Struct::new(4);
+        c.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        let mut v = Struct::new(0);
+        v.set("Name", Value::String(b"nQuest".to_vec()));
+        v.set("Type", Value::Dword(1));
+        v.set("Value", Value::Int(1));
+        c.set("VarTable", Value::List(if quest { vec![v] } else { Vec::new() }));
+        c
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let creatures =
+        vec![creature("FIRST", false), creature("ASKS", true), creature("PLAIN", false)];
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let tags = |app: &mut Moonglow| -> Vec<(String, bool)> {
+        let ws = app.ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        let g = ws.module.gff(&start).unwrap().unwrap();
+        (g.root.list("Creature List").unwrap().iter())
+            .map(|c| {
+                let tag = String::from_utf8_lossy(c.string("Tag").unwrap()).into_owned();
+                let marked = c.list("VarTable").is_some_and(|v| {
+                    v.iter().any(|v| v.string("Name") == Some(b"nMarked".as_slice()))
+                });
+                (tag, marked)
+            })
+            .collect()
+    };
+    let mut d = mg_ui::search::AdvancedSearch {
+        first: Condition { kind: Kind::Variable, name: "nQuest".into(), ..Default::default() },
+        ..Default::default()
+    };
+    app.advanced_search(&mut d);
+    assert_eq!(d.hits.len(), 1, "{:?}", d.hits);
+    let object = |h: &mg_module::search::Hit| GffPath(h.path.0.iter().take(1).cloned().collect());
+    assert_eq!(object(&d.hits[0]), GffPath::root().item("Creature List", 1));
+    d.act.act = Act::SetVariable;
+    d.act.name = "nMarked".into();
+    d.act.value = "1".into();
+    // The first creature goes: at the place of the one found is PLAIN, which
+    // was never found.
+    let remove = Edit::remove_item(start, GffPath::root(), "Creature List", 0);
+    app.ws.as_mut().unwrap().apply(Command::new("Delete", vec![remove])).unwrap();
+    app.change_found(&mut d);
+    assert_eq!(tags(&mut app), [("ASKS".to_string(), false), ("PLAIN".to_string(), false)]);
+    assert!(d.note.as_deref().is_some_and(|n| n.contains("Found again")), "{:?}", d.note);
+    assert_eq!(object(&d.hits[0]), GffPath::root().item("Creature List", 0), "found where it is");
+    // Asked again, with the list as it is now: the creature that was found.
+    app.change_found(&mut d);
+    assert_eq!(tags(&mut app), [("ASKS".to_string(), true), ("PLAIN".to_string(), false)]);
+    assert!(d.note.is_none());
+
+    // In the window: a hit clicked after an Undo is found again, not
+    // opened where it was.
+    app.advanced_search = d;
+    let mut h = window_harness(app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    let was = h.state().dock.iter_all_tabs().count();
+    h.get_by_label_contains("creature ASKS").click();
+    h.run_steps(2);
+    assert_eq!(h.state().dock.iter_all_tabs().count(), was, "nothing opened");
+    h.get_by_label_contains("The module changed since this was found");
+    assert_eq!(
+        object(&h.state().advanced_search.hits[0]),
+        GffPath::root().item("Creature List", 1),
+        "found again, where Undo put it back"
+    );
+}
+
+/// Advanced Search's list lays out the rows in sight, the others taking
+/// a row's room each (every hit was laid out every frame: 8,785 rows of
+/// widgets for a world's variables; the review of November 2026, D23):
+/// the first rows are there, the last is not until the list is scrolled
+/// to it, and a row scrolled to is ticked and clicked as any other.
+#[test]
+fn advanced_search_lays_out_the_rows_in_sight() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-rows");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let creatures: Vec<Struct> = (0..400)
+        .map(|i| {
+            let mut c = Struct::new(4);
+            c.set("Tag", Value::String(format!("T{i:03}").into_bytes()));
+            let mut v = Struct::new(0);
+            v.set("Name", Value::String(b"nQuest".to_vec()));
+            v.set("Type", Value::Dword(1));
+            v.set("Value", Value::Int(1));
+            c.set("VarTable", Value::List(vec![v]));
+            c
+        })
+        .collect();
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = window_harness(app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Variable, name: "nQuest".into(), ..Default::default() };
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("400 found:");
+    h.get_by_label_contains("creature T000");
+    assert!(h.query_by_label_contains("creature T399").is_none(), "out of sight: not laid out");
+    let laid_out = h.query_all_by_label_contains("creature T").count();
+    assert!((5..200).contains(&laid_out), "{laid_out} rows laid out");
+    // Scrolled to its end: the last rows, where the first were.
+    let over = h.get_by_label_contains("creature T003").rect().center();
+    h.hover_at(over);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -1_000_000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while h.query_by_label_contains("creature T399").is_none() {
+        assert!(std::time::Instant::now() < deadline, "the list scrolls to its end");
+        h.step();
+    }
+    assert!(h.query_by_label_contains("creature T000").is_none());
+    h.get_by_label_contains("creature T399").click();
+    let area = ResRef::from_str("start").unwrap();
+    while h.state().dock.find_tab(&Tab::Area(area)).is_none() {
+        assert!(std::time::Instant::now() < deadline, "its place opens");
+        h.step();
+    }
+}
+
+/// Every search wrote the field looked for over the change's name, which
+/// is a variable's too: after a search of appearances, a variable typed
+/// as nBoss read Appearance_Type once the change had run (it ends with a
+/// search), and the next change set a variable of that name on everything
+/// found (the review of November 2026, D10). The field is offered where
+/// a field is what is set, and when another thing is looked for.
+#[test]
+fn advanced_search_keeps_the_name_typed_for_a_change() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Act, AdvancedSearch, Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-name");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut c = Struct::new(4);
+    c.set("Tag", Value::String(b"OGRE".to_vec()));
+    c.set("Appearance_Type", Value::Word(6));
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List(vec![c]));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Appearance, row: Some(6), ..Default::default() },
+        ..Default::default()
+    };
+    d.act.act = Act::SetVariable;
+    d.act.name = "nBoss".into();
+    d.act.value = "1".into();
+    app.advanced_search(&mut d);
+    assert_eq!(d.hits.len(), 1, "{:?}", d.hits);
+    assert_eq!(d.act.name, "nBoss", "after the search");
+    app.change_found(&mut d);
+    assert_eq!(d.act.name, "nBoss", "after the change, which searches again");
+    let ws = app.ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let g = ws.module.gff(&start).unwrap().unwrap();
+    let vars = g.root.list("Creature List").unwrap()[0].list("VarTable").unwrap().to_vec();
+    assert_eq!(vars.len(), 1);
+    assert_eq!(vars[0].string("Name"), Some(b"nBoss".as_slice()));
+    // A field to set is the one looked for, once another thing is asked.
+    d.act.act = Act::SetField;
+    d.first.row = Some(7);
+    app.advanced_search(&mut d);
+    assert_eq!(d.act.name, "Appearance_Type");
+    // (And what is typed over it stays through the same question.)
+    d.act.name = "Tag".into();
+    app.advanced_search(&mut d);
+    assert_eq!(d.act.name, "Tag");
 }
 
 /// Advanced Search's changes to lists, through Edit Together's rules
@@ -582,6 +840,9 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     assert!(h.query_by_label_contains("has it already").is_some());
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
+    // (Found again in the module as Undo left it.)
+    h.get_by_label("Find").click();
+    h.run();
     assert_eq!(list(&mut h, "FeatList", "Feat"), [vec![0], vec![]], "one step");
     act(&mut h, Act::RemoveFeat, 0);
     assert_eq!(list(&mut h, "FeatList", "Feat"), [Vec::<i64>::new(), vec![]]);
@@ -592,6 +853,9 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     assert_eq!(list(&mut h, "ClassList", "ClassLevel"), [vec![5, 3], vec![5, 3]]);
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
+    // (Found again in the module as Undo left it.)
+    h.get_by_label("Find").click();
+    h.run();
     act(&mut h, Act::RemoveClass, 4);
     assert_eq!(list(&mut h, "ClassList", "Class"), [vec![4], vec![4]]);
     assert!(h.query_by_label_contains("its only class").is_some());

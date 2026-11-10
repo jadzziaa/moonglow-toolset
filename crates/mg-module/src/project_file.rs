@@ -1651,11 +1651,16 @@ impl ProjectFile {
         use crate::claims::{Listed, Standing, Whose};
         let table = self.claim_table.clone().unwrap_or_default();
         let mut areas: Vec<ResRef> = table.rows.iter().map(|c| c.area).collect();
+        // (Looked up, not looked through: a world has 1,400 areas, and
+        // each was sought in both lists.)
+        let mut listed: std::collections::HashSet<ResRef> = areas.iter().copied().collect();
         for a in module.unwrap_or_default() {
-            if !areas.contains(a) {
+            if listed.insert(*a) {
                 areas.push(*a);
             }
         }
+        let in_module: Option<std::collections::HashSet<ResRef>> =
+            module.map(|m| m.iter().copied().collect());
         areas
             .into_iter()
             .map(|area| {
@@ -1669,7 +1674,7 @@ impl ProjectFile {
                     },
                     claim: standing.claim().cloned(),
                     protected: self.protected(area).is_some(),
-                    in_module: module.is_none_or(|m| m.contains(&area)),
+                    in_module: in_module.as_ref().is_none_or(|m| m.contains(&area)),
                 }
             })
             .collect()
@@ -1728,11 +1733,18 @@ impl ProjectFile {
         self.place.as_ref()
     }
 
+    /// Where `[talk] map` is read from, beside the team's file (none
+    /// where `[talk]` names none): for a caller that keeps what
+    /// [`ProjectFile::talk_map`] reads while the file is as it was.
+    pub fn talk_map_path(&self) -> Option<PathBuf> {
+        let dir = self.path.as_deref().and_then(Path::parent)?;
+        self.talk.map_path(dir)
+    }
+
     /// `[talk] map`: `mg tlk-alloc`'s map, read from beside the team's
     /// file (none where `[talk]` names none, or the file isn't there yet).
     pub fn talk_map(&self) -> Result<Option<crate::tlk_alloc::Map>, String> {
-        let Some(dir) = self.path.as_deref().and_then(Path::parent) else { return Ok(None) };
-        let Some(path) = self.talk.map_path(dir) else { return Ok(None) };
+        let Some(path) = self.talk_map_path() else { return Ok(None) };
         match std::fs::read_to_string(&path) {
             Ok(text) => crate::tlk_alloc::Map::read(&text)
                 .map(Some)

@@ -79,14 +79,17 @@ pub struct Browser {
     /// How many views have been made (their grids' ids are counted down
     /// from the highest, apart from the editor's).
     made_views: u32,
+    /// An Export as Files into a folder that has some of the files: asked
+    /// about before any is written over.
+    pub(crate) exporting: Option<Exporting>,
 }
 
 /// A 2DA's read-only view.
 #[derive(Debug)]
 pub(crate) struct TableView {
-    /// The table's layers it was made for (where they are): another is
-    /// made for others.
-    of: usize,
+    /// The reading of the table's layers it was made for ([`made`]):
+    /// another is made for another.
+    of: u64,
     /// The layer whose rows alone it shows (Rows from), as last set.
     rows_from: Option<usize>,
     pub(crate) doc: crate::table_view::TableDoc,
@@ -159,6 +162,8 @@ impl Browser {
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     use crate::palette_view::{Keys, give_keys, keys_are};
     let pane = ui.max_rect();
+    // (The files an Export as Files would write over, asked about.)
+    exporting_window(app, ui.ctx());
     let Moonglow { browser, game, ws, actions, .. } = app;
     browser.refresh(game.as_ref().map(|g| &g.resman));
     if game.is_none() {
@@ -503,45 +508,148 @@ fn layer_folder(layer: &str) -> String {
 /// layer has it, in a folder of the layer's under that one
 /// ([`layer_folder`]).
 pub(crate) fn export(app: &mut Moonglow, keys: &[(ResKey, Option<String>)]) {
-    let Some(game) = &app.game else { return };
+    if app.game.is_none() {
+        return;
+    }
     let Some(dir) = app.dialogs.pick_folder("Export as files into", app.export_dir.as_deref())
     else {
         return;
     };
-    let (mut written, mut as_text, mut copies) = (0, 0, 0);
-    for (key, layer) in keys {
-        let Some(data) = read_copy(&game.resman, key, layer.as_deref()) else { continue };
-        // (Asked for: a compiled model as its text; one that can't be
-        // read so goes out as it is.)
-        let text = (app.browser.models_as_text)
-            .then(|| model_text(*key, &data, Some(&game.resman)))
-            .flatten();
-        as_text += usize::from(text.is_some());
-        let data = text.map_or(data, |t| t.into_bytes().into());
-        let into = match layer {
-            Some(layer) => dir.join(layer_folder(layer)),
-            None => dir.clone(),
-        };
-        let wrote = std::fs::create_dir_all(&into)
-            .and_then(|()| key.path_in(&into))
-            .and_then(|path| std::fs::write(path, &data));
-        if let Err(e) = wrote {
-            app.log.error(format!("Could not write to {}: {e}", into.display()));
-            return;
-        }
-        written += 1;
-        copies += usize::from(layer.is_some());
+    // The files the folder has already: asked about before they are
+    // written over (they were replaced without a word).
+    let exporting = Exporting {
+        there: (keys.iter())
+            .filter(|(key, layer)| {
+                export_path(&dir, key, layer.as_deref()).is_ok_and(|p| p.exists())
+            })
+            .cloned()
+            .collect(),
+        keys: keys.to_vec(),
+        dir,
+    };
+    if exporting.there.is_empty() {
+        export_as_job(app, exporting, false);
+    } else {
+        app.browser.exporting = Some(exporting);
     }
-    let models = match as_text {
-        0 => String::new(),
-        n => format!(" ({n} compiled models as text)"),
+}
+
+/// Where Export as Files writes a resource under `dir`: an overridden
+/// copy in its layer's folder ([`layer_folder`]).
+fn export_path(
+    dir: &std::path::Path,
+    key: &ResKey,
+    layer: Option<&str>,
+) -> std::io::Result<PathBuf> {
+    match layer {
+        Some(layer) => key.path_in(&dir.join(layer_folder(layer))),
+        None => key.path_in(dir),
+    }
+}
+
+/// An Export as Files into a folder that has some of its files already.
+#[derive(Debug, Clone)]
+pub(crate) struct Exporting {
+    keys: Vec<(ResKey, Option<String>)>,
+    dir: PathBuf,
+    /// Those the folder has a file of.
+    there: Vec<(ResKey, Option<String>)>,
+}
+
+/// Asks about the files an Export as Files would write over.
+fn exporting_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(exporting) = app.browser.exporting.clone() else { return };
+    let (n, all) = (exporting.there.len(), exporting.keys.len());
+    let said = format!("{} already has {n} of the {all} files:", exporting.dir.display());
+    let files: Vec<_> = (exporting.there.iter())
+        .map(|(key, layer)| (key.to_string(), layer.as_ref().map(|l| format!("as {l} has it"))))
+        .collect();
+    let tips = [
+        "Write all the files: these take the place of the folder's",
+        "Write the other files and leave the folder's as they are",
+    ];
+    use crate::widgets::Already;
+    let there = &mut app.settings.files_there;
+    let Some(answer) = crate::widgets::files_already(ctx, there, "Folder", &said, &files, tips)
+    else {
+        return;
     };
-    let copies = match copies {
-        0 => String::new(),
-        n => format!(", {n} overridden copies in folders of their layers"),
-    };
-    app.log.info(format!("Exported {written} resources to {}{models}{copies}", dir.display()));
-    app.export_dir = Some(dir);
+    app.browser.exporting = None;
+    match answer {
+        Already::Replace => export_as_job(app, exporting, false),
+        Already::Skip => export_as_job(app, exporting, true),
+        Already::Cancel => {}
+    }
+}
+
+/// What an Export as Files wrote.
+#[derive(Debug, Default)]
+struct Exported {
+    written: usize,
+    as_text: usize,
+    copies: usize,
+    /// Stopped by a file that could not be written.
+    failed: Option<String>,
+}
+
+/// Writes an export's files (but for those there already, with `skip`)
+/// as a job, with how far it is and Cancel: every listed resource was
+/// read, a compiled model decompiled, and written inside one frame.
+fn export_as_job(app: &mut Moonglow, exporting: Exporting, skip: bool) {
+    let as_text = app.browser.models_as_text;
+    let Exporting { keys, dir, there } = exporting;
+    let to = dir.clone();
+    app.start_job_anywhere(
+        "Export as Files",
+        move |cx| {
+            let mut out = Exported::default();
+            let Some(game) = cx.game.as_deref() else { return out };
+            let there: std::collections::HashSet<&(ResKey, Option<String>)> =
+                there.iter().filter(|_| skip).collect();
+            let all = keys.len();
+            for (at, entry) in keys.iter().enumerate() {
+                if cx.progress.cancelled() {
+                    break;
+                }
+                cx.progress.step(at, all);
+                let (key, layer) = entry;
+                if there.contains(entry) {
+                    continue;
+                }
+                let Some(data) = read_copy(&game.resman, key, layer.as_deref()) else { continue };
+                // (Asked for: a compiled model as its text; one that can't
+                // be read so goes out as it is.)
+                let text = as_text.then(|| model_text(*key, &data, Some(&game.resman))).flatten();
+                out.as_text += usize::from(text.is_some());
+                let data = text.map_or(data, |t| t.into_bytes().into());
+                let wrote = export_path(&dir, key, layer.as_deref())
+                    .and_then(|path| mg_module::write_replacing_one_of_many(&path, &data));
+                if let Err(e) = wrote {
+                    out.failed = Some(format!("Could not write {key} to {}: {e}", dir.display()));
+                    break;
+                }
+                out.written += 1;
+                out.copies += usize::from(layer.is_some());
+            }
+            out
+        },
+        move |app, out: Exported| {
+            let models = match out.as_text {
+                0 => String::new(),
+                n => format!(" ({n} compiled models as text)"),
+            };
+            let copies = match out.copies {
+                0 => String::new(),
+                n => format!(", {n} overridden copies in folders of their layers"),
+            };
+            let n = out.written;
+            app.log.info(format!("Exported {n} resources to {}{models}{copies}", to.display()));
+            if let Some(e) = out.failed {
+                app.log.error(format!("{e} (the rest were not written)"));
+            }
+            app.export_dir = Some(to);
+        },
+    );
 }
 
 /// A resource read and parsed once for its viewer.
@@ -550,16 +658,140 @@ pub(crate) struct Viewed {
     data: Vec<u8>,
     origin: String,
     content: Content,
+    /// Which reading this is, of all made ([`made`]): what is kept for
+    /// its content (a 2DA's view) is this one's alone.
+    made: u64,
+}
+
+/// A number no other reading of a resource has had: what is made from
+/// one and kept (a 2DA's view, with its own copy of the cells) is told
+/// from another's by it. It was told by where the table lay in memory,
+/// and a table read again after a change may lie where the old one did:
+/// the view then showed the old cells under the new table's marks.
+pub(crate) fn made() -> u64 {
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Debug)]
 enum Content {
     Gff(Gff),
     TwoDa(mg_module::table_layers::Layered),
-    Script(String),
-    Text(String),
-    Binary(String),
+    Script(LongText),
+    Text(LongText),
+    Binary(LongText),
     Error(String),
+}
+
+/// A text shown read-only, drawn by its lines in sight ([`LongText::ui`]):
+/// where its lines are, found once, and a script's lines colored, made
+/// once for the colors they are shown in. The whole text was copied into
+/// a label, hashed and (a script's) highlighted token by token every
+/// frame it showed: `nwscript.nss` is a hundred thousand tokens, a
+/// compiled model as text megabytes.
+#[derive(Debug, Default)]
+pub(crate) struct LongText {
+    text: String,
+    /// Each line's place in the text (without its line end), and the
+    /// longest line's characters.
+    lines: std::sync::OnceLock<(Vec<std::ops::Range<usize>>, usize)>,
+    colored: std::sync::Mutex<Option<Colored>>,
+}
+
+/// A script's lines as laid out in a palette's colors.
+type Colored = (crate::script_view::Palette, std::sync::Arc<Vec<egui::text::LayoutJob>>);
+
+impl From<String> for LongText {
+    fn from(text: String) -> LongText {
+        LongText { text, ..Default::default() }
+    }
+}
+
+impl LongText {
+    /// Where each line is, and the longest's characters.
+    fn lines(&self) -> &(Vec<std::ops::Range<usize>>, usize) {
+        self.lines.get_or_init(|| {
+            let (mut spans, mut widest, mut from) = (Vec::new(), 0, 0);
+            for line in self.text.split('\n') {
+                spans.push(from..from + line.len());
+                widest = widest.max(line.chars().count());
+                from += line.len() + 1;
+            }
+            (spans, widest)
+        })
+    }
+
+    /// The script's lines in `palette`'s colors: highlighted whole once
+    /// (a comment may run over lines), and cut at the line ends.
+    fn colored(
+        &self,
+        palette: &crate::script_view::Palette,
+    ) -> std::sync::Arc<Vec<egui::text::LayoutJob>> {
+        let mut kept = self.colored.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((of, jobs)) = &*kept
+            && of == palette
+        {
+            return jobs.clone();
+        }
+        let whole = crate::script_view::highlight(&self.text, palette);
+        let mut jobs = vec![egui::text::LayoutJob::default()];
+        for section in &whole.sections {
+            let piece = &whole.text[section.byte_range.start.0..section.byte_range.end.0];
+            for (at, part) in piece.split('\n').enumerate() {
+                if at > 0 {
+                    jobs.push(egui::text::LayoutJob::default());
+                }
+                if !part.is_empty() {
+                    jobs.last_mut().expect("one").append(part, 0.0, section.format.clone());
+                }
+            }
+        }
+        let jobs = std::sync::Arc::new(jobs);
+        *kept = Some((*palette, jobs.clone()));
+        jobs
+    }
+
+    /// Draws the text, scrolling both ways, its lines in sight alone: in
+    /// the script editor's colors and on its background with `palette`,
+    /// else plain. `salt`: the scroll area's.
+    pub(crate) fn ui(
+        &self,
+        ui: &mut Ui,
+        salt: impl egui::AsIdSalt,
+        palette: Option<&crate::script_view::Palette>,
+    ) {
+        let (spans, widest) = self.lines();
+        let font = match palette {
+            Some(p) => p.font(),
+            None => egui::TextStyle::Monospace.resolve(ui.style()),
+        };
+        let (height, wide) = ui.fonts_mut(|f| (f.row_height(&font), f.glyph_width(&font, 'm')));
+        let jobs = palette.map(|p| self.colored(p));
+        ui.scope(|ui| {
+            // (A line under the last, as one text's lines are.)
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let rows = egui::ScrollArea::both().id_salt(salt).auto_shrink([false, false]);
+            rows.show_rows(ui, height, spans.len(), |ui, range| {
+                // (On the script editor's background, where one is chosen:
+                // its colors are chosen for it.)
+                if let Some(fill) = palette.and_then(|p| p.background) {
+                    ui.painter().rect_filled(ui.clip_rect(), 0.0, fill);
+                }
+                ui.set_min_width(*widest as f32 * wide);
+                for at in range {
+                    let line = &self.text[spans[at].clone()];
+                    if line.is_empty() {
+                        ui.allocate_exact_size(egui::vec2(0.0, height), egui::Sense::hover());
+                    } else if let Some(job) = jobs.as_ref().and_then(|j| j.get(at)) {
+                        ui.add(egui::Label::new(job.clone()).extend());
+                    } else {
+                        let text = egui::RichText::new(line).font(font.clone());
+                        ui.add(egui::Label::new(text).extend());
+                    }
+                }
+            });
+        });
+    }
 }
 
 impl Viewed {
@@ -588,15 +820,15 @@ impl Viewed {
         } else if key.restype == ResType::NSS {
             // (Shown and copied with plain newlines, as the script editor
             // has them; Copy to Module and Save copy the bytes.)
-            Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0)
+            Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0.into())
         } else if is_text(key.restype, &data) {
-            Content::Text(crate::text::to_editor(&codepage.decode(&data)).0)
+            Content::Text(crate::text::to_editor(&codepage.decode(&data)).0.into())
         } else if let Some(text) = model_text(key, &data, Some(rm)) {
-            Content::Text(text)
+            Content::Text(text.into())
         } else {
-            Content::Binary(hex(&data[..data.len().min(512)]))
+            Content::Binary(hex(&data[..data.len().min(512)]).into())
         };
-        Some(Viewed { data, origin, content })
+        Some(Viewed { data, origin, content, made: made() })
     }
 }
 
@@ -605,7 +837,7 @@ impl Viewed {
 #[derive(Debug)]
 pub(crate) enum Plain {
     Gff(Box<Gff>),
-    Text(String),
+    Text(LongText),
     Error(String),
 }
 
@@ -620,11 +852,11 @@ pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) ->
     } else if is_text(key.restype, data) {
         // (Its bytes as Latin-1 where they aren't UTF-8.)
         let latin = || data.iter().map(|&b| b as char).collect();
-        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()))
+        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()).into())
     } else if let Some(text) = model_text(key, data, rm) {
-        Plain::Text(text)
+        Plain::Text(text.into())
     } else {
-        Plain::Text(hex(&data[..data.len().min(512)]))
+        Plain::Text(hex(&data[..data.len().min(512)]).into())
     }
 }
 
@@ -642,12 +874,14 @@ pub(crate) fn model_text(
 
 /// Draws a [`Plain`] view, scrolling.
 pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain) {
+    // (A text by its lines in sight: a compiled model's is megabytes.)
+    if let Plain::Text(text) = view {
+        return text.ui(ui, ("plain", key), None);
+    }
     egui::ScrollArea::both().id_salt(("plain", key)).auto_shrink([false, false]).show(ui, |ui| {
         match view {
             Plain::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
-            Plain::Text(text) => {
-                ui.monospace(text);
-            }
+            Plain::Text(_) => {}
             Plain::Error(e) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -723,28 +957,25 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         }
     }
     if let Content::TwoDa(l) = &viewed.content {
-        two_da(app, ui, key, layer, l);
+        two_da(app, ui, key, layer, (l, viewed.made));
         return;
     }
-    let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
+    // A text by its lines in sight, a script's in the editor's colors.
+    let salt = ("resource-text", key, layer);
+    match &viewed.content {
+        Content::Script(text) => {
+            let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
+            return text.ui(ui, salt, Some(&palette));
+        }
+        Content::Text(text) | Content::Binary(text) => return text.ui(ui, salt, None),
+        _ => {}
+    }
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| match &viewed.content {
         Content::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
-        Content::TwoDa(_) => {}
-        Content::Script(text) => {
-            let job = crate::script_view::highlight(text, &palette);
-            // (On the script editor's background, where one is chosen:
-            // its colors are chosen for it.)
-            match palette.background {
-                Some(fill) => _ = egui::Frame::new().fill(fill).show(ui, |ui| ui.label(job)),
-                None => _ = ui.label(job),
-            }
-        }
-        Content::Text(text) | Content::Binary(text) => {
-            ui.monospace(text);
-        }
         Content::Error(e) => {
             ui.colored_label(ui.visuals().error_fg_color, e);
         }
+        _ => {}
     });
 }
 
@@ -813,6 +1044,10 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
                     .show(ui, |ui| {
                         for (j, item) in items.iter().enumerate() {
                             let item_id = format!("{child_id}/{j}");
+                            // (Closed and out of sight: its header's room.)
+                            if crate::gff_view::closed_out_of_sight(ui, &item_id) {
+                                continue;
+                            }
                             egui::CollapsingHeader::new(format!("[{j}] struct {}", item.id))
                                 .id_salt(&item_id)
                                 .show(ui, |ui| gff_tree(ui, item, &item_id));
@@ -844,7 +1079,7 @@ pub(crate) fn two_da(
     ui: &mut Ui,
     key: ResKey,
     layer: Option<&str>,
-    l: &mg_module::table_layers::Layered,
+    (l, of): (&mg_module::table_layers::Layered, u64),
 ) {
     use crate::table_view::{GridOf, TableDoc, grid_in, keys_in, view_header};
     let name = key.resref.to_string();
@@ -884,9 +1119,9 @@ pub(crate) fn two_da(
             .collect();
         ui.weak(format!("{} copies, lowest first. {}", l.copies.len(), parts.join("; ")));
     }
-    // The view, kept while it is of these layers.
+    // The view, kept while it is of these layers (`of`: which reading of
+    // them, [`made`]).
     let at = (key, layer.map(str::to_string));
-    let of = l as *const mg_module::table_layers::Layered as usize;
     let kept = browser.table_views.get(&at).is_some_and(|v| {
         let had = v.doc.edit.table();
         v.of == of && had.len() == t.len() && had.columns() == t.columns()
@@ -915,4 +1150,48 @@ pub(crate) fn two_da(
     let talk = talk.as_ref().filter(|_| !talk_view.outside);
     let of = GridOf { settings, table_name: &name, talk, game: game.as_deref() };
     grid_in(ui, doc, of, &kinds, &[], Some(l));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A long text's lines are the text's, and a script's lines colored
+    /// are the whole script's highlighting cut at the line ends (a
+    /// comment over several lines is a comment on each): what is drawn by
+    /// the lines in sight is what the one label drew (the review of
+    /// November 2026, D29). The colored lines are made once for a
+    /// palette.
+    #[test]
+    fn a_long_text_s_lines_are_the_text_s() {
+        let source = "int a = 1;\n/* over\n   two lines */\n\nvoid main() { a++; }";
+        let text = LongText::from(source.to_string());
+        let (spans, widest) = text.lines();
+        let lines: Vec<&str> = spans.iter().map(|s| &source[s.clone()]).collect();
+        assert_eq!(lines, source.split('\n').collect::<Vec<_>>());
+        assert_eq!(*widest, "void main() { a++; }".len());
+        let style = crate::settings::ScriptStyle::default();
+        let palette = crate::script_view::Palette::new(&style, true, egui::Color32::WHITE);
+        let jobs = text.colored(&palette);
+        assert_eq!(jobs.len(), lines.len());
+        assert_eq!(jobs.iter().map(|j| j.text.as_str()).collect::<Vec<_>>(), lines);
+        // Each character's color, as the whole text's highlighting has it.
+        let colors = |job: &egui::text::LayoutJob| -> Vec<(char, egui::Color32)> {
+            (job.sections.iter())
+                .flat_map(|s| {
+                    let piece = &job.text[s.byte_range.start.0..s.byte_range.end.0];
+                    piece.chars().map(|c| (c, s.format.color)).collect::<Vec<_>>()
+                })
+                .filter(|(c, _)| *c != '\n')
+                .collect()
+        };
+        let whole = colors(&crate::script_view::highlight(source, &palette));
+        let by_line: Vec<(char, egui::Color32)> = jobs.iter().flat_map(colors).collect();
+        assert_eq!(by_line, whole);
+        assert!(std::sync::Arc::ptr_eq(&jobs, &text.colored(&palette)), "made once");
+        let light = crate::script_view::Palette::new(&style, false, egui::Color32::BLACK);
+        assert!(!std::sync::Arc::ptr_eq(&jobs, &text.colored(&light)), "anew for other colors");
+        // (An empty text is one empty line.)
+        assert_eq!(LongText::from(String::new()).lines().0.len(), 1);
+    }
 }

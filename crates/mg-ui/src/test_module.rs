@@ -136,6 +136,11 @@ impl Running {
     }
 }
 
+/// How long the system's own tool that lists what runs (`ps`, `tasklist`)
+/// is waited for: `mg_core::process::output_within` stops it then.
+#[cfg(any(target_os = "macos", windows))]
+const SYSTEM_TOOL: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The programs running whose name is one of `names` (case aside), as the
 /// system lists them; read only: nothing is ever stopped (the user may be
 /// playing). Empty where the list can't be read.
@@ -172,7 +177,10 @@ pub(crate) fn running(names: &[&str]) -> Vec<Running> {
     {
         // (`ps`'s accounting name, the program's own without its path,
         // which has spaces: `Neverwinter Nights`; then its command line.)
-        let Ok(ps) = Command::new("ps").args(["-ax", "-o", "pid=,ucomm=,args="]).output() else {
+        // (Within a time: one that hangs held the window.)
+        let mut ps = Command::new("ps");
+        ps.args(["-ax", "-o", "pid=,ucomm=,args="]);
+        let Ok(ps) = mg_core::process::output_within(&mut ps, SYSTEM_TOOL) else {
             return out;
         };
         for line in String::from_utf8_lossy(&ps.stdout).lines() {
@@ -188,9 +196,10 @@ pub(crate) fn running(names: &[&str]) -> Vec<Running> {
         use std::os::windows::process::CommandExt;
         // (No console window flashing up for it.)
         const NO_WINDOW: u32 = 0x0800_0000;
-        let Ok(list) =
-            Command::new("tasklist").args(["/FO", "CSV", "/NH"]).creation_flags(NO_WINDOW).output()
-        else {
+        // (Within a time: one that hangs held the window.)
+        let mut list = Command::new("tasklist");
+        list.args(["/FO", "CSV", "/NH"]).creation_flags(NO_WINDOW);
+        let Ok(list) = mg_core::process::output_within(&mut list, SYSTEM_TOOL) else {
             return out;
         };
         for line in String::from_utf8_lossy(&list.stdout).lines() {

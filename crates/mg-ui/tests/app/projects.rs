@@ -917,6 +917,60 @@ fn a_mod_saved_by_another_program_is_read_again() {
     assert_eq!(on_disk.get(&b).unwrap(), b"void main() { int ours; }\n");
 }
 
+/// A file changed here and outside waits in Changed Outside Moonglow. A
+/// look at the files a watch heard of is of those alone, and its
+/// conflicts (none, for another file saved outside meanwhile) took the
+/// place of the whole list: the question closed unanswered and Save was
+/// refused from then on with nothing left to ask (the review of November
+/// 2026, D5). The conflicts of files not looked at stay.
+#[test]
+fn a_conflict_waits_while_other_files_change_outside() {
+    let dir = project_folder("ui-outside-conflict-kept", &[]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1100.0, 800.0);
+    // (The watch begins, and its first look finds nothing.)
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_millis(600) {
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource {
+        key: hello,
+        data: Some(b"void main() { int ours; }\n".to_vec()),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Ours", vec![edit])));
+    h.run_steps(2);
+    std::fs::write(dir.join("hello.nss"), "void main() { int theirs; }\n").unwrap();
+    let started = std::time::Instant::now();
+    while h.state().outside_conflicts().is_empty() {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(h.state().outside_conflicts(), [dir.join("hello.nss")]);
+    // Another file saved outside, which nothing here changed: read, and
+    // the first still waits.
+    let other = ResKey::parse("mg_other", ResType::NSS).unwrap();
+    std::fs::write(dir.join("mg_other.nss"), "void main() {}\n").unwrap();
+    let started = std::time::Instant::now();
+    while !h.state().ws.as_ref().unwrap().module.contains(&other) {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(h.state().outside_conflicts(), [dir.join("hello.nss")], "still asked about");
+    h.step();
+    h.get_by_label("Keep Moonglow's").click();
+    h.run_steps(3);
+    assert!(h.state().outside_conflicts().is_empty());
+}
+
 /// A nasher project's locks stay out of its files: Lock and Save leave the
 /// area's JSON as it was and keep the lock in Moonglow's folder; the area
 /// changed outside is read again (no conflict) with the lock still on; and
@@ -2275,6 +2329,78 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "deleted");
 }
 
+/// A command that changes several protected areas (a Tag set on all an
+/// Advanced Search found, a plugin's step) was asked about for the first
+/// alone, and its Anyway let the others through unnamed (the review of
+/// November 2026, D6): the window names every one, nothing goes before
+/// the answer, and the answer is for those it named.
+#[test]
+fn a_change_of_several_protected_areas_names_them_all() {
+    let dir = project_folder(
+        "ui-claims-protected-several",
+        &[("moonglow.toml", "[claims]\nprotected = [\"start\", \"mg_two\"]\n")],
+    );
+    std::fs::copy(dir.join("start.are"), dir.join("mg_two.are")).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let (a, b) = (
+        ResKey::parse("start", ResType::ARE).unwrap(),
+        ResKey::parse("mg_two", ResType::ARE).unwrap(),
+    );
+    let has =
+        |h: &Harness<'_, Moonglow>, k: &ResKey| h.state().ws.as_ref().unwrap().module.contains(k);
+    assert!(has(&h, &a) && has(&h, &b), "{:?}", h.state().log.entries);
+    // One step that sets both Tags.
+    let tag = |key: ResKey, tag: &str| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+    };
+    let both = mg_edit::Command::new("Tags", vec![tag(a, "ONE"), tag(b, "TWO")]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(both));
+    settle(&mut h);
+    h.get_by_label("This changes 2 protected areas:");
+    h.get_by_label_contains("• start is protected");
+    h.get_by_label_contains("• mg_two is protected");
+    assert!(h.query_by_label("Make a Copy Instead…").is_none(), "of which?");
+    h.get_by_label("Change Them Anyway").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Protected Area").is_none(), "{:?}", h.state().log.entries);
+    assert_eq!(area_tag(&mut h, "start"), "ONE");
+    assert_eq!(area_tag(&mut h, "mg_two"), "TWO");
+    // The answer was for that step: the next is asked about again, and
+    // one that changes one of them and deletes the other names both.
+    let gone = mg_edit::Edit::SetResource { key: b, data: None };
+    let mixed = mg_edit::Command::new("Both", vec![tag(a, "THREE"), gone]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mixed.clone()));
+    settle(&mut h);
+    h.get_by_label("This changes 2 protected areas:");
+    h.get_by_label_contains("start is protected");
+    h.get_by_label_contains("its Tag would change");
+    h.get_by_label_contains("it would be deleted");
+    assert!(has(&h, &b) && area_tag(&mut h, "start") == "ONE", "held");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(has(&h, &b) && area_tag(&mut h, "start") == "ONE", "canceled");
+    h.state_mut().actions.push(mg_ui::Action::Apply(mixed));
+    settle(&mut h);
+    h.get_by_label("Change Them Anyway").click();
+    settle(&mut h);
+    assert!(!has(&h, &b) && area_tag(&mut h, "start") == "THREE", "{:?}", h.state().log.entries);
+    // (Several chosen in the module tree and deleted: a protected area is
+    // left out of those, to be deleted alone and asked about.)
+    h.state_mut().actions.push(mg_ui::Action::DeleteResources(vec![
+        a,
+        ResKey::parse("hello", ResType::NSS).unwrap(),
+    ]));
+    settle(&mut h);
+    assert!(has(&h, &a) && h.query_by_label("Protected Area").is_none());
+}
+
 /// The project's commands (C8): File › Project › Update… saves the
 /// module first (asked, as on closing), asks to allow the command as it
 /// reads, runs it in the project's folder with its output in the log,
@@ -2358,6 +2484,52 @@ fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert!(!logged(&h, "exit code 4"), "not run");
+}
+
+/// "Run a Project Command?" doesn't stop the editor, and the module was
+/// saved before it showed: Allow and Run ran the command at once, over
+/// what was edited behind the question (the review of November 2026,
+/// D12). Allowed, the command is run as from the menu: the unsaved
+/// changes are asked about first. Asked of a project closed since, the
+/// question goes with it.
+#[test]
+fn allow_and_run_asks_about_what_was_edited_behind_the_question() {
+    let update = if cfg!(windows) { "echo ran> ran.txt" } else { "echo ran > ran.txt" };
+    let rules = format!("[commands]\nupdate = {update:?}\n");
+    let dir = project_folder("ui-project-commands-allow", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    settle(&mut h);
+    h.get_by_label("Run a Project Command?");
+    // An edit with the question open, then Allow and Run.
+    h.state_mut().actions.push(rename_start("Market"));
+    settle(&mut h);
+    assert!(h.state().has_unsaved_work());
+    h.get_by_label("Allow and Run").click();
+    settle(&mut h);
+    assert!(!dir.join("ran.txt").exists(), "not run over unsaved changes");
+    assert!(h.state().confirm_discard.is_some(), "asked, as on closing");
+    h.get_by_label("Save").click();
+    settle(&mut h);
+    assert!(!h.state().has_unsaved_work(), "saved before it runs");
+    assert!(dir.join("ran.txt").exists(), "{:?}", h.state().log.entries);
+    assert!(h.query_by_label("Run a Project Command?").is_none(), "allowed: not asked again");
+
+    // Asked, and the project closed: the question is not the next
+    // module's.
+    std::fs::write(dir.join("moonglow.toml"), rules.replace("ran.txt", "again.txt")).unwrap();
+    h.state_mut().reload_project_files();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    settle(&mut h);
+    h.get_by_label("Run a Project Command?");
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    settle(&mut h);
+    assert!(h.query_by_label("Run a Project Command?").is_none());
+    assert!(!dir.join("again.txt").exists());
 }
 
 /// A trust decision is never read from the checkout: a repository that

@@ -257,6 +257,45 @@ impl Tab {
         }
     }
 
+    /// Whether the tab shows one of `gone`, resources deleted or whose
+    /// files went outside Moonglow ([`Tab::tree_keys`]'s; a tab of
+    /// several has no place for one that is gone, and closes with it).
+    /// The journal's and the factions' tabs stay: theirs is made again.
+    pub(crate) fn shows_any(&self, gone: &[ResKey]) -> bool {
+        !matches!(self, Tab::Journal | Tab::Factions)
+            && self.tree_keys().iter().any(|k| gone.contains(k))
+    }
+
+    /// Points the tab at resources renamed: each resource it shows that
+    /// the module tree lists ([`Tab::tree_keys`]'s, in a tab of several
+    /// each of them) becomes what `moved` gives for it, where it gives
+    /// one. The one place that knows which tabs show a resource, with
+    /// `tree_key`: Rename, Delete and files gone outside each had a list
+    /// of their own, and the lists differed.
+    pub(crate) fn retarget(&mut self, moved: &dyn Fn(ResKey) -> Option<ResKey>) {
+        let area = |r: &mut mg_core::ResRef| {
+            if let Some(to) = moved(ResKey::new(*r, ResType::ARE)) {
+                *r = to.resref;
+            }
+        };
+        match self {
+            Tab::Area(r) | Tab::AreaProperties(r) => area(r),
+            Tab::Instance { area: r, .. }
+            | Tab::Instances { area: r, .. }
+            | Tab::InstanceModel { area: r, .. } => area(r),
+            Tab::AreasProperties(areas) => areas.iter_mut().for_each(area),
+            Tab::Script(k) | Tab::Nui(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => {
+                *k = moved(*k).unwrap_or(*k);
+            }
+            Tab::Blueprints(keys) => {
+                for k in keys {
+                    *k = moved(*k).unwrap_or(*k);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
             Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {

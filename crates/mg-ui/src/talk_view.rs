@@ -35,6 +35,11 @@ pub struct TalkView {
     pub only_text: bool,
     /// Those lines, and the revision they are of.
     texted: Option<(u64, Vec<usize>)>,
+    /// The lines listed, for what they were made by (the revision, the
+    /// table's length, what is looked for, and with Only Lines with Text
+    /// the line selected).
+    #[allow(clippy::type_complexity)]
+    shown: Option<((u64, usize, String, Option<Option<usize>>), std::sync::Arc<Vec<usize>>)>,
     /// The list is to scroll to the selected line (the list changed under
     /// it).
     reveal: bool,
@@ -883,23 +888,33 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         };
         v.texted = Some((v.revision, (0..t.len()).filter(has).collect()));
     }
-    let rows: Vec<usize> = if query.is_empty() {
-        (0..t.len()).collect()
-    } else {
-        let fresh = v.found.as_ref().is_some_and(|(q, r, _)| *q == query && *r == v.revision);
-        if !fresh {
-            v.found = Some((query.clone(), v.revision, t.find(&query)));
-        }
-        v.found.as_ref().map(|f| f.2.clone()).unwrap_or_default()
-    };
-    let rows: Vec<usize> = match v.texted.as_ref().filter(|_| v.only_text) {
-        // (The selected line stays listed while it is being written.)
-        Some((_, texted)) => rows
-            .into_iter()
-            .filter(|r| texted.binary_search(r).is_ok() || v.selected == Some(*r))
-            .collect(),
-        None => rows,
-    };
+    // (Kept while the table, what is looked for and the choices are what
+    // they were made by: every line's number was listed anew each frame,
+    // a million for a table that reaches into a range up there.)
+    let mark = (v.revision, t.len(), query.clone(), v.only_text.then_some(v.selected));
+    let kept = v.shown.as_ref().filter(|(of, _)| *of == mark).map(|(_, rows)| rows.clone());
+    let rows: std::sync::Arc<Vec<usize>> = kept.unwrap_or_else(|| {
+        let rows: Vec<usize> = if query.is_empty() {
+            (0..t.len()).collect()
+        } else {
+            let fresh = v.found.as_ref().is_some_and(|(q, r, _)| *q == query && *r == v.revision);
+            if !fresh {
+                v.found = Some((query.clone(), v.revision, t.find(&query)));
+            }
+            v.found.as_ref().map(|f| f.2.clone()).unwrap_or_default()
+        };
+        let rows: Vec<usize> = match v.texted.as_ref().filter(|_| v.only_text) {
+            // (The selected line stays listed while it is being written.)
+            Some((_, texted)) => rows
+                .into_iter()
+                .filter(|r| texted.binary_search(r).is_ok() || v.selected == Some(*r))
+                .collect(),
+            None => rows,
+        };
+        let rows = std::sync::Arc::new(rows);
+        v.shown = Some((mark, rows.clone()));
+        rows
+    });
     v.selected = v.selected.filter(|&s| s < t.len());
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let feminine = t.feminine.is_some();

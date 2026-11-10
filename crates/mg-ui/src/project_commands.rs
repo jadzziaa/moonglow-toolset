@@ -11,7 +11,7 @@
 //! file another program has open); a command that writes none of the
 //! module's files (`writes = false`, a submit) keeps them open, and the
 //! open areas aren't drawn again after. The command runs in the project's
-//! folder, by the system's shell (`sh -c` on Linux and macOS, `cmd /C` on
+//! folder, by the system's shell (`sh -c` on Linux and macOS, `cmd /S /C` on
 //! Windows), its output in the log as it comes, and its exit code said;
 //! Cancel stops the shell and what it started (its process group, or
 //! tree of processes on Windows). Then the haks are opened again and the
@@ -250,7 +250,11 @@ pub(crate) fn upload_allowed(app: &Moonglow, root: &Path, run: &str) -> bool {
 }
 
 /// Allows a command as it reads (in Moonglow's settings, for this
-/// project), and runs it.
+/// project), and runs it: a project's command as it is chosen from the
+/// menu, through the question about unsaved changes. The window that
+/// asks to allow it doesn't stop the editor, and the module was saved
+/// before it showed: run from here, a checkout ran over what was edited
+/// behind the question.
 fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
     let project = project_key(&ask.root);
     // (One text a command: the one allowed before is forgotten.)
@@ -258,8 +262,15 @@ fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
     app.settings.allowed_commands.push((project, ask.name.clone(), ask.run.clone()));
     match &ask.upload {
         Some(u) => crate::nwsync_view::upload(app, &u.folder, &u.parts),
-        None => start(app, &ask.label, &ask.run, &ask.root, (ask.writes, ask.input)),
+        None => app.actions.push(crate::Action::ProjectCommand(ask.name.clone())),
     }
+}
+
+/// The folder of the project open (a nasher project's or a module
+/// folder's), where the module is one.
+fn project_root(app: &Moonglow) -> Option<PathBuf> {
+    let ws = app.ws.as_ref()?;
+    Some(ws.module.location.as_ref().and_then(ProjectFile::root_of)?.to_path_buf())
 }
 
 /// The shell command that runs `text`, in `root`, its output read and
@@ -269,8 +280,13 @@ pub(crate) fn shell(text: &str, root: &Path, input: bool) -> Command {
     let mut c = {
         use std::os::windows::process::CommandExt;
         let mut c = Command::new("cmd");
-        // (As typed: cmd reads its own quotes. No console window.)
-        c.arg("/C").raw_arg(text).creation_flags(0x0800_0000);
+        // (As typed: cmd reads its own quotes. Given after /C alone, a
+        // text that begins with a quoted program and has another quoted
+        // argument lost its first and last quote, cmd's rule for /C:
+        // `"C:\Program Files\Moonglow\mg.exe" tlk-alloc "my module"` ran
+        // `C:\Program`. With /S, cmd takes off exactly the pair the text
+        // is put in here, and reads the rest as typed. No console window.)
+        c.arg("/S").arg("/C").raw_arg(format!("\"{text}\"")).creation_flags(0x0800_0000);
         c
     };
     #[cfg(not(windows))]
@@ -336,16 +352,57 @@ fn read_pipe(pipe: Option<impl std::io::Read>, err: bool, output: &Output) {
             Ok(n) => n,
         };
         let mut o = output.lock().unwrap_or_else(|e| e.into_inner());
-        o.partial[at].extend_from_slice(&buf[..n]);
-        while let Some(end) = o.partial[at].iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = o.partial[at].drain(..=end).collect();
-            o.lines.push((said, line_text(&line)));
-        }
+        o.take(at, said, &buf[..n]);
     }
     let mut o = output.lock().unwrap_or_else(|e| e.into_inner());
     let rest = std::mem::take(&mut o.partial[at]);
     if !rest.is_empty() {
-        o.lines.push((said, line_text(&rest)));
+        o.lines.push((said, line_text(written_last(&rest))));
+    }
+}
+
+/// The most bytes a line begun and not ended is kept as, before it is
+/// taken for a line (a program that writes megabytes without a line end).
+const BEGUN_MOST: usize = 64 * 1024;
+
+/// What a line shows of its bytes: what was written after its last
+/// carriage return (progress written over itself, `10%\r20%\r30%`), its
+/// line end apart.
+fn written_last(line: &[u8]) -> &[u8] {
+    let ends = |b: &u8| *b == b'\n' || *b == b'\r';
+    let text = line.len() - line.iter().rev().take_while(|b| ends(b)).count();
+    match line[..text].iter().rposition(|b| *b == b'\r') {
+        Some(cr) => &line[cr + 1..],
+        None => line,
+    }
+}
+
+impl Incoming {
+    /// Takes bytes read from a pipe (`at`: 0 its output, 1 its errors):
+    /// its lines ended, and the line begun as it stands. Only what was
+    /// just read is looked through for a line's end (the whole line begun
+    /// was, after every read), what a carriage return wrote over goes
+    /// (progress showed as one line growing, and only when it ended), and
+    /// a line begun that grows past [`BEGUN_MOST`] is taken as a line.
+    fn take(&mut self, at: usize, said: Said, read: &[u8]) {
+        let begun = &mut self.partial[at];
+        let mut from = begun.len();
+        begun.extend_from_slice(read);
+        while let Some(end) = begun[from..].iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = begun.drain(..=from + end).collect();
+            self.lines.push((said, line_text(written_last(&line))));
+            from = 0;
+        }
+        // (A carriage return at the very end may be a line end's first
+        // half: kept until what follows it is read.)
+        let before_last = begun.len().saturating_sub(1);
+        if let Some(cr) = begun[..before_last].iter().rposition(|b| *b == b'\r') {
+            begun.drain(..=cr);
+        }
+        if begun.len() > BEGUN_MOST {
+            let line = std::mem::take(begun);
+            self.lines.push((said, line_text(&line)));
+        }
     }
 }
 
@@ -376,13 +433,10 @@ fn stop(child: &mut Child) {
     {
         use std::os::windows::process::CommandExt;
         // (Before the shell ends: the tree is found from it.)
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(0x0800_0000)
-            .status();
+        // (Within a time: a taskkill that hangs left Cancel waiting on it.)
+        let mut kill = Command::new("taskkill");
+        kill.args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(0x0800_0000);
+        let _ = mg_core::process::output_within(&mut kill, std::time::Duration::from_secs(10));
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -471,8 +525,10 @@ pub(crate) fn run_steps(
     // (A command that writes none of the module's files has its haks
     // left open: nothing to draw again after.)
     let released = let_go == Some(true) && app.release_haks();
-    let output = app.project_commands.output.clone();
-    *output.lock().unwrap_or_else(|e| e.into_inner()) = Incoming::default();
+    // (Its own: what a program the last command left running still says
+    // goes to that command's, which nothing reads any more.)
+    let output = Output::default();
+    app.project_commands.output = output.clone();
     let state = &mut app.project_commands;
     state.last = Some(Last { label: label.clone(), ..Last::default() });
     state.running = true;
@@ -600,13 +656,31 @@ fn run_child(
         }
     };
     drop(stdin);
-    // (A program it started may hold the pipes past its end.)
+    // What it said last is read: its pipes end with it, unless a program
+    // it started and left running holds them (`mg watch . &`, a server, on
+    // Windows `start tool.exe`). Those are waited for a moment and then
+    // left: waited for to their end, the job never ended and Cancel, read
+    // only while the shell ran, did nothing. A reader left behind writes
+    // into this run's output alone ([`run_steps`] gives each its own).
     if !matches!(ended, Ended::Canceled) {
-        let _ = out.join();
-        let _ = errs.join();
+        let until = std::time::Instant::now() + READERS_WAIT;
+        while !(out.is_finished() && errs.is_finished())
+            && std::time::Instant::now() < until
+            && !progress.cancelled()
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if !(out.is_finished() && errs.is_finished()) {
+            // (The lines begun are all there will be of them.)
+            output.lock().unwrap_or_else(|e| e.into_inner()).end_lines();
+        }
     }
     ended
 }
+
+/// How long a command's output is still read after its shell ended, where
+/// a program it left running holds the pipes.
+const READERS_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The command over: how it ended, in its window; its input closed.
 fn ended_with(app: &mut Moonglow, said: String) {
@@ -843,6 +917,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     output_window(app, ctx);
     let Some(ask) = app.project_commands.ask.clone() else { return };
+    // (Asked of another project than the one open now, or of one closed
+    // since: its command is not this module's to run.)
+    if ask.upload.is_none() && project_root(app).as_deref() != Some(ask.root.as_path()) {
+        app.project_commands.ask = None;
+        return;
+    }
     let mut open = true;
     let (mut run, mut cancel) = (false, false);
     crate::widgets::dialog(ctx, "Run a Project Command?", &mut open)
@@ -898,6 +978,39 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 mod mg_tests {
     use super::*;
 
+    /// A command's output as it comes: lines as they end, the line begun
+    /// as it stands, progress written over itself with carriage returns
+    /// as its last state (it never showed until its line ended, and then
+    /// whole), a Windows line end as one, and a line begun that never
+    /// ends taken as a line once it is long.
+    #[test]
+    fn a_command_s_output_is_taken_as_it_comes() {
+        let mut o = Incoming::default();
+        o.take(0, Said::Out, b"one\ntwo\r\nContinue? ");
+        let lines = |o: &Incoming| o.lines.iter().map(|l| l.1.clone()).collect::<Vec<_>>();
+        assert_eq!(lines(&o), ["one", "two"]);
+        assert_eq!(o.begun()[0], "Continue? ");
+        o.take(0, Said::Out, b"[y/N] ");
+        assert_eq!(o.begun()[0], "Continue? [y/N] ");
+        o.end_lines();
+        // Progress: the last written shows, and is the line when it ends.
+        o.take(0, Said::Out, b"10%\r20%\r");
+        assert_eq!(o.begun()[0], "20%");
+        o.take(0, Said::Out, b"30%\rdone");
+        assert_eq!(o.begun()[0], "done");
+        // (A line end split over two reads is one line end.)
+        o.take(0, Said::Out, b"\r");
+        o.take(0, Said::Out, b"\nnext\n");
+        assert_eq!(lines(&o)[3..], ["done".to_string(), "next".to_string()]);
+        assert_eq!(o.begun()[0], "");
+        // Errors apart, and a line begun that grows without end.
+        o.take(1, Said::Error, &vec![b'x'; BEGUN_MOST]);
+        assert!(o.partial[1].len() == BEGUN_MOST && o.lines.len() == 5);
+        o.take(1, Said::Error, b"y");
+        assert!(o.partial[1].is_empty());
+        assert_eq!(o.lines.last().map(|l| (l.0, l.1.len())), Some((Said::Error, BEGUN_MOST + 1)));
+    }
+
     /// Commands are given the `mg` beside the window's program, where
     /// there is one.
     #[test]
@@ -948,6 +1061,34 @@ mod tests {
         assert!(test_kill_process(sleeper).is_err(), "what it started ended with it");
         assert!(began.elapsed() < Duration::from_secs(2), "asked, it ended at once");
     }
+
+    /// A command whose script leaves a program running (`mg watch . &`, a
+    /// server) ends when its shell does: the program holds the shell's
+    /// pipes, and waiting for their end kept the job's window up for good,
+    /// with a Cancel that did nothing (the review of November 2026, D3).
+    /// What the shell said is all there.
+    #[test]
+    fn a_command_that_leaves_a_program_running_ends_with_its_shell() {
+        use rustix::process::{Pid, Signal, kill_process};
+        let output = Output::default();
+        let (_send, typed) = std::sync::mpsc::channel();
+        let progress = crate::jobs::Progress::default();
+        let began = Instant::now();
+        let command = shell("sleep 30 & echo $!; printf begun", Path::new("."), false);
+        let ended = run_child(command, &output, &typed, &mut false, &progress);
+        assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
+        assert!(matches!(ended, Ended::Exited(Some(0))), "{ended:?}");
+        let said: Vec<String> = {
+            let o = output.lock().unwrap();
+            o.lines.iter().map(|(_, l)| l.clone()).collect()
+        };
+        // (Its last line, begun and never ended, too.)
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(said[1], "begun");
+        // (The sleeper is the test's own to stop.)
+        let sleeper = Pid::from_raw(said[0].trim().parse().unwrap()).unwrap();
+        let _ = kill_process(sleeper, Signal::KILL);
+    }
 }
 
 #[cfg(all(test, windows))]
@@ -963,6 +1104,30 @@ mod tests {
     fn a_program_the_shell_started() {
         println!("started {}", std::process::id());
         std::thread::sleep(Duration::from_secs(60));
+    }
+
+    /// A command that begins with a quoted program and has another quoted
+    /// argument (`"%MOONGLOW_MG%" tlk-alloc "my module"`) runs as typed:
+    /// `cmd /C` alone took its first and last quote off, and ran the
+    /// program's path up to its first space (the review of November 2026,
+    /// D16).
+    #[test]
+    fn a_quoted_program_with_a_quoted_argument_runs_as_typed() {
+        let dir = mg_testkit::scratch_dir("project command quotes");
+        let script = dir.join("say it.cmd");
+        std::fs::write(&script, "@echo off\r\necho %~1\r\n").unwrap();
+        let text = format!("\"{}\" \"a b\"", script.display());
+        let out = shell(&text, &dir, false).output().unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        let errors = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(0), "{said} {errors}");
+        assert_eq!(said.trim(), "a b", "{errors}");
+        // (One without quotes, and one with a single quoted argument, as
+        // before.)
+        let out = shell("echo plain", &dir, false).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "plain");
+        let out = shell("echo \"one two\"", &dir, false).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "\"one two\"");
     }
 
     /// Cancel stops what the shell started, not the shell alone: a
