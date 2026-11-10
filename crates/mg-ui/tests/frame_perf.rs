@@ -1088,7 +1088,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             "    {what:32} first frame {:6.0} ms, scene {:5.2} ms, particles {:5.2} ms, draws \
              encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
-             meshes in {} draws of {} materials and {} pipelines in turn, {} of the game's, {} \
+             meshes in {} draws of {} materials, {} pipelines and {} chunks in turn, {} of the game's, {} \
              meshes out of sight; {} casting the sun's shadows, {} creatures the lights')",
             ms(first),
             ms(pick(build, 0.5)),
@@ -1102,6 +1102,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             did.batches,
             did.materials,
             did.pipelines,
+            did.chunks,
             did.game,
             did.hidden,
             did.sun_casters,

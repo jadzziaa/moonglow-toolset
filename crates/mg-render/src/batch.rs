@@ -84,9 +84,10 @@ fn place_of(run: u32, index: u32) -> Place {
 }
 
 /// What draws must share to be drawn one after another without binding
-/// anything anew (their pipeline and their material): batches of one such
-/// state are put in a run, where they can be.
-pub(crate) type State = (u32, u32);
+/// anything anew (their pipeline, their material, and the chunk of
+/// buffers their meshes lie in, `pool.rs`): batches of one such state
+/// are put in a run, where they can be.
+pub(crate) type State = (u32, u32, u32);
 
 /// A draw placed: its batch's place, when it was placed (the count of the
 /// pass's draws before it), its box.
@@ -579,8 +580,8 @@ mod tests {
                             Some(Bounds { min, max: min + size })
                         }
                     };
-                    // (A key's state: its material, and a third of its mesh.)
-                    let state = runs.then_some((key.1, (key.0 % 3) as u32));
+                    // (A key's state: its material, a third of its mesh, its chunk.)
+                    let state = runs.then_some((key.1, (key.0 % 3) as u32, (key.0 % 2) as u32));
                     let batch = b.place(key, state, bounds, if runs { None } else { last });
                     last = Some(batch);
                     draws.push((key, bounds, model, pass));
@@ -636,7 +637,7 @@ mod tests {
             let mesh = i % 4;
             let key = (mesh, mesh as u32 % 2, 0, None);
             let bounds = Some(slab([x, y, 0.0], [x + 0.1, y + 0.1, 0.0]));
-            placed.push(b.place(key, Some((0, mesh as u32 % 2)), bounds, None));
+            placed.push(b.place(key, Some((0, mesh as u32 % 2, 0)), bounds, None));
         }
         // One batch a mesh, the two states' batches in a row each.
         assert_eq!(b.batches(), 4);
@@ -650,9 +651,42 @@ mod tests {
         let over = Some(slab([0.0, 0.0, 0.0], [0.1, 0.1, 0.0]));
         let mut placed = Vec::new();
         for i in 0..8usize {
-            placed.push(b.place((i % 2, 0, 0, None), Some((0, (i % 2) as u32)), over, None));
+            placed.push(b.place((i % 2, 0, 0, None), Some((0, (i % 2) as u32, 0)), over, None));
         }
         assert_eq!(b.batches(), 8);
+        let (_, order) = b.in_order(&placed);
+        assert_eq!(order, [0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    /// Meshes of one pipeline and material in two chunks, in turn: those
+    /// that meet nothing are drawn chunk by chunk (their buffers bound
+    /// once a chunk, not at every other draw); those over one another as
+    /// they came, whatever their chunks.
+    #[test]
+    fn see_through_draws_of_a_material_are_drawn_by_chunk_where_they_meet_nothing() {
+        let mut b = Batcher::default();
+        b.begin();
+        b.pass(0.125, 0.0001);
+        let mut placed = Vec::new();
+        for i in 0..64 {
+            let (x, y) = ((i % 8) as f32 * 0.2 - 0.9, (i / 8) as f32 * 0.2 - 0.9);
+            let mesh = i % 4;
+            let chunk = mesh as u32 % 2;
+            let bounds = Some(slab([x, y, 0.0], [x + 0.1, y + 0.1, 0.0]));
+            placed.push(b.place((mesh, 7, 0, None), Some((0, 7, chunk)), bounds, None));
+        }
+        let (starts, order) = b.in_order(&placed);
+        let chunks: Vec<usize> =
+            starts[..4].iter().map(|&s| order[s as usize] as usize % 4 % 2).collect();
+        assert_eq!(chunks, [0, 0, 1, 1]);
+        let mut b = Batcher::default();
+        b.begin();
+        b.pass(0.125, 0.0001);
+        let over = Some(slab([0.0, 0.0, 0.0], [0.1, 0.1, 0.0]));
+        let mut placed = Vec::new();
+        for i in 0..8usize {
+            placed.push(b.place((i % 2, 7, 0, None), Some((0, 7, (i % 2) as u32)), over, None));
+        }
         let (_, order) = b.in_order(&placed);
         assert_eq!(order, [0, 1, 2, 3, 4, 5, 6, 7]);
     }
