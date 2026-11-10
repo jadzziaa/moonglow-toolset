@@ -425,6 +425,38 @@ fn list_scroll_reaches_later_rows_without_changing_source() {
     assert_eq!(h.state().doc, before);
 }
 
+/// A list scrolled to a row shows that row at another UI scale and at
+/// another zoom, as a group and a text do: how far it is scrolled is kept
+/// in points. (It was kept in the canvas's pixels: scrolled to row 30 at
+/// 100%, a list showed row 15 at 200%.)
+#[test]
+fn a_scrolled_list_shows_the_same_rows_at_another_scale() {
+    let mut h = harness(
+        json!([{"type":"list","row_template":[[{"type":"label","value":"Entry"},150,true]],
+            "row_count":40,"row_height":25,"width":200,"height":120,"scrollbars":2}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.run();
+    let track = h.get_by_label("Scroll list /root/children/0").rect();
+    click_at(&mut h, track.center());
+    let first = |h: &Harness<'_, Case>| {
+        let shown =
+            |r: &usize| h.query_by_label(&format!("Canvas Label · Entry · row {r}")).is_some();
+        (0..40).find(shown).expect("a row in view")
+    };
+    let row = first(&h);
+    assert!((10..30).contains(&row), "scrolled to the middle: row {row}");
+    let kept = h.state().state.list_scroll.clone();
+    for (scale, zoom) in [(2.0, 1.0), (1.5, 1.0), (1.0, 0.5), (1.0, 1.0)] {
+        h.state_mut().state.preview_scale = scale;
+        h.state_mut().state.zoom = zoom;
+        h.run();
+        assert_eq!(first(&h), row, "at UI scale {scale}, zoom {zoom}");
+    }
+    assert_eq!(h.state().state.list_scroll, kept, "and back as it was");
+}
+
 #[test]
 fn group_horizontal_scroll_moves_content_with_fixed_viewport_and_resets() {
     // Native Layout: content translates, frame stays fixed. No pixel/extent parity claim.
@@ -1476,6 +1508,48 @@ fn bound_slider_values_are_clamped_into_their_bound_range() {
     h.run();
     assert_eq!(value(&h), json!(5));
     assert_eq!(h.state().settings.bindings["v"].value, json!(100));
+}
+
+/// A correction the simulation has nowhere to write (a combo or a slider
+/// bound to a bind the settings don't have, as a window imported without
+/// its settings; a list's row past what its bind holds) is not asked for:
+/// it was tried again every frame, the canvas repainting without end and
+/// the event line saying "Missing preview bind" over everything else.
+#[test]
+fn a_correction_with_nowhere_to_go_is_not_asked_for_every_frame() {
+    let mut settings = Settings::default();
+    settings.bindings.insert("short".into(), Binding { value: json!([5]), ..Default::default() });
+    let entries = json!([["First", 0], ["Second", 1]]);
+    for control in [
+        json!({"type":"combo","height":30,"elements":entries,"value":{"bind":"choice"}}),
+        json!({"type":"slider","height":30,"min":5,"max":9,"value":{"bind":"choice"}}),
+        json!({"type":"list","row_count":3,"row_height":30,"height":120,"row_template":[[
+            {"type":"combo","elements":entries,"value":{"bind":"short"}},0,true]]}),
+        json!({"type":"list","row_count":3,"row_height":30,"height":120,"row_template":[[
+            {"type":"slider","min":7,"max":9,"value":{"bind":"short"}},0,true]]}),
+    ] {
+        let mut h = harness(json!([control]), settings.clone());
+        h.state_mut().state.preview_interactive = true;
+        // (The first frames: the session made, the skin looked for.)
+        for _ in 0..3 {
+            h.step();
+        }
+        let runtime = h.state().state.runtime.as_ref().unwrap();
+        // (The row the bind does hold was corrected: 5 is no entry's, and
+        // under the slider's 7.)
+        let held = &runtime.settings.bindings["short"].value;
+        assert!(control["type"] != "list" || *held != json!([5]), "{control}: {held}");
+        let before = (runtime.settings.clone(), runtime.doc.clone());
+        for frame in 0..3 {
+            h.step();
+            let runtime = h.state().state.runtime.as_ref().unwrap();
+            assert_eq!(runtime.last_event.find("Missing preview"), None, "{control}");
+            assert!(before == (runtime.settings.clone(), runtime.doc.clone()));
+            let root = h.output().viewport_output.get(&egui::ViewportId::ROOT);
+            let again = root.is_some_and(|v| v.repaint_delay.is_zero());
+            assert!(!again, "{control}: frame {frame} asks for the next");
+        }
+    }
 }
 
 #[test]

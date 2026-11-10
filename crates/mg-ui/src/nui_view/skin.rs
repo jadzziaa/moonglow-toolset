@@ -40,6 +40,10 @@ fn pixel_height_to_em(bytes: &[u8]) -> Option<f32> {
     (height > 0.0 && em > 0.0).then_some(em / height)
 }
 
+/// The ratios of em to line height ([`pixel_height_to_em`]) a font is
+/// drawn with: the game's own are near 0.8.
+const EM_RATIOS: std::ops::RangeInclusive<f32> = 0.25..=4.0;
+
 /// What a laid-out text was made from. `width` is where it wraps or is cut
 /// (infinite when neither), `shape` which of the preview's layouts it is.
 #[derive(Clone, Copy)]
@@ -197,20 +201,72 @@ fn leaves(prefix: &str, table: &toml::Table, out: &mut std::collections::HashMap
     }
 }
 
+/// A picture asked for by name, as it was found (or was not).
+struct Kept {
+    picture: Option<Picture>,
+    /// What is said of it where it was not found or does not read.
+    problem: Option<String>,
+    /// Its file (`name.tga`) and where that came from.
+    origin: Option<(String, String)>,
+    /// The skin names it: kept while the skin is.
+    skin: bool,
+    /// The pass a window last asked for it in (`None`: only the skin has).
+    asked: Option<u64>,
+}
+
+impl Kept {
+    /// The picture `name` as the load order has it now; `was` is its
+    /// texture from before, kept where the bytes are the same.
+    fn read(
+        ctx: &egui::Context,
+        rm: Option<&ResMan>,
+        module: &Module,
+        name: &str,
+        was: Option<Picture>,
+    ) -> Kept {
+        let mut kept =
+            Kept { picture: None, problem: None, origin: None, skin: false, asked: None };
+        let Some((ty, bytes, origin)) = image_resource(rm, module, name) else {
+            if name != "gui_error" {
+                kept.problem = Some(format!("Missing image: {name}"));
+            }
+            return kept;
+        };
+        kept.origin = Some((format!("{name}.{ty}"), origin));
+        let stamp = hash((ty.0, &bytes));
+        if let Some(same) = was.filter(|p| p.stamp == stamp) {
+            kept.picture = Some(same);
+            return kept;
+        }
+        match image(&bytes, ty) {
+            Ok(image) => {
+                let size = vec2(image.size[0] as f32, image.size[1] as f32);
+                let texture = ctx.load_texture(
+                    format!("nui/{name}/{stamp}"),
+                    image,
+                    egui::TextureOptions::LINEAR,
+                );
+                kept.picture = Some(Picture { texture, size, stamp });
+            }
+            Err(e) => kept.problem = Some(format!("{name}: {e}")),
+        }
+        kept
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Assets {
     dirty: bool,
-    /// The load order the skin was read for.
-    signature: Option<u64>,
     /// The module's revision when it was last looked at: an edit that leaves
     /// its skin, pictures and fonts alone reloads nothing.
     revision: Option<u64>,
-    /// Every resource the last load asked for, and those of them the module
-    /// itself holds, as it held them.
+    /// Every resource what is kept was read from, and those of them the
+    /// module itself holds, as it held them.
     watched: Vec<ResKey>,
     held: Vec<(ResKey, Arc<[u8]>)>,
-    /// The pictures of the game's layers (listed once for a load order) and
-    /// the module's own, which make up `catalog`.
+    /// The load order the skin and the fonts were read from, and the
+    /// pictures of the game's layers listed for (with the module's own
+    /// they make up `catalog`).
     layers: Option<u64>,
     game_pictures: BTreeSet<String>,
     module_pictures: BTreeSet<String>,
@@ -221,20 +277,6 @@ pub(crate) struct Assets {
     listings: u64,
     found: Option<(u64, String, usize, Vec<String>)>,
     requested: BTreeSet<String>,
-    /// The pictures last asked for by name (the window's, those requested
-    /// and `gui_error`), the pictures the skin names, and every picture
-    /// read for both: a change of the first reads the names that came,
-    /// not the skin again.
-    wanted: BTreeSet<String>,
-    skin_pictures: BTreeSet<String>,
-    read: BTreeSet<String>,
-    /// The skin's fonts' resources, watched with the pictures.
-    font_keys: Vec<ResKey>,
-    /// `issues`, by what they are of: the skin's table, each picture
-    /// (by name), the fonts.
-    skin_issues: Vec<String>,
-    picture_issues: BTreeMap<String, String>,
-    font_issues: Vec<String>,
     /// How many times the skin was read, and how many pictures were (for
     /// tests: what a change of the names costs).
     pub(super) reads: (usize, usize),
@@ -242,11 +284,25 @@ pub(crate) struct Assets {
     /// `style` by dotted path ("button.normal"), as the preview asks for it
     /// with every control it paints.
     leaves: std::collections::HashMap<String, Leaf>,
-    pictures: BTreeMap<String, Picture>,
+    /// The skin's pictures and those the windows drawn of late name, by
+    /// lowercase name: every tab's, not one window's.
+    pictures: BTreeMap<String, Kept>,
+    /// The last pass a window was prepared for in.
+    pass: u64,
+    /// The names the window last prepared for asked for: whose pictures
+    /// `issues` and `origins` are about.
+    shown: BTreeSet<String>,
     fonts: BTreeMap<String, Font>,
+    font_keys: Vec<ResKey>,
     default_font: String,
     text: std::cell::RefCell<TextCache>,
     strings: BTreeMap<i64, String>,
+    /// What is said of the skin and of the fonts, and where they came from.
+    skin_issues: Vec<String>,
+    font_issues: Vec<String>,
+    fixed_origins: BTreeMap<String, String>,
+    /// Where the skin, the fonts and the pictures of the window last
+    /// prepared for came from, and what was not found of them.
     pub(super) origins: BTreeMap<String, String>,
     pub(super) issues: Vec<String>,
     pub(super) loaded: bool,
@@ -274,7 +330,17 @@ pub(super) struct Record {
     pub title_cut: bool,
     /// The controls being drawn, innermost last: whose text a cut belongs to.
     current: Vec<usize>,
+    /// The list rows laid out so far ([`Assets::record_rows`]).
+    rows: usize,
+    /// The lists with rows that were not laid out: what is said of each.
+    pub rows_left_out: Vec<String>,
 }
+
+/// The most rows of all a window's lists together that a layout asked for
+/// holds: each list's rows are a number its file gives, and a list in a
+/// list's row has them once for each row of that (three lists of a
+/// thousand rows inside each other were 134 million controls).
+pub(super) const LAYOUT_ROWS: usize = 4096;
 
 /// A control as the canvas laid it out.
 #[derive(Debug, Clone)]
@@ -283,6 +349,8 @@ pub(super) struct Placed {
     pub path: String,
     /// The list row it was drawn in, for a list's row template.
     pub row: Option<usize>,
+    /// The control's own fields: not the controls in it (`children`, a
+    /// list's `row_template`), which are placed themselves.
     pub node: Value,
     /// Its rectangle, inside its margin.
     pub rect: Rect,
@@ -309,7 +377,23 @@ impl Default for Record {
             title: None,
             title_cut: false,
             current: Vec::new(),
+            rows: 0,
+            rows_left_out: Vec::new(),
         }
+    }
+}
+
+/// A control without the controls in it: what [`Placed`] keeps of it (a
+/// copy of the whole for each control placed was the window once a level,
+/// and a list's row template once a row).
+fn own_fields(node: &Value) -> Value {
+    match node {
+        Value::Object(o) => Value::Object(
+            (o.iter().filter(|(k, _)| !matches!(k.as_str(), "children" | "row_template")))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -343,7 +427,7 @@ impl Assets {
         r.placed.push(Placed {
             path: path.into(),
             row,
-            node: node.clone(),
+            node: own_fields(node),
             rect,
             clip,
             parent,
@@ -353,6 +437,39 @@ impl Assets {
         });
         r.current.push(r.placed.len() - 1);
         true
+    }
+
+    /// How many of the `wanted` rows of the list at `path` (which has
+    /// `count`; `in_row`: it is in another list's row) the layout asked
+    /// for takes: all of them while the frame has rows left of
+    /// [`LAYOUT_ROWS`]. Rows left out are said once a list.
+    pub(super) fn record_rows(
+        &self,
+        path: &str,
+        in_row: bool,
+        wanted: usize,
+        count: usize,
+    ) -> usize {
+        let mut record = self.record.borrow_mut();
+        let Some(r) = record.as_mut() else { return wanted };
+        let taken = wanted.min(LAYOUT_ROWS.saturating_sub(r.rows));
+        r.rows += taken;
+        // (A list in a row is laid out as the row shows it: of its rows
+        // only those the frame had no room for are left out.)
+        let said = match in_row {
+            false if taken < count => {
+                Some(format!("{path}: only the first {taken} of its {count} rows are laid out"))
+            }
+            true if taken < wanted => Some(format!(
+                "{path}: not all its rows in view are laid out ({LAYOUT_ROWS} rows of a \
+                 window's lists together are, at most)"
+            )),
+            _ => None,
+        };
+        if let Some(said) = said.filter(|said| !r.rows_left_out.contains(said)) {
+            r.rows_left_out.push(said);
+        }
+        taken
     }
 
     pub(super) fn leave(&self, entered: bool) {
@@ -584,6 +701,18 @@ impl Assets {
         self.dirty = true;
     }
 
+    /// Has the skin, the fonts and the pictures layout `v` shows ready to
+    /// draw with, reading what is not read yet.
+    ///
+    /// The skin, its pictures and the fonts are the load order's and the
+    /// module's: read once, and again when one of them is another. A
+    /// window's own pictures are read as it asks for them and kept while a
+    /// window asks: every Creator tab draws with this one `Assets`, and two
+    /// tabs in view (or Split source's typed window beside the module's)
+    /// name different pictures in one frame. (The names asked for were part
+    /// of what the whole load was kept for: two windows in turn then read
+    /// the skin, every picture and every font again twice a frame, and asked
+    /// for the next frame, without end.)
     pub(super) fn prepare(
         &mut self,
         ctx: &egui::Context,
@@ -612,7 +741,6 @@ impl Assets {
         self.revision = Some(revision);
         let mut listed = false;
         if self.dirty || self.layers != Some(layers) {
-            self.layers = Some(layers);
             self.game_pictures = rm
                 .into_iter()
                 .flat_map(|rm| PICTURE_TYPES.into_iter().flat_map(|ty| rm.list(ty)))
@@ -635,57 +763,47 @@ impl Assets {
             self.catalog = self.game_pictures.union(&self.module_pictures).cloned().collect();
             self.listings += 1;
         }
-        // The skin (its table, its fonts and the pictures it names) is
-        // read for a load order, and again when the module's own copy of
-        // something read changed; the pictures asked for by name are read
-        // as they come. (Each key typed into a picture's name, or into
-        // Find a picture, read the skin, every picture and every font
-        // again.)
-        let skin_stale = self.dirty
-            || self.signature != Some(layers)
+        // Pictures no window asked for in the pass before this one go (a
+        // tab closed or behind another, a name while it was typed).
+        let pass = ctx.cumulative_pass_nr();
+        let mut changed = false;
+        if self.pass != pass {
+            let last = std::mem::replace(&mut self.pass, pass);
+            let before = self.pictures.len();
+            self.pictures.retain(|_, p| p.skin || p.asked.is_none_or(|asked| asked >= last));
+            changed = self.pictures.len() != before;
+        }
+        let reload = self.dirty
+            || self.layers != Some(layers)
             || (edited && !same_held(&self.held, &held(module, &self.watched)));
-        if !skin_stale && self.wanted == wanted {
-            return;
+        self.dirty = false;
+        self.layers = Some(layers);
+        if reload {
+            self.load(ctx, rm, module);
         }
-        let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
-        if skin_stale {
-            self.dirty = false;
-            self.signature = Some(layers);
-            self.origins.clear();
-            self.read_skin(ctx, rm, module, key);
-        }
-        let all: BTreeSet<String> = wanted.union(&self.skin_pictures).cloned().collect();
-        for name in self.read.difference(&all) {
-            self.pictures.remove(name);
-            self.picture_issues.remove(name);
-            for ty in PICTURE_TYPES {
-                self.origins.remove(&format!("{name}.{ty}"));
+        // The window's own pictures that are not read yet.
+        let mut read = false;
+        for name in &wanted {
+            if !self.pictures.contains_key(name) {
+                let kept = Kept::read(ctx, rm, module, name, None);
+                self.reads.1 += 1;
+                self.pictures.insert(name.clone(), kept);
+                read = true;
+            }
+            if let Some(kept) = self.pictures.get_mut(name) {
+                kept.asked = Some(pass);
             }
         }
-        for name in &all {
-            // (Read again with the skin: one whose bytes are as they were
-            // keeps its texture.)
-            if skin_stale || !self.read.contains(name) {
-                self.read_picture(ctx, rm, module, name);
-            }
+        if reload || read || changed {
+            self.watch(module);
         }
-        self.pictures.retain(|k, _| all.contains(k));
-        self.watched =
-            std::iter::once(key)
-                .chain(all.iter().flat_map(|n| {
-                    PICTURE_TYPES.into_iter().filter_map(move |ty| ResKey::parse(n, ty))
-                }))
-                .chain(self.font_keys.iter().copied())
-                .collect();
-        self.read = all;
-        self.wanted = wanted;
-        self.issues = (self.skin_issues.iter())
-            .chain(self.picture_issues.values())
-            .chain(&self.font_issues)
-            .cloned()
-            .collect();
-        self.held = held(module, &self.watched);
-        ctx.request_repaint();
+        if reload || read {
+            ctx.request_repaint();
+        }
+        if reload || read || self.shown != wanted {
+            self.shown = wanted;
+            self.say();
+        }
     }
 
     /// The first `most` names of the catalog that `filter` finds: looked
@@ -703,25 +821,22 @@ impl Assets {
         self.found.as_ref().map_or(&[], |(_, _, _, names)| names)
     }
 
-    /// Reads the skin: its table and leaves, the pictures it names
-    /// (`skin_pictures`) and its fonts.
-    fn read_skin(
-        &mut self,
-        ctx: &egui::Context,
-        rm: Option<&ResMan>,
-        module: &Module,
-        key: ResKey,
-    ) {
-        self.reads.0 += 1;
+    /// The skin, its pictures and the fonts read, and every picture kept
+    /// read again (one whose bytes are the same keeps its texture).
+    fn load(&mut self, ctx: &egui::Context, rm: Option<&ResMan>, module: &Module) {
         self.skin_issues.clear();
         self.font_issues.clear();
+        self.fixed_origins.clear();
         self.fonts.clear();
+        self.font_keys.clear();
         // (egui builds its atlas again for the fonts added below, which
         // `TextCache` sees for itself; these are only no longer wanted.)
         self.text.get_mut().kept.clear();
         self.style.clear();
         self.leaves.clear();
         self.loaded = false;
+        self.reads.0 += 1;
+        let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         if let Some((b, origin)) = resource(rm, module, key) {
             match std::str::from_utf8(&b)
                 .map_err(|e| e.to_string())
@@ -731,7 +846,7 @@ impl Assets {
                     leaves("", &style, &mut self.leaves);
                     self.style = style;
                     self.loaded = true;
-                    self.origins.insert(key.to_string(), origin);
+                    self.fixed_origins.insert(key.to_string(), origin);
                 }
                 Err(e) => self.skin_issues.push(format!("nui_skin.tml: {e}")),
             }
@@ -754,11 +869,23 @@ impl Assets {
                 _ => {}
             }
         }
-        self.skin_pictures.clear();
+        let mut skin = BTreeSet::new();
         for (k, v) in &self.style {
             if k != "fonts" {
-                skin_images(v, &mut self.skin_pictures);
+                skin_images(v, &mut skin);
             }
+        }
+        // (A picture only the skin named, which names it no more, goes.)
+        self.pictures.retain(|name, p| p.asked.is_some() || skin.contains(name));
+        let again: BTreeSet<String> = self.pictures.keys().cloned().chain(skin.clone()).collect();
+        for name in again {
+            let was = self.pictures.remove(&name);
+            let asked = was.as_ref().and_then(|p| p.asked);
+            let mut kept = Kept::read(ctx, rm, module, &name, was.and_then(|p| p.picture));
+            self.reads.1 += 1;
+            kept.asked = asked;
+            kept.skin = skin.contains(&name);
+            self.pictures.insert(name, kept);
         }
         let fonts =
             self.style.get("fonts").and_then(toml::Value::as_array).cloned().unwrap_or_default();
@@ -785,7 +912,15 @@ impl Assets {
             }
             let font_key = format!("nui-font/{resref}/{:x}", hash(&bytes));
             let family = FontFamily::Name(font_key.clone().into());
+            // A font whose line (ascent to descent) is a sliver of its em,
+            // or many ems, is no font to draw with: its size is held to 4
+            // to 128, and with an `hhea` height of 1 in an em of 2,048 a
+            // 17-point font was 34,816 pixels, a glyph of it gigabytes.
             let em_ratio = pixel_height_to_em(&bytes).unwrap_or(1.0);
+            if !EM_RATIOS.contains(&em_ratio) {
+                self.font_issues.push(format!("Invalid font: {resref}"));
+                continue;
+            }
             ctx.add_font(egui::epaint::text::FontInsert {
                 name: font_key,
                 data: egui::FontData::from_owned(bytes),
@@ -794,7 +929,7 @@ impl Assets {
                     priority: egui::epaint::text::FontPriority::Highest,
                 }],
             });
-            self.origins.insert(format!("{resref}.ttf"), origin);
+            self.fixed_origins.insert(format!("{resref}.ttf"), origin);
             let num = |k: &str, default: f32| f.get(k).and_then(toml_number).unwrap_or(default);
             self.fonts.insert(
                 name.into(),
@@ -808,45 +943,33 @@ impl Assets {
         }
     }
 
-    /// Reads one picture by name: its texture (kept where its bytes are
-    /// those it was made from), where it came from, or what is wrong
-    /// with it.
-    fn read_picture(
-        &mut self,
-        ctx: &egui::Context,
-        rm: Option<&ResMan>,
-        module: &Module,
-        name: &str,
-    ) {
-        self.reads.1 += 1;
-        self.picture_issues.remove(name);
-        let Some((ty, bytes, origin)) = image_resource(rm, module, name) else {
-            self.pictures.remove(name);
-            if name != "gui_error" {
-                self.picture_issues.insert(name.into(), format!("Missing image: {name}"));
-            }
-            return;
-        };
-        self.origins.insert(format!("{name}.{ty}"), origin);
-        let stamp = hash((ty.0, &bytes));
-        if self.pictures.get(name).is_some_and(|p| p.stamp == stamp) {
-            return;
-        }
-        match image(&bytes, ty) {
-            Ok(image) => {
-                let size = vec2(image.size[0] as f32, image.size[1] as f32);
-                let texture = ctx.load_texture(
-                    format!("nui/{name}/{stamp}"),
-                    image,
-                    egui::TextureOptions::LINEAR,
-                );
-                self.pictures.insert(name.into(), Picture { texture, size, stamp });
-            }
-            Err(e) => {
-                self.pictures.remove(name);
-                self.picture_issues.insert(name.into(), format!("{name}: {e}"));
-            }
-        }
+    /// Every resource what is kept was read from (or looked for), and
+    /// those of them the module itself holds, as it holds them now.
+    fn watch(&mut self, module: &Module) {
+        self.watched = ResKey::parse("nui_skin", ResType::TML)
+            .into_iter()
+            .chain(
+                (self.pictures.keys())
+                    .flat_map(|n| PICTURE_TYPES.into_iter().filter_map(|ty| ResKey::parse(n, ty))),
+            )
+            .chain(self.font_keys.iter().copied())
+            .collect();
+        self.held = held(module, &self.watched);
+    }
+
+    /// What is said of the resources for the window just prepared for
+    /// (`shown`): the skin's and the fonts', and the pictures' that are the
+    /// skin's or this window's, not another tab's.
+    fn say(&mut self) {
+        let own = |name: &String, p: &Kept| p.skin || self.shown.contains(name);
+        let pictures = || self.pictures.iter().filter(|(name, p)| own(name, p)).map(|(_, p)| p);
+        self.issues = (self.skin_issues.iter().cloned())
+            .chain(pictures().filter_map(|p| p.problem.clone()))
+            .chain(self.font_issues.iter().cloned())
+            .collect();
+        self.origins = (self.fixed_origins.iter().map(|(k, v)| (k.clone(), v.clone())))
+            .chain(pictures().filter_map(|p| p.origin.clone()))
+            .collect();
     }
 
     pub(super) fn number(&self, path: &str, default: f32) -> f32 {
@@ -857,14 +980,15 @@ impl Assets {
     }
     pub(super) fn picture(&self, name: &str) -> Option<&Picture> {
         // Pictures are kept by lowercase name, which most names already are.
-        if name.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
+        let kept = if name.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
             self.pictures.get(name)
         } else {
             self.pictures.get(&name.to_lowercase())
-        }
+        };
+        kept?.picture.as_ref()
     }
     pub(super) fn style_picture(&self, path: &str) -> Option<&Picture> {
-        self.pictures.get(self.leaves.get(path)?.picture.as_ref()?)
+        self.pictures.get(self.leaves.get(path)?.picture.as_ref()?)?.picture.as_ref()
     }
     pub(super) fn font(&self, ctx: &egui::Context, name: &str, scale: f32) -> (FontId, f32) {
         let f = self.fonts.get(if name.is_empty() { self.default_font.as_str() } else { name });
@@ -913,7 +1037,8 @@ impl Assets {
             p.rect_filled(rect, 0, c * tint);
             return true;
         }
-        let Some(image) = value.picture.as_ref().and_then(|name| self.pictures.get(name)) else {
+        let picture = value.picture.as_ref().and_then(|name| self.pictures.get(name));
+        let Some(image) = picture.and_then(|kept| kept.picture.as_ref()) else {
             return false;
         };
         if sliced {
@@ -949,9 +1074,21 @@ impl Assets {
         let tile = (image.size[axis] * scale).max(1.0);
         // Without the picture's rounded ends across the bar, as in the client.
         let cap = 3.0_f32.min(image.size[across] / 4.0) / image.size[across];
+        // Only the tiles in sight: a bar may be far longer than what shows
+        // of it, and each tile is a shape.
+        let clip = p.clip_rect();
         let mut at = rect.min[axis];
-        while at < rect.max[axis] {
+        let hidden = ((clip.min[axis] - at) / tile).floor();
+        if hidden.is_finite() && hidden > 0.0 {
+            at += hidden * tile;
+        }
+        let stop = rect.max[axis].min(clip.max[axis]);
+        while at < stop {
             let end = (at + tile).min(rect.max[axis]);
+            // (So far out that a tile is less than the float's step.)
+            if end <= at {
+                break;
+            }
             let mut r = rect;
             r.min[axis] = at;
             r.max[axis] = end;
@@ -966,11 +1103,14 @@ impl Assets {
     }
 }
 
+/// A number of the skin, within ±1e18 as the window's own are held
+/// (`preview::num`): one written larger (1e300) is infinite as an `f32`,
+/// and a rectangle made of it not a number at all.
 fn toml_number(v: &toml::Value) -> Option<f32> {
     v.as_float()
         .or_else(|| v.as_integer().map(|n| n as f64))
         .filter(|n| n.is_finite())
-        .map(|n| n as f32)
+        .map(|n| n.clamp(-1e18, 1e18) as f32)
 }
 
 fn color(s: &str) -> Option<Color32> {
@@ -1066,6 +1206,100 @@ mod tests {
         assets.prepare_strings(None, &doc, &settings);
         assert_eq!(localized_string(&doc["title"], &settings, None, &assets), "[Missing StrRef 0]");
         assert_eq!((doc, settings), original);
+    }
+
+    /// The pictures of a window whose bind names itself, or another that
+    /// names it back: found, where the canvas's own walk went on into the
+    /// bind's value without end (and the stack ran out, every frame of the
+    /// Design page).
+    #[test]
+    fn a_bind_that_names_itself_ends_the_walk_for_pictures() {
+        use mg_nui::Binding;
+        use serde_json::json;
+        let doc = json!({"root": {"type": "col", "children": [
+            {"type": "image", "value": {"bind": "icons"}},
+            {"type": "button_image", "label": {"bind": "a"}},
+            {"type": "spacer", "draw_list": [{"type": 5, "image": {"bind": "b"}}]}]}});
+        let mut settings = Settings::default();
+        for (name, value) in [
+            ("icons", json!([{"bind": "icons"}, "Shown"])),
+            ("a", json!([{"bind": "b"}, "first"])),
+            ("b", json!([{"bind": "a"}, "second"])),
+        ] {
+            settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
+        }
+        let mut found = BTreeSet::new();
+        names(&doc, &settings, &mut found);
+        assert_eq!(found.into_iter().collect::<Vec<_>>(), ["first", "second", "shown"]);
+        // And the canvas's frame, which asks for them.
+        let ctx = egui::Context::default();
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &Module::new(), 0, &doc, &settings);
+        assert!(assets.issues.contains(&"Missing image: shown".to_string()), "{:?}", assets.issues);
+    }
+
+    /// A font file of two tables, `head` and `hhea`, with the numbers a
+    /// font's size is read from: enough to be a font to the reader.
+    fn font_of(units_per_em: u16, ascender: i16, descender: i16) -> Vec<u8> {
+        let mut head = vec![0u8; 54];
+        head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        head[12..16].copy_from_slice(&0x5F0F_3CF5_u32.to_be_bytes());
+        head[18..20].copy_from_slice(&units_per_em.to_be_bytes());
+        let mut hhea = vec![0u8; 36];
+        hhea[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        hhea[4..6].copy_from_slice(&ascender.to_be_bytes());
+        hhea[6..8].copy_from_slice(&descender.to_be_bytes());
+        let mut font = 0x0001_0000_u32.to_be_bytes().to_vec();
+        font.extend([0, 2, 0, 32, 0, 1, 0, 0]);
+        let mut at = 12 + 2 * 16;
+        for (tag, table) in [(b"head", &head), (b"hhea", &hhea)] {
+            font.extend(tag);
+            font.extend(0_u32.to_be_bytes());
+            font.extend((at as u32).to_be_bytes());
+            font.extend((table.len() as u32).to_be_bytes());
+            // (Tables start on four bytes.)
+            at += table.len().next_multiple_of(4);
+        }
+        for table in [&head, &hhea] {
+            font.extend(table.iter());
+            font.resize(font.len().next_multiple_of(4), 0);
+        }
+        font
+    }
+
+    /// A font's size is held by its ratio of em to line height too: one
+    /// whose `hhea` says its line is one unit of 2,048 is refused, where a
+    /// 17-point font of it was drawn 34,816 pixels high. And a number of
+    /// the skin stays one an `f32` holds.
+    #[test]
+    fn a_font_with_a_sliver_of_a_line_is_refused() {
+        // (The game's fonts: about 0.8.)
+        let usual = pixel_height_to_em(&font_of(2048, 1900, -500)).unwrap();
+        assert!((usual - 2048.0 / 2400.0).abs() < 1e-6 && EM_RATIOS.contains(&usual));
+        assert_eq!(pixel_height_to_em(&font_of(2048, 1, 0)), Some(2048.0));
+        assert_eq!(pixel_height_to_em(&font_of(2048, 0, 0)), None);
+        assert_eq!(pixel_height_to_em(b"no font"), None);
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        module.set(
+            ResKey::parse("nui_skin", ResType::TML).unwrap(),
+            b"[window]\nscrollbar_size_x = 1e300\nscrollbar_size_y = -1e300\n\
+              [[fonts]]\nname = \"sliver\"\nresref = \"sliver\"\nfont_size = 17\n\
+              [[fonts]]\nname = \"tall\"\nresref = \"tall\"\nfont_size = 17\n"
+                .to_vec(),
+        );
+        module.set(ResKey::parse("sliver", ResType::TTF).unwrap(), font_of(2048, 1, 0));
+        module.set(ResKey::parse("tall", ResType::TTF).unwrap(), font_of(16, 30_000, -30_000));
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &mg_nui::window(), &Settings::default());
+        assert!(assets.loaded);
+        assert_eq!(assets.issues, ["Invalid font: sliver", "Invalid font: tall"]);
+        // Drawn with the fallback, at its own size.
+        for name in ["sliver", "tall", ""] {
+            assert_eq!(assets.font(&ctx, name, 1.0).0, FontId::proportional(17.0), "{name}");
+        }
+        assert_eq!(assets.number("window.scrollbar_size_x", 18.0), 1e18);
+        assert_eq!(assets.number("window.scrollbar_size_y", 18.0), -1e18);
     }
 
     #[test]
@@ -1424,6 +1658,71 @@ mod tests {
         assert!(image(b"not a picture", ResType::PNG).is_err());
     }
 
+    /// Two windows drawn in one frame (two Creator tabs side by side, or
+    /// Split source's typed window beside the module's), each naming a
+    /// picture the other doesn't: each picture is read once, no frame asks
+    /// for the next, and what is said of the resources is the window's own.
+    /// (The whole load was kept for one window's names: the two read the
+    /// skin and every picture again twice a frame, without end.)
+    #[test]
+    fn two_windows_in_one_frame_read_each_picture_once() {
+        use serde_json::json;
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        let skin = ResKey::parse("nui_skin", ResType::TML).unwrap();
+        module.set(skin, b"[button]\nnormal = \"test_image\"\n".to_vec());
+        for name in ["test_image", "only_a", "only_b"] {
+            module.set(ResKey::parse(name, ResType::TGA).unwrap(), tga(false));
+        }
+        let window = |picture: &str| {
+            json!({"root": {"type": "col", "children": [
+                {"type": "image", "value": picture}, {"type": "image", "value": "nowhere"}]}})
+        };
+        let windows = [("only_a", window("only_a")), ("only_b", window("only_b"))];
+        let s = Settings::default();
+        let mut assets = Assets::default();
+        let mut textures = Vec::new();
+        let frame = |assets: &mut Assets, shown: &[(&str, Value)]| {
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                for (name, doc) in shown {
+                    assets.prepare(ui.ctx(), None, &module, 0, doc, &s);
+                    assert!(assets.loaded);
+                    for (other, _) in &windows {
+                        let said = assets.origins.contains_key(&format!("{other}.tga"));
+                        assert_eq!(said, other == name, "{other} while {name} is prepared for");
+                    }
+                    assert!(assets.origins.contains_key("test_image.tga"));
+                    assert_eq!(assets.issues, ["Missing image: nowhere"]);
+                }
+            });
+            // (No backend takes the textures.)
+            out.textures_delta.clear();
+            let root = out.viewport_output.get(&egui::ViewportId::ROOT);
+            root.is_some_and(|v| v.repaint_delay.is_zero())
+        };
+        for n in 0..5 {
+            let again = frame(&mut assets, &windows);
+            assert!(n < 2 || !again, "frame {n} asks for another");
+            textures.push(
+                ["test_image", "only_a", "only_b"]
+                    .map(|name| assets.picture(name).expect(name).texture.id()),
+            );
+        }
+        assert!(textures.iter().all(|t| *t == textures[0]), "{textures:?}");
+        // A window that is drawn no more: its picture goes, the other's stays.
+        for _ in 0..3 {
+            frame(&mut assets, &windows[..1]);
+        }
+        assert!(assets.picture("only_b").is_none());
+        assert_eq!(assets.picture("only_a").map(|p| p.texture.id()), Some(textures[0][1]));
+        // And the module's copy of a picture replaced is read again.
+        let mut other = tga(false);
+        other[18] = 99;
+        module.set(ResKey::parse("only_a", ResType::TGA).unwrap(), other);
+        assets.prepare(&ctx, None, &module, 1, &windows[0].1, &s);
+        assert_ne!(assets.picture("only_a").map(|p| p.texture.id()), Some(textures[0][1]));
+    }
+
     #[test]
     fn asset_cache_reuses_textures_and_reloads_changed_bytes() {
         let ctx = egui::Context::default();
@@ -1520,6 +1819,13 @@ mod tests {
         assets.request_images(&ctx, BTreeSet::new());
         assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
         assert_eq!(assets.reads, (1, 6), "nothing read to let go");
+        // (What no window asked for in a pass goes with the next: another
+        // tab's pictures are kept while both are drawn.)
+        for _ in 0..2 {
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+            assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        }
+        assert_eq!(assets.reads, (1, 6), "nor to let go a pass later");
         let mut fresh = Assets::default();
         fresh.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
         assert_eq!(held(&assets), held(&fresh));

@@ -134,7 +134,7 @@ installed): delete its folder, and press **Reload**.
 A team can keep its plugins with its project: in a folder `plugins/`
 beside `nasher.cfg` (or a module folder's own), or the folder the
 project's `moonglow.toml` names
-([The project file](03-modules.md#the-project-file)). Every builder who
+([The project file](03-modules.md#the-project-file-moonglowtoml)). Every builder who
 checks the project out has them, in step with the module, with nothing
 to install.
 

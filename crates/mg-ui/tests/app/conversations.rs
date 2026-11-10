@@ -1049,6 +1049,75 @@ fn string_edit_of_a_line_follows_the_line() {
     assert!(h.state().loc_edit.is_none(), "its line is gone");
 }
 
+/// The Script Wizard holds its line by its number too, and is a window over
+/// a conversation that stays live behind it: with an earlier reply deleted
+/// while it was up, Finish set the script on the reply that had taken the
+/// number (the review of November 2026, N5). It finds its line again, and
+/// stays open, saying why, when the line is gone. A closed module takes
+/// it along.
+#[test]
+fn the_script_wizard_sets_its_script_on_its_line_after_a_delete() {
+    use mg_edit::GffPath;
+    use mg_module::dialog::{Kind, Parent, nodes, remove, text};
+    use mg_ui::script_wizard::{ScriptWizard, Step};
+    let (mut h, key) = dialog_from_tree("ui-dialog-wizard-follows", &replies_dialog());
+    let doc = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone()
+    };
+    let delete = |h: &mut Harness<'_, Moonglow>, pos: usize| {
+        let mut g = doc(h);
+        remove(&mut g, Parent::Node(Kind::Entry, 0), pos);
+        let edit = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.apply(mg_edit::Command::new("Delete line", vec![edit])).unwrap();
+        h.run();
+        h.run();
+    };
+    // The actions of "Kept two." (reply 2), at the wizard's last page.
+    let open = |h: &mut Harness<'_, Moonglow>, reply: usize, name: &str| {
+        let path = GffPath::root().item(Kind::Reply.list(), reply);
+        let lists = std::sync::Arc::new(Default::default());
+        let mut w = ScriptWizard::new(key, path, "Script", false, lists, name.into());
+        w.step = Step::Name;
+        h.state_mut().script_wizard = Some(w.opened_on(&doc(h)));
+        h.run();
+    };
+    let scripts = |h: &mut Harness<'_, Moonglow>| -> Vec<(String, String)> {
+        let g = doc(h);
+        (nodes(&g, Kind::Reply).iter())
+            .map(|n| (text(n), n.resref("Script").unwrap_or_default().to_string()))
+            .collect()
+    };
+    let has = |h: &Harness<'_, Moonglow>, name: &str| {
+        let module = &h.state().ws.as_ref().unwrap().module;
+        module.contains(&ResKey::parse(name, ResType::NSS).unwrap())
+    };
+    open(&mut h, 2, "at_001");
+    // "Gone." (reply 0) deleted behind it: "Kept two." is reply 1.
+    delete(&mut h, 0);
+    h.get_by_label("Finish").click();
+    h.run();
+    let set = |a: &str, b: &str| vec![(a.to_string(), b.to_string())];
+    assert_eq!(scripts(&mut h), [set("Kept one.", ""), set("Kept two.", "at_001")].concat());
+    assert!(has(&h, "at_001") && h.state().script_wizard.is_none());
+    // Its line deleted behind it: nothing is written, the log says why,
+    // and the wizard stays with what was chosen in it.
+    open(&mut h, 0, "at_002");
+    delete(&mut h, 0);
+    h.get_by_label("Finish").click();
+    h.run();
+    assert_eq!(scripts(&mut h), set("Kept two.", "at_001"));
+    assert!(!has(&h, "at_002"));
+    assert!(h.state().script_wizard.is_some(), "it stays open");
+    let said = h.state().log.entries.iter().any(|(_, m)| {
+        m.starts_with("Script Wizard: the line this script was for is no longer in talk.dlg")
+    });
+    assert!(said, "{:?}", h.state().log.entries);
+    assert!(!h.state().log.entries.iter().any(|(_, m)| m.contains("wrote at_002")));
+    h.state_mut().close();
+    assert!(h.state().script_wizard.is_none(), "a closed module's wizard is gone");
+}
+
 /// How a line is deleted.
 #[derive(Debug, Clone, Copy)]
 enum DeleteBy {

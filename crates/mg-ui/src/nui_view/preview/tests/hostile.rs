@@ -130,7 +130,15 @@ fn hostile_documents() -> Vec<Value> {
                 "row_count": 1_000_000_000, "row_template": [[{"type": "label"}, 0.0, true]]}]]},
     ])));
     // Sizes no window has.
-    for size in [1e308, -1e308, 0.0, -1.0, 1e-300, 4096.0, 1e9] {
+    for size in [1e308, -1e308, 0.0, -1.0, 1e-300, 4096.0, 1e9, 1e-3, 1e-6, 1e-9] {
+        // (An aspect that makes a scrolling control millions of points high:
+        // its bar's cursor is a picture repeated along it.)
+        docs.push(window_of(json!([
+            {"type": "list", "aspect": size, "row_count": 0, "row_template": []},
+            {"type": "group", "aspect": size, "scrollbars": 3, "children": [
+                {"type": "col", "children": [{"type": "label", "value": "in a group"}]}]},
+            {"type": "text", "aspect": size, "scrollbars": 2, "value": "text"},
+        ])));
         docs.push(window_of(json!([
             {"type": "row", "height": size, "children": [
                 {"type": "button", "label": "a", "width": size, "height": size},
@@ -221,6 +229,16 @@ fn hostile_documents() -> Vec<Value> {
         }
         docs.push(window);
     }
+    // A million samples in a chart (a line and columns) and a million
+    // points in a polyline: a log a script fills a bind with.
+    let samples: Vec<Value> = (0..1_000_000_u64).map(|i| json!((i * 7919) % 1000)).collect();
+    docs.push(window_of(json!([
+        {"type": "chart", "height": 150.0, "value": [
+            {"type": 0, "legend": "line", "data": samples},
+            {"type": 1, "legend": "columns", "data": samples}]},
+        {"type": "spacer", "height": 100.0,
+            "draw_list": [{"type": 0, "points": samples, "line_thickness": 1.0}]},
+    ])));
     docs
 }
 
@@ -229,8 +247,12 @@ fn settings() -> Settings {
     for (name, value) in [
         (
             "rows",
-            json!(["a", 1, null, {"strref": 5}, [1], {"x": 1.0, "y": 2.0, "w": 3.0, "h": 4.0}]),
+            // (With a bind that names itself, and two that name each other:
+            // a bind's value is data, and is not followed.)
+            json!(["a", 1, null, {"strref": 5}, [1], {"x": 1.0, "y": 2.0, "w": 3.0, "h": 4.0},
+                {"bind": "rows"}, {"bind": "other"}]),
         ),
+        ("other", json!([{"bind": "rows"}])),
         ("n", json!(1e308)),
         ("flag", json!("yes")),
     ] {
@@ -349,6 +371,8 @@ fn hostile_documents_draw_without_panicking_in_bounded_time() {
                 });
                 // (This test draws; no backend takes the textures.)
                 out.textures_delta.clear();
+                let drawn = out.shapes.len();
+                assert!(drawn < 50_000, "document {n}, state {i}: {drawn} shapes");
                 let shapes = ctx.tessellate(out.shapes, out.pixels_per_point);
                 assert!(shapes.len() < 200_000, "document {n}, state {i}: {} shapes", shapes.len());
             }

@@ -222,7 +222,7 @@ fn release_gestures(ui: &Ui, authored: &mut Value, state: &mut State) {
     if released
         && let Some(resize) = state.resize.take()
         && resize.source == *authored
-        && resize.size != resize.initial
+        && resize.changed()
     {
         resize.apply(authored);
     }

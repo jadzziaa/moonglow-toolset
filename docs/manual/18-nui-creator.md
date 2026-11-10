@@ -520,7 +520,11 @@ as one Undo step, the first opens in the Creator, and the log says what
 their checks found.
 
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
-recovery. Invalid drafts cannot generate scripts. The checks describe the
+recovery. Invalid drafts cannot generate scripts. What the checks found is
+listed under the tabs (their count there opens and closes the list, and new
+errors open it): a line a finding, errors first, with the control it is
+about, which the line selects, and a fix where there is one. A message
+longer than its line is cut, and whole in its tip. The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: build the module and
 use [Test Module](09-build-and-test.md) to try the window, edits, clicks,
@@ -632,7 +636,10 @@ and the preview follow them.
   every value is above zero they hang from the top of the chart, and a column
   can reach past the chart, up to what the window or a group cuts. Columns
   stand a point apart. The column under the pointer turns white and shows its
-  value (2.00). With no width, a chart stretches like a label.
+  value (2.00). With no width, a chart stretches like a label. The preview
+  draws a line of more samples than twice its pixels by the lowest and
+  highest sample of each pixel, and a polyline of more than 8,192 points by
+  as many of them, evenly taken: the same picture, of fewer shapes.
 - **Progress bars** stretch like a label when they have no width. A value over 1
   draws past the bar's frame.
 - **Options and tabs** place their entries 150 apart whatever the control's

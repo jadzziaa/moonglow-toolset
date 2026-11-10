@@ -304,6 +304,12 @@ the source, compiles it and sets it on the line, as one undoable step.
 The script is the module's like any other: open it in the script editor
 to change it later.
 
+The conversation stays live behind the wizard. Where lines were deleted
+or put back in it meanwhile, Finish sets the script on the line the
+wizard was opened for, wherever that is now; where that line is gone,
+it writes nothing, the log says so, and the wizard stays open with what
+you chose (undo the change and finish again, or cancel).
+
 An amount of gold or experience is a whole number from 1 to
 2,147,483,647, the most a script's integer holds; anything else typed
 there gives or takes nothing. A float variable's value is a number: `nan`,

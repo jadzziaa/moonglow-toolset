@@ -3686,6 +3686,20 @@ fn user_manual() {
     shoot(&mut h, &dir, "manual-areas-camera");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
+    // A chapter's picture, built in as the chapters are.
+    h.get_all_by_label("Modules").find(|n| listed(n)).unwrap().click();
+    h.run();
+    h.get_by_label("A table's description").scroll_to_me();
+    shoot(&mut h, &dir, "manual-modules-picture");
+    // A link to a heading of another chapter: the chapter, at the heading.
+    h.get_all_by_label("The main window").rfind(|n| listed(n)).unwrap().click();
+    h.run();
+    h.get_by_label("whose each area is").scroll_to_me();
+    h.run();
+    h.get_by_label("whose each area is").click();
+    // (Until it has scrolled there.)
+    h.run();
+    shoot(&mut h, &dir, "manual-link-to-a-heading");
     // (The menu bar has a Plugins too: the chapter is the later one.)
     for (chapter, shot) in [
         ("The main window", "manual-main-window"),
@@ -6843,6 +6857,40 @@ fn nui_harness(app: Moonglow, key: ResKey, size: (f32, f32)) -> Harness<'static,
     place(&mut h, &tab, (20.0, 90.0), size);
     h.run_steps(3);
     h
+}
+
+/// The NUI Creator's list of problems (`nui-problems.png`): a window with
+/// many findings, a few of them long and some with a fix beside them, a
+/// line each; and a narrow one (`nui-problems-narrow.png`).
+#[test]
+#[ignore]
+fn nui_problems() {
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("nui_test".into()));
+    let mut window = mg_nui::window();
+    let mut controls = Vec::new();
+    for i in 0..40 {
+        controls.push(match i % 4 {
+            0 => json!({"type": "textedit", "label": format!("Name {i}"), "max": 0}),
+            1 => json!({"type": "button", "id": "same", "label": format!("Button {i}")}),
+            2 => json!({"type": "label", "value": format!("Label {i}"), "width": 9000.0,
+                "draw_list": [], "draw_list_scissor": true}),
+            _ => json!({"type": "combo", "elements": "none", "value": {"bind": format!("b{i}")}}),
+        });
+    }
+    window["root"]["children"] = controls.into();
+    app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
+    let tab = mg_ui::Tab::Nui(key);
+    let mut h = nui_harness(app, key, (1200.0, 700.0));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "nui-problems");
+    place(&mut h, &tab, (20.0, 90.0), (520.0, 700.0));
+    shoot(&mut h, &dir, "nui-problems-narrow");
 }
 
 /// The NUI Creator's Import… asking about a window the module has

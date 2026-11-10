@@ -424,6 +424,12 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
     let jui = key(ResType::JUI)?;
     let data = w.module.get(&jui).ok_or(Error::Missing(jui))?;
     let mut window = mg_nui::parse(data).map_err(|e| Error::Read(jui, e))?;
+    // A window is an object: text that reads as a list or a number is not
+    // one, as the editor says of it (and what sets a field of it below, a
+    // variant's root among them, would panic).
+    if !window.is_object() {
+        return Err(Error::Read(jui, mg_nui::NuiError::Json(super::NOT_A_WINDOW.into())));
+    }
     let txt = key(ResType::TXT)?;
     let mut settings = match w.module.get(&txt) {
         Some(b) => Settings::parse(b).map_err(|e| Error::Read(txt, e))?,
@@ -480,9 +486,7 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
             return Err(Error::Id(id.clone(), ids.into_iter().collect()));
         }
     }
-    if let Some([width, height]) = o.size
-        && window.is_object()
-    {
+    if let Some([width, height]) = o.size {
         // A geometry from a bind takes the size in the bind's first value.
         let geometry = match window["geometry"]["bind"].as_str().map(str::to_owned) {
             Some(bind) => &mut settings.bindings.entry(bind).or_default().value,
@@ -591,6 +595,7 @@ fn frames(
     // (Said once each, however many frames found them.)
     layout.issues = assets.issues.clone();
     layout.issues.extend(said);
+    layout.issues.extend(record.rows_left_out.iter().cloned());
     layout.issues.sort();
     layout.issues.dedup();
     layout.not_drawn = not_drawn.into_iter().collect();
@@ -637,20 +642,26 @@ fn laid_out(name: &str, r: &skin::Record, scale: f32, s: &Settings) -> Layout {
             }
         })
         .collect();
-    // Overlaps between controls of one parent, in one row of a list.
-    for (i, a) in r.placed.iter().enumerate() {
-        for (j, b) in r.placed.iter().enumerate().skip(i + 1) {
-            if a.parent != b.parent || a.row != b.row {
-                continue;
-            }
-            let both = a.rect.intersect(b.rect);
-            if both.width() > 0.5 && both.height() > 0.5 {
-                let (pi, pj) = (a.path.clone(), b.path.clone());
-                elements[i].overlaps.push(pj);
-                elements[j].overlaps.push(pi);
+    // Overlaps between controls of one parent, in one row of a list: each
+    // compared with its own neighbors only (every control with every other
+    // was 3.4e10 comparisons for a list of 512 rows in each of 512 rows).
+    let mut beside: std::collections::HashMap<_, Vec<usize>> = Default::default();
+    for (i, p) in r.placed.iter().enumerate() {
+        beside.entry((p.parent, p.row)).or_default().push(i);
+    }
+    for together in beside.values() {
+        for (n, &i) in together.iter().enumerate() {
+            for &j in &together[n + 1..] {
+                let both = r.placed[i].rect.intersect(r.placed[j].rect);
+                if both.width() > 0.5 && both.height() > 0.5 {
+                    elements[i].overlaps.push(r.placed[j].path.clone());
+                    elements[j].overlaps.push(r.placed[i].path.clone());
+                }
             }
         }
     }
+    // (A control is beside one set of neighbors, so what it overlaps is
+    // still in the order they were placed.)
     let window = area(r.window);
     Layout {
         window: name.into(),
@@ -698,6 +709,120 @@ mod tests {
             needs_height: None,
             look: None,
         }
+    }
+
+    fn module_with(jui: &Value, txt: Option<&Value>) -> Module {
+        let mut module = Module::new();
+        module.set(ResKey::parse("w", ResType::JUI).unwrap(), jui.to_string().into_bytes());
+        if let Some(txt) = txt {
+            module.set(ResKey::parse("w", ResType::TXT).unwrap(), txt.to_string().into_bytes());
+        }
+        module
+    }
+
+    /// Lists inside lists' rows, a thousand rows each: the layout holds
+    /// what it lays out of them to a number of rows in all, says what it
+    /// left out, and is back at once. (Every list had its first 512 rows
+    /// laid out, in view or not, at every level: three deep, 134 million
+    /// controls, and every pair of them compared after.)
+    #[test]
+    fn lists_in_lists_rows_are_laid_out_within_a_bound() {
+        let nested = |row_heights: [f64; 3]| {
+            let list = |height: f64, cell: Value| {
+                json!({"type": "list", "row_count": 1000, "row_height": height,
+                    "row_template": [[cell, 0, true]]})
+            };
+            let inner = list(row_heights[2], json!({"type": "label", "value": "x"}));
+            let mut doc = mg_nui::window();
+            doc["root"] = json!({"type": "col", "children": [
+                list(row_heights[0], list(row_heights[1], inner))]});
+            doc
+        };
+        // As a window would have them (a list in a row 25 high shows no
+        // row), and with rows high enough to show many of the list in each.
+        for (heights, most) in [([25.0, 25.0, 25.0], 2_000), ([2000.0, 200.0, 1.0], 20_000)] {
+            let module = module_with(&nested(heights), None);
+            let w = Window { module: &module, resman: None, game: None, name: "w" };
+            let start = std::time::Instant::now();
+            let l = layout(&w, &Options::default()).unwrap();
+            let took = start.elapsed();
+            assert!(took < std::time::Duration::from_secs(5), "{heights:?}: {took:?}");
+            assert!(l.elements.len() < most, "{heights:?}: {} elements", l.elements.len());
+            let rows = l.elements.iter().filter(|e| e.row.is_some() && e.kind == "list").count();
+            assert!(rows >= 512, "{heights:?}: the outer list's rows are laid out, {rows}");
+            let said = |what: &str| l.issues.iter().any(|i| i.contains(what));
+            assert!(
+                said("only the first 512 of its 1000 rows are laid out"),
+                "{heights:?}: {:?}",
+                l.issues
+            );
+            if heights[0] > 25.0 {
+                assert!(said("not all its rows in view are laid out"), "{:?}", l.issues);
+            }
+        }
+        // A window's own two lists keep their rows, each its first 512.
+        let mut doc = mg_nui::window();
+        let list = |rows: u32| {
+            json!({"type": "list", "row_count": rows, "height": 100.0,
+                "row_template": [[{"type": "label", "value": "x"}, 0, true]]})
+        };
+        doc["root"] = json!({"type": "col", "children": [list(300), list(600)]});
+        let module = module_with(&doc, None);
+        let w = Window { module: &module, resman: None, game: None, name: "w" };
+        let l = layout(&w, &Options::default()).unwrap();
+        let labels = |list: &str| {
+            l.elements.iter().filter(|e| e.kind == "label" && e.path.starts_with(list)).count()
+        };
+        assert_eq!(labels("/root/children/0/"), 300);
+        assert_eq!(labels("/root/children/1/"), 512);
+        assert_eq!(
+            l.issues.iter().filter(|i| i.contains("rows are laid out")).collect::<Vec<_>>(),
+            ["/root/children/1: only the first 512 of its 600 rows are laid out"]
+        );
+    }
+
+    /// A JUI that is no object is refused as the editor refuses it, with a
+    /// variant asked for too (`mg nui layout w --variant v` on a `w.jui`
+    /// that is `[]` panicked: "cannot access key "root" in JSON array").
+    #[test]
+    fn a_window_that_is_no_object_is_refused_not_indexed() {
+        let settings = json!({"format": mg_nui::FORMAT,
+            "views": {"v": {"type": "col", "children": []}},
+            "view_targets": {"v": "_window_"}});
+        for jui in [json!([]), json!("text"), json!(7), Value::Null, json!([{"root": {}}])] {
+            let module = module_with(&jui, Some(&settings));
+            let w = Window { module: &module, resman: None, game: None, name: "w" };
+            for o in [
+                Options { variants: vec!["v".into()], ..Default::default() },
+                Options { size: Some([300.0, 200.0]), ..Default::default() },
+                Options::default(),
+            ] {
+                let refused = layout(&w, &o).unwrap_err();
+                assert!(matches!(refused, Error::Read(..)), "{jui}: {refused:?}");
+                assert!(refused.to_string().starts_with("w.jui: A window is a JSON object"));
+            }
+            // (The canvas's own way to the variant, which the editor never
+            // takes with such a window.)
+            let s = Settings::parse(settings.to_string().as_bytes()).unwrap();
+            assert_eq!(layouts::context_document(&jui, &s, "v", "_window_"), None);
+        }
+    }
+
+    /// What is kept of a placed control is its own fields: its binds, its
+    /// text and its kind are read from them, the controls in it placed
+    /// themselves.
+    #[test]
+    fn a_placed_control_keeps_its_own_fields() {
+        let mut doc = mg_nui::window();
+        doc["root"] = json!({"type": "col", "id": "top", "children": [
+            {"type": "label", "id": "inside", "value": {"bind": "said"}}]});
+        let module = module_with(&doc, None);
+        let w = Window { module: &module, resman: None, game: None, name: "w" };
+        let l = layout(&w, &Options::default()).unwrap();
+        let [top, inside] = &l.elements[..] else { panic!("{:?}", l.elements) };
+        assert_eq!((top.kind.as_str(), top.id.as_deref()), ("col", Some("top")));
+        assert!(top.binds.is_empty());
+        assert_eq!((inside.kind.as_str(), &inside.binds[..]), ("label", &["said".to_owned()][..]));
     }
 
     /// Two controls of one parent drawn over each other overlap, both ways;

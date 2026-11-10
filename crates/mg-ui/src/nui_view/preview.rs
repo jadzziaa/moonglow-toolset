@@ -24,7 +24,7 @@ mod typeset;
 
 pub(super) use layout::window_size;
 use layout::*;
-use node::{Control, Renderer};
+use node::{Bar, Control, Renderer, scroll_by};
 #[cfg(test)]
 use picture::image_rect;
 pub(super) use picture::{Props, draw_image};

@@ -616,7 +616,7 @@ Aurora):
     the rows into the project's rows file, for the project's own build
     to add to the `placeables.2da` it writes: the project file's
     `[bake]` says which hak, which rows and which file (see [The project
-    file](03-modules.md#the-project-file)). Without `[bake]`, or on a
+    file](03-modules.md#the-project-file-moonglowtoml)). Without `[bake]`, or on a
     static placeable or one with no visual transform, the item is
     grayed out and its tip says why. The window says what it will make
     before anything is written (the name, the row, the hak, the rows

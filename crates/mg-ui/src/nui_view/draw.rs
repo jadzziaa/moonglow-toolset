@@ -61,6 +61,25 @@ fn rect(v: &Value, s: &Settings, row: Option<usize>, origin: Pos2, scale: f32) -
     )
 }
 
+/// The most points of a polyline the preview draws: of one with more it
+/// draws every nth, and the last.
+const POLYLINE_POINTS: usize = 8192;
+
+/// A polyline's points (`x, y, x, y…`) on the canvas, from `origin`: all
+/// of them up to [`POLYLINE_POINTS`], and of more as many, evenly taken,
+/// with the last. (A polyline of a million points, a bind's array a script
+/// fills, was a path of a million every frame.)
+fn polyline(points: &[Value], origin: Pos2, scale: f32) -> Vec<Pos2> {
+    let pairs = points.as_chunks::<2>().0;
+    let every = pairs.len().div_ceil(POLYLINE_POINTS).max(1);
+    let last = pairs.len().saturating_sub(1);
+    let number = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    (pairs.iter().enumerate())
+        .filter(|(i, _)| i % every == 0 || *i == last)
+        .map(|(_, xy)| origin + vec2(number(&xy[0]), number(&xy[1])) * scale)
+        .collect()
+}
+
 /// Keep bind formatting metadata while resolving one repeated drawing's array values.
 fn instance_settings(item: &Value, settings: &Settings, index: usize) -> Settings {
     let bindings = mg_nui::bind_names(item)
@@ -150,21 +169,7 @@ pub(super) fn paint(
         match item["type"].as_u64().unwrap_or(99) {
             0 => {
                 if let Some(points) = val(&item["points"], s, row).as_array() {
-                    shape(
-                        points
-                            .as_chunks::<2>()
-                            .0
-                            .iter()
-                            .map(|xy| {
-                                bounds.min
-                                    + vec2(
-                                        xy[0].as_f64().unwrap_or(0.0) as f32,
-                                        xy[1].as_f64().unwrap_or(0.0) as f32,
-                                    ) * scale
-                            })
-                            .collect(),
-                        fill != Color32::TRANSPARENT,
-                    );
+                    shape(polyline(points, bounds.min, scale), fill != Color32::TRANSPARENT);
                 }
             }
             1 => {
@@ -273,6 +278,102 @@ impl CanvasDrag {
     }
 }
 
+/// What the editor did to a control's draw layers' order: what is kept by
+/// a layer's number (the layer chosen in Layers) follows by it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Moved {
+    /// Two layers changed places (Up, Down).
+    Swapped(usize, usize),
+    /// A layer was removed.
+    Removed(usize),
+}
+
+impl Moved {
+    /// The layer chosen of the control at `control`, after the change: the
+    /// same layer where it is now, none when it was the one removed. (It
+    /// stayed a number: Up put the canvas's handles on the layer that came
+    /// down, and Remove Drawing on the one after.)
+    pub(super) fn follow(self, chosen: &mut Option<(String, usize)>, control: &str) {
+        let Some((_, at)) = chosen.as_mut().filter(|(path, _)| path == control) else { return };
+        match self {
+            Moved::Swapped(a, b) if *at == a => *at = b,
+            Moved::Swapped(a, b) if *at == b => *at = a,
+            Moved::Removed(gone) if *at == gone => *chosen = None,
+            Moved::Removed(gone) if *at > gone => *at -= 1,
+            _ => {}
+        }
+    }
+}
+
+/// The handles of draw layer `shown`, drawn from `origin` at `scale`: one
+/// on each point, a rectangle's far corner to size it, and to move it its
+/// near corner, or (`inside`: on the canvas, where it is outlined too)
+/// anywhere inside it. Returns the handle a drag began on: its field,
+/// whether it sizes, and where the pointer pressed. The canvas and the
+/// properties' thumbnail both draw these.
+fn handles(
+    ui: &mut Ui,
+    id: egui::Id,
+    shown: &Value,
+    origin: Pos2,
+    scale: f32,
+    s: &Settings,
+    inside: bool,
+) -> Option<(&'static str, bool, Pos2)> {
+    let colour = ui.visuals().selection.bg_fill;
+    let mut started = None;
+    let mut begins = |ui: &Ui, r: &egui::Response, field: &'static str, size: bool| {
+        if r.drag_started()
+            && let Some(pressed) = ui.input(|i| i.pointer.press_origin())
+        {
+            started = Some((field, size, pressed));
+        }
+    };
+    let sized = (shown["rect"]["w"].is_number() && shown["rect"]["h"].is_number())
+        .then(|| rect(&shown["rect"], s, None, origin, scale));
+    if let Some(r) = sized.filter(|_| inside) {
+        ui.painter().rect_stroke(r, 0, Stroke::new(1.5, colour), egui::StrokeKind::Outside);
+        let whole = ui
+            .interact(r, id.with("move"), egui::Sense::drag())
+            .on_hover_cursor(egui::CursorIcon::Grab);
+        begins(ui, &whole, "rect", false);
+    }
+    const POINTS: [&str; 6] = ["rect", "a", "b", "ctrl0", "ctrl1", "c"];
+    for field in POINTS.into_iter().skip(usize::from(inside)) {
+        let v = &shown[field];
+        if !v["x"].is_number() || !v["y"].is_number() {
+            continue;
+        }
+        let p = origin + coord(v, s, None) * scale;
+        let r = ui
+            .interact(
+                Rect::from_center_size(p, Vec2::splat(12.0)),
+                id.with(field),
+                egui::Sense::drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::Grab);
+        ui.painter().circle_filled(p, 4.0, colour);
+        begins(ui, &r, field, false);
+    }
+    if let Some(r) = sized {
+        let corner = ui
+            .interact(
+                Rect::from_center_size(r.max, Vec2::splat(12.0)),
+                id.with("size"),
+                egui::Sense::drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
+        if inside {
+            corner.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Size the draw layer")
+            });
+        }
+        ui.painter().rect_filled(corner.rect.shrink(2.0), 0, colour);
+        begins(ui, &corner, "rect", true);
+    }
+    started
+}
+
 /// The draw layer chosen in Layers, on the canvas: its outline, a handle on
 /// each point (a rectangle by its corner, or anywhere inside it) and one to
 /// size a rectangle. `body` is where its control draws.
@@ -290,8 +391,16 @@ pub(super) fn canvas_handles(
         return;
     };
     let path = format!("{control}/draw_list/{index}");
-    let Some(item) = doc.pointer(&path).cloned() else { return };
-    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    let Some(item) = doc.pointer(&path).cloned() else {
+        state.draw_drag = None;
+        return;
+    };
+    // A drag of what is no longer the layer under it (Undo, a layer moved
+    // or removed, another chosen) is dropped, as a resize is: let go, it
+    // wrote the layer as it had been over whatever has its number now.
+    let stale = |d: &CanvasDrag| d.path != path || d.gesture.source != item;
+    if state.draw_drag.as_ref().is_some_and(stale) || ui.input(|i| i.key_pressed(egui::Key::Escape))
+    {
         state.draw_drag = None;
     }
     if let Some(d) = &mut state.draw_drag
@@ -301,68 +410,9 @@ pub(super) fn canvas_handles(
     }
     let shown = state.draw_drag.as_ref().map_or(&item, |d| &d.gesture.draft).clone();
     let id = ui.id().with(("nui-canvas-draw", &path));
-    let colour = ui.visuals().selection.bg_fill;
-    let mut start = |field: &str, size: bool, origin: Pos2| {
-        state.draw_drag = Some(CanvasDrag {
-            path: path.clone(),
-            gesture: Gesture {
-                source: item.clone(),
-                draft: item.clone(),
-                origin,
-                field: field.into(),
-                size,
-            },
-        });
-    };
-    let sized = shown["rect"]["w"].is_number() && shown["rect"]["h"].is_number();
-    if sized {
-        let r = rect(&shown["rect"], s, None, body.min, scale);
-        ui.painter().rect_stroke(r, 0, Stroke::new(1.5, colour), egui::StrokeKind::Outside);
-        // Inside it moves it; the corner sizes it.
-        let inside = ui
-            .interact(r, id.with("move"), egui::Sense::drag())
-            .on_hover_cursor(egui::CursorIcon::Grab);
-        if inside.drag_started()
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-        {
-            start("rect", false, origin);
-        }
-        let corner = ui
-            .interact(
-                Rect::from_center_size(r.max, Vec2::splat(12.0)),
-                id.with("size"),
-                egui::Sense::drag(),
-            )
-            .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
-        corner.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Size the draw layer")
-        });
-        ui.painter().rect_filled(corner.rect.shrink(2.0), 0, colour);
-        if corner.drag_started()
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-        {
-            start("rect", true, origin);
-        }
-    }
-    for field in ["a", "b", "ctrl0", "ctrl1", "c"] {
-        let v = &shown[field];
-        if !v["x"].is_number() || !v["y"].is_number() {
-            continue;
-        }
-        let p = body.min + coord(v, s, None) * scale;
-        let r = ui
-            .interact(
-                Rect::from_center_size(p, Vec2::splat(12.0)),
-                id.with(field),
-                egui::Sense::drag(),
-            )
-            .on_hover_cursor(egui::CursorIcon::Grab);
-        ui.painter().circle_filled(p, 4.0, colour);
-        if r.drag_started()
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-        {
-            start(field, false, origin);
-        }
+    if let Some((field, size, pressed)) = handles(ui, id, &shown, body.min, scale, s, true) {
+        let gesture = Gesture::begin(&item, field, size, pressed);
+        state.draw_drag = Some(CanvasDrag { path: path.clone(), gesture });
     }
     if ui.input(|i| i.pointer.any_released())
         && let Some(d) = state.draw_drag.take()
@@ -383,6 +433,11 @@ struct Gesture {
 }
 
 impl Gesture {
+    /// A drag of layer `item`'s `field` (`size`: of its rectangle's size)
+    /// that began with the pointer at `origin`.
+    fn begin(item: &Value, field: &str, size: bool, origin: Pos2) -> Gesture {
+        Gesture { source: item.clone(), draft: item.clone(), origin, field: field.into(), size }
+    }
     /// The layer with the pointer at `p`: its point (or, sizing, its
     /// rectangle's size) as far from where it was as the pointer is from
     /// where the drag began. A layer written by hand may hold anything
@@ -393,19 +448,42 @@ impl Gesture {
             (if self.size { "w" } else { "x" }, delta.x),
             (if self.size { "h" } else { "y" }, delta.y),
         ] {
-            let was = self.source[&self.field][key].as_f64().unwrap_or(0.0);
+            let had = self.source[&self.field].get(key);
+            let was = had.and_then(Value::as_f64).unwrap_or(0.0);
+            // Not moved a point along this axis: what the layer had, as it
+            // had it. (Rounded at once, a click on a handle made 10.3 a 10,
+            // and 10 a 10.0: an edit from a click.)
+            let now = match f64::from(delta).round() == 0.0 {
+                true => had.cloned(),
+                false => Some(json!((was + f64::from(delta)).round())),
+            };
             if let Some(point) = interaction::field(&mut self.draft, &self.field) {
-                interaction::set(point, key, json!((was + f64::from(delta)).round()));
+                match (now, point.as_object_mut()) {
+                    (Some(now), _) => interaction::set(point, key, now),
+                    (None, Some(object)) => {
+                        object.remove(key);
+                    }
+                    (None, None) => {}
+                }
             }
         }
     }
 }
 
-pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &skin::Assets) {
+/// The Draw layers section of a control's properties. Returns what it did
+/// to the layers' order, for what is kept by a layer's number
+/// ([`Moved::follow`]).
+pub(super) fn editor(
+    ui: &mut Ui,
+    node: &mut Value,
+    s: &mut Settings,
+    assets: &skin::Assets,
+) -> Option<Moved> {
     // A control written as something else (by hand, in the JSON) has no layers.
     if !node.is_object() {
-        return;
+        return None;
     }
+    let mut moved = None;
     let revealing =
         ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("nui-reveal-draw")).is_some());
     egui::CollapsingHeader::new("Draw layers").open(revealing.then_some(true)).show(ui, |ui| {
@@ -456,7 +534,6 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 let scale = width / 300.0;
                 let (area, _) = ui.allocate_exact_size(vec2(width, 160.0), egui::Sense::hover());
                 ui.painter().rect_filled(area, 0, ui.visuals().extreme_bg_color);
-                let handle = ui.visuals().selection.bg_fill;
                 if let Some(g) = &mut drag
                     && let Some(p) = ui.input(|i| i.pointer.latest_pos())
                 {
@@ -479,56 +556,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                         [true, true, true, true],
                     );
                 }
-                let resize_rect = (shown["rect"]["w"].is_number()
-                    && shown["rect"]["h"].is_number())
-                .then(|| rect(&shown["rect"], s, None, area.min, scale));
-                for field in ["rect", "a", "b", "ctrl0", "ctrl1", "c"] {
-                    let v = &shown[field];
-                    if !v["x"].is_number() || !v["y"].is_number() {
-                        continue;
-                    }
-                    let p = area.min + coord(v, s, None) * scale;
-                    let r = ui
-                        .interact(
-                            Rect::from_center_size(p, Vec2::splat(12.0)),
-                            id.with(field),
-                            egui::Sense::drag(),
-                        )
-                        .on_hover_cursor(egui::CursorIcon::Grab);
-                    ui.painter().circle_filled(p, 4.0, handle);
-                    if r.drag_started()
-                        && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-                    {
-                        drag = Some(Gesture {
-                            source: item.clone(),
-                            draft: item.clone(),
-                            origin,
-                            field: field.into(),
-                            size: false,
-                        });
-                        break;
-                    }
-                }
-                if let Some(rect) = resize_rect {
-                    let r = ui
-                        .interact(
-                            Rect::from_center_size(rect.max, Vec2::splat(12.0)),
-                            id.with("rect-size"),
-                            egui::Sense::drag(),
-                        )
-                        .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
-                    ui.painter().rect_filled(r.rect.shrink(2.0), 0, handle);
-                    if r.drag_started()
-                        && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-                    {
-                        drag = Some(Gesture {
-                            source: item.clone(),
-                            draft: item.clone(),
-                            origin,
-                            field: "rect".into(),
-                            size: true,
-                        });
-                    }
+                let started = handles(ui, id, shown, area.min, scale, s, false);
+                if let Some((field, size, pressed)) = started {
+                    drag = Some(Gesture::begin(item, field, size, pressed));
                 }
                 if ui.input(|i| i.pointer.any_released())
                     && let Some(g) = drag.take()
@@ -675,12 +705,15 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
         }
         if let Some(i) = remove {
             items.remove(i);
+            moved = Some(Moved::Removed(i));
         } else if let Some((a, b)) = move_item
             && b < items.len()
         {
             items.swap(a, b);
+            moved = Some(Moved::Swapped(a, b));
         }
     });
+    moved
 }
 
 #[cfg(test)]
@@ -727,6 +760,181 @@ mod tests {
             } else {
                 assert!((bounds.width() - 100.0).abs() < 0.01);
                 assert!((bounds.height() - 50.0).abs() < 0.01);
+            }
+        }
+    }
+
+    /// A polyline of more points than the preview draws is drawn by as
+    /// many of them, evenly taken, its first and last among them.
+    #[test]
+    fn a_polyline_is_drawn_by_a_bounded_number_of_its_points() {
+        let origin = pos2(10.0, 20.0);
+        let line = |n: usize| -> Vec<Value> {
+            (0..n).flat_map(|i| [json!(i as f64), json!((i % 7) as f64)]).collect()
+        };
+        let few = polyline(&line(5), origin, 2.0);
+        assert_eq!(few.len(), 5);
+        assert_eq!((few[0], few[4]), (pos2(10.0, 20.0), pos2(18.0, 28.0)));
+        // (An odd number left over is no point; what is no number is 0.)
+        assert_eq!(polyline(&[json!(1), json!("a"), json!(3)], origin, 1.0), [pos2(11.0, 20.0)]);
+        assert_eq!(polyline(&line(POLYLINE_POINTS), origin, 1.0).len(), POLYLINE_POINTS);
+        for n in [POLYLINE_POINTS + 1, 100_000, 1_000_000] {
+            let drawn = polyline(&line(n), origin, 1.0);
+            assert!(drawn.len() <= POLYLINE_POINTS + 1 && drawn.len() > POLYLINE_POINTS / 2);
+            assert_eq!(drawn[0], origin);
+            assert_eq!(drawn.last().unwrap().x, 10.0 + (n - 1) as f32);
+            assert!(drawn.windows(2).all(|p| p[0].x < p[1].x));
+        }
+    }
+
+    fn layers(n: usize) -> Value {
+        let layers: Vec<Value> = (0..n)
+            .map(|i| {
+                let mut layer = template(7);
+                layer["rect"]["x"] = json!(10.0 * i as f64);
+                layer
+            })
+            .collect();
+        json!({"type": "spacer", "draw_list": layers})
+    }
+
+    /// The layer chosen in Layers is the layer, not its number: Up and Down
+    /// take it along, and Remove Drawing leaves none chosen (or the same
+    /// layer, one up). (It stayed a number: after Up the canvas's handles
+    /// were on the layer that had come down, and a drag moved that one.)
+    #[test]
+    fn the_layer_chosen_follows_up_down_and_remove() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let chosen = |at: usize| Some(("/root/children/0".to_owned(), at));
+        for (moved, was, now) in [
+            (Moved::Swapped(2, 1), 2, chosen(1)),
+            (Moved::Swapped(2, 1), 1, chosen(2)),
+            (Moved::Swapped(2, 1), 0, chosen(0)),
+            (Moved::Removed(1), 1, None),
+            (Moved::Removed(1), 2, chosen(1)),
+            (Moved::Removed(1), 0, chosen(0)),
+        ] {
+            let mut at = chosen(was);
+            moved.follow(&mut at, "/root/children/0");
+            assert_eq!(at, now, "{moved:?} with {was} chosen");
+            // Another control's layers are not this one's.
+            let mut other = chosen(was);
+            moved.follow(&mut other, "/root/children/1");
+            assert_eq!(other, chosen(was));
+        }
+        // In the editor: the third layer's Up, then its Remove Drawing.
+        struct Shown {
+            node: Value,
+            chosen: Option<(String, usize)>,
+        }
+        let assets = skin::Assets::default();
+        let state = Shown { node: layers(3), chosen: chosen(2) };
+        let mut h = Harness::builder().with_size(vec2(420.0, 1400.0)).build_ui_state(
+            |ui, shown: &mut Shown| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut s = Settings::default();
+                    if let Some(moved) = editor(ui, &mut shown.node, &mut s, &assets) {
+                        moved.follow(&mut shown.chosen, "/root/children/0");
+                    }
+                });
+            },
+            state,
+        );
+        h.run();
+        h.get_by_label("Draw layers").click();
+        h.run();
+        h.get_by_label("3 · Rectangle").click();
+        h.run();
+        let x = |h: &Harness<'_, Shown>, at: usize| {
+            h.state().node["draw_list"][at]["rect"]["x"].clone()
+        };
+        assert_eq!(x(&h, 2), json!(20.0));
+        h.get_by_label("Up").click();
+        h.run();
+        assert_eq!((x(&h, 1), x(&h, 2)), (json!(20.0), json!(10.0)));
+        assert_eq!(h.state().chosen, chosen(1), "the layer chosen went up with it");
+        // (The third header is still the open one: the layer that came down.)
+        h.get_by_label("Remove Drawing").click();
+        h.run();
+        assert_eq!(h.state().node["draw_list"].as_array().map(Vec::len), Some(2));
+        assert_eq!(h.state().chosen, chosen(1), "another layer was removed");
+    }
+
+    /// A drag on the canvas of what is no longer the layer there (Undo
+    /// while a handle is held, a layer moved or removed) is dropped, and
+    /// the layer left alone: let go, it wrote the layer as it had been
+    /// over what has the number now.
+    #[test]
+    fn a_canvas_drag_of_another_layer_is_dropped() {
+        let s = Settings::default();
+        let doc = json!({"root": {"type": "col", "children": [layers(2)]}});
+        let path = "/root/children/0/draw_list/1";
+        let body = Rect::from_min_size(pos2(40.0, 40.0), vec2(300.0, 200.0));
+        let dragged = |source: &Value| {
+            let mut gesture = Gesture::begin(source, "rect", false, pos2(60.0, 60.0));
+            gesture.drag_to(pos2(90.0, 75.0), 1.0);
+            assert_ne!(gesture.draft, gesture.source);
+            CanvasDrag { path: path.into(), gesture }
+        };
+        let frame = |drag: CanvasDrag, doc: &Value| {
+            let mut state = State {
+                selected: "/root/children/0".into(),
+                draw_item: Some(("/root/children/0".into(), 1)),
+                draw_drag: Some(drag),
+                ..Default::default()
+            };
+            let mut after = doc.clone();
+            egui::__run_test_ui(|ui| {
+                canvas_handles(ui, &mut after, &mut state, Some(body), 1.0, &s);
+            });
+            assert_eq!(after, *doc, "nothing is written while it is held");
+            state.draw_drag.is_some()
+        };
+        // The layer's own drag goes on.
+        assert!(frame(dragged(doc.pointer(path).unwrap()), &doc));
+        // The layer is another by now (the two changed places).
+        let mut swapped = doc.clone();
+        swapped["root"]["children"][0]["draw_list"].as_array_mut().unwrap().swap(0, 1);
+        assert!(!frame(dragged(doc.pointer(path).unwrap()), &swapped));
+        // And gone.
+        let mut one = doc.clone();
+        one["root"]["children"][0]["draw_list"].as_array_mut().unwrap().pop();
+        assert!(!frame(dragged(doc.pointer(path).unwrap()), &one));
+    }
+
+    /// A draw layer's handle pressed and let go where it was leaves the
+    /// layer as it is: a place typed to a tenth stays one, and a whole
+    /// number stays written as it was. Moved, the axis moved along is
+    /// whole points.
+    #[test]
+    fn a_layer_s_handle_not_moved_leaves_the_layer_alone() {
+        let origin = pos2(50.0, 60.0);
+        for source in [
+            json!({"type": 7, "rect": {"x": 10.3, "y": 10, "w": 140.5, "h": 70}}),
+            json!({"type": 6, "a": {"x": 10.3, "y": 10}, "b": {"x": 150, "y": 80.25}}),
+        ] {
+            let field = if source["rect"].is_object() { "rect" } else { "a" };
+            for size in [false, source["rect"].is_object()] {
+                let mut g = Gesture {
+                    source: source.clone(),
+                    draft: source.clone(),
+                    origin,
+                    field: field.into(),
+                    size,
+                };
+                g.drag_to(origin, 1.0);
+                assert_eq!(g.draft, source, "pressed where it was");
+                g.drag_to(origin + vec2(0.4, -0.4), 2.0);
+                assert_eq!(g.draft, source, "less than a point");
+                // Along x alone: x (or the width) is whole, y as it was.
+                g.drag_to(origin + vec2(4.0, 0.0), 2.0);
+                let (x, y) = if size { ("w", "h") } else { ("x", "y") };
+                let was = source[field][x].as_f64().unwrap();
+                assert_eq!(g.draft[field][x], json!((was + 2.0).round()));
+                assert_eq!(g.draft[field][y], source[field][y]);
+                // Back where it began: the layer again.
+                g.drag_to(origin, 2.0);
+                assert_eq!(g.draft, source);
             }
         }
     }

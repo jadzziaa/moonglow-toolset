@@ -134,6 +134,8 @@ pub(crate) struct State {
     issues: bool,
     /// The errors there were last frame, to open the list when more come.
     issues_seen: usize,
+    /// The list's rows, for the findings they were made of.
+    problem_rows: Option<ProblemRows>,
     /// The page shown.
     page: Page,
     /// The hak Images adds pictures to: one the module uses, or None for a new one.
@@ -144,6 +146,21 @@ pub(crate) struct State {
     checks: Option<Checks>,
     /// The source field being typed in.
     source_draft: Option<SourceDraft>,
+    /// The bytes the window and the settings the Design page shows were
+    /// read from, this frame.
+    shown_of: Option<[Held; 2]>,
+    /// Split source's text, for what it was written out of.
+    split_text: Option<SplitText>,
+}
+
+/// What Split source shows: the window (or, a variant being edited, the
+/// settings) written out as text, kept for the bytes it was read from.
+struct SplitText {
+    of: SourceOf,
+    /// The variant edited in the window's place, if one was.
+    view: Option<String>,
+    read: Option<[Held; 2]>,
+    text: String,
 }
 
 /// A page of the Creator.
@@ -763,6 +780,10 @@ fn texts(ui: &mut Ui, module: &mg_module::Module, key: ResKey) -> Option<Frame> 
     Some(Frame { key, name, raw, original, config_key, config_raw, config_original })
 }
 
+/// What is said of a JUI that reads as JSON but is no object: in the
+/// editor, and by `mg nui layout` and `render` ([`headless`]).
+const NOT_A_WINDOW: &str = "A window is a JSON object ({ … }): this text is not one";
+
 /// The window and its settings parsed, and the checks run on them: each
 /// again only when the module holds other bytes than last frame, kept in
 /// `state` between.
@@ -779,7 +800,7 @@ fn check(module: &mg_module::Module, frame: &Frame, state: &mut State) -> Checke
         let window = mg_nui::parse(frame.raw.as_bytes()).map_err(|e| e.to_string()).and_then(|v| {
             match v.is_object() {
                 true => Ok(v),
-                false => Err("A window is a JSON object ({ … }): this text is not one".to_string()),
+                false => Err(NOT_A_WINDOW.to_string()),
             }
         });
         if let Ok(doc) = &window {
@@ -967,29 +988,49 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
     if !state.issues {
         return;
     }
-    egui::ScrollArea::vertical().id_salt("nui-diagnostics").max_height(160.0).show(ui, |ui| {
-        if let Err(e) = parsed {
-            ui.colored_label(ui.visuals().error_fg_color, format!("JUI: {e}"));
-        }
-        if let Err(e) = settings {
-            ui.colored_label(ui.visuals().error_fg_color, format!("Settings: {e}"));
-        }
-        // Errors first: they stop a Build.
-        let mut sorted: Vec<_> = findings.iter().enumerate().collect();
-        sorted.sort_by_key(|(_, d)| d.severity != Severity::Error);
-        for (i, d) in sorted {
-            let (target, place) =
-                parsed.as_ref().map_or((None, String::new()), |doc| describe_path(doc, &d.path));
+    if let Err(e) = parsed {
+        ui.colored_label(ui.visuals().error_fg_color, format!("JUI: {e}"));
+    }
+    if let Err(e) = settings {
+        ui.colored_label(ui.visuals().error_fg_color, format!("Settings: {e}"));
+    }
+    // The findings in the order shown (errors first: they stop a Build),
+    // each with the control it is about, made once for the findings they
+    // are: a list of two thousand (a window written by a script, one
+    // mistake a control) was sorted, every place looked up level by level
+    // and every row laid out in every frame.
+    let rows = state.problem_rows.take().filter(|r| std::rc::Rc::ptr_eq(&r.of, findings));
+    let rows = rows.unwrap_or_else(|| {
+        let mut sorted: Vec<usize> = (0..findings.len()).collect();
+        sorted.sort_by_key(|i| findings[*i].severity != Severity::Error);
+        let place = |i: usize| match parsed {
+            Ok(doc) => describe_path(doc, &findings[i].path),
+            Err(_) => (None, String::new()),
+        };
+        let rows = sorted.into_iter().map(|i| (i, place(i))).collect();
+        ProblemRows { of: findings.clone(), rows }
+    });
+    // A line a finding, those in sight laid out: its message is cut where
+    // the line ends, and whole in its tip.
+    let line = ui.spacing().interact_size.y;
+    let area = egui::ScrollArea::vertical()
+        .id_salt("nui-diagnostics")
+        .max_height(160.0)
+        .auto_shrink([false, true]);
+    area.show_rows(ui, line, rows.rows.len(), |ui, shown| {
+        for (i, (target, place)) in &rows.rows[shown] {
+            let d = &findings[*i];
             ui.push_id(i, |ui| {
-                ui.horizontal_wrapped(|ui| {
+                ui.horizontal(|ui| {
+                    ui.set_min_height(line);
                     let (mark, color) = if d.severity == Severity::Error {
                         ("Error", ui.visuals().error_fg_color)
                     } else {
                         ("Warning", ui.visuals().warn_fg_color)
                     };
                     ui.colored_label(color, mark);
-                    let place = egui::RichText::new(&place).strong();
-                    match &target {
+                    let place = egui::RichText::new(place).strong();
+                    match target {
                         Some(path) => {
                             if ui.link(place).on_hover_text("Select it").clicked() {
                                 state.select_next = Some(path.clone());
@@ -1000,16 +1041,38 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
                             ui.label(place);
                         }
                     }
-                    ui.label(&d.message);
+                    // (Room kept for the fix after it.)
+                    let fix = if has_fix(d) { 140.0 } else { 0.0 };
+                    let room = (ui.available_width() - fix).max(60.0);
+                    ui.scope(|ui| {
+                        ui.set_max_width(room);
+                        ui.add(egui::Label::new(&d.message).truncate());
+                    });
                     fixes(ui, frame, checked, d, target.as_deref());
                 })
             });
         }
-        if errors + warnings == 0 {
-            ui.weak("The checks found nothing.");
-        }
     });
+    if errors + warnings == 0 {
+        ui.weak("The checks found nothing.");
+    }
+    state.problem_rows = Some(rows);
     ui.separator();
+}
+
+/// The list of problems as it is shown: the findings in its order, each
+/// with the control it is about (its path, to select it) and that place in
+/// words, for the findings they were made of.
+struct ProblemRows {
+    of: std::rc::Rc<[mg_nui::Diagnostic]>,
+    rows: Vec<(usize, (Option<String>, String))>,
+}
+
+/// Whether a finding has a fix beside it ([`fixes`]).
+fn has_fix(d: &mg_nui::Diagnostic) -> bool {
+    d.message.starts_with("What the player enters here is lost")
+        || d.path.ends_with("/draw_list_scissor")
+        || d.message.starts_with("The mg_close button has no Clicked handler")
 }
 
 /// The buttons after a finding that put it right: Bind it, Turn it off, Add
@@ -1188,8 +1251,18 @@ fn design_page(
         repair(ui, state);
         return Vec::new();
     };
-    let before = v.clone();
-    let before_settings = s.clone();
+    // What the page changed is told against the window and the settings as
+    // `state` holds them parsed (`check` handed this frame copies of
+    // those), not against two more copies of them made here each frame.
+    use std::borrow::Cow;
+    let source = state.source.take();
+    let (before, before_settings) = match source.as_ref().map(|s| (&s.window, &s.settings)) {
+        Some((Ok(window), Ok(settings))) => (Cow::Borrowed(window), Cow::Borrowed(settings)),
+        _ => (Cow::Owned(v.clone()), Cow::Owned(s.clone())),
+    };
+    let (before, before_settings) = (&*before, &*before_settings);
+    // (What Split source shows is written out once for these.)
+    state.shown_of = source.as_ref().map(|s| s.of.clone());
     layouts::bar(ui, &s, state);
     // (The bar may have left the variant whose source was typed in.)
     leave_source(state, &mut frame.raw, &mut frame.config_raw);
@@ -1219,12 +1292,12 @@ fn design_page(
         };
         s.variants.insert(name.clone(), root);
     }
-    fields::put_back(ui.ctx(), &before, &mut v);
-    fields::put_back_settings(ui.ctx(), &before_settings, &mut s);
-    if v != before {
+    fields::put_back(ui.ctx(), before, &mut v);
+    fields::put_back_settings(ui.ctx(), before_settings, &mut s);
+    if v != *before {
         write_window(&mut frame.raw, &v);
     }
-    if s != before_settings {
+    if s != *before_settings {
         write_settings(&mut frame.config_raw, &s);
     }
     if let Some(source) = split_raw {
@@ -1234,6 +1307,7 @@ fn design_page(
             frame.raw = source;
         }
     }
+    state.source = source;
     Vec::new()
 }
 
@@ -1266,23 +1340,32 @@ fn design_view(
     match state.view_mode {
         ViewMode::Preview => preview::canvas(ui, v, s, state, &mut app.nui_assets),
         ViewMode::Split => ui.columns(2, |columns| {
-            let (of, source, title) = if state.edit_view.is_some() {
-                (
-                    SourceOf::Variants,
-                    serde_json::to_string_pretty(s).unwrap_or_default(),
-                    "Variants and binding JSON",
-                )
-            } else {
-                (
-                    SourceOf::SplitWindow,
-                    serde_json::to_string_pretty(v).unwrap_or_default(),
-                    "JUI source",
-                )
+            let (of, title) = match state.edit_view.is_some() {
+                true => (SourceOf::Variants, "Variants and binding JSON"),
+                false => (SourceOf::SplitWindow, "JUI source"),
             };
+            // The window (or the settings) written out as text, once for
+            // the bytes it was read from, not in every frame it shows.
+            let kept = state.split_text.take().filter(|kept| {
+                kept.of == of
+                    && kept.view == state.edit_view
+                    && matches!((&kept.read, &state.shown_of), (Some(a), Some(b)) if same(a, b))
+            });
+            let kept = kept.unwrap_or_else(|| SplitText {
+                of,
+                view: state.edit_view.clone(),
+                read: state.shown_of.clone(),
+                text: match of {
+                    SourceOf::Variants => serde_json::to_string_pretty(s).unwrap_or_default(),
+                    _ => serde_json::to_string_pretty(v).unwrap_or_default(),
+                },
+            });
+            let source = &kept.text;
             widgets::section_heading(&mut columns[1], title);
             egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
-                split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
+                split_raw = source_field(ui, &mut state.source_draft, of, source, 28);
             });
+            state.split_text = Some(kept);
             // The canvas shows the source as it is typed, where it reads,
             // before the field is left; it edits nothing of it meanwhile.
             match typed_source(state, of, v) {
@@ -1377,6 +1460,15 @@ struct SourceDraft {
     text: String,
     /// Typed in since it was last set.
     typed: bool,
+    /// What `text` reads as, for the canvas beside it ([`typed_source`]):
+    /// read once for a text (`None`: not since it changed), not every frame.
+    read: Option<Option<TypedSource>>,
+}
+
+/// A source field's text, read.
+enum TypedSource {
+    Window(Value),
+    Settings(Box<Settings>),
 }
 
 /// A source field that isn't shown any more (another page, another view,
@@ -1413,6 +1505,7 @@ fn source_field(
         of,
         text: current.to_owned(),
         typed: false,
+        read: None,
     });
     let draft = held.insert(draft);
     let field = egui::TextEdit::multiline(&mut draft.text)
@@ -1423,6 +1516,9 @@ fn source_field(
     let field = crate::widgets::text_area(ui, id, field).response.response;
     crate::widgets::leaves_at_a_press(ui.ctx(), &field);
     draft.typed |= field.changed();
+    if field.changed() {
+        draft.read = None;
+    }
     if crate::widgets::has_keys(&field) {
         return None;
     }
@@ -1430,6 +1526,7 @@ fn source_field(
     if !typed && draft.text != current {
         // Changed underneath (Undo, the form): show it.
         draft.text = current.to_owned();
+        draft.read = None;
     }
     typed.then(|| draft.text.clone())
 }
@@ -1437,22 +1534,26 @@ fn source_field(
 /// What Split source's field `of` holds while it is typed in, where it
 /// reads: the window to show (`v` with the variant typed in its place, for
 /// the settings' source) and the settings typed (`None`: the module's).
-/// `None` where nothing is typed or it doesn't read yet.
-fn typed_source(state: &State, of: SourceOf, v: &Value) -> Option<(Value, Option<Settings>)> {
-    let draft = state.source_draft.as_ref().filter(|d| d.of == of && d.typed)?;
-    match of {
-        SourceOf::SplitWindow => {
-            let window = mg_nui::parse(draft.text.as_bytes()).ok()?;
-            window.get("root").is_some().then_some((window, None))
-        }
-        SourceOf::Variants => {
-            let settings = Settings::parse(draft.text.as_bytes()).ok()?;
+/// `None` where nothing is typed or it doesn't read yet. The text is read
+/// when it changes, not every frame it is shown.
+fn typed_source(state: &mut State, of: SourceOf, v: &Value) -> Option<(Value, Option<Settings>)> {
+    let draft = state.source_draft.as_mut().filter(|d| d.of == of && d.typed)?;
+    let read = draft.read.get_or_insert_with(|| match of {
+        SourceOf::SplitWindow => (mg_nui::parse(draft.text.as_bytes()).ok())
+            .filter(|window| window.get("root").is_some())
+            .map(TypedSource::Window),
+        SourceOf::Variants => (Settings::parse(draft.text.as_bytes()).ok())
+            .map(|settings| TypedSource::Settings(Box::new(settings))),
+        SourceOf::Window | SourceOf::Settings => None,
+    });
+    match read.as_ref()? {
+        TypedSource::Window(window) => Some((window.clone(), None)),
+        TypedSource::Settings(settings) => {
             let variant = settings.variants.get(state.edit_view.as_ref()?)?.clone();
             let mut shown = v.clone();
             shown["root"] = variant;
-            Some((shown, Some(settings)))
+            Some((shown, Some((**settings).clone())))
         }
-        SourceOf::Window | SourceOf::Settings => None,
     }
 }
 
@@ -2382,8 +2483,9 @@ mod tests {
             "fill":false,"line_thickness":2.0,"order":1,"render":0,"arrayBinds":false,
             "a":{"x":0.0,"y":0.0},"b":{"x":10.0,"y":10.0},"ctrl0":{"x":0.0,"y":5.0},"ctrl1":{"x":5.0,"y":10.0}}]);
         let assets = skin::Assets::default();
-        let mut h = Harness::builder()
-            .build_ui(|ui| draw::editor(ui, &mut spacer, &mut Settings::default(), &assets));
+        let mut h = Harness::builder().build_ui(|ui| {
+            draw::editor(ui, &mut spacer, &mut Settings::default(), &assets);
+        });
         h.run();
         h.get_by_label("Draw layers").click();
         h.run();

@@ -621,6 +621,37 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
     h.run();
     h.get_by_label("Placing objects");
+    // A link to a heading of another chapter opens the chapter at the
+    // heading, and one to a heading of the chapter shown scrolls to it:
+    // neither is handed to the system's browser (which was asked to open
+    // "03-modules.md#claimed-areas" and "#minimaps").
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+    // (The heading has its link's words where the link is the heading's
+    // name: the link is the first of them, the heading the one at the top.)
+    let at_top = |h: &Harness<'_, Moonglow>, heading: &str| {
+        let mut all = h.query_all_by_label(heading).map(|n| n.rect());
+        all.any(|at| window.contains_rect(at) && at.top() < 130.0)
+    };
+    let follow = |h: &mut Harness<'_, Moonglow>, link: &str, heading: &str| {
+        assert!(!at_top(h, heading), "{heading} is at the top already");
+        h.get_all_by_label(link).next().unwrap().scroll_to_me();
+        h.run();
+        h.get_all_by_label(link).next().unwrap().click();
+        // (Step by step: a frame's commands are that frame's.)
+        for _ in 0..4 {
+            h.step();
+            let opened = (h.output().platform_output.commands.iter())
+                .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+            assert!(!opened, "{link} was handed to the browser");
+        }
+        h.run();
+        let found: Vec<egui::Rect> = h.query_all_by_label(heading).map(|n| n.rect()).collect();
+        assert!(at_top(h, heading), "{heading} is at the top of the page after {link}: {found:?}");
+    };
+    follow(&mut h, "Minimaps", "Minimaps");
+    h.get_all_by_label("The main window").find(|n| listed(n)).unwrap().click();
+    h.run();
+    follow(&mut h, "whose each area is", "Claimed areas");
     h.get_by_label("Help").click();
     h.run();
     h.get_by_label("About Moonglow Toolset").click();

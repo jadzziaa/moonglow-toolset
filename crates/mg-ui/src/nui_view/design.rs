@@ -761,7 +761,11 @@ fn inspector(
     if !state.selected.is_empty()
         && let Some(node) = v.pointer_mut(&state.selected)
     {
-        draw::editor(ui, node, s, assets);
+        // (The layer chosen in Layers goes where Up, Down and Remove
+        // Drawing put it.)
+        if let Some(moved) = draw::editor(ui, node, s, assets) {
+            moved.follow(&mut state.draw_item, &state.selected);
+        }
     }
     if !swap {
         ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));

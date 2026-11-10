@@ -5,6 +5,21 @@ use super::*;
 /// laid out off the screen (from its first).
 const ROWS_DRAWN: usize = 512;
 
+/// For each of `children`, the largest width any control after it has of
+/// its own (-1: none has one): what a row's last button stretches to
+/// (`Renderer::children`). One pass from the end. (Each child looked at
+/// all those after it, every frame: 300 rows in a column were 45,000
+/// lookups, each with its bind's.)
+pub(super) fn widths_after(children: &[Value], s: &Settings, row: Option<usize>) -> Vec<f32> {
+    let mut after = vec![-1.0; children.len()];
+    let mut widest = -1.0_f32;
+    for (i, child) in children.iter().enumerate().rev() {
+        after[i] = widest;
+        widest = widest.max(num(&child["width"], s, row, -1.0));
+    }
+    after
+}
+
 impl Renderer<'_> {
     /// A row, a column or a group: its children side by side or one under
     /// another, in what the group's bars leave.
@@ -116,28 +131,8 @@ impl Renderer<'_> {
                     )
                 });
                 if !disabled && editable {
-                    if ui.rect_contains_pointer(body) {
-                        offset -= ui.input_mut(|i| {
-                            let delta = i.smooth_scroll_delta[axis];
-                            i.smooth_scroll_delta[axis] = 0.0;
-                            delta
-                        });
-                    }
-                    if (scroll_response.clicked() || scroll_response.dragged())
-                        && let Some(pointer) = scroll_response.interact_pointer_pos()
-                    {
-                        let start = strip.min[axis] + thick;
-                        let end = strip.max[axis] - thick;
-                        if pointer[axis] < start {
-                            offset -= 20.0 * scale;
-                        } else if pointer[axis] > end {
-                            offset += 20.0 * scale;
-                        } else {
-                            offset = ((pointer[axis] - start) / (end - start).max(1.0))
-                                .clamp(0.0, 1.0)
-                                * max;
-                        }
-                    }
+                    let bar = Bar { strip, axis, button: thick, max, step: Some(20.0 * scale) };
+                    offset = scroll_by(ui, &scroll_response, body, &bar, offset);
                 }
                 offset = offset.clamp(0.0, max);
                 self.scrollbar(
@@ -192,13 +187,11 @@ impl Renderer<'_> {
             Some((path, right)) if ty == "row" && path == source_path => Some(*right),
             _ => None,
         };
-        let widths_after: Vec<f32> = (0..children.len())
-            .map(|i| {
-                (children[i + 1..].iter())
-                    .map(|n| num(&n["width"], s, row, -1.0))
-                    .fold(-1.0, f32::max)
-            })
-            .collect();
+        // (A column's alone: the rows that reach are a column's.)
+        let widths_after = match ty {
+            "col" => widths_after(children, s, row),
+            _ => Vec::new(),
+        };
         let fixed: f32 = children
             .iter()
             .zip(&sizes)
@@ -256,12 +249,16 @@ impl Renderer<'_> {
             {
                 size.x = size.x.max(right - cursor.x);
             }
+            // (No more than `natural` holds it to: an aspect of a millionth
+            // is a control hundreds of millions of points high, and a
+            // scrollbar as long.)
+            size = size.min(self.scaled(Vec2::splat(LARGEST)));
             let child_path = format!("{source_path}/children/{i}");
-            self.reach =
-                (ty == "col" && child["type"] == "row" && widths_after[i] >= 0.0).then(|| {
-                    let padding = layout_padding(child, s, row) * scale;
-                    (child_path.clone(), cursor.x + self.px(widths_after[i]) - padding)
-                });
+            let after = widths_after.get(i).copied().unwrap_or(-1.0);
+            self.reach = (ty == "col" && child["type"] == "row" && after >= 0.0).then(|| {
+                let padding = layout_padding(child, s, row) * scale;
+                (child_path.clone(), cursor.x + self.px(after) - padding)
+            });
             self.node(ui, child, &child_path, Rect::from_min_size(cursor, size), row, depth + 1);
             self.reach = None;
             if ty == "row" {
@@ -323,8 +320,10 @@ impl Renderer<'_> {
         let fit = ((inner.height() - 36.0 * scale) / stride).floor().max(0.0);
         let max_scroll = ((count as f32 - fit).max(0.0) * stride).max(0.0);
         let scroll_key = format!("{path}/{row:?}");
-        let mut offset =
-            self.state.list_scroll.get(&scroll_key).copied().unwrap_or(0.0).clamp(0.0, max_scroll);
+        // (Kept in points, as a group's and a text's: the same rows show
+        // at another zoom or UI scale.)
+        let kept = self.state.list_scroll.get(&scroll_key).copied().unwrap_or(0.0);
+        let mut offset = (kept * scale).clamp(0.0, max_scroll);
         if scrolling {
             let width = a.number("window.scrollbar_size_x", 18.0) * scale;
             inner.max.x -= width;
@@ -345,23 +344,11 @@ impl Renderer<'_> {
                 )
             });
             if !disabled && editable {
-                if ui.rect_contains_pointer(body) {
-                    offset -= ui.input_mut(|i| {
-                        let d = i.smooth_scroll_delta.y;
-                        i.smooth_scroll_delta.y = 0.0;
-                        d
-                    });
-                }
-                if (scroll_response.clicked() || scroll_response.dragged())
-                    && let Some(pointer) = scroll_response.interact_pointer_pos()
-                {
-                    // Map against the usable track between the native
-                    // end buttons so its bottom reaches the final row.
-                    offset = ((pointer.y - track.top() - width)
-                        / (track.height() - 2.0 * width).max(1.0))
-                    .clamp(0.0, 1.0)
-                        * max_scroll;
-                }
+                // (The track is what is between the native end buttons, so
+                // that its bottom reaches the final row; a click on a
+                // button is one on the track's end.)
+                let bar = Bar { strip: track, axis: 1, button: width, max: max_scroll, step: None };
+                offset = scroll_by(ui, &scroll_response, body, &bar, offset);
             }
             offset = offset.clamp(0.0, max_scroll);
             self.scrollbar(
@@ -374,7 +361,7 @@ impl Renderer<'_> {
         } else {
             offset = 0.0;
         }
-        self.state.list_scroll.insert(scroll_key, offset);
+        self.state.list_scroll.insert(scroll_key, offset / scale);
         if let Some(cells) = node["row_template"].as_array() {
             if cells.is_empty() && self.state.guides() {
                 c.label(
@@ -394,9 +381,17 @@ impl Renderer<'_> {
                 .min(((offset + inner.height() + 4.0 * scale) / stride).floor().max(0.0) as usize);
             // Where it goes asked for (`mg nui layout`): the rows out of
             // its view too, laid out where scrolling brings them, drawn
-            // clipped to nothing.
+            // clipped to nothing. A list in another list's row keeps to
+            // the rows in its view, as it is drawn (its rows are there
+            // once for each row of the other), and all a window's lists
+            // together to what `record_rows` gives them.
             if a.recording() {
-                (first, end) = (0, count);
+                if row.is_none() {
+                    (first, end) = (0, count);
+                }
+                let wanted = end.saturating_sub(first).min(ROWS_DRAWN);
+                let taken = a.record_rows(source_path, row.is_some(), wanted, count);
+                end = first.saturating_add(taken);
             }
             for r in first..end.min(first.saturating_add(ROWS_DRAWN)) {
                 let mut x = inner.left();

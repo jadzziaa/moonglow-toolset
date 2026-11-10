@@ -90,6 +90,52 @@ impl Control<'_> {
     }
 }
 
+/// A scrollbar as the pointer finds it: its strip along `axis`, an end
+/// button's length at each end of it, how far its view scrolls at most,
+/// and what a click on an end button scrolls by (`None`: nothing of its
+/// own, the click is taken as one on the track's end).
+pub(super) struct Bar {
+    pub strip: Rect,
+    pub axis: usize,
+    pub button: f32,
+    pub max: f32,
+    pub step: Option<f32>,
+}
+
+/// How far a view is scrolled after this frame's input, from `offset`:
+/// the wheel over `over` (the control), a click on the bar's end buttons,
+/// and a click or a drag on its track, which goes from the view's start
+/// to its end between the two buttons. In the canvas's pixels, as
+/// `offset` is: what is kept between frames is kept in points
+/// (`offset / scale`), so that a change of zoom or of the UI scale leaves
+/// the view where it was. A group's bars, a list's and a text's all
+/// scroll by this (each had its own copy, and the list's kept pixels: at
+/// 200% a list scrolled to row 30 showed row 15).
+pub(super) fn scroll_by(
+    ui: &Ui,
+    response: &egui::Response,
+    over: Rect,
+    bar: &Bar,
+    offset: f32,
+) -> f32 {
+    let Bar { strip, axis, button, max, step } = *bar;
+    let mut offset = offset;
+    if ui.rect_contains_pointer(over) {
+        offset -= ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta[axis]));
+    }
+    if (response.clicked() || response.dragged())
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let (start, end) = (strip.min[axis] + button, strip.max[axis] - button);
+        match step {
+            Some(step) if pointer[axis] < start => offset -= step,
+            Some(step) if pointer[axis] > end => offset += step,
+            _ => offset = ((pointer[axis] - start) / (end - start).max(1.0)).clamp(0.0, 1.0) * max,
+        }
+    }
+    offset.clamp(0.0, max)
+}
+
 /// The skin's name for how a control looks now: `mode` is 2 under the
 /// pointer and 3 while pressed.
 fn look(disabled: bool, mode: usize, encouraged: bool) -> &'static str {
@@ -392,8 +438,14 @@ impl Renderer<'_> {
     /// gets its outline and tooltip.
     fn finish(&mut self, ui: &mut Ui, c: Control<'_>, rect: Rect, selected: bool, live: bool) {
         let Control { s, a, node, path, row, disabled, .. } = c;
+        // The client's own correction of a value (a combo's first entry, a
+        // slider's range) is asked for only where the simulation can write
+        // it: with no such bind, or no such row of it, it was asked for
+        // again every frame, each one saying "Missing preview bind" over
+        // whatever the event line showed, and asking for the next.
         if let Some(value) = c.changed
             && value.as_ref().is_none_or(|v| v != val(&node["value"], s, row))
+            && (!c.normalization || interaction::has_place(node, s, row))
         {
             self.changes.push(interaction::Change {
                 path: path.into(),
@@ -459,7 +511,7 @@ impl Renderer<'_> {
             "label" => self.label(c),
             "text" => self.text_block(ui, c),
             "textedit" => self.textedit(ui, c),
-            "combo" => self.combo(ui, c),
+            "combo" => self.combo(c),
             "check" => self.check(c),
             "slider" | "sliderf" | "progress" => self.slider(ui, c),
             "image" => self.image(c),
