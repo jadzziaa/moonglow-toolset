@@ -261,6 +261,141 @@ struct Shown {
     stance: mg_preview::compose::Stance,
 }
 
+/// How many of the scene's updates a look that no object has any more is
+/// kept for (the blueprint about to be placed, the color a picker was at
+/// a moment ago), before its models are let go.
+const LOOKS_KEPT: u64 = 8;
+
+/// A look made once: what is drawn (`None`: nothing could be), and the
+/// models it names that could not be loaded.
+#[derive(Debug)]
+struct Kept<T> {
+    look: Option<Arc<T>>,
+    missing: Arc<Vec<String>>,
+    /// The update it was last asked for in.
+    used: u64,
+}
+
+/// The looks of an area's objects (their GPU models), by what they are
+/// made from, so that objects that look the same share theirs. A look is
+/// kept while an object holds it (its `Arc`, or that of its missing
+/// models) and for [`LOOKS_KEPT`] updates after: every color a picker
+/// passed over a placeable, every appearance tried in a creature's
+/// Properties and every blueprint hovered was one more, kept until the
+/// area's tab closed.
+#[derive(Debug)]
+struct Looks<T> {
+    kept: HashMap<String, Kept<T>>,
+    /// How many updates there were ([`Looks::sweep`]).
+    clock: u64,
+}
+
+impl<T> Default for Looks<T> {
+    fn default() -> Self {
+        Looks { kept: HashMap::new(), clock: 0 }
+    }
+}
+
+/// A look as its object holds it: what is drawn and what is missing.
+type Held<T> = (Option<Arc<T>>, Arc<Vec<String>>);
+
+impl<T> Looks<T> {
+    /// The look of `key`, made by `make` (the look and its missing
+    /// models) if it is not kept.
+    fn get(&mut self, key: String, make: impl FnOnce() -> (Option<T>, Vec<String>)) -> Held<T> {
+        let clock = self.clock;
+        let kept = self.kept.entry(key).or_insert_with(|| {
+            let (look, missing) = make();
+            Kept { look: look.map(Arc::new), missing: Arc::new(missing), used: clock }
+        });
+        kept.used = clock;
+        (kept.look.clone(), kept.missing.clone())
+    }
+
+    /// One update on: the looks no object holds and none asked for of
+    /// late are let go. Where they were (their addresses), for what is
+    /// kept by them.
+    fn sweep(&mut self) -> Vec<usize> {
+        self.clock += 1;
+        let clock = self.clock;
+        let mut gone = Vec::new();
+        self.kept.retain(|_, k| {
+            let held = Arc::strong_count(&k.missing) > 1
+                || k.look.as_ref().is_some_and(|l| Arc::strong_count(l) > 1);
+            let keep = held || clock - k.used <= LOOKS_KEPT;
+            if !keep {
+                gone.extend(k.look.as_ref().map(|l| Arc::as_ptr(l) as usize));
+            }
+            keep
+        });
+        gone
+    }
+}
+
+/// The models an area names that could not be loaded, each once, in
+/// order: its tiles' (each tile's model and whether it is loaded) and
+/// its objects' (what each one's look is missing). Of what the area has
+/// now: a model no tile or object names any more is not among them.
+fn missing_models<'a>(
+    tiles: impl Iterator<Item = (Option<&'a String>, bool)>,
+    objects: &[Option<Arc<Vec<String>>>],
+) -> Vec<String> {
+    let tiles = tiles.filter(|(_, loaded)| !loaded).filter_map(|(model, _)| model.cloned());
+    let objects = objects.iter().flatten().flat_map(|m| m.iter().cloned());
+    let mut missing: Vec<String> = tiles.chain(objects).collect();
+    missing.sort();
+    missing.dedup();
+    missing
+}
+
+/// Which tiles are `hidden` (by index), of `tiles`: looked up once a tile,
+/// not the list gone through for each (a brush's preview over a 32 by 32
+/// area hides a thousand of a thousand). Empty where none is.
+fn hidden_tiles(tiles: usize, hidden: &[usize]) -> Vec<bool> {
+    let mut mask = vec![false; if hidden.is_empty() { 0 } else { tiles }];
+    for &i in hidden {
+        if let Some(slot) = mask.get_mut(i) {
+            *slot = true;
+        }
+    }
+    mask
+}
+
+/// The most objects a list is taken to have, for [`object_place`].
+const OBJECT_PLACES: usize = 1 << 24;
+
+/// A placed object as its particles are kept by: its kind and its place
+/// in its own list. (Not its place in the area's objects, every kind in
+/// a row: a creature placed moved every placeable's, and each candle of a
+/// tavern started its flame again.)
+fn object_place(o: &AreaObject) -> usize {
+    o.kind.index() * OBJECT_PLACES + o.index.min(OBJECT_PLACES - 1)
+}
+
+/// Gives `key` (an object's place and its model) the particles kept for
+/// the same model at another place of the same kind's list that nothing
+/// shown now is at (`wanted`: the keys of what is): an object before it
+/// in its list was deleted or placed, and its particles go on rather
+/// than start again.
+fn carry_over<T>(
+    sims: &mut HashMap<(usize, usize), T>,
+    key: (usize, usize),
+    wanted: &std::collections::HashSet<(usize, usize)>,
+) {
+    if sims.contains_key(&key) {
+        return;
+    }
+    let kind = |place: usize| place / OBJECT_PLACES;
+    let from = (sims.keys())
+        .filter(|k| k.1 == key.1 && kind(k.0) == kind(key.0) && !wanted.contains(k))
+        // (The nearest place: the one it most likely was.)
+        .min_by_key(|k| k.0.abs_diff(key.0))
+        .copied();
+    if let Some(sim) = from.and_then(|k| sims.remove(&k)) {
+        sims.insert(key, sim);
+    }
+}
+
 /// What an area's loaded models use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Usage {
@@ -283,8 +418,15 @@ pub struct AreaScene {
     border: Vec<Option<Arc<Loaded>>>,
     /// By object (as in [`AreaModel::objects`]).
     objects: Vec<Option<Arc<Shown>>>,
+    /// By object, the models its look names that could not be loaded.
+    object_missing: Vec<Option<Arc<Vec<String>>>>,
     tile_cache: HashMap<String, Option<Arc<Loaded>>>,
-    object_cache: HashMap<String, Option<Arc<Shown>>>,
+    object_cache: Looks<Shown>,
+    /// The models read so far, by name (`None`: not there, or not
+    /// readable), while something drawn is made of them: a new look's
+    /// models and their supermodels (a creature's animations) are not
+    /// read from the resources again for each look.
+    parsed: HashMap<String, Option<Arc<Model>>>,
     flame: Option<Option<Loaded>>,
     /// The skybox's day and night models, and its skyboxes.2da row.
     sky: [Option<Arc<GpuModel>>; 2],
@@ -293,7 +435,8 @@ pub struct AreaScene {
     sky_fade: Option<Arc<GpuModel>>,
     /// lightcolor.2da colours by row.
     colors: Vec<Vec3>,
-    /// Models named by tiles or previews that could not be loaded.
+    /// Models named by the area's tiles or its objects' previews that
+    /// could not be loaded: of what it has now ([`missing_models`]).
     pub missing: Vec<String>,
     /// Of those, the tiles' models that were read and then broke what
     /// builds them (a panic, caught): a renderer that fails every model
@@ -355,9 +498,37 @@ impl AreaScene {
     pub fn new(gpu: &Gpu, game: &GameData, area: &AreaModel) -> AreaScene {
         let mut scene = AreaScene { colors: light_colors(game), ..Default::default() };
         scene.update(gpu, game, area);
-        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let models = scene.models(game);
         scene.load_sky(gpu, &models, game, area);
+        scene.keep(models);
         scene
+    }
+
+    /// What loads models for this scene, with those it has read so far
+    /// (taken out of the scene while it is at work: [`AreaScene::keep`]
+    /// puts them back).
+    fn models<'a>(&mut self, game: &'a GameData) -> Models<'a> {
+        Models { game, cache: RefCell::new(std::mem::take(&mut self.parsed)) }
+    }
+
+    /// Puts back the models read ([`AreaScene::models`]).
+    fn keep(&mut self, models: Models<'_>) {
+        self.parsed = models.cache.into_inner();
+    }
+
+    /// After an update: lets go of the looks no object has any more
+    /// ([`Looks::sweep`]) with what was noted of them, and of the models
+    /// read that nothing drawn is made of; and says what is missing of
+    /// what `area` has now.
+    fn settle(&mut self, area: &AreaModel) {
+        let gone = self.object_cache.sweep();
+        if !gone.is_empty() {
+            self.failed.borrow_mut().retain(|ptr| !gone.contains(ptr));
+        }
+        self.parsed.retain(|_, m| m.as_ref().is_none_or(|m| Arc::strong_count(m) > 1));
+        let tiles =
+            area.tiles.iter().zip(&self.tiles).map(|(t, l)| (t.model.as_ref(), l.is_some()));
+        self.missing = missing_models(tiles, &self.object_missing);
     }
 
     /// Loads the skybox's day and night models (skyboxes.2da), unless it
@@ -405,17 +576,24 @@ impl AreaScene {
     /// Follows `area` after an edit: loads the models of tiles and objects
     /// not seen before.
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
+        let models = self.models(game);
         if self.arrow.is_none() {
             self.arrow = Some(Arc::new(GpuModel::new(gpu, Arc::new(crate::marker::arrow()))));
-            self.spawn_point = Models { game, cache: RefCell::new(HashMap::new()) }
-                .load("spawnpoint")
-                .map(|m| Arc::new(GpuModel::new(gpu, m)));
+            self.spawn_point = models.load("spawnpoint").map(|m| Arc::new(GpuModel::new(gpu, m)));
         }
-        let models = Models { game, cache: RefCell::new(HashMap::new()) };
         // A skybox chosen anew (Area Properties).
         if self.sky_box.is_some() {
             self.load_sky(gpu, &models, game, area);
         }
+        self.update_with(gpu, area, &models);
+        self.keep(models);
+        self.settle(area);
+        self.update_grass(gpu, game, area, &area.grass);
+    }
+
+    /// [`AreaScene::update`]'s tiles and objects, their models read by
+    /// `models`.
+    fn update_with(&mut self, gpu: &Gpu, area: &AreaModel, models: &Models<'_>) {
         let load = |name: &str| models.load(name);
         // (A model that is read and then breaks what builds it is left out,
         // as a missing one is: the toolset carries on.)
@@ -428,7 +606,6 @@ impl AreaScene {
             })
         };
         let loaded = |name: &str| built(name).flatten();
-        let mut missing = Vec::new();
         let tile_cache = &mut self.tile_cache;
         let broken = &mut self.broken;
         self.tiles = area
@@ -443,11 +620,7 @@ impl AreaScene {
                         if b.is_none() {
                             broken.insert(name.clone());
                         }
-                        let l = b.flatten().map(Arc::new);
-                        if l.is_none() {
-                            missing.push(name.clone());
-                        }
-                        l
+                        b.flatten().map(Arc::new)
                     })
                     .clone()
             })
@@ -466,16 +639,12 @@ impl AreaScene {
             .collect();
         // Objects that look the same share their models.
         let object_cache = &mut self.object_cache;
-        self.objects =
-            area.objects.iter().map(|o| shown(gpu, object_cache, o, &load, &mut missing)).collect();
+        (self.objects, self.object_missing) =
+            area.objects.iter().map(|o| shown(gpu, object_cache, o, &load)).unzip();
         let needs_flame = area.tiles.iter().any(|t| t.source_lights.iter().any(|&s| s > 0));
         if needs_flame && self.flame.is_none() {
             self.flame = Some(loaded("fx_flame01"));
         }
-        self.missing.extend(missing);
-        self.missing.sort();
-        self.missing.dedup();
-        self.update_grass(gpu, game, area, &area.grass);
     }
 
     /// The objects at `at` (their places in `area.objects`) shown anew,
@@ -483,20 +652,21 @@ impl AreaScene {
     /// ([`crate::AreaModel::read_objects`]). [`AreaScene::update`] shows
     /// every object anew (a thousand took most of a millisecond).
     pub fn update_objects(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel, at: &[usize]) {
-        if self.objects.len() != area.objects.len() {
+        if self.objects.len() != area.objects.len()
+            || self.object_missing.len() != area.objects.len()
+        {
             self.update(gpu, game, area);
             return;
         }
-        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let models = self.models(game);
         let load = |name: &str| models.load(name);
-        let mut missing = Vec::new();
         for &i in at {
             let Some(o) = area.objects.get(i) else { continue };
-            self.objects[i] = shown(gpu, &mut self.object_cache, o, &load, &mut missing);
+            (self.objects[i], self.object_missing[i]) =
+                shown(gpu, &mut self.object_cache, o, &load);
         }
-        self.missing.extend(missing);
-        self.missing.sort();
-        self.missing.dedup();
+        self.keep(models);
+        self.settle(area);
     }
 
     /// Grows `growing` (what grows on each surface material: the area's
@@ -620,10 +790,9 @@ impl AreaScene {
         time: f32,
         opacity: f32,
     ) -> (Vec<Instance>, (Vec3, Vec3)) {
-        let models = Models { game, cache: RefCell::new(HashMap::new()) };
-        let load = |name: &str| models.load(name);
-        let mut missing = Vec::new();
-        let shown = shown(gpu, &mut self.object_cache, object, &load, &mut missing);
+        let models = self.models(game);
+        let (shown, _) = shown(gpu, &mut self.object_cache, object, &|name| models.load(name));
+        self.keep(models);
         if self.as_arrow(object, shown.as_ref()) {
             let arrow = self.arrow_instance(object.model_transform());
             let out = arrow.into_iter().map(|i| Instance { opacity, ..i }).collect();
@@ -652,7 +821,20 @@ impl AreaScene {
         view: &View,
         opacity: f32,
     ) -> Vec<Instance> {
-        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let models = self.models(game);
+        let out = self.preview_tiles_with(gpu, &models, tiles, view, opacity);
+        self.keep(models);
+        out
+    }
+
+    fn preview_tiles_with(
+        &mut self,
+        gpu: &Gpu,
+        models: &Models<'_>,
+        tiles: &[AreaTile],
+        view: &View,
+        opacity: f32,
+    ) -> Vec<Instance> {
         let load = |name: &str| models.load(name);
         let (mut out, mut lights) = (Vec::new(), Vec::new());
         let mut shared = Shared::default();
@@ -776,9 +958,11 @@ impl AreaScene {
     /// flames, a portal, sparks: placeables that are nothing else show
     /// nothing without them), moved on by `dt` seconds and drawn for a
     /// camera with the view matrix `camera`. `sims` keeps each object's
-    /// particles from frame to frame, by its place in the area's list and
-    /// its model; those of objects no longer shown are dropped. The
-    /// tiles' emitters follow.
+    /// particles from frame to frame, by its kind and place in its own
+    /// list ([`object_place`]) and its model; an object whose place moved
+    /// (one before it in its list deleted or placed) takes its particles
+    /// with it ([`carry_over`]), and those of objects no longer shown are
+    /// dropped. The tiles' emitters follow.
     pub fn particles(
         &self,
         area: &AreaModel,
@@ -801,12 +985,20 @@ impl AreaScene {
                         .is_some_and(|s| s.composed.base().model.nodes.iter().any(emits))
             })
             .map(|(i, (o, _))| (i, o.position));
-        for i in nearest(emitting, eye, MAX_PARTICLE_OBJECTS) {
+        let chosen = nearest(emitting, eye, MAX_PARTICLE_OBJECTS);
+        let key_of = |i: usize| {
+            let shown = self.objects[i].as_ref()?;
+            Some((object_place(&area.objects[i]), Arc::as_ptr(shown) as usize))
+        };
+        let wanted: std::collections::HashSet<(usize, usize)> =
+            chosen.iter().filter_map(|&i| key_of(i)).collect();
+        for i in chosen {
             let (o, Some(shown)) = (&area.objects[i], &self.objects[i]) else { continue };
-            let key = (i, Arc::as_ptr(shown) as usize);
+            let key = (object_place(o), Arc::as_ptr(shown) as usize);
             if self.failed.borrow().contains(&key.1) {
                 continue;
             }
+            carry_over(sims, key, &wanted);
             let c = &shown.composed;
             let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
             let transform = o.model_transform();
@@ -1012,11 +1204,12 @@ impl AreaScene {
     /// are not.
     pub fn failed_tiles(&self, area: &AreaModel, hidden: &[usize]) -> Vec<Vec3> {
         let failed = self.failed.borrow();
+        let hidden = hidden_tiles(area.tiles.len(), hidden);
         area.tiles
             .iter()
             .zip(&self.tiles)
             .enumerate()
-            .filter(|(i, _)| !hidden.contains(i))
+            .filter(|(i, _)| hidden.get(*i) != Some(&true))
             .filter(|(_, (tile, loaded))| match loaded {
                 Some(l) => failed.contains(&(Arc::as_ptr(l) as usize)),
                 None => tile.model.as_ref().is_some_and(|m| self.broken.contains(m)),
@@ -1032,8 +1225,13 @@ impl AreaScene {
         // What fails while it is posed is drawn no more (once noted), so
         // that it doesn't fail again every frame.
         let failed = |key: usize| self.failed.borrow().contains(&key);
+        // (Each tile asked once whether it is hidden, of a list of flags:
+        // a preview over every tile was the list gone through for each
+        // tile, three times a frame.)
+        let hidden = hidden_tiles(area.tiles.len(), hidden);
+        let is_hidden = |i: usize| hidden.get(i) == Some(&true);
         for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
-            let Some(loaded) = loaded.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
+            let Some(loaded) = loaded.as_ref().filter(|_| !is_hidden(i)) else { continue };
             let key = Arc::as_ptr(loaded) as usize;
             if failed(key) {
                 continue;
@@ -1075,7 +1273,7 @@ impl AreaScene {
                 pose
             };
             let tile = |i: usize, level: usize| {
-                let grass = self.tile_grass[i].as_ref().filter(|_| !hidden.contains(&i))?;
+                let grass = self.tile_grass[i].as_ref().filter(|_| !is_hidden(i))?;
                 let model = grass.levels[level.min(grass.levels.len() - 1)].clone();
                 let transform = area.tiles[i].transform();
                 let pose = (sway != Vec3::ZERO).then(|| swayed(&model, transform));
@@ -1088,7 +1286,7 @@ impl AreaScene {
                     // else its tiles at the same level, the same tufts.)
                     GrassDraw::Chunk(key, tiles) => {
                         let whole = self.chunk_made(area, key, &tiles);
-                        match whole.filter(|_| !tiles.iter().any(|i| hidden.contains(i))) {
+                        match whole.filter(|_| !tiles.iter().any(|&i| is_hidden(i))) {
                             Some(c) => instances.push(Instance {
                                 grass: true,
                                 ..Instance::new(c.model.clone(), c.at)
@@ -1386,36 +1584,33 @@ pub struct BareLight {
 /// loaded them (what could not be loaded named in `missing`).
 fn shown(
     gpu: &Gpu,
-    cache: &mut HashMap<String, Option<Arc<Shown>>>,
+    cache: &mut Looks<Shown>,
     o: &AreaObject,
     load: &dyn Fn(&str) -> Option<Arc<Model>>,
-    missing: &mut Vec<String>,
-) -> Option<Arc<Shown>> {
-    let p = o.preview.as_ref()?;
-    cache
-        .entry(format!("{p:?}"))
-        .or_insert_with(|| {
-            let c = Composed::new(gpu, p, load);
-            match &c {
-                Some(c) => missing.extend(c.missing.iter().cloned()),
-                None => missing.push(p.base.model.clone()),
-            }
-            c.map(|composed| {
-                // As it stands in the area: in its pause (a dragon at
-                // rest lies stretched out, wings spread).
-                let stance = composed.stance(composed.idle.as_deref(), 0.0);
-                let bounds = composed.bounds_of(&stance);
-                // (A model of nothing drawn is the size of what it holds
-                // undrawn, where that is something: the invisible
-                // object's box, as Aurora outlines it.)
-                let hidden =
-                    composed.hidden_bounds().filter(|_| !composed.has_meshes() || bare(bounds));
-                let bounds =
-                    hidden.filter(|h| h.0.is_finite() && h.1.is_finite()).unwrap_or(bounds);
-                Arc::new(Shown { composed, bounds, stance })
-            })
-        })
-        .clone()
+) -> (Option<Arc<Shown>>, Option<Arc<Vec<String>>>) {
+    let Some(p) = o.preview.as_ref() else { return (None, None) };
+    let (shown, missing) = cache.get(format!("{p:?}"), || {
+        let c = Composed::new(gpu, p, load);
+        let missing = match &c {
+            Some(c) => c.missing.clone(),
+            None => vec![p.base.model.clone()],
+        };
+        let shown = c.map(|composed| {
+            // As it stands in the area: in its pause (a dragon at
+            // rest lies stretched out, wings spread).
+            let stance = composed.stance(composed.idle.as_deref(), 0.0);
+            let bounds = composed.bounds_of(&stance);
+            // (A model of nothing drawn is the size of what it holds
+            // undrawn, where that is something: the invisible
+            // object's box, as Aurora outlines it.)
+            let hidden =
+                composed.hidden_bounds().filter(|_| !composed.has_meshes() || bare(bounds));
+            let bounds = hidden.filter(|h| h.0.is_finite() && h.1.is_finite()).unwrap_or(bounds);
+            Shown { composed, bounds, stance }
+        });
+        (shown, missing)
+    });
+    (shown, Some(missing))
 }
 
 /// What the game's shaders read of the area: its flags and wind, and
@@ -1518,6 +1713,123 @@ mod tests {
         assert!(!bare(potion));
         assert!(!bare(floor), "flat, but large");
         assert!(bare((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN))), "no vertex");
+    }
+
+    /// A look is kept while an object has it and a few updates after:
+    /// fifty colors passed over one placeable leave a handful, not fifty
+    /// (each was a set of GPU buffers, kept until the tab closed).
+    #[test]
+    fn looks_no_object_has_are_let_go() {
+        let mut looks: Looks<u32> = Looks::default();
+        // Two objects that keep their looks, and one that changes its own.
+        let fixed = [looks.get("chair".into(), || (Some(1), vec![])), {
+            looks.get("ghost".into(), || (None, vec!["c_ghost99".into()]))
+        }];
+        let mut made = 0;
+        let mut held = looks.get("tint 0".into(), || (Some(100), vec![]));
+        let mut gone = 0;
+        for color in 1..=50u32 {
+            let was = held.0.as_ref().map(|l| Arc::as_ptr(l) as usize);
+            held = looks.get(format!("tint {color}"), || {
+                made += 1;
+                (Some(100 + color), vec![])
+            });
+            let swept = looks.sweep();
+            assert!(!swept.contains(&was.unwrap()), "let go no sooner than a few updates on");
+            assert!(looks.kept.len() <= 3 + LOOKS_KEPT as usize, "{}", looks.kept.len());
+            gone += swept.len();
+        }
+        assert_eq!(made, 50);
+        assert_eq!(gone, 51 - LOOKS_KEPT as usize, "the rest let go, each once");
+        // What objects have stays, the one that draws nothing by its
+        // missing models; and the same look asked for again is the same.
+        assert!(looks.kept.contains_key("chair") && looks.kept.contains_key("ghost"));
+        let again = looks.get("tint 50".into(), || unreachable!("kept"));
+        assert!(Arc::ptr_eq(again.0.as_ref().unwrap(), held.0.as_ref().unwrap()));
+        // Once no object has them, they go too; one asked for meanwhile
+        // (the blueprint about to be placed, each frame) stays.
+        drop((fixed, held, again));
+        for _ in 0..=LOOKS_KEPT {
+            looks.get("chair".into(), || unreachable!("kept"));
+            looks.sweep();
+        }
+        assert_eq!(looks.kept.keys().collect::<Vec<_>>(), ["chair"]);
+    }
+
+    /// What is missing is what the area's tiles and objects name now and
+    /// could not be loaded: an object given another appearance, or
+    /// deleted, takes its missing model off the list (the status line
+    /// said "1 missing" until the tab was opened again).
+    #[test]
+    fn missing_models_are_those_named_now() {
+        let (a, b) = ("tst01_a01".to_string(), "tst01_b02".to_string());
+        let tiles = [(Some(&a), true), (Some(&b), false), (None, false), (Some(&b), false)];
+        let none: Arc<Vec<String>> = Arc::default();
+        let gone = Arc::new(vec!["plc_x99".to_string()]);
+        let parts = Arc::new(vec!["pmh0_head300".to_string(), "plc_x99".to_string()]);
+        let objects = [Some(none.clone()), None, Some(gone), Some(parts)];
+        assert_eq!(
+            missing_models(tiles.into_iter(), &objects),
+            ["plc_x99", "pmh0_head300", "tst01_b02"]
+        );
+        // The placeable gone and the creature's head found: the tile's alone.
+        let objects = [Some(none.clone()), None, Some(none)];
+        assert_eq!(missing_models(tiles.into_iter(), &objects), ["tst01_b02"]);
+        assert!(missing_models([(Some(&a), true)].into_iter(), &[]).is_empty());
+    }
+
+    /// The tiles a preview hides as flags by tile, the same tiles as the
+    /// list names (those past the area's last are none of its).
+    #[test]
+    fn hidden_tiles_are_flags_by_tile() {
+        assert!(hidden_tiles(1024, &[]).is_empty(), "nothing hidden: nothing made");
+        let mask = hidden_tiles(6, &[4, 1, 4, 9]);
+        assert_eq!(mask, [false, true, false, false, true, false]);
+        let every: Vec<usize> = (0..1024).collect();
+        assert!(hidden_tiles(1024, &every).iter().all(|h| *h));
+    }
+
+    /// Particles are kept by an object's kind and place in its own list:
+    /// a creature placed moves no placeable's, and a placeable deleted
+    /// before others leaves theirs going, each with its own model's.
+    #[test]
+    fn particles_stay_with_their_objects_when_places_move() {
+        use std::collections::HashSet;
+        let object = |kind: ObjectKind, index: usize| {
+            AreaObject::placed(kind, index, &mg_gff::Struct::new(0))
+        };
+        // (Kinds apart, whatever their places.)
+        let candle = object_place(&object(ObjectKind::Placeable, 3));
+        assert_ne!(candle, object_place(&object(ObjectKind::Creature, 3)));
+        assert_eq!(candle, object_place(&object(ObjectKind::Placeable, 3)));
+        assert!(object_place(&object(ObjectKind::Store, usize::MAX)) < usize::MAX / 4);
+        // A hundred placeables with emitters, each of its own model (its
+        // address); the particles of each are its number.
+        let place = |i: usize| object_place(&object(ObjectKind::Placeable, i));
+        let mut sims: HashMap<(usize, usize), usize> =
+            (0..100).map(|i| ((place(i), 1000 + i), i)).collect();
+        // Placeable 3 is deleted: those after it are one place up.
+        let now: Vec<((usize, usize), usize)> = (0..100)
+            .filter(|i| *i != 3)
+            .map(|i| ((place(if i > 3 { i - 1 } else { i }), 1000 + i), i))
+            .collect();
+        let wanted: HashSet<(usize, usize)> = now.iter().map(|(k, _)| *k).collect();
+        for (key, _) in &now {
+            carry_over(&mut sims, *key, &wanted);
+        }
+        for (key, was) in &now {
+            assert_eq!(sims.get(key), Some(was), "its own particles, not begun again");
+        }
+        // A creature of the same model at a placeable's old place takes
+        // none of theirs.
+        let creature = (object_place(&object(ObjectKind::Creature, 98)), 1099);
+        carry_over(&mut sims, creature, &wanted);
+        assert!(!sims.contains_key(&creature));
+        // Of several of one model (candles), the one left over is taken.
+        let mut same: HashMap<(usize, usize), usize> = (0..5).map(|i| ((place(i), 7), i)).collect();
+        let wanted: HashSet<(usize, usize)> = (0..4).map(|i| (place(i), 7)).collect();
+        carry_over(&mut same, (place(2), 7), &wanted);
+        assert_eq!(same.len(), 5, "what is where it was stays");
     }
 
     /// The emitters given particles are the nearest the camera, objects'
