@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:23:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:47:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -230,6 +230,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     GPU's timestamps (not on every backend). (M)
   - **An area's opening to its last texture** is about 50 ms longer since
     3.0.0 (area092: 112 to 165 ms); not taken apart. (S)
+- **Small slowdowns the timing run of 10 November did not trace:**
+  against the review's figures of 9 November (one run each; these the
+  lowest of three, beyond their spread), `frame_perf`'s area092 turned,
+  its draws encoded 2.18 ms where 1.95 (on the processor 1.85 where
+  1.58); the grass test's field close up without grass 1.03 ms where
+  0.86, and its draws encoded with the Shaders switch on 0.58 where 0.41
+  (on the processor less than before: waiting, not work); TDoD's woods
+  turned with Moonglow's own shader, the GPU 8.3 ms where 7.2 (more
+  material changes since its see-through runs keep to a chunk, against
+  1.4 ms less encoding). Each is under 2.2 ms a frame, inside the
+  budget; a bisect of the fix pass's merges, three runs a step, would
+  name the commits. Left as smaller than a run of the review moves
+  between sessions. (S) (the review of November 2026, [its
+  fixes](review-2026-11/fixes.md))
 - **The review of November 2026's performance fixes without a timing
   view:** its fixers ran no timing test and named the views that would
   show each change. The reviewer's run of 10 November timed every view
