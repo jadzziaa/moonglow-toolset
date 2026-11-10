@@ -187,9 +187,10 @@ impl ProgramCache {
     fn write(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         // (Whole or not at all: written beside it, then put in its place.)
+        // (A write that fails, the disk full partway, takes its file away
+        // too: it was left, one for each program and run.)
         let tmp = path.with_extension(format!("tmp{}", std::process::id()));
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, path).inspect_err(|_| {
+        std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path)).inspect_err(|_| {
             let _ = std::fs::remove_file(&tmp);
         })
     }
@@ -294,6 +295,28 @@ void main ()
         let d = mg_testkit::test_output().join(format!("mg-shader-cache-{name}"));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// A write that fails partway (the disk full: here its file is a link
+    /// to `/dev/full`) leaves no file beside the entry; it left its
+    /// `.tmpPID` (the last pass's item 22).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_write_that_fails_leaves_nothing_beside_the_entry() {
+        let d = dir("write-fails");
+        std::fs::create_dir_all(&d).unwrap();
+        let cache = ProgramCache::new(&d);
+        let path = d.join("entry.spv");
+        let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+        std::os::unix::fs::symlink("/dev/full", &tmp).unwrap();
+        assert!(cache.write(&path, &[1; 4096]).is_err());
+        assert!(std::fs::symlink_metadata(&tmp).is_err(), "nothing left beside it");
+        assert!(!path.exists());
+        // And one that works leaves only the entry.
+        cache.write(&path, b"words").unwrap();
+        let names: Vec<_> =
+            std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["entry.spv"]);
     }
 
     /// Compiled once and kept; read back the same program.
