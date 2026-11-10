@@ -6859,6 +6859,40 @@ fn nui_harness(app: Moonglow, key: ResKey, size: (f32, f32)) -> Harness<'static,
     h
 }
 
+/// The NUI Creator's list of problems (`nui-problems.png`): a window with
+/// many findings, a few of them long and some with a fix beside them, a
+/// line each; and a narrow one (`nui-problems-narrow.png`).
+#[test]
+#[ignore]
+fn nui_problems() {
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("nui_test", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("nui_test".into()));
+    let mut window = mg_nui::window();
+    let mut controls = Vec::new();
+    for i in 0..40 {
+        controls.push(match i % 4 {
+            0 => json!({"type": "textedit", "label": format!("Name {i}"), "max": 0}),
+            1 => json!({"type": "button", "id": "same", "label": format!("Button {i}")}),
+            2 => json!({"type": "label", "value": format!("Label {i}"), "width": 9000.0,
+                "draw_list": [], "draw_list_scissor": true}),
+            _ => json!({"type": "combo", "elements": "none", "value": {"bind": format!("b{i}")}}),
+        });
+    }
+    window["root"]["children"] = controls.into();
+    app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
+    let tab = mg_ui::Tab::Nui(key);
+    let mut h = nui_harness(app, key, (1200.0, 700.0));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "nui-problems");
+    place(&mut h, &tab, (20.0, 90.0), (520.0, 700.0));
+    shoot(&mut h, &dir, "nui-problems-narrow");
+}
+
 /// The NUI Creator's Import… asking about a window the module has
 /// otherwise (`nui-import-ask.png`), in front of the Creator.
 #[test]

@@ -134,6 +134,8 @@ pub(crate) struct State {
     issues: bool,
     /// The errors there were last frame, to open the list when more come.
     issues_seen: usize,
+    /// The list's rows, for the findings they were made of.
+    problem_rows: Option<ProblemRows>,
     /// The page shown.
     page: Page,
     /// The hak Images adds pictures to: one the module uses, or None for a new one.
@@ -971,29 +973,49 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
     if !state.issues {
         return;
     }
-    egui::ScrollArea::vertical().id_salt("nui-diagnostics").max_height(160.0).show(ui, |ui| {
-        if let Err(e) = parsed {
-            ui.colored_label(ui.visuals().error_fg_color, format!("JUI: {e}"));
-        }
-        if let Err(e) = settings {
-            ui.colored_label(ui.visuals().error_fg_color, format!("Settings: {e}"));
-        }
-        // Errors first: they stop a Build.
-        let mut sorted: Vec<_> = findings.iter().enumerate().collect();
-        sorted.sort_by_key(|(_, d)| d.severity != Severity::Error);
-        for (i, d) in sorted {
-            let (target, place) =
-                parsed.as_ref().map_or((None, String::new()), |doc| describe_path(doc, &d.path));
+    if let Err(e) = parsed {
+        ui.colored_label(ui.visuals().error_fg_color, format!("JUI: {e}"));
+    }
+    if let Err(e) = settings {
+        ui.colored_label(ui.visuals().error_fg_color, format!("Settings: {e}"));
+    }
+    // The findings in the order shown (errors first: they stop a Build),
+    // each with the control it is about, made once for the findings they
+    // are: a list of two thousand (a window written by a script, one
+    // mistake a control) was sorted, every place looked up level by level
+    // and every row laid out in every frame.
+    let rows = state.problem_rows.take().filter(|r| std::rc::Rc::ptr_eq(&r.of, findings));
+    let rows = rows.unwrap_or_else(|| {
+        let mut sorted: Vec<usize> = (0..findings.len()).collect();
+        sorted.sort_by_key(|i| findings[*i].severity != Severity::Error);
+        let place = |i: usize| match parsed {
+            Ok(doc) => describe_path(doc, &findings[i].path),
+            Err(_) => (None, String::new()),
+        };
+        let rows = sorted.into_iter().map(|i| (i, place(i))).collect();
+        ProblemRows { of: findings.clone(), rows }
+    });
+    // A line a finding, those in sight laid out: its message is cut where
+    // the line ends, and whole in its tip.
+    let line = ui.spacing().interact_size.y;
+    let area = egui::ScrollArea::vertical()
+        .id_salt("nui-diagnostics")
+        .max_height(160.0)
+        .auto_shrink([false, true]);
+    area.show_rows(ui, line, rows.rows.len(), |ui, shown| {
+        for (i, (target, place)) in &rows.rows[shown] {
+            let d = &findings[*i];
             ui.push_id(i, |ui| {
-                ui.horizontal_wrapped(|ui| {
+                ui.horizontal(|ui| {
+                    ui.set_min_height(line);
                     let (mark, color) = if d.severity == Severity::Error {
                         ("Error", ui.visuals().error_fg_color)
                     } else {
                         ("Warning", ui.visuals().warn_fg_color)
                     };
                     ui.colored_label(color, mark);
-                    let place = egui::RichText::new(&place).strong();
-                    match &target {
+                    let place = egui::RichText::new(place).strong();
+                    match target {
                         Some(path) => {
                             if ui.link(place).on_hover_text("Select it").clicked() {
                                 state.select_next = Some(path.clone());
@@ -1004,16 +1026,38 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
                             ui.label(place);
                         }
                     }
-                    ui.label(&d.message);
+                    // (Room kept for the fix after it.)
+                    let fix = if has_fix(d) { 140.0 } else { 0.0 };
+                    let room = (ui.available_width() - fix).max(60.0);
+                    ui.scope(|ui| {
+                        ui.set_max_width(room);
+                        ui.add(egui::Label::new(&d.message).truncate());
+                    });
                     fixes(ui, frame, checked, d, target.as_deref());
                 })
             });
         }
-        if errors + warnings == 0 {
-            ui.weak("The checks found nothing.");
-        }
     });
+    if errors + warnings == 0 {
+        ui.weak("The checks found nothing.");
+    }
+    state.problem_rows = Some(rows);
     ui.separator();
+}
+
+/// The list of problems as it is shown: the findings in its order, each
+/// with the control it is about (its path, to select it) and that place in
+/// words, for the findings they were made of.
+struct ProblemRows {
+    of: std::rc::Rc<[mg_nui::Diagnostic]>,
+    rows: Vec<(usize, (Option<String>, String))>,
+}
+
+/// Whether a finding has a fix beside it ([`fixes`]).
+fn has_fix(d: &mg_nui::Diagnostic) -> bool {
+    d.message.starts_with("What the player enters here is lost")
+        || d.path.ends_with("/draw_list_scissor")
+        || d.message.starts_with("The mg_close button has no Clicked handler")
 }
 
 /// The buttons after a finding that put it right: Bind it, Turn it off, Add

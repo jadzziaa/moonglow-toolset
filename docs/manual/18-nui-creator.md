@@ -514,7 +514,11 @@ as one Undo step, the first opens in the Creator, and the log says what
 their checks found.
 
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
-recovery. Invalid drafts cannot generate scripts. The checks describe the
+recovery. Invalid drafts cannot generate scripts. What the checks found is
+listed under the tabs (their count there opens and closes the list, and new
+errors open it): a line a finding, errors first, with the control it is
+about, which the line selects, and a fix where there is one. A message
+longer than its line is cut, and whole in its tip. The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: build the module and
 use [Test Module](09-build-and-test.md) to try the window, edits, clicks,

@@ -1733,6 +1733,57 @@ fn text_typed_is_set_when_layers_selects_another_control() {
     assert!(after["root"]["children"][0]["id"].is_null(), "the label has no ID of its own");
 }
 
+/// A long list of problems (a window written by a script, a mistake a
+/// control) lays out the lines in sight, a line a finding, errors first:
+/// it laid out every finding in every frame, on every page of the tab.
+/// The first one's link still selects its control, and a fix still fixes.
+#[test]
+fn a_long_list_of_problems_lays_out_the_lines_in_sight() {
+    let mut h = harness();
+    h.run();
+    let mut window = document(&h);
+    let controls: Vec<Value> = (0..600)
+        .map(|i| match i % 2 {
+            0 => json!({"type":"textedit","label":format!("Name {i}"),"max":0}),
+            _ => json!({"type":"label","value":format!("Label {i}"),
+                "draw_list":[],"draw_list_scissor":true}),
+        })
+        .collect();
+    window["root"]["children"] = controls.into();
+    h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&window).unwrap());
+    h.run();
+    // (New errors opened the list.)
+    let marks = |h: &Harness<'_, Moonglow>, mark: &str| h.query_all_by_label(mark).count();
+    let errors = marks(&h, "Error");
+    assert!((3..30).contains(&errors), "{errors} lines of 600 errors are laid out");
+    assert_eq!(marks(&h, "Warning"), 0, "the errors come first");
+    assert!(h.query_by_label("Text input · Name 0 › Max").is_some());
+    assert!(h.query_by_label("Text input · Name 598 › Max").is_none(), "far down the list");
+    // Each on a line of its own, one under the other.
+    let tops: Vec<f32> = h.query_all_by_label("Error").map(|n| n.rect().top()).collect();
+    assert!(tops.windows(2).all(|t| t[1] - t[0] > 10.0 && t[1] - t[0] < 30.0), "{tops:?}");
+    h.get_by_label("Text input · Name 0 › Max").click();
+    h.run();
+    assert!(h.query_by_label("Placeholder").is_some(), "the text input's properties show");
+    // With the errors gone, the warnings are the lines, their fixes beside
+    // them: Turn It Off, of a draw list's clip.
+    let mut window = document(&h);
+    for control in window["root"]["children"].as_array_mut().unwrap() {
+        if control["type"] == "textedit" {
+            control["max"] = json!(40);
+            control["value"] = json!({"bind": "name"});
+        }
+    }
+    h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&window).unwrap());
+    h.run();
+    assert!(marks(&h, "Error") < 5, "the text inputs' errors are gone");
+    let fixes = marks(&h, "Turn It Off");
+    assert!((3..30).contains(&fixes), "{fixes} fixes in sight");
+    h.get_all_by_label("Turn It Off").next().unwrap().click();
+    h.run();
+    assert_eq!(document(&h)["root"]["children"][1]["draw_list_scissor"], false);
+}
+
 /// A problem's link, pressed and released in one frame while a field of
 /// another control is typed in, sets what was typed before it selects the
 /// problem's control (the link is drawn before the form).
