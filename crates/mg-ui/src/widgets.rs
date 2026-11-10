@@ -2226,6 +2226,17 @@ struct SpinRun {
     done: u32,
 }
 
+/// `v` one step `by` on, within `lo` to `hi`. A step from a number outside
+/// the range comes back into it, but never goes the other way (one less
+/// than 0 in 1 to 12 stays 0). A range given backwards (its start worked
+/// out from a file's number, past its end) is taken the right way round:
+/// `f64::clamp` panics on one.
+fn spin_step(v: f64, by: f64, lo: f64, hi: f64) -> f64 {
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    let to = (v + by).clamp(lo, hi);
+    if (to - v) * by > 0.0 { to } else { v }
+}
+
 /// [`spin_number`] by `step`, the field set up by `make` too (its speed,
 /// decimals, suffix).
 pub(crate) fn spin_with<T: egui::emath::Numeric>(
@@ -2235,13 +2246,7 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
     step: f64,
     make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
 ) -> Option<T> {
-    let (lo, hi) = (range.start().to_f64(), range.end().to_f64());
-    // A step from a number outside the range comes back into it, but
-    // never goes the other way (one less than 0 in 1 to 12 stays 0).
-    let stepped = |v: f64, by: f64| {
-        let to = (v + by).clamp(lo, hi);
-        if (to - v) * by > 0.0 { to } else { v }
-    };
+    let stepped = |v: f64, by: f64| spin_step(v, by, range.start().to_f64(), range.end().to_f64());
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         // (The field's own id: the next widget is the field.)
@@ -4659,6 +4664,19 @@ pub(crate) fn edit_script_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A range that runs backwards (the Levelup Wizard's for a class past
+    /// level 60, the review's B3) steps as the same range the right way
+    /// round, and doesn't panic.
+    #[test]
+    fn a_spin_field_s_step_takes_a_range_given_backwards() {
+        assert_eq!(spin_step(4.0, 1.0, 5.0, 3.0), 4.0 + 1.0);
+        assert_eq!(spin_step(5.0, 1.0, 5.0, 3.0), 5.0, "at its end");
+        assert_eq!(spin_step(70.0, 1.0, 61.0, 60.0), 70.0, "outside: never further out");
+        assert_eq!(spin_step(70.0, -1.0, 61.0, 60.0), 61.0, "outside: back into it");
+        assert_eq!(spin_step(0.0, -1.0, 1.0, 12.0), 0.0);
+        assert_eq!(spin_step(0.0, 1.0, 1.0, 12.0), 1.0);
+    }
 
     /// An object's or a location's variable, which the Variables window
     /// doesn't edit, is written back as it was: OK wrote every variable

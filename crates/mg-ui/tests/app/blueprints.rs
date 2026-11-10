@@ -3377,6 +3377,57 @@ fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
     assert_eq!(field(&mut h, &key).list("ClassList").unwrap()[0].integer("ClassLevel"), Some(1));
 }
 
+/// A class a file has past level 60 (another tool's): the wizard's level
+/// field had a range from 70 to 60, and drawing its arrows panicked (the
+/// review's B3).
+#[test]
+fn the_levelup_wizard_takes_a_class_past_level_sixty() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_70", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "level",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root().item("ClassList", 0),
+            label: "ClassLevel".into(),
+            value: Some(mg_gff::Value::Short(70)),
+        }],
+    )));
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    h.get_by_label("Levelup Wizard").click();
+    h.run();
+    assert_eq!(h.state().levelup.as_ref().expect("the wizard").slots[0].1, 70, "as it is");
+    // One less comes back to the most the wizard gives; one more does not
+    // go further out.
+    let last = |h: &Harness<'_, Moonglow>, glyph: &str| {
+        let arrow = h.query_all_by_label(glyph).last().expect("an arrow");
+        (arrow.rect().center(), arrow.accesskit_node().is_disabled())
+    };
+    assert!(last(&h, "⏶").1, "no more than it has");
+    let (down, off) = last(&h, "⏷");
+    assert!(!off);
+    h.hover_at(down);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: down,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    assert_eq!(h.state().levelup.as_ref().unwrap().slots[0].1, 60);
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.state().levelup.is_none());
+    let level = field(&mut h, &key).list("ClassList").unwrap()[0].integer("ClassLevel");
+    assert_eq!(level, Some(70), "the wizard takes no level away");
+}
+
 #[test]
 fn the_levelup_wizard_adds_a_class_with_its_spells_and_gear() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_wiz", ResType::UTC) else {

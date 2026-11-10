@@ -31,6 +31,10 @@ const CHANGED: [&str; 14] = [
     "Cha",
 ];
 
+/// The highest level the wizard levels a class up to (the game's, and
+/// `GameData::level_up`'s).
+const MAX_LEVEL: u32 = 60;
+
 /// The wizard's state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LevelupWizard {
@@ -133,7 +137,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.end_row();
                     for (i, (class, level, had)) in w.slots.iter_mut().enumerate() {
                         ui.label(name(*class));
-                        crate::widgets::spin_draft(ui, level, (*had).max(1)..=60, 1.0, |d| d)
+                        // (A class a file has past level 60 stays as it is.)
+                        let least = (*had).clamp(1, MAX_LEVEL);
+                        crate::widgets::spin_draft(ui, level, least..=MAX_LEVEL, 1.0, |d| d)
                             .on_hover_text("Adjust the level of this class");
                         // Classes the creature has stay.
                         if *had == 0
