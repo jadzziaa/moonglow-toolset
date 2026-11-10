@@ -2084,7 +2084,7 @@ mod tests {
         }
         let gone = user.join("not-there");
         assert_eq!(UserFolder::look(&gone), UserFolder { exists: false, aliased: Vec::new() });
-        let _ = egui::__run_test_ui(|ui| {
+        egui::__run_test_ui(|ui| {
             let now = std::time::Instant::now();
             assert_eq!(user_folder_seen(ui, &user, now), looked);
             // (Kept: the file gone is not seen yet.)
