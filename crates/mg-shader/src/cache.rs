@@ -288,7 +288,10 @@ void main ()
     }
 
     fn dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("mg-shader-cache-{name}-{}", std::process::id()));
+        // (Under target/test-output, not the system's temporary folder:
+        // a small RAM disk on the development machine. Not there yet:
+        // the cache makes its folder.)
+        let d = mg_testkit::test_output().join(format!("mg-shader-cache-{name}"));
         let _ = std::fs::remove_dir_all(&d);
         d
     }

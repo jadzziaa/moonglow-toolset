@@ -2947,6 +2947,7 @@ dependencies = [
  "glslang",
  "mg-core",
  "mg-resman",
+ "mg-testkit",
  "naga",
  "thiserror 2.0.21",
 ]
