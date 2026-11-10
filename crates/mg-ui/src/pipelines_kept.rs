@@ -65,15 +65,12 @@ pub fn read(path: &Path) -> Vec<String> {
 }
 
 /// Writes `lines` (the newest [`MOST`] of them, the earliest first) as
-/// the module's file at `path`.
+/// the module's file at `path`, whole or not at all.
 pub fn write(path: &Path, lines: &[String]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
     let lines = &lines[lines.len().saturating_sub(MOST)..];
     let mut text = lines.join("\n");
     text.push('\n');
-    std::fs::write(path, text)
+    mg_module::write_replacing(path, text.as_bytes())
 }
 
 impl Moonglow {
