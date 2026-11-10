@@ -458,7 +458,7 @@ pub fn generate(module: &Module, name: &str, build: &Build<'_>) -> Result<Genera
         .chain(callers.iter().flat_map(made))
         .chain([r.settings]);
     let edits = changed
-        .filter(|k| staged.get(k) != module.get(k))
+        .filter(|k| mg_edit::resource_differs(module, &staged, k))
         .map(|k| Edit::SetResource { key: k, data: staged.get(&k).map(<[u8]>::to_vec) })
         .collect();
     Ok(Generated {

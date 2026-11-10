@@ -101,13 +101,26 @@ impl Command {
 pub fn edits_between(before: &Module, after: &Module) -> Vec<Edit> {
     let changed = after
         .keys()
-        .filter(|k| after.get(k) != before.get(k))
+        .filter(|k| resource_differs(before, after, k))
         .map(|k| Edit::SetResource { key: *k, data: after.get(k).map(<[u8]>::to_vec) });
     let gone = before
         .keys()
         .filter(|k| !after.contains(k))
         .map(|k| Edit::SetResource { key: *k, data: None });
     changed.chain(gone).collect()
+}
+
+/// Whether resource `key` is another in module `b` than in `a` (or in one
+/// alone). A module made from another (a copy that work is staged on)
+/// shares what it did not set again, and what is shared is the same
+/// without its bytes being read: finding the three scripts a rename
+/// changed does not read a module of 600 MB twice.
+pub fn resource_differs(a: &Module, b: &Module, key: &ResKey) -> bool {
+    match (a.shared(key), b.shared(key)) {
+        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a != b,
+        (None, None) => false,
+        _ => true,
+    }
 }
 
 /// An open module with its parsed documents and edit history.
@@ -878,6 +891,37 @@ mod tests {
         g.root.items_mut(&git::CREATURE_LIST).push(c);
         m.set_gff(key("area", ResType::GIT), &g).unwrap();
         Workspace::new(m)
+    }
+
+    /// The edits between a module and a copy that work was staged on are
+    /// those of what the copy set again, removed or added, found without
+    /// reading what the two share: 4,000 resources of 32 MB (one
+    /// allocation, shared) would be 256 GB to compare.
+    #[test]
+    fn the_edits_between_a_module_and_its_copy_read_only_what_changed() {
+        let big: std::sync::Arc<[u8]> = vec![7u8; 32 << 20].into();
+        let mut before = Module::new();
+        let name = |i: usize| key(&format!("r{i:04}"), ResType::NSS);
+        for i in 0..4000 {
+            before.set(name(i), big.clone());
+        }
+        let mut after = before.clone();
+        after.set(name(7), b"changed".to_vec());
+        // (Set again to what it was: another allocation, the same bytes.)
+        after.set(name(8), vec![7u8; 32 << 20]);
+        after.remove(&name(9));
+        after.set(name(4000), b"new".to_vec());
+        let started = std::time::Instant::now();
+        let edits = edits_between(&before, &after);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        let set =
+            |i: usize, data: &[u8]| Edit::SetResource { key: name(i), data: Some(data.into()) };
+        let gone = Edit::SetResource { key: name(9), data: None };
+        assert_eq!(edits, [set(7, b"changed"), set(4000, b"new"), gone]);
+        assert!(edits_between(&before, &before.clone()).is_empty());
+        assert!(!resource_differs(&before, &after, &name(8)));
+        assert!(resource_differs(&before, &after, &name(9)));
+        assert!(!resource_differs(&before, &after, &name(5000)));
     }
 
     /// What the changes since a revision touched: each command's, undo's
