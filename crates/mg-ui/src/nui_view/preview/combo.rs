@@ -106,7 +106,7 @@ impl Renderer<'_> {
                 bar_response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, "Scroll the list")
                 });
-                let bar = Bar { strip, axis: 1, button: width, max, step: Some(23.0 * scale) };
+                let bar = Bar { strip, axis: 1, button: width, max };
                 let offset = scroll_by(ui, &bar_response, area.rect, &bar, kept * scale);
                 ui.data_mut(|d| d.insert_temp(scroll_id, offset / scale));
                 let p = ui.painter();
