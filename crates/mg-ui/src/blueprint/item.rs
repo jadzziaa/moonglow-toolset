@@ -968,14 +968,21 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                         // A kind's choices by name, as Aurora's tree has
                         // them (Specific Alignment's Chaotic Evil first,
                         // where its table begins with Lawful Good).
-                        let mut subtypes = mg_rules::by_name(game.property_subtypes(t, base));
+                        // (The list the game's data keeps, sorted once:
+                        // not named and sorted again each frame.)
+                        let all = game.property_subtypes_by_name(t, base);
+                        let mut subtypes = std::borrow::Cow::Borrowed(&all[..]);
                         // (A kind found by its own name shows all of its
                         // choices; else those found.)
                         if !needle.is_empty() && !has(&t.name) {
-                            subtypes.retain(|s| has(&format!("{} {}", t.name, s.text)));
-                            if subtypes.is_empty() {
+                            let found: Vec<mg_rules::Choice> = (all.iter())
+                                .filter(|s| has(&format!("{} {}", t.name, s.text)))
+                                .cloned()
+                                .collect();
+                            if found.is_empty() {
                                 continue;
                             }
+                            subtypes = std::borrow::Cow::Owned(found);
                         }
                         found += 1;
                         if subtypes.is_empty() {
@@ -994,7 +1001,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                                 .id_salt(("uti-type", key, t.row))
                                 .open((!needle.is_empty()).then_some(true))
                                 .show(ui, |ui| {
-                                    for s in &subtypes {
+                                    for s in subtypes.iter() {
                                         let sub = s.row as u16;
                                         let on = chosen == Some(t.row) && chosen_sub == Some(sub);
                                         let r = ui.selectable_label(on, &s.text);
@@ -1143,7 +1150,7 @@ fn property_editor(
             crate::widgets::field_label(ui, "Item Property");
             ui.strong(&t.name);
             ui.end_row();
-            let subtypes = game.property_subtypes(&t, base);
+            let subtypes = game.property_subtype_list(&t, base);
             if !subtypes.is_empty() {
                 crate::widgets::field_label(ui, "Sub-Property");
                 if let Some(v) =
@@ -1161,7 +1168,7 @@ fn property_editor(
                 }
                 ui.end_row();
             }
-            let costs = game.property_costs(p.cost_table, base);
+            let costs = game.property_cost_list(p.cost_table, base);
             if !costs.is_empty() {
                 crate::widgets::field_label(ui, "Cost Parameter");
                 if let Some(v) = super::situated::pick_ordered(
@@ -1178,7 +1185,7 @@ fn property_editor(
             if p.param1 != 255 {
                 // In the table's order, as Aurora lists them (iprp_damagetype's
                 // Bludgeoning to Sonic: captured 2026-10-30).
-                let params = game.property_params(p.param1);
+                let params = game.property_param_list(p.param1);
                 crate::widgets::field_label(ui, "Parameter 1");
                 if let Some(v) = super::situated::pick_ordered(
                     ui,

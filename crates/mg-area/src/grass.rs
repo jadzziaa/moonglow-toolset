@@ -160,7 +160,9 @@ pub fn tufts(
             ..Mesh::default()
         };
         let mut grown = Vec::new();
-        let on: Vec<&WalkFace> = faces.iter().filter(|f| f.material == *material).collect();
+        // (Faces that are no ground of a tile's are not there at all.)
+        let on: Vec<&WalkFace> =
+            faces.iter().filter(|f| f.material == *material && is_ground(f)).collect();
         let boxes: Vec<(Vec2, Vec2)> = on.iter().map(|f| flat_box(f)).collect();
         // (A clump's tufts, as many on average as the density gives its
         // ground.)
@@ -276,9 +278,23 @@ pub fn materials_of(
     out
 }
 
+/// A face's area, 0 for one that is not [`is_ground`].
 fn area(f: &WalkFace) -> f32 {
+    if is_ground(f) { raw_area(f) } else { 0.0 }
+}
+
+fn raw_area(f: &WalkFace) -> f32 {
     let [a, b, c] = f.corners;
     (b - a).cross(c - a).length() / 2.0
+}
+
+/// Whether a face can be a tile's ground: not larger than a tile, and
+/// every corner a number. One that is not grows nothing and counts for
+/// nothing: a walkmesh's corners are whatever its file says, and the
+/// clumps are as many as the ground is large.
+fn is_ground(f: &WalkFace) -> bool {
+    let area = raw_area(f);
+    area.is_finite() && area <= crate::TILE_SIZE * crate::TILE_SIZE
 }
 
 /// The share of the tufts `growing` asks for that a tile of walkmesh
@@ -718,6 +734,29 @@ mod tests {
         let dense = tufts("tst01_a01_01", 0, &faces, &[(3, look("grass", 50.0))]).unwrap();
         assert!(tuft_count(&dense) <= MAX_TUFTS + 20);
         assert!(tuft_count(&dense) > MAX_TUFTS * 9 / 10);
+    }
+
+    /// A walkmesh face a hak made a thousand kilometers wide, or with a
+    /// corner that is no number, is no tile's ground: it grows nothing,
+    /// and takes no time (its clumps were as many as its square meters,
+    /// by five).
+    #[test]
+    fn a_face_no_tile_has_grows_nothing() {
+        let wide = |x: f32| WalkFace {
+            corners: [Vec3::ZERO, Vec3::new(x, 0.0, 0.0), Vec3::new(0.0, x, 0.0)],
+            material: 3,
+        };
+        let grass = [(3, look("grass", 5.0))];
+        let started = std::time::Instant::now();
+        for x in [1e6, 1e9, 1e30, f32::INFINITY, f32::NAN] {
+            assert_eq!(tufts("tst", 0, &[wide(x)], &grass), None, "{x}");
+            // Beside a field, the field grows as it does alone.
+            let mut faces = field(3);
+            faces.push(wide(x));
+            let m = tufts("tst", 0, &faces, &grass).unwrap();
+            assert_eq!(Some(m), tufts("tst", 0, &field(3), &grass), "{x}");
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     /// Grass far off is drawn with the first of its tufts: they are spread

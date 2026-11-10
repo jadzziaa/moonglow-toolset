@@ -286,11 +286,10 @@ pub fn tile_height_edits(files: &AreaFiles, step: f32, heights: &[(usize, i32)])
     for kind in ObjectKind::ALL {
         for (index, s) in files.git_root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
             let o = AreaObject::placed(kind, index, s);
-            let (x, y) = (o.position.x / crate::TILE_SIZE, o.position.y / crate::TILE_SIZE);
-            if x < 0.0 || y < 0.0 || x as usize >= width {
+            let width = u32::try_from(width).unwrap_or(u32::MAX);
+            let Some(i) = crate::tile_at(width, list.len(), o.position.x, o.position.y) else {
                 continue;
-            }
-            let i = y as usize * width + x as usize;
+            };
             let Some(&(_, steps)) = moved.iter().find(|(t, _)| *t == i) else { continue };
             let to = o.position + Vec3::Z * (steps as f32 * step);
             edits.extend(move_edits(files.git, &o, s, to, o.rotation));

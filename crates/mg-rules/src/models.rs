@@ -228,7 +228,9 @@ pub fn item_models(uti: &Struct, baseitems: &TwoDa, cloaks: Option<&TwoDa>) -> V
 /// The models a body of parts' own parts name (its head and each body
 /// part numbered above 0) on its `skeletons` ([`skeletons`]).
 pub fn body_models(utc: &Struct, skeletons: &[String; 2]) -> Vec<Named> {
-    let number = |label: &str| utc.integer(label).unwrap_or(0);
+    // (The EE twin's number where there is one: a head past 255 is the
+    // head drawn, not head 255.)
+    let number = |label: &str| part_number(utc, label).unwrap_or(0);
     BODY_PARTS
         .iter()
         .map(|(part, field, _)| (*part, *field))
@@ -398,5 +400,15 @@ mod tests {
                 ("Appearance_Head", vec!["pme7_head003".to_string(), "pme0_head003".into()]),
             ]
         );
+        // A head and a part past 255: the EE twin's number beside the BYTE
+        // field's 255, as the preview draws them.
+        let wide = object(&[
+            ("Appearance_Head", 255),
+            ("xAppearance_Head", 300),
+            ("BodyPart_Neck", 255),
+            ("xBodyPart_Neck", 0),
+        ]);
+        let parts: Vec<_> = body_models(&wide, &skel).into_iter().map(|n| n.models).collect();
+        assert_eq!(parts, [vec!["pme7_head300".to_string(), "pme0_head300".into()]]);
     }
 }

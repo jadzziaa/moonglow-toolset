@@ -133,7 +133,7 @@ pub fn rename(module: &Module, from: &str, to: &str, literals: bool) -> Result<R
     keys.dedup();
     let edits = keys
         .into_iter()
-        .filter(|k| staged.get(k) != module.get(k))
+        .filter(|k| mg_edit::resource_differs(module, &staged, k))
         .map(|k| Edit::SetResource { key: k, data: staged.get(&k).map(<[u8]>::to_vec) })
         .collect();
     renamed.command = Command::new(format!("Rename {layout} to {}", new.layout), edits);

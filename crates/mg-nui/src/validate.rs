@@ -920,6 +920,42 @@ mod tests {
         assert_eq!(check(json!([spacer(json!({"bind":"clip"}))]), &bound), (true, false));
     }
 
+    /// An arc's center is its `c`, a point or a rectangle (the game draws
+    /// either): held to that as the other keys are, written in or from a
+    /// bind, where a handler's `set` on the bind is held to it too. A row
+    /// count written into the layout is a number.
+    #[test]
+    fn an_arc_s_center_and_a_row_count_are_held_to_their_kinds() {
+        let arc = |c: Value| {
+            let mut w = window();
+            w["root"]["draw_list"] = json!([{"type": 3, "enabled": true, "c": c,
+                "radius": 4.0, "amin": 0.0, "amax": 1.5}]);
+            w
+        };
+        let at = "/root/draw_list/0/c";
+        let wrong = |w: &Value, s: &Settings| errors(w, s).iter().any(|d| d.path == at);
+        let none = Settings::default();
+        assert!(!wrong(&arc(json!({"x": 10.0, "y": 12.0})), &none));
+        assert!(!wrong(&arc(json!({"x": 10.0, "y": 12.0, "w": 0.0, "h": 0.0})), &none));
+        assert!(wrong(&arc(json!(true)), &none));
+        assert!(wrong(&arc(json!({"x": "ten", "y": 12.0})), &none));
+        let bound = arc(json!({"bind": "center"}));
+        assert!(!wrong(&bound, &binds(&[("center", json!({"x": 1.0, "y": 2.0}))])));
+        assert!(wrong(&bound, &binds(&[("center", json!("middle"))])));
+        // (A line has no center.)
+        let list = |count: Value| {
+            with(json!([{"type": "list", "row_count": count, "row_height": 20.0,
+                "row_template": []}]))
+        };
+        let count_wrong = |w: &Value, s: &Settings| {
+            errors(w, s).iter().any(|d| d.path == "/root/children/0/row_count")
+        };
+        assert!(!count_wrong(&list(json!(3)), &none));
+        assert!(count_wrong(&list(json!([1, 2, 3])), &none), "an array is a bind's value");
+        let rows = binds(&[("rows", json!(["a", "b", "c"]))]);
+        assert!(!count_wrong(&list(json!({"bind": "rows"})), &rows));
+    }
+
     #[test]
     fn a_whole_window_variant_whose_last_draw_list_clips_is_an_error() {
         let mut s = Settings::default();

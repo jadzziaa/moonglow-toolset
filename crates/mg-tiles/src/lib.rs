@@ -101,11 +101,35 @@ pub struct TileIndex {
     max_height: i32,
 }
 
+/// The most height steps a corner is read as being up or down: a tileset's
+/// corner heights and an area's `Tile_Height` are whatever their files
+/// say, and work that goes a step at a time (a tile fitted at each height,
+/// Change Tileset raising a corner level by level) is bounded by it. (The
+/// area view holds `Tile_Height` to as much.)
+pub const MAX_HEIGHT: i32 = 1024;
+
 /// Tile corners are listed TopLeft, TopRight, BottomLeft, BottomRight
 /// (`mg_set::CORNERS`); these are their positions counter-clockwise from SW.
 const SET_CORNERS: [usize; 4] = [2, 3, 1, 0];
 /// Tile edges are listed Top, Right, Bottom, Left (`mg_set::EDGES`).
 const SET_EDGES: [usize; 4] = [2, 1, 0, 3];
+
+/// A tileset's tile as it lies turned `quarter_turns`, not raised: its
+/// corners (terrain and height) counter-clockwise from the south-west
+/// ([`SW`]) and its edges' crossers ("": none) counter-clockwise from the
+/// south ([`SOUTH`]), as the tileset names them. The one place a `.set`'s
+/// order of corners and edges becomes the grid's: the index is made of
+/// it, and so is the tile border.
+pub fn tile_sides(tile: &mg_set::Tile, quarter_turns: u8) -> ([(&str, i32); 4], [&str; 4]) {
+    let q = usize::from(quarter_turns % 4);
+    let (mut corners, mut edges) = ([("", 0); 4], [""; 4]);
+    for i in 0..4 {
+        let (name, height) = &tile.corners[SET_CORNERS[i]];
+        corners[(i + q) % 4] = (name.as_str(), *height);
+        edges[(i + q) % 4] = tile.edges[SET_EDGES[i]].as_str();
+    }
+    (corners, edges)
+}
 
 fn intern(names: &mut Vec<String>, name: &str) -> u16 {
     match names.iter().position(|n| n.eq_ignore_ascii_case(name)) {
@@ -134,15 +158,13 @@ impl TileIndex {
             .tiles
             .iter()
             .map(|t| {
-                let mut corner = |i: usize| {
-                    let (name, height) = &t.corners[SET_CORNERS[i]];
-                    Corner { terrain: Terrain(intern(&mut terrains, name)), height: *height }
-                };
-                let corners = [corner(0), corner(1), corner(2), corner(3)];
-                let edges = SET_EDGES.map(|i| {
-                    let name = &t.edges[i];
-                    (!name.is_empty()).then(|| Crosser(intern(&mut crossers, name)))
+                let (corners, edges) = tile_sides(t, 0);
+                let corners = corners.map(|(name, height)| {
+                    let height = height.clamp(-MAX_HEIGHT, MAX_HEIGHT);
+                    Corner { terrain: Terrain(intern(&mut terrains, name)), height }
                 });
+                let edges = edges
+                    .map(|name| (!name.is_empty()).then(|| Crosser(intern(&mut crossers, name))));
                 Cell { corners, edges }
             })
             .collect();
@@ -211,7 +233,7 @@ impl TileIndex {
     pub fn cell(&self, p: Placement) -> Option<Cell> {
         let mut cell = self.cells.get(p.tile as usize)?.turned(p.orientation);
         for c in &mut cell.corners {
-            c.height += p.height;
+            c.height = c.height.saturating_add(p.height);
         }
         Some(cell)
     }
@@ -255,6 +277,17 @@ impl TileIndex {
         x: u32,
         y: u32,
     ) -> Option<Vec<(u32, u32)>> {
+        self.group_found_at(tile, x, y).map(|(_, cells)| cells)
+    }
+
+    /// [`TileIndex::group_at`], with which of the tileset's groups it is
+    /// (its index): the one rule for "which group stands here".
+    pub fn group_found_at(
+        &self,
+        tile: &dyn Fn(i64, i64) -> Option<Placement>,
+        x: u32,
+        y: u32,
+    ) -> Option<(usize, Vec<(u32, u32)>)> {
         let here = tile(i64::from(x), i64::from(y))?;
         if !self.is_grouped(here.tile) {
             return None;
@@ -263,7 +296,7 @@ impl TileIndex {
         // Where slot `k` of a group of `columns` goes from its first cell,
         // turned as the group was (as `Grid::place_group` turns it).
         let offset = |k: usize, columns: u32| group_slot(k, columns, turns);
-        for (columns, tiles) in &self.groups {
+        for (group, (columns, tiles)) in self.groups.iter().enumerate() {
             for (k, _) in tiles.iter().enumerate().filter(|(_, t)| **t == Some(here.tile)) {
                 let (c, r) = offset(k, *columns);
                 let origin = (i64::from(x) - c, i64::from(y) - r);
@@ -281,7 +314,7 @@ impl TileIndex {
                     same
                 });
                 if whole {
-                    return Some(cells);
+                    return Some((group, cells));
                 }
             }
         }
@@ -293,10 +326,13 @@ impl TileIndex {
     pub fn fits(&self, cell: &Cell) -> Vec<Placement> {
         let low = cell.corners.iter().map(|c| c.height).min().unwrap_or(0);
         let mut out = Vec::new();
-        for raise in (low - self.max_height).max(0)..=low.max(0) {
+        // (A tile raised: from where its highest corner reaches the
+        // cell's lowest, up to the cell's lowest; as many tries as the
+        // tileset's tiles are high, at most.)
+        for raise in low.saturating_sub(self.max_height).max(0)..=low.max(0) {
             let mut lowered = *cell;
             for c in &mut lowered.corners {
-                c.height -= raise;
+                c.height = c.height.saturating_sub(raise);
             }
             if let Some(fits) = self.fits.get(&lowered) {
                 out.extend(fits.iter().map(|p| Placement { height: raise, ..*p }));
@@ -436,13 +472,21 @@ impl Lattice {
 
     /// The lattice a grid of placed tiles describes, and the cells whose
     /// tile disagrees with an earlier neighbour about a shared corner or
-    /// edge (their own values win). `None` if a tile is not in the tileset.
+    /// edge (their own values win). `None` if a tile is not in the tileset,
+    /// or if there are fewer tiles than the size asks for: the size is a
+    /// number a file gives, and nothing is made that large before the
+    /// tiles are counted (so an area a side of which is 0 has no lattice
+    /// either, unless both are).
     pub fn from_tiles(
         index: &TileIndex,
         width: u32,
         height: u32,
         tiles: &[Placement],
     ) -> Option<(Lattice, Vec<(u32, u32)>)> {
+        let cells = (width as usize).checked_mul(height as usize)?;
+        if tiles.len() < cells || (cells == 0 && (width != 0 || height != 0)) {
+            return None;
+        }
         let fill = Corner { terrain: Terrain(0), height: 0 };
         let mut lattice = Lattice::new(width, height, fill);
         let mut set_corners = vec![false; lattice.corners.len()];
@@ -451,7 +495,7 @@ impl Lattice {
         let mut mismatches = Vec::new();
         for y in 0..height {
             for x in 0..width {
-                let cell = index.cell(*tiles.get((y * width + x) as usize)?)?;
+                let cell = index.cell(*tiles.get(y as usize * width as usize + x as usize)?)?;
                 let mut bad = false;
                 for (i, (cx, cy)) in
                     [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)].into_iter().enumerate()
@@ -582,6 +626,36 @@ mod tests {
         assert_eq!(cell.turned(1).turned(3), cell);
     }
 
+    /// A tile's corners and edges as the grid has them, from the `.set`'s
+    /// own order (TopLeft, TopRight, BottomLeft, BottomRight; Top, Right,
+    /// Bottom, Left), turned as the tile lies: what the index holds.
+    #[test]
+    fn a_tile_s_sides_are_the_index_s() {
+        let text = SET.replace(
+            "[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=B\nBottomRight=A\n",
+            "[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=B\nBottomRight=A\n\
+             BottomLeftHeight=1\nTop=Road\nLeft=Stream\n",
+        );
+        assert_ne!(text, SET);
+        let set = Tileset::parse(text.as_bytes(), Codepage::WINDOWS_1252).unwrap();
+        let (corners, edges) = tile_sides(&set.tiles[1], 0);
+        assert_eq!(corners, [("B", 1), ("A", 0), ("A", 0), ("A", 0)], "from the south-west");
+        assert_eq!(edges, ["", "", "Road", "Stream"], "from the south");
+        let (corners, edges) = tile_sides(&set.tiles[1], 1);
+        assert_eq!(corners[SE], ("B", 1));
+        assert_eq!((edges[WEST], edges[SOUTH]), ("Road", "Stream"));
+        let index = TileIndex::new(&set);
+        for turns in 0..4 {
+            let (corners, edges) = tile_sides(&set.tiles[1], turns);
+            let cell = index.cell(Placement { tile: 1, orientation: turns, height: 0 }).unwrap();
+            for i in 0..4 {
+                let c = cell.corners[i];
+                assert_eq!((index.terrain_name(c.terrain), c.height), corners[i]);
+                assert_eq!(cell.edges[i].map_or("", |e| index.crosser_name(e)), edges[i]);
+            }
+        }
+    }
+
     #[test]
     fn group_tiles_do_not_fit_terrain() {
         let index = TileIndex::new(&set());
@@ -640,6 +714,57 @@ mod tests {
         lattice.set_corner(1, 1, Corner { terrain: b, height: 0 });
         let err = fill(&index, &lattice, &mut fastrand::Rng::with_seed(1)).unwrap_err();
         assert_eq!(err, TilesError::NoTile { x: 0, y: 0 });
+    }
+
+    /// A size no list of tiles stands behind (an ARE's `Width` and
+    /// `Height` are whatever the file says) makes no lattice, and is
+    /// refused before anything of that size is allocated.
+    #[test]
+    fn a_size_without_its_tiles_makes_no_lattice() {
+        let index = TileIndex::new(&set());
+        let one = Placement { tile: 0, orientation: 0, height: 0 };
+        assert!(Lattice::from_tiles(&index, u32::MAX, u32::MAX, &[]).is_none());
+        assert!(Lattice::from_tiles(&index, 100_000, 100_000, &[one]).is_none());
+        assert!(Lattice::from_tiles(&index, i32::MAX as u32, i32::MAX as u32, &[one]).is_none());
+        assert!(Lattice::from_tiles(&index, u32::MAX, 0, &[]).is_none());
+        assert!(Lattice::from_tiles(&index, 0, 100_000, &[one]).is_none());
+        assert!(paint::Grid::new(&index, u32::MAX, u32::MAX, Vec::new()).is_none());
+        assert!(paint::Grid::new(&index, 100_000, 100_000, vec![one]).is_none());
+        // An area of no tiles is still one, and a list may run on.
+        assert!(Lattice::from_tiles(&index, 0, 0, &[]).is_some());
+        assert!(Lattice::from_tiles(&index, 1, 1, &[one, one]).is_some());
+    }
+
+    /// Heights are numbers files give: a tileset's corner 2 billion up is
+    /// read as [`MAX_HEIGHT`], a cell that high is fitted in as many tries
+    /// as the tileset is high, and a tile raised past what an `i32` holds
+    /// neither wraps nor panics.
+    #[test]
+    fn heights_from_files_are_bounded() {
+        let high = SET.replace(
+            "[TILE1]\nModel=t1\nTopLeft=A",
+            "[TILE1]\nModel=t1\nTopLeftHeight=2000000000\nBottomRightHeight=-2000000000\nTopLeft=A",
+        );
+        assert_ne!(high, SET);
+        let set = Tileset::parse(high.as_bytes(), Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(set.tiles[1].corners[0].1, 2_000_000_000);
+        let index = TileIndex::new(&set);
+        let cell = index.cell(Placement { tile: 1, orientation: 0, height: 0 }).unwrap();
+        let heights = cell.corners.map(|c| c.height);
+        assert_eq!(heights.iter().max(), Some(&MAX_HEIGHT));
+        assert_eq!(heights.iter().min(), Some(&-MAX_HEIGHT));
+        let up = index.cell(Placement { tile: 1, orientation: 0, height: i32::MAX }).unwrap();
+        assert_eq!(up.corners.map(|c| c.height).iter().max(), Some(&i32::MAX));
+        // A cell every corner of which is as high as an `i32` goes, and
+        // one as low: looked up in a moment, not once a step.
+        let a = index.terrain("A").unwrap();
+        let started = std::time::Instant::now();
+        for height in [i32::MAX, i32::MIN, 2_000_000_000] {
+            let cell = Cell { corners: [Corner { terrain: a, height }; 4], edges: [None; 4] };
+            let fits = index.fits(&cell);
+            assert_eq!(fits.len(), if height > 0 { 4 } else { 0 }, "{height}: {fits:?}");
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     /// Corners run to the width and height, cells to one less: past them

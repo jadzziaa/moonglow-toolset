@@ -35,6 +35,33 @@ pub use items::{ItemProperty, ItemValue};
 pub use objects::ObjectKind;
 pub use spell_warnings::{SpellSlots, SpellWarning};
 
+// Numbers a file gives (a GFF field of any integer type, a 2DA's cell),
+// brought into what holds them here without `as`: one that does not fit
+// is the nearest that does, never the number its low bits spell, which is
+// another row's.
+
+/// A row of a table (or a count): 0 for a negative number, the largest
+/// for one past a `u32`.
+pub(crate) fn row(v: i64) -> u32 {
+    u32::try_from(v.max(0)).unwrap_or(u32::MAX)
+}
+
+/// A WORD's worth: the largest (a row no table has) for a number outside
+/// it.
+pub(crate) fn word(v: i64) -> u16 {
+    u16::try_from(v).unwrap_or(u16::MAX)
+}
+
+/// A BYTE's worth: the largest for a number outside it.
+pub(crate) fn byte(v: i64) -> u8 {
+    u8::try_from(v).unwrap_or(u8::MAX)
+}
+
+/// A number held to `lo..=hi`, a field's range.
+pub(crate) fn held(v: i64, lo: i32, hi: i32) -> i32 {
+    v.clamp(i64::from(lo), i64::from(hi)) as i32
+}
+
 #[derive(Debug, Error)]
 pub enum RulesError {
     #[error(transparent)]
@@ -112,8 +139,9 @@ pub struct ChoiceColumns<'a> {
 
 type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
 
-/// An appearance list's kind of object, its length and first row's name.
-type MarkedKey = (ObjectKind, usize, Option<String>);
+/// An appearance list's kind of object, its length and a hash of its rows
+/// (each row's number and name: `appearance::rows_hash`).
+type MarkedKey = (ObjectKind, usize, u64);
 
 /// What looking up a 2DA found, kept until [`GameData::invalidate`]. (A
 /// read that failed on I/O is not kept: it may succeed next time.)
@@ -146,6 +174,11 @@ pub struct GameData {
     /// ([`appearance_problems`](Self::appearance_problems)), by the kind
     /// of object and the fields that bear on it.
     judged: RwLock<HashMap<appearance::JudgedKey, Arc<Vec<appearance::ModelProblem>>>>,
+    /// The item property lists made so far (`items.rs`): a table's named
+    /// rows, by the table and by which of them and in what order; and the
+    /// property types of each itemprops.2da column.
+    named: RwLock<HashMap<String, Vec<items::NamedList>>>,
+    property_types: RwLock<HashMap<i32, Arc<Vec<items::PropertyType>>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -250,6 +283,8 @@ impl GameData {
             choices: RwLock::new(HashMap::new()),
             marked: RwLock::new(HashMap::new()),
             judged: RwLock::new(HashMap::new()),
+            named: RwLock::new(HashMap::new()),
+            property_types: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
         }
     }
@@ -260,6 +295,8 @@ impl GameData {
         // (The lists name rows by its strings.)
         self.choices.get_mut().expect("choice cache poisoned").clear();
         self.marked.get_mut().expect("marked cache poisoned").clear();
+        self.named.get_mut().expect("named cache poisoned").clear();
+        self.property_types.get_mut().expect("property type cache poisoned").clear();
     }
 
     pub fn custom_tlk(&self) -> Option<&Tlk> {
@@ -286,6 +323,8 @@ impl GameData {
         self.choices.write().expect("choice cache poisoned").clear();
         self.marked.write().expect("marked cache poisoned").clear();
         self.judged.write().expect("judged cache poisoned").clear();
+        self.named.write().expect("named cache poisoned").clear();
+        self.property_types.write().expect("property type cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
     }
 
@@ -443,6 +482,20 @@ impl GameData {
         self.choices.write().expect("choice cache poisoned").insert(key, out.clone());
         Ok(out)
     }
+}
+
+/// The game's data with only `tables` (each a name and what follows a
+/// 2DA's header), for the tests of what is worked out of them.
+#[cfg(test)]
+pub(crate) fn test_game(tables: &[(&str, &str)]) -> GameData {
+    let mut mem = mg_resman::MemContainer::new();
+    for (name, body) in tables {
+        let text = format!("2DA V2.0\n\n{body}");
+        mem.insert(ResKey::parse(name, ResType::TWODA).unwrap(), text.as_bytes());
+    }
+    let mut rm = ResMan::new();
+    rm.add(mg_resman::priority::KEY, "mem", mg_resman::LayerClass::Key, mem);
+    GameData::new(rm, Tlk::new(Language::ENGLISH))
 }
 
 #[cfg(test)]

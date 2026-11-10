@@ -13,8 +13,8 @@ use mg_mdl::walkmesh::{DoorState, WalkmeshKind};
 use mg_mdl::{MeshExtra, Model, NodeKind};
 use mg_rules::GameData;
 
+use crate::AreaModel;
 use crate::pick::Ray;
-use crate::{AreaModel, TILE_SIZE};
 
 /// A walkmesh triangle.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -223,12 +223,7 @@ impl Ground {
 
     /// The tile index at a point, if it is inside the area.
     fn tile_at(&self, p: Vec2) -> Option<usize> {
-        if p.x < 0.0 || p.y < 0.0 || self.width == 0 {
-            return None;
-        }
-        let (x, y) = ((p.x / TILE_SIZE) as u32, (p.y / TILE_SIZE) as u32);
-        let i = (y * self.width + x) as usize;
-        (x < self.width && i < self.tiles.len()).then_some(i)
+        crate::tile_at(self.width, self.tiles.len(), p.x, p.y)
     }
 
     /// Tile `index`'s ground level ([`Walkmesh::level`], in the area's

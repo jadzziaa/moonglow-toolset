@@ -12,7 +12,7 @@ use mg_module::Module;
 use mg_resman::{ResKey, ResMan};
 use serde_json::Value;
 
-use super::{Settings, resolved};
+use super::Settings;
 
 #[derive(Clone)]
 pub(super) struct Picture {
@@ -500,39 +500,10 @@ fn other(bytes: &[u8], format: image::ImageFormat) -> Result<egui::ColorImage, S
     ))
 }
 
+/// The pictures layout `v` shows (not its variants'), added to `out`:
+/// `mg_nui::image_names_in`, the one walk for them.
 pub(super) fn names(v: &Value, s: &Settings, out: &mut BTreeSet<String>) {
-    fn add(v: &Value, s: &Settings, out: &mut BTreeSet<String>) {
-        let v = resolved(v, s);
-        if let Some(a) = v.as_array() {
-            for v in a {
-                add(v, s, out);
-            }
-        }
-        if let Some(name) = v.as_str().filter(|n| !n.is_empty()) {
-            out.insert(name.to_lowercase());
-        }
-    }
-    match v["type"].as_str() {
-        Some("image") => add(&v["value"], s, out),
-        Some("button_image") => add(&v["label"], s, out),
-        _ => {}
-    }
-    if let Some(v) = v.get("image") {
-        add(v, s, out);
-    }
-    match v {
-        Value::Object(o) => {
-            for v in o.values() {
-                names(v, s, out);
-            }
-        }
-        Value::Array(a) => {
-            for v in a {
-                names(v, s, out);
-            }
-        }
-        _ => {}
-    }
+    mg_nui::image_names_in(v, s, out);
 }
 
 impl Assets {

@@ -88,9 +88,7 @@ fn part(item: &Struct, label: &str) -> i64 {
 /// Whether an item's icon is an armor's, of parts (baseitems.2da
 /// `ModelType` 3).
 fn is_armor(game: &GameData, item: &Struct) -> bool {
-    let Ok(t) = game.table("baseitems") else { return false };
-    usize::try_from(item.integer("BaseItem").unwrap_or(-1))
-        .is_ok_and(|row| t.get_int(row, "ModelType") == Some(3))
+    u32::try_from(item.integer("BaseItem").unwrap_or(-1)).is_ok_and(|row| game.is_armor(row))
 }
 
 /// Where a resource comes from in the load order, as a builder names it,

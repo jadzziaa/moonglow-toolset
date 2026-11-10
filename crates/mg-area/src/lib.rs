@@ -132,19 +132,11 @@ impl TileFeatures {
     /// are the same in the game's tilesets), case aside.
     pub fn of(model: &mg_mdl::Model, resref: &str) -> TileFeatures {
         // (A main light is a light node; a source light's place any node.)
-        let has = |suffix: &str, light: bool| {
-            model.nodes.iter().any(|n| {
-                let named = [model.name.as_str(), resref].iter().any(|base| {
-                    n.name.len() == base.len() + suffix.len()
-                        && n.name.get(..base.len()).is_some_and(|b| b.eq_ignore_ascii_case(base))
-                        && n.name.get(base.len()..).is_some_and(|s| s.eq_ignore_ascii_case(suffix))
-                });
-                named && (!light || matches!(n.kind, mg_mdl::NodeKind::Light(_)))
-            })
-        };
+        let has = |suffix: &str, light: bool| named_node(model, resref, suffix, light).is_some();
+        let source = |slot: usize| source_light_node(model, resref, slot).is_some();
         TileFeatures {
             main: [has("ml1", true), has("ml2", true)],
-            source: [has("sl1", false), has("sl2", false)],
+            source: [source(1), source(2)],
             loops: ["animloop01", "animloop02", "animloop03"].map(|a| model.animation(a).is_some()),
             replace: model.draws_texture(REPLACE_TEX),
         }
@@ -413,7 +405,47 @@ impl AreaObject {
     }
 }
 
-/// The door hooks of `tiles` (with the tileset they are from).
+/// The index of the tile under the point (`x`, `y`) of an area of `tiles`
+/// tiles laid `width` to a row from the south-west; `None` outside it
+/// (west or south of it, past its width or its last tile, or for a
+/// coordinate that is no number). The one place a point becomes a tile:
+/// a point far off wraps onto no row.
+pub fn tile_at(width: u32, tiles: usize, x: f32, y: f32) -> Option<usize> {
+    if !(x >= 0.0 && y >= 0.0) {
+        return None;
+    }
+    // (A float past a `u32` becomes the largest one.)
+    let (column, row) = ((x / TILE_SIZE) as u32, (y / TILE_SIZE) as u32);
+    let i = (row as usize).checked_mul(width as usize)?.checked_add(column as usize)?;
+    (column < width && i < tiles).then_some(i)
+}
+
+/// The node of tile model `model` (read from resource `resref`) where
+/// source light `slot` (1 or 2) has its flame: the one named
+/// `<model>sl1` or `<model>sl2`, after the model's own name or the
+/// resource's (the same in the game's tilesets), case aside. What Tile
+/// Properties enables a source light by and where the area's view puts
+/// its flame are this one node: one that only ends in `sl1` (`torchesl1`)
+/// is not it.
+pub fn source_light_node(model: &mg_mdl::Model, resref: &str, slot: usize) -> Option<usize> {
+    named_node(model, resref, &format!("sl{slot}"), false)
+}
+
+/// The node of `model` named `<model><suffix>` (by its own name or by
+/// `resref`), a light node if `light`.
+fn named_node(model: &mg_mdl::Model, resref: &str, suffix: &str, light: bool) -> Option<usize> {
+    model.nodes.iter().position(|n| {
+        let named = [model.name.as_str(), resref].iter().any(|base| {
+            n.name.len() == base.len() + suffix.len()
+                && n.name.get(..base.len()).is_some_and(|b| b.eq_ignore_ascii_case(base))
+                && n.name.get(base.len()..).is_some_and(|s| s.eq_ignore_ascii_case(suffix))
+        });
+        named && (!light || matches!(n.kind, mg_mdl::NodeKind::Light(_)))
+    })
+}
+
+/// The door hooks of `tiles` (with the tileset they are from), each
+/// where `mg_edit::terrain::hooks` puts it.
 fn tiles_hooks(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<DoorHook> {
     let Some(set) = tileset else { return Vec::new() };
     let mut out = Vec::new();
@@ -421,18 +453,13 @@ fn tiles_hooks(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<DoorHook> {
         let Some(tile) = usize::try_from(t.id).ok().and_then(|i| set.tiles.get(i)) else {
             continue;
         };
-        let to = t.transform();
-        for d in &tile.doors {
-            let turn = f32::from(t.orientation) * 90.0;
-            let degrees = (d.orientation + turn).rem_euclid(360.0);
-            let degrees = if degrees > 180.0 { degrees - 360.0 } else { degrees };
-            out.push(DoorHook {
-                tile: t.index,
-                door_type: d.door_type,
-                position: to.transform_point3(Vec3::from_array(d.position)),
-                bearing: degrees.to_radians(),
-            });
-        }
+        let hooks = mg_edit::terrain::hooks(tile, t.position, t.orientation);
+        out.extend(hooks.map(|(door_type, position, bearing)| DoorHook {
+            tile: t.index,
+            door_type,
+            position,
+            bearing,
+        }));
     }
     out
 }
@@ -718,11 +745,8 @@ impl AreaModel {
     /// has a hook in each, facing opposite ways: Aurora takes the one of
     /// the tile under the pointer).
     pub fn hook_near(&self, p: Vec3, reach: f32) -> Option<&DoorHook> {
-        let tile = (p.x >= 0.0 && p.y >= 0.0).then(|| {
-            let (x, y) = ((p.x / TILE_SIZE) as u32, (p.y / TILE_SIZE) as u32);
-            (x < self.width).then_some((y * self.width + x) as usize)
-        });
-        let on_tile = |h: &DoorHook| tile.flatten() == Some(h.tile);
+        let tile = tile_at(self.width, self.tiles.len(), p.x, p.y);
+        let on_tile = |h: &DoorHook| tile == Some(h.tile);
         self.hooks
             .iter()
             .map(|h| (h, (h.position - p).truncate().length()))
@@ -918,6 +942,50 @@ doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
         let other = TileFeatures { loops: [true, false, false], ..none };
         assert_eq!(TileFeatures::union([has, other]).loops, [true, true, false]);
         assert!(!has.replace, "no mesh drawn with replace_tex");
+        // Where the flame goes is the node Tile Properties enables the
+        // light by: the tile's own `sl2`, not the first node that ends so.
+        let name = |i: usize| model.nodes[i].name.to_ascii_lowercase();
+        assert_eq!(
+            source_light_node(&model, "tst01_a01_01", 2).map(name),
+            Some("tst01_a01_01sl2".into())
+        );
+        assert_eq!(source_light_node(&model, "tst01_a01_01", 1), None);
+        let with_torches = text.replace(
+            "node dummy TST01_A01_01SL2\n",
+            "node dummy torchesl2\n  parent tst01_a01_01\nendnode\nnode dummy xsl1\n  \
+             parent tst01_a01_01\nendnode\nnode dummy TST01_A01_01SL2\n",
+        );
+        let model = mg_mdl::Model::read(with_torches.as_bytes()).unwrap();
+        let name = |i: usize| model.nodes[i].name.to_ascii_lowercase();
+        assert!(model.nodes.iter().any(|n| n.name.eq_ignore_ascii_case("torchesl2")));
+        assert_eq!(
+            source_light_node(&model, "tst01_a01_01", 2).map(name),
+            Some("tst01_a01_01sl2".into())
+        );
+        assert_eq!(source_light_node(&model, "tst01_a01_01", 1), None, "`xsl1` is not its `sl1`");
+        assert_eq!(TileFeatures::of(&model, "tst01_a01_01").source, [false, true]);
+    }
+
+    /// The tile under a point, of an area 4 wide and 3 high: none past
+    /// any edge, nor for a point so far north that its row times the
+    /// width is past what a `u32` holds (it came out as a tile of row 0).
+    #[test]
+    fn the_tile_under_a_point_is_inside_the_area() {
+        let at = |x: f32, y: f32| tile_at(4, 12, x, y);
+        assert_eq!(at(0.0, 0.0), Some(0));
+        assert_eq!(at(39.9, 29.9), Some(11));
+        assert_eq!(at(15.0, 25.0), Some(9));
+        for (x, y) in [(-0.1, 5.0), (5.0, -0.1), (40.0, 5.0), (5.0, 30.0), (1e12, 5.0)] {
+            assert_eq!(at(x, y), None, "({x}, {y})");
+        }
+        assert_eq!(at(5.0, 1.3e10), None, "far north");
+        assert_eq!(at(5.0, 4.294_967_3e10), None);
+        assert_eq!(at(f32::NAN, 5.0), None);
+        assert_eq!(at(5.0, f32::INFINITY), None);
+        assert_eq!(tile_at(0, 0, 5.0, 5.0), None);
+        assert_eq!(tile_at(u32::MAX, usize::MAX, 5.0e10, 5.0e10), None);
+        // (A list shorter than the size says: no tile past its last.)
+        assert_eq!(tile_at(4, 6, 5.0, 25.0), None);
     }
 
     /// A tile model has a replacement texture where a mesh's bitmap is

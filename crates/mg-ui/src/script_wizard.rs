@@ -238,7 +238,8 @@ impl ScriptWizard {
     /// The action from the pages ticked.
     pub fn to_action(&self) -> ActionScript {
         let on = |i| self.on(i);
-        let amount = |s: &str| s.trim().parse::<u32>().ok().filter(|&n| n > 0);
+        // (From 1 to what a script's `int` holds.)
+        let amount = mg_module::script_wizard::amount;
         let rewards = on(0);
         let take = on(1);
         ActionScript {

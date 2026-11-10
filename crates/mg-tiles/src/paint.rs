@@ -137,7 +137,8 @@ impl Grid {
 
     /// Where cell (x, y)'s tile is in the list; `None` outside the grid.
     fn slot(&self, x: u32, y: u32) -> Option<usize> {
-        self.lattice.has_cell(x, y).then(|| (y * self.lattice.width() + x) as usize)
+        (self.lattice.has_cell(x, y))
+            .then(|| y as usize * self.lattice.width() as usize + x as usize)
     }
 
     /// Whether the tile in cell (x, y) is a group's, which changes only
@@ -149,7 +150,10 @@ impl Grid {
 
     /// The groups that `changes` (cells and their new tiles) would leave
     /// part of: each as the cells it has, where it is whole now. A group
-    /// they take away whole, or don't touch, is not one of them.
+    /// they take away whole, or don't touch, is not one of them. (Touched:
+    /// a cell of it gets another tile. Taken whole: every cell of it is
+    /// among the changes, also one whose new tile is the one it has, as
+    /// where a group placed over another shares a tile with it.)
     pub fn groups_broken(
         &self,
         index: &TileIndex,
@@ -158,13 +162,14 @@ impl Grid {
         let changed = |c: (u32, u32)| {
             changes.iter().any(|&(at, p)| at == c && Some(p) != self.get_tile(c.0, c.1))
         };
+        let covered = |c: (u32, u32)| changes.iter().any(|&(at, _)| at == c);
         let mut out: Vec<Vec<(u32, u32)>> = Vec::new();
         for &((x, y), _) in changes {
             if !changed((x, y)) || out.iter().any(|g| g.contains(&(x, y))) {
                 continue;
             }
             if let Some(cells) = self.group_cells(index, x, y)
-                && !cells.iter().all(|&c| changed(c))
+                && !cells.iter().all(|&c| covered(c))
             {
                 out.push(cells);
             }
@@ -338,11 +343,44 @@ impl Grid {
     /// The cells of the group that has a tile at (x, y), where it is
     /// whole ([`TileIndex::group_at`]).
     pub fn group_cells(&self, index: &TileIndex, x: u32, y: u32) -> Option<Vec<(u32, u32)>> {
+        self.group_found(index, x, y).map(|(_, cells)| cells)
+    }
+
+    /// [`Grid::group_cells`], with which of the tileset's groups it is.
+    pub fn group_found(
+        &self,
+        index: &TileIndex,
+        x: u32,
+        y: u32,
+    ) -> Option<(usize, Vec<(u32, u32)>)> {
         let (w, h) = (i64::from(self.lattice.width()), i64::from(self.lattice.height()));
         let tile = |cx: i64, cy: i64| {
             (cx >= 0 && cy >= 0 && cx < w && cy < h).then(|| self.tile(cx as u32, cy as u32))
         };
-        index.group_at(&tile, x, y)
+        index.group_found_at(&tile, x, y)
+    }
+
+    /// The groups placed in the grid, each once, where it is whole: the
+    /// group (its index in the tileset) and its cells.
+    pub fn groups(&self, index: &TileIndex) -> Vec<(usize, Vec<(u32, u32)>)> {
+        let (w, h) = (self.lattice.width(), self.lattice.height());
+        let mut seen = vec![false; self.tiles.len()];
+        let mut out = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                if self.slot(x, y).is_some_and(|i| seen.get(i) == Some(&false))
+                    && let Some((group, cells)) = self.group_found(index, x, y)
+                {
+                    for &(cx, cy) in &cells {
+                        if let Some(slot) = self.slot(cx, cy).and_then(|i| seen.get_mut(i)) {
+                            *slot = true;
+                        }
+                    }
+                    out.push((group, cells));
+                }
+            }
+        }
+        out
     }
 
     /// [`Grid::erase`] taking from cell (x, y) only crosser `only` (a road,
@@ -1299,7 +1337,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
     fn a_group_placed_exactly_changes_its_cells_alone() {
         let mut set = set();
         let n = set.tiles.len() as u32;
-        for model in ["hut_w", "hut_e", "pond"] {
+        for model in ["hut_w", "hut_e", "pond", "barn_e"] {
             let mut t = set.tiles[15].clone();
             t.model = model.into();
             set.tiles.push(t);
@@ -1313,7 +1351,9 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         };
         let hut = group("Hut", vec![Some(n), Some(n + 1)]);
         let pond = group("Pond", vec![Some(n + 2)]);
-        set.groups.extend([hut.clone(), pond.clone()]);
+        // (A barn whose west tile is the hut's.)
+        let barn = group("Barn", vec![Some(n), Some(n + 3)]);
+        set.groups.extend([hut.clone(), pond.clone(), barn.clone()]);
         let index = TileIndex::new(&set);
         let mut g = grid(&index, 5);
         // (A step up under where the hut goes.)
@@ -1362,6 +1402,15 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
         assert_eq!(g.blocked(), [(0, 4), (1, 4)]);
         assert!(g.place_group_exact(&index, &hut, 0, 4, 0).is_some());
+        // Over all of it by a group that shares a tile with it in one
+        // cell (the barn, whose west tile is the hut's): the hut goes
+        // whole all the same, though that cell's tile stays as it is.
+        let s = g.place_group_exact(&index, &barn, 0, 4, 0);
+        assert_eq!(g.blocked(), []);
+        put(&mut g, s);
+        assert_eq!(g.group_found(&index, 1, 4), Some((2, vec![(0, 4), (1, 4)])));
+        // (And half over the barn is refused, as over the hut.)
+        assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
     }
 
     #[test]

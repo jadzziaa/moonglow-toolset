@@ -232,21 +232,12 @@ pub fn retile(
         .flat_map(|y| (0..w).map(move |x| (x, y)))
         .map(|(x, y)| {
             let p = grid.tile(x, y);
-            let old_tile = old_list.get((y * w + x) as usize);
+            let old_tile = old_list.get(y as usize * w as usize + x as usize);
             let byte =
                 |l: &str| old_tile.and_then(|t| t.integer(l)).unwrap_or(0).clamp(0, 255) as u8;
-            let loops = new.set.tiles.get(p.tile as usize).map_or([false; 3], |t| t.anim_loops);
-            let mut s = Struct::new(1);
-            s.set("Tile_ID", Value::Int(p.tile as i32));
-            s.set("Tile_Orientation", Value::Int(i32::from(p.orientation)));
-            s.set("Tile_Height", Value::Int(p.height));
-            for l in ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"] {
-                s.set(l, Value::Byte(byte(l)));
-            }
-            for (k, on) in loops.into_iter().enumerate() {
-                s.set(&format!("Tile_AnimLoop{}", k + 1), Value::Byte(u8::from(on)));
-            }
-            s
+            let lights = ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"]
+                .map(byte);
+            crate::terrain::tile_struct(new.set, p, lights)
         })
         .collect();
     let set_field = |key: ResKey, label: &str, value: Value| Edit::SetField {

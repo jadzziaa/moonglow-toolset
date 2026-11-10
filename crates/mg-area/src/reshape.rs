@@ -19,7 +19,7 @@ use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
 use mg_set::Tileset;
 use mg_tiles::paint::Grid;
-use mg_tiles::{Lattice, Placement, TileIndex};
+use mg_tiles::{Lattice, TileIndex};
 
 use crate::{ObjectKind, TILE_SIZE};
 
@@ -31,59 +31,12 @@ pub struct Reshaped {
     pub deleted: usize,
 }
 
-/// The placed groups in a grid: the group (index in the tileset) and the
-/// cells of its tiles.
-pub fn groups_in(index: &TileIndex, set: &Tileset, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
-    let (w, h) = (grid.lattice.width() as i64, grid.lattice.height() as i64);
-    let mut out: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
-    for y in 0..h {
-        for x in 0..w {
-            let p = grid.tile(x as u32, y as u32);
-            if !index.is_grouped(p.tile) {
-                continue;
-            }
-            'groups: for (g, group) in set.groups.iter().enumerate() {
-                if group.tiles.first().copied().flatten() != Some(p.tile) {
-                    continue;
-                }
-                let mut cells = Vec::new();
-                for (k, tile) in group.tiles.iter().enumerate() {
-                    let (c, r) = mg_tiles::group_slot(k, group.columns, p.orientation);
-                    let (cx, cy) = (x + c, y + r);
-                    let Some(t) = tile else { continue };
-                    if cx < 0 || cy < 0 || cx >= w || cy >= h {
-                        continue 'groups;
-                    }
-                    let here = grid.tile(cx as u32, cy as u32);
-                    if here.tile != *t || here.orientation != p.orientation {
-                        continue 'groups;
-                    }
-                    cells.push((cx as u32, cy as u32));
-                }
-                if !out.iter().any(|(_, c)| *c == cells) {
-                    out.push((g, cells));
-                }
-            }
-        }
-    }
-    out
-}
-
-/// A new tile's struct, as the area wizard writes one.
-fn tile_struct(set: &Tileset, p: Placement, lights: [u8; 3]) -> Struct {
-    let loops = set.tiles.get(p.tile as usize).map_or([false; 3], |t| t.anim_loops);
-    let mut s = Struct::new(1);
-    s.set("Tile_ID", Value::Int(p.tile as i32));
-    s.set("Tile_Orientation", Value::Int(i32::from(p.orientation)));
-    s.set("Tile_Height", Value::Int(p.height));
-    s.set("Tile_MainLight1", Value::Byte(lights[0]));
-    s.set("Tile_MainLight2", Value::Byte(lights[1]));
-    s.set("Tile_SrcLight1", Value::Byte(lights[2]));
-    s.set("Tile_SrcLight2", Value::Byte(lights[2]));
-    for (k, on) in loops.into_iter().enumerate() {
-        s.set(&format!("Tile_AnimLoop{}", k + 1), Value::Byte(u8::from(on)));
-    }
-    s
+/// The placed groups in a grid: the group (index in the tileset `set`) and
+/// the cells of its tiles, by the painting grid's own rule for which group
+/// stands in a cell ([`Grid::groups`], `TileIndex::group_at`: from any of
+/// its tiles, turned and raised as one).
+pub fn groups_in(index: &TileIndex, _set: &Tileset, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
+    grid.groups(index)
 }
 
 /// Where an object stands (its position fields).
@@ -94,7 +47,8 @@ fn position(kind: ObjectKind, s: &Struct) -> (f32, f32) {
 
 /// Resizing the area (its ARE `are`, GIT `git`) to `width` by `height`
 /// tiles; `lights` gives each new tile's lights. `None` when the size is
-/// outside Aurora's 2 to 32 or the area's tiles are not the tileset's.
+/// outside Aurora's 2 to 32, the area's tiles are not the tileset's, or it
+/// has none (a width or height of 0).
 #[allow(clippy::too_many_arguments)]
 pub fn resize(
     are_key: ResKey,
@@ -113,6 +67,10 @@ pub fn resize(
     }
     let old = crate::terrain::grid(are, index)?;
     let (ow, oh) = (old.lattice.width(), old.lattice.height());
+    // (An area of no tiles has no edge to continue.)
+    if ow == 0 || oh == 0 {
+        return None;
+    }
     // The terrain, continued past the old edges.
     let fill = old.lattice.corner(0, 0);
     let mut lattice = Lattice::new(width, height, fill);
@@ -173,7 +131,8 @@ pub fn resize(
                 }
                 n => fits[rng.usize(..n)],
             };
-            list.push(tile_struct(set, p, lights()));
+            let [main1, main2, source] = lights();
+            list.push(crate::terrain::tile_struct(set, p, [main1, main2, source, source]));
         }
     }
     let mut edits = vec![
@@ -184,21 +143,8 @@ pub fn resize(
     // Objects outside go, and doors on the hooks of the cut groups' tiles.
     let hooks: Vec<(f32, f32)> = cut
         .iter()
-        .flat_map(|&(x, y)| {
-            let p = old.tile(x, y);
-            let tile = set.tiles.get(p.tile as usize);
-            let centre =
-                glam::Vec3::new((x as f32 + 0.5) * TILE_SIZE, (y as f32 + 0.5) * TILE_SIZE, 0.0);
-            let turn = glam::Quat::from_rotation_z(f32::from(p.orientation) * FRAC_PI_2);
-            tile.map(|t| t.doors.clone())
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|d| d.door_type != 0)
-                .map(move |d| {
-                    let at = centre + turn * glam::Vec3::from_array(d.position);
-                    (at.x, at.y)
-                })
-        })
+        .flat_map(|&(x, y)| crate::terrain::typed_hooks(set, (x, y), old.tile(x, y), 0.0))
+        .map(|(_, at, _)| (at.x, at.y))
         .collect();
     let (wm, hm) = (width as f32 * TILE_SIZE, height as f32 * TILE_SIZE);
     let mut deleted = 0;
@@ -354,11 +300,14 @@ fn rotate_once(are: &mut Struct, git: &mut Struct) {
                 s.set("XOrientation", Value::Float(-oy));
                 s.set("YOrientation", Value::Float(ox));
             }
-            if let Some(points) = s.list_mut("Geometry") {
+            // A trigger's points are `PointX`/`PointY`, an encounter's `X`/`Y`.
+            if let Some([pxl, pyl, _]) = mg_module::placement::point_fields(kind)
+                && let Some(points) = s.list_mut("Geometry")
+            {
                 for p in points {
-                    let (px, py) = (float(p, "PointX"), float(p, "PointY"));
-                    p.set("PointX", Value::Float(-py));
-                    p.set("PointY", Value::Float(px));
+                    let (px, py) = (float(p, pxl), float(p, pyl));
+                    p.set(pxl, Value::Float(-py));
+                    p.set(pyl, Value::Float(px));
                 }
             }
             if let Some(spawns) = s.list_mut("SpawnPointList") {
@@ -378,6 +327,93 @@ fn rotate_once(are: &mut Struct, git: &mut Struct) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One terrain; tile 0 is open ground, tiles 1 to 3 a group of 2 by 2
+    /// whose first slot (the south-west one) is empty.
+    const SET: &str = "[GENERAL]\nName=TST01\nInterior=0\nTransition=5\nDisplayName=-1\n\
+Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
+[CROSSER TYPES]\nCount=0\n[PRIMARY RULES]\nCount=0\n[SECONDARY RULES]\nCount=0\n\
+[TILES]\nCount=4\n\
+[TILE0]\nModel=t0\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE2]\nModel=t2\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[TILE3]\nModel=t3\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A\n\
+[GROUPS]\nCount=1\n[GROUP0]\nName=L\nRows=2\nColumns=2\nTile0=-1\nTile1=1\nTile2=2\nTile3=3\n";
+
+    /// An area `width` by `height` of the tiles `tile` gives each cell.
+    fn area(width: u32, height: u32, tile: impl Fn(u32, u32) -> i32) -> Struct {
+        let mut are = Struct::new(0);
+        are.set("Width", Value::Int(width as i32));
+        are.set("Height", Value::Int(height as i32));
+        let cells = (0..height).flat_map(|y| (0..width).map(move |x| (x, y)));
+        let tiles = cells.map(|(x, y)| {
+            let mut t = Struct::new(1);
+            t.set("Tile_ID", Value::Int(tile(x, y)));
+            t.set("Tile_Orientation", Value::Int(0));
+            t.set("Tile_Height", Value::Int(0));
+            t
+        });
+        are.set("Tile_List", Value::List(tiles.collect()));
+        are
+    }
+
+    fn resized(are: &Struct, width: u32, height: u32) -> Option<Reshaped> {
+        let set = Tileset::parse(SET.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let index = TileIndex::new(&set);
+        let key = |t| ResKey::parse("a", t).unwrap();
+        let (are_key, git_key) = (key(mg_core::ResType::ARE), key(mg_core::ResType::GIT));
+        let mut rng = fastrand::Rng::with_seed(1);
+        let git = Struct::new(0);
+        let lights = &mut || [0; 3];
+        resize(are_key, git_key, are, &git, &set, &index, width, height, &mut rng, lights)
+    }
+
+    /// A group whose first slot is empty is a group all the same: one the
+    /// new edge cuts leaves terrain tiles, not a part of itself (the copy
+    /// of "which group stands here" this file had looked for a group's
+    /// first tile alone).
+    #[test]
+    fn a_group_with_an_empty_first_slot_is_cut_whole() {
+        // The group's tiles at (3, 1), (2, 2) and (3, 2) of a 4 by 4 area.
+        let group = |x, y| match (x, y) {
+            (3, 1) => 1,
+            (2, 2) => 2,
+            (3, 2) => 3,
+            _ => 0,
+        };
+        let are = area(4, 4, group);
+        let set = Tileset::parse(SET.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let index = TileIndex::new(&set);
+        let grid = crate::terrain::grid(&are, &index).unwrap();
+        assert_eq!(groups_in(&index, &set, &grid), [(0, vec![(3, 1), (2, 2), (3, 2)])]);
+        // Three wide: the column with two of its tiles goes, and the one
+        // that stays, at (2, 2), is open ground.
+        let r = resized(&are, 3, 4).unwrap();
+        let Some(Edit::SetField { value: Some(Value::List(tiles)), .. }) = r
+            .edits
+            .iter()
+            .find(|e| matches!(e, Edit::SetField { label, .. } if label == "Tile_List"))
+        else {
+            panic!("no tile list: {:?}", r.edits)
+        };
+        let ids: Vec<_> = tiles.iter().map(|t| t.integer("Tile_ID").unwrap()).collect();
+        assert_eq!(ids, [0; 12]);
+        // Left whole, it stays.
+        let r = resized(&are, 5, 4).unwrap();
+        let Some(Edit::SetField { value: Some(Value::List(tiles)), .. }) = r.edits.get(2) else {
+            panic!("no tile list: {:?}", r.edits)
+        };
+        assert_eq!(tiles[2 * 5 + 2].integer("Tile_ID"), Some(2));
+    }
+
+    /// An ARE a tool wrote with no tiles has nothing to continue: no
+    /// resize, and no panic (`0 - 1` in the old edge's place).
+    #[test]
+    fn an_area_of_no_tiles_is_not_resized() {
+        assert_eq!(resized(&area(0, 0, |_, _| 0), 4, 4), None);
+        assert_eq!(resized(&area(0, 3, |_, _| 0), 4, 4), None);
+        assert_eq!(resized(&area(3, 0, |_, _| 0), 4, 4), None);
+    }
 
     #[test]
     fn rotating_four_times_is_the_identity() {
@@ -399,8 +435,27 @@ mod tests {
         door.set("Y", Value::Float(5.0));
         door.set("Bearing", Value::Float(0.0));
         git.set("Door List", Value::List(vec![door]));
+        // An encounter 10 by 4, lying west to east: its points are `X`/`Y`.
+        let mut encounter = Struct::new(7);
+        encounter.set("XPosition", Value::Float(10.0));
+        encounter.set("YPosition", Value::Float(5.0));
+        let outline = [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)].map(|(x, y)| {
+            let mut p = Struct::new(1);
+            p.set("X", Value::Float(x));
+            p.set("Y", Value::Float(y));
+            p.set("Z", Value::Float(0.0));
+            p
+        });
+        encounter.set("Geometry", Value::List(outline.to_vec()));
+        git.set("Encounter List", Value::List(vec![encounter]));
         let (mut a, mut g) = (are.clone(), git.clone());
         rotate_once(&mut a, &mut g);
+        // The encounter's outline turns with it, in its own fields.
+        let e = &g.list("Encounter List").unwrap()[0];
+        let points = e.list("Geometry").unwrap();
+        assert!(points.iter().all(|p| !p.contains("PointX") && !p.contains("PointY")));
+        assert_eq!((points[1].float("X"), points[1].float("Y")), (Some(0.0), Some(10.0)));
+        assert_eq!((points[2].float("X"), points[2].float("Y")), (Some(-4.0), Some(10.0)));
         // 3 by 2 becomes 2 by 3; tile 0 at (0, 0) goes to (1, 0), turned.
         assert_eq!((a.integer("Width"), a.integer("Height")), (Some(2), Some(3)));
         let t = &a.list("Tile_List").unwrap()[1];
@@ -417,5 +472,12 @@ mod tests {
             (d.float("X").unwrap() - 25.0).abs() < 1e-4
                 && (d.float("Y").unwrap() - 5.0).abs() < 1e-4
         );
+        let e = &g.list("Encounter List").unwrap()[0];
+        for (now, was) in e.list("Geometry").unwrap().iter().zip(&outline) {
+            assert!(!now.contains("PointX"), "no field is added to a point");
+            for l in ["X", "Y"] {
+                assert!((now.float(l).unwrap() - was.float(l).unwrap()).abs() < 1e-4);
+            }
+        }
     }
 }

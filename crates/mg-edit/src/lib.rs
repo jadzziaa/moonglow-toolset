@@ -101,13 +101,26 @@ impl Command {
 pub fn edits_between(before: &Module, after: &Module) -> Vec<Edit> {
     let changed = after
         .keys()
-        .filter(|k| after.get(k) != before.get(k))
+        .filter(|k| resource_differs(before, after, k))
         .map(|k| Edit::SetResource { key: *k, data: after.get(k).map(<[u8]>::to_vec) });
     let gone = before
         .keys()
         .filter(|k| !after.contains(k))
         .map(|k| Edit::SetResource { key: *k, data: None });
     changed.chain(gone).collect()
+}
+
+/// Whether resource `key` is another in module `b` than in `a` (or in one
+/// alone). A module made from another (a copy that work is staged on)
+/// shares what it did not set again, and what is shared is the same
+/// without its bytes being read: finding the three scripts a rename
+/// changed does not read a module of 600 MB twice.
+pub fn resource_differs(a: &Module, b: &Module, key: &ResKey) -> bool {
+    match (a.shared(key), b.shared(key)) {
+        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a != b,
+        (None, None) => false,
+        _ => true,
+    }
 }
 
 /// An open module with its parsed documents and edit history.
@@ -593,21 +606,26 @@ impl Workspace {
             Edit::InsertItem { key, path, list, index, item } => {
                 self.touch(key, path, list, false);
                 let s = self.struct_at(key, path)?;
-                // (A list made for the item goes again with it.)
+                let invalid = |message: String| EditError::Invalid { key: *key, message };
+                // (A list made for the item goes again with it. Nothing is
+                // made before the edit is known to go through: a refused
+                // one leaves the struct as it was.)
                 let made = s.get(list).is_none();
+                let len = match s.get(list) {
+                    None => 0,
+                    Some(Value::List(items)) => items.len(),
+                    Some(_) => return Err(invalid(format!("{path}/{list} is not a list"))),
+                };
+                if *index > len {
+                    return Err(invalid(format!("{path}/{list}: no position {index}")));
+                }
                 if made {
+                    if Label::new(list).is_err() {
+                        return Err(invalid(format!("label {list:?} is too long")));
+                    }
                     s.set(list, Value::List(Vec::new()));
                 }
-                let items = s.list_mut(list).ok_or_else(|| EditError::Invalid {
-                    key: *key,
-                    message: format!("{path}/{list} is not a list"),
-                })?;
-                if *index > items.len() {
-                    return Err(EditError::Invalid {
-                        key: *key,
-                        message: format!("{path}/{list}: no position {index}"),
-                    });
-                }
+                let items = s.list_mut(list).expect("a list, or just made");
                 items.insert(*index, item.clone());
                 if path.0.is_empty() {
                     self.rewritten(key);
@@ -667,11 +685,13 @@ impl Workspace {
         }
         let old = s.clone();
         let Some((step, parent)) = path.0.split_last() else {
-            let doc = self.doc_mut(key)?;
-            let bytes = doc
-                .to_bytes()
-                .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-            return Ok(Some(vec![Edit::SetResource { key: *key, data: Some(bytes) }]));
+            // (The resource as the module holds the document, written
+            // back as any edited one is: a file still as it was saved
+            // keeps its own bytes, so the undo gives those back and not
+            // Moonglow's layout of them.)
+            self.write_back(key)?;
+            let data = self.module.get(key).map(<[u8]>::to_vec);
+            return Ok(Some(vec![Edit::SetResource { key: *key, data }]));
         };
         let parent = GffPath(parent.to_vec());
         Ok(Some(match step {
@@ -871,6 +891,37 @@ mod tests {
         g.root.items_mut(&git::CREATURE_LIST).push(c);
         m.set_gff(key("area", ResType::GIT), &g).unwrap();
         Workspace::new(m)
+    }
+
+    /// The edits between a module and a copy that work was staged on are
+    /// those of what the copy set again, removed or added, found without
+    /// reading what the two share: 4,000 resources of 32 MB (one
+    /// allocation, shared) would be 256 GB to compare.
+    #[test]
+    fn the_edits_between_a_module_and_its_copy_read_only_what_changed() {
+        let big: std::sync::Arc<[u8]> = vec![7u8; 32 << 20].into();
+        let mut before = Module::new();
+        let name = |i: usize| key(&format!("r{i:04}"), ResType::NSS);
+        for i in 0..4000 {
+            before.set(name(i), big.clone());
+        }
+        let mut after = before.clone();
+        after.set(name(7), b"changed".to_vec());
+        // (Set again to what it was: another allocation, the same bytes.)
+        after.set(name(8), vec![7u8; 32 << 20]);
+        after.remove(&name(9));
+        after.set(name(4000), b"new".to_vec());
+        let started = std::time::Instant::now();
+        let edits = edits_between(&before, &after);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        let set =
+            |i: usize, data: &[u8]| Edit::SetResource { key: name(i), data: Some(data.into()) };
+        let gone = Edit::SetResource { key: name(9), data: None };
+        assert_eq!(edits, [set(7, b"changed"), set(4000, b"new"), gone]);
+        assert!(edits_between(&before, &before.clone()).is_empty());
+        assert!(!resource_differs(&before, &after, &name(8)));
+        assert!(resource_differs(&before, &after, &name(9)));
+        assert!(!resource_differs(&before, &after, &name(5000)));
     }
 
     /// What the changes since a revision touched: each command's, undo's
@@ -1469,6 +1520,26 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(*ws.doc(&k).unwrap(), before);
         assert!(ws.can_undo().is_none());
+        // An item for a list the struct has not, at a place an empty list
+        // has not, or under a label no field can have: refused, and no
+        // empty list is left behind (a long label was a panic).
+        let insert = |list: &str, index| {
+            Command::new(
+                "Insert",
+                vec![Edit::insert_item(k, GffPath::root(), list, index, Struct::new(0))],
+            )
+        };
+        for (list, index) in [("No Such List", 1), ("AListNamedTooLongForGff", 0)] {
+            assert!(ws.apply(insert(list, index)).is_err(), "{list} at {index}");
+            assert_eq!(*ws.doc(&k).unwrap(), before, "{list} at {index}");
+            ws.flush().unwrap();
+            assert_eq!(Gff::read(ws.module.get(&k).unwrap()).unwrap(), before);
+        }
+        assert!(ws.can_undo().is_none());
+        // (At its start, the list is made for the item, and goes with it.)
+        ws.apply(insert("No Such List", 0)).unwrap();
+        ws.undo().unwrap();
+        assert_eq!(*ws.doc(&k).unwrap(), before);
     }
 
     #[test]
@@ -1678,5 +1749,42 @@ mod tests {
             .unwrap();
         ws.undo().unwrap();
         assert_eq!(ws.module.get(&one), Some(&one_bytes[..]), "a resource replaced, undone");
+    }
+
+    /// A field of the root that is not its last, removed and put back by
+    /// Undo (which puts the resource back whole, to keep the field's
+    /// place): the file's own bytes again, not Moonglow's layout of them.
+    #[test]
+    fn a_root_field_removed_and_undone_gives_the_bytes_back() {
+        let mut g = Gff::new(*b"ARE ");
+        g.root.set("VarTable", Value::List(vec![Struct::new(0)]));
+        g.root.set("Width", Value::Int(4));
+        let mut bytes = g.to_bytes().unwrap();
+        bytes.extend_from_slice(&[0; 8]);
+        let k = key("one", ResType::ARE);
+        let mut m = Module::new();
+        m.set(k, bytes.clone());
+        let mut ws = Workspace::new(m);
+        let remove = |label: &str| {
+            let (path, label) = (GffPath::root(), label.into());
+            Command::new("Remove", vec![Edit::SetField { key: k, path, label, value: None }])
+        };
+        ws.apply(remove("VarTable")).unwrap();
+        ws.flush().unwrap();
+        assert_ne!(ws.module.get(&k), Some(&bytes[..]));
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&k), Some(&bytes[..]), "undone");
+        assert_eq!(*ws.doc(&k).unwrap(), g);
+        // After another edit of the document, the undo is the document
+        // as it then was.
+        ws.apply(set_extra(k, Some(Value::Int(3)))).unwrap();
+        ws.apply(remove("VarTable")).unwrap();
+        ws.undo().unwrap();
+        assert_eq!(ws.doc(&k).unwrap().root.int("Extra"), Some(3));
+        assert!(ws.doc(&k).unwrap().root.list("VarTable").is_some());
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&k), Some(&bytes[..]), "both undone");
     }
 }

@@ -7,7 +7,8 @@
 //! and after each pair. A name takes its first three letters from the
 //! start tables, then letters from the pair's middle table until a roll of
 //! 1 to 12 is at most its length, and ends with one from the pair's end
-//! table (nwn.wiki, "LTR"); between 4 and 13 letters, capitalised.
+//! table (nwn.wiki, "LTR"); between 4 and 14 letters (a name goes on to
+//! 13, and then takes its end letter), capitalised.
 
 use crate::GameData;
 
@@ -179,13 +180,44 @@ mod tests {
         out
     }
 
+    /// A table that spells the alphabet and can end only after its 13th
+    /// letter: the one name it makes is as long as a name gets, 14
+    /// letters (13, and the end letter), which is what the module says.
+    #[test]
+    fn a_name_is_at_most_fourteen_letters() {
+        let n = 26;
+        let only =
+            |i: usize| -> Vec<f32> { (0..n).map(|k| if k >= i { 1.0 } else { 0.0 }).collect() };
+        let none = || Odds { start: vec![0.0; n], middle: vec![0.0; n], end: vec![0.0; n] };
+        let mut ltr = Ltr {
+            letters: n,
+            single: Odds { start: only(0), ..none() },
+            double: (0..n).map(|_| none()).collect(),
+            triple: (0..n * n).map(|_| none()).collect(),
+        };
+        ltr.double[0].start = only(1);
+        ltr.triple[1].start = only(2);
+        for y in 1..n - 1 {
+            let pair = &mut ltr.triple[(y - 1) * n + y];
+            pair.middle = only(y + 1);
+            // (After the 13th letter, `m`, and no sooner.)
+            if y == 12 {
+                pair.end = only(13);
+            }
+        }
+        let mut rng = fastrand::Rng::with_seed(3);
+        for _ in 0..50 {
+            assert_eq!(ltr.generate(&mut rng).as_deref(), Some("Abcdefghijklmn"));
+        }
+    }
+
     #[test]
     fn makes_names_from_a_table_and_refuses_bad_ones() {
         let ltr = Ltr::read(&toy()).unwrap();
         let mut rng = fastrand::Rng::with_seed(1);
         for _ in 0..20 {
             let name = ltr.generate(&mut rng).unwrap();
-            assert!((4..=13).contains(&name.len()), "{name}");
+            assert!((4..=14).contains(&name.len()), "{name}");
             assert!(name.starts_with("Aba"), "{name}");
             assert!(name[1..].chars().all(|c| c == 'a' || c == 'b'), "{name}");
         }

@@ -151,7 +151,12 @@ impl VarType {
             Operand::Variable(name) => Some(local(self, name)),
             Operand::Constant(c) => match self {
                 VarType::Int => c.trim().parse::<i32>().ok().map(|n| n.to_string()),
-                VarType::Float => c.trim().parse::<f32>().ok().map(|f| format!("{f:.6}")),
+                // (Not `nan`, `inf` or a number past a float, which
+                // prints as `inf`: names the compiler does not know.)
+                VarType::Float => {
+                    let f = c.trim().parse::<f32>().ok().filter(|f| f.is_finite())?;
+                    Some(format!("{f:.6}"))
+                }
                 VarType::String => Some(quote(c)),
             },
         }
@@ -467,12 +472,15 @@ pub fn condition_script(name: &str, date: &str, c: &Condition, lists: &Lists) ->
     if !c.classes.is_empty() {
         if c.all_classes {
             for cl in &c.classes {
-                reject(&mut lines, &format!("{} < {}", class_test(cl), cl.level.unwrap_or(1)));
+                reject(
+                    &mut lines,
+                    &format!("{} < {}", class_test(cl), whole(cl.level.unwrap_or(1))),
+                );
             }
         } else {
             lines.push_str("\tint iPassed = 0;\n");
             for (i, cl) in c.classes.iter().enumerate() {
-                let test = format!("{} >= {}", class_test(cl), cl.level.unwrap_or(1));
+                let test = format!("{} >= {}", class_test(cl), whole(cl.level.unwrap_or(1)));
                 if i == 0 {
                     let _ = write!(lines, "\tif({test})\n\t\tiPassed = 1;\n");
                 } else {
@@ -551,7 +559,7 @@ pub fn condition_script(name: &str, date: &str, c: &Condition, lists: &Lists) ->
     }
     section(&mut body, "Perform skill checks", std::mem::take(&mut lines));
 
-    if let Some((n, m)) = c.random {
+    if let Some((n, m)) = c.random.map(|(n, m)| (whole(n), whole(m))) {
         reject(&mut lines, &format!("Random({m}) >= {n}"));
     }
     section(&mut body, "Add the randomness", std::mem::take(&mut lines));
@@ -572,7 +580,7 @@ pub fn action_script(name: &str, date: &str, a: &ActionScript) -> String {
     let mut body = String::new();
 
     // Rewards.
-    if let Some((gold, to_party)) = a.give_gold {
+    if let Some((gold, to_party)) = a.give_gold.map(|(n, party)| (whole(n), party)) {
         let call = match (to_party, plot) {
             (false, _) => format!("GiveGoldToCreature(GetPCSpeaker(), {gold});"),
             (true, false) => format!("RewardPartyGP({gold}, GetPCSpeaker());"),
@@ -580,7 +588,7 @@ pub fn action_script(name: &str, date: &str, a: &ActionScript) -> String {
         };
         let _ = write!(body, "\t// Give the speaker some gold\n\t{call}\n\n");
     }
-    if let Some((xp, to_party)) = a.give_xp {
+    if let Some((xp, to_party)) = a.give_xp.map(|(n, party)| (whole(n), party)) {
         let call = match (to_party, plot) {
             (false, _) => format!("\tGiveXPToCreature(GetPCSpeaker(), {xp});\n"),
             (true, false) => format!("\tRewardPartyXP({xp}, GetPCSpeaker());\n"),
@@ -607,7 +615,7 @@ pub fn action_script(name: &str, date: &str, a: &ActionScript) -> String {
     if a.take_gold.is_some() || a.take_xp.is_some() || !a.take_items.is_empty() {
         body.push('\n');
     }
-    if let Some((gold, destroy)) = a.take_gold {
+    if let Some((gold, destroy)) = a.take_gold.map(|(n, destroy)| (whole(n), destroy)) {
         let destroy = if destroy { "TRUE" } else { "FALSE" };
         let _ = write!(
             body,
@@ -615,7 +623,7 @@ pub fn action_script(name: &str, date: &str, a: &ActionScript) -> String {
              \tTakeGoldFromCreature({gold}, GetPCSpeaker(), {destroy});\n\n"
         );
     }
-    if let Some(xp) = a.take_xp {
+    if let Some(xp) = a.take_xp.map(whole) {
         let _ = write!(
             body,
             "\t// Remove some xp from the player\n\
@@ -717,10 +725,24 @@ pub fn default_name_named(
     taken: impl Fn(&str) -> bool,
 ) -> String {
     let prefix = if condition { "sc_" } else { "at_" };
-    (1..)
-        .map(|n| naming.fit(prefix, &format!("{n:03}")))
-        .find(|name| !taken(name))
-        .expect("a free name")
+    // (By the one rule for a numbered name, which ends at 9999: with every
+    // one taken, the first, for the builder to change.)
+    let free = naming.numbered(prefix, 1, &taken).map(|name| name.to_string());
+    free.unwrap_or_else(|| naming.fit(prefix, "001"))
+}
+
+/// A number as a script's `int` holds it: no more than 2,147,483,647 (the
+/// compiler adds a longer literal up without a word, to a negative
+/// number: taking 3,000,000,000 XP gave 1.29 billion).
+fn whole(n: u32) -> u32 {
+    n.min(i32::MAX as u32)
+}
+
+/// An amount of gold or XP as typed: a whole number from 1 to
+/// 2,147,483,647, what a script's `int` can give or take. `None` for
+/// anything else.
+pub fn amount(text: &str) -> Option<u32> {
+    text.trim().parse::<u32>().ok().filter(|n| (1..=i32::MAX as u32).contains(n))
 }
 
 #[cfg(test)]
@@ -793,6 +815,13 @@ mod tests {
             "GetLocalFloat(GetPCSpeaker(), \"v\") < 1.500000"
         );
         assert_eq!(check(VarType::Int, "x"), None);
+        // A float that is no number, or past what a float holds, is no
+        // value: it was written as `NaN` or `inf`, which do not compile.
+        for bad in ["nan", "NaN", "inf", "-inf", "infinity", "1e39", "-1e39"] {
+            assert_eq!(check(VarType::Float, bad), None, "{bad}");
+        }
+        assert!(check(VarType::Float, "1e38").unwrap().ends_with(".000000"));
+        assert_eq!(check(VarType::Int, "3000000000"), None);
         assert_eq!(
             check(VarType::String, "say \"hi\"").unwrap(),
             "GetLocalString(GetPCSpeaker(), \"v\") < \"say \\\"hi\\\"\""
@@ -805,5 +834,35 @@ mod tests {
         assert_eq!(default_name(false, |n| n == "at_001" || n == "at_002"), "at_003");
         let ab = crate::project_file::Naming::new("ab", "{code}_{name}");
         assert_eq!(default_name_named(true, &ab, |n| n == "ab_sc_001"), "ab_sc_002");
+        // (Every one taken: a name all the same, and an end to looking.)
+        assert_eq!(default_name(true, |_| true), "sc_001");
+    }
+
+    /// An amount is what a script's `int` holds: past 2,147,483,647 the
+    /// compiler adds the literal up to a negative number (Take XP of
+    /// 3,000,000,000 gave the player 1.29 billion). The page refuses one
+    /// (`amount`), and a script never holds one whatever it is given.
+    #[test]
+    fn amounts_are_what_an_int_holds() {
+        assert_eq!(amount(" 250 "), Some(250));
+        assert_eq!(amount("2147483647"), Some(i32::MAX as u32));
+        for bad in ["0", "-5", "2147483648", "3000000000", "ten", ""] {
+            assert_eq!(amount(bad), None, "{bad}");
+        }
+        let big = 3_000_000_000;
+        let action = ActionScript {
+            give_gold: Some((big, false)),
+            give_xp: Some((big, true)),
+            take_gold: Some((big, true)),
+            take_xp: Some(big),
+            ..Default::default()
+        };
+        let source = action_script("at_001", "2026-11-09", &action);
+        assert!(!source.contains("3000000000"), "{source}");
+        assert!(source.contains("int nXP = GetXP(GetPCSpeaker()) - 2147483647;"), "{source}");
+        assert!(source.contains("GiveGoldToCreature(GetPCSpeaker(), 2147483647);"));
+        let condition = Condition { random: Some((big, big)), ..Default::default() };
+        let source = condition_script("sc_001", "2026-11-09", &condition, &lists());
+        assert!(source.contains("Random(2147483647) >= 2147483647"), "{source}");
     }
 }
