@@ -87,8 +87,13 @@ pub(super) fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usi
     if aspect > 0.0 && height >= 0.0 && width < 0.0 {
         size.x = size.y * aspect;
     }
-    (size + Vec2::splat(2.0 * margin)).clamp(Vec2::ZERO, vec2(4096.0, 4096.0))
+    (size + Vec2::splat(2.0 * margin)).clamp(Vec2::ZERO, Vec2::splat(LARGEST))
 }
+
+/// The most points a side a control is laid out with: a window's own limit
+/// (`window_size`). What a window asks for past it (a width, or an aspect
+/// near nothing) is held to it.
+pub(super) const LARGEST: f32 = 4096.0;
 
 /// How much farther out a control's own margin puts it than the client's
 /// default margin of 2 (which the layout's padding and gaps already hold): a

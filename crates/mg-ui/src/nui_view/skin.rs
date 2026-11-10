@@ -850,9 +850,21 @@ impl Assets {
         let tile = (image.size[axis] * scale).max(1.0);
         // Without the picture's rounded ends across the bar, as in the client.
         let cap = 3.0_f32.min(image.size[across] / 4.0) / image.size[across];
+        // Only the tiles in sight: a bar may be far longer than what shows
+        // of it, and each tile is a shape.
+        let clip = p.clip_rect();
         let mut at = rect.min[axis];
-        while at < rect.max[axis] {
+        let hidden = ((clip.min[axis] - at) / tile).floor();
+        if hidden.is_finite() && hidden > 0.0 {
+            at += hidden * tile;
+        }
+        let stop = rect.max[axis].min(clip.max[axis]);
+        while at < stop {
             let end = (at + tile).min(rect.max[axis]);
+            // (So far out that a tile is less than the float's step.)
+            if end <= at {
+                break;
+            }
             let mut r = rect;
             r.min[axis] = at;
             r.max[axis] = end;
@@ -967,6 +979,36 @@ mod tests {
         assets.prepare_strings(None, &doc, &settings);
         assert_eq!(localized_string(&doc["title"], &settings, None, &assets), "[Missing StrRef 0]");
         assert_eq!((doc, settings), original);
+    }
+
+    /// The pictures of a window whose bind names itself, or another that
+    /// names it back: found, where the canvas's own walk went on into the
+    /// bind's value without end (and the stack ran out, every frame of the
+    /// Design page).
+    #[test]
+    fn a_bind_that_names_itself_ends_the_walk_for_pictures() {
+        use mg_nui::Binding;
+        use serde_json::json;
+        let doc = json!({"root": {"type": "col", "children": [
+            {"type": "image", "value": {"bind": "icons"}},
+            {"type": "button_image", "label": {"bind": "a"}},
+            {"type": "spacer", "draw_list": [{"type": 5, "image": {"bind": "b"}}]}]}});
+        let mut settings = Settings::default();
+        for (name, value) in [
+            ("icons", json!([{"bind": "icons"}, "Shown"])),
+            ("a", json!([{"bind": "b"}, "first"])),
+            ("b", json!([{"bind": "a"}, "second"])),
+        ] {
+            settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
+        }
+        let mut found = BTreeSet::new();
+        names(&doc, &settings, &mut found);
+        assert_eq!(found.into_iter().collect::<Vec<_>>(), ["first", "second", "shown"]);
+        // And the canvas's frame, which asks for them.
+        let ctx = egui::Context::default();
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &Module::new(), 0, &doc, &settings);
+        assert!(assets.issues.contains(&"Missing image: shown".to_string()), "{:?}", assets.issues);
     }
 
     #[test]

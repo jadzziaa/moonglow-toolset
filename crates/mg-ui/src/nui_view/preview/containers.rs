@@ -256,6 +256,10 @@ impl Renderer<'_> {
             {
                 size.x = size.x.max(right - cursor.x);
             }
+            // (No more than `natural` holds it to: an aspect of a millionth
+            // is a control hundreds of millions of points high, and a
+            // scrollbar as long.)
+            size = size.min(self.scaled(Vec2::splat(LARGEST)));
             let child_path = format!("{source_path}/children/{i}");
             self.reach =
                 (ty == "col" && child["type"] == "row" && widths_after[i] >= 0.0).then(|| {
