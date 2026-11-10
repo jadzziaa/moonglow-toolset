@@ -121,6 +121,7 @@ enum Pass {
 
 mod kept;
 pub use kept::{STALE_TEXTURES_KEPT, STALE_TEXTURES_KEPT_INTEGRATED, TextureMemory};
+mod values;
 
 /// A texture as the renderer uses it.
 #[derive(Debug)]
@@ -544,9 +545,8 @@ pub struct Renderer {
     #[allow(clippy::type_complexity)]
     renames: HashMap<u64, Vec<(Vec<(String, String)>, u32)>>,
     renames_made: u32,
-    /// Instances' material values, numbered from 1 (0: none) by their
-    /// place here.
-    value_sets: Vec<Arc<[mg_image::mtr::MaterialValue]>>,
+    /// Instances' material values, numbered from 1 (0: none).
+    value_sets: values::ValueSets,
     /// Slots with an instance's material values in their MTR's parameters,
     /// by the slots' place and the values' number: kept, as the game's
     /// programs keep a material's values by where its parameters are
@@ -1440,7 +1440,7 @@ impl Renderer {
             names: HashMap::new(),
             renames: HashMap::new(),
             renames_made: 0,
-            value_sets: Vec::new(),
+            value_sets: Default::default(),
             valued: HashMap::new(),
             samplers: HashMap::new(),
             env_sampler,
@@ -1464,7 +1464,14 @@ impl Renderer {
         self.textures.clear();
         self.palettes = Arc::default();
         self.slots.clear();
+        // (What the surfaces are kept by, numbered anew with them: the
+        // instances' value sets, texture renames and environment maps'
+        // names were numbered for good, across modules.)
         self.valued.clear();
+        self.value_sets.clear();
+        self.renames.clear();
+        self.renames_made = 0;
+        self.names.clear();
         self.materials.clear();
         self.particle_materials.clear();
         self.kept.materials.clear();
@@ -1802,26 +1809,14 @@ impl Renderer {
     /// An instance's material values' number (0: none): the same for the
     /// same values.
     fn values_id(&mut self, values: &Arc<[mg_image::mtr::MaterialValue]>) -> u32 {
-        if values.is_empty() {
-            return 0;
-        }
-        let at = match self.value_sets.iter().position(|v| v == values) {
-            Some(at) => at,
-            None => {
-                self.value_sets.push(values.clone());
-                self.value_sets.len() - 1
-            }
-        };
-        at as u32 + 1
+        self.value_sets.id(values)
     }
 
     /// `slots` with the material values numbered `id` in its MTR's
     /// parameters, where one is set on it (by its name, or on every MTR
     /// declaring the parameter), in order: a later one wins.
     fn valued_slots(&mut self, slots: Arc<Slots>, id: u32) -> Arc<Slots> {
-        let Some(values) = id.checked_sub(1).and_then(|i| self.value_sets.get(i as usize)) else {
-            return slots;
-        };
+        let Some(values) = self.value_sets.get(id).cloned() else { return slots };
         let Some(mtr) = slots.mtr.as_deref() else { return slots };
         let key = (Arc::as_ptr(&slots) as usize, id);
         if let Some(s) = self.valued.get(&key) {
@@ -3984,6 +3979,34 @@ impl Targets {
 mod tests {
     use super::{LOST_RIPPLE_GRAY, procedure_picture, ripple_of};
     use glam::{Mat4, Vec3};
+
+    /// What the surfaces are kept by is numbered anew when they are
+    /// forgotten (the resources changed): the instances' value sets,
+    /// their texture renames and the environment maps' names were kept
+    /// for good, and the search for a set grew with them.
+    #[test]
+    fn what_the_surfaces_are_kept_by_goes_with_them() {
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let mut r = super::Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let tint = mg_image::mtr::MaterialValue {
+            material: None,
+            name: "mgTint1".into(),
+            value: mg_image::mtr::Param::Int(3),
+        };
+        let values: std::sync::Arc<[mg_image::mtr::MaterialValue]> = vec![tint].into();
+        let renames: std::collections::HashMap<String, String> =
+            [("a".to_string(), "b".to_string())].into();
+        let numbered = |r: &mut super::Renderer| {
+            (r.values_id(&values), r.renames_id(&renames), r.name_id(Some("chrome1")))
+        };
+        assert_eq!(numbered(&mut r), (1, 1, 1));
+        assert_eq!(numbered(&mut r), (1, 1, 1), "the same again");
+        assert_eq!(r.name_id(Some("tno01__env")), 2);
+        r.clear_textures();
+        assert_eq!((r.value_sets.len(), r.renames.len(), r.names.len()), (0, 0, 0));
+        assert_eq!(r.name_id(Some("tno01__env")), 1, "numbered anew");
+        assert_eq!(numbered(&mut r), (1, 1, 2));
+    }
 
     /// A skinned mesh's posed box holds where every bone carries it, and
     /// the bound box only where a vertex is weighed to no bone; weights
