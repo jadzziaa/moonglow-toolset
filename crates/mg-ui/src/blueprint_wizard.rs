@@ -548,8 +548,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Step::Category => {
                 ui.heading("Assign Palette Category");
                 ui.label("Choose the palette category that this new blueprint should appear under");
-                let game = app.game.as_deref().expect("checked");
-                let nodes = categories(game, app.ws.as_ref().map(|ws| &ws.module), w.kind);
+                let game_arc = app.game.clone().expect("checked");
+                let game = &*game_arc;
+                // (Read and sorted once for the game data, the module as it
+                // is and the type: it was every frame the page showed.)
+                let module = app.ws.as_ref().map(|ws| &ws.module);
+                let mark = (w.kind.label(), app.ws.as_ref().map(|ws| ws.revision()));
+                let id = egui::Id::new("blueprint-wizard-categories");
+                let nodes: std::sync::Arc<Vec<PaletteNode>> =
+                    crate::blueprint::kept_for(ui.ctx(), id, &game_arc, &mark, || {
+                        std::sync::Arc::new(categories(game, module, w.kind))
+                    });
                 let before = w.category;
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     category_tree(ui, &nodes, game, &mut w.category);

@@ -274,6 +274,11 @@ pub struct VarHelp {
     /// The row and name Escape closed the offer at: not offered again
     /// until the name changes.
     dismissed: Option<(usize, String)>,
+    /// Each row's note ([`VarHelp::note`]) by its name, type and value,
+    /// kept until a variable's values are read: a value was looked for in
+    /// the whole of its variable's values (a table's 25,000 rows) for each
+    /// row, every frame.
+    notes: std::collections::HashMap<(String, u32, String), Option<String>>,
 }
 
 /// A described variable's values as its list shows them, made once when
@@ -347,7 +352,23 @@ impl VarHelp {
             let c = d.choices(lookup);
             self.offered.insert(d.name.clone(), Offered::of(&c));
             self.choices.insert(d.name.clone(), c);
+            self.notes.clear();
         }
+    }
+
+    /// [`VarHelp::note`], kept for the row's name, type and value.
+    fn kept_note(&mut self, r: &VarRow) -> Option<String> {
+        let key = (r.name.clone(), r.kind, r.value.clone());
+        if let Some(note) = self.notes.get(&key) {
+            return note.clone();
+        }
+        let note = self.note(r);
+        // (Names and values typed one letter at a time: not kept for ever.)
+        if self.notes.len() > 4096 {
+            self.notes.clear();
+        }
+        self.notes.insert(key, note.clone());
+        note
     }
 
     /// What the rows lack that one of them needs beside it (the
@@ -1505,7 +1526,7 @@ fn var_body(
     let notes: Vec<String> = if described {
         let typing = help.completing;
         let rows = (edit.rows.iter().enumerate()).filter(|(i, _)| Some(*i) != typing);
-        let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.note(r)).collect();
+        let mut notes: Vec<String> = rows.filter_map(|(_, r)| help.kept_note(r)).collect();
         notes.extend(help.needed(&edit.rows, typing));
         notes
     } else {
@@ -5238,6 +5259,45 @@ mod row_choice_tests {
     /// costs nothing a row: the values were copied each frame, and the
     /// open list laid out whole, each row looked up among them all (the
     /// review's S20).
+    #[test]
+    fn a_row_s_kept_note_is_the_note_made_anew() {
+        // (A row's note was made every frame, its value looked for in the
+        // whole of its variable's values: kept now, for its name, type
+        // and value, until a variable's values are read. The last pass's
+        // item 17.)
+        let mut variables = mg_module::var_desc::Variables::default();
+        let source = "[KIND]\ntype = \"string\"\nvalues = [\"smith\", \"tanner\"]\n\
+                      [DC]\ntype = \"int\"\nmin = 5\nmax = 40\n";
+        variables.apply("variables.toml", source, &mut Vec::new()).unwrap();
+        use super::{VarHelp, VarRow};
+        let mut help = VarHelp { variables, ..Default::default() };
+        let rows = [
+            VarRow::new("KIND", 3, "smith"),
+            VarRow::new("KIND", 3, "Smith"),
+            VarRow::new("KIND", 1, "2"),
+            VarRow::new("DC", 1, "50"),
+            VarRow::new("DC", 1, "10"),
+            VarRow::new("OTHER", 1, "1"),
+        ];
+        let fresh = |help: &VarHelp| rows.iter().map(|r| help.note(r)).collect::<Vec<_>>();
+        let made = fresh(&help);
+        for _ in 0..2 {
+            assert_eq!(rows.iter().map(|r| help.kept_note(r)).collect::<Vec<_>>(), made);
+        }
+        // Its values read (here none come from elsewhere): made again.
+        let d = help.variables.describe("KIND").unwrap().clone();
+        let module = mg_module::Module::new();
+        let c = d.choices(&mg_module::var_desc::ModuleLookup::new(&module, None));
+        help.choices.insert(d.name.clone(), c);
+        help.notes.clear();
+        let made = fresh(&help);
+        assert!(made[1].as_deref().is_some_and(|n| n.contains("case and all")), "{made:?}");
+        assert_eq!(made[0], None, "a value it has");
+        for _ in 0..2 {
+            assert_eq!(rows.iter().map(|r| help.kept_note(r)).collect::<Vec<_>>(), made);
+        }
+    }
+
     #[test]
     fn a_described_variable_s_values_lay_out_only_the_rows_in_sight() {
         use mg_module::var_desc::{Choice, Choices};

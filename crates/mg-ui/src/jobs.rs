@@ -241,7 +241,10 @@ impl Moonglow {
         // The module's layer of the game data as the module is now (which
         // changes the game data: before the job shares it).
         self.refresh_module_layer();
-        let module = match self.ws.as_mut().map(|ws| ws.snapshot()) {
+        // (A job that needs no module is given none: a hak's save copied
+        // the whole module open beside it, unread.)
+        let ws = self.ws.as_mut().filter(|_| needs_module);
+        let module = match ws.map(|ws| ws.snapshot()) {
             Some(Ok(m)) => m,
             Some(Err(e)) => {
                 self.log.error(format!("{title}: {e}"));
@@ -474,6 +477,30 @@ mod tests {
         until_done(&mut app);
         assert!(logged(&app, Level::Info, "counted 1"), "{:?}", app.log.entries);
         assert!(!logged(&app, Level::Info, "another ran"));
+    }
+
+    /// A job that needs no module (a hak's save, an export) is given none,
+    /// a module open or not; one that needs it, the module as it is (a
+    /// hak-only job copied the whole module, unread: the last pass's
+    /// item 17). Their game data is the same, the module layered in.
+    #[test]
+    fn a_job_that_needs_no_module_is_given_none() {
+        let mut app = app("ui-job-no-module");
+        let game = app.game.clone();
+        for anywhere in [false, true] {
+            let work = move |job: &Context| (job.module.len(), job.game.is_some());
+            let finish = |app: &mut Moonglow, (n, game): (usize, bool)| {
+                app.log.info(format!("resources {n}, game {game}"));
+            };
+            match anywhere {
+                false => app.start_job("Count", work, finish),
+                true => app.start_job_anywhere("Count", work, finish),
+            }
+            until_done(&mut app);
+            let n = if anywhere { 0 } else { 1 };
+            let said = format!("resources {n}, game {}", game.is_some());
+            assert!(logged(&app, Level::Info, &said), "{:?}", app.log.entries);
+        }
     }
 
     /// A job that changes what the window follows hands its work over

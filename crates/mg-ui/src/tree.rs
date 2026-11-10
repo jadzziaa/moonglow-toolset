@@ -80,7 +80,7 @@ struct Filtered {
     /// By area whose placed objects are read: those found, kind by kind
     /// ([`found_in`]), for what is typed; `None` where none is. (An area
     /// read again is taken out, and looked through again.)
-    areas: HashMap<ResRef, Option<Arc<Vec<Vec<usize>>>>>,
+    areas: HashMap<ResRef, Option<Arc<Vec<Order>>>>,
     /// What `found` was made for: the areas read (how many times, and how
     /// many are held) and the rows kept under the Filter for a tab chosen.
     found_for: Option<(u64, usize, Option<Vec<ResKey>>)>,
@@ -91,16 +91,16 @@ struct Filtered {
 /// The placed objects of an area that the Filter finds: for each kind,
 /// their places in the area's list in the order listed; `None` when it
 /// finds none (the area is then listed whole, if at all).
-fn found_in(contents: &AreaContents, filter: &Needle) -> Option<Vec<Vec<usize>>> {
+fn found_in(contents: &AreaContents, filter: &Needle) -> Option<Vec<Order>> {
     if filter.is_empty() {
         return None;
     }
-    let found: Vec<Vec<usize>> = (contents.iter())
+    let found: Vec<Order> = (contents.iter())
         .map(|c| {
             (c.order.iter().copied()).filter(|&i| filter.finds_folded(&c.rows[i].sought)).collect()
         })
         .collect();
-    found.iter().any(|f: &Vec<usize>| !f.is_empty()).then_some(found)
+    found.iter().any(|f: &Order| !f.is_empty()).then_some(found)
 }
 
 /// What a resource's stored data is told apart by, for what was read from
@@ -355,8 +355,12 @@ pub(crate) struct KindContents {
     rows: Vec<ObjectRow>,
     /// The places in the area's list, in the order listed: by the rows'
     /// text, as Aurora sorts them (those alike in the area's order).
-    order: Vec<usize>,
+    order: Order,
 }
+
+/// Places in an area's list, in the order listed: shared by the tree,
+/// what the Filter finds and the keys, not copied for each every frame.
+type Order = Arc<[usize]>;
 
 /// An object's row in the module tree.
 struct ObjectRow {
@@ -443,7 +447,7 @@ fn area_contents(ws: &Workspace, game: Option<&GameData>, area: ResRef) -> AreaC
             let keys: Vec<_> = rows.iter().map(|r| mg_core::text::sort_key(&r.text)).collect();
             // (Stable: alike rows keep the area's order.)
             order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
-            KindContents { kind, rows, order }
+            KindContents { kind, rows, order: order.into() }
         })
         .collect()
 }
@@ -491,7 +495,7 @@ fn contents_ui(
     area: ResRef,
     contents: &AreaContents,
     // What the Filter finds among them ([`found_in`]), if anything.
-    found: Option<&[Vec<usize>]>,
+    found: Option<&[Order]>,
     go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
     // The object in hand (its row marked), and whether to go to it.
     in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
@@ -514,9 +518,10 @@ fn contents_ui(
     });
     ui.indent(("area-contents", area), |ui| {
         for (at, KindContents { kind, rows, order }) in contents.iter().enumerate() {
-            // (By their places in the area's list, in the order listed.)
-            let shown: Vec<usize> = match found {
-                Some(found) => found.get(at).cloned().unwrap_or_default(),
+            // (By their places in the area's list, in the order listed:
+            // borrowed, not copied every frame for each kind.)
+            let shown: Order = match found {
+                Some(found) => found.get(at).cloned().unwrap_or_else(|| Arc::from([])),
                 None => order.clone(),
             };
             let title = if filtered {
@@ -736,7 +741,7 @@ struct ContentKeys {
     /// What was asked from the menu of a row among several chosen: for
     /// them all.
     together: bool,
-    listed: Vec<(mg_area::ObjectKind, bool, Vec<usize>)>,
+    listed: Vec<(mg_area::ObjectKind, bool, Order)>,
 }
 
 /// The gap between rows (taken off a block of rows left out, which is
@@ -1006,7 +1011,7 @@ pub enum TreeAt {
 
 /// The areas opened out, for the keys: each one's kinds as listed, whether
 /// a kind is open, and its objects as listed.
-type Outs = HashMap<ResRef, Vec<(mg_area::ObjectKind, bool, Vec<usize>)>>;
+type Outs = HashMap<ResRef, Vec<(mg_area::ObjectKind, bool, Order)>>;
 
 /// The rows the keys go through, in order: each with how deep it is and,
 /// if it opens, whether it is open.
@@ -1281,7 +1286,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let (matched, found_rows) =
         (app.area_names.filtered.matched.clone(), app.area_names.filtered.found.clone());
     // (An area's own, for its row and its objects' rows.)
-    let found_of = |area: ResRef| -> Option<Arc<Vec<Vec<usize>>>> {
+    let found_of = |area: ResRef| -> Option<Arc<Vec<Order>>> {
         if filter.is_empty() {
             return None;
         }
@@ -2423,7 +2428,10 @@ mod tests {
         );
         assert_eq!(step(&shown, &outs, Some(area), Key::ArrowDown), Step::To(next));
         // Opened out, its kinds closed.
-        outs.insert(a.resref, vec![(Creature, false, vec![0, 2]), (Door, false, vec![0])]);
+        outs.insert(
+            a.resref,
+            vec![(Creature, false, Arc::from([0, 2])), (Door, false, Arc::from([0]))],
+        );
         assert_eq!(step(&shown, &outs, Some(area), Key::ArrowRight), Step::To(creatures));
         assert_eq!(step(&shown, &outs, Some(area), Key::ArrowDown), Step::To(creatures));
         assert_eq!(step(&shown, &outs, Some(creatures), Key::ArrowDown), Step::To(doors));
@@ -2435,7 +2443,10 @@ mod tests {
         assert_eq!(step(&shown, &outs, Some(creatures), Key::ArrowLeft), Step::To(area));
         assert_eq!(step(&shown, &outs, Some(area), Key::ArrowLeft), Step::Fold(area, false));
         // A kind open: into its objects (those listed), and back.
-        outs.insert(a.resref, vec![(Creature, true, vec![0, 2]), (Door, false, vec![0])]);
+        outs.insert(
+            a.resref,
+            vec![(Creature, true, Arc::from([0, 2])), (Door, false, Arc::from([0]))],
+        );
         assert_eq!(step(&shown, &outs, Some(creatures), Key::ArrowRight), Step::To(object(0)));
         assert_eq!(step(&shown, &outs, Some(object(0)), Key::ArrowDown), Step::To(object(2)));
         assert_eq!(step(&shown, &outs, Some(object(2)), Key::ArrowDown), Step::To(doors));
@@ -2467,14 +2478,22 @@ mod tests {
         let mut outs = Outs::new();
         outs.insert(
             a.resref,
-            vec![(Creature, true, vec![1, 0]), (Door, false, vec![0]), (Waypoint, true, vec![0])],
+            vec![
+                (Creature, true, Arc::from([1, 0])),
+                (Door, false, Arc::from([0])),
+                (Waypoint, true, Arc::from([0])),
+            ],
         );
         let row = |text: &str| ObjectRow {
             text: text.to_string(),
             sought: mg_core::text::fold(text),
             tip: String::new(),
         };
-        let kind = |kind, rows: Vec<ObjectRow>, order| KindContents { kind, rows, order };
+        let kind = |kind, rows: Vec<ObjectRow>, order: Vec<usize>| KindContents {
+            kind,
+            rows,
+            order: order.into(),
+        };
         let contents = vec![
             kind(Creature, vec![row("Goblin"), row("Bandit")], vec![1, 0]),
             kind(Door, vec![row("Gate")], vec![0]),
@@ -2555,7 +2574,7 @@ mod tests {
             }
         }
         // The objects found, kind by kind in the order listed.
-        let both = Some(vec![vec![1, 0], vec![], vec![]]);
+        let both: Option<Vec<Order>> = Some(vec![Arc::from([1, 0]), Arc::from([]), Arc::from([])]);
         assert_eq!(found_in(&contents[&a.resref].1, &Needle::new("b")), both);
         let filter = Needle::new("bandit");
         assert_eq!(found_in(&contents[&a.resref].1, &Needle::new("ogre")), None);
