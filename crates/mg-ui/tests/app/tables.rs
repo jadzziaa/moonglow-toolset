@@ -557,22 +557,76 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
-    type_into_hint(&mut h, "a category's or group's name", "Ruins");
-    h.get_by_label("Add Category").click();
+    // (Its lines are added at OK, each where a category still names it:
+    // Cancel leaves the table as it was. Two in one window take a line
+    // each. The review of November 2026, the last fixers' item 9.)
+    let name_of = |h: &Harness<'_, Moonglow>, path: &[usize]| {
+        let w = h.state().palette_categories.as_ref().unwrap();
+        let mut node = &w.skeleton.root.list("MAIN").unwrap()[path[0]];
+        for i in &path[1..] {
+            node = &node.list("LIST").unwrap()[*i];
+        }
+        assert!(node.get("NAME").is_none() && node.get("DELETE_ME").is_none(), "no name");
+        mg_module::palette::node_name(node)
+    };
+    let moved = |h: &mut Harness<'_, Moonglow>, name: &str, strref: u32| {
+        h.state_mut().palette_categories.as_mut().unwrap().name = name.into();
+        h.state_mut().palette_categories.as_mut().unwrap().selected = None;
+        h.run();
+        h.get_by_label("Add Category").click();
+        h.run();
+        h.get_by_label("Move Name to Talk Table").click();
+        h.run();
+        let w = h.state().palette_categories.as_ref().unwrap();
+        assert_eq!(w.strref, strref.to_string());
+        let path = w.selected.clone().unwrap();
+        let named = name_of(h, &path);
+        assert_eq!(named, mg_module::palette::PaletteName::StrRef(strref));
+        // (Shown by its text before it is added.)
+        h.get_by_label_contains(&format!("{name}  (category"));
+        path
+    };
+    moved(&mut h, "Ruins", 16_777_218);
+    moved(&mut h, "Tombs", 16_777_219);
+    let t = h.state().talk.as_ref().unwrap();
+    assert_eq!(t.len(), 2, "not added before OK");
+    h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
-    h.get_by_label("Move Name to Talk Table").click();
+    assert!(h.state().palette_categories.is_none());
+    assert_eq!(h.state().talk.as_ref().unwrap().len(), 2, "Cancel adds nothing");
+    h.get_by_label("More").click();
     h.run();
-    let w = h.state().palette_categories.as_ref().unwrap();
-    assert_eq!(w.strref, "16777218");
-    let path = w.selected.clone().unwrap();
-    let mut node = &w.skeleton.root.list("MAIN").unwrap()[path[0]];
-    for i in &path[1..] {
-        node = &node.list("LIST").unwrap()[*i];
+    h.get_by_label("Categories…").click();
+    h.run();
+    moved(&mut h, "Ruins", 16_777_218);
+    moved(&mut h, "Caves", 16_777_219);
+    // A third moved and then named by another line: not added.
+    moved(&mut h, "Halls", 16_777_220);
+    h.state_mut().palette_categories.as_mut().unwrap().strref = "5".into();
+    h.run();
+    h.get_by_label("Name by StrRef").click();
+    h.run();
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.state().palette_categories.is_none());
+    let t = h.state().talk.as_ref().unwrap();
+    let lines: Vec<String> = (0..t.len()).map(|r| t.line(r).text).collect();
+    assert_eq!(lines, ["Greetings", "The Keep", "Ruins", "Caves"]);
+    settle(&mut h);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let key = mg_module::palette::BlueprintKind::Placeable.skeleton_key();
+    let skeleton = mg_gff::Gff::read(ws.module.get(&key).unwrap()).unwrap();
+    let mut named = Vec::new();
+    fn walk(list: &[mg_gff::Struct], out: &mut Vec<mg_module::palette::PaletteName>) {
+        for n in list {
+            out.push(mg_module::palette::node_name(n));
+            walk(n.list("LIST").unwrap_or(&[]), out);
+        }
     }
-    let named = mg_module::palette::node_name(node);
-    assert_eq!(named, mg_module::palette::PaletteName::StrRef(16_777_218));
-    assert!(node.get("NAME").is_none() && node.get("DELETE_ME").is_none(), "no name written out");
-    assert_eq!(h.state().talk.as_ref().unwrap().line(2).text, "Ruins");
+    walk(skeleton.root.list("MAIN").unwrap(), &mut named);
+    use mg_module::palette::PaletteName::StrRef;
+    assert!(named.contains(&StrRef(16_777_218)) && named.contains(&StrRef(16_777_219)));
+    assert!(named.contains(&StrRef(5)) && !named.contains(&StrRef(16_777_220)), "{named:?}");
 }
 
 #[test]
@@ -2335,15 +2389,67 @@ fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
     let found = mg_ui::table_view::strings_found(None, h.state().game.as_deref(), &text);
     assert!(found.0.iter().any(|(m, _)| *m == n), "{n} {text:?} in {found:?}");
     // A new line of the module's talk table, its number put in the cell.
+    // (Added as the table is saved, where a cell still names it: Cancel
+    // leaves the talk table as it was. The review of November 2026, the
+    // last fixers' item 9.)
+    let new_line = |h: &mut Harness<'_, Moonglow>, row: usize, text: &str| {
+        choose(h, row);
+        h.get_by_label("New Line…").click();
+        h.run_steps(3);
+        type_in_last(h, egui::accesskit::Role::MultilineTextInput, text);
+        h.get_by_label("Add to Talk Table").click();
+        h.run_steps(4);
+    };
+    new_line(&mut h, 1, "Brand new words");
+    assert_eq!(table_of(&h, id).get(1, "Name"), Some("16777217"));
+    // (Shown by its text before it is added.)
+    h.get_by_label("\u{201c}Brand new words\u{201d}");
+    new_line(&mut h, 0, "Other new words");
+    assert_eq!(table_of(&h, id).get(0, "Name"), Some("16777218"), "a line of its own");
+    let talk = h.state().talk.as_ref().expect("the module's talk table");
+    assert_eq!((talk.len(), talk.is_dirty()), (1, false), "not added before the table's Save");
+    // Cancel, Don't Save: nothing added.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+    h.run_steps(3);
+    h.get_by_label("Don't Save").click();
+    h.run_steps(4);
+    assert!(!h.state().tables.iter().any(|d| d.id == id));
+    let talk = h.state().talk.as_ref().unwrap();
+    assert_eq!((talk.len(), talk.is_dirty()), (1, false), "Cancel adds nothing");
+    // Opened again: two lines, the first named by a cell no more; OK adds
+    // the one named, by the number the cell shows.
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    settle(&mut h);
+    let choose = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, 1);
+        h.run_steps(4);
+    };
+    choose(&mut h, 0);
+    h.get_by_label("New Line…").click();
+    h.run_steps(3);
+    type_in_last(&mut h, egui::accesskit::Role::MultilineTextInput, "Gone again");
+    h.get_by_label("Add to Talk Table").click();
+    h.run_steps(4);
+    assert_eq!(table_of(&h, id).get(0, "Name"), Some("16777217"));
     choose(&mut h, 1);
     h.get_by_label("New Line…").click();
     h.run_steps(3);
     type_in_last(&mut h, egui::accesskit::Role::MultilineTextInput, "Brand new words");
     h.get_by_label("Add to Talk Table").click();
     h.run_steps(4);
-    assert_eq!(table_of(&h, id).get(1, "Name"), Some("16777217"));
-    let talk = h.state().talk.as_ref().expect("the module's talk table");
-    assert_eq!((talk.line(1).text.as_str(), talk.is_dirty()), ("Brand new words", true));
-    // (Shown by its text before the talk table is saved.)
-    h.get_by_label("\u{201c}Brand new words\u{201d}");
+    assert_eq!(table_of(&h, id).get(1, "Name"), Some("16777218"));
+    // (Row 0 given the module's first string again.)
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(0, 1, Some("16777216".into())).unwrap();
+    h.run_steps(2);
+    // (The module's Save: the line is in the talk table it saves.)
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(&mut h);
+    let talk = h.state().talk.as_ref().unwrap();
+    assert_eq!((talk.len(), talk.line(1).text.as_str()), (2, "Brand new words"));
+    assert!(!talk.is_dirty(), "saved with the module");
+    let saved = h.state_mut().ws.as_mut().unwrap().module.get(&key).unwrap().to_vec();
+    let saved = mg_2da::TwoDa::parse(&saved, mg_core::Codepage::default()).unwrap();
+    assert_eq!(saved.get(1, "Name"), Some("16777217"), "the number the line took");
 }

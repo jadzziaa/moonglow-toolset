@@ -4542,6 +4542,15 @@ impl Moonglow {
                 ));
             }
         }
+        // (New Line's lines of the tables saved below go into the talk
+        // table first, which is saved before them.)
+        for at in 0..self.tables.len() {
+            if self.tables[at].has_unsaved()
+                && let Err(e) = table_view::add_pending_lines(self, at)
+            {
+                self.log.error(format!("{}: {e}", self.tables[at].key));
+            }
+        }
         // (A talk table with lines typed for the module's fields that can't
         // be saved stops the module's save: its fields would name lines
         // the table hasn't.)

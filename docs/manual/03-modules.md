@@ -2060,11 +2060,13 @@ cell. (A model is checked for the cell chosen, not for every row: the
 game's own tables name models it never shipped.) A talk-table string's
 cell has **Choose String…**, the strings of the module's talk table and
 the game's `dialog.tlk` found by a part of their text (the module's
-first; one clicked goes in the cell), and **New Line…**, which adds the
-text typed as a new line at the end of the module's own talk table and
-puts its number (16777216 and on) in the cell. The line is saved with
-the talk table (its own Save, or the module's); until then the cell
-shows it by its text all the same.
+first; one clicked goes in the cell), and **New Line…**, which puts in
+the cell the number (16777216 and on) of a new line of the module's own
+talk table holding the text typed. The line is added as the table is
+saved (its OK, or the module's Save), where a cell still names it:
+Cancel with Don't Save adds none. Until then the cell shows it by its
+text, and the talk table, once it has the line, saves it with its own
+Save or the module's.
 
 **Find References to Row** lists the cells, in every table the game
 reads, of the columns known to name a row of this table, and the
