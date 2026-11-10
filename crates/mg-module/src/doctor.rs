@@ -6620,4 +6620,252 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(found[0].message.contains("dd_gca_carpeta"), "{found:?}");
         assert_eq!(Check::TintStored.group(), Group::Objects);
     }
+
+    /// A world of forty areas with something for every check that reads
+    /// the module's areas, objects and blueprints (a row that isn't there,
+    /// the PC faction, static placeables with a transform and with a tint,
+    /// a tint stored, a row past 65535, an ARE's variables, tiles that
+    /// don't fit, tags to be unique, described variables and those the
+    /// scripts read), kept as a folder with its project's files.
+    fn a_world(dir: &std::path::Path) -> (Module, ResMan) {
+        let s = |t: &str| Value::String(t.as_bytes().to_vec());
+        let var = |name: &str, value: Value| {
+            let t = match value {
+                Value::Int(_) => 1,
+                Value::Float(_) => 2,
+                _ => 3,
+            };
+            let mut v = Struct::new(0);
+            v.set("Name", s(name));
+            v.set("Type", Value::Dword(t));
+            v.set("Value", value);
+            v
+        };
+        let object = |id: u32, tag: &str, vars: Vec<Struct>| {
+            let mut o = Struct::new(id);
+            o.set("Tag", s(tag));
+            if !vars.is_empty() {
+                o.set("VarTable", Value::List(vars));
+            }
+            o
+        };
+        let scaled = |o: &mut Struct| {
+            let mut entry = Struct::new(6);
+            entry.set("Scope", Value::Int(0));
+            for a in ["ScaleX", "ScaleY", "ScaleZ"] {
+                let mut axis = Struct::new(0);
+                axis.set("ValueTo", Value::Float(0.5));
+                entry.set(a, Value::Struct(axis));
+            }
+            o.set("VisTransformList", Value::List(vec![entry]));
+        };
+        let stored = |o: &mut Struct| {
+            let mut e = Struct::new(0);
+            e.set("Material", s("dd_gca_carpeta"));
+            e.set("Param", s("tdodTint"));
+            e.set("Type", Value::Byte(2));
+            let mut m = Struct::new(7);
+            m.set("ShaderParams", Value::List(vec![e]));
+            o.set("Material", Value::Struct(m));
+        };
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        ifo.root.set("VarTable", Value::List(vec![var("tdod_lamplit", Value::Int(1))]));
+        m.set_gff(key("module", ResType::IFO), &ifo).unwrap();
+        for i in 0..40u32 {
+            let name = format!("area{i:02}");
+            let mut are = Gff::new(*b"ARE ");
+            are.root.set("Tag", s(&format!("AREA_{i}")));
+            are.root.set("Tileset", Value::ResRef(b"tst03".to_vec()));
+            are.root.set("Width", Value::Int(2));
+            are.root.set("Height", Value::Int(2));
+            // (As `tiles_that_do_not_fit_their_neighbors_are_found` has
+            // them: tiles that don't fit, tiles that do.)
+            let tiles: &[(i32, i32, i32)] = match i % 3 {
+                0 => &[(1, 2, 0), (0, 0, 0), (2, 0, 0), (0, 0, 1)],
+                1 => &[(1, 2, 0), (1, 3, 0), (1, 1, 0), (1, 0, 0)],
+                _ => &[(0, 0, 0), (7, 0, 0), (0, 0, 0), (0, 0, 0)],
+            };
+            let list = (tiles.iter())
+                .map(|&(id, o, h)| {
+                    let mut t = Struct::new(1);
+                    t.set("Tile_ID", Value::Int(id));
+                    t.set("Tile_Orientation", Value::Int(o));
+                    t.set("Tile_Height", Value::Int(h));
+                    t
+                })
+                .collect();
+            are.root.set("Tile_List", Value::List(list));
+            if i % 5 == 0 {
+                are.root.set("VarTable", Value::List(vec![var("old_one", Value::Int(i as i32))]));
+            }
+            m.set_gff(key(&name, ResType::ARE), &are).unwrap();
+
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("VarTable", Value::List(vec![var("tdod_lamplit", Value::Int(1))]));
+            let mut guard = object(4, "GUARD", vec![var("tdod_kind", s("monster"))]);
+            if i % 2 == 0 {
+                guard.set("FactionID", Value::Word(0));
+            } else {
+                guard.set("FactionID", Value::Word(2));
+            }
+            let item = object(0, "", vec![var("tdod_kind", s("beast"))]);
+            guard.set("ItemList", Value::List(vec![item]));
+            git.root.set("Creature List", Value::List(vec![guard]));
+            let mut bench = object(
+                9,
+                "BENCH",
+                vec![
+                    var("tdod_workbench", s("Forge")),
+                    var("tdod_lit", s("1")),
+                    var("TDOD_light", Value::Int(1)),
+                    var("tdod_harvest_dc", Value::Int(99)),
+                    var("tdod_craft2", Value::Int(7)),
+                    var("tdod_trodden", Value::Int(1)),
+                    var("tdod_note", s("read as an int")),
+                    var("tdod_rental", s("inn")),
+                    var("tdod_missing", s("anything")),
+                ],
+            );
+            bench.set("Appearance", Value::Dword(0));
+            bench.set("Faction", Value::Dword(1));
+            let mut rug = object(9, "RUG", vec![var("tdod_tint", s("#2a4d8f"))]);
+            rug.set("Static", Value::Byte(u8::from(i % 4 == 0)));
+            rug.set("Appearance", Value::Dword(0));
+            rug.set("Faction", Value::Dword(1));
+            stored(&mut rug);
+            let mut mirror = object(9, "MIRROR", Vec::new());
+            mirror.set("Static", Value::Byte(u8::from(i % 3 == 0)));
+            mirror.set("Appearance", Value::Dword(if i % 7 == 0 { 70_000 + i } else { 7 }));
+            mirror.set("Faction", Value::Dword(1));
+            scaled(&mut mirror);
+            git.root.set("Placeable List", Value::List(vec![bench, rug, mirror]));
+            let waypoints = vec![
+                object(5, &format!("TDOD_START_{}", i % 4), Vec::new()),
+                object(5, "SHOP_STORE_A", Vec::new()),
+                object(5, if i % 6 == 0 { "SHOP_STORE_A" } else { "LAMP" }, Vec::new()),
+            ];
+            git.root.set("WaypointList", Value::List(waypoints));
+            m.set_gff(key(&name, ResType::GIT), &git).unwrap();
+
+            // A blueprint an area: of no faction, its row not there.
+            let mut utp = Gff::new(*b"UTP ");
+            utp.root = object(u32::MAX, "CHAIR", vec![var("tdod_tint", s("#ffffff"))]);
+            utp.root.set("Appearance", Value::Dword(if i % 2 == 0 { 0 } else { 9 }));
+            utp.root.set("Static", Value::Byte(u8::from(i % 8 == 0)));
+            m.set_gff(key(&format!("chair{i:02}"), ResType::UTP), &utp).unwrap();
+        }
+        m.set(
+            key("tdod_kind_inc", ResType::NSS),
+            b"const string TDOD_KIND_BEAST = \"beast\";\nconst string TDOD_KIND_UNDEAD = \"undead\";\n"
+                .to_vec(),
+        );
+        m.set(
+            key("tdod_reads", ResType::NSS),
+            b"void main()\n{\n    int n = GetLocalInt(OBJECT_SELF, \"tdod_note\");\n}\n".to_vec(),
+        );
+        m.save_as(&crate::ModuleLocation::Folder(dir.to_path_buf())).unwrap();
+        std::fs::write(
+            dir.join("variables.toml"),
+            "undescribed = [\"tdod_*\"]\n\n\
+             [tdod_workbench]\ntype = \"string\"\non = [\"placeable\"]\n\
+             values = { forge = \"Smithing\", tanner = \"Leatherworking\" }\n\n\
+             [tdod_lit]\ntype = \"int\"\nvalues = [1]\n\n\
+             [tdod_light]\ntype = \"int\"\n\n\
+             [tdod_harvest_dc]\ntype = \"int\"\nmin = 1\nmax = 60\n\n\
+             [tdod_lamplit]\ntype = \"int\"\non = [\"area\"]\n\n\
+             [tdod_kind]\ntype = \"string\"\nconstants = \"tdod_kind_inc\"\nprefix = \"TDOD_KIND_\"\n\n\
+             [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n\n\
+             [tdod_trodden]\nruntime = true\nhelp = \"The scripts' own\"\n\n\
+             [tdod_rental]\ntype = \"string\"\nrequires = [\"tdod_rental_door\"]\n\n\
+             [tdod_rental_door]\ntype = \"string\"\n\n\
+             [tdod_missing]\ntype = \"string\"\nconstants = \"tdod_nowhere_inc\"\nprefix = \"X_\"\n\n\
+             [tdod_tint]\ntype = \"string\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("moonglow.toml"),
+            "[tags]\nunique = [\"TDOD_START_*\"]\nunique_in_area = [\"*_STORE_*\"]\n",
+        )
+        .unwrap();
+        let set = "[GENERAL]\nName=TST03\nTransition=5\n\
+[TERRAIN TYPES]\nCount=2\n[TERRAIN0]\nName=Grass\n[TERRAIN1]\nName=Water\n\
+[CROSSER TYPES]\nCount=1\n[CROSSER0]\nName=Road\n\
+[TILES]\nCount=3\n\
+[TILE0]\nModel=tst03_a\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Grass\nBottomRight=Grass\n\
+[TILE1]\nModel=tst03_b\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Water\nBottomRight=Grass\n\
+[TILE2]\nModel=tst03_c\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Grass\nBottomRight=Grass\n\
+Top=Road\nBottom=Road\n[GROUPS]\nCount=0\n";
+        let rm = resman(&[
+            ("tst03", ResType::SET, set.as_bytes()),
+            ("crafts", ResType::TWODA, b"2DA V2.0\n\n   Label\n0  Smithing\n1  Tailoring\n"),
+        ]);
+        let m = Module::open(dir).unwrap();
+        assert_eq!(m.project_file.warnings, Vec::<String>::new());
+        (m, rm)
+    }
+
+    /// The module's areas, objects and blueprints are each read once, on
+    /// every core, and handed to every check that reads their type (the
+    /// review's V6: each check read every one of them again, one after
+    /// another). The findings are those the checks made one after another,
+    /// in their order: held to what that code found of this world (their
+    /// number and a hash of every word of them, taken before the change),
+    /// and the same on one thread as on many, each time.
+    #[test]
+    fn findings_of_resources_read_once_are_as_one_check_after_another_made_them() {
+        let dir = mg_testkit::scratch_dir("doctor-one-pass");
+        let (m, rm) = a_world(&dir);
+        let tlk = TalkTables::default();
+        let f = examine(&m, &rm, tlk);
+        // (Every check of the pass found something.)
+        for check in [
+            "object-row",
+            "pc-faction",
+            "static-transform",
+            "static-tint",
+            "tint-stored",
+            "appearance-range",
+            "area-variables",
+            "tile-seam",
+            "tag-unique",
+            "var-type",
+            "var-value",
+            "var-name",
+            "var-object",
+            "var-runtime",
+            "var-requires",
+            "var-script",
+        ] {
+            assert!(f.iter().any(|x| x.check == check), "{check}");
+        }
+        // (FNV-1a over every finding, in order.)
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for x in &f {
+            let line = format!(
+                "{:?}|{}|{}|{}|{}|{}\n",
+                x.severity, x.check, x.source, x.resource, x.at, x.message
+            );
+            for b in line.bytes() {
+                hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        assert_eq!((f.len(), hash), GOLDEN, "the findings changed");
+        // A list that can't be read is said once, at the first variable of
+        // it in the first resource.
+        let unlisted: Vec<&Finding> =
+            f.iter().filter(|x| x.message.contains("can't be listed")).collect();
+        assert_eq!(unlisted.len(), 1, "{unlisted:#?}");
+        assert_eq!(unlisted[0].resource, key("area00", ResType::GIT));
+        // The same on one thread, and each time.
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        assert_eq!(one.install(|| examine(&m, &rm, tlk)), f);
+        for _ in 0..3 {
+            assert_eq!(examine(&m, &rm, tlk), f);
+        }
+    }
+
+    /// What `findings_of_resources_read_once_…` found before the checks
+    /// shared one read of each resource: how many findings, and their hash.
+    const GOLDEN: (usize, u64) = (716, 10_594_041_698_474_318_005);
 }
