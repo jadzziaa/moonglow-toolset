@@ -2083,9 +2083,13 @@ pub(crate) fn field_widget(
             *value = serde_json::json!(text);
         }
         FieldKind::Number { min, max, .. } => {
-            let mut n = value.as_f64().unwrap_or_default();
-            let range = min.unwrap_or(f64::MIN)..=max.unwrap_or(f64::MAX);
-            let r = ui.add(egui::DragValue::new(&mut n).range(range));
+            let (min, max) = (min.unwrap_or(f64::MIN), max.unwrap_or(f64::MAX));
+            // (A value outside its limits, one kept from a render whose
+            // limits were others, is held to them here: the widget would
+            // do so and say it changed, which is no setting of the
+            // user's and ran a panel's field's command as it was drawn.)
+            let mut n = value.as_f64().unwrap_or_default().max(min).min(max);
+            let r = ui.add(egui::DragValue::new(&mut n).range(min..=max));
             drawn.editing = r.dragged() || r.has_focus();
             drawn.set = r.drag_stopped() || r.lost_focus() || (r.changed() && !drawn.editing);
             *value = serde_json::json!(n);
@@ -2138,14 +2142,24 @@ const SWATCH_ROOM: f32 = SWATCH + 6.0;
 /// A choice's dropdown: its options' texts, each with its swatch where it
 /// has a color (API 0.9), in the list and in the box.
 fn choice_box(ui: &mut egui::Ui, chosen: &mut String, choices: &[mg_plugin::Choice]) {
-    let texts: Vec<String> = choices.iter().map(|c| c.text.clone()).collect();
+    // (The options' texts are read where they are, none copied: a choice
+    // may have `mg_plugin::MAX_CHOICES` of them, and a panel's is drawn
+    // every frame.)
     if choices.iter().all(|c| c.color.is_none()) {
-        crate::widgets::dropdown("choice").selected_text(chosen.clone()).show(
+        let places: Vec<usize> = (0..choices.len()).collect();
+        let was = choices.iter().position(|c| c.text == *chosen).unwrap_or(usize::MAX);
+        let mut at = was;
+        crate::widgets::dropdown("choice").selected_text(chosen.as_str()).show(
             ui,
-            chosen,
-            &texts,
-            Clone::clone,
+            &mut at,
+            &places,
+            |i| choices[*i].text.as_str(),
         );
+        if at != was
+            && let Some(c) = choices.get(at)
+        {
+            chosen.clone_from(&c.text);
+        }
         return;
     }
     // (Every text after the room for a swatch, those without one too, so
@@ -2160,10 +2174,13 @@ fn choice_box(ui: &mut egui::Ui, chosen: &mut String, choices: &[mg_plugin::Choi
     let r = crate::widgets::dropdown("choice").selected_text(room(ui, chosen)).show_with(
         ui,
         chosen,
-        || texts.clone(),
+        || choices.iter().map(|c| c.text.clone()).collect(),
         |ui, current| {
             for c in choices {
-                let row = ui.selectable_value(current, c.text.clone(), room(ui, &c.text));
+                let row = ui.selectable_label(*current == c.text, room(ui, &c.text));
+                if row.clicked() {
+                    current.clone_from(&c.text);
+                }
                 if let Some(rgb) = c.color {
                     swatch(ui, row.rect, rgb);
                 }
@@ -2976,6 +2993,45 @@ pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A number field whose value lies outside its limits (one kept from
+    /// a render with other limits) is held to them as it is drawn, and
+    /// that is no setting of the user's: a panel ran the field's command
+    /// for it. A choice with and without swatches shows what is chosen.
+    #[test]
+    fn a_field_drawn_is_not_a_field_set() {
+        let number = mg_plugin::FormField {
+            id: "n".into(),
+            label: "N".into(),
+            kind: FieldKind::Number { default: 0.0, min: Some(1.0), max: Some(5.0) },
+        };
+        let choices = |color| {
+            let choice = |text: &str| mg_plugin::Choice { text: text.into(), color };
+            mg_plugin::FormField {
+                id: "c".into(),
+                label: "C".into(),
+                kind: FieldKind::Choice { choices: vec![choice("One"), choice("Two")], default: 0 },
+            }
+        };
+        let (plain, swatches) = (choices(None), choices(Some([160, 16, 16])));
+        let mut values = [serde_json::json!(0.0), serde_json::json!(9.0)];
+        let mut chosen = [serde_json::json!("Two"), serde_json::json!("Two")];
+        let mut set = false;
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                for (i, v) in values.iter_mut().enumerate() {
+                    set |= field_widget(ui, ("n", i), &number, v).set;
+                }
+                set |= field_widget(ui, "plain", &plain, &mut chosen[0]).set;
+                set |= field_widget(ui, "swatches", &swatches, &mut chosen[1]).set;
+            });
+            out.textures_delta.clear();
+        }
+        assert!(!set, "drawn, not set");
+        assert_eq!(values, [serde_json::json!(1.0), serde_json::json!(5.0)]);
+        assert_eq!(chosen, [serde_json::json!("Two"), serde_json::json!("Two")]);
+    }
 
     #[test]
     fn what_an_event_was_allowed_is_kept_by_plugin_and_version() {

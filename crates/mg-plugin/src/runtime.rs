@@ -941,6 +941,10 @@ pub(crate) fn form_field(f: &Table, kind: &str, start: &str) -> mlua::Result<For
             {
                 return fail(format!("the number {id:?}'s min, {min}, is above its max, {max}"));
             }
+            // (What it starts with, within its limits: a field given
+            // none with `min = 1` started at 0, which the window's
+            // widget then made 1 as it was drawn, as if the user had.)
+            let default = default.max(min.unwrap_or(f64::MIN)).min(max.unwrap_or(f64::MAX));
             FieldKind::Number { default, min, max }
         }
         "check" => FieldKind::Check { default: f.get::<Option<bool>>(start)?.unwrap_or(false) },
@@ -985,13 +989,33 @@ fn choices_of(id: &str, given: Option<Table>) -> mlua::Result<Vec<crate::Choice>
     let mut out = Vec::new();
     let Some(given) = given else { return Ok(out) };
     let shape = "an option is text, or { text = \"…\", color = \"#rrggbb\" }";
+    // (Its options are drawn each frame its list is open, and its value
+    // is an option's whole text: more than a list can be read through, or
+    // a text past what a panel shows, is refused, not cut.)
+    let checked = |text: String| -> mlua::Result<String> {
+        if text.chars().nth(crate::MAX_TEXT).is_some() {
+            return fail(format!(
+                "the choice {id:?} has an option of over {} characters",
+                crate::MAX_TEXT
+            ));
+        }
+        Ok(text)
+    };
     for c in given.sequence_values::<LuaValue>() {
+        if out.len() >= crate::MAX_CHOICES {
+            return fail(format!(
+                "the choice {id:?} has over {} options: a list is no place to choose among so \
+                 many",
+                crate::MAX_CHOICES
+            ));
+        }
         out.push(match c? {
-            LuaValue::String(s) => crate::Choice::text(s.to_str()?.to_string()),
+            LuaValue::String(s) => crate::Choice::text(checked(s.to_str()?.to_string())?),
             LuaValue::Table(t) => {
                 let Some(text) = t.get::<Option<String>>("text")? else {
                     return fail(format!("the choice {id:?}: {shape}"));
                 };
+                let text = checked(text)?;
                 let color = match t.get::<Option<String>>("color")? {
                     None => None,
                     Some(c) => match crate::color_of(&c) {
@@ -2538,6 +2562,61 @@ mod tests {
             let e = field(bad).unwrap_err();
             assert!(e.contains("the number \"n\"'s"), "{bad}: {e}");
         }
+    }
+
+    /// A number field starts within its limits, whatever it is given (or
+    /// not given): the window's widget held a value outside them to them
+    /// as it was drawn, which a panel took for the user's setting it and
+    /// ran the field's command.
+    #[test]
+    fn a_number_field_starts_within_its_limits() {
+        let lua = Lua::new();
+        let start = |code: &str| {
+            let t: Table = lua.load(code).eval().unwrap();
+            match form_field(&t, "number", "value").unwrap().kind {
+                FieldKind::Number { default, .. } => default,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(start("{ id = 'n', min = 1 }"), 1.0);
+        assert_eq!(start("{ id = 'n', value = 9, min = 1, max = 5 }"), 5.0);
+        assert_eq!(start("{ id = 'n', value = -3, max = -4 }"), -4.0);
+        assert_eq!(start("{ id = 'n', value = 3, min = 1, max = 5 }"), 3.0);
+        assert_eq!(start("{ id = 'n', value = 7 }"), 7.0);
+    }
+
+    /// A choice's options are held to a count and each to a length: a
+    /// choice of every resource of a large module, or what a careless
+    /// loop returns, was copied each frame and drawn whole once open.
+    #[test]
+    fn a_choice_of_too_many_or_too_long_options_is_refused() {
+        let lua = Lua::new();
+        let field = |code: &str| {
+            let t: Table = lua.load(code).eval().unwrap();
+            form_field(&t, "choice", "default").map_err(|e| e.to_string())
+        };
+        let many = |n: usize| {
+            format!(
+                "(function() local c = {{}} for i = 1, {n} do c[i] = 'option ' .. i end \
+                 return {{ id = 'c', choices = c }} end)()"
+            )
+        };
+        match field(&many(crate::MAX_CHOICES)).unwrap().kind {
+            FieldKind::Choice { choices, .. } => assert_eq!(choices.len(), crate::MAX_CHOICES),
+            other => panic!("{other:?}"),
+        }
+        let e = field(&many(100_000)).unwrap_err();
+        assert!(e.contains("the choice \"c\" has over 2000 options"), "{e}");
+        let long = |n: usize| format!("{{ id = 'c', choices = {{ string.rep('x', {n}) }} }}");
+        assert!(field(&long(crate::MAX_TEXT)).is_ok());
+        let e = field(&long(crate::MAX_TEXT + 1)).unwrap_err();
+        assert!(e.contains("has an option of over 1000 characters"), "{e}");
+        let e = field(&format!(
+            "{{ id = 'c', choices = {{ {{ text = string.rep('x', {}) }} }} }}",
+            crate::MAX_TEXT + 1
+        ))
+        .unwrap_err();
+        assert!(e.contains("has an option of over 1000 characters"), "{e}");
     }
 
     /// A resource's name set from text is the text's bytes in the

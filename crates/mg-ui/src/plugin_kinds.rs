@@ -66,6 +66,10 @@ pub struct PanelState {
     /// What it was drawn for: the module's revision and what was
     /// selected.
     revision: Option<u64>,
+    /// The module's revision what it shows was made from: the places its
+    /// buttons and items name (`on`, `open`) are places of the module as
+    /// it was then.
+    shown_at: Option<u64>,
     selection: Vec<Selected>,
     /// The module's revision last seen, and when the edits will have
     /// stopped long enough to draw it again ([`PANEL_QUIET`]): not
@@ -109,6 +113,7 @@ impl Default for PanelState {
             stale: true,
             running: None,
             revision: None,
+            shown_at: None,
             selection: Vec::new(),
             seen: None,
             quiet_at: None,
@@ -151,6 +156,8 @@ impl PanelState {
             }
             self.fields.retain(|id, _| ids.contains(id));
         }
+        // (A render begun at `revision`: none begins while one runs.)
+        self.shown_at = self.revision;
         self.shown = Some(shown);
     }
 
@@ -598,9 +605,14 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
         ui.weak(format!("{name}{took}")).on_hover_text(&decl.hint);
     });
     ui.separator();
-    let shown = app.plugins.panels.get(&key).and_then(|s| s.shown.clone());
+    // (What it shows, taken out for the frame and put back after it, not
+    // copied: up to `MAX_ELEMENTS` elements and their texts, every frame.)
+    let shown = app.plugins.panels.get_mut(&key).and_then(|s| s.shown.take());
     let mut chosen: Option<(String, Vec<Selected>)> = None;
     let mut open: Option<Selected> = None;
+    // Whether what was clicked names places of the module (a button's or
+    // an item's `on`, an item's `open`), which are those of its render.
+    let mut placed = false;
     // Its fields' values, drawn into (and put back after); what is
     // selected now, which a field the user begins at keeps; a color being
     // picked, and what on.
@@ -646,6 +658,7 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
                             b = b.on_hover_text(hint);
                         }
                         if b.clicked() {
+                            placed = !on.is_empty();
                             chosen = Some((command.clone(), on.clone()));
                         }
                     }
@@ -695,8 +708,14 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
                                 };
                                 if r.clicked() {
                                     match (&item.command, &item.open) {
-                                        (Some(c), _) => chosen = Some((c.clone(), item.on.clone())),
-                                        (None, Some(s)) => open = Some(s.clone()),
+                                        (Some(c), _) => {
+                                            placed = !item.on.is_empty();
+                                            chosen = Some((c.clone(), item.on.clone()));
+                                        }
+                                        (None, Some(s)) => {
+                                            placed = true;
+                                            open = Some(s.clone());
+                                        }
                                         (None, None) => {}
                                     }
                                 }
@@ -719,8 +738,26 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
     });
     let values: BTreeMap<String, serde_json::Value> =
         fields.iter().map(|(id, v)| (id.clone(), v.value.clone())).collect();
+    let revision = app.ws.as_ref().map(mg_edit::Workspace::revision);
+    let mut outdated = false;
     if let Some(state) = app.plugins.panels.get_mut(&key) {
         state.fields = fields;
+        // (Nothing takes a render in while the panel is drawn.)
+        if state.shown.is_none() {
+            state.shown = shown;
+        }
+        // A click on a place the panel named, in a module that changed
+        // since: the place (an object is its area, list and index) may be
+        // another's now. Nothing is run or opened; it is drawn again.
+        outdated = placed && state.shown_at != revision;
+        state.stale |= outdated;
+    }
+    if outdated {
+        (chosen, open) = (None, None);
+        app.log.warn(format!(
+            "{name}: the module changed since this panel was drawn, so nothing was done: it is \
+             drawn again"
+        ));
     }
     // A color being picked, drawn on the objects it is for.
     if let Some((picking, on)) = picked {

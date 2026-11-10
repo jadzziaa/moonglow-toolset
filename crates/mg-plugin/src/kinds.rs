@@ -36,8 +36,13 @@ pub const PANEL_BUDGET: std::time::Duration = std::time::Duration::from_millis(2
 /// those past it are cut, and the panel says so.
 pub const MAX_ELEMENTS: usize = 2000;
 
-/// The most characters of a panel's text; the rest is cut.
+/// The most characters of a panel's text; the rest is cut. And of a
+/// choice's option, which is refused past it (its text is its value).
 pub const MAX_TEXT: usize = 1000;
+
+/// The most options a choice (a form's field, a panel's) has; one of more
+/// is refused.
+pub const MAX_CHOICES: usize = MAX_ELEMENTS;
 
 /// What a handler returned to call its change by (`{ label = … }`, or the
 /// text alone).
