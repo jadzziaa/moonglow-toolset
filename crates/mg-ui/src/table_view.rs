@@ -120,6 +120,10 @@ pub struct TableDoc {
     /// open tables' changes (a table the description names may be one).
     #[allow(clippy::type_complexity)]
     faults: Option<((u64, u64), Arc<Vec<CellFault>>)>,
+    /// The table as it was when another table's editor last asked for it
+    /// ([`TableDoc::shared`]), for its revision and changes then.
+    #[allow(clippy::type_complexity)]
+    shared: std::cell::RefCell<Option<((u64, u64), Arc<TwoDa>)>>,
     /// How many rows Add Row adds.
     pub add_count: usize,
     /// The name of a column being added, or given to the column
@@ -191,12 +195,31 @@ impl TableDoc {
             within: None,
             shown: None,
             faults: None,
+            shared: Default::default(),
             add_count: 1,
             new_column: None,
             renaming: None,
             taking: None,
             references: None,
             problem: None,
+        }
+    }
+
+    /// The table as it is now, to hand to another table's editor (a
+    /// description that names its rows): copied when it has changed since
+    /// it was last asked for, not each time. It was copied whole every
+    /// frame a cell naming its rows was selected, a million cells for a
+    /// table of 20,000 rows.
+    fn shared(&self) -> Arc<TwoDa> {
+        let mark = (self.revision, self.edit.changes());
+        let mut kept = self.shared.borrow_mut();
+        match &*kept {
+            Some((m, table)) if *m == mark => table.clone(),
+            _ => {
+                let table = Arc::new(self.edit.table().clone());
+                *kept = Some((mark, table.clone()));
+                table
+            }
         }
     }
 
@@ -840,7 +863,7 @@ fn project_table(app: &Moonglow, d: &Described, name: &str) -> Option<Arc<TwoDa>
         Home::Hak(_) => false,
     });
     if let Some(t) = open {
-        return Some(Arc::new(t.edit.table().clone()));
+        return Some(t.shared());
     }
     let mut read = d.tables.borrow_mut();
     let cp = codepage(app);
@@ -3012,6 +3035,18 @@ pub(crate) fn models_named(
     (names, all)
 }
 
+/// What tells one load order from another, for a list made from it and
+/// kept: its layers by name, each with how many resources it has (a file
+/// added to a hak, the module or `override` changes one).
+fn load_order_mark(game: &mg_rules::GameData) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for l in game.resman.layers() {
+        (&l.label, l.priority, l.container.len()).hash(&mut h);
+    }
+    h.finish()
+}
+
 /// A model's cell, chosen: whether the game has the model it names (and
 /// where: the layer the game reads it from), checked for the cell chosen
 /// (not for every row, which the game's own tables would fail: they name
@@ -3060,7 +3095,23 @@ fn model_choice(
             .hint("Part of a model's name")
             .show(ui);
         ui.data_mut(|d| d.insert_temp(find_id, find.clone()));
-        let (names, all) = models_named(game, &find, 200);
+        // (Looked through again when what is typed, or the load order,
+        // changes, as the strings are: every frame the list showed, each
+        // layer's every key was gone through, a name made of each model's
+        // and all of them sorted, 50,000 with CEP's haks.)
+        let mark = (find.clone(), load_order_mark(game));
+        let kept_id = find_id.with("found");
+        type Kept = (String, u64, Arc<(Vec<String>, usize)>);
+        let kept: Option<Kept> = ui.data(|d| d.get_temp(kept_id));
+        let found = match kept.filter(|(f, m, _)| (f, *m) == (&mark.0, mark.1)) {
+            Some((_, _, found)) => found,
+            None => {
+                let found = Arc::new(models_named(game, &find, 200));
+                ui.data_mut(|d| d.insert_temp(kept_id, (mark.0, mark.1, found.clone())));
+                found
+            }
+        };
+        let (names, all) = (&found.0, found.1);
         if all > names.len() {
             ui.weak(format!("{} of {all}: type more of the name", names.len()));
         }
@@ -3070,9 +3121,9 @@ fn model_choice(
             .min_scrolled_height(200.0);
         list.show(ui, |ui| {
             for n in names {
-                let now = value.is_some_and(|v| v.eq_ignore_ascii_case(&n));
-                if ui.selectable_label(now, &n).clicked() {
-                    *set = Some(Some(n));
+                let now = value.is_some_and(|v| v.eq_ignore_ascii_case(n));
+                if ui.selectable_label(now, n).clicked() {
+                    *set = Some(Some(n.clone()));
                     ui.data_mut(|d| d.insert_temp(open_id, false));
                 }
             }
@@ -3464,5 +3515,23 @@ mod tests {
         assert!(row_faults(&[], 3).is_empty());
         assert_eq!(cells_of(&all).len(), 5);
         assert!(cells_of(&all).contains(&(7, 0)) && !cells_of(&all).contains(&(0, 7)));
+    }
+
+    /// A table open in the editor is handed to another table's (whose
+    /// description names its rows) as it is, copied once for each change
+    /// of it, not every time it is asked for (the review of November
+    /// 2026, D21).
+    #[test]
+    fn an_open_table_is_shared_until_it_changes() {
+        let table = TwoDa::parse(b"2DA V2.0\n\n  Label\n0 a\n", mg_core::Codepage::default());
+        let key = ResKey::parse("mg_t", ResType::TWODA).unwrap();
+        let mut doc = TableDoc::new(1, key, Home::Module, Editing::new(table.unwrap()));
+        let first = doc.shared();
+        assert!(Arc::ptr_eq(&first, &doc.shared()), "the same copy while nothing changed");
+        doc.edit.set(0, 0, Some("b".into())).unwrap();
+        doc.changed();
+        let next = doc.shared();
+        assert!(!Arc::ptr_eq(&first, &next));
+        assert_eq!((first.cell(0, 0), next.cell(0, 0)), (Some("a"), Some("b")));
     }
 }
