@@ -1453,6 +1453,43 @@ fn progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
     assert!(h.query_by_label("Entry 29").is_some());
 }
 
+/// A combo's popup scrolls as a group, a list and a text do: its bar is
+/// dragged and clicked (it could not be), and the wheel over it is its
+/// own (the last pass's item 15, seen by the NUI drawing fixer).
+#[test]
+fn a_combo_popup_s_bar_is_dragged_and_clicked() {
+    let entries: Vec<_> = (0..30).map(|i| json!([format!("Entry {i}"), i])).collect();
+    let mut h = harness(
+        json!([{"type":"combo","value":0,"height":30,"width":200,"elements":entries}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    h.get_by_label("Canvas Dropdown").click();
+    h.run();
+    let bar = h.get_by_label("Scroll the list").rect();
+    assert!(h.query_by_label("Entry 29").is_none());
+    // A click on the lower end button: one entry on.
+    click_at(&mut h, bar.center_bottom() - egui::vec2(0.0, 4.0));
+    assert!(h.query_by_label("Entry 13").is_some(), "one entry on");
+    // The thumb dragged to the track's end: the last entries.
+    drag(&mut h, bar.center(), egui::vec2(0.0, bar.height() / 2.0 - 19.0));
+    assert!(h.query_by_label("Entry 29").is_some(), "dragged to the end");
+    // The wheel over it, back to the start, taken by it.
+    let first = h.get_by_label("Entry 29").rect();
+    h.hover_at(first.center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 1000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run();
+    assert!(h.query_by_label("Entry 0").is_some());
+    assert_eq!(h.ctx.input(|i| i.smooth_scroll_delta.y), 0.0, "the wheel taken");
+}
+
 #[test]
 fn content_starts_under_the_clients_33_point_title_bar() {
     // NWN EE 8193.37, np_group: a window's first control (margin 2) is 43
