@@ -326,9 +326,12 @@ impl Moonglow {
             .map(|k| Edit::SetResource { key: k, data: staged.get(&k).map(<[u8]>::to_vec) })
             .collect();
         let new = ResKey::new(to, from.restype);
-        match self.apply_or_ask(Command::new(format!("Rename {from} to {new}"), edits), None) {
+        // (Held for the Protected Area window: what goes ahead from there
+        // is this rename whole, its tabs and its log too.)
+        let again = Action::RenameResource { from, to, literals };
+        let cmd = Command::new(format!("Rename {from} to {new}"), edits);
+        match self.apply_or_ask(cmd, Some(again)) {
             Ok(true) => {}
-            // (Held for the Protected Area window: asked there.)
             Ok(false) => return,
             Err(e) => return self.log.error(e.to_string()),
         }
@@ -442,7 +445,8 @@ impl Moonglow {
             None => Ok(None),
         };
         let new = ResKey::new(to, from.restype);
-        match self.apply_or_ask(made.command, None) {
+        let again = Action::RenameResource { from, to, literals };
+        match self.apply_or_ask(made.command, Some(again)) {
             Ok(true) => {}
             Ok(false) => return,
             Err(e) => return self.log.error(e.to_string()),
@@ -1456,7 +1460,8 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if done {
         if let Ok(to) = ResRef::from_str(draft.to.trim()) {
-            app.rename_resource(draft.from, to, draft.literals);
+            let (from, literals) = (draft.from, draft.literals);
+            app.actions.push(Action::RenameResource { from, to, literals });
         }
     } else if open && !cancel {
         app.rename = Some(draft);

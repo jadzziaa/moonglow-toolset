@@ -148,8 +148,11 @@ impl Moonglow {
         if opens {
             crate::blueprint::note_made(self, new, &[], &cmd);
         }
-        match self.apply(cmd) {
-            Ok(()) => {
+        // (Held for the Protected Area window: what goes ahead from there
+        // is this copy whole, its log and its tags' check too.)
+        let again = Action::CopyResource(Box::new(draft.clone()));
+        match self.apply_or_ask(cmd, Some(again)) {
+            Ok(true) => {
                 self.log.info(format!("Copied {} as {new}", draft.from));
                 // An area's copy has its objects' tags, and perhaps its own.
                 if new.restype == ResType::ARE {
@@ -172,19 +175,43 @@ impl Moonglow {
                 }
                 Some(new)
             }
-            Err(e) => {
+            held => {
                 if opens {
                     self.properties_changed.remove(&(new, mg_edit::GffPath::root()));
                 }
-                // (Held for the Protected Area window, which says it: the
-                // mark taken, or the next command that failed for another
-                // reason failed without a word.)
-                if !std::mem::take(&mut self.claims.held) {
+                // (Held: the Protected Area window says it.)
+                if let Err(e) = held {
                     self.log.error(e.to_string());
                 }
                 None
             }
         }
+    }
+}
+
+/// Makes the copy the Copy window asked for, and what follows it: what
+/// is said of a blueprint's tag another has, the palette showing it, and
+/// a blueprint's copy opened, to change.
+pub(crate) fn make(app: &mut Moonglow, draft: &CopyDraft) {
+    // (As it is before the copy has the tag too.)
+    let blueprint = BlueprintKind::from_restype(draft.from.restype).is_some();
+    let warned = draft.tag.as_deref().filter(|_| blueprint).and_then(|tag| {
+        let original = draft.original_tag.as_deref();
+        crate::tag_clash::blueprint_copy_warning(app, draft.from, original, tag)
+    });
+    let Some(new) = app.copy_resource(draft) else { return };
+    if let Some(w) = warned {
+        app.log.warn(format!("{new}: {w}"));
+    }
+    if draft.palette {
+        app.palette.custom = true;
+        app.palette.selected = Some(new);
+    }
+    // A blueprint's copy is opened, to change.
+    if BlueprintKind::from_restype(new.restype).is_some()
+        && let Some(t) = Tab::for_resource(new)
+    {
+        app.actions.push(Action::OpenTab(t));
     }
 }
 
@@ -194,7 +221,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = format!("Copy {}", draft.from);
     let mut open = true;
     let (mut done, mut cancel) = (false, false);
-    let mut warned = None;
     crate::widgets::dialog(ctx, &title, &mut open).collapsible(false).resizable(false).show(
         ctx,
         |ui| {
@@ -234,7 +260,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             // (A blueprint's tag another has: said, and in the log once
             // copied, not stopping it.)
             let blueprint = BlueprintKind::from_restype(draft.from.restype).is_some();
-            warned = draft.tag.as_deref().filter(|_| blueprint && !stops).and_then(|tag| {
+            let warned = draft.tag.as_deref().filter(|_| blueprint && !stops).and_then(|tag| {
                 let original = draft.original_tag.as_deref();
                 crate::tag_clash::blueprint_copy_warning(app, draft.from, original, tag)
             });
@@ -256,21 +282,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         },
     );
     if done {
-        if let Some(new) = app.copy_resource(&draft) {
-            if let Some(w) = warned {
-                app.log.warn(format!("{new}: {w}"));
-            }
-            if draft.palette {
-                app.palette.custom = true;
-                app.palette.selected = Some(new);
-            }
-            // A blueprint's copy is opened, to change.
-            if BlueprintKind::from_restype(new.restype).is_some()
-                && let Some(t) = Tab::for_resource(new)
-            {
-                app.actions.push(Action::OpenTab(t));
-            }
-        }
+        app.actions.push(Action::CopyResource(Box::new(draft)));
     } else if open && !cancel {
         app.copy_as = Some(draft);
     }

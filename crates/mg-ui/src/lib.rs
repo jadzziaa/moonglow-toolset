@@ -424,6 +424,16 @@ pub enum Action {
     FindReferences(ResKey),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
+    /// The Rename window's Rename: the resource renamed everywhere, with
+    /// what follows it (its tabs, the log, the scripts compiled again:
+    /// `Moonglow::rename_resource`). An action, so that a rename held for
+    /// the Protected Area window goes ahead whole from there: its command
+    /// alone was applied, and the tabs kept the old name.
+    RenameResource {
+        from: ResKey,
+        to: mg_core::ResRef,
+        literals: bool,
+    },
     /// Opens the Placeable Gallery.
     PlaceableGallery,
     /// The palette's More › Refresh Palette: the module's custom palette
@@ -431,6 +441,11 @@ pub enum Action {
     RefreshPalette(mg_module::palette::BlueprintKind),
     /// Copy…: asks for the copy's ResRef and Tag.
     CopyDialog(ResKey),
+    /// The Copy window's Create Copy: the copy made, with what follows it
+    /// (the log, an area's tags checked, the palette and the copy's
+    /// window: `copy_as::make`). An action for the Protected Area
+    /// window, as [`Action::RenameResource`] is.
+    CopyResource(Box<copy_as::CopyDraft>),
     /// Edit beside a script's name: opens the module's script, else the
     /// game's; a script that is nowhere is made in the module first (as
     /// Aurora does). `condition`: one that answers whether a conversation
@@ -4201,7 +4216,11 @@ impl Moonglow {
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
             Action::FindStrRef(n) => self.find_references(references::Query::StrRef(n)),
             Action::RenameDialog(k) => self.rename_dialog(k),
+            Action::RenameResource { from, to, literals } => {
+                self.rename_resource(from, to, literals);
+            }
             Action::CopyDialog(k) => self.copy_dialog(k, false),
+            Action::CopyResource(draft) => copy_as::make(self, &draft),
             Action::PlaceableGallery => {
                 // (For the selection: not the placeable it was last opened for.)
                 self.placeable_gallery = Some(Default::default());
