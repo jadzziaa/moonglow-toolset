@@ -92,6 +92,45 @@ fn a_rename_says_which_strings_still_spell_the_old_name() {
     assert!(said("A string still spelled “hello” in scripts (caller.nss line 1)"), "{:?}", app.log);
 }
 
+/// A rename takes the compiled code of the scripts it rewrote and
+/// compiles them again. Whether a failure was one of theirs was told by
+/// the script's name being somewhere in the error's message: a script
+/// whose compile failed in another include (the message names that file)
+/// lost its compiled code without a word, and an unrelated script whose
+/// name holds a rewritten one's was said to be the rename's (the review
+/// of November 2026, D9). The failures are told by the script compiled.
+#[test]
+fn a_rename_says_which_of_its_scripts_no_longer_compile() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-rename-recompile");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let script = |name: &str| ResKey::parse(name, ResType::NSS).unwrap();
+    m.set(script("inc_old"), b"void Old() {}\n".to_vec());
+    m.set(script("inc_utils"), b"void Utils() { int x = ; }\n".to_vec());
+    let main = b"#include \"inc_old\"\n#include \"inc_utils\"\nvoid main() { Old(); }\n";
+    m.set(script("quest"), main.to_vec());
+    // (Compiled once, before inc_utils was broken: the rename takes it.)
+    m.set(ResKey::parse("quest", ResType::NCS).unwrap(), b"NCS V1.0B".to_vec());
+    // Another script that never compiled, its name holding the first's.
+    m.set(script("quest_other"), b"void main() { nothing here }\n".to_vec());
+    m.save().unwrap();
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.rename_resource(script("inc_old"), ResRef::from_str("inc_new").unwrap(), false);
+    let module = &app.ws.as_ref().unwrap().module;
+    assert!(module.contains(&script("inc_new")), "{:?}", app.log.entries);
+    assert!(!module.contains(&ResKey::parse("quest", ResType::NCS).unwrap()));
+    let errors: Vec<&str> = (app.log.entries.iter())
+        .filter(|(level, _)| matches!(level, mg_ui::Level::Error))
+        .map(|(_, m)| m.as_str())
+        .collect();
+    assert!(errors.iter().any(|m| m.contains("quest.nss") && m.contains("inc_utils")), "{errors:?}");
+    assert!(!errors.iter().any(|m| m.contains("quest_other")), "not the rename's: {errors:?}");
+    let said = |s: &str| app.log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said("Some scripts the rename changed aren't compiled"));
+}
+
 /// The first Find References in a module reads its references on a
 /// thread of its own, as the desktop app runs (the window draws, and says
 /// it is reading); the next ones read only what changed, at once; the

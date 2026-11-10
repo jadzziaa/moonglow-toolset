@@ -285,14 +285,18 @@ impl Moonglow {
                         external.as_ref(),
                         debug,
                     );
+                    // (Told by the script compiled, not by its name being
+                    // somewhere in the message: a failure in an include
+                    // names the include's file.)
                     for r in &results {
                         if let Err(e) = &r.result
-                            && report
-                                .recompile
-                                .iter()
-                                .any(|k| e.message.contains(&k.resref.to_string()))
+                            && report.recompile.iter().any(|k| k.resref == r.script.resref)
                         {
-                            self.log.error(e.message.clone());
+                            let file = format!("{}.nss", r.script.resref);
+                            self.log.error(match e.message.contains(&file) {
+                                true => e.message.clone(),
+                                false => format!("{file}: {}", e.message),
+                            });
                             compiled_ok = false;
                         }
                     }
