@@ -2724,14 +2724,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
-        && let Some(o) = view.model.as_ref().and_then(|m| m.object(kind, index))
+        && let Some(model) = &view.model
     {
-        let at = o.position;
-        view.selection = vec![(kind, index)];
-        if let Some(orbit) = &mut view.orbit {
-            orbit.target = at;
-            orbit.distance = orbit.distance.min(25.0);
+        if let Some(o) = model.object(kind, index) {
+            let at = o.position;
+            view.selection = vec![(kind, index)];
+            if let Some(orbit) = &mut view.orbit {
+                orbit.target = at;
+                orbit.distance = orbit.distance.min(25.0);
+            }
         }
+        // (Gone since it was found: not kept for the next object placed
+        // that gets its place in the list.)
         app.area_focus = None;
     }
     // Objects to select (the module tree's Go To on several).

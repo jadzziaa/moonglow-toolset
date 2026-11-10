@@ -211,7 +211,9 @@ door's Linked To, a key's tag, comments).
   another object's is said as a paste's is ([Duplicate
   tags](04-areas.md#duplicate-tags)).
 - **What's found** is listed by place, as in Find References. Click one to
-  go there; untick any to leave alone.
+  go there; untick any to leave alone. When something it was found in
+  is changed with the window open, the list is of the module as it was:
+  **Find** again before replacing.
 - **Replace** changes the ticked strings as one step that **Undo** takes
   back, then lists what's left.
 

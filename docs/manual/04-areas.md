@@ -777,7 +777,10 @@ drops the outline, to begin again point by point. Turn the rectangle
 after, by its ring, if it is to lie another way.
 
 **Edit › Find Instance…** lists the placed objects across the module by
-kind, area, blueprint and tag; double-click one to go to it.
+kind, area, blueprint and tag; double-click one to go to it. Where
+objects were added to or removed from its area since the search, the
+double click searches again instead (the log says so): the list is then
+of the area as it is.
 
 **Prefabs** are groups of placed objects saved under a name, such as a
 camp, a market stall or a furnished room: the way to copy a group of

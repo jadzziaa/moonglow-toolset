@@ -537,6 +537,11 @@ pub struct FindInstance {
     pub template: String,
     pub tag: String,
     pub results: Vec<Found>,
+    /// How many times each area's GIT with a result in it had its lists
+    /// rewritten as they were found (`Workspace::rewrites`): a result is
+    /// a place in a list, another object's once one is put in or taken
+    /// out before it.
+    found_at: std::collections::HashMap<ResRef, u64>,
 }
 
 impl Default for FindInstance {
@@ -547,7 +552,25 @@ impl Default for FindInstance {
             template: String::new(),
             tag: String::new(),
             results: Vec::new(),
+            found_at: Default::default(),
         }
+    }
+}
+
+impl FindInstance {
+    /// Searches the module, and keeps what it found.
+    pub(crate) fn find(&mut self, app: &mut Moonglow) {
+        self.results = search(app, self);
+        let Some(ws) = app.ws.as_ref() else { return };
+        self.found_at = (self.results.iter())
+            .map(|r| (r.area, ws.rewrites(&ResKey::new(r.area, ResType::GIT))))
+            .collect();
+    }
+
+    /// Whether objects were put into or taken out of `area` since the
+    /// results were found: its results may be other objects' places.
+    fn stale(&self, ws: &mg_edit::Workspace, area: ResRef) -> bool {
+        self.found_at.get(&area) != Some(&ws.rewrites(&ResKey::new(area, ResType::GIT)))
     }
 }
 
@@ -637,7 +660,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             });
             ui.horizontal(|ui| {
                 if ui.button("Search").clicked() {
-                    f.results = search(app, &f);
+                    f.find(app);
                 }
                 if ui.button("Clear").clicked() {
                     f = FindInstance::default();
@@ -668,8 +691,19 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         },
     );
     if let Some(r) = go {
-        app.area_focus = Some((r.area, r.kind, r.index));
-        app.actions.push(Action::OpenTab(Tab::Area(r.area)));
+        // (Its place in the area's list may be another's by now: found
+        // again, to go to what the list shows.)
+        if app.ws.as_ref().is_some_and(|ws| f.stale(ws, r.area)) {
+            f.find(app);
+            app.log.warn(format!(
+                "Find Instance: objects were added to or removed from {} since the search: \
+                 searched again",
+                r.area
+            ));
+        } else {
+            app.area_focus = Some((r.area, r.kind, r.index));
+            app.actions.push(Action::OpenTab(Tab::Area(r.area)));
+        }
     }
     if open {
         app.find_instance = Some(f);

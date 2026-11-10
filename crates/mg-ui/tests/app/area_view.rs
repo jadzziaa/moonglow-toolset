@@ -7065,3 +7065,99 @@ fn a_wheel_scaling_under_way_is_not_given_to_the_next_object_by_a_cut() {
     let ws = h.state().ws.as_ref().unwrap();
     assert_eq!((ws.undo_depth(), ws.can_undo()), (steps + 1, Some("Delete")));
 }
+
+/// The tags of `area`'s waypoints, in their list's order.
+fn waypoint_tags(h: &mut Harness<'_, Moonglow>, area: ResRef) -> Vec<String> {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    let list = git.root.list("WaypointList").unwrap();
+    list.iter().map(|w| String::from_utf8_lossy(w.string("Tag").unwrap()).into_owned()).collect()
+}
+
+/// The review's A8: Update Instances, Find and Replace Text and Find
+/// Instance keep what they found by place in a list or by path, and
+/// acted on whatever stood there once the module had changed under
+/// their windows: an unticked instance was made again from its
+/// blueprint, a text replaced in another object's field, a double click
+/// went to another object. Each says the module changed and does
+/// nothing until it has found again; and an object to go to that is
+/// gone is forgotten, not gone to when another gets its place.
+#[test]
+fn results_found_before_the_module_changed_are_not_acted_on() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = three_waypoints("stale-results") else { return };
+    let blueprint = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
+    // Update Instances: three listed, the last unticked to keep its tag.
+    h.state_mut().update_instances_of(vec![blueprint]);
+    let mut draft = h.state_mut().update_draft.take().expect("the window");
+    assert_eq!(draft.objects.len(), 3);
+    draft.objects[2].on = false;
+    h.state_mut().update_draft = Some(draft.clone());
+    h.run_steps(2);
+    assert!(h.query_by_label("Update 2").is_some());
+    // Find and Replace Text: the tags with WP_B in them.
+    let mut text = mg_ui::bulk::TextReplace::default();
+    (text.find, text.with) = ("WP_B".into(), "WP_X".into());
+    text.kinds = vec![mg_module::text::TextKind::Tag];
+    h.state_mut().find_text(&mut text);
+    assert_eq!(text.hits.len(), 1, "{:?}", text.hits);
+    // Find Instance: the three waypoints.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Find Instance…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "tag", "wp_");
+    h.run_steps(2);
+    h.get_by_label("Search").click();
+    h.run_steps(2);
+    assert_eq!(h.state().find_instance.as_ref().unwrap().results.len(), 3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+
+    // The first waypoint deleted elsewhere, the windows open.
+    remove_waypoint(&mut h, area, 0);
+    assert_eq!(waypoint_tags(&mut h, area), ["WP_B", "WP_C"]);
+    // Update: nothing, though WP_C stands where the ticked WP_B stood.
+    assert_eq!(h.state_mut().apply_update(&draft), 0);
+    h.run_steps(2);
+    assert_eq!(waypoint_tags(&mut h, area), ["WP_B", "WP_C"], "none made again");
+    assert!(h.query_by_label("Update 2").is_some_and(|b| b.accesskit_node().is_disabled()));
+    let log = |h: &Harness<'_, Moonglow>, part: &str| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains(part))
+    };
+    assert!(log(&h, "Update Instances: Objects were added to or removed from these areas"));
+    // (Find Instance's window is over it.)
+    h.get_by_label("List Again").click_accesskit();
+    h.run_steps(2);
+    assert_eq!(h.state().update_draft.as_ref().expect("listed again").objects.len(), 2);
+    h.state_mut().update_draft = None;
+    // Replace: nothing, though the hit's path leads to WP_C now.
+    assert_eq!(h.state_mut().replace_text(&text), 0);
+    h.run_steps(2);
+    assert_eq!(waypoint_tags(&mut h, area), ["WP_B", "WP_C"]);
+    assert!(log(&h, "Replace: the module changed since the text was found"));
+    h.state_mut().find_text(&mut text);
+    assert_eq!(h.state_mut().replace_text(&text), 1, "found again, it replaces");
+    h.run_steps(2);
+    assert_eq!(waypoint_tags(&mut h, area), ["WP_X", "WP_C"]);
+    // Find Instance: a double click on the last result (WP_C, third as
+    // found) goes nowhere, and the results are found again.
+    let rows: Vec<egui::Rect> = h.get_all_by_label("WP_C").map(|n| n.rect()).collect();
+    let at = rows.last().expect("its row").center();
+    h.run_steps(40);
+    h.hover_at(at);
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+    }
+    h.run_steps(4);
+    assert!(h.state().area_focus.is_none());
+    assert!(h.state().area_views[&area].selection.is_empty(), "gone to nothing");
+    assert!(log(&h, "Find Instance: objects were added to or removed from"));
+    let found = h.state().find_instance.as_ref().unwrap().results.clone();
+    assert_eq!(found.len(), 2, "searched again: {found:?}");
+    assert_eq!((found[1].index, found[1].tag.as_str()), (1, "WP_C"));
+    // An object to go to that the area no longer has is forgotten.
+    h.state_mut().area_focus = Some((area, ObjectKind::Waypoint, 7));
+    h.run_steps(2);
+    assert!(h.state().area_focus.is_none());
+}
