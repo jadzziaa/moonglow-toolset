@@ -743,14 +743,20 @@ enum Cmd {
         languages: Vec<String>,
     },
     /// Read a Twine (.twee) or Ink (.ink) story into a module as a
-    /// conversation (replacing one of the same name) and save; or, from a
-    /// .csv export, read back the text of the conversation's lines.
+    /// conversation and save (one of the same name is replaced only with
+    /// --force); or, from a .csv export, read back the text of the
+    /// conversation's lines.
     DialogImport {
         module: PathBuf,
         file: PathBuf,
         /// The conversation's name (default: the file's).
         #[arg(long)]
         name: Option<String>,
+        /// A story: replace the conversation of that name, if the module
+        /// has one (what the story does not say of it, its end scripts
+        /// among them, stays as that one has it).
+        #[arg(long)]
+        force: bool,
     },
     /// Write a talk table (a .tlk file) as JSON, as nwn_tlk writes it, or as
     /// CSV (a row a line: StrRef, text, the feminine table's text if a
@@ -3559,7 +3565,7 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
-        Cmd::DialogImport { module, file, name } => {
+        Cmd::DialogImport { module, file, name, force } => {
             use mg_module::dialog_io::Format;
             let mut m = crate::open_module(module)?;
             let stem = file.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
@@ -3579,7 +3585,18 @@ fn run(cli: &Cli) -> Result<Output> {
             let replaced = m.gff(&key).and_then(Result::ok);
             let g = if let Some(read) = format.and_then(|f| f.read_over(&source, replaced.as_ref()))
             {
-                read.map_err(|e| anyhow::anyhow!("{e}"))?
+                let g = read.map_err(|e| anyhow::anyhow!("{e}"))?;
+                // (A story is a whole conversation: the one of its name,
+                // which may only share the file's name, is not written
+                // over without a word, as `mg dialog-export --to` writes
+                // over no file.)
+                if !*force && m.contains(&key) {
+                    bail!(
+                        "{key} is in the module: nothing written (--force replaces it, or \
+                         --name NAME makes the story another conversation)"
+                    );
+                }
+                g
             } else if let Some(format) =
                 format.filter(|f| f.reads() == mg_module::dialog_io::Reads::Text)
             {
