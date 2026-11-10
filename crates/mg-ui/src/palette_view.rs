@@ -890,7 +890,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
         return;
     }
     let tip = "Chosen, a click in an area's view puts this light there (Shift+click: more)";
-    for light in &lights {
+    for light in lights.iter() {
         let on = view.placing_light == Some(light.row);
         if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
             view.placing_light = if on { None } else { Some(light.row) };
@@ -904,7 +904,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
             ui.separator();
             ui.weak("Made by Custom Light, in the module's haks:");
         }
-        for light in &made {
+        for light in made.iter() {
             let on = view.placing_light == Some(light.row);
             if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
                 view.placing_light = if on { None } else { Some(light.row) };

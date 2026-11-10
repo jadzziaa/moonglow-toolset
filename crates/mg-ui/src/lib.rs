@@ -850,6 +850,9 @@ pub struct Moonglow {
     /// The waypoints' tags of the areas not open, for Create Waypoint and
     /// Create Set.
     pub(crate) waypoint_tags: area_view::WaypointTags,
+    /// The lights of placeables.2da (`area_view::stock_lights`,
+    /// `made_lights`), found once for each reading of the table.
+    pub(crate) lights_kept: std::cell::RefCell<Option<area_view::LightsKept>>,
     /// The interface size was set from the settings (to set it back).
     scaled: bool,
     /// The models' windows open as the frame began.
@@ -1245,6 +1248,7 @@ impl Moonglow {
             script_nav: Default::default(),
             prefab_save: None,
             waypoint_tags: Default::default(),
+            lights_kept: Default::default(),
             update_draft: None,
             export_dir: None,
             model_export: None,

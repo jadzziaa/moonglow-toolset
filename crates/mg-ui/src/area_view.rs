@@ -7541,7 +7541,7 @@ fn editing_items(
         let custom = crate::light_maker::generated_lights(app);
         if let Some(at) = view.menu_at {
             ui.menu_button("Add Light Here", |ui| {
-                for light in &lights {
+                for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         add_light(app, view, light, at);
                         ui.close();
@@ -7554,7 +7554,7 @@ fn editing_items(
                     if !made.is_empty() {
                         ui.separator();
                     }
-                    for light in &made {
+                    for light in made.iter() {
                         if light_button(ui, light).clicked() {
                             add_light_row(
                                 app,
@@ -7610,7 +7610,7 @@ fn editing_items(
         }
         if !chosen.is_empty() && chosen.len() == view.selection.len() {
             ui.menu_button("Light Color", |ui| {
-                for light in &lights {
+                for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         let row = Value::Dword(light.row as u32);
                         set_on_selection(app, view, "Light color", "Appearance", row);
@@ -7857,6 +7857,7 @@ fn start_facing(facing: f32) -> [mg_edit::Edit; 2] {
 }
 
 /// A placeable appearance that is a light and nothing to see.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StockLight {
     /// Its placeables.2da row.
     pub row: usize,
@@ -7871,23 +7872,69 @@ const LIGHT_HEIGHT: f32 = 1.5;
 /// `LightColor` whose model is the game's invisible one (`dag_invisible`):
 /// "Light, Blue" to "Light, Yellow" in the game's own table, and any a
 /// hak adds in the same way.
-pub(crate) fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
-    let Some(game) = app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("placeables") else { return Vec::new() };
-    let colors = crate::tile_select::light_colors(app);
-    (0..table.len())
-        .filter_map(|row| {
-            let model = table.get(row, "ModelName")?;
-            let color = table.get_int(row, "LightColor").filter(|c| *c > 0)?;
-            if !model.eq_ignore_ascii_case("dag_invisible") {
-                return None;
-            }
-            let label = table.get(row, "Label").unwrap_or("Light");
-            let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
+pub(crate) fn stock_lights(app: &Moonglow) -> std::sync::Arc<Vec<StockLight>> {
+    lights(app).map(|l| l.0).unwrap_or_default()
+}
+
+/// The lights of placeables.2da, the game's ([`stock_lights`]) and those
+/// Moonglow made ([`made_lights`]): found by going through the table
+/// once for each reading of it (and of lightcolor.2da, which colors the
+/// game's), and kept while the game data has those readings. The
+/// area's menu and the status line of a light being placed asked for
+/// them every frame: a persistent world's table has tens of thousands of
+/// rows, for a list of some ten lights.
+pub(crate) struct LightsKept {
+    tables: [Option<std::sync::Arc<mg_2da::TwoDa>>; 2],
+    lights: Lights,
+}
+
+/// The game's lights, and those Moonglow made.
+type Lights = (std::sync::Arc<Vec<StockLight>>, std::sync::Arc<Vec<StockLight>>);
+
+fn lights(app: &Moonglow) -> Option<Lights> {
+    let game = app.game.as_deref()?;
+    let table = game.table("placeables").ok()?;
+    let tables = [Some(table), game.table("lightcolor").ok()];
+    let same = |a: &Option<std::sync::Arc<mg_2da::TwoDa>>, b: &Option<_>| match (a, b) {
+        (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    };
+    let mut kept = app.lights_kept.borrow_mut();
+    if !kept
+        .as_ref()
+        .is_some_and(|k| same(&k.tables[0], &tables[0]) && same(&k.tables[1], &tables[1]))
+    {
+        let colors = crate::tile_select::light_colors(app);
+        let (stock, made) = lights_of(tables[0].as_deref()?, &colors);
+        let lights = (std::sync::Arc::new(stock), std::sync::Arc::new(made));
+        *kept = Some(LightsKept { tables, lights });
+    }
+    kept.as_ref().map(|k| k.lights.clone())
+}
+
+/// The lights among `table`'s rows (placeables.2da): the game's kind,
+/// colored by `colors` (lightcolor.2da's rows), and those Moonglow made.
+fn lights_of(table: &mg_2da::TwoDa, colors: &[Color32]) -> (Vec<StockLight>, Vec<StockLight>) {
+    let (mut stock, mut made) = (Vec::new(), Vec::new());
+    for row in 0..table.len() {
+        let Some(model) = table.get(row, "ModelName") else { continue };
+        let label = table.get(row, "Label").unwrap_or("Light");
+        let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
+        if mg_module::lights::is_generated(model) {
+            let hex = name.strip_prefix('#').and_then(|h| h.get(..6));
+            let rgb = hex.and_then(|h| u32::from_str_radix(h, 16).ok()).unwrap_or(0);
+            let color = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+            made.push(StockLight { row, name: name.clone(), color });
+        }
+        if model.eq_ignore_ascii_case("dag_invisible")
+            && let Some(color) = table.get_int(row, "LightColor").filter(|c| *c > 0)
+        {
             let color = usize::try_from(color).ok().and_then(|c| colors.get(c).copied());
-            Some(StockLight { row, name, color: color.unwrap_or(Color32::BLACK) })
-        })
-        .collect()
+            stock.push(StockLight { row, name, color: color.unwrap_or(Color32::BLACK) });
+        }
+    }
+    (stock, made)
 }
 
 /// A light's row in a menu: its color and its name.
@@ -7944,27 +7991,15 @@ pub(crate) fn set_appearance(app: &mut Moonglow, view: &AreaView, what: &str, ro
 /// The lights Moonglow made that the game data has (placeables.2da rows
 /// whose model is one of `mg_module::lights`'), each with its color as
 /// its label says.
-pub(crate) fn made_lights(app: &Moonglow) -> Vec<StockLight> {
-    let Some(game) = app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("placeables") else { return Vec::new() };
-    (0..table.len())
-        .filter(|&row| table.get(row, "ModelName").is_some_and(mg_module::lights::is_generated))
-        .map(|row| {
-            let label = table.get(row, "Label").unwrap_or("Light");
-            let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
-            let hex = name.strip_prefix('#').and_then(|h| h.get(..6));
-            let rgb = hex.and_then(|h| u32::from_str_radix(h, 16).ok()).unwrap_or(0);
-            let color = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
-            StockLight { row, name, color }
-        })
-        .collect()
+pub(crate) fn made_lights(app: &Moonglow) -> std::sync::Arc<Vec<StockLight>> {
+    lights(app).map(|l| l.1).unwrap_or_default()
 }
 
 /// The light of placeables.2da row `row`: one of the game's, or one
 /// Moonglow made.
 fn light_of_row(app: &Moonglow, row: usize) -> Option<StockLight> {
-    let stock = stock_lights(app).into_iter().find(|l| l.row == row);
-    stock.or_else(|| made_lights(app).into_iter().find(|l| l.row == row))
+    let stock = stock_lights(app).iter().find(|l| l.row == row).cloned();
+    stock.or_else(|| made_lights(app).iter().find(|l| l.row == row).cloned())
 }
 
 /// Sets a field on every selected object (one command).
@@ -8495,6 +8530,35 @@ pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The review's A21: the lights of placeables.2da are found by one
+    /// pass over the table (kept for that reading of it): the game's
+    /// invisible lights with their color from lightcolor.2da, and those
+    /// Moonglow made, named by their color.
+    #[test]
+    fn the_lights_of_a_placeables_table_are_found_in_one_pass() {
+        let spec = mg_module::lights::LightSpec { color: [255, 128, 0], ..Default::default() };
+        let (made, label) = (spec.model_name(), spec.label());
+        assert!(mg_module::lights::is_generated(&made.to_string()));
+        let text = format!(
+            "2DA V2.0\n\n   Label           ModelName      LightColor\n\
+             0  Chest           plc_a01        ****\n\
+             1  \"Light, Blue\"   DAG_Invisible  2\n\
+             2  Torch           plc_torch      3\n\
+             3  \"{label}\" {made} ****\n\
+             4  \"Light, Dark\"   dag_invisible  0\n\
+             5  \"Light, Far\"    dag_invisible  9\n"
+        );
+        let table = mg_2da::TwoDa::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let colors = [Color32::BLACK, Color32::RED, Color32::BLUE];
+        let (stock, ours) = lights_of(&table, &colors);
+        let light = |row: usize, name: &str, color| StockLight { row, name: name.into(), color };
+        // (A light with no color is none; one whose color the table of
+        // colors lacks is shown black.)
+        assert_eq!(stock, [light(1, "Blue", Color32::BLUE), light(5, "Far", Color32::BLACK)]);
+        let name = label.strip_prefix("Light, ").unwrap();
+        assert_eq!(ours, [light(3, name, Color32::from_rgb(255, 128, 0))]);
+    }
 
     /// The review's A10: Create Set wrote its tags as UTF-8, where Create
     /// Waypoint and every reader use the game's codepage: a set named
