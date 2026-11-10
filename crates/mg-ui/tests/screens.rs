@@ -799,6 +799,50 @@ fn table_take_cells_and_strings() {
     shoot(&mut h, &dir, "table-choose-string");
 }
 
+/// The game's nwscript.nss and a compiled model read in the resource
+/// browser (not editable), drawn by their lines in sight: as they open,
+/// and scrolled down and to the right.
+#[test]
+#[ignore]
+fn read_only_script_and_text() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-read-only-text");
+    let install = GameInstall::new(&root, None, "en");
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    for (name, t) in [("nwscript", ResType::NSS), ("plc_a01", ResType::MDL)] {
+        let key = ResKey::parse(name, t).unwrap();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+        h.run_steps(5);
+        shoot(&mut h, &dir, &format!("{name}-read-only"));
+        let pane = h
+            .state()
+            .dock
+            .iter_leaves()
+            .find(|(_, l)| l.tabs.contains(&mg_ui::Tab::Resource(key)))
+            .map(|(_, l)| l.viewport)
+            .unwrap();
+        h.hover_at(pane.center());
+        h.run_steps(2);
+        for delta in [egui::vec2(0.0, -4_000.0), egui::vec2(-300.0, 0.0)] {
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta,
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(20);
+        }
+        shoot(&mut h, &dir, &format!("{name}-read-only-scrolled"));
+    }
+}
+
 /// The game's spells.2da read in the resource browser (not editable): its
 /// scroll bars, as it opens and scrolled down and to the right; and the
 /// 2DA editor on a copy of appearance.2da, a column widened by dragging

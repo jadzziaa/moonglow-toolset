@@ -677,10 +677,121 @@ pub(crate) fn made() -> u64 {
 enum Content {
     Gff(Gff),
     TwoDa(mg_module::table_layers::Layered),
-    Script(String),
-    Text(String),
-    Binary(String),
+    Script(LongText),
+    Text(LongText),
+    Binary(LongText),
     Error(String),
+}
+
+/// A text shown read-only, drawn by its lines in sight ([`LongText::ui`]):
+/// where its lines are, found once, and a script's lines colored, made
+/// once for the colors they are shown in. The whole text was copied into
+/// a label, hashed and (a script's) highlighted token by token every
+/// frame it showed: `nwscript.nss` is a hundred thousand tokens, a
+/// compiled model as text megabytes.
+#[derive(Debug, Default)]
+pub(crate) struct LongText {
+    text: String,
+    /// Each line's place in the text (without its line end), and the
+    /// longest line's characters.
+    lines: std::sync::OnceLock<(Vec<std::ops::Range<usize>>, usize)>,
+    colored: std::sync::Mutex<Option<Colored>>,
+}
+
+/// A script's lines as laid out in a palette's colors.
+type Colored = (crate::script_view::Palette, std::sync::Arc<Vec<egui::text::LayoutJob>>);
+
+impl From<String> for LongText {
+    fn from(text: String) -> LongText {
+        LongText { text, ..Default::default() }
+    }
+}
+
+impl LongText {
+    /// Where each line is, and the longest's characters.
+    fn lines(&self) -> &(Vec<std::ops::Range<usize>>, usize) {
+        self.lines.get_or_init(|| {
+            let (mut spans, mut widest, mut from) = (Vec::new(), 0, 0);
+            for line in self.text.split('\n') {
+                spans.push(from..from + line.len());
+                widest = widest.max(line.chars().count());
+                from += line.len() + 1;
+            }
+            (spans, widest)
+        })
+    }
+
+    /// The script's lines in `palette`'s colors: highlighted whole once
+    /// (a comment may run over lines), and cut at the line ends.
+    fn colored(
+        &self,
+        palette: &crate::script_view::Palette,
+    ) -> std::sync::Arc<Vec<egui::text::LayoutJob>> {
+        let mut kept = self.colored.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((of, jobs)) = &*kept
+            && of == palette
+        {
+            return jobs.clone();
+        }
+        let whole = crate::script_view::highlight(&self.text, palette);
+        let mut jobs = vec![egui::text::LayoutJob::default()];
+        for section in &whole.sections {
+            let piece = &whole.text[section.byte_range.start.0..section.byte_range.end.0];
+            for (at, part) in piece.split('\n').enumerate() {
+                if at > 0 {
+                    jobs.push(egui::text::LayoutJob::default());
+                }
+                if !part.is_empty() {
+                    jobs.last_mut().expect("one").append(part, 0.0, section.format.clone());
+                }
+            }
+        }
+        let jobs = std::sync::Arc::new(jobs);
+        *kept = Some((*palette, jobs.clone()));
+        jobs
+    }
+
+    /// Draws the text, scrolling both ways, its lines in sight alone: in
+    /// the script editor's colors and on its background with `palette`,
+    /// else plain. `salt`: the scroll area's.
+    pub(crate) fn ui(
+        &self,
+        ui: &mut Ui,
+        salt: impl egui::AsIdSalt,
+        palette: Option<&crate::script_view::Palette>,
+    ) {
+        let (spans, widest) = self.lines();
+        let font = match palette {
+            Some(p) => p.font(),
+            None => egui::TextStyle::Monospace.resolve(ui.style()),
+        };
+        let (height, wide) = ui.fonts_mut(|f| (f.row_height(&font), f.glyph_width(&font, 'm')));
+        let jobs = palette.map(|p| self.colored(p));
+        ui.scope(|ui| {
+            // (A line under the last, as one text's lines are.)
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let rows = egui::ScrollArea::both().id_salt(salt).auto_shrink([false, false]);
+            rows.show_rows(ui, height, spans.len(), |ui, range| {
+                // (On the script editor's background, where one is chosen:
+                // its colors are chosen for it.)
+                if let Some(fill) = palette.and_then(|p| p.background) {
+                    ui.painter().rect_filled(ui.clip_rect(), 0.0, fill);
+                }
+                ui.set_min_width(*widest as f32 * wide);
+                for at in range {
+                    let line = &self.text[spans[at].clone()];
+                    if line.is_empty() {
+                        ui.allocate_exact_size(egui::vec2(0.0, height), egui::Sense::hover());
+                    } else if let Some(job) = jobs.as_ref().and_then(|j| j.get(at)) {
+                        ui.add(egui::Label::new(job.clone()).extend());
+                    } else {
+                        let text = egui::RichText::new(line).font(font.clone());
+                        ui.add(egui::Label::new(text).extend());
+                    }
+                }
+            });
+        });
+    }
 }
 
 impl Viewed {
@@ -709,13 +820,13 @@ impl Viewed {
         } else if key.restype == ResType::NSS {
             // (Shown and copied with plain newlines, as the script editor
             // has them; Copy to Module and Save copy the bytes.)
-            Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0)
+            Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0.into())
         } else if is_text(key.restype, &data) {
-            Content::Text(crate::text::to_editor(&codepage.decode(&data)).0)
+            Content::Text(crate::text::to_editor(&codepage.decode(&data)).0.into())
         } else if let Some(text) = model_text(key, &data, Some(rm)) {
-            Content::Text(text)
+            Content::Text(text.into())
         } else {
-            Content::Binary(hex(&data[..data.len().min(512)]))
+            Content::Binary(hex(&data[..data.len().min(512)]).into())
         };
         Some(Viewed { data, origin, content, made: made() })
     }
@@ -726,7 +837,7 @@ impl Viewed {
 #[derive(Debug)]
 pub(crate) enum Plain {
     Gff(Box<Gff>),
-    Text(String),
+    Text(LongText),
     Error(String),
 }
 
@@ -741,11 +852,11 @@ pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) ->
     } else if is_text(key.restype, data) {
         // (Its bytes as Latin-1 where they aren't UTF-8.)
         let latin = || data.iter().map(|&b| b as char).collect();
-        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()))
+        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()).into())
     } else if let Some(text) = model_text(key, data, rm) {
-        Plain::Text(text)
+        Plain::Text(text.into())
     } else {
-        Plain::Text(hex(&data[..data.len().min(512)]))
+        Plain::Text(hex(&data[..data.len().min(512)]).into())
     }
 }
 
@@ -763,12 +874,14 @@ pub(crate) fn model_text(
 
 /// Draws a [`Plain`] view, scrolling.
 pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain) {
+    // (A text by its lines in sight: a compiled model's is megabytes.)
+    if let Plain::Text(text) = view {
+        return text.ui(ui, ("plain", key), None);
+    }
     egui::ScrollArea::both().id_salt(("plain", key)).auto_shrink([false, false]).show(ui, |ui| {
         match view {
             Plain::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
-            Plain::Text(text) => {
-                ui.monospace(text);
-            }
+            Plain::Text(_) => {}
             Plain::Error(e) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -847,25 +960,22 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         two_da(app, ui, key, layer, (l, viewed.made));
         return;
     }
-    let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
+    // A text by its lines in sight, a script's in the editor's colors.
+    let salt = ("resource-text", key, layer);
+    match &viewed.content {
+        Content::Script(text) => {
+            let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
+            return text.ui(ui, salt, Some(&palette));
+        }
+        Content::Text(text) | Content::Binary(text) => return text.ui(ui, salt, None),
+        _ => {}
+    }
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| match &viewed.content {
         Content::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
-        Content::TwoDa(_) => {}
-        Content::Script(text) => {
-            let job = crate::script_view::highlight(text, &palette);
-            // (On the script editor's background, where one is chosen:
-            // its colors are chosen for it.)
-            match palette.background {
-                Some(fill) => _ = egui::Frame::new().fill(fill).show(ui, |ui| ui.label(job)),
-                None => _ = ui.label(job),
-            }
-        }
-        Content::Text(text) | Content::Binary(text) => {
-            ui.monospace(text);
-        }
         Content::Error(e) => {
             ui.colored_label(ui.visuals().error_fg_color, e);
         }
+        _ => {}
     });
 }
 
@@ -1040,4 +1150,48 @@ pub(crate) fn two_da(
     let talk = talk.as_ref().filter(|_| !talk_view.outside);
     let of = GridOf { settings, table_name: &name, talk, game: game.as_deref() };
     grid_in(ui, doc, of, &kinds, &[], Some(l));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A long text's lines are the text's, and a script's lines colored
+    /// are the whole script's highlighting cut at the line ends (a
+    /// comment over several lines is a comment on each): what is drawn by
+    /// the lines in sight is what the one label drew (the review of
+    /// November 2026, D29). The colored lines are made once for a
+    /// palette.
+    #[test]
+    fn a_long_text_s_lines_are_the_text_s() {
+        let source = "int a = 1;\n/* over\n   two lines */\n\nvoid main() { a++; }";
+        let text = LongText::from(source.to_string());
+        let (spans, widest) = text.lines();
+        let lines: Vec<&str> = spans.iter().map(|s| &source[s.clone()]).collect();
+        assert_eq!(lines, source.split('\n').collect::<Vec<_>>());
+        assert_eq!(*widest, "void main() { a++; }".len());
+        let style = crate::settings::ScriptStyle::default();
+        let palette = crate::script_view::Palette::new(&style, true, egui::Color32::WHITE);
+        let jobs = text.colored(&palette);
+        assert_eq!(jobs.len(), lines.len());
+        assert_eq!(jobs.iter().map(|j| j.text.as_str()).collect::<Vec<_>>(), lines);
+        // Each character's color, as the whole text's highlighting has it.
+        let colors = |job: &egui::text::LayoutJob| -> Vec<(char, egui::Color32)> {
+            (job.sections.iter())
+                .flat_map(|s| {
+                    let piece = &job.text[s.byte_range.start.0..s.byte_range.end.0];
+                    piece.chars().map(|c| (c, s.format.color)).collect::<Vec<_>>()
+                })
+                .filter(|(c, _)| *c != '\n')
+                .collect()
+        };
+        let whole = colors(&crate::script_view::highlight(source, &palette));
+        let by_line: Vec<(char, egui::Color32)> = jobs.iter().flat_map(colors).collect();
+        assert_eq!(by_line, whole);
+        assert!(std::sync::Arc::ptr_eq(&jobs, &text.colored(&palette)), "made once");
+        let light = crate::script_view::Palette::new(&style, false, egui::Color32::BLACK);
+        assert!(!std::sync::Arc::ptr_eq(&jobs, &text.colored(&light)), "anew for other colors");
+        // (An empty text is one empty line.)
+        assert_eq!(LongText::from(String::new()).lines().0.len(), 1);
+    }
 }
