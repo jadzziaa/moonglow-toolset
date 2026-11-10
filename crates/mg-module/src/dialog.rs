@@ -673,17 +673,21 @@ pub struct Branch {
 }
 
 /// Copies the branch a link under a parent points to (following owning
-/// links).
+/// links). A link to a line that isn't there (another tool's file) is no
+/// part of it: the lines and where each came from are made together, one
+/// for one. `None` where the link itself leads to no line.
 pub fn copy_branch(g: &Gff, parent: Parent, pos: usize) -> Option<Branch> {
     let link = links(g, parent).get(pos)?;
     let top = (parent.child_kind(), link_index(link));
-    let mut order = Vec::new();
+    let (mut lines, mut order) = (Vec::new(), Vec::new());
     let mut seen = HashSet::new();
     let mut stack = vec![top];
     while let Some((k, i)) = stack.pop() {
         if !seen.insert((k, i)) {
             continue;
         }
+        let Some(line) = node(g, k, i) else { continue };
+        lines.push((k, line.clone()));
         order.push((k, i));
         for l in links(g, Parent::Node(k, i)).iter().rev() {
             if !is_link(l) {
@@ -691,7 +695,9 @@ pub fn copy_branch(g: &Gff, parent: Parent, pos: usize) -> Option<Branch> {
             }
         }
     }
-    let lines = order.iter().filter_map(|(k, i)| Some((*k, node(g, *k, *i)?.clone()))).collect();
+    if lines.is_empty() {
+        return None;
+    }
     let condition = ["Active", "ConditionParams"]
         .into_iter()
         .filter_map(|label| Some((label, link.get(label)?.clone())))
@@ -1069,5 +1075,34 @@ mod tests {
         assert_eq!(pasted.resref("Active").map(|r| r.to_string()).as_deref(), Some("cond_weapmod"));
         assert_eq!(pasted.get("ConditionParams"), Some(&params));
         assert!(!is_link(pasted) && link_index(pasted) != link_index(&links(&g, Parent::Root)[0]));
+    }
+
+    /// A branch with an owning link to a line that isn't there (another
+    /// tool's file) is copied without it, and the copy's own links lead to
+    /// the copies (the review's V18: the lines after the missing one were
+    /// each taken for the one before, and a missing top line panicked).
+    #[test]
+    fn a_branch_with_a_link_to_no_line_is_pasted_without_it() {
+        let mut g = new_dialog();
+        let top = add_node(&mut g, Parent::Root, "Top");
+        let at = Parent::Node(Kind::Entry, top);
+        let one = add_node(&mut g, at, "one");
+        // (Between its two replies: a reply that is not in the list.)
+        links_mut(&mut g, at).unwrap().push(new_link(999, at, false));
+        let two = add_node(&mut g, at, "two");
+        add_node(&mut g, Parent::Node(Kind::Reply, one), "after one");
+        let last = add_node(&mut g, Parent::Node(Kind::Reply, two), "after two");
+        add_node(&mut g, Parent::Node(Kind::Entry, last), "the end");
+        let before = outline(&g);
+        assert_eq!(before.len(), 6, "the link to no line is no line: {before:?}");
+        let branch = copy_branch(&g, Parent::Root, 0).unwrap();
+        assert_eq!(branch.lines.len(), 6);
+        assert!(paste_branch(&mut g, Parent::Root, &branch, true));
+        let after = outline(&g);
+        assert_eq!(after[..6], before[..], "the original as it was");
+        assert_eq!(after[6..], before[..], "the copy has the same lines, each under its own");
+        // A link that leads to no line copies nothing, and nothing is pasted.
+        let none = Parent::Node(Kind::Entry, top);
+        assert_eq!(copy_branch(&g, none, 1), None);
     }
 }
