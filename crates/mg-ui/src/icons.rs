@@ -4,70 +4,87 @@
 
 use mg_area::ObjectKind;
 
-pub(crate) const TILES: &str = "🗻";
-pub(crate) const ERASER: &str = "🗑";
-pub(crate) const RAISE_LOWER: &str = "↕";
-pub(crate) const REFINE: &str = "🔁";
-/// The tiles palette's Next and Previous Tile Appearance and Rotate
-/// Tile (a quarter turn counter-clockwise, as the variants' "↺90°").
-pub(crate) const NEXT_APPEARANCE: &str = "⏭";
-pub(crate) const PREVIOUS_APPEARANCE: &str = "⏮";
-pub(crate) const ROTATE: &str = "↺";
-pub(crate) const START: &str = "🏁";
-pub(crate) const NIGHT: &str = "🌙";
-pub(crate) const FOG: &str = "☁";
-/// The area view's Tile Border (what the game draws past the edge).
-pub(crate) const TILE_BORDER: &str = "🌄";
-/// The area view's Shadows switch.
-pub(crate) const SHADOWS: &str = "◑";
-pub(crate) const GRID: &str = "⊞";
-pub(crate) const GRASS: &str = "🌿";
-/// The game's own shaders (the area and model views' Shaders switch).
-pub(crate) const SHADERS: &str = "🎨";
-pub(crate) const AMBIENT: &str = "🍃";
-pub(crate) const MUSIC: &str = "🎵";
-pub(crate) const WALKMESH: &str = "👣";
-pub(crate) const SELECT_TILES: &str = "⛶";
-pub(crate) const PAINT: &str = "✏";
-/// The area view's Area Properties (the main toolbar's Module Properties
-/// is ℹ).
-pub(crate) const AREA_PROPERTIES: &str = "🔧";
-/// A palette's Gallery (its pictures; the area view's Grid is [`GRID`]).
-pub(crate) const GALLERY: &str = "🖼";
-/// The area view's Show All and Show None, Together (turning several as
-/// one), To Scratch and Save as Prefab…, and its dropdowns' glyphs with
-/// Icons only (Fade Geometry, Snap, Turn).
-pub(crate) const SHOW_ALL: &str = "☑";
-pub(crate) const SHOW_NONE: &str = "☐";
-pub(crate) const TOGETHER: &str = "🔗";
-pub(crate) const TO_SCRATCH: &str = "📤";
-/// The area view's Onto Objects (what is placed goes onto the placeable
-/// or door under the pointer).
-pub(crate) const ONTO_OBJECTS: &str = "📥";
-pub(crate) const FADE: &str = "🏠";
-pub(crate) const SNAP: &str = "📐";
-pub(crate) const TURN: &str = "↻";
-pub(crate) const CAMERA: &str = "🎥";
-pub(crate) const GO_TO_START: &str = "🏃";
-pub(crate) const LIGHTING: &str = "💡";
-pub(crate) const ANIMATIONS: &str = "▶";
-pub(crate) const SOUNDS: &str = "🔊";
-pub(crate) const SOUND_RANGES: &str = "◎";
-/// The area view's Minimap (the area's map in its corner).
-pub(crate) const MINIMAP: &str = "🗾";
-/// An area another builder has claimed, one this builder has, and one
-/// merged (its Tag and ResRef kept): the module tree's marks.
-pub(crate) const CLAIMED: &str = "🔒";
-pub(crate) const CLAIMED_MINE: &str = "✔";
-pub(crate) const MERGED: &str = "📌";
-/// Prefabs: groups of placed objects kept to place again.
-pub(crate) const PREFABS: &str = "🗐";
-/// The palette's lights (the game's invisible light placeables), a sun
-/// as the area view marks them.
-pub(crate) const LIGHTS: &str = "☀";
-/// A window's bar: Maximize, and Restore while it is maximized.
-pub(crate) const MAXIMIZE: &str = "🗖";
-pub(crate) const RESTORE: &str = "🗗";
+/// Declares glyphs, each a constant, and `$all`, the list of them: a
+/// glyph is in the list by being declared, so the test that the fonts
+/// have every glyph (`the_fonts_have_every_toolbar_glyph`) can't miss one.
+/// (The list was kept by hand beside the constants, and ten were not in
+/// it.)
+macro_rules! glyphs {
+    ($all:ident: $($(#[$doc:meta])* $name:ident = $glyph:literal;)*) => {
+        $($(#[$doc])* pub(crate) const $name: &str = $glyph;)*
+        /// Every one (the fonts must have them all).
+        #[cfg(test)]
+        pub(crate) const $all: &[&str] = &[$($name),*];
+    };
+}
+
+glyphs! {
+    ALL:
+    TILES = "🗻";
+    ERASER = "🗑";
+    RAISE_LOWER = "↕";
+    REFINE = "🔁";
+    /// The tiles palette's Next and Previous Tile Appearance and Rotate
+    /// Tile (a quarter turn counter-clockwise, as the variants' "↺90°").
+    NEXT_APPEARANCE = "⏭";
+    PREVIOUS_APPEARANCE = "⏮";
+    ROTATE = "↺";
+    START = "🏁";
+    NIGHT = "🌙";
+    FOG = "☁";
+    /// The area view's Tile Border (what the game draws past the edge).
+    TILE_BORDER = "🌄";
+    /// The area view's Shadows switch.
+    SHADOWS = "◑";
+    GRID = "⊞";
+    GRASS = "🌿";
+    /// The game's own shaders (the area and model views' Shaders switch).
+    SHADERS = "🎨";
+    AMBIENT = "🍃";
+    MUSIC = "🎵";
+    WALKMESH = "👣";
+    SELECT_TILES = "⛶";
+    PAINT = "✏";
+    /// The area view's Area Properties (the main toolbar's Module Properties
+    /// is ℹ).
+    AREA_PROPERTIES = "🔧";
+    /// A palette's Gallery (its pictures; the area view's Grid is [`GRID`]).
+    GALLERY = "🖼";
+    /// The area view's Show All and Show None, Together (turning several as
+    /// one), To Scratch and Save as Prefab…, and its dropdowns' glyphs with
+    /// Icons only (Fade Geometry, Snap, Turn).
+    SHOW_ALL = "☑";
+    SHOW_NONE = "☐";
+    TOGETHER = "🔗";
+    TO_SCRATCH = "📤";
+    /// The area view's Onto Objects (what is placed goes onto the placeable
+    /// or door under the pointer).
+    ONTO_OBJECTS = "📥";
+    FADE = "🏠";
+    SNAP = "📐";
+    TURN = "↻";
+    CAMERA = "🎥";
+    GO_TO_START = "🏃";
+    LIGHTING = "💡";
+    ANIMATIONS = "▶";
+    SOUNDS = "🔊";
+    SOUND_RANGES = "◎";
+    /// The area view's Minimap (the area's map in its corner).
+    MINIMAP = "🗾";
+    /// An area another builder has claimed, one this builder has, and one
+    /// merged (its Tag and ResRef kept): the module tree's marks.
+    CLAIMED = "🔒";
+    CLAIMED_MINE = "✔";
+    MERGED = "📌";
+    /// Prefabs: groups of placed objects kept to place again.
+    PREFABS = "🗐";
+    /// The palette's lights (the game's invisible light placeables), a sun
+    /// as the area view marks them.
+    LIGHTS = "☀";
+    /// A window's bar: Maximize, and Restore while it is maximized.
+    MAXIMIZE = "🗖";
+    RESTORE = "🗗";
+}
 
 /// An object type's glyph.
 pub(crate) fn object(kind: ObjectKind) -> &'static str {
@@ -93,83 +110,45 @@ pub(crate) fn labelled(glyph: &str, text: &str) -> String {
 /// their words alone): the script editor's, the conversation editor's,
 /// the model view's and the NUI Creator's.
 pub(crate) mod editor {
-    pub(crate) const SAVE: &str = "💾";
-    pub(crate) const COMPILE: &str = "⚙";
-    pub(crate) const SAVE_AS: &str = "🖹";
-    pub(crate) const PRINT: &str = "🖶";
-    pub(crate) const OPEN: &str = "🗁";
-    pub(crate) const EXTERNAL: &str = "🖊";
-    pub(crate) const FIND: &str = "🔍";
-    pub(crate) const REPLACE: &str = "🔄";
-    pub(crate) const BOOKMARK: &str = "🔖";
-    pub(crate) const DEFINITION: &str = "🎯";
-    pub(crate) const REFERENCES: &str = "🔗";
-    pub(crate) const RENAME: &str = "🏷";
-    pub(crate) const USED_BY: &str = "⤴";
-    pub(crate) const ADD: &str = "➕";
-    pub(crate) const COPY: &str = "📑";
-    pub(crate) const CUT: &str = "✂";
-    pub(crate) const PASTE: &str = "📋";
-    pub(crate) const PASTE_LINK: &str = "📎";
-    pub(crate) const DELETE: &str = "🗑";
-    pub(crate) const EXPAND_ALL: &str = "⏬";
-    pub(crate) const COLLAPSE_ALL: &str = "⏫";
-    pub(crate) const COMMENTS: &str = "💬";
-    pub(crate) const ACTIONS: &str = "⚡";
-    pub(crate) const QUESTS: &str = "📜";
-    pub(crate) const ANIMATIONS: &str = "🎭";
-    pub(crate) const SOUNDS: &str = "🔊";
-    pub(crate) const EXPORT: &str = "📤";
-    pub(crate) const IMPORT: &str = "📥";
-    pub(crate) const SCRIPTS: &str = "📃";
-    pub(crate) const PLAY: &str = "▶";
-    pub(crate) const PAUSE: &str = "⏸";
-    pub(crate) const FRAME: &str = "🔲";
-    pub(crate) const LIGHTS: &str = "💡";
-    pub(crate) const POP_OUT: &str = "🗗";
-    pub(crate) const BUILD: &str = "🔨";
-    pub(crate) const HOW_TO_OPEN: &str = "❓";
-
-    /// Every one (the fonts must have them all).
-    #[cfg(test)]
-    pub(crate) const ALL: [&str; 36] = [
-        SAVE,
-        COMPILE,
-        SAVE_AS,
-        PRINT,
-        OPEN,
-        EXTERNAL,
-        FIND,
-        REPLACE,
-        BOOKMARK,
-        DEFINITION,
-        REFERENCES,
-        RENAME,
-        USED_BY,
-        ADD,
-        COPY,
-        CUT,
-        PASTE,
-        PASTE_LINK,
-        DELETE,
-        EXPAND_ALL,
-        COLLAPSE_ALL,
-        COMMENTS,
-        ACTIONS,
-        QUESTS,
-        ANIMATIONS,
-        SOUNDS,
-        EXPORT,
-        IMPORT,
-        SCRIPTS,
-        PLAY,
-        PAUSE,
-        FRAME,
-        LIGHTS,
-        POP_OUT,
-        BUILD,
-        HOW_TO_OPEN,
-    ];
+    glyphs! {
+        ALL:
+        SAVE = "💾";
+        COMPILE = "⚙";
+        SAVE_AS = "🖹";
+        PRINT = "🖶";
+        OPEN = "🗁";
+        EXTERNAL = "🖊";
+        FIND = "🔍";
+        REPLACE = "🔄";
+        BOOKMARK = "🔖";
+        DEFINITION = "🎯";
+        REFERENCES = "🔗";
+        RENAME = "🏷";
+        USED_BY = "⤴";
+        ADD = "➕";
+        COPY = "📑";
+        CUT = "✂";
+        PASTE = "📋";
+        PASTE_LINK = "📎";
+        DELETE = "🗑";
+        EXPAND_ALL = "⏬";
+        COLLAPSE_ALL = "⏫";
+        COMMENTS = "💬";
+        ACTIONS = "⚡";
+        QUESTS = "📜";
+        ANIMATIONS = "🎭";
+        SOUNDS = "🔊";
+        EXPORT = "📤";
+        IMPORT = "📥";
+        SCRIPTS = "📃";
+        PLAY = "▶";
+        PAUSE = "⏸";
+        FRAME = "🔲";
+        LIGHTS = "💡";
+        POP_OUT = "🗗";
+        BUILD = "🔨";
+        HOW_TO_OPEN = "❓";
+    }
 }
 
 /// How a toolbar's buttons are labelled (Options › General › Toolbar
@@ -379,47 +358,14 @@ impl Tools {
         }
     }
 
-    /// Every glyph the toolbars show (the fonts must have them all).
+    /// Every glyph the toolbars, the palettes and the module tree show (the
+    /// fonts must have them all): the main toolbar's, the object types',
+    /// and every one declared here ([`ALL`], [`editor::ALL`]).
     #[cfg(test)]
     pub(crate) fn glyphs() -> Vec<&'static str> {
         let mut all: Vec<&str> = crate::commands::TOOLBAR.iter().flatten().map(|t| t.1).collect();
         all.extend(ObjectKind::ALL.map(object));
-        all.extend([
-            START,
-            NIGHT,
-            LIGHTING,
-            SHADOWS,
-            FOG,
-            TILE_BORDER,
-            ANIMATIONS,
-            GRASS,
-            SHADERS,
-            GRID,
-            SOUNDS,
-            SOUND_RANGES,
-            MINIMAP,
-            AMBIENT,
-            MUSIC,
-            WALKMESH,
-            SELECT_TILES,
-            PAINT,
-            CAMERA,
-            GO_TO_START,
-            AREA_PROPERTIES,
-            GALLERY,
-            SHOW_ALL,
-            SHOW_NONE,
-            TOGETHER,
-            ONTO_OBJECTS,
-            TO_SCRATCH,
-            FADE,
-            MAXIMIZE,
-            RESTORE,
-            SNAP,
-            TURN,
-            PREFABS,
-            LIGHTS,
-        ]);
+        all.extend(ALL);
         all.extend(editor::ALL);
         all
     }
