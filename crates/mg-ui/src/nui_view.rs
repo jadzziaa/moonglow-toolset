@@ -2404,8 +2404,9 @@ mod tests {
             "fill":false,"line_thickness":2.0,"order":1,"render":0,"arrayBinds":false,
             "a":{"x":0.0,"y":0.0},"b":{"x":10.0,"y":10.0},"ctrl0":{"x":0.0,"y":5.0},"ctrl1":{"x":5.0,"y":10.0}}]);
         let assets = skin::Assets::default();
-        let mut h = Harness::builder()
-            .build_ui(|ui| draw::editor(ui, &mut spacer, &mut Settings::default(), &assets));
+        let mut h = Harness::builder().build_ui(|ui| {
+            draw::editor(ui, &mut spacer, &mut Settings::default(), &assets);
+        });
         h.run();
         h.get_by_label("Draw layers").click();
         h.run();
