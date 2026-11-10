@@ -19,6 +19,10 @@ pub struct FactionView {
     pub full_detail: bool,
     pub adding: Option<AddFaction>,
     pub renaming: Option<(u32, String)>,
+    /// What Change Name… was opened on: how many factions there were and
+    /// the faction's name. The window doesn't block, so its faction can be
+    /// removed (or another slide into its number) behind it: it closes then.
+    renaming_of: Option<(usize, String)>,
     /// What the window did since it was opened, for its Cancel.
     cancel: CancelSteps,
 }
@@ -115,12 +119,26 @@ pub fn attitude(rep: u32) -> &'static str {
 
 impl Moonglow {
     /// The factions as currently edited (the workspace's copy of
-    /// `repute.fac`, or the standard factions).
-    fn factions(&mut self) -> Option<Factions> {
+    /// `repute.fac`, or the standard factions where the module has no
+    /// such file), or why the file can't be edited: one that can't be read
+    /// is not the standard five (the first change would write them over
+    /// it), and the editor counts on the standard five being there.
+    fn factions(&mut self) -> Option<Result<Factions, String>> {
         let ws = self.ws.as_mut()?;
+        let exists = ws.module.contains(&key());
         Some(match ws.doc(&key()) {
-            Ok(g) => Factions::read_in(g, crate::text::game_codepage()),
-            Err(_) => Factions::of_module(&ws.module),
+            Ok(g) => {
+                let f = Factions::read_in(g, crate::text::game_codepage());
+                match f.factions.len() {
+                    n if n < STANDARD.len() => Err(format!(
+                        "repute.fac has {n} of the {} standard factions, and can't be edited here.",
+                        STANDARD.len()
+                    )),
+                    _ => Ok(f),
+                }
+            }
+            Err(_) if !exists => Ok(Factions::of_module(&ws.module)),
+            Err(e) => Err(format!("repute.fac can't be read: {e}")),
         })
     }
 
@@ -196,9 +214,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 fn editor(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(mut f) = app.factions() else {
-        ui.label("No module is open.");
-        return;
+    let mut f = match app.factions() {
+        None => {
+            ui.label("No module is open.");
+            return;
+        }
+        Some(Err(why)) => {
+            ui.colored_label(ui.visuals().error_fg_color, why);
+            return;
+        }
+        Some(Ok(f)) => f,
     };
     let mut view = std::mem::take(&mut app.faction_view);
     let n = f.factions.len() as u32;
@@ -365,6 +390,19 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         });
         view.adding = if close { None } else { Some(add) };
     }
+    // (The faction the window was opened on, or none: a removal or an Undo
+    // behind it closes it.)
+    let named = |id: u32| f.factions.get(id as usize).map(|x| x.name.clone());
+    if let Some((id, _)) = &view.renaming {
+        let now = named(*id).map(|name| (f.factions.len(), name));
+        let was = view.renaming_of.clone().or_else(|| now.clone());
+        if now.is_none() || now != was || (*id as usize) < STANDARD.len() {
+            view.renaming = None;
+        }
+        view.renaming_of = was.filter(|_| view.renaming.is_some());
+    } else {
+        view.renaming_of = None;
+    }
     if let Some((id, mut name)) = view.renaming.clone() {
         let mut close = false;
         crate::widgets::modal(&ctx, "Change Faction Name").show(&ctx, |ui| {
@@ -384,6 +422,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
             });
         });
         view.renaming = if close { None } else { Some((id, name)) };
+        if close {
+            view.renaming_of = None;
+        }
     }
 
     if let Some(id) = remove {

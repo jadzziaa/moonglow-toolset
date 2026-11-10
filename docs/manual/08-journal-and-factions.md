@@ -45,7 +45,10 @@ heading and shown whole when the pointer rests on it. **Add
 Faction…** makes a faction that starts with a parent's attitudes;
 **Change Name…** and **Remove Faction** change the module's own.
 **Global Effect** makes a faction act as one: when a player angers one
-member, all the others turn too.
+member, all the others turn too. The Change Name window closes when its
+faction is removed behind it. A `repute.fac` that can't be read, or that
+has fewer than the five standard factions, is not edited: the editor
+says so in place of the table, and the file stays as it is.
 
 Creatures, doors, placeables, triggers and encounters belong to a faction
 (their Advanced page). The PC faction isn't offered there: it is the
