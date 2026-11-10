@@ -1276,6 +1276,33 @@ fn references_show_a_script_s_line_in_the_scripts_codepage() {
     assert_eq!(western, "void main() { SpeakString(\"Id¹\"); ExecuteScript(\"next_one\"); }");
 }
 
+/// A resource whose name has a letter outside ASCII (`caf\xE9_01`) is
+/// found where a script's string spells it: the name is asked for as
+/// its own bytes. As text, the letter was two bytes and the string was
+/// found nowhere, in Find References, in what a rename counts and in
+/// what a delete says still names it.
+#[test]
+fn a_name_outside_ascii_is_found_spelled_in_a_script() {
+    use mg_ui::references::Query;
+    let dir = mg_testkit::scratch_dir("ui-references-name-outside-ascii");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let source = b"void main() { CreateObject(1, \"Caf\xe9_01\", GetLocation(OBJECT_SELF)); }\n";
+    let script = ResKey::parse("spawner", ResType::NSS).unwrap();
+    m.set(script, source.to_vec());
+    let cafe = ResKey::new(mg_core::ResRef::from_bytes(b"caf\xe9_01").unwrap(), ResType::UTC);
+    m.set(cafe, mg_gff::Gff::new(*b"UTC ").to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.find_references(Query::Resource(cafe));
+    let mut h = window_harness(app);
+    settle(&mut h);
+    let found = h.state().references.mentions.clone();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].script, script);
+}
+
 #[test]
 fn a_script_named_as_the_game_s_own_is_warned_about() {
     let Some(root) = mg_testkit::nwn_root() else {
