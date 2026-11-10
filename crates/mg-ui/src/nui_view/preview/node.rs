@@ -511,7 +511,7 @@ impl Renderer<'_> {
             "label" => self.label(c),
             "text" => self.text_block(ui, c),
             "textedit" => self.textedit(ui, c),
-            "combo" => self.combo(ui, c),
+            "combo" => self.combo(c),
             "check" => self.check(c),
             "slider" | "sliderf" | "progress" => self.slider(ui, c),
             "image" => self.image(c),
