@@ -1883,7 +1883,7 @@ fn a_panic_keeps_the_unsaved_work() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("tag", vec![edit])));
     h.run();
     panics(h.state_mut());
-    let copies = mg_ui::recovery::find(&recovery);
+    let copies = mg_ui::recovery::find_all(&recovery);
     assert_eq!(copies.len(), 1);
     let kept = Module::open(&copies[0].archive).unwrap();
     let ifo = kept.gff(&key).unwrap().unwrap();
@@ -1901,7 +1901,7 @@ fn closing_without_saving_leaves_no_copy() {
     app.recovery_dir = Some(recovery.clone());
     app.open_module(&path);
     app.write_recovery().unwrap();
-    assert_eq!(mg_ui::recovery::find(&recovery).len(), 1);
+    assert_eq!(mg_ui::recovery::find_all(&recovery).len(), 1);
     app.close();
     assert!(mg_ui::recovery::find(&recovery).is_empty());
 }
@@ -2612,8 +2612,12 @@ fn recover_and_new_module_ask_before_they_replace_unsaved_work() {
     // listed.
     h.state_mut().actions.push(edit(b"// two"));
     h.run();
-    h.state_mut().write_recovery().unwrap();
+    // (Listed as a start lists a session's that did not end; the window
+    // that wrote one holds it, and is not offered its own.)
+    let written = h.state_mut().write_recovery().unwrap();
     h.state_mut().find_recoveries();
+    assert!(h.state().recoveries.is_empty(), "its own, still open");
+    h.state_mut().recoveries = mg_ui::recovery::find_all(written.parent().unwrap());
     let copy = h.state().recoveries[0].clone();
     h.state_mut().actions.push(mg_ui::Action::Recover(copy.clone()));
     h.run();

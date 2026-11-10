@@ -1451,7 +1451,10 @@ If Moonglow (or the computer) stops first, the next start offers the copy
 in **Recover Unsaved Work**: open it as an unsaved module (with the tabs
 it had), then save it where you want. (A copy whose note of where its
 module lives was lost with the power is offered too, by its file's name:
-recovered, it is a module never saved.) As in Aurora, open conversations are also backed up as
+recovered, it is a module never saved.) A copy belongs to the window
+that writes it for as long as that Moonglow runs: a second Moonglow
+started meanwhile does not offer it, and keeps a copy of its own if it
+has the same module open. As in Aurora, open conversations are also backed up as
 `<name>.bak` every 5 minutes.
 
 ## Module Properties
