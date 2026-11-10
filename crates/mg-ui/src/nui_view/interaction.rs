@@ -357,14 +357,30 @@ impl Resize {
         let delta = (pointer - self.origin) / self.scale.max(0.001);
         let minimum = if self.path.is_empty() { 80.0 } else { 8.0 };
         let room = cross_room(&self.source, &self.path).max(Vec2::splat(minimum));
+        // An axis the pointer has not moved a point along keeps the size
+        // it had. (The size drawn is seldom whole: three labels sharing a
+        // row are 126.67 each, and any size is a fraction under Zoom Fit.
+        // Rounded as soon as a handle was pressed, a click on one wrote a
+        // width, and the label no longer shared its row.)
+        let sized = |initial: f32, moved: f32, room: f32| match moved.round() == 0.0 {
+            true => initial,
+            false => (initial + moved).round().clamp(minimum, room),
+        };
         if self.horizontal {
-            self.size.x = (self.initial.x + delta.x).round().clamp(minimum, room.x);
+            self.size.x = sized(self.initial.x, delta.x, room.x);
         }
         if self.vertical {
-            self.size.y = (self.initial.y + delta.y).round().clamp(minimum, room.y);
+            self.size.y = sized(self.initial.y, delta.y, room.y);
         }
     }
 
+    /// The gesture made the control (or the window) another size.
+    pub(super) fn changed(&self) -> bool {
+        self.size != self.initial
+    }
+
+    /// The size as the gesture has it, on the axes it changed: the other
+    /// keeps what the window says of it (none, or a bind).
     pub(super) fn apply(&self, doc: &mut Value) {
         let Some(node) = doc.pointer_mut(&self.path) else { return };
         let (node, width, height) = if self.path.is_empty() {
@@ -373,11 +389,57 @@ impl Resize {
             (Some(node), "width", "height")
         };
         let Some(node) = node else { return };
-        if self.horizontal {
+        if self.horizontal && self.size.x != self.initial.x {
             set(node, width, json!(self.size.x));
         }
-        if self.vertical {
+        if self.vertical && self.size.y != self.initial.y {
             set(node, height, json!(self.size.y));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{pos2, vec2};
+
+    /// A handle pressed and let go where it was writes nothing, whatever
+    /// size the control was drawn at; moved along one axis, it sizes that
+    /// axis alone. (Three labels sharing a row are 126.67 wide each: a
+    /// click on one's handle wrote "width": 127.0.)
+    #[test]
+    fn a_handle_not_moved_leaves_the_size_alone() {
+        let doc = json!({"root": {"type": "row", "children": [
+            {"type": "label"}, {"type": "label"}, {"type": "label"}]}});
+        let resize = |scale: f32, initial: Vec2| Resize {
+            path: "/root/children/1".into(),
+            source: doc.clone(),
+            origin: pos2(300.0, 200.0),
+            scale,
+            anchor: vec2(20.0, 20.0),
+            initial,
+            size: initial,
+            horizontal: true,
+            vertical: true,
+        };
+        for (scale, initial) in [(1.0, vec2(126.67, 30.0)), (0.73, vec2(173.972_6, 41.095_9))] {
+            let mut r = resize(scale, initial);
+            // (And a hair off, as a press that trembles.)
+            for at in [pos2(300.0, 200.0), pos2(300.3, 199.7)] {
+                r.move_to(at);
+                assert!(!r.changed(), "{scale} {initial:?} {at:?}: {:?}", r.size);
+                let mut after = doc.clone();
+                r.apply(&mut after);
+                assert_eq!(after, doc);
+            }
+            // Along the row only: a width, whole, and no height.
+            r.move_to(pos2(300.0 + 10.0 * scale, 200.0));
+            assert!(r.changed());
+            let mut after = doc.clone();
+            r.apply(&mut after);
+            let label = &after["root"]["children"][1];
+            assert_eq!(label["width"], json!((initial.x + 10.0).round()));
+            assert!(label.get("height").is_none(), "{label}");
         }
     }
 }

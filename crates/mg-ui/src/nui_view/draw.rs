@@ -393,9 +393,23 @@ impl Gesture {
             (if self.size { "w" } else { "x" }, delta.x),
             (if self.size { "h" } else { "y" }, delta.y),
         ] {
-            let was = self.source[&self.field][key].as_f64().unwrap_or(0.0);
+            let had = self.source[&self.field].get(key);
+            let was = had.and_then(Value::as_f64).unwrap_or(0.0);
+            // Not moved a point along this axis: what the layer had, as it
+            // had it. (Rounded at once, a click on a handle made 10.3 a 10,
+            // and 10 a 10.0: an edit from a click.)
+            let now = match f64::from(delta).round() == 0.0 {
+                true => had.cloned(),
+                false => Some(json!((was + f64::from(delta)).round())),
+            };
             if let Some(point) = interaction::field(&mut self.draft, &self.field) {
-                interaction::set(point, key, json!((was + f64::from(delta)).round()));
+                match (now, point.as_object_mut()) {
+                    (Some(now), _) => interaction::set(point, key, now),
+                    (None, Some(object)) => {
+                        object.remove(key);
+                    }
+                    (None, None) => {}
+                }
             }
         }
     }
@@ -727,6 +741,43 @@ mod tests {
             } else {
                 assert!((bounds.width() - 100.0).abs() < 0.01);
                 assert!((bounds.height() - 50.0).abs() < 0.01);
+            }
+        }
+    }
+
+    /// A draw layer's handle pressed and let go where it was leaves the
+    /// layer as it is: a place typed to a tenth stays one, and a whole
+    /// number stays written as it was. Moved, the axis moved along is
+    /// whole points.
+    #[test]
+    fn a_layer_s_handle_not_moved_leaves_the_layer_alone() {
+        let origin = pos2(50.0, 60.0);
+        for source in [
+            json!({"type": 7, "rect": {"x": 10.3, "y": 10, "w": 140.5, "h": 70}}),
+            json!({"type": 6, "a": {"x": 10.3, "y": 10}, "b": {"x": 150, "y": 80.25}}),
+        ] {
+            let field = if source["rect"].is_object() { "rect" } else { "a" };
+            for size in [false, source["rect"].is_object()] {
+                let mut g = Gesture {
+                    source: source.clone(),
+                    draft: source.clone(),
+                    origin,
+                    field: field.into(),
+                    size,
+                };
+                g.drag_to(origin, 1.0);
+                assert_eq!(g.draft, source, "pressed where it was");
+                g.drag_to(origin + vec2(0.4, -0.4), 2.0);
+                assert_eq!(g.draft, source, "less than a point");
+                // Along x alone: x (or the width) is whole, y as it was.
+                g.drag_to(origin + vec2(4.0, 0.0), 2.0);
+                let (x, y) = if size { ("w", "h") } else { ("x", "y") };
+                let was = source[field][x].as_f64().unwrap();
+                assert_eq!(g.draft[field][x], json!((was + 2.0).round()));
+                assert_eq!(g.draft[field][y], source[field][y]);
+                // Back where it began: the layer again.
+                g.drag_to(origin, 2.0);
+                assert_eq!(g.draft, source);
             }
         }
     }
