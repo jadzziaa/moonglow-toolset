@@ -57,6 +57,40 @@ with the reason rather than failing in its panel.
   the command's title alone (`Tint`, not `Pick tint: Tint`; the plugin's
   name shows on hover), and no longer dims the window behind it.
 
+Since Moonglow 3.18.2, still as API 0.9, a plugin meets limits and
+refusals it did not before ([Limits](../manual/17-plugin-api.md#limits)).
+A plugin that stayed within what the manual said has nothing to change;
+one that leaned on what follows fails where it used to go on:
+
+- What Moonglow holds for a job besides the plugin's own 256 MB (the
+  tables and talk tables it makes, the pictures it has decoded, its
+  edits and the files it wants written) may be 512 MB: the call that
+  would go past that fails, and the job with it unless it catches the
+  error. What the plugin has let go of does not count.
+- `folder:files()` fails on a folder of more than 20,000 files; it
+  returned the first 20,000 without a word.
+- `ctx.edit:write`, `write_bytes` and `write_gff` refuse a new resource
+  whose name no file can have (`a/b.nss`): a folder module or a nasher
+  project could not be saved with it. A resource the module has already
+  is written as before.
+- A number that is not finite (`0/0`, `math.huge`) is refused where a
+  plugin or its user gives one: a form's `default`, `min` and `max` (and
+  a `min` above its `max`), an answer of `mg plugin run --answer`, a
+  float field set with `ctx.edit:set` past a float's range, a pixel's
+  place in `image:pixel`.
+- `mg.image` refuses a picture of more than 64 million pixels by its
+  header, before decoding it, and `ctx.game:bytes` reads no more than
+  64 MB of a file put into a hak with `folder:to_hak`, as `folder:bytes`
+  does.
+- A plugin's folder of more than 16 MB or 500 files is refused before
+  any of it is read, and `mg plugin check`, `mg plugin pack` and an
+  archive about to be installed give a plugin's code 5 seconds to load.
+- `ctx.edit:set` of a ResRef field keeps a letter outside ASCII as the
+  module's codepage has it (`café_01`), and `ctx.module:gff`, `text` and
+  the like take a resource's name as such a field reads (`œuvre.dlg`, a
+  Polish module's letters) as well as the way `ctx.module:resources()`
+  lists it.
+
 ## 0.8
 
 In Moonglow 3.16.0. Only an addition: a plugin written for 0.7 or
