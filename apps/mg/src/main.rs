@@ -1171,6 +1171,8 @@ enum Cmd {
         /// The module whose haks (and blueprints) to look in.
         #[arg(long)]
         module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
         /// The game's own files too.
         #[arg(long)]
         all: bool,
@@ -4956,9 +4958,10 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Roundtrip { module, keep } => roundtrip(module, keep.as_deref())?,
         Cmd::Model { cmd } => model_file(cli, cmd)?,
-        Cmd::ModelFiles { what, out, module, all, force, dry_run } => {
+        Cmd::ModelFiles { what, out, module, added, all, force, dry_run } => {
             let gi = install(cli)?;
-            model_files(&gi, what, out, module.as_deref(), *all, *force, *dry_run)?
+            let asked = ModelFiles { all: *all, force: *force, dry_run: *dry_run };
+            model_files(&gi, what, out, module.as_deref(), added, &asked)?
         }
         Cmd::Search(args) => search::run(cli, args)?,
         Cmd::Info { module } => {
@@ -5691,22 +5694,35 @@ fn verify(
     Ok(out)
 }
 
-/// `mg model-files`: the files the game draws a model or a blueprint with.
+/// `mg model-files`'s switches.
+struct ModelFiles {
+    all: bool,
+    force: bool,
+    dry_run: bool,
+}
+
+/// `mg model-files`: the files the game draws a model or a blueprint with,
+/// from the game, a module's haks and the archives and folders `--hak`
+/// gives (over the rest).
 fn model_files(
     gi: &GameInstall,
     what: &str,
     dir: &Path,
     module: Option<&Path>,
-    all: bool,
-    force: bool,
-    dry_run: bool,
+    added: &added::Added,
+    asked: &ModelFiles,
 ) -> Result<Output> {
+    let ModelFiles { all, force, dry_run } = *asked;
     let mut out = Output::default();
     let m = match module {
         Some(path) => crate::open_module(path)?,
         None => Module::new(),
     };
-    let game = plugins::game_for(Some(gi), &m, &mut out).context("the game data")?;
+    // (The haks given are over the module's by their priority; the
+    // game's tables are read from them all, once asked for.)
+    let mut game = mg_rules::GameData::open(gi).context("the game data")?;
+    added.stack_onto(&mut game.resman)?;
+    let game = said(m.game_data_over(game, gi)?, &mut out)?;
     // (A blueprint's file and its fields, with its look's row.)
     let mut blueprint = None;
     // An area: what the game draws it with, after its own .are and .git.

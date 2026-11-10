@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T15:26:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T15:29:06Z }
 ---
 
 # Command-line tools
@@ -66,13 +66,13 @@ JSON (below).
 
 ### Haks and folders of your own
 
-`--hak PATH`, which `mg which` and `mg cat` take as often as needed, adds
-a hak, ERF or module (`.hak`, `.erf`, `.mod`) or a folder of loose files
-(its own files, not its folders') to the load order: the first given wins
-over the next, and all of them over every hak (the game's, the user
-folder's, a `--module`'s), under the user folder's `development/`
-(`--no-user-dir` leaves that out). Its layer is named by its kind and the
-path as given: `hak:build/hak/top.hak`, `folder:assets/models`.
+`--hak PATH`, which `mg which`, `mg cat` and `mg model-files` take as
+often as needed, adds a hak, ERF or module (`.hak`, `.erf`, `.mod`) or a
+folder of loose files (its own files, not its folders') to the load order:
+the first given wins over the next, and all of them over every hak (the
+game's, the user folder's, a `--module`'s), under the user folder's
+`development/` (`--no-user-dir` leaves that out). Its layer is named by its
+kind and the path as given: `hak:build/hak/top.hak`, `folder:assets/models`.
 
 ## Modules
 
@@ -83,7 +83,7 @@ path as given: `hak:build/hak/top.hak`, `folder:assets/models`.
 | `mg search MODULE` | blueprints, placed objects (and the items they hold), areas and conversations by what they hold, each condition given met (several at once: all of them, `--class fighter --feat "weapon focus (longsword)"`; with `--any`, any of them; `--not` before a condition leaves out what meets it, `--class fighter --not --feat alertness`, also what holds or is held by it): `--var NAME` (`*` matches any run; with `--var-type int` and `--value`), `--property TYPE` (with `--subtype`, `--value`, `--param`), `--class` (with `--levels N` or `MIN..MAX`), `--feat`, `--spell` (with `--spell-class CLASS`: known or memorized as that class), `--skill` (with `--min-rank N`), `--appearance ROW` (with `--of creature`, `placeable`, `door`, `generic-door`, `waypoint` or `item`), `--script NAME`, or any field by `--field LABEL`, `--int N`, `--number RANGE` (`5..10`, `0.5..`, a float) or `--text TEXT` (with `--regex`, the names and texts are regular expressions: `--var '^tdod_(rent|own)' --regex`). A row is its number or its name in the game's 2DAs and talk table (the module's haks' too): `--property "skill bonus" --subtype hide`. `--type uti,utc` and `--placed` or `--blueprints` narrow it as in `mg find`; an item blueprint found is also found in the inventories of the blueprints that carry it. `--haks-and-game` searches the haks' and the game's blueprints the module has none of too, read-only, each line ending with the layer it is read from (`key:nwn_base (read-only)`; `"layer"` in JSON) |
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources: a script once, `unused\tx.nss\tsource and compiled`, `compiled only (no source)` or `source only (not compiled)`; what counts as used is Build Module's [Unused](09-build-and-test.md#what-counts-as-used)); fails if there are errors, so a build pipeline stops; a project's scripts are compiled first, in memory, as [Verify Module](09-build-and-test.md#verify-module) compiles them |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does. **Build › Round-Trip Check** does the same in the window |
-| `mg model-files WHAT FOLDER [--module MODULE] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`), a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`, and a waypoint's `.utw`: its flag) or an area (`tavern.are`) with into a folder: models, walkmeshes, textures, materials, from the module's haks and wherever else they are; a blueprint with itself and its row of the table its look is chosen by (`placeables.2da-row-312.txt`), an area with its `.are`, `.git`, tileset, tiles, skybox and the models of what is placed in it; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force`; what is named and found nowhere is said (`missing` in `--json`) |
+| `mg model-files WHAT FOLDER [--module MODULE] [--hak PATH…] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`), a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`, and a waypoint's `.utw`: its flag) or an area (`tavern.are`) with into a folder: models, walkmeshes, textures, materials, from the module's haks, the haks and folders `--hak` gives ([as for `mg cat`](#haks-and-folders-of-your-own); no module is needed) and wherever else they are, each with the layer it came from (`from` in `--json`); a blueprint with itself and its row of the table its look is chosen by (`placeables.2da-row-312.txt`), an area with its `.are`, `.git`, tileset, tiles, skybox and the models of what is placed in it; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force`; what is named and found nowhere is said (`missing` in `--json`) |
 | `mg vars MODULE [NAME]` | the variables the project describes (`variables.toml`, see [Modules](03-modules.md#described-variables)): each one's type, what it goes on, its values (a script's constants and a table's rows read) and its help; `--on KIND` those that go on one kind of object (`placeable`, `area`, `module`…), never one the scripts alone set (`runtime`); `--undescribed`, in their place, the module's variables no description names (of those on `KIND`, of the names the glob `NAME` takes), each with its types, what it is on, where, and the description it is near: one in another case, or a typo of a name `undescribed` takes (since Moonglow 2.13.0; `--json`: `not_described`) |
 | `mg claims PROJECT [list\|claim\|release\|hand\|merged] [AREA…]` | the project's [claims table](03-modules.md#claimed-areas) (`[claims] file` in its `moonglow.toml`): every area of the table and of the module, whose each is (`--json` too); or the areas named claimed or released by your builder code, as Claim This Area and Release Claim do, or handed to another builder (`hand --to CODE`, as the Claims Table window's Hand To… does) (`--force`: another builder's claim), or marked merged with their Tags as the module has them. It writes the table, a file of the checkout: commit it |
 | `mg used MODULE [--add NAME] [--remove NAME] [--kind KIND]` | what Unused counts as used though nothing in the module names it (the project file's `[used]`; beside a `.mod`, `NAME.moonglow.toml`, made where there is none): listed, and names or globs added or taken out (repeatable), of `scripts` (the default), `conversations` or `blueprints`: a script `ExecuteScript` runs by a name made as it runs ([What counts as used](09-build-and-test.md#what-counts-as-used)) |

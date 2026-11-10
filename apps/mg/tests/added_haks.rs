@@ -144,3 +144,59 @@ fn which_and_cat_read_the_haks_given() {
     assert!(!nothing.status.success());
     assert!(String::from_utf8_lossy(&nothing.stderr).contains("no such file or folder"));
 }
+
+/// A placeable's model drawn with one texture.
+const BOX: &str = "newmodel mg_zz_box\nsetsupermodel mg_zz_box NULL\nclassification placeable\n\
+setanimationscale 1\nbeginmodelgeom mg_zz_box\n\
+node dummy mg_zz_box\n  parent NULL\nendnode\n\
+node trimesh plane\n  parent mg_zz_box\n  bitmap mg_zz_tex\n\
+  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+  faces 1\n    0 1 2 1 0 0 0 0\n\
+  tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+endnode\nendmodelgeom mg_zz_box\ndonemodel mg_zz_box\n";
+
+/// `mg model-files --hak`: a model's files from haks and folders given,
+/// no module needed, each from where the load order has it.
+#[test]
+fn model_files_reads_the_haks_and_folders_given() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-model-files-hak");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("mg_zz_box.mdl"), BOX).unwrap();
+    let hak = dir.join("box.hak");
+    let out = crate::mg_output(&["pack", text(&src), text(&hak)]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let textures = dir.join("textures");
+    std::fs::create_dir_all(&textures).unwrap();
+    std::fs::write(textures.join("mg_zz_tex.tga"), b"not read").unwrap();
+    let to = dir.join("staged");
+    let run = |extra: &[&str]| {
+        let mut mg = crate::mg_on(&root, None);
+        mg.args(["--json", "model-files", "mg_zz_box"]).arg(&to);
+        crate::json_out(mg.args(["--hak", text(&hak), "--hak", text(&textures)]).args(extra))
+    };
+    let (ok, json) = run(&["--dry-run"]);
+    assert!(ok, "{json}");
+    assert!(!to.exists());
+    let (ok, json) = run(&[]);
+    assert!(ok, "{json}");
+    let files: Vec<(&str, &str, bool)> = (json["files"].as_array().unwrap().iter())
+        .map(|f| (f["file"].as_str().unwrap(), f["from"].as_str().unwrap(), f["stock"] == true))
+        .collect();
+    let (h, t) = (format!("hak:{}", hak.display()), format!("folder:{}", textures.display()));
+    assert_eq!(
+        files,
+        [("mg_zz_box.mdl", h.as_str(), false), ("mg_zz_tex.tga", t.as_str(), false)],
+        "{json}"
+    );
+    assert_eq!(std::fs::read_to_string(to.join("mg_zz_box.mdl")).unwrap(), BOX);
+    assert_eq!(std::fs::read(to.join("mg_zz_tex.tga")).unwrap(), b"not read");
+    // Without them, the model is found nowhere.
+    let out = crate::mg_on(&root, None)
+        .args(["model-files", "mg_zz_box", "--dry-run"])
+        .arg(&to)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+}
