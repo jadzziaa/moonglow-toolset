@@ -334,6 +334,9 @@ pub(super) struct Record {
     rows: usize,
     /// The lists with rows that were not laid out: what is said of each.
     pub rows_left_out: Vec<String>,
+    /// The lists of the window's own (in no list's row) cut so, by path:
+    /// how many rows each has.
+    pub rows_of_cut: BTreeMap<String, usize>,
 }
 
 /// The most rows of all a window's lists together that a layout asked for
@@ -379,6 +382,7 @@ impl Default for Record {
             current: Vec::new(),
             rows: 0,
             rows_left_out: Vec::new(),
+            rows_of_cut: BTreeMap::new(),
         }
     }
 }
@@ -458,6 +462,7 @@ impl Assets {
         // only those the frame had no room for are left out.)
         let said = match in_row {
             false if taken < count => {
+                r.rows_of_cut.insert(path.to_owned(), count);
                 Some(format!("{path}: only the first {taken} of its {count} rows are laid out"))
             }
             true if taken < wanted => Some(format!(
