@@ -2341,6 +2341,66 @@ fn the_placeable_gallery_places_gives_and_makes_an_appearance() {
     assert!(w.name.contains("Flame"), "named for it: {}", w.name);
 }
 
+/// An appearance is given to every object selected that lacks it: with
+/// the first selected already of it, the gallery gave it to none of the
+/// others (the review's B18).
+#[test]
+fn the_gallery_gives_an_appearance_the_first_selected_has_to_the_others() {
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("gallery-gives-all") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let edits = [12.0, 16.0]
+            .map(|x| {
+                let at = Placement { position: [x, 20.0, 0.0], rotation: 0.0 };
+                let item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+                mg_edit::Edit::insert_item(
+                    git_key,
+                    mg_edit::GffPath::root(),
+                    "Placeable List",
+                    0,
+                    item,
+                )
+            })
+            .to_vec();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+        app.settings.window_sizes = vec![("placeable-gallery".into(), [330, 430])];
+        app.actions.push(mg_ui::Action::PlaceableGallery);
+    }
+    h.run_steps(5);
+    h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Flame".into();
+    let appearances = |h: &mut Harness<'_, Moonglow>| -> Vec<i64> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+        list.iter().map(|s| s.integer("Appearance").unwrap()).collect()
+    };
+    let chest = appearances(&mut h)[0];
+    let give = |h: &mut Harness<'_, Moonglow>, selection: &[usize]| {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection =
+            selection.iter().map(|&i| (ObjectKind::Placeable, i)).collect();
+        h.run_steps(40);
+        let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
+        h.get_all_by_label("Flame").find(tile).expect("a flame's picture").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Give to the Selection").click();
+        h.run_steps(3);
+    };
+    // The first alone, then both, the first selected first.
+    give(&mut h, &[0]);
+    let flame = appearances(&mut h)[0];
+    assert_ne!(flame, chest);
+    assert_eq!(appearances(&mut h), [flame, chest]);
+    give(&mut h, &[0, 1]);
+    assert_eq!(appearances(&mut h), [flame, flame], "the second too");
+}
+
 /// The palette's pictures of items are kept by the body armor is shown on
 /// (Options › General): on a woman, hers are made; on a man again, his are
 /// there, not made again.
