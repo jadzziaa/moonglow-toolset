@@ -200,6 +200,7 @@ fn leaves(prefix: &str, table: &toml::Table, out: &mut std::collections::HashMap
 #[derive(Default)]
 pub(crate) struct Assets {
     dirty: bool,
+    /// The load order the skin was read for.
     signature: Option<u64>,
     /// The module's revision when it was last looked at: an edit that leaves
     /// its skin, pictures and fonts alone reloads nothing.
@@ -214,7 +215,29 @@ pub(crate) struct Assets {
     game_pictures: BTreeSet<String>,
     module_pictures: BTreeSet<String>,
     pub(super) catalog: Vec<String>,
+    /// How many times `catalog` was made, and the names of it last found
+    /// for a filter ([`Assets::found`]): the listing it was found in, the
+    /// filter, how many were asked for, the names.
+    listings: u64,
+    found: Option<(u64, String, usize, Vec<String>)>,
     requested: BTreeSet<String>,
+    /// The pictures last asked for by name (the window's, those requested
+    /// and `gui_error`), the pictures the skin names, and every picture
+    /// read for both: a change of the first reads the names that came,
+    /// not the skin again.
+    wanted: BTreeSet<String>,
+    skin_pictures: BTreeSet<String>,
+    read: BTreeSet<String>,
+    /// The skin's fonts' resources, watched with the pictures.
+    font_keys: Vec<ResKey>,
+    /// `issues`, by what they are of: the skin's table, each picture
+    /// (by name), the fonts.
+    skin_issues: Vec<String>,
+    picture_issues: BTreeMap<String, String>,
+    font_issues: Vec<String>,
+    /// How many times the skin was read, and how many pictures were (for
+    /// tests: what a change of the names costs).
+    pub(super) reads: (usize, usize),
     style: toml::Table,
     /// `style` by dotted path ("button.normal"), as the preview asks for it
     /// with every control it paints.
@@ -435,8 +458,11 @@ fn image(bytes: &[u8], ty: ResType) -> Result<egui::ColorImage, String> {
     match ty {
         ResType::DDS => {
             let t = mg_image::read(ty, bytes).map_err(|e| e.to_string())?;
-            if u64::from(t.width) * u64::from(t.height) > 16_777_216 {
-                return Err("image exceeds 16 megapixels".into());
+            // (By its sides, as the other kinds are: 16,384 by 1,024 is
+            // within 16 megapixels, and wider than a device takes a
+            // texture, which is fatal there.)
+            if t.width > MAX_SIDE || t.height > MAX_SIDE {
+                return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
             }
             let rgba = t.to_rgba().top_down();
             Ok(egui::ColorImage::from_rgba_unmultiplied(
@@ -577,7 +603,6 @@ impl Assets {
             .flat_map(|r| r.layers())
             .map(|l| (&l.label, l.priority, l.fingerprint))
             .collect();
-        let signature = hash((&layers, &wanted));
         let layers = hash(&layers);
         // The module changes with every edit of the window, and with every
         // key typed in a script beside it: only what it holds of the skin,
@@ -608,17 +633,88 @@ impl Assets {
         }
         if listed {
             self.catalog = self.game_pictures.union(&self.module_pictures).cloned().collect();
+            self.listings += 1;
         }
-        if !self.dirty
-            && self.signature == Some(signature)
-            && (!edited || same_held(&self.held, &held(module, &self.watched)))
-        {
+        // The skin (its table, its fonts and the pictures it names) is
+        // read for a load order, and again when the module's own copy of
+        // something read changed; the pictures asked for by name are read
+        // as they come. (Each key typed into a picture's name, or into
+        // Find a picture, read the skin, every picture and every font
+        // again.)
+        let skin_stale = self.dirty
+            || self.signature != Some(layers)
+            || (edited && !same_held(&self.held, &held(module, &self.watched)));
+        if !skin_stale && self.wanted == wanted {
             return;
         }
-        self.dirty = false;
-        self.signature = Some(signature);
-        self.issues.clear();
-        self.origins.clear();
+        let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
+        if skin_stale {
+            self.dirty = false;
+            self.signature = Some(layers);
+            self.origins.clear();
+            self.read_skin(ctx, rm, module, key);
+        }
+        let all: BTreeSet<String> = wanted.union(&self.skin_pictures).cloned().collect();
+        for name in self.read.difference(&all) {
+            self.pictures.remove(name);
+            self.picture_issues.remove(name);
+            for ty in PICTURE_TYPES {
+                self.origins.remove(&format!("{name}.{ty}"));
+            }
+        }
+        for name in &all {
+            // (Read again with the skin: one whose bytes are as they were
+            // keeps its texture.)
+            if skin_stale || !self.read.contains(name) {
+                self.read_picture(ctx, rm, module, name);
+            }
+        }
+        self.pictures.retain(|k, _| all.contains(k));
+        self.watched =
+            std::iter::once(key)
+                .chain(all.iter().flat_map(|n| {
+                    PICTURE_TYPES.into_iter().filter_map(move |ty| ResKey::parse(n, ty))
+                }))
+                .chain(self.font_keys.iter().copied())
+                .collect();
+        self.read = all;
+        self.wanted = wanted;
+        self.issues = (self.skin_issues.iter())
+            .chain(self.picture_issues.values())
+            .chain(&self.font_issues)
+            .cloned()
+            .collect();
+        self.held = held(module, &self.watched);
+        ctx.request_repaint();
+    }
+
+    /// The first `most` names of the catalog that `filter` finds: looked
+    /// for when the filter or the catalog changes, not each frame (a
+    /// module with a persistent world's haks lists on the order of
+    /// 100,000 pictures, and a name typed in full matches a few).
+    pub(super) fn found(&mut self, filter: &str, most: usize) -> &[String] {
+        let fresh = (self.found.as_ref())
+            .is_some_and(|(at, f, n, _)| (*at, f.as_str(), *n) == (self.listings, filter, most));
+        if !fresh {
+            let query = mg_core::text::Needle::new(filter);
+            let names = self.catalog.iter().filter(|n| query.finds(n)).take(most).cloned();
+            self.found = Some((self.listings, filter.to_string(), most, names.collect()));
+        }
+        self.found.as_ref().map_or(&[], |(_, _, _, names)| names)
+    }
+
+    /// Reads the skin: its table and leaves, the pictures it names
+    /// (`skin_pictures`) and its fonts.
+    fn read_skin(
+        &mut self,
+        ctx: &egui::Context,
+        rm: Option<&ResMan>,
+        module: &Module,
+        key: ResKey,
+    ) {
+        self.reads.0 += 1;
+        self.skin_issues.clear();
+        self.font_issues.clear();
         self.fonts.clear();
         // (egui builds its atlas again for the fonts added below, which
         // `TextCache` sees for itself; these are only no longer wanted.)
@@ -626,7 +722,6 @@ impl Assets {
         self.style.clear();
         self.leaves.clear();
         self.loaded = false;
-        let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         if let Some((b, origin)) = resource(rm, module, key) {
             match std::str::from_utf8(&b)
                 .map_err(|e| e.to_string())
@@ -638,10 +733,10 @@ impl Assets {
                     self.loaded = true;
                     self.origins.insert(key.to_string(), origin);
                 }
-                Err(e) => self.issues.push(format!("nui_skin.tml: {e}")),
+                Err(e) => self.skin_issues.push(format!("nui_skin.tml: {e}")),
             }
         } else {
-            self.issues.push(
+            self.skin_issues.push(
                 "nui_skin.tml is unavailable. Configure the game folder and module resources."
                     .into(),
             );
@@ -659,46 +754,10 @@ impl Assets {
                 _ => {}
             }
         }
+        self.skin_pictures.clear();
         for (k, v) in &self.style {
             if k != "fonts" {
-                skin_images(v, &mut wanted);
-            }
-        }
-        self.pictures.retain(|k, _| wanted.contains(k));
-        self.watched = std::iter::once(key)
-            .chain(
-                wanted
-                    .iter()
-                    .flat_map(|n| PICTURE_TYPES.into_iter().filter_map(|ty| ResKey::parse(n, ty))),
-            )
-            .collect();
-        for name in wanted {
-            let Some((ty, bytes, origin)) = image_resource(rm, module, &name) else {
-                self.pictures.remove(&name);
-                if name != "gui_error" {
-                    self.issues.push(format!("Missing image: {name}"));
-                }
-                continue;
-            };
-            self.origins.insert(format!("{name}.{ty}"), origin);
-            let stamp = hash((ty.0, &bytes));
-            if self.pictures.get(&name).is_some_and(|p| p.stamp == stamp) {
-                continue;
-            }
-            match image(&bytes, ty) {
-                Ok(image) => {
-                    let size = vec2(image.size[0] as f32, image.size[1] as f32);
-                    let texture = ctx.load_texture(
-                        format!("nui/{name}/{stamp}"),
-                        image,
-                        egui::TextureOptions::LINEAR,
-                    );
-                    self.pictures.insert(name, Picture { texture, size, stamp });
-                }
-                Err(e) => {
-                    self.pictures.remove(&name);
-                    self.issues.push(format!("{name}: {e}"));
-                }
+                skin_images(v, &mut self.skin_pictures);
             }
         }
         let fonts =
@@ -709,18 +768,19 @@ impl Assets {
             .and_then(toml::Value::as_str)
             .unwrap_or("(default)")
             .into();
+        self.font_keys.clear();
         for f in fonts.iter().take(32) {
             let name = f.get("name").and_then(toml::Value::as_str).unwrap_or("(default)");
             let resref = f.get("resref").and_then(toml::Value::as_str).unwrap_or("");
             let font = ResKey::parse(resref, ResType::TTF);
-            self.watched.extend(font);
+            self.font_keys.extend(font);
             let data = font.and_then(|key| resource(rm, module, key));
             let Some((bytes, origin)) = data else {
-                self.issues.push(format!("Missing font: {resref}"));
+                self.font_issues.push(format!("Missing font: {resref}"));
                 continue;
             };
             if bytes.len() > 32 * 1024 * 1024 || skrifa::FontRef::new(&bytes).is_err() {
-                self.issues.push(format!("Invalid font: {resref}"));
+                self.font_issues.push(format!("Invalid font: {resref}"));
                 continue;
             }
             let font_key = format!("nui-font/{resref}/{:x}", hash(&bytes));
@@ -746,8 +806,47 @@ impl Assets {
                 },
             );
         }
-        self.held = held(module, &self.watched);
-        ctx.request_repaint();
+    }
+
+    /// Reads one picture by name: its texture (kept where its bytes are
+    /// those it was made from), where it came from, or what is wrong
+    /// with it.
+    fn read_picture(
+        &mut self,
+        ctx: &egui::Context,
+        rm: Option<&ResMan>,
+        module: &Module,
+        name: &str,
+    ) {
+        self.reads.1 += 1;
+        self.picture_issues.remove(name);
+        let Some((ty, bytes, origin)) = image_resource(rm, module, name) else {
+            self.pictures.remove(name);
+            if name != "gui_error" {
+                self.picture_issues.insert(name.into(), format!("Missing image: {name}"));
+            }
+            return;
+        };
+        self.origins.insert(format!("{name}.{ty}"), origin);
+        let stamp = hash((ty.0, &bytes));
+        if self.pictures.get(name).is_some_and(|p| p.stamp == stamp) {
+            return;
+        }
+        match image(&bytes, ty) {
+            Ok(image) => {
+                let size = vec2(image.size[0] as f32, image.size[1] as f32);
+                let texture = ctx.load_texture(
+                    format!("nui/{name}/{stamp}"),
+                    image,
+                    egui::TextureOptions::LINEAR,
+                );
+                self.pictures.insert(name.into(), Picture { texture, size, stamp });
+            }
+            Err(e) => {
+                self.pictures.remove(name);
+                self.picture_issues.insert(name.into(), format!("{name}: {e}"));
+            }
+        }
     }
 
     pub(super) fn number(&self, path: &str, default: f32) -> f32 {
@@ -1365,5 +1464,119 @@ mod tests {
         assert!(!assets.loaded);
         assert!(!assets.issues.is_empty());
         assert!(assets.picture("test_image").is_none());
+    }
+
+    /// A change of the pictures asked for by name (a key typed into a
+    /// picture's name, or into Find a picture) reads the names that came
+    /// and nothing else: the skin, its pictures and its fonts were all
+    /// read again. What is held after is what a first load of the same
+    /// names holds.
+    #[test]
+    fn a_change_of_the_names_wanted_reads_the_names_that_came() {
+        use serde_json::json;
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        let skin = ResKey::parse("nui_skin", ResType::TML).unwrap();
+        module.set(skin, b"[button]\nnormal = \"skin_image\"\nhover = \"skin_lost\"\n".to_vec());
+        for name in ["skin_image", "one", "two"] {
+            module.set(ResKey::parse(name, ResType::TGA).unwrap(), tga(false));
+        }
+        let s = Settings::default();
+        let window = |pictures: &[&str]| {
+            let images: Vec<Value> =
+                pictures.iter().map(|p| json!({"type": "image", "value": p})).collect();
+            let mut v = mg_nui::window();
+            v["root"] = json!({"type": "col", "children": images});
+            v
+        };
+        let held = |a: &Assets| {
+            let pictures: Vec<String> = a.pictures.keys().cloned().collect();
+            (pictures, a.issues.clone(), a.origins.clone(), a.watched.clone())
+        };
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        // (The skin's two, the window's one and gui_error.)
+        assert_eq!(assets.reads, (1, 4));
+        assert_eq!(assets.issues, ["Missing image: skin_lost"]);
+        let texture = assets.picture("one").unwrap().texture.id();
+        // The same again: nothing read.
+        assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        assert_eq!(assets.reads, (1, 4));
+        // A name added (and one that is nowhere): each read, once.
+        let more = window(&["one", "two", "nowhere"]);
+        assets.prepare(&ctx, None, &module, 0, &more, &s);
+        assert_eq!(assets.reads, (1, 6), "the two that came");
+        assert_eq!(assets.picture("one").unwrap().texture.id(), texture);
+        assert!(assets.picture("two").is_some());
+        let mut fresh = Assets::default();
+        fresh.prepare(&ctx, None, &module, 0, &more, &s);
+        assert_eq!(held(&assets), held(&fresh));
+        assert_eq!(assets.issues, ["Missing image: nowhere", "Missing image: skin_lost"]);
+        // Requested by Choose Image, then no longer; a name taken away.
+        assets.request_images(&ctx, ["two".to_string()].into());
+        assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        assert_eq!(assets.reads, (1, 6), "two is held already");
+        assert!(assets.picture("two").is_some());
+        assets.request_images(&ctx, BTreeSet::new());
+        assets.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        assert_eq!(assets.reads, (1, 6), "nothing read to let go");
+        let mut fresh = Assets::default();
+        fresh.prepare(&ctx, None, &module, 0, &window(&["one"]), &s);
+        assert_eq!(held(&assets), held(&fresh));
+        assert!(assets.picture("two").is_none() && assets.picture("skin_image").is_some());
+        // The module's copy of a picture changed: read again, the skin too.
+        let mut changed = tga(false);
+        changed[18] = 127;
+        module.set(ResKey::parse("one", ResType::TGA).unwrap(), changed);
+        assets.prepare(&ctx, None, &module, 1, &window(&["one"]), &s);
+        assert_eq!(assets.reads, (2, 10));
+        assert_ne!(assets.picture("one").unwrap().texture.id(), texture);
+    }
+
+    /// Choose Image's names are looked for when the filter or the list of
+    /// pictures changes, not every frame it is open.
+    #[test]
+    fn the_names_found_for_a_filter_are_kept_until_it_or_the_pictures_change() {
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        for name in ["wood_a", "wood_b", "stone"] {
+            module.set(ResKey::parse(name, ResType::TGA).unwrap(), tga(false));
+        }
+        let (v, s) = (mg_nui::window(), Settings::default());
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &v, &s);
+        assert_eq!(assets.found("wood", 24), ["wood_a", "wood_b"]);
+        assert_eq!(assets.found("wood", 1), ["wood_a"]);
+        assert_eq!(assets.found("", 24), ["stone", "wood_a", "wood_b"]);
+        // (Kept: a catalog changed behind its back is not looked through.)
+        assets.found("wood", 24);
+        assets.catalog.push("wood_c".into());
+        assert_eq!(assets.found("wood", 24), ["wood_a", "wood_b"]);
+        assert_eq!(assets.found("woo", 24), ["wood_a", "wood_b", "wood_c"]);
+        // A picture new to the module: listed again, found.
+        module.set(ResKey::parse("wood_d", ResType::TGA).unwrap(), tga(false));
+        assets.prepare(&ctx, None, &module, 1, &v, &s);
+        assert_eq!(assets.found("woo", 24), ["wood_a", "wood_b", "wood_d"]);
+    }
+
+    /// A DDS is held to 4,096 pixels a side as the other pictures are:
+    /// 16,384 by 4 is within 16 megapixels, and went to the GPU, where a
+    /// texture wider than the device takes is fatal.
+    #[test]
+    fn a_dds_wider_than_a_window_s_picture_may_be_is_refused() {
+        let dds = |width: u32, height: u32| {
+            let mut b = Vec::new();
+            for n in [width, height, 3, width / 4 * (height / 4) * 8] {
+                b.extend(n.to_le_bytes());
+            }
+            b.extend(1.0f32.to_le_bytes());
+            b.extend(vec![0u8; (width / 4 * (height / 4) * 8) as usize]);
+            b
+        };
+        assert_eq!(image(&dds(64, 4), ResType::DDS).unwrap().size, [64, 4]);
+        for (w, h) in [(16_384, 4), (4, 8_192)] {
+            let e = image(&dds(w, h), ResType::DDS).unwrap_err();
+            assert_eq!(e, "image exceeds 4096 pixels a side", "{w} by {h}");
+        }
     }
 }

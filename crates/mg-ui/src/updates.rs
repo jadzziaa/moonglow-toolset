@@ -414,8 +414,10 @@ fn got(app: &mut Moonglow, outcome: Result<Staged, String>) {
             ));
             g.state = GetState::Ready(staged.clone());
             if now {
-                install_image_now(app, staged);
+                // (Before the install, which takes the question back
+                // where the image could not be replaced.)
                 app.updates.ask_restart = true;
+                install_image_now(app, staged);
             }
         }
         Err(why) => {

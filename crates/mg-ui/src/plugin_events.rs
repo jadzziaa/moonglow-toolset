@@ -426,8 +426,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         app.plugins.save.held = None;
         app.plugins.save.cleared = true;
         // (The claims were asked before the plugins, and the module is as
-        // it was then: not asked again.)
-        app.claims.cleared = true;
+        // it was then: not asked again. Of a Save As they are not asked,
+        // so nothing takes the flag there: it would answer the next
+        // Save's question unasked.)
+        if matches!(held.then, Action::Save | Action::SaveThen(_)) {
+            app.claims.cleared = true;
+        }
         app.actions.push(held.then);
     } else if close || modal.should_close() {
         app.plugins.save.held = None;

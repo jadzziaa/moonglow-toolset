@@ -540,6 +540,66 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     assert_eq!(script(&h), text, "the script as it was");
 }
 
+/// Replace All and Replace are steps of the script's own Undo, and Edit ›
+/// Undo with the keys still in the Replace window takes them back: it
+/// took back the module's last change, somewhere else, and for an editor
+/// never clicked in the script's own history had nothing to go back to.
+#[test]
+fn replace_all_and_replace_are_steps_of_the_script_s_undo() {
+    let dir = mg_testkit::scratch_dir("ui-replace-undo");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int a = a + a;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run();
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    let menu_undo = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Edit").click();
+        h.run_steps(2);
+        assert_eq!(edit_row(h, "Undo"), "Undo Ctrl+Z", "the script's step, not the module's");
+        h.get_by_label("Undo Ctrl+Z").click();
+        h.run_steps(3);
+    };
+    // Replace… from the toolbar, the text never clicked in.
+    h.get_by_label("Replace…").click();
+    h.run_steps(3);
+    assert!(!script_has_keys(&h, key));
+    let search = &mut h.state_mut().script_tools.search;
+    (search.find, search.replace) = ("a".into(), "total".into());
+    search.options.whole_word = true;
+    h.run_steps(2);
+    h.get_by_label("Replace All").click();
+    h.run_steps(3);
+    let replaced = "void main()\n{\n    int total = total + total;\n}\n";
+    assert_eq!(script(&h), replaced);
+    menu_undo(&mut h);
+    assert_eq!(script(&h), text, "Replace All taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "the module's step stays");
+    // Replace: the match selected is replaced, one step too.
+    h.get_by_label("Find Next").click();
+    h.run_steps(3);
+    h.get_by_label("Replace").click();
+    h.run_steps(3);
+    let once = "void main()\n{\n    int total = a + a;\n}\n";
+    assert_eq!(script(&h), once);
+    menu_undo(&mut h);
+    assert_eq!(script(&h), text, "Replace taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+}
+
 /// The same for a script in a window of its own.
 #[test]
 fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {
@@ -1538,6 +1598,187 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     assert!(h.query_by_label_contains("⚠").is_none());
     assert!(h.state().script_error_for_test(main).is_none(), "nor its underline");
     assert!(top(&h) < before, "and no line kept for one");
+}
+
+/// A script's laid-out text (a galley a line) is kept while its tab is
+/// open and no longer: it stayed, for every script ever opened, until
+/// the module was closed.
+#[test]
+fn a_closed_script_keeps_no_laid_out_text() {
+    let dir = mg_testkit::scratch_dir("ui-script-laid-out");
+    let path = sample_module(&dir);
+    let keys = ["one", "two"].map(|n| ResKey::parse(n, ResType::NSS).unwrap());
+    let mut m = Module::open(&path).unwrap();
+    for key in keys {
+        m.set(key, b"void main()\n{\n}\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    for key in keys {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+        assert!(h.state().script_laid_out_for_test(key), "{key} laid out");
+    }
+    // One closed by its tab, the other by its Cancel.
+    close_tab(h.state_mut(), &Tab::Script(keys[1]));
+    h.run_steps(3);
+    assert!(!h.state().script_laid_out_for_test(keys[1]));
+    assert!(h.state().script_laid_out_for_test(keys[0]), "the open one's is kept");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(keys[0])).is_none(), "closed");
+    assert!(!h.state().script_laid_out_for_test(keys[0]));
+}
+
+/// Find In Files for a word a large module's scripts have on tens of
+/// thousands of lines: Search Results keeps the first 10,000 (the log
+/// says how many were found) and lays out the rows in sight, not all of
+/// them every frame, each on one line.
+#[test]
+fn search_results_keep_ten_thousand_lines_and_draw_those_in_sight() {
+    let dir = mg_testkit::scratch_dir("ui-script-search-results");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("many", ResType::NSS).unwrap();
+    let long = "x".repeat(400);
+    let text: String = (0..12_500).map(|i| format!("int n{i} = {i}; // word {long}\n")).collect();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.into_bytes());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(4);
+    let search = &mut h.state_mut().script_tools.search;
+    (search.open, search.script, search.in_files) = (true, Some(key), true);
+    search.find = "word".into();
+    h.run_steps(3);
+    h.get_by_label("Find All").click();
+    h.run_steps(3);
+    assert_eq!(h.state().script_tools.search.results.len(), 10_000);
+    let said = "\"word\": 12500 lines found: the first 10000 are in Search Results";
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == said), "{:?}", h.state().log.entries);
+    h.state_mut().script_tools.search.open = false;
+    h.run_steps(3);
+    let rows: Vec<egui::Rect> = h.query_all_by_label_contains("many(").map(|n| n.rect()).collect();
+    assert!((1..200).contains(&rows.len()), "{} rows laid out", rows.len());
+    let line = h.ctx.global_style().spacing.interact_size.y;
+    assert!(rows.iter().all(|r| r.height() <= line + 1.0), "one line each: {:?}", rows[0]);
+    // A row in sight goes to its line.
+    h.get_by_label_contains("many(1):").click();
+    h.run_steps(3);
+    assert_eq!(script_cursor(&h, key), Some((0, 0)));
+}
+
+/// Two scripts for the tests of Rename Symbol's places: `inc_a` (CRLF,
+/// with a character of two bytes) declares `Twice` and uses it near its
+/// end, `main_a` includes it. The harness, the two keys and `inc_a`'s
+/// text.
+fn rename_harness(name: &str) -> (Harness<'static, Moonglow>, ResKey, ResKey, String) {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let inc = ResKey::parse("inc_a", ResType::NSS).unwrap();
+    let main = ResKey::parse("main_a", ResType::NSS).unwrap();
+    let inc_text = "// caf\u{e9}\r\nint Twice(int n) { return n * 2; }\r\n\
+                    int Four() { return Twice(2); }\r\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(inc, mg_core::Codepage::WINDOWS_1252.encode_lossy(inc_text));
+    m.set(main, b"#include \"inc_a\"\r\nvoid main() { int x = Twice(2); }\r\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    (harness(app, 1280.0, 800.0), inc, main, inc_text.to_string())
+}
+
+/// A script as the module has it.
+fn module_script(h: &Harness<'_, Moonglow>, key: ResKey) -> String {
+    let bytes = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
+    mg_core::Codepage::WINDOWS_1252.decode(&bytes).into_owned()
+}
+
+/// Where `Twice` is used in `main_a`, as the editor counts (characters).
+const TWICE_IN_MAIN: usize = 41;
+
+/// References and Rename Symbol take their places in the text the module
+/// has: an include whose editor was closed with Don't Save is read from
+/// the module again (the places were those of the text dropped, 200
+/// characters further on: References cut the module's text past its end
+/// and Rename wrote the new name over other bytes), and one never opened,
+/// with CRLF line ends, is read with plain newlines as an editor has it.
+#[test]
+fn rename_symbol_s_places_are_the_module_s_after_an_editor_is_canceled() {
+    let (mut h, inc, main, inc_text) = rename_harness("ui-script-rename-canceled");
+    let open = |h: &mut Harness<'_, Moonglow>, key: ResKey| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+    };
+    // A script never opened: its places are an editor's, its bytes kept.
+    open(&mut h, main);
+    let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
+    assert_eq!(d.at.file, "inc_a");
+    h.state_mut().rename_symbol(&d, "Thrice");
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), inc_text.replace("Twice", "Thrice"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), inc_text);
+
+    // The include typed into, the name looked up from the other script,
+    // then the include's editor canceled.
+    open(&mut h, inc);
+    let typed = format!("{}\n// caf\u{e9}\nint Twice(int n);\n", "/".repeat(200));
+    h.state_mut().scripts_mut_for_test(inc, &typed);
+    assert!(h.state_mut().declaration_at(main, TWICE_IN_MAIN).is_some());
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(4);
+    h.get_by_label("Don't Save").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(inc)).is_none(), "closed");
+    let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
+    h.state_mut().show_references(&d);
+    let results: Vec<String> = (h.state().script_tools.search.results.iter())
+        .map(|(k, l, text)| format!("{}:{l} {text}", k.resref))
+        .collect();
+    assert_eq!(
+        results,
+        [
+            "inc_a:1 int Twice(int n) { return n * 2; }",
+            "inc_a:2 int Four() { return Twice(2); }",
+            "main_a:1 void main() { int x = Twice(2); }"
+        ]
+    );
+    h.state_mut().rename_symbol(&d, "Double");
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), inc_text.replace("Twice", "Double"));
+    assert!(module_script(&h, main).contains("int x = Double(2);"));
+}
+
+/// A script open in a tab behind another, unchanged, that a command
+/// rewrote in the module (the NUI Creator's, a plugin's, Undo): its
+/// editor is not drawn, so it had the text of before, and Rename Symbol
+/// from another script wrote the places of that text into the new one.
+#[test]
+fn rename_symbol_reads_a_script_a_command_rewrote_behind_another_tab() {
+    let (mut h, inc, main, inc_text) = rename_harness("ui-script-rename-hidden-tab");
+    for key in [inc, main] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+    }
+    assert!(h.state().script_text(inc).is_some(), "the include's editor is open");
+    // (The include is behind the other script's tab from here on.)
+    let rewritten = format!("// A line a command put first.\r\n{inc_text}");
+    let edit = mg_edit::Edit::SetResource {
+        key: inc,
+        data: Some(mg_core::Codepage::WINDOWS_1252.encode_lossy(&rewritten)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Rewrite", vec![edit])));
+    h.run_steps(3);
+    let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
+    h.state_mut().rename_symbol(&d, "Double");
+    h.run_steps(3);
+    assert_eq!(module_script(&h, inc), rewritten.replace("Twice", "Double"));
 }
 
 /// A script's copy takes its compiled script along.

@@ -207,7 +207,12 @@ or text alone (a `text`). Moonglow draws them; the panel never draws.
 
 An entry is as `ctx.selection` has one (`{ resource = "tavern.git",
 path = "/Creature List[0]" }`), or its text (`"tavern.git/Creature
-List[0]"`, `"guard.utc"`).
+List[0]"`, `"guard.utc"`). It is a place in the module as the handler
+read it: a button or an item that names one (`on`, `open`), clicked
+after the module changed and before the panel was drawn again, does
+nothing (the object at that place may be another by then); the log says
+so and the panel is drawn again. A panel that names places says
+`refresh = "edits"` in its manifest, so that it is seldom behind.
 
 A panel's **field** stays as the user leaves it: Moonglow keeps its
 value, by its id, across the handler's runs. When the handler gives a
@@ -650,8 +655,8 @@ A form's **field** is a table:
 | `label` | What it is called in the form; else its id. |
 | `type` | `"text"` (as when left out), `"number"`, `"check"`, `"choice"` or (since API 0.8) `"color"`. |
 | `default` | What it starts with: text, a number, true or false, one of the choices, or a color as `"#rrggbb"` (white when left out). |
-| `min`, `max` | A number's limits. |
-| `choices` | A choice's options; needed for one. Each is text, or (since API 0.9) `{ text = "Crimson", color = "#a01010" }`: its text, with a swatch of that color drawn before it, in the list and in the box. Its value is the text chosen. |
+| `min`, `max` | A number's limits. What it starts with is held to them (given nothing, with a `min` above 0, it starts at its `min`). |
+| `choices` | A choice's options; needed for one. Each is text, or (since API 0.9) `{ text = "Crimson", color = "#a01010" }`: its text, with a swatch of that color drawn before it, in the list and in the box. Its value is the text chosen. At most 2,000 options, each of at most 1,000 characters: a choice of more, or with a longer option, is refused. |
 | `variable` | A color's (API 0.8): the name of a string variable. While the color is being picked (its picker open), the placed objects the command was run on are drawn in the area with that variable set to it, as the Variables page's picker draws them (The Domains of Dread's `tdod_tint`); nothing is set by it, and the plugin sets what it chose once the form comes back. |
 
 A color's value is `"#rrggbb"`, in lower case: the color the swatch's

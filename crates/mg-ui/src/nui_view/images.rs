@@ -196,6 +196,17 @@ pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
     }
 }
 
+/// Whether the file `path` (there or not yet) is in `folder` or under it,
+/// as written or once the links on the way to it are followed.
+fn in_folder(path: &Path, folder: &Path) -> bool {
+    let resolved = |p: &Path| p.canonicalize().ok();
+    let file = match (path.parent().and_then(resolved), path.file_name()) {
+        (Some(dir), Some(name)) => dir.join(name),
+        _ => path.to_path_buf(),
+    };
+    path.starts_with(folder) || resolved(folder).is_some_and(|f| file.starts_with(f))
+}
+
 /// The hak pictures go into: the one chosen (in the user's hak folder) or a
 /// new one asked for. A hak saved elsewhere is copied into the hak folder.
 fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option<PathBuf> {
@@ -228,8 +239,9 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
             .dialogs
             .save_file(FileKind::Hak, Some(&folder.join(format!("{name}_images.hak"))))?,
     };
-    // As the hak editor's Save: never into the game's folder.
-    if app.install.as_ref().is_some_and(|gi| path.starts_with(&gi.root)) {
+    // As the hak editor's Save: never into the game's folder, by whatever
+    // name the path reaches it (a hak folder linked into it).
+    if app.install.as_ref().is_some_and(|gi| in_folder(&path, &gi.root)) {
         app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
         return None;
     }
@@ -553,5 +565,27 @@ mod tests {
         );
         assert!(!said.contains("pic_game"), "{said}");
         assert!(said.contains("give players the hak"), "{said}");
+    }
+
+    /// A hak is in the game's folder by whatever name its path reaches
+    /// it: a hak folder that is a link into the game's was written into
+    /// (the check compared the path as written). A hak named with a
+    /// folder in it is joined to none (`mg_resman::named_file`).
+    #[test]
+    fn a_hak_reached_through_a_link_is_in_the_folder_it_is_in() {
+        let dir = mg_testkit::scratch_dir("nui-images-in-folder");
+        let (game, user) = (dir.join("game"), dir.join("user"));
+        std::fs::create_dir_all(game.join("data")).unwrap();
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        assert!(in_folder(&game.join("data/new.hak"), &game));
+        assert!(!in_folder(&user.join("hak/new.hak"), &game));
+        assert!(!in_folder(&user.join("nowhere/new.hak"), &game), "no such folder: not in it");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(game.join("data"), user.join("linked")).unwrap();
+            assert!(in_folder(&user.join("linked/new.hak"), &game), "through the link");
+            assert!(in_folder(&game.join("data/../data/new.hak"), &game));
+        }
+        assert!(mg_resman::named_file("../../Documents/other/pack", "hak").is_none());
     }
 }

@@ -112,6 +112,20 @@ pub struct Search {
     pub results: Vec<(ResKey, usize, String)>,
 }
 
+/// The most lines Search Results keeps (Find In Files, References): a
+/// common word has tens of thousands in a large module's scripts, more
+/// than anyone reads through.
+pub const MAX_RESULTS: usize = 10_000;
+
+/// What the log says after a count of `found` results where not all are
+/// kept ([`MAX_RESULTS`]); nothing where they are.
+pub fn results_cut(found: usize) -> String {
+    match found > MAX_RESULTS {
+        true => format!(": the first {MAX_RESULTS} are in Search Results"),
+        false => String::new(),
+    }
+}
+
 /// An open completion list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Completion {
@@ -159,6 +173,12 @@ pub struct OpenScript {
     /// The script a Shift+click or Shift+arrow selects from: the one
     /// clicked or moved to last.
     pub anchor: Option<ResKey>,
+    /// The scripts listed (those of `scripts` that the name typed and
+    /// what is shown leave) and their names, and what they were made
+    /// for: made again when that changes, not every frame.
+    pub(crate) listed: Vec<(ResKey, ScriptFrom)>,
+    pub(crate) names: Vec<ResKey>,
+    pub(crate) listed_for: Option<(String, ScriptsShown)>,
 }
 
 /// The editor tools' state (shared by the open script editors).
@@ -193,6 +213,9 @@ pub struct ScriptTools {
     /// A script's editor to give the keys back to once it is drawn (a
     /// menu opened from it closed with nothing chosen).
     pub(crate) keys_back: Option<ResKey>,
+    /// The script the Find or Replace window works on, while that window
+    /// has the keys: Edit › Undo and Redo are that script's then.
+    pub(crate) find_keys: Option<ResKey>,
     /// The script whose editor had the keyboard last.
     pub(crate) last_typed: Option<ResKey>,
     /// `nwscript.nss`, parsed once.
@@ -446,7 +469,9 @@ pub fn line_moved(text: &str, at: usize, lines: isize) -> usize {
 
 /// The character index of a byte index.
 pub fn char_index(text: &str, bytes: usize) -> usize {
-    text[..bytes.min(text.len())].chars().count()
+    // (A byte inside a character, as a place of another text may be:
+    // that character's index.)
+    text.char_indices().take_while(|(b, _)| *b < bytes).count()
 }
 
 /// The character index where a line (0-based) starts.
@@ -477,9 +502,35 @@ fn is_ident(c: char) -> bool {
 
 /// The identifier ending at a character index: its start and text.
 pub fn word_before(text: &str, chars: usize) -> (usize, String) {
-    let before: Vec<char> = text.chars().take(chars).collect();
-    let start = before.iter().rposition(|c| !is_ident(*c)).map_or(0, |p| p + 1);
-    (start, before[start..].iter().collect())
+    // (From the character's byte backwards, as `word_at`: every character
+    // before the cursor was copied out, each frame a completion list was
+    // open.)
+    let at = byte_index(text, chars);
+    let before = text[..at].char_indices().rev().find(|(_, c)| !is_ident(*c));
+    let start = before.map_or(0, |(i, c)| i + c.len_utf8());
+    let word = &text[start..at];
+    // (An index past the text's end is its end.)
+    let chars = if at == text.len() { chars.min(text.chars().count()) } else { chars };
+    (chars - word.chars().count(), word.to_string())
+}
+
+/// Whether the characters `from..to` of `text` hold a line end.
+pub fn spans_lines(text: &str, from: usize, to: usize) -> bool {
+    let (a, b) = (byte_index(text, from.min(to)), byte_index(text, from.max(to)));
+    text.as_bytes()[a..b].contains(&b'\n')
+}
+
+/// The text of each of `lines` (0-based) of `text`, trimmed, in one pass
+/// over it; a line it does not have is empty.
+pub fn lines_text(text: &str, lines: impl IntoIterator<Item = usize>) -> HashMap<usize, &str> {
+    let mut found: HashMap<usize, &str> = lines.into_iter().map(|l| (l, "")).collect();
+    let Some(last) = found.keys().copied().max() else { return found };
+    for (i, line) in text.lines().enumerate().take(last.saturating_add(1)) {
+        if let Some(text) = found.get_mut(&i) {
+            *text = line.trim();
+        }
+    }
+    found
 }
 
 /// What a new line begins with, started at character `at`: the spaces and
@@ -670,9 +721,11 @@ pub fn convert_indentation_in(
         return convert_indentation(text, tabs, width);
     }
     let chars: Vec<char> = text.chars().collect();
+    // (A selection kept from a longer text: held to this one, where it
+    // may be empty, at the end: its line then.)
     let (from, to) = (from.min(chars.len()), to.min(chars.len()));
     let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
-    let last = if chars[to - 1] == '\n' { to - 1 } else { to };
+    let last = if to > from && chars[to - 1] == '\n' { to - 1 } else { to };
     let end = chars[last..].iter().position(|&c| c == '\n').map_or(chars.len(), |i| last + i);
     let (head, block, tail): (String, String, String) = (
         chars[..start].iter().collect(),
@@ -693,17 +746,15 @@ pub fn word_at(text: &str, chars: usize) -> Option<String> {
     (end > start).then(|| text[start..end].to_string())
 }
 
-/// The next match of `needle` from a character index (wrapping around),
-/// as a character range. Without Match case, letter by letter with case
-/// and accents aside ([`mg_core::text::same_letter`]), so what is found
-/// is as long as `needle`.
-pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<(usize, usize)> {
-    if needle.is_empty() {
-        return None;
-    }
-    let hay: Vec<char> = text.chars().collect();
-    let pat: Vec<char> = needle.chars().collect();
-    let last = hay.len().checked_sub(pat.len())?;
+/// Where `pat` is found in `hay`, each match's first character: matches
+/// don't overlap, from the text's start (as Replace All replaces them).
+/// Without Match case, letter by letter with case and accents aside
+/// ([`mg_core::text::same_letter`]), so what is found is as long as `pat`.
+fn matches(hay: &[char], pat: &[char], o: &SearchOptions) -> Vec<usize> {
+    let mut found = Vec::new();
+    let Some(last) = hay.len().checked_sub(pat.len()).filter(|_| !pat.is_empty()) else {
+        return found;
+    };
     let same =
         |a: char, b: char| if o.match_case { a == b } else { mg_core::text::same_letter(a, b) };
     let whole = |s: usize| {
@@ -711,18 +762,26 @@ pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<
         let after = hay.get(s + pat.len()).is_none_or(|&c| !is_ident(c));
         !o.whole_word || (before && after)
     };
-    // (Matches don't overlap, from the text's start: as Replace All
-    // replaces them.)
-    let mut matches = Vec::new();
     let mut s = 0;
     while s <= last {
-        if hay[s..s + pat.len()].iter().zip(&pat).all(|(&h, &p)| same(h, p)) && whole(s) {
-            matches.push(s);
+        if hay[s..s + pat.len()].iter().zip(pat).all(|(&h, &p)| same(h, p)) && whole(s) {
+            found.push(s);
             s += pat.len();
         } else {
             s += 1;
         }
     }
+    found
+}
+
+/// The next match of `needle` from a character index (wrapping around),
+/// as a character range. Without Match case, letter by letter with case
+/// and accents aside ([`mg_core::text::same_letter`]), so what is found
+/// is as long as `needle`.
+pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<(usize, usize)> {
+    let hay: Vec<char> = text.chars().collect();
+    let pat: Vec<char> = needle.chars().collect();
+    let matches = matches(&hay, &pat, o);
     let pick = if o.backwards {
         matches.iter().rev().find(|s| **s < from).or(matches.last())
     } else {
@@ -752,21 +811,27 @@ pub fn find_lines(text: &str, needle: &str, o: &SearchOptions) -> Vec<(usize, St
 }
 
 /// Replaces every match; returns the new text and how many were replaced.
+/// The matches are those of the text as it is ([`matches`]: what Find
+/// finds one after another), each replaced once, in one pass: what a
+/// replacement leaves is not looked through again. (It was, from the
+/// text's start for each match: two spaces for one left about half of a
+/// run, and a name used a thousand times took a thousand passes.)
 pub fn replace_all(text: &str, needle: &str, with: &str, o: &SearchOptions) -> (String, usize) {
-    let mut out = text.to_string();
-    let mut n = 0;
-    let mut from = 0;
-    let forward = SearchOptions { backwards: false, ..o.clone() };
-    while let Some((s, e)) = find(&out, needle, from, &forward) {
-        if s < from || n > out.len() {
-            break;
-        }
-        let (bs, be) = (byte_index(&out, s), byte_index(&out, e));
-        out.replace_range(bs..be, with);
-        from = s + with.chars().count();
-        n += 1;
+    let hay: Vec<char> = text.chars().collect();
+    let pat: Vec<char> = needle.chars().collect();
+    let found = matches(&hay, &pat, o);
+    if found.is_empty() {
+        return (text.to_string(), 0);
     }
-    (out, n)
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for &s in &found {
+        out.extend(&hay[at..s]);
+        out.push_str(with);
+        at = s + pat.len();
+    }
+    out.extend(&hay[at..]);
+    (out, found.len())
 }
 
 /// Completion candidates: symbols starting with the prefix (any case),
@@ -1002,6 +1067,69 @@ mod tests {
         assert_eq!(find(tree, "arbol", 0, &exact), Some((10, 15)));
         assert_eq!(replace_all(tree, "arbol", "roble", &o), ("// roble, roble".into(), 2));
         assert_eq!(find_lines("Árbol\nx\narbol", "arbol", &o).len(), 2);
+    }
+
+    /// The word before the cursor, the lines a selection spans and the
+    /// bookmarked lines' texts are read where they are, not through a copy
+    /// of the text's characters or a walk from its top for each: as the
+    /// plain way has them.
+    #[test]
+    fn the_cursor_s_word_a_selection_s_lines_and_marked_lines_texts() {
+        let text = "int n\u{e9}e = GetLo\n  caf\u{e9}_x;\n\nlast";
+        let plain = |chars: usize| {
+            let before: Vec<char> = text.chars().take(chars).collect();
+            let start = before.iter().rposition(|c| !is_ident(*c)).map_or(0, |p| p + 1);
+            (start, before[start..].iter().collect::<String>())
+        };
+        for chars in 0..text.chars().count() + 3 {
+            assert_eq!(word_before(text, chars), plain(chars), "at {chars}");
+        }
+        assert_eq!(word_before(text, 15), (10, "GetLo".into()));
+        assert_eq!(word_before("", 4), (0, String::new()));
+        for (from, to) in [(0, 3), (0, 15), (0, 16), (15, 16), (16, 15), (16, 16), (30, 99)] {
+            let (a, b) = (from.min(to), from.max(to));
+            let plain = text.chars().skip(a).take(b - a).any(|c| c == '\n');
+            assert_eq!(spans_lines(text, from, to), plain, "{from}..{to}");
+        }
+        let texts = lines_text(text, [1, 3, 0, 9]);
+        assert_eq!(texts[&0], "int n\u{e9}e = GetLo");
+        assert_eq!((texts[&1], texts[&3], texts[&9]), ("caf\u{e9}_x;", "last", ""));
+        assert!(lines_text(text, []).is_empty());
+    }
+
+    /// A selection kept from a longer text (the external editor emptied
+    /// the file in the frame a conversion was pending) converts the line
+    /// it is held to, and nothing of an empty text: it read the character
+    /// before the text's start.
+    #[test]
+    fn convert_indentation_of_a_selection_past_the_text_s_end() {
+        assert_eq!(convert_indentation_in("", true, 4, 3, 9), "");
+        assert_eq!(convert_indentation_in("    a\n    b", true, 4, 30, 90), "    a\n\tb");
+        assert_eq!(convert_indentation_in("    a\n    b\n", true, 4, 30, 90), "    a\n    b\n");
+        assert_eq!(convert_indentation_in("    a\n    b\n", true, 4, 2, 6), "\ta\n    b\n");
+    }
+
+    /// Replace All replaces the matches the text has, each once: a needle
+    /// that overlaps itself is not missed in what a replacement leaves
+    /// (two spaces for one left three of four), and a text of many
+    /// matches is gone through once, not once a match.
+    #[test]
+    fn replace_all_replaces_each_match_of_the_text_once() {
+        let o = SearchOptions::default();
+        assert_eq!(replace_all("    ", "  ", " ", &o), ("  ".into(), 2));
+        assert_eq!(replace_all("a\n\n\n\n\n\nb", "\n\n\n", "\n\n", &o), ("a\n\n\n\nb".into(), 2));
+        assert_eq!(replace_all("aaa", "a", "aa", &o), ("aaaaaa".into(), 3));
+        assert_eq!(replace_all("abc", "", "x", &o), ("abc".into(), 0));
+        assert_eq!(replace_all("ab", "abc", "x", &o), ("ab".into(), 0));
+        // A megabyte with 5,000 matches (each pass copied the text).
+        let line = format!("    int nValue = GetLocalInt(oPC, \"{}\");\n", "x".repeat(180));
+        let text = line.repeat(5_000);
+        assert!(text.len() > 1_000_000);
+        let started = std::time::Instant::now();
+        let (out, n) = replace_all(&text, "GetLocalInt", "GetInt", &o);
+        assert_eq!(n, 5_000);
+        assert_eq!(out, text.replace("GetLocalInt", "GetInt"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
     #[test]

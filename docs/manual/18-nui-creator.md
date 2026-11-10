@@ -131,6 +131,9 @@ column or group. List-to-list moves retain cell width and variable-width setting
 Select a list cell to edit its width and stretch behavior. Select the list itself
 to edit **Row data**: add, duplicate or remove a row across its bind arrays.
 Structured arrays, colors and rectangles are editable in Properties and Bindings.
+The forms show the first 200 items of an array and the first 200 rows of Row
+data, and say how many more there are: a list tried at thousands of rows is
+edited in **Advanced › Binding JSON**.
 Dropdown entries expose their numeric values separately from their labels.
 Bind formatting exposes the stock number flags, decimal precision and text flags.
 
@@ -278,7 +281,10 @@ the window watches the bind for it. The window's `close` event (the player
 closing it) and code that closes the window are separate things.
 **Bindings** also edits structured initial values and optional watches;
 **Advanced › Binding JSON** exposes the underlying settings. List-template binds need arrays;
-ordinary binds use the property's scalar, rectangle or color. The generator
+ordinary binds use the property's scalar, rectangle or color. A bind's name
+(given in **+ Create Bind**, in **+ New Bind for Property** or by its
+**Rename**) can't hold a line break, a tab or another control character, which
+the event script's section lines could not carry. The generator
 requires explicit defaults and sets every value before enabling watches.
 These authoring settings live in `<name>.txt`, marked `moonglow.nui/1`.
 The JUI itself contains only game UI data. Both resources use UTF-8.

@@ -324,6 +324,118 @@ fn a_plugin_s_panel_is_drawn_once_after_edits_one_after_another() {
     assert!(texts.contains(&"Creature blueprints: 11".to_string()), "{texts:?}");
 }
 
+/// The sample module with a plugin `test.probe` written here (a panel
+/// `probe` whose code is `panel`, and a command `apply` that logs the
+/// field `n` and what it runs on), enabled, its panel open and drawn.
+fn probe_panel(name: &str, panel: &str) -> Option<Harness<'static, Moonglow>> {
+    let (mut h, _) = plugin_harness(name, false)?;
+    let dir = mg_testkit::scratch_dir(&format!("{name}-plugins"));
+    let plugin = dir.join("probe");
+    std::fs::create_dir_all(&plugin).unwrap();
+    let cfg = "[plugin]\nid = \"test.probe\"\nname = \"Probe\"\nversion = \"0.0.1\"\n\
+               api = \"0.9\"\nlicense = \"GPL-3.0-or-later\"\n\n[panel]\nid = \"probe\"\n\
+               title = \"Probe\"\n\n[command]\nid = \"apply\"\ntitle = \"Apply\"\n";
+    std::fs::write(plugin.join("plugin.cfg"), cfg).unwrap();
+    let code = format!(
+        "local mg = require(\"@moonglow\")\n\
+         mg.panel(\"probe\", function(ctx)\n{panel}\nend)\n\
+         mg.command(\"apply\", function(ctx)\n\
+             local on = if ctx.selection[1] then ctx.selection[1].resource else \"nothing\"\n\
+             ctx.log:info(`applied {{ctx.values.n}} on {{on}}`)\n\
+         end)\n"
+    );
+    std::fs::write(plugin.join("main.luau"), code).unwrap();
+    h.state_mut().plugin_dir = Some(dir);
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.probe", true);
+    let tab = Tab::PluginPanel { plugin: "test.probe".into(), panel: "probe".into() };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+    settle(&mut h);
+    h.run_steps(3);
+    Some(h)
+}
+
+/// A panel's number field given no value, with a `min` above 0, is drawn
+/// at its `min` and runs nothing: its command ran as soon as the panel
+/// was drawn (the widget made 0 into 1, which was taken for the user's
+/// setting it), with nobody having touched the field.
+#[test]
+fn a_panel_s_number_field_runs_nothing_as_it_is_drawn() {
+    let panel = "return { { type = \"field\", kind = \"number\", id = \"n\", label = \"N\", \
+                 min = 1, command = \"apply\" } }";
+    let Some(mut h) = probe_panel("ui-plugin-panel-number", panel) else { return };
+    h.run_steps(4);
+    let state = h.state().plugins.panels.values().next().unwrap();
+    assert_eq!(state.fields["n"].value, serde_json::json!(1.0), "{:?}", state.shown);
+    assert!(!logged(&h, "applied"), "{:?}", h.state().log.entries);
+    assert!(!h.state().busy());
+}
+
+/// A panel's item or button that names a place (`on`, `open`) acts on it
+/// only in the module the panel was drawn from: after an edit the place
+/// may be another object's (an object is its area, list and index), so
+/// the click runs nothing, says so, and the panel is drawn again. A
+/// button that names none runs on what is selected, as ever.
+#[test]
+fn a_panel_s_places_are_not_acted_on_in_a_module_that_changed() {
+    let panel = "return {\n\
+                 { type = \"button\", text = \"Run on Selection\", command = \"apply\" },\n\
+                 { type = \"list\", items = { { text = \"The guard\", command = \"apply\", \
+                 on = { \"guard.utc\" } }, { text = \"Open the guard\", open = \"guard.utc\" } } },\n\
+                 }";
+    let Some(mut h) = probe_panel("ui-plugin-panel-stale-places", panel) else { return };
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().plugins.panels.values().next().unwrap().drawn;
+    let edit = |h: &mut Harness<'_, Moonglow>, n: usize| {
+        let key = ResKey::parse(&format!("extra{n}"), ResType::UTC).unwrap();
+        let utc = Gff::new(*b"UTC ").to_bytes().unwrap();
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "Another",
+            vec![mg_edit::Edit::SetResource { key, data: Some(utc) }],
+        )));
+        h.run_steps(2);
+    };
+    let said = "Probe: the module changed since this panel was drawn, so nothing was done";
+    let guard = Tab::for_resource(ResKey::parse("guard", ResType::UTC).unwrap()).unwrap();
+    // As drawn: the item runs its command on the place it names.
+    h.get_by_label("The guard").click();
+    settle(&mut h);
+    h.run_steps(2);
+    assert!(logged(&h, "applied nil on guard.utc"), "{:?}", h.state().log.entries);
+    let before = (h.state().log.entries.len(), drawn(&h));
+    // The module edited, the panel not drawn again (it follows nothing):
+    // neither item acts.
+    edit(&mut h, 1);
+    assert_eq!(drawn(&h), before.1, "it does not follow edits");
+    h.get_by_label("The guard").click();
+    h.run_steps(1);
+    assert!(logged(&h, said), "{:?}", h.state().log.entries);
+    settle(&mut h);
+    h.run_steps(2);
+    let ran = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().filter(|(_, m)| m.contains("applied")).count()
+    };
+    assert_eq!(ran(&h), 1, "nothing run: {:?}", h.state().log.entries);
+    assert_eq!(drawn(&h), before.1 + 1, "drawn again");
+    // A button that names no place runs on what is selected, whatever
+    // changed since.
+    edit(&mut h, 3);
+    h.get_by_label("Run on Selection").click();
+    settle(&mut h);
+    h.run_steps(2);
+    assert_eq!(ran(&h), 2, "{:?}", h.state().log.entries);
+    assert!(logged(&h, "applied nil on nothing"));
+    edit(&mut h, 2);
+    h.get_by_label("Open the guard").click();
+    settle(&mut h);
+    h.run_steps(2);
+    assert!(h.state().dock.find_tab(&guard).is_none(), "nothing opened");
+    // Drawn again, both do.
+    h.get_by_label("Open the guard").click();
+    settle(&mut h);
+    h.run_steps(2);
+    assert!(h.state().dock.find_tab(&guard).is_some(), "opened");
+}
+
 /// A panel is kept with the module's open windows: the module opened again
 /// has it again, while its plugin is enabled.
 #[test]

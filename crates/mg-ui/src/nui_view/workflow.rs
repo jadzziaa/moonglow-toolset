@@ -65,19 +65,30 @@ impl BindDraft {
         &self,
         bindings: &std::collections::BTreeMap<String, Binding>,
     ) -> Option<&'static str> {
-        let name = self.name.trim();
-        if name.is_empty() {
-            Some("Enter a bind name.")
-        } else if !mg_nui::plain_name(name) {
-            Some(
-                "The name can't hold a line break, a tab or another control character: the \
-                 event script couldn't name it.",
-            )
-        } else if bindings.contains_key(name) {
-            Some("This bind already exists. Choose it above or use another name.")
-        } else {
-            None
-        }
+        new_bind_name(&self.name, bindings).err()
+    }
+}
+
+/// The name a new bind is made under, from what was typed (the spaces at
+/// its ends aside), or why it can't be one: nothing, a line break, a tab
+/// or another control character (the event script's section lines could
+/// not carry it: `mg_nui::plain_name`), or a name a bind has. The one rule
+/// of New Bind, New Bind for a Property and a bind's Rename, which had
+/// drifted (a name pasted with a tab in it was made by one of them).
+pub(super) fn new_bind_name<'a>(
+    typed: &'a str,
+    bindings: &std::collections::BTreeMap<String, Binding>,
+) -> Result<&'a str, &'static str> {
+    let name = typed.trim();
+    if name.is_empty() {
+        Err("Enter a bind name.")
+    } else if !mg_nui::plain_name(name) {
+        Err("The name can't hold a line break, a tab or another control character: the event \
+             script couldn't name it.")
+    } else if bindings.contains_key(name) {
+        Err("This bind already exists. Choose it above or use another name.")
+    } else {
+        Ok(name)
     }
 }
 
@@ -281,9 +292,7 @@ pub(super) fn images(
             .hint("Find a picture…")
             .width(width)
             .show(ui);
-        let query = mg_core::text::Needle::new(&state.asset_search);
-        let names: Vec<_> =
-            assets.catalog.iter().filter(|n| query.finds(n)).take(24).cloned().collect();
+        let names = assets.found(&state.asset_search, 24).to_vec();
         assets.request_images(ui.ctx(), names.iter().cloned().collect());
         ui.small("First 24 matches from the current module and content stack");
         let row_array = node[field]["bind"]
@@ -341,6 +350,15 @@ mod tests {
         assert!(draft.error(&bindings).is_some());
         draft.name = "fresh".into();
         assert!(draft.error(&bindings).is_none());
+        // The one rule, for every window that names a bind.
+        let name = |typed| new_bind_name(typed, &bindings);
+        assert_eq!(name(" x "), Ok("x"));
+        assert_eq!(name("with a space"), Ok("with a space"));
+        assert_eq!(name(""), Err("Enter a bind name."));
+        assert_eq!(name("  \t "), Err("Enter a bind name."));
+        assert!(name("a\tb").is_err_and(|e| e.contains("a tab")));
+        assert!(name("a\nb").is_err() && name("a\0b").is_err());
+        assert!(name(" taken ").is_err_and(|e| e.contains("already exists")));
     }
 
     #[test]

@@ -932,7 +932,9 @@ pub fn run_panel(
     kinds::run_panel(plugin, decl, input, host)
 }
 
-pub use kinds::{Element, Item, MAX_ELEMENTS, MAX_TEXT, PANEL_BUDGET, Shown, Tone, value_text};
+pub use kinds::{
+    Element, Item, MAX_CHOICES, MAX_ELEMENTS, MAX_TEXT, PANEL_BUDGET, Shown, Tone, value_text,
+};
 
 /// Runs code typed into the plugin console on a module, with `mg` (the
 /// API) and `ctx` (as a command's handler gets it) at hand: what it

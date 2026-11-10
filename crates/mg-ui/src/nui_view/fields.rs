@@ -280,6 +280,19 @@ fn next_option_value(elements: &[Value]) -> Option<i32> {
     Some(next)
 }
 
+/// The most items of an array, and rows of a list's data, a form draws:
+/// each is a header with its fields under it, laid out every frame, and a
+/// list tried at its real size has thousands. Those past it are edited in
+/// Binding JSON.
+pub(super) const MOST_ITEMS: usize = 200;
+
+/// What a form says under the items it drew, of those it did not.
+fn more(ui: &mut Ui, all: usize, what: &str) {
+    if all > MOST_ITEMS {
+        ui.weak(format!("And {} more {what}: edit them in Binding JSON.", all - MOST_ITEMS));
+    }
+}
+
 pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
     if depth > 12 {
         ui.weak("Nested value: use JUI source");
@@ -288,7 +301,8 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
     match v {
         Value::Array(values) => {
             let mut remove = None;
-            for (i, item) in values.iter_mut().enumerate() {
+            let all = values.len();
+            for (i, item) in values.iter_mut().enumerate().take(MOST_ITEMS) {
                 ui.push_id(i, |ui| {
                     egui::CollapsingHeader::new(format!("Item {}", i + 1))
                         .default_open(values_simple(item))
@@ -300,6 +314,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                         });
                 });
             }
+            more(ui, all, "items");
             if let Some(i) = remove {
                 values.remove(i);
             }
@@ -459,7 +474,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
             .unwrap_or(0);
         let mut remove = None;
         let mut duplicate = None;
-        for row in 0..count {
+        for row in 0..count.min(MOST_ITEMS) {
             egui::CollapsingHeader::new(format!("Row {}", row + 1)).id_salt((selected, row)).show(
                 ui,
                 |ui| {
@@ -489,6 +504,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
                 },
             );
         }
+        more(ui, count, "rows");
         let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add Row")).clicked();
         if add || remove.is_some() || duplicate.is_some() {
             for name in arrays {

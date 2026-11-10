@@ -90,6 +90,12 @@ impl Moonglow {
     pub(crate) fn script_source(&self, key: &ResKey) -> Option<String> {
         script_source(&self.scripts, self.ws.as_ref(), self.game.as_deref(), key)
     }
+
+    /// Whether a script's laid-out text is kept (for tests).
+    #[doc(hidden)]
+    pub fn script_laid_out_for_test(&self, key: ResKey) -> bool {
+        self.laid_out.contains_key(&key)
+    }
 }
 
 /// The room a side list's row takes beside its name: the scroll bar and
@@ -175,6 +181,27 @@ impl ScriptBuffer {
         self.text = text.clone();
         self.saved = text;
         self.raw = raw;
+    }
+
+    /// Follows the module's script (`bytes`) where it changed underneath
+    /// (undo, import, a command of the NUI Creator or a plugin) and the
+    /// text has no unsaved changes: its line ends too. Another language
+    /// chosen in Options: a script without unsaved changes is read again
+    /// in its codepage. An editor does so as it is drawn, and whatever
+    /// takes places in every open script's text (References, Rename
+    /// Symbol) before it does: a tab behind another is not drawn.
+    pub(crate) fn follow_module(&mut self, bytes: &[u8]) {
+        let source = (bytes.as_ptr() as usize, bytes.len());
+        let codepage = script_codepage();
+        let recoded = self.codepage != codepage && !self.is_dirty();
+        if self.source != source || recoded {
+            self.source = source;
+            if !self.is_dirty() {
+                let module_text = codepage.decode(bytes).into_owned();
+                self.codepage = codepage;
+                self.follow(module_text);
+            }
+        }
     }
 
     pub(crate) fn is_dirty(&self) -> bool {
@@ -397,7 +424,10 @@ pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
     // (An editor not drawn the frame its keys were to come back: none.)
     app.script_tools.keys_back = None;
     if app.menu_open.is_none() {
-        app.undo_script = with_keys(app, ctx);
+        // (Or the script the Find or Replace window works on, while that
+        // window has the keys: what Replace All just changed is what Undo
+        // is for, not the module's last step somewhere else.)
+        app.undo_script = with_keys(app, ctx).or(app.script_tools.find_keys);
     }
     app.undo_script = app.undo_script.filter(|k| app.scripts.contains_key(k));
 }
@@ -421,17 +451,29 @@ pub(crate) fn undo(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, redo: b
 }
 
 /// A step of the editor's own history taken, back or (`redo`) again, as
-/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is).
+/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is). A step that
+/// only moves the cursor (the history keeps the cursor with the text: the
+/// same text a second on, the selection let go by the click on the menu)
+/// is passed over to the one that changes the text: Undo from a menu
+/// takes something back.
 fn step_history(buf: &mut ScriptBuffer, ctx: &egui::Context, key: ResKey, redo: bool) {
     let id = editor_id(key);
     let Some(mut state) = egui::text_edit::TextEditState::load(ctx, id) else { return };
     let end = egui::text::CCursorRange::one(egui::text::CCursor::new(buf.text.chars().count()));
-    let now = (state.cursor.char_range().unwrap_or(end), buf.text.clone());
+    let mut now = (state.cursor.char_range().unwrap_or(end), buf.text.clone());
     let mut undoer = state.undoer();
-    let Some((range, text)) = (if redo { undoer.redo(&now) } else { undoer.undo(&now) }).cloned()
-    else {
-        return;
-    };
+    let mut step = None;
+    for _ in 0..8 {
+        let to = if redo { undoer.redo(&now) } else { undoer.undo(&now) };
+        let Some(to) = to.cloned() else { break };
+        let moved_only = to.1 == buf.text;
+        step = Some(to.clone());
+        if !moved_only {
+            break;
+        }
+        now = to;
+    }
+    let Some((range, text)) = step else { return };
     buf.text = text;
     state.cursor.set_char_range(Some(range));
     state.set_undoer(undoer);
@@ -472,6 +514,20 @@ fn insert(
     buf.text.replace_range(bf..bt, text);
     let at = from + text.chars().count();
     set_cursor(ctx, key, at, at);
+}
+
+/// Makes the text as it is a point for the editor's own Undo to go back
+/// to, before something other than typing changes it (Replace, Replace
+/// All): the field makes points of what is typed in it while it has the
+/// keys, and an editor never clicked in has none.
+fn undo_point(buf: &ScriptBuffer, ctx: &egui::Context, key: ResKey) {
+    let id = editor_id(key);
+    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    let at = state.cursor.char_range().unwrap_or_default();
+    let mut undoer = state.undoer();
+    undoer.add_undo(&(at, buf.text.clone()));
+    state.set_undoer(undoer);
+    state.store(ctx, id);
 }
 
 /// The editor's context menu's conversions (Edit › Convert Indentation
@@ -566,23 +622,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let Some(ws) = &app.ws else { return };
     let Some(bytes) = ws.module.get(&key) else { return };
-    {
-        let buf = app.scripts.get_mut(&key).expect("just inserted");
-        // (Another language chosen in Options: a script without unsaved
-        // changes is read again in its codepage.)
-        let codepage = script_codepage();
-        let recoded = buf.codepage != codepage && !buf.is_dirty();
-        if buf.source != source || recoded {
-            buf.source = source;
-            if !buf.is_dirty() {
-                let module_text = codepage.decode(bytes).into_owned();
-                buf.codepage = codepage;
-                // Changed underneath (undo, import): follow the module,
-                // its line ends too.
-                buf.follow(module_text);
-            }
-        }
-    }
+    app.scripts.get_mut(&key).expect("just inserted").follow_module(bytes);
     let ctx = ui.ctx().clone();
 
     // This script edited, or the module changed: what other scripts found
@@ -1038,7 +1078,24 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 InfoTab::Help => egui::ScrollArea::both(),
                 _ => egui::ScrollArea::vertical(),
             };
-            area.id_salt("script-info-rows").auto_shrink([false, false]).show(ui, |ui| {
+            let area = area.id_salt("script-info-rows").auto_shrink([false, false]);
+            // Search Results by the rows in sight (each a line high, not
+            // wrapped): Find In Files for a common word keeps thousands,
+            // which were all laid out every frame.
+            if t.info == InfoTab::SearchResults {
+                let height = ui.spacing().interact_size.y;
+                area.show_rows(ui, height, t.search.results.len(), |ui, range| {
+                    for (k, line, text) in &t.search.results[range] {
+                        let row = format!("{}({}): {text}", k.resref, line + 1);
+                        // (A long line cut at the pane's edge, on one row.)
+                        if ui.add(egui::Button::selectable(false, row).truncate()).clicked() {
+                            open_other = Some((k.resref.to_string(), line + 1));
+                        }
+                    }
+                });
+                return;
+            }
+            area.show(ui, |ui| {
                 match t.info {
                     InfoTab::Compiler => {
                         for m in t.messages.iter().filter(|m| m.script == key) {
@@ -1094,9 +1151,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     },
                     InfoTab::Bookmarks => {
                         let buf = &app.scripts[&key];
+                        // (The marked lines' texts in one pass over the
+                        // script, not one from its top for each.)
+                        let marked = buf.numbered.iter().flatten().chain(&buf.bookmarks).copied();
+                        let texts = tools::lines_text(&buf.text, marked);
                         for (n, line) in buf.numbered.iter().enumerate() {
                             let Some(line) = line else { continue };
-                            let text = buf.text.lines().nth(*line).unwrap_or_default().trim();
+                            let text = texts.get(line).copied().unwrap_or_default();
                             if ui
                                 .selectable_label(false, format!("[{n}] {:>5}: {text}", line + 1))
                                 .on_hover_text(format!("Ctrl+{n}"))
@@ -1106,7 +1167,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                         for line in &buf.bookmarks {
-                            let text = buf.text.lines().nth(*line).unwrap_or_default().trim();
+                            let text = texts.get(line).copied().unwrap_or_default();
                             if ui
                                 .selectable_label(false, format!("{:>5}: {text}", line + 1))
                                 .clicked()
@@ -1115,19 +1176,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                     }
-                    InfoTab::SearchResults => {
-                        for (k, line, text) in &t.search.results {
-                            if ui
-                                .selectable_label(
-                                    false,
-                                    format!("{}({}): {text}", k.resref, line + 1),
-                                )
-                                .clicked()
-                            {
-                                open_other = Some((k.resref.to_string(), line + 1));
-                            }
-                        }
-                    }
+                    // (Drawn above, by its rows in sight.)
+                    InfoTab::SearchResults => {}
                 }
             });
         });
@@ -1243,9 +1293,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         && let Some((a, b)) = cursor(&ctx, key)
     {
         use egui::{Key, Modifiers};
-        let lines = buf.text.chars().skip(a).take(b - a).any(|c| c == '\n');
         let outdent = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
         let tab = !outdent && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+        // (Looked for when Tab is pressed, in the selection: every
+        // character before the cursor was gone through each frame.)
+        let lines = tab && tools::spans_lines(&buf.text, a, b);
         if outdent || (tab && lines) {
             let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent, indent);
             buf.text = text;
@@ -2343,8 +2395,11 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
     }
     if let Some(game) = app.game.as_deref() {
         let layers = game.resman.layers();
+        // (The module's, as a set: each of the game's thousands of scripts
+        // was looked for among them one by one.)
+        let own: std::collections::HashSet<ResKey> = scripts.iter().map(|(k, _)| *k).collect();
         for (key, layer) in game.resman.entries() {
-            if key.restype != ResType::NSS || scripts.iter().any(|(k, _)| *k == key) {
+            if key.restype != ResType::NSS || own.contains(&key) {
                 continue;
             }
             let label = layers.get(layer).map_or("", |l| l.label.as_str());
@@ -2437,25 +2492,37 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.radio_value(&mut w.shown, shown, label);
                 }
             });
-            let needle = mg_core::text::Needle::new(&w.filter);
-            let listed: Vec<(ResKey, ScriptFrom)> = w
-                .scripts
-                .iter()
-                .filter(|(_, from)| match w.shown {
-                    ScriptsShown::All => true,
-                    ScriptsShown::Module => *from == ScriptFrom::Module,
-                    ScriptsShown::Haks => *from == ScriptFrom::Hak,
-                })
-                .filter(|(k, _)| needle.finds(&k.resref.to_string()))
-                .copied()
-                .collect();
-            let names: Vec<ResKey> = listed.iter().map(|(k, _)| *k).collect();
-            // (Scripts hidden by what is shown, or by the name, are no
-            // longer selected: Open would not open them.)
-            w.selected.retain(|k| names.contains(k));
-            if w.anchor.is_some_and(|a| !names.contains(&a)) {
-                w.anchor = None;
+            // The scripts listed, made again when the name typed or what
+            // is shown changes, not every frame: with the game's own they
+            // are thousands, and with all of them selected each selected
+            // one was looked for among all those listed, every frame.
+            let wanted = (w.filter.clone(), w.shown);
+            if w.listed_for.as_ref() != Some(&wanted) {
+                let needle = mg_core::text::Needle::new(&w.filter);
+                w.listed = w
+                    .scripts
+                    .iter()
+                    .filter(|(_, from)| match w.shown {
+                        ScriptsShown::All => true,
+                        ScriptsShown::Module => *from == ScriptFrom::Module,
+                        ScriptsShown::Haks => *from == ScriptFrom::Hak,
+                    })
+                    .filter(|(k, _)| needle.finds(&k.resref.to_string()))
+                    .copied()
+                    .collect();
+                w.names = w.listed.iter().map(|(k, _)| *k).collect();
+                // (Scripts hidden by what is shown, or by the name, are no
+                // longer selected: Open would not open them. What is
+                // selected from then on is selected among those listed.)
+                let among: std::collections::HashSet<ResKey> = w.names.iter().copied().collect();
+                w.selected.retain(|k| among.contains(k));
+                if w.anchor.is_some_and(|a| !among.contains(&a)) {
+                    w.anchor = None;
+                }
+                w.listed_for = Some(wanted);
             }
+            // (Out of the window's state while it is drawn, and back after.)
+            let (listed, names) = (std::mem::take(&mut w.listed), std::mem::take(&mut w.names));
             let last = listed.len().saturating_sub(1) as isize;
             let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
             w.cursor = cursor;
@@ -2471,19 +2538,23 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     widen,
                 );
             }
-            // What Enter and Open open: those selected that are listed
-            // (a narrower name hides the others), in the list's order.
-            let picked: Vec<(ResKey, ScriptFrom)> =
-                listed.iter().filter(|(k, _)| w.selected.contains(k)).copied().collect();
-            ui.weak(match picked.len() {
+            // What Enter and Open open: those selected (all of them are
+            // listed: a narrower name took the others out), in the list's
+            // order; gathered when they are opened, counted until then.
+            let picked = |selected: &std::collections::BTreeSet<ResKey>| {
+                let of = listed.iter().filter(|(k, _)| selected.contains(k));
+                of.copied().collect::<Vec<(ResKey, ScriptFrom)>>()
+            };
+            let picked_count = w.selected.len();
+            ui.weak(match picked_count {
                 0 => format!("{} scripts", listed.len()),
                 n => format!("{} scripts, {n} selected", listed.len()),
             });
             if entered {
-                chosen = if picked.is_empty() {
+                chosen = if picked_count == 0 {
                     listed.get(cursor).copied().into_iter().collect()
                 } else {
-                    picked.clone()
+                    picked(&w.selected)
                 };
             }
             let row = ui.spacing().interact_size.y;
@@ -2569,19 +2640,20 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
-                let button = egui::Button::new(match picked.len() {
+                let button = egui::Button::new(match picked_count {
                     n if n > 1 => format!("Open {n}"),
                     _ => "Open".to_string(),
                 });
                 if ui
-                    .add_enabled(!picked.is_empty(), button)
+                    .add_enabled(picked_count > 0, button)
                     .on_hover_text("Open the scripts selected, each in its tab (Enter)")
                     .on_disabled_hover_text("Select a script (Ctrl+click or Shift+click: several)")
                     .clicked()
                 {
-                    chosen = picked.clone();
+                    chosen = picked(&w.selected);
                 }
             });
+            (w.listed, w.names) = (listed, names);
         });
     for (key, from) in &chosen {
         app.actions.push(match from {
@@ -2602,6 +2674,13 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
 /// Script, Save As.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    // A script whose tab is closed keeps no laid-out text (a galley a
+    // line: megabytes a script, kept for every script ever opened until
+    // the module closed).
+    if !app.laid_out.is_empty() {
+        let Moonglow { laid_out, dock, .. } = app;
+        laid_out.retain(|k, _| dock.find_tab(&Tab::Script(*k)).is_some());
+    }
     open_script_ui(app, &ctx);
     if app.script_tools.search.open {
         // (Its options copied for the window, not the results found: those
@@ -2616,9 +2695,12 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut f3 = false;
         let keys = &app.keymap;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
-        crate::widgets::dialog(&ctx, title, &mut s.open).collapsible(false).resizable(false).show(
-            &ctx,
-            |ui| {
+        let mut layer = None;
+        let shown = crate::widgets::dialog(&ctx, title, &mut s.open)
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                layer = Some(ui.layer_id());
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
@@ -2675,19 +2757,41 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                         replace_all = ui.button("Replace All").clicked();
                     }
                 });
-            },
-        );
+            });
         app.script_tools.search = s.clone();
         app.script_tools.search.results = results;
         let target = s.script.filter(|k| app.scripts.contains_key(k));
+        // Whether the window is where the user is at work: the keys in
+        // one of its fields, or a click in it (a button of its takes no
+        // keys), until the keys or a click go somewhere else. Edit › Undo
+        // is then its script's (`undo_target`, the frame after). The click on
+        // the menu itself is somewhere else: it is taken when the button is
+        // let go, in the frame whose `undo_target` has run and the menu
+        // opens, which holds the script while it is open.
+
+        let focused = ctx.memory(|m| m.focused()).and_then(|id| ctx.read_response(id));
+        let keys_in = focused.as_ref().map(|r| r.layer_id) == layer && layer.is_some();
+        let rect = shown.map(|r| r.response.rect);
+        let clicked = ctx.input(|i| i.pointer.any_click().then(|| i.pointer.interact_pos()));
+        let click_in = clicked.flatten().zip(rect).map(|(at, rect)| rect.contains(at));
+        if !s.open {
+            app.script_tools.find_keys = None;
+        } else if keys_in || click_in == Some(true) {
+            app.script_tools.find_keys = target;
+        } else if focused.is_some() || click_in == Some(false) {
+            app.script_tools.find_keys = None;
+        }
         if find_next && let Some(k) = target {
             find_in_script(app, &ctx, k);
         }
+        // (Each a step of the editor's own Undo: the text before it is a
+        // point to go back to, as before Convert Indentation.)
         if replace && let Some(k) = target {
             // Replace the selection when it is a match, then find the next.
             if let Some((a, b)) = cursor(&ctx, k) {
                 let buf = app.scripts.get_mut(&k).expect("open");
                 if tools::is_match_at(&buf.text, &s.find, a, b, &s.options) {
+                    undo_point(buf, &ctx, k);
                     insert(buf, &ctx, k, a, b, &s.replace);
                 }
             }
@@ -2696,7 +2800,10 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         if replace_all && let Some(k) = target {
             let buf = app.scripts.get_mut(&k).expect("open");
             let (text, n) = tools::replace_all(&buf.text, &s.find, &s.replace, &s.options);
-            buf.text = text;
+            if text != buf.text {
+                undo_point(buf, &ctx, k);
+                buf.text = text;
+            }
             app.log.info(format!("Replaced {n} in {k}"));
         }
         if find_all {
@@ -2708,16 +2815,23 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             };
             keys.sort();
             let mut results = Vec::new();
+            let mut found = 0;
             for k in keys {
                 let text = script_source(&app.scripts, Some(ws), None, &k).unwrap_or_default();
                 for (line, t) in tools::find_lines(&text, &s.find, &s.options) {
-                    results.push((k, line, t));
+                    found += 1;
+                    if results.len() < tools::MAX_RESULTS {
+                        results.push((k, line, t));
+                    }
                 }
             }
-            app.log.info(format!("{:?}: {} lines found", s.find, results.len()));
+            let cut = tools::results_cut(found);
+            app.log.info(format!("{:?}: {found} lines found{cut}", s.find));
             app.script_tools.search.results = results;
             app.script_tools.info = InfoTab::SearchResults;
         }
+    } else {
+        app.script_tools.find_keys = None;
     }
 
     use crate::widgets::{NameWindow, Named};

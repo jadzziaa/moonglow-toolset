@@ -8,6 +8,38 @@ use super::*;
 struct Draft {
     name: String,
     value: Value,
+    /// Whether the property takes the value, as last asked of the
+    /// validator, and the value it was asked for ([`stamp`]): asked again
+    /// when the value changes, and before the bind is made, not every
+    /// frame (a copy of the window and its settings, validated, each).
+    fits: Option<(u64, bool)>,
+}
+
+/// A value as a number that changes when it does, read where it is.
+fn stamp(v: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn feed(v: &Value, h: &mut impl Hasher) {
+        match v {
+            Value::Null => 0u8.hash(h),
+            Value::Bool(b) => (1u8, b).hash(h),
+            Value::Number(n) => (2u8, n.as_f64().map(f64::to_bits), n.as_i64()).hash(h),
+            Value::String(s) => (3u8, s).hash(h),
+            Value::Array(a) => {
+                (4u8, a.len()).hash(h);
+                a.iter().for_each(|v| feed(v, h));
+            }
+            Value::Object(o) => {
+                (5u8, o.len()).hash(h);
+                for (k, v) in o {
+                    k.hash(h);
+                    feed(v, h);
+                }
+            }
+        }
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    feed(v, &mut h);
+    h.finish()
 }
 
 fn label(key: &str, ty: &str) -> String {
@@ -156,7 +188,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     name = format!("{base}_{n}");
                     n += 1;
                 }
-                draft = Some(Draft { name, value: initial });
+                draft = Some(Draft { name, value: initial, fits: None });
             }
             let mut finish = false;
             if let Some(draft) = draft.as_mut() {
@@ -174,25 +206,32 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         ui.weak("One value per list row.");
                     }
                     fields::value(ui, &mut draft.value, 0);
-                    let name = draft.name.trim();
-                    let error = if name.is_empty() || name.contains('\0') {
-                        Some("The bind needs a name.")
-                    } else if settings.bindings.contains_key(name) {
-                        Some("A bind has that name: choose it above, or another name.")
-                    } else if !compatible(doc, &path, &key, settings, &draft.value) {
-                        Some("The property doesn't take a value of this kind.")
-                    } else {
-                        None
+                    // (Its name by the rule New Bind and Rename have.)
+                    let named = workflow::new_bind_name(&draft.name, &settings.bindings);
+                    let now = stamp(&draft.value);
+                    let fits = match draft.fits {
+                        Some((at, fits)) if at == now => fits,
+                        _ => compatible(doc, &path, &key, settings, &draft.value),
                     };
+                    draft.fits = Some((now, fits));
+                    let error = match named {
+                        Err(why) => Some(why),
+                        Ok(_) if !fits => Some("The property doesn't take a value of this kind."),
+                        Ok(_) => None,
+                    };
+                    let name = named.unwrap_or_default();
                     if let Some(error) = error {
                         ui.weak(error);
                     }
                     ui.horizontal(|ui| {
-                        if ui
+                        if (ui
                             .add_enabled(error.is_none(), egui::Button::new("Create"))
                             .on_hover_text("Makes the bind and binds the property to it")
                             .clicked()
-                            || (error.is_none() && widgets::enter(ui))
+                            || (error.is_none() && widgets::enter(ui)))
+                            // (Asked once more as it is made: the window
+                            // may have changed under the open dialog.)
+                            && compatible(doc, &path, &key, settings, &draft.value)
                         {
                             settings.bindings.insert(
                                 name.into(),
@@ -243,8 +282,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
 
 pub(super) fn watch(ui: &mut Ui, name: &str, doc: &Value, s: &mut Settings, state: &mut State) {
     egui::CollapsingHeader::new("When this value changes").default_open(true).show(ui, |ui| {
-        let mut doc = doc.clone();
-        events::editor(ui, &mut doc, s, state, Some(events::Target::Bind(name.into())));
+        events::editor_reading(ui, doc, s, state, Some(events::Target::Bind(name.into())));
     });
 }
 

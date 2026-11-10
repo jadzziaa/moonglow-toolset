@@ -90,6 +90,20 @@ one that leaned on what follows fails where it used to go on:
   the like take a resource's name as such a field reads (`œuvre.dlg`, a
   Polish module's letters) as well as the way `ctx.module:resources()`
   lists it.
+- A choice (a form's field, a panel's) has at most 2,000 options, each
+  of at most 1,000 characters; one of more, or with a longer option, is
+  refused with the reason (the form is not shown, the panel shows the
+  error). An option's text is its value, so it is not cut.
+- A number field starts within its `min` and `max`: what it is given
+  outside them (or 0, given nothing, with a `min` above it) is held to
+  them. A panel's number field no longer runs its `command` when the
+  panel is drawn with such a value.
+- A panel's button or item that names a place (`on`, `open`) acts only
+  on the module the panel was drawn from. Clicked after the module
+  changed (and before the panel was drawn again), it does nothing, the
+  log says so, and the panel is drawn again; a panel whose manifest
+  says `refresh = "edits"` is seldom caught so. A button that names no
+  place runs on what is selected, as before.
 
 ## 0.8
 

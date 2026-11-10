@@ -1509,6 +1509,124 @@ fn a_project_s_plugins_changed_while_it_is_open_are_asked_about() {
     assert!(runs(&h, id) && runs(&h, "example.hello"));
 }
 
+/// What a project's plugin's events were allowed is the allowance of that
+/// code: the plugin changed (a pull) and allowed again asks its questions
+/// again, and nothing is kept for the new code that it was not given.
+/// (What the old code was allowed answered the new code's question of the
+/// same wording, unasked, and was then kept under the new code's name.)
+#[test]
+fn a_changed_project_plugin_s_events_ask_again() {
+    let dir = plugin_project("ui-project-plugin-grants");
+    let asks = dir.join("plugins/asks");
+    std::fs::create_dir_all(&asks).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(plugin_fixtures().join("asks").join(file), asks.join(file)).unwrap();
+    }
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    h.get_by_label("Allow All").click();
+    h.run();
+    assert!(runs(&h, "test.asks"));
+    let said = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+        log.filter(|m| m.starts_with("Asks: ")).collect()
+    };
+    let key = ResKey::parse("captain", ResType::UTC).unwrap();
+    let mut n = 0;
+    let mut save_changed = |h: &mut Harness<'_, Moonglow>| {
+        n += 1;
+        let mut captain = Gff::new(*b"UTC ");
+        captain.root.set("Tag", mg_gff::Value::String(format!("captain_{n}").into_bytes()));
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "A captain",
+            vec![mg_edit::Edit::SetResource { key, data: Some(captain.to_bytes().unwrap()) }],
+        )));
+        h.run_steps(2);
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(6);
+    };
+    // Asked and answered yes; the next save is not asked.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Yes));
+    save_changed(&mut h);
+    save_changed(&mut h);
+    assert_eq!(said(&h), ["Asks: noted"; 2]);
+    assert_eq!(h.state().plugin_grants("test.asks"), 1);
+    let kept = h.state().settings.plugin_grants.clone();
+    // A pull changes its code; it is allowed again.
+    let main = asks.join("main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- pulled\n")).unwrap();
+    assert!(h.state_mut().project_plugins_changed());
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, ["test.asks"]);
+    h.get_by_label("Allow").click();
+    h.run();
+    assert!(runs(&h, "test.asks"));
+    // Its question is asked again: a no this time is a no.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_changed(&mut h);
+    assert!(h.state().plugins.answers.is_empty(), "the changed plugin asked");
+    assert_eq!(said(&h).last().unwrap(), "Asks: not noted");
+    h.run_steps(2);
+    assert_eq!(h.state().settings.plugin_grants, kept, "nothing kept for the new code");
+}
+
+/// Decide Later holds until the project is next opened: a change in the
+/// plugins' folder that is not the plugin's (a test fixture touched, an
+/// editor's hidden swap file, another plugin added) does not bring the
+/// question about it back, as it did within seconds; its own code
+/// changed does, and so does opening the project again.
+#[test]
+fn decide_later_holds_while_the_plugins_folder_changes() {
+    let dir = plugin_project("ui-project-plugins-put-off");
+    let id = "example.builder-tags";
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, [id]);
+    h.get_by_label("Decide Later").click();
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    // What no plugin's digest reads: the folder is as it was.
+    let plugin = dir.join("plugins/builder-tags");
+    std::fs::create_dir_all(plugin.join("tests/fixtures")).unwrap();
+    std::fs::write(plugin.join("tests/fixtures/area.are"), b"a fixture").unwrap();
+    std::fs::write(plugin.join(".main.luau.swp"), b"a swap file").unwrap();
+    std::fs::create_dir_all(dir.join("plugins/.git/objects")).unwrap();
+    std::fs::write(dir.join("plugins/.git/objects/pack"), b"a nested checkout").unwrap();
+    assert!(!h.state_mut().project_plugins_changed(), "nothing a plugin is made of changed");
+    assert!(h.state().plugins.project_asking.is_empty());
+    // Another plugin comes (a pull): it is asked about, the one put off
+    // is not.
+    let hello = dir.join("plugins/hello");
+    std::fs::create_dir_all(&hello).unwrap();
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/hello");
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), hello.join(file)).unwrap();
+    }
+    assert!(h.state_mut().project_plugins_changed());
+    assert_eq!(h.state().plugins.project_asking, ["example.hello"]);
+    h.run();
+    h.get_by_label("Decide Later").click();
+    h.run();
+    // The plugin put off changes itself: asked about again, it alone.
+    let main = plugin.join("main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- pulled\n")).unwrap();
+    assert!(h.state_mut().project_plugins_changed());
+    assert_eq!(h.state().plugins.project_asking, [id]);
+    h.run();
+    h.get_by_label("Decide Later").click();
+    h.run();
+    assert!(!runs(&h, id) && !runs(&h, "example.hello"), "put off is off");
+    // The project opened again: both.
+    h.state_mut().open_module(&dir);
+    h.run();
+    let mut asking = h.state().plugins.project_asking.clone();
+    asking.sort();
+    assert_eq!(asking, [id, "example.hello"]);
+}
+
 /// A project's plugins are asked about when it is opened, with what each
 /// adds and keeps; none runs until allowed, and the answer is kept by the
 /// plugin's content in the builder's own file: a change asks again, a no
@@ -1722,6 +1840,57 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     h.run();
     let prefix = h.state().plugins.settings_form.as_ref().unwrap().values["prefix"].clone();
     assert_eq!(prefix, mg_plugin::SettingValue::Text(String::new()), "its default");
+}
+
+/// A value Tidy Up moves out of the project's file into the user's own
+/// is kept there though the tidy fails further on (here the builder's
+/// own project file can't be written): it was out of the project's file
+/// and in neither place, as with `mg plugin tidy` (the review's C23).
+#[cfg(unix)]
+#[test]
+fn a_setting_moved_by_tidy_up_is_kept_when_the_tidy_fails_further_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = plugin_project("ui-plugin-tidy-fails");
+    let plugins = dir.join("installed");
+    let one = plugins.join("one");
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::write(
+        one.join("plugin.cfg"),
+        "[plugin]\nid = \"a.one\"\nname = \"One\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[setting]\nid = \"name\"\nlabel = \"Name\"\nscope = \"user\"\n",
+    )
+    .unwrap();
+    std::fs::write(one.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+    let team = dir.join("moonglow.toml");
+    std::fs::write(&team, "[plugins.\"a.one\"]\nname = \"mine\"\n").unwrap();
+    let own = dir.join(".moonglow");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("user.toml"), "[plugins.\"a.one\"]\nlost = 1\n").unwrap();
+    let values = dir.with_extension("values.json");
+    let _ = std::fs::remove_file(&values);
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugins);
+    app.plugin_answers = Some(dir.with_extension("answers.toml"));
+    app.plugin_values = Some(values.clone());
+    app.load_plugins();
+    app.open_module(&dir);
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // (Who may write anywhere, the administrator, is not held by it.)
+    let held = std::fs::write(own.join("probe"), b"").is_err();
+    app.tidy_plugin_settings("a.one");
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if !held {
+        return;
+    }
+    let log = &app.log.entries;
+    assert!(log.iter().any(|(_, m)| m.starts_with("One: not tidied: ")), "{log:?}");
+    assert!(!std::fs::read_to_string(&team).unwrap().contains("mine"), "out of the team's file");
+    let mine = mg_plugin::SettingValue::Text("mine".into());
+    let kept = mg_plugin::settings::user_values(&app.settings.plugin_settings, "a.one");
+    assert_eq!(kept.get("name"), Some(&mine), "held by the window");
+    let written = mg_plugin::settings::read_user(&values).unwrap();
+    let kept = mg_plugin::settings::user_values(&written, "a.one");
+    assert_eq!(kept.get("name"), Some(&mine), "and in the user's own file");
 }
 
 /// The kinds of setting API 0.5 added, in the form: a number with a
@@ -2210,4 +2379,44 @@ fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
     h.run_steps(3);
     assert!(h.query_by_label("Areas Not Yours").is_none(), "the claims are not asked again");
     assert!(!h.state().has_unsaved_work(), "saved");
+}
+
+/// Save Anyway on a Save As (which the claims are not asked about) leaves
+/// no "not asked again" behind for them: the next Save that would write
+/// another builder's area asks. (It took the flag a Save As's answer had
+/// set, and wrote without the question.)
+#[test]
+fn save_anyway_on_a_save_as_does_not_answer_the_claims_for_the_next_save() {
+    let (dir, mut app) = claimed_project(
+        "ui-claims-after-save-as",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("cd", "claimed"),
+    );
+    app.plugin_dir = Some(example_plugins());
+    app.load_plugins();
+    app.enable_plugin("example.house-rules", true);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    // A new area whose tag the plugin warns of; Save As, to where it is.
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", mg_gff::Value::String(b"Cellar".to_vec()));
+    let key = ResKey::parse("cellar", ResType::ARE).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cellar",
+        vec![mg_edit::Edit::SetResource { key, data: Some(are.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::SaveAt(ModuleLocation::Folder(dir)));
+    h.run_steps(3);
+    h.get_by_label("Before saving");
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    assert!(!h.state().has_unsaved_work(), "saved");
+    // Another builder's area changed, and Save: the claims ask.
+    h.state_mut().actions.push(rename_start("Market"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Areas Not Yours");
+    assert!(h.state().has_unsaved_work(), "held");
 }
