@@ -1675,6 +1675,13 @@ fn frames_at_144_in_a_persistent_world() {
     }
     view(&mut h, &mut r, "Export window (25,000 resources), filtered", None);
     h.state_mut().export = None;
+    // Options, on the page it opens on: Folders, which looks at the user
+    // folder and its nwn.ini (once a while, not seven reads a frame: the
+    // review's S21).
+    h.state_mut().actions.push(Action::OptionsDialog);
+    h.run_steps(3);
+    view(&mut h, &mut r, "Options, Folders", Some(&Tab::Options));
+    close(&mut h, &Tab::Options);
     // The log after a Verify that found much: 10,000 lines, 2,000 with
     // a fix beside them.
     {
