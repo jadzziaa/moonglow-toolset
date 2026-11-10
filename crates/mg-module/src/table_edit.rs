@@ -386,13 +386,18 @@ impl Editing {
         rows: &[usize],
         cells: &[(usize, usize)],
     ) -> (usize, usize) {
+        let rows: Vec<usize> = rows.iter().copied().filter(|r| *r < other.len()).collect();
+        // (The rows taken whole, to look one up: each changed cell was
+        // looked for in the list of them, twice, and a module's
+        // placeables.2da taking CEP's 20,000 rows made four billion
+        // comparisons of it.)
+        let whole: std::collections::HashSet<usize> = rows.iter().copied().collect();
         let cells: Vec<(usize, usize)> = cells
             .iter()
             .copied()
             .filter(|(r, c)| *r < other.len() && *c < self.table.columns().len())
-            .filter(|(r, _)| !rows.contains(r))
+            .filter(|(r, _)| !whole.contains(r))
             .collect();
-        let rows: Vec<usize> = rows.iter().copied().filter(|r| *r < other.len()).collect();
         let last = rows.iter().chain(cells.iter().map(|(r, _)| r)).copied().max();
         let Some(last) = last else { return (0, 0) };
         let added = (last + 1).saturating_sub(self.table.len());
@@ -413,9 +418,9 @@ impl Editing {
         put.retain(|(_, _, value)| !value.as_ref().is_some_and(|v| v.contains('"')));
         let changed = self.put(put).unwrap_or_default();
         let mut taken: Vec<usize> =
-            changed.iter().map(|c| c.0).filter(|r| rows.contains(r)).collect();
+            changed.iter().map(|c| c.0).filter(|r| whole.contains(r)).collect();
         taken.dedup();
-        let one_by_one = changed.iter().filter(|c| !rows.contains(&c.0)).count();
+        let one_by_one = changed.iter().filter(|c| !whole.contains(&c.0)).count();
         let label = match (taken.len(), one_by_one) {
             (n, 0) => format!("Take {n} rows"),
             (0, m) => format!("Take {m} cells"),
@@ -618,6 +623,41 @@ mod tests {
         assert_eq!(e.table().len(), 2);
         assert_eq!(e.table().get(1, "Label"), Some("b"));
         assert_eq!(e.paste(0, 0, "a \"b\""), Err(TwoDaError::Unquotable));
+    }
+
+    /// Taking many rows looks each changed cell's row up, not through the
+    /// list of the rows taken: 20,000 rows of ten cells took four billion
+    /// comparisons, a freeze of the window (the review of November 2026,
+    /// D22). What is taken, and what it says, are as for a few.
+    #[test]
+    fn many_rows_are_taken_in_time() {
+        use std::fmt::Write;
+        const ROWS: usize = 20_000;
+        let columns = "  A B C D E F G H I J";
+        let mut theirs = format!("{columns}\n");
+        for r in 0..ROWS {
+            writeln!(theirs, "{r} a{r} b c d e f g h i j").unwrap();
+        }
+        let theirs = table(&theirs);
+        let mut e = Editing::new(table(&format!("{columns}\n0 mine b c d e f g h i j\n")));
+        let all: Vec<usize> = (0..ROWS).collect();
+        // (A cell of a row taken whole is the row's, not counted alone;
+        // one past the other copy's end is none.)
+        let cells = [(5, 0), (ROWS + 5, 0)];
+        let began = std::time::Instant::now();
+        assert_eq!(e.take(&theirs, &all, &cells), (ROWS, 0));
+        let took = began.elapsed();
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+        assert_eq!(e.table().len(), ROWS);
+        assert_eq!(e.table().get(0, "A"), Some("a0"));
+        assert_eq!(e.table().get(ROWS - 1, "A"), Some(format!("a{}", ROWS - 1).as_str()));
+        assert_eq!(e.undo_label(), Some(format!("Take {ROWS} rows").as_str()));
+        assert!(e.undo());
+        assert_eq!((e.table().len(), e.table().get(0, "A")), (1, Some("mine")));
+        // Rows and cells alone, in one step.
+        assert_eq!(e.take(&theirs, &[3], &[(1, 0), (3, 1)]), (1, 1));
+        assert_eq!(e.undo_label(), Some("Take 1 rows and 1 cells"));
+        assert_eq!((e.table().get(1, "A"), e.table().get(1, "B")), (Some("a1"), None));
     }
 
     /// Pasted into the rows an editor shows under a Find, a line goes into
