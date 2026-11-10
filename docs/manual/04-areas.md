@@ -731,7 +731,9 @@ conversation (`store001`), the script that opens the store
 (`openstore001`, which calls the game's `OpenStore`, or
 `gplotAppraiseOpenStore` with appraise checks), the store placed where
 the shopkeeper stands with its blueprint's tag, and the shopkeeper's
-conversation.
+conversation. A conversation or a script of the name typed that the
+module has already is replaced, and the first page says so under the
+name.
 
 A server with its own way of opening stores (its prices, its
 reputation, its logs) says so in the [project

@@ -483,6 +483,9 @@ category and a name, then opens the new blueprint's properties. The Name
 page shows the ResRef and Tag the blueprint gets, made from the name as
 Aurora makes them (after [your builder code](03-modules.md#your-builder-code),
 in a project where you have one): type others there to choose your own.
+A ResRef the module has already is refused there; one taken between that
+page and **Finish** gives the next free one from it, and no blueprint is
+replaced.
 
 The Item Wizard's Name page has Aurora's **Magical**: ticked, choose an
 **Item Level** (1-5, 6-10, 11-15, 16-20) and an **Item Quality** (Low,

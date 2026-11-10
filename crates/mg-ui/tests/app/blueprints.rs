@@ -3322,6 +3322,22 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let w = h.state().store_wizard.clone().unwrap();
     assert_eq!((w.dialog.as_str(), w.script.as_str()), ("store001", "openstore001"));
     assert!(w.hostile, "the bandit's faction");
+    // A name the module has already is said to be replaced, as Add Popup
+    // Text says it (the review's B10: Finish replaced the shopkeeper's
+    // own conversation without a word).
+    let said = "A conversation of that name is replaced.";
+    assert!(h.query_by_label(said).is_none());
+    let merchant = ResKey::parse("merchant", ResType::DLG).unwrap();
+    let data = Gff::new(*b"DLG ").to_bytes().unwrap();
+    let made = mg_edit::Edit::SetResource { key: merchant, data: Some(data) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("dlg", vec![made])));
+    h.state_mut().store_wizard.as_mut().unwrap().dialog = "merchant".into();
+    h.run();
+    h.get_by_label(said);
+    assert!(h.query_by_label("A script of that name is replaced.").is_none());
+    h.state_mut().store_wizard.as_mut().unwrap().dialog = "store001".into();
+    h.run();
+    assert!(h.query_by_label(said).is_none());
     h.get_by_label("Next >").click();
     h.run();
     type_into_hint(&mut h, "Find a store", "nw_storethief001");

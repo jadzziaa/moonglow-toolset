@@ -229,8 +229,16 @@ impl BlueprintWizard {
         taken: impl Fn(&ResRef) -> bool,
     ) -> (ResRef, mg_gff::Gff) {
         let name = self.name.trim();
+        // The ResRef typed, unless the module has it by now (it is checked
+        // on the Name page, which isn't every kind's last, and the window
+        // doesn't block): then the next free one from it, as the Creature
+        // Wizard takes, and no blueprint is replaced.
         let own = ResRef::from_str(self.resref.trim()).ok().filter(|r| !r.is_empty());
-        let resref = own.unwrap_or_else(|| blueprints::resref_named(name, naming, taken));
+        let resref = match own {
+            Some(r) if !taken(&r) => r,
+            Some(r) => blueprints::resref_named(&r.to_string(), naming, &taken),
+            None => blueprints::resref_named(name, naming, &taken),
+        };
         let category = self.category.unwrap_or(0);
         let mut g = match self.kind {
             BlueprintKind::Waypoint => {
@@ -649,5 +657,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if !close {
         app.blueprint_wizard = Some(w);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A ResRef typed that the module has by the time Finish is clicked
+    /// (free when the Name page checked it) is not taken as it is, which
+    /// replaced that blueprint (the review's B10): the next free one from
+    /// it is, as in the Creature Wizard.
+    #[test]
+    fn a_typed_resref_taken_by_finish_gives_the_next_free_one() {
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut w = BlueprintWizard::new(BlueprintKind::Waypoint);
+        w.name = "Post".into();
+        w.resref = "wp_post".into();
+        let naming = Naming::default();
+        let (free, _) = w.build(&game, &naming, |_| false);
+        assert_eq!(free.to_string(), "wp_post");
+        let (next, g) = w.build(&game, &naming, |r| r.to_string() == "wp_post");
+        assert_eq!(next.to_string(), "wp_post001");
+        assert_eq!(g.root.resref("TemplateResRef"), Some(next));
     }
 }
