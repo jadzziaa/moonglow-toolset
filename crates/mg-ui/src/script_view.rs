@@ -2360,8 +2360,11 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
     }
     if let Some(game) = app.game.as_deref() {
         let layers = game.resman.layers();
+        // (The module's, as a set: each of the game's thousands of scripts
+        // was looked for among them one by one.)
+        let own: std::collections::HashSet<ResKey> = scripts.iter().map(|(k, _)| *k).collect();
         for (key, layer) in game.resman.entries() {
-            if key.restype != ResType::NSS || scripts.iter().any(|(k, _)| *k == key) {
+            if key.restype != ResType::NSS || own.contains(&key) {
                 continue;
             }
             let label = layers.get(layer).map_or("", |l| l.label.as_str());
@@ -2454,25 +2457,37 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.radio_value(&mut w.shown, shown, label);
                 }
             });
-            let needle = mg_core::text::Needle::new(&w.filter);
-            let listed: Vec<(ResKey, ScriptFrom)> = w
-                .scripts
-                .iter()
-                .filter(|(_, from)| match w.shown {
-                    ScriptsShown::All => true,
-                    ScriptsShown::Module => *from == ScriptFrom::Module,
-                    ScriptsShown::Haks => *from == ScriptFrom::Hak,
-                })
-                .filter(|(k, _)| needle.finds(&k.resref.to_string()))
-                .copied()
-                .collect();
-            let names: Vec<ResKey> = listed.iter().map(|(k, _)| *k).collect();
-            // (Scripts hidden by what is shown, or by the name, are no
-            // longer selected: Open would not open them.)
-            w.selected.retain(|k| names.contains(k));
-            if w.anchor.is_some_and(|a| !names.contains(&a)) {
-                w.anchor = None;
+            // The scripts listed, made again when the name typed or what
+            // is shown changes, not every frame: with the game's own they
+            // are thousands, and with all of them selected each selected
+            // one was looked for among all those listed, every frame.
+            let wanted = (w.filter.clone(), w.shown);
+            if w.listed_for.as_ref() != Some(&wanted) {
+                let needle = mg_core::text::Needle::new(&w.filter);
+                w.listed = w
+                    .scripts
+                    .iter()
+                    .filter(|(_, from)| match w.shown {
+                        ScriptsShown::All => true,
+                        ScriptsShown::Module => *from == ScriptFrom::Module,
+                        ScriptsShown::Haks => *from == ScriptFrom::Hak,
+                    })
+                    .filter(|(k, _)| needle.finds(&k.resref.to_string()))
+                    .copied()
+                    .collect();
+                w.names = w.listed.iter().map(|(k, _)| *k).collect();
+                // (Scripts hidden by what is shown, or by the name, are no
+                // longer selected: Open would not open them. What is
+                // selected from then on is selected among those listed.)
+                let among: std::collections::HashSet<ResKey> = w.names.iter().copied().collect();
+                w.selected.retain(|k| among.contains(k));
+                if w.anchor.is_some_and(|a| !among.contains(&a)) {
+                    w.anchor = None;
+                }
+                w.listed_for = Some(wanted);
             }
+            // (Out of the window's state while it is drawn, and back after.)
+            let (listed, names) = (std::mem::take(&mut w.listed), std::mem::take(&mut w.names));
             let last = listed.len().saturating_sub(1) as isize;
             let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
             w.cursor = cursor;
@@ -2488,19 +2503,23 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     widen,
                 );
             }
-            // What Enter and Open open: those selected that are listed
-            // (a narrower name hides the others), in the list's order.
-            let picked: Vec<(ResKey, ScriptFrom)> =
-                listed.iter().filter(|(k, _)| w.selected.contains(k)).copied().collect();
-            ui.weak(match picked.len() {
+            // What Enter and Open open: those selected (all of them are
+            // listed: a narrower name took the others out), in the list's
+            // order; gathered when they are opened, counted until then.
+            let picked = |selected: &std::collections::BTreeSet<ResKey>| {
+                let of = listed.iter().filter(|(k, _)| selected.contains(k));
+                of.copied().collect::<Vec<(ResKey, ScriptFrom)>>()
+            };
+            let picked_count = w.selected.len();
+            ui.weak(match picked_count {
                 0 => format!("{} scripts", listed.len()),
                 n => format!("{} scripts, {n} selected", listed.len()),
             });
             if entered {
-                chosen = if picked.is_empty() {
+                chosen = if picked_count == 0 {
                     listed.get(cursor).copied().into_iter().collect()
                 } else {
-                    picked.clone()
+                    picked(&w.selected)
                 };
             }
             let row = ui.spacing().interact_size.y;
@@ -2586,19 +2605,20 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
-                let button = egui::Button::new(match picked.len() {
+                let button = egui::Button::new(match picked_count {
                     n if n > 1 => format!("Open {n}"),
                     _ => "Open".to_string(),
                 });
                 if ui
-                    .add_enabled(!picked.is_empty(), button)
+                    .add_enabled(picked_count > 0, button)
                     .on_hover_text("Open the scripts selected, each in its tab (Enter)")
                     .on_disabled_hover_text("Select a script (Ctrl+click or Shift+click: several)")
                     .clicked()
                 {
-                    chosen = picked.clone();
+                    chosen = picked(&w.selected);
                 }
             });
+            (w.listed, w.names) = (listed, names);
         });
     for (key, from) in &chosen {
         app.actions.push(match from {

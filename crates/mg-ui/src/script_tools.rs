@@ -173,6 +173,12 @@ pub struct OpenScript {
     /// The script a Shift+click or Shift+arrow selects from: the one
     /// clicked or moved to last.
     pub anchor: Option<ResKey>,
+    /// The scripts listed (those of `scripts` that the name typed and
+    /// what is shown leave) and their names, and what they were made
+    /// for: made again when that changes, not every frame.
+    pub(crate) listed: Vec<(ResKey, ScriptFrom)>,
+    pub(crate) names: Vec<ResKey>,
+    pub(crate) listed_for: Option<(String, ScriptsShown)>,
 }
 
 /// The editor tools' state (shared by the open script editors).
