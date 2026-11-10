@@ -141,7 +141,8 @@ replies whose conditions pass, numbered.
 - **Parameter sets**, on both of those tabs beside **Parameters**, save
   typing where the same scripts are used with the same parameters time
   and again. **Save Set…** keeps the script and its parameters under a
-  name (typed in place; Enter saves it); **Save to File…** saves them as
+  name (typed in place; Enter saves it; a set of the name kept already
+  is replaced, as the row says); **Save to File…** saves them as
   a set file (`.params.json`) wherever you choose, to share or to keep
   beside a module. **Add Set** adds a set to the line (or link) shown: a
   saved one, chosen by its name (with the pointer resting on it, its

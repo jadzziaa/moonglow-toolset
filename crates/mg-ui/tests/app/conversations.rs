@@ -2344,6 +2344,12 @@ fn parameter_sets_are_saved_and_added_to_another_line() {
     let before = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
     h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Skill check");
     h.run();
+    assert!(h.query_by_label("A set of that name is replaced.").is_none(), "none kept yet");
+    // (A set of the name kept: said, as the variable sets' row says it.
+    // The last pass's item 16.)
+    mg_ui::param_sets::save(&sets, "Skill check", &Default::default()).unwrap();
+    h.run();
+    assert!(h.query_by_label("A set of that name is replaced.").is_some());
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     let saved = mg_ui::param_sets::load(&sets, "Skill check").unwrap();

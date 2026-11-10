@@ -934,6 +934,21 @@ pub(crate) fn sets_menu<T: Clone + Send + Sync + 'static>(
     chosen
 }
 
+/// Under Save Set's name: that a set of the name on `shelf` (in `dir`)
+/// is replaced, where there is one. (Said, as it isn't asked about: the
+/// variable sets said it and the parameter sets did not.)
+pub(crate) fn replaced_note(
+    ui: &mut Ui,
+    shelf: &crate::saved::Shelf,
+    dir: Option<&std::path::Path>,
+    name: &str,
+) {
+    let kept = dir.and_then(|dir| shelf.file(Some(dir), name).ok());
+    if kept.is_some_and(|file| file.exists()) {
+        ui.colored_label(ui.visuals().warn_fg_color, "A set of that name is replaced.");
+    }
+}
+
 /// Save Set's name, typed in place: whether it is to be saved (Save, or
 /// Enter in the name) and whether Cancel was pressed.
 pub(crate) fn set_name_row(ui: &mut Ui, name: &mut String) -> (bool, bool) {
@@ -1742,12 +1757,7 @@ fn var_body(
     }
     if let Some(name) = edit.set_name.as_mut() {
         let (save, cancel) = set_name_row(ui, name);
-        // (Said, as it isn't asked about.)
-        let kept = (app.var_set_dir.as_deref())
-            .and_then(|dir| crate::var_sets::SHELF.file(Some(dir), name).ok());
-        if kept.is_some_and(|file| file.exists()) {
-            ui.colored_label(ui.visuals().warn_fg_color, "A set of that name is replaced.");
-        }
+        replaced_note(ui, &crate::var_sets::SHELF, app.var_set_dir.as_deref(), name);
         if save && let Some(dir) = app.var_set_dir.clone() {
             match crate::var_sets::save(&dir, name, &edit.rows) {
                 Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),

@@ -2200,6 +2200,7 @@ fn script_with_params(
     }
     if let Some((_, name)) = view.param_set_name.as_mut() {
         let (save, cancel) = crate::widgets::set_name_row(ui, name);
+        crate::widgets::replaced_note(ui, &param_sets::SHELF, dir.as_deref(), name);
         if save && let Some(dir) = &dir {
             match param_sets::save(dir, name, &set_of(&pairs, script_now)) {
                 Ok(p) => app.log.info(format!("Parameter set saved: {}", p.display())),
