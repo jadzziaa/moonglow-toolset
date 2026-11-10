@@ -757,11 +757,26 @@ impl TalkTables {
     pub const UNCOUNTED: usize = usize::MAX;
 }
 
-/// Where Verify keeps the shader programs that compiled: the user's cache
-/// folder's `shaders`, which the window's views keep theirs in too
-/// ([`crate::build::cache_dir`]).
-pub fn shader_cache_dir() -> Option<std::path::PathBuf> {
-    crate::build::cache_dir().map(|d| d.join("shaders"))
+/// The project file's name as findings say it: its own, or
+/// `moonglow.toml` where the module has none.
+fn project_file_name(pf: &crate::project_file::ProjectFile) -> String {
+    pf.path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into())
+}
+
+/// What a script reads of a variable that isn't set: a type's empty value,
+/// as findings say it.
+fn empty(t: crate::vars::VarType) -> &'static str {
+    use crate::vars::VarType;
+    match t {
+        VarType::Int => "0",
+        VarType::Float => "0.0",
+        VarType::String => "\"\"",
+        VarType::Object => "OBJECT_INVALID",
+        VarType::Location => "an invalid location",
+    }
 }
 
 /// What Verify keeps between runs, in a cache folder (the user's,
@@ -1193,11 +1208,7 @@ pub fn talk_range(module: &Module, table: Option<&mg_tlk::Tlk>, skip: &Skip) -> 
     if !rules.is_set() || skip.check(Check::TalkRange) || skip.source("module") {
         return Vec::new();
     }
-    let file = pf
-        .path
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into());
+    let file = project_file_name(pf);
     let mut out = Vec::new();
     let mut push = |severity, message: String| {
         out.push(Finding {
@@ -1300,11 +1311,7 @@ pub fn palette_groups(
     if (groupings.list.is_empty() && groupings.problems.is_empty()) || skip.source("module") {
         return out;
     }
-    let file = pf
-        .path
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into());
+    let file = project_file_name(pf);
     let mut push = |check: Check, at: String, message: String| {
         if !skip.check(check) {
             out.push(Finding {
@@ -3337,11 +3344,7 @@ pub fn bake(module: &Module, rm: &ResMan, codepage: Codepage, skip: &Skip) -> Ve
     if !pf.bake.given || skip.source("module") {
         return Vec::new();
     }
-    let file = pf
-        .path
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .map_or_else(|| crate::project_file::FILE_NAME.to_string(), |n| n.to_string_lossy().into());
+    let file = project_file_name(pf);
     let rows_name = pf.bake.rows_file.clone().unwrap_or_else(|| b::DEFAULT_ROWS_FILE.into());
     let mut out = Vec::new();
     let mut push = |check: Check, severity, at: String, message: String| {
@@ -3709,13 +3712,6 @@ fn described_variables(d: &mut Doctor, module: &Module) {
         .copied()
         .collect();
     keys.sort();
-    let empty = |t: crate::vars::VarType| match t {
-        crate::vars::VarType::Int => "0",
-        crate::vars::VarType::Float => "0.0",
-        crate::vars::VarType::String => "\"\"",
-        crate::vars::VarType::Object => "OBJECT_INVALID",
-        crate::vars::VarType::Location => "an invalid location",
-    };
     for key in keys {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
         let found = var_desc::variables_of(key, &gff);
@@ -3858,13 +3854,6 @@ fn variables_read(d: &mut Doctor, module: &Module) {
         return;
     }
     let vars = &module.project_file.variables;
-    let empty = |t: crate::vars::VarType| match t {
-        crate::vars::VarType::Int => "0",
-        crate::vars::VarType::Float => "0.0",
-        crate::vars::VarType::String => "\"\"",
-        crate::vars::VarType::Object => "OBJECT_INVALID",
-        crate::vars::VarType::Location => "an invalid location",
-    };
     let article = |t: crate::vars::VarType| match t {
         crate::vars::VarType::Int => "an",
         _ => "a",

@@ -507,8 +507,7 @@ const MODEL_PARTS: [&str; 3] = ["ModelPart1", "ModelPart2", "ModelPart3"];
 /// An item property's fields in Aurora's order.
 const PROPERTY_ORDER: &[&str] =
     &["PropertyName", "Subtype", "CostTable", "CostValue", "Param1", "Param1Value", "ChanceAppear"];
-const ITEM_COLORS: [&str; 6] =
-    ["Leather1Color", "Leather2Color", "Cloth1Color", "Cloth2Color", "Metal1Color", "Metal2Color"];
+use crate::blueprints::COLORS as ITEM_COLORS;
 
 /// A placeable's and a door's common defaults (situated objects).
 const SITUATED: &[(&str, D)] = &[
@@ -1091,12 +1090,7 @@ pub fn instance(
             fill(&mut s, SOUND);
             let looping = s.integer("Looping").unwrap_or(0) != 0;
             let positional = s.integer("Positional").unwrap_or(0) != 0;
-            let priority = match (looping, positional) {
-                (true, false) => 2,
-                (true, true) => 3,
-                (false, false) => 19,
-                (false, true) => 20,
-            };
+            let priority = crate::blueprints::sound_priority(looping, positional);
             s.set("Priority", Value::Byte(priority));
             let mut sounds = s.list("Sounds").unwrap_or(&[]).to_vec();
             sounds.iter_mut().for_each(|w| w.id = 0);
@@ -1178,7 +1172,10 @@ pub fn placement_of(restype: ResType, s: &Struct) -> (Placement, Vec<[f32; 3]>) 
 /// What Update Instances keeps of a placed object besides where it
 /// stands: its visual transform (EE's list, or the older struct) and an
 /// encounter's spawn points.
-const KEPT: [&str; 3] = ["VisTransformList", "VisualTransform", "SpawnPointList"];
+const KEPT: [&str; 3] = {
+    let [list, older] = crate::placement::VISUAL_TRANSFORM_FIELDS;
+    [list, older, "SpawnPointList"]
+};
 
 /// Update Instances (Aurora's palette › Update Instances, with every area
 /// or one): the placed objects of the blueprints `blueprint` returns,
