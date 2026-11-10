@@ -35,6 +35,28 @@ pub use items::{ItemProperty, ItemValue};
 pub use objects::ObjectKind;
 pub use spell_warnings::{SpellSlots, SpellWarning};
 
+// Numbers a file gives (a GFF field of any integer type, a 2DA's cell),
+// brought into what holds them here without `as`: one that does not fit
+// is the nearest that does, never the number its low bits spell, which is
+// another row's.
+
+/// A row of a table (or a count): 0 for a negative number, the largest
+/// for one past a `u32`.
+pub(crate) fn row(v: i64) -> u32 {
+    u32::try_from(v.max(0)).unwrap_or(u32::MAX)
+}
+
+/// A WORD's worth: the largest (a row no table has) for a number outside
+/// it.
+pub(crate) fn word(v: i64) -> u16 {
+    u16::try_from(v).unwrap_or(u16::MAX)
+}
+
+/// A BYTE's worth: the largest for a number outside it.
+pub(crate) fn byte(v: i64) -> u8 {
+    u8::try_from(v).unwrap_or(u8::MAX)
+}
+
 #[derive(Debug, Error)]
 pub enum RulesError {
     #[error(transparent)]

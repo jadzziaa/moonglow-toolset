@@ -121,16 +121,22 @@ pub struct ItemValue {
 
 impl ItemProperty {
     /// A `PropertiesList` entry.
+    ///
+    /// A number its field cannot hold (a `PropertyName` of 70000 in a file
+    /// some tool wrote) is read as the field's largest, a row no table
+    /// has: not cut to the row its low bits spell, which is another
+    /// property's.
     pub fn from_gff(s: &mg_gff::Struct) -> ItemProperty {
-        let int = |label: &str| s.integer(label).unwrap_or(0);
+        let word = |label: &str| crate::word(s.integer(label).unwrap_or(0));
+        let byte = |label: &str, or: i64| crate::byte(s.integer(label).unwrap_or(or));
         ItemProperty {
-            property: int("PropertyName") as u16,
-            subtype: int("Subtype") as u16,
-            cost_table: int("CostTable") as u8,
-            cost_value: int("CostValue") as u16,
-            param1: s.integer("Param1").unwrap_or(255) as u8,
-            param1_value: int("Param1Value") as u8,
-            chance: s.integer("ChanceAppear").unwrap_or(100) as u8,
+            property: word("PropertyName"),
+            subtype: word("Subtype"),
+            cost_table: byte("CostTable", 0),
+            cost_value: word("CostValue"),
+            param1: byte("Param1", 255),
+            param1_value: byte("Param1Value", 0),
+            chance: byte("ChanceAppear", 100),
         }
     }
 
@@ -153,13 +159,13 @@ impl ItemProperty {
 impl ItemValue {
     /// The fields of an item (a UTI, or an item in an inventory).
     pub fn from_gff(item: &mg_gff::Struct) -> ItemValue {
-        let int = |label: &str| item.integer(label).unwrap_or(0).max(0) as u32;
+        let int = |label: &str| crate::row(item.integer(label).unwrap_or(0));
         ItemValue {
             base_item: int("BaseItem"),
-            stack_size: item.integer("StackSize").unwrap_or(1).max(1) as u32,
+            stack_size: crate::row(item.integer("StackSize").unwrap_or(1)).max(1),
             charges: int("Charges"),
             add_cost: int("AddCost"),
-            torso: int("ArmorPart_Torso"),
+            torso: torso(item),
             properties: item
                 .list("PropertiesList")
                 .unwrap_or(&[])
@@ -213,8 +219,7 @@ impl GameData {
         if !listed.is_empty() || !self.is_armor(row as u32) {
             return listed;
         }
-        let torso = item.integer("ArmorPart_Torso").unwrap_or(0).max(0) as u32;
-        match self.armor_class(torso) {
+        match self.armor_class(torso(item)) {
             0 => Vec::new(),
             1..=3 => vec![3],
             4..=5 => vec![4],
@@ -417,6 +422,13 @@ pub fn wide_label(label: &str) -> String {
 /// BYTE field's.
 pub fn part_number(s: &mg_gff::Struct, label: &str) -> Option<i64> {
     s.integer(&wide_label(label)).or_else(|| s.integer(label))
+}
+
+/// An armor's torso, its parts_chest.2da row: [`part_number`]'s, so one
+/// past 255 (the BYTE field holds 255, its EE twin the number) is the
+/// row the game draws and prices, not row 255.
+pub fn torso(item: &mg_gff::Struct) -> u32 {
+    crate::row(part_number(item, "ArmorPart_Torso").unwrap_or(0))
 }
 
 /// Armor icon parts, bottom first: (field, icon part).
@@ -865,6 +877,33 @@ mod tests {
         }
     }
 
+    /// A property's numbers that their fields cannot hold are not cut to
+    /// other rows: `PropertyName` 70000 is not property 4464, and an
+    /// item's base item past a `u32` is not row 0.
+    #[test]
+    fn numbers_a_field_cannot_hold_are_not_other_rows() {
+        use mg_gff::Value;
+        let mut p = mg_gff::Struct::new(0);
+        p.set("PropertyName", Value::Int(70000));
+        p.set("Subtype", Value::Int(-1));
+        p.set("CostTable", Value::Int(257));
+        p.set("CostValue", Value::Int64(1 << 40));
+        p.set("Param1Value", Value::Int(300));
+        let read = ItemProperty::from_gff(&p);
+        assert_eq!((read.property, read.subtype), (u16::MAX, u16::MAX));
+        assert_eq!((read.cost_table, read.cost_value, read.param1_value), (255, u16::MAX, 255));
+        assert_eq!((read.param1, read.chance), (255, 100), "left out: none, and always");
+        // (What fits is as it is.)
+        let fits = ItemProperty { property: 15, subtype: 300, cost_value: 7, ..read };
+        assert_eq!(ItemProperty::from_gff(&fits.to_gff()), fits);
+        let mut item = mg_gff::Struct::new(0);
+        item.set("BaseItem", Value::Int64(1 << 32));
+        item.set("StackSize", Value::Int64(-5));
+        item.set("Charges", Value::Int64((1 << 32) + 3));
+        let read = ItemValue::from_gff(&item);
+        assert_eq!((read.base_item, read.stack_size, read.charges), (u32::MAX, 1, u32::MAX));
+    }
+
     #[test]
     fn costs_follow_the_engine() {
         let gd = data();
@@ -910,6 +949,20 @@ mod tests {
         // armor class 0, as the engine prices it.
         assert_eq!(gd.armor_class(4), 0);
         assert_eq!(gd.armor_class(250), 0);
+        // A torso past 255 is in the EE twin, the BYTE field holding 255:
+        // the twin's row is the armor's (row 255's is another's), for its
+        // cost and for the proficiency it takes.
+        let mut wide = mg_gff::Struct::new(0);
+        wide.set("BaseItem", mg_gff::Value::Int(3));
+        wide.set("ArmorPart_Torso", mg_gff::Value::Byte(255));
+        assert_eq!(ItemValue::from_gff(&wide).torso, 255);
+        assert_eq!(gd.item_cost(&ItemValue::from_gff(&wide)), 1);
+        assert!(gd.required_feats(&wide).is_empty());
+        wide.set("xArmorPart_Torso", mg_gff::Value::Word(1));
+        assert_eq!(torso(&wide), 1);
+        assert_eq!(ItemValue::from_gff(&wide).torso, 1);
+        assert_eq!(gd.item_cost(&ItemValue::from_gff(&wide)), 10);
+        assert_eq!(gd.required_feats(&wide), [3], "light armor");
         let clothing = ItemValue { torso: 4, ..armor.clone() };
         assert_eq!(gd.item_cost(&clothing), 1);
     }
