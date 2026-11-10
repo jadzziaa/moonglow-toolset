@@ -501,6 +501,12 @@ fn signatures(g: &Gff) -> [Vec<Vec<u64>>; 2] {
         format!("{:?}{:?}", n.get("Text"), n.get("Speaker")).hash(&mut h);
         h.finish() | 1
     };
+    // (Each line's own, once: it was made again for every line under it,
+    // a greeting of 30,000 characters written out for each of a thousand
+    // descendants, at every edit of the conversation.)
+    let owns = [Kind::Entry, Kind::Reply].map(|k| nodes(g, k).iter().map(own).collect::<Vec<_>>());
+    let own_of =
+        |(kind, index): (Kind, u32)| owns[kind as usize].get(index as usize).copied().unwrap_or(0);
     // (Each line's owner, the first as `owner` finds it.)
     let mut up: HashMap<(Kind, u32), (Kind, u32)> = HashMap::new();
     let mut roots = HashSet::new();
@@ -523,7 +529,7 @@ fn signatures(g: &Gff) -> [Vec<Vec<u64>>; 2] {
         let mut at = (kind, index);
         let mut path = HashSet::new();
         loop {
-            out.push(node(g, at.0, at.1).map_or(0, own));
+            out.push(own_of(at));
             if at.0 == Kind::Entry && roots.contains(&at.1) {
                 break;
             }
@@ -1063,6 +1069,32 @@ mod tests {
         remove(&mut after, Parent::Root, 0);
         let map = Renumbering::by_lines(&before, &after);
         assert_eq!([map.line(e, 0), map.line(e, 1)], [Some(0), None]);
+    }
+
+    /// A long conversation's lines are found again in time: each line's
+    /// text is written out and hashed once, not once for every line under
+    /// it (a greeting of 30,000 characters over a chain of 2,000 lines
+    /// was, at every edit: the review of November 2026, D26). What is
+    /// found is the same.
+    #[test]
+    fn a_long_chain_s_lines_are_found_again_in_time() {
+        let mut before = new_dialog();
+        let greeting = "word ".repeat(6_000);
+        let mut at = Parent::Root;
+        for i in 0..2_000 {
+            let text = if i == 0 { greeting.clone() } else { format!("Line {i}.") };
+            let line = add_node(&mut before, at, &text);
+            at = Parent::Node(at.child_kind(), line);
+        }
+        // The last line taken off: every other is found where it was.
+        let mut after = before.clone();
+        let known = remove(&mut after, Parent::Node(Kind::Reply, 998), 0);
+        let began = std::time::Instant::now();
+        let found = Renumbering::by_lines(&before, &after);
+        let took = began.elapsed();
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+        assert_eq!(found, known);
+        assert_eq!((found.line(Kind::Entry, 999), found.line(Kind::Entry, 500)), (None, Some(500)));
     }
 
     #[test]
