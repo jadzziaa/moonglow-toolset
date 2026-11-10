@@ -40,6 +40,10 @@ fn pixel_height_to_em(bytes: &[u8]) -> Option<f32> {
     (height > 0.0 && em > 0.0).then_some(em / height)
 }
 
+/// The ratios of em to line height ([`pixel_height_to_em`]) a font is
+/// drawn with: the game's own are near 0.8.
+const EM_RATIOS: std::ops::RangeInclusive<f32> = 0.25..=4.0;
+
 /// What a laid-out text was made from. `width` is where it wraps or is cut
 /// (infinite when neither), `shape` which of the preview's layouts it is.
 #[derive(Clone, Copy)]
@@ -877,7 +881,15 @@ impl Assets {
             }
             let font_key = format!("nui-font/{resref}/{:x}", hash(&bytes));
             let family = FontFamily::Name(font_key.clone().into());
+            // A font whose line (ascent to descent) is a sliver of its em,
+            // or many ems, is no font to draw with: its size is held to 4
+            // to 128, and with an `hhea` height of 1 in an em of 2,048 a
+            // 17-point font was 34,816 pixels, a glyph of it gigabytes.
             let em_ratio = pixel_height_to_em(&bytes).unwrap_or(1.0);
+            if !EM_RATIOS.contains(&em_ratio) {
+                self.font_issues.push(format!("Invalid font: {resref}"));
+                continue;
+            }
             ctx.add_font(egui::epaint::text::FontInsert {
                 name: font_key,
                 data: egui::FontData::from_owned(bytes),
@@ -1060,11 +1072,14 @@ impl Assets {
     }
 }
 
+/// A number of the skin, within ±1e18 as the window's own are held
+/// (`preview::num`): one written larger (1e300) is infinite as an `f32`,
+/// and a rectangle made of it not a number at all.
 fn toml_number(v: &toml::Value) -> Option<f32> {
     v.as_float()
         .or_else(|| v.as_integer().map(|n| n as f64))
         .filter(|n| n.is_finite())
-        .map(|n| n as f32)
+        .map(|n| n.clamp(-1e18, 1e18) as f32)
 }
 
 fn color(s: &str) -> Option<Color32> {
@@ -1190,6 +1205,70 @@ mod tests {
         let mut assets = Assets::default();
         assets.prepare(&ctx, None, &Module::new(), 0, &doc, &settings);
         assert!(assets.issues.contains(&"Missing image: shown".to_string()), "{:?}", assets.issues);
+    }
+
+    /// A font file of two tables, `head` and `hhea`, with the numbers a
+    /// font's size is read from: enough to be a font to the reader.
+    fn font_of(units_per_em: u16, ascender: i16, descender: i16) -> Vec<u8> {
+        let mut head = vec![0u8; 54];
+        head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        head[12..16].copy_from_slice(&0x5F0F_3CF5_u32.to_be_bytes());
+        head[18..20].copy_from_slice(&units_per_em.to_be_bytes());
+        let mut hhea = vec![0u8; 36];
+        hhea[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        hhea[4..6].copy_from_slice(&ascender.to_be_bytes());
+        hhea[6..8].copy_from_slice(&descender.to_be_bytes());
+        let mut font = 0x0001_0000_u32.to_be_bytes().to_vec();
+        font.extend([0, 2, 0, 32, 0, 1, 0, 0]);
+        let mut at = 12 + 2 * 16;
+        for (tag, table) in [(b"head", &head), (b"hhea", &hhea)] {
+            font.extend(tag);
+            font.extend(0_u32.to_be_bytes());
+            font.extend((at as u32).to_be_bytes());
+            font.extend((table.len() as u32).to_be_bytes());
+            // (Tables start on four bytes.)
+            at += table.len().next_multiple_of(4);
+        }
+        for table in [&head, &hhea] {
+            font.extend(table.iter());
+            font.resize(font.len().next_multiple_of(4), 0);
+        }
+        font
+    }
+
+    /// A font's size is held by its ratio of em to line height too: one
+    /// whose `hhea` says its line is one unit of 2,048 is refused, where a
+    /// 17-point font of it was drawn 34,816 pixels high. And a number of
+    /// the skin stays one an `f32` holds.
+    #[test]
+    fn a_font_with_a_sliver_of_a_line_is_refused() {
+        // (The game's fonts: about 0.8.)
+        let usual = pixel_height_to_em(&font_of(2048, 1900, -500)).unwrap();
+        assert!((usual - 2048.0 / 2400.0).abs() < 1e-6 && EM_RATIOS.contains(&usual));
+        assert_eq!(pixel_height_to_em(&font_of(2048, 1, 0)), Some(2048.0));
+        assert_eq!(pixel_height_to_em(&font_of(2048, 0, 0)), None);
+        assert_eq!(pixel_height_to_em(b"no font"), None);
+        let ctx = egui::Context::default();
+        let mut module = Module::new();
+        module.set(
+            ResKey::parse("nui_skin", ResType::TML).unwrap(),
+            b"[window]\nscrollbar_size_x = 1e300\nscrollbar_size_y = -1e300\n\
+              [[fonts]]\nname = \"sliver\"\nresref = \"sliver\"\nfont_size = 17\n\
+              [[fonts]]\nname = \"tall\"\nresref = \"tall\"\nfont_size = 17\n"
+                .to_vec(),
+        );
+        module.set(ResKey::parse("sliver", ResType::TTF).unwrap(), font_of(2048, 1, 0));
+        module.set(ResKey::parse("tall", ResType::TTF).unwrap(), font_of(16, 30_000, -30_000));
+        let mut assets = Assets::default();
+        assets.prepare(&ctx, None, &module, 0, &mg_nui::window(), &Settings::default());
+        assert!(assets.loaded);
+        assert_eq!(assets.issues, ["Invalid font: sliver", "Invalid font: tall"]);
+        // Drawn with the fallback, at its own size.
+        for name in ["sliver", "tall", ""] {
+            assert_eq!(assets.font(&ctx, name, 1.0).0, FontId::proportional(17.0), "{name}");
+        }
+        assert_eq!(assets.number("window.scrollbar_size_x", 18.0), 1e18);
+        assert_eq!(assets.number("window.scrollbar_size_y", 18.0), -1e18);
     }
 
     #[test]
