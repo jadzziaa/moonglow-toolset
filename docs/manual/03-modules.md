@@ -1932,7 +1932,9 @@ folder's files, subfolders included, to look over and save.
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. The hak
   editor's Save and Save As… show how far the save is, with **Cancel**,
-  which leaves the old one as it was. It warns when
+  which leaves the old one as it was; so do its **OK** and the **Save**
+  of the question a closed tab asks, which close the tab once the hak is
+  written (one that could not be written stays open). It warns when
   resources would start past 2 GiB, which the game can't read. The hak
   editor itself reads all of such a hak: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.
