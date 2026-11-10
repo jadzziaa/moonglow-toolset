@@ -695,17 +695,15 @@ pub fn word_at(text: &str, chars: usize) -> Option<String> {
     (end > start).then(|| text[start..end].to_string())
 }
 
-/// The next match of `needle` from a character index (wrapping around),
-/// as a character range. Without Match case, letter by letter with case
-/// and accents aside ([`mg_core::text::same_letter`]), so what is found
-/// is as long as `needle`.
-pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<(usize, usize)> {
-    if needle.is_empty() {
-        return None;
-    }
-    let hay: Vec<char> = text.chars().collect();
-    let pat: Vec<char> = needle.chars().collect();
-    let last = hay.len().checked_sub(pat.len())?;
+/// Where `pat` is found in `hay`, each match's first character: matches
+/// don't overlap, from the text's start (as Replace All replaces them).
+/// Without Match case, letter by letter with case and accents aside
+/// ([`mg_core::text::same_letter`]), so what is found is as long as `pat`.
+fn matches(hay: &[char], pat: &[char], o: &SearchOptions) -> Vec<usize> {
+    let mut found = Vec::new();
+    let Some(last) = hay.len().checked_sub(pat.len()).filter(|_| !pat.is_empty()) else {
+        return found;
+    };
     let same =
         |a: char, b: char| if o.match_case { a == b } else { mg_core::text::same_letter(a, b) };
     let whole = |s: usize| {
@@ -713,18 +711,26 @@ pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<
         let after = hay.get(s + pat.len()).is_none_or(|&c| !is_ident(c));
         !o.whole_word || (before && after)
     };
-    // (Matches don't overlap, from the text's start: as Replace All
-    // replaces them.)
-    let mut matches = Vec::new();
     let mut s = 0;
     while s <= last {
-        if hay[s..s + pat.len()].iter().zip(&pat).all(|(&h, &p)| same(h, p)) && whole(s) {
-            matches.push(s);
+        if hay[s..s + pat.len()].iter().zip(pat).all(|(&h, &p)| same(h, p)) && whole(s) {
+            found.push(s);
             s += pat.len();
         } else {
             s += 1;
         }
     }
+    found
+}
+
+/// The next match of `needle` from a character index (wrapping around),
+/// as a character range. Without Match case, letter by letter with case
+/// and accents aside ([`mg_core::text::same_letter`]), so what is found
+/// is as long as `needle`.
+pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<(usize, usize)> {
+    let hay: Vec<char> = text.chars().collect();
+    let pat: Vec<char> = needle.chars().collect();
+    let matches = matches(&hay, &pat, o);
     let pick = if o.backwards {
         matches.iter().rev().find(|s| **s < from).or(matches.last())
     } else {
@@ -754,21 +760,27 @@ pub fn find_lines(text: &str, needle: &str, o: &SearchOptions) -> Vec<(usize, St
 }
 
 /// Replaces every match; returns the new text and how many were replaced.
+/// The matches are those of the text as it is ([`matches`]: what Find
+/// finds one after another), each replaced once, in one pass: what a
+/// replacement leaves is not looked through again. (It was, from the
+/// text's start for each match: two spaces for one left about half of a
+/// run, and a name used a thousand times took a thousand passes.)
 pub fn replace_all(text: &str, needle: &str, with: &str, o: &SearchOptions) -> (String, usize) {
-    let mut out = text.to_string();
-    let mut n = 0;
-    let mut from = 0;
-    let forward = SearchOptions { backwards: false, ..o.clone() };
-    while let Some((s, e)) = find(&out, needle, from, &forward) {
-        if s < from || n > out.len() {
-            break;
-        }
-        let (bs, be) = (byte_index(&out, s), byte_index(&out, e));
-        out.replace_range(bs..be, with);
-        from = s + with.chars().count();
-        n += 1;
+    let hay: Vec<char> = text.chars().collect();
+    let pat: Vec<char> = needle.chars().collect();
+    let found = matches(&hay, &pat, o);
+    if found.is_empty() {
+        return (text.to_string(), 0);
     }
-    (out, n)
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for &s in &found {
+        out.extend(&hay[at..s]);
+        out.push_str(with);
+        at = s + pat.len();
+    }
+    out.extend(&hay[at..]);
+    (out, found.len())
 }
 
 /// Completion candidates: symbols starting with the prefix (any case),
@@ -1004,6 +1016,29 @@ mod tests {
         assert_eq!(find(tree, "arbol", 0, &exact), Some((10, 15)));
         assert_eq!(replace_all(tree, "arbol", "roble", &o), ("// roble, roble".into(), 2));
         assert_eq!(find_lines("Árbol\nx\narbol", "arbol", &o).len(), 2);
+    }
+
+    /// Replace All replaces the matches the text has, each once: a needle
+    /// that overlaps itself is not missed in what a replacement leaves
+    /// (two spaces for one left three of four), and a text of many
+    /// matches is gone through once, not once a match.
+    #[test]
+    fn replace_all_replaces_each_match_of_the_text_once() {
+        let o = SearchOptions::default();
+        assert_eq!(replace_all("    ", "  ", " ", &o), ("  ".into(), 2));
+        assert_eq!(replace_all("a\n\n\n\n\n\nb", "\n\n\n", "\n\n", &o), ("a\n\n\n\nb".into(), 2));
+        assert_eq!(replace_all("aaa", "a", "aa", &o), ("aaaaaa".into(), 3));
+        assert_eq!(replace_all("abc", "", "x", &o), ("abc".into(), 0));
+        assert_eq!(replace_all("ab", "abc", "x", &o), ("ab".into(), 0));
+        // A megabyte with 5,000 matches (each pass copied the text).
+        let line = format!("    int nValue = GetLocalInt(oPC, \"{}\");\n", "x".repeat(180));
+        let text = line.repeat(5_000);
+        assert!(text.len() > 1_000_000);
+        let started = std::time::Instant::now();
+        let (out, n) = replace_all(&text, "GetLocalInt", "GetInt", &o);
+        assert_eq!(n, 5_000);
+        assert_eq!(out, text.replace("GetLocalInt", "GetInt"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
     #[test]
