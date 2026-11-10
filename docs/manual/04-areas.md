@@ -478,7 +478,8 @@ puts the light where the menu was opened (from the palette: where you
 click next).
 
 The placeables.2da written is the copy the game reads now (another
-hak's, or the game's), with the light's row added at its end, or at the
+hak's, or the game's; never one in the module file itself, which the
+game does not read), with the light's row added at its end, or at the
 project's `[lights] first_row` (a range the team keeps for lights). So
 the hak must be the one whose copy the game reads, or above it: a hak
 below another that has placeables.2da is refused, and the window says
