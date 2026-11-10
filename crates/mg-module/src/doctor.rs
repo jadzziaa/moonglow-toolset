@@ -2104,7 +2104,7 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
                 let at = dg.at.as_ref().map_or(asked.2.to_string(), ToString::to_string);
                 (asked.0.to_string(), asked.1, at)
             });
-            found.entry((source, resource, at, dg.message)).or_default().push(program.clone());
+            found.entry((source, resource, at, dg.message)).or_default().push(program);
         }
     };
     // (Compiled in parallel, recorded in the programs' order; not at all
@@ -3601,7 +3601,7 @@ pub fn bake(module: &Module, rm: &ResMan, codepage: Codepage, skip: &Skip) -> Ve
         Ok(rows) => rows,
         Err(e) => {
             let message = format!("{e}: nothing is baked until it reads");
-            push(Check::BakeRules, Severity::Error, rows_name.clone(), message);
+            push(Check::BakeRules, Severity::Error, rows_name, message);
             return out;
         }
     };

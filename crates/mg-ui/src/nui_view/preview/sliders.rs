@@ -2,7 +2,7 @@
 use super::*;
 
 impl Renderer<'_> {
-    pub(super) fn slider(&mut self, ui: &mut Ui, c: &mut Control<'_>) {
+    pub(super) fn slider(ui: &mut Ui, c: &mut Control<'_>) {
         let Control { s, a, scale, node, ty, row, body, tint, fg, interactive, .. } = *c;
         let p = &c.p;
         let response = &c.response;

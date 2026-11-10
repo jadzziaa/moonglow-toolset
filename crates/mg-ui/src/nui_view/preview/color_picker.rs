@@ -119,7 +119,7 @@ fn picker(
 }
 
 impl Renderer<'_> {
-    pub(super) fn color_picker(&mut self, ui: &mut Ui, c: &mut Control<'_>) {
+    pub(super) fn color_picker(ui: &mut Ui, c: &mut Control<'_>) {
         let Control { s, a, node, row, font, interactive, source_path, .. } = *c;
         let color = rgba_channels(val(&node["value"], s, row));
         // The client's picker has no alpha: as soon as the window is

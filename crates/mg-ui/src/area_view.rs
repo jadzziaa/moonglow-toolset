@@ -2155,7 +2155,7 @@ impl AreaView {
     }
 
     /// `position` led round `middle` by `angle` (where it is, with none).
-    fn turned_about(&self, middle: Option<Vec2>, position: Vec3, angle: f32) -> Vec3 {
+    fn turned_about(middle: Option<Vec2>, position: Vec3, angle: f32) -> Vec3 {
         match middle {
             Some(m) => {
                 let to = m + Vec2::from_angle(angle).rotate(position.truncate() - m);
@@ -2249,7 +2249,7 @@ impl AreaView {
                     Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
                     Drag::Turn { angle } | Drag::Spin { angle, .. } => (
                         i,
-                        self.turned_about(middle.or(own(o)), o.position, angle),
+                        Self::turned_about(middle.or(own(o)), o.position, angle),
                         if turns(o.kind) { o.rotation + angle } else { o.rotation },
                     ),
                     Drag::Lift { by } | Drag::Slide { by, .. } => {
@@ -2583,7 +2583,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
     let model = AreaModel::read(&game, &are.root, &git.root, tileset);
-    view.read_from = Some((are.clone(), git.clone()));
+    view.read_from = Some((are, git));
     view.read_since.clear();
     view.whole_reads += 1;
     step(&format!(
@@ -6834,7 +6834,7 @@ impl AreaView {
                 .map(|i| {
                     let o = &model.objects[i];
                     let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
-                    (i, self.turned_about(Some(middle), o.position, by), r)
+                    (i, Self::turned_about(Some(middle), o.position, by), r)
                 })
                 .collect();
         }
@@ -6846,7 +6846,7 @@ impl AreaView {
                 let o = &model.objects[i];
                 let r = mg_area::arrange::snap_rotation(o.rotation + by, self.snap.1);
                 let about = o.kind.has_outline().then(|| pivot(o).truncate());
-                (i, self.turned_about(about, o.position, r - o.rotation), r)
+                (i, Self::turned_about(about, o.position, r - o.rotation), r)
             })
             .collect()
     }
@@ -8356,7 +8356,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let changed = (added.instance.fields.iter())
         .filter(|f| placed.get(&label(f)) != Some(&f.value))
         .map(|f| (label(f), Some(f.value.clone())));
-    for (label, value) in gone.chain(changed).collect::<Vec<_>>() {
+    for (label, value) in gone.chain(changed) {
         edits.push(mg_edit::Edit::SetField { key: git, path: at.clone(), label, value });
     }
     let first = added.blueprints[0].0;

@@ -2073,7 +2073,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 // Selected in the area's view (once it is open and has
                 // them), then Adjust Location for them, as its menu's.
                 app.area_focus = Some((area, kind, index));
-                app.area_select = Some((area, targets.clone()));
+                app.area_select = Some((area, targets));
                 app.area_adjust = Some(area);
                 app.actions.push(Action::OpenTab(Tab::Area(area)));
             }

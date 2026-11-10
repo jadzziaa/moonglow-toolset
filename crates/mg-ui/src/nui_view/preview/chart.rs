@@ -66,7 +66,7 @@ pub(super) fn line_points(
 }
 
 impl Renderer<'_> {
-    pub(super) fn chart(&mut self, ui: &mut Ui, c: &Control<'_>) {
+    pub(super) fn chart(ui: &mut Ui, c: &Control<'_>) {
         let Control { s, a, scale, node, row, body, tint, font, .. } = *c;
         let p = &c.p;
         let response = &c.response;

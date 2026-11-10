@@ -311,7 +311,7 @@ pub fn plan(
             // a static placeable with a shadow of 1, its light its model's.)
             let cells = [
                 ("Label", spec.label()),
-                ("ModelName", model_text.clone()),
+                ("ModelName", model_text),
                 ("ShadowSize", "1".into()),
                 ("BodyBag", "0".into()),
                 ("Static", "1".into()),

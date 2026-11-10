@@ -2076,7 +2076,7 @@ impl Worker {
                 vs_entry: vs_entry.clone().unwrap_or_default(),
                 fs_entry: fs_entry.clone().unwrap_or_default(),
                 groups: vec![
-                    storage.clone(),
+                    storage,
                     bones.clone(),
                     layout_entries(&stages[0], visibility[0]),
                     layout_entries(&stages[1], visibility[1]),

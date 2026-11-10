@@ -1061,7 +1061,7 @@ impl AreaScene {
             let name = tile.model.as_deref().unwrap_or("a tile");
             let transform = tile.transform();
             let drawn = mg_render::guard::guarded(name, || {
-                let layers = self.tile_layers(tile, loaded, view);
+                let layers = Self::tile_layers(tile, loaded, view);
                 let pose = if layers.is_empty() {
                     loaded.gpu.rest.clone()
                 } else {
@@ -1126,7 +1126,7 @@ impl AreaScene {
                 if tile.source_lights.iter().all(|&v| v == 0) {
                     continue;
                 }
-                let layers = self.tile_layers(tile, loaded, view);
+                let layers = Self::tile_layers(tile, loaded, view);
                 let posed;
                 let pose: &[Mat4] = if layers.is_empty() {
                     &loaded.gpu.rest
@@ -1190,7 +1190,6 @@ impl AreaScene {
     /// default, day or night, and the animation loops switched on.
     /// Each with its binding to the tile's model, as it was loaded.
     fn tile_layers<'a>(
-        &self,
         tile: &AreaTile,
         loaded: &'a Loaded,
         view: &View,
@@ -1444,9 +1443,9 @@ impl AreaScene {
 
     /// A tile's model as `view` shows it playing the tile's animations:
     /// what every tile of the model playing the same shares.
-    fn posed_tile(&self, tile: &AreaTile, loaded: &Loaded, view: &View) -> PosedTile {
+    fn posed_tile(tile: &AreaTile, loaded: &Loaded, view: &View) -> PosedTile {
         let model = &loaded.gpu.model;
-        let layers = self.tile_layers(tile, loaded, view);
+        let layers = Self::tile_layers(tile, loaded, view);
         // (The animations' keys gathered once, for the pose, the lights
         // and the meshes.)
         let playing = anim::Playing::new(model, &layers, view.time);
@@ -1491,7 +1490,7 @@ impl AreaScene {
         let posed = match shared.tiles.get(&key) {
             Some(posed) => posed.clone(),
             None => {
-                let posed = Arc::new(self.posed_tile(tile, loaded, view));
+                let posed = Arc::new(Self::posed_tile(tile, loaded, view));
                 shared.tiles.insert(key, posed.clone());
                 posed
             }

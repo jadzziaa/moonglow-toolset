@@ -1629,7 +1629,7 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     if !id.shown(app) {
         return;
     }
-    let name = id.label(app).to_string();
+    let name = id.label(app);
     let mut entry = egui::Button::new(&name);
     let key = app.keymap.label_of(&id.id(), ui.ctx());
     if !key.is_empty() {

@@ -1263,9 +1263,8 @@ impl Moonglow {
     /// The blueprints chosen in the palette.
     fn palette_selection(&self) -> Vec<mg_plugin::Selected> {
         let p = &self.palette;
-        let mut keys: Vec<mg_resman::ResKey> = p.selected.into_iter().collect();
-        keys.extend(p.chosen.iter().filter(|k| p.selected != Some(**k)));
-        keys.into_iter().map(mg_plugin::Selected::Blueprint).collect()
+        let others = p.chosen.iter().copied().filter(|k| p.selected != Some(*k));
+        p.selected.into_iter().chain(others).map(mg_plugin::Selected::Blueprint).collect()
     }
 
     /// What is chosen in the module tree: objects of an area's list, or

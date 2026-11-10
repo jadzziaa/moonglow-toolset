@@ -507,17 +507,17 @@ impl Renderer<'_> {
         match c.ty {
             "col" | "row" | "group" => self.container(ui, c),
             "list" => self.list(ui, c),
-            "button" | "button_image" | "button_select" => self.button(c),
-            "label" => self.label(c),
+            "button" | "button_image" | "button_select" => Self::button(c),
+            "label" => Self::label(c),
             "text" => self.text_block(ui, c),
-            "textedit" => self.textedit(ui, c),
+            "textedit" => Self::textedit(ui, c),
             "combo" => self.combo(c),
-            "check" => self.check(c),
-            "slider" | "sliderf" | "progress" => self.slider(ui, c),
-            "image" => self.image(c),
-            "options" | "tabbar" => self.choices(ui, c),
-            "color_picker" => self.color_picker(ui, c),
-            "chart" => self.chart(ui, c),
+            "check" => Self::check(c),
+            "slider" | "sliderf" | "progress" => Self::slider(ui, c),
+            "image" => Self::image(c),
+            "options" | "tabbar" => Self::choices(ui, c),
+            "color_picker" => Self::color_picker(ui, c),
+            "chart" => Self::chart(ui, c),
             "spacer" => {}
             other => {
                 let (p, body, node) = (&c.p, c.body, c.node);

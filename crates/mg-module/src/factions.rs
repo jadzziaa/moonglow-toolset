@@ -229,9 +229,9 @@ fn faction_of(v: &Value) -> Option<u32> {
 
 /// The module's objects (blueprints and placed instances) in a faction.
 pub fn faction_users(m: &Module, id: u32) -> Vec<ResKey> {
-    let keys: Vec<ResKey> =
-        m.keys().filter(|k| FACTION_USERS.contains(&k.restype)).copied().collect();
-    keys.into_iter()
+    m.keys()
+        .filter(|k| FACTION_USERS.contains(&k.restype))
+        .copied()
         .filter(|k| {
             let Some(Ok(mut g)) = m.gff(k) else { return false };
             let mut used = false;

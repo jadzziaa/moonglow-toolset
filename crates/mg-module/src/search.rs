@@ -1330,7 +1330,7 @@ pub fn property_parts(game: &GameData, property: u16, subtype: Option<u16>) -> P
         .property_param_table(&t, subtype.unwrap_or(0))
         .map(|p| named(cell("iprp_paramtable", p as usize, "TableResRef")))
         .unwrap_or_default();
-    PropertyParts { subtypes: named(t.subtypes.clone()), values, params }
+    PropertyParts { subtypes: named(t.subtypes), values, params }
 }
 
 /// A row of a table, given as its number or its name (the game's name or

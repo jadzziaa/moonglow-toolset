@@ -613,7 +613,7 @@ fn frames(
         }
     }
     // (Said once each, however many frames found them.)
-    layout.issues = assets.issues.clone();
+    layout.issues = assets.issues;
     layout.issues.extend(said);
     layout.issues.extend(record.rows_left_out.iter().cloned());
     layout.issues.sort();

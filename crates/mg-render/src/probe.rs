@@ -97,7 +97,7 @@ pub fn probe(adapter: &wgpu::Adapter) -> Probe {
     let info = adapter.get_info();
     let mut p = Probe {
         backend: info.backend,
-        adapter: info.name.clone(),
+        adapter: info.name,
         outcome: Ok(()),
         blames_backend: false,
         device: Duration::ZERO,

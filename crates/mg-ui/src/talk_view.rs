@@ -277,11 +277,9 @@ pub(crate) fn read_again(app: &mut Moonglow) {
         app.talk_view.stamps = None;
         return;
     };
-    let files: Vec<std::path::PathBuf> = std::iter::once(&t.source)
+    let now: Vec<_> = std::iter::once(&t.source)
         .chain(t.feminine.as_ref().map(|(s, _)| s))
         .filter_map(|s| s.file().map(std::path::Path::to_path_buf))
-        .collect();
-    let now: Vec<_> = (files.into_iter())
         .map(|p| {
             let at = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
             (p, at)

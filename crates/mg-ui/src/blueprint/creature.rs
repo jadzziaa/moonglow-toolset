@@ -607,7 +607,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         .on_disabled_hover_text("It levels one creature up at a time")
         .clicked()
     {
-        crate::levelup_view::open(f.app, key, base.clone());
+        crate::levelup_view::open(f.app, key, base);
     }
     ui.separator();
     associates(f, ui, &list, &class_int);

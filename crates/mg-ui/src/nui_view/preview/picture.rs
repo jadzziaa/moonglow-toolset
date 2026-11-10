@@ -78,7 +78,7 @@ pub(in crate::nui_view) fn draw_image(
 }
 
 impl Renderer<'_> {
-    pub(super) fn image(&mut self, c: &Control<'_>) {
+    pub(super) fn image(c: &Control<'_>) {
         let Control { s, a, scale, node, row, body, tint, .. } = *c;
         let p = &c.p;
         let name = localized_string(&node["value"], s, row, a);

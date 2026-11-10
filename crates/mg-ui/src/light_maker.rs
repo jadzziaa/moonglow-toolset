@@ -129,7 +129,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
     }
     let key = (d.spec.normalized(), d.hak.clone());
     if d.planned.as_ref().is_none_or(|(k, _)| *k != key) {
-        d.planned = Some((key.clone(), plan_for(app, d.spec, &d.hak)));
+        d.planned = Some((key, plan_for(app, d.spec, &d.hak)));
     }
     let mut open = true;
     let mut done = None;
