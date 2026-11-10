@@ -726,9 +726,17 @@ impl Moonglow {
             return;
         }
         let label = format!("{} on {} found", change.describe(), out.changed);
-        if let Err(e) = self.apply(Command::new(label.clone(), out.edits)) {
-            draft.act.said = Some(e.to_string());
-            return;
+        match self.apply_or_ask(Command::new(label.clone(), out.edits), None) {
+            Ok(true) => {}
+            // (Held: the Protected Area window names what it would change.)
+            Ok(false) => {
+                draft.act.said = Some("Asked first: it changes a protected area".into());
+                return;
+            }
+            Err(e) => {
+                draft.act.said = Some(e.to_string());
+                return;
+            }
         }
         draft.act.said = Some(format!("{label}{left}"));
         self.advanced_search(draft);
@@ -790,9 +798,19 @@ fn row_picker_in(
 
 /// The choices of a table, as the game names them.
 pub(crate) fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Choice> {
-    let Some(game) = game else { return Vec::new() };
+    listed(game, table).to_vec()
+}
+
+/// [`choices`], as the game data keeps them: the window's own rows ask
+/// every frame, and each got a copy of the whole list (feat.2da's
+/// thousand rows and more, with their names).
+fn listed(
+    game: Option<&GameData>,
+    table: &mg_rules::rows::RowTable,
+) -> std::sync::Arc<Vec<Choice>> {
+    let Some(game) = game else { return Default::default() };
     let columns = ChoiceColumns { name: table.name, label: table.label };
-    game.choice_list(table.table, columns).map(|c| c.to_vec()).unwrap_or_default()
+    game.choice_list(table.table, columns).unwrap_or_default()
 }
 
 /// A condition's rows of the window's grid; `salt` keeps its widgets'
@@ -824,7 +842,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             let table = c.table().expect("a table");
             crate::widgets::field_label(ui, "Property");
             let was = c.row;
-            row_picker(ui, &id("property"), &choices(game, &table), &mut c.row, None);
+            row_picker(ui, &id("property"), &listed(game, &table), &mut c.row, None);
             if c.row != was {
                 (c.subtype, c.cost, c.param) = (None, None, None);
             }
@@ -882,7 +900,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             };
             crate::widgets::field_label(ui, label);
             let table = c.table().expect("a table");
-            row_picker(ui, &id("row"), &choices(game, &table), &mut c.row, None);
+            row_picker(ui, &id("row"), &listed(game, &table), &mut c.row, None);
             ui.end_row();
             if c.kind == Kind::Spell {
                 crate::widgets::field_label(ui, "As class")
@@ -891,7 +909,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
                 row_picker(
                     ui,
                     &id("spell-class"),
-                    &choices(game, &classes),
+                    &listed(game, &classes),
                     &mut c.class,
                     Some("Any"),
                 );
@@ -1172,7 +1190,7 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
                 row_picker(
                     ui,
                     "advanced-search-act-row",
-                    &choices(game, &table),
+                    &listed(game, &table),
                     &mut a.entry.row,
                     None,
                 );

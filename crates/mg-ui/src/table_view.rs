@@ -90,6 +90,9 @@ pub struct TableDoc {
     /// When what the table was read from was last looked at (the time
     /// egui gives).
     read_at: f64,
+    /// What told, when it was last read, whether what the table was read
+    /// from had changed, without reading it ([`seen_now`]).
+    seen: Option<Seen>,
     /// Talk-table columns show their text, not their numbers.
     pub strref_text: bool,
     /// The columns hidden from view, by name in lower case (Hide Column;
@@ -185,6 +188,7 @@ impl TableDoc {
             compact: false,
             read: Arc::from(&[][..]),
             read_at: f64::NEG_INFINITY,
+            seen: None,
             strref_text: true,
             hidden: Default::default(),
             value_names: true,
@@ -306,6 +310,19 @@ impl TableDoc {
     pub(crate) fn changed(&mut self) {
         self.revision += 1;
         self.references = None;
+        // (A selection on a row or column that is gone, an Undo having
+        // taken it back, goes to the last there is: the arrows, Enter and
+        // Delete did nothing until a click, and Empty Row and Delete Row
+        // stayed on for a row that wasn't there.)
+        let table = self.edit.table();
+        let (rows, columns) = (table.len(), table.columns().len());
+        let within = |(row, column): (usize, usize)| {
+            Some((row.min(rows.checked_sub(1)?), column.min(columns.checked_sub(1)?)))
+        };
+        if self.selected.is_some_and(|at| within(at) != Some(at)) {
+            self.selected = self.selected.and_then(within);
+            self.anchor = None;
+        }
     }
 
     /// Whether it has changes not saved where it lives: a cell being typed
@@ -648,8 +665,10 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
             }
             None => Err("its hak is closed: Save As File… keeps the table".to_string()),
         },
+        // (Beside it and moved over it: written in place, a full disk left
+        // half a table.)
         Home::File(path) => {
-            std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
+            mg_module::write_replacing(path, &bytes).map_err(|e| format!("{}: {e}", path.display()))
         }
     };
     match saved {
@@ -687,10 +706,16 @@ fn save_as_file(app: &mut Moonglow, id: u32) {
         return;
     };
     let path = if path.extension().is_some() { path } else { path.with_extension("2da") };
-    if let Some(doc) = app.tables.iter_mut().find(|d| d.id == id) {
-        doc.home = Home::File(path);
+    let Some(doc) = app.tables.iter_mut().find(|d| d.id == id) else { return };
+    let was = std::mem::replace(&mut doc.home, Home::File(path));
+    // (Its home once it is written there: a write that failed left a
+    // module's table pointing at a file that isn't there, and its next
+    // Save went there again, not into the module.)
+    if !save(app, id)
+        && let Some(doc) = app.tables.iter_mut().find(|d| d.id == id)
+    {
+        doc.home = was;
     }
-    save(app, id);
 }
 
 /// Where a table's description is: beside its file (a file's own, the
@@ -728,6 +753,29 @@ fn source_now(app: &Moonglow, doc: &TableDoc) -> Option<Vec<u8>> {
     }
 }
 
+/// What tells whether a table's source changed, without reading it.
+#[derive(Debug, Clone, PartialEq)]
+enum Seen {
+    /// A file's time and size.
+    File(std::time::SystemTime, u64),
+    /// A hak's count of changes in its editor.
+    Hak(u64),
+}
+
+/// What tells, now, whether the table's source changed since it was
+/// read; none where only its bytes tell (the module's, a file that can't
+/// be looked at).
+fn seen_now(app: &Moonglow, doc: &TableDoc) -> Option<Seen> {
+    match &doc.home {
+        Home::Module => None,
+        Home::Hak(hak) => Some(Seen::Hak(app.haks.iter().find(|d| d.id == *hak)?.revision())),
+        Home::File(path) => {
+            let about = std::fs::metadata(path).ok()?;
+            Some(Seen::File(about.modified().ok()?, about.len()))
+        }
+    }
+}
+
 /// Reads the table again when what it was read from changes under it
 /// (looked at once a second): with no change of the builder's not saved,
 /// the editor shows the table as it is now; with one, it says so, and a
@@ -739,7 +787,23 @@ fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
         return;
     }
     app.tables[at].read_at = now;
+    // (Looked at before it is read: a file by its time and size, a hak by
+    // its changes, the module's bytes where they are. The whole of it was
+    // read and copied every second the tab was in front.)
+    let seen = seen_now(app, &app.tables[at]);
+    if seen.is_some() && seen == app.tables[at].seen {
+        return;
+    }
+    let same = |app: &Moonglow| {
+        let doc = &app.tables[at];
+        let module = app.ws.as_ref().map(|ws| &ws.module);
+        doc.home == Home::Module && module.and_then(|m| m.get(&doc.key)) == Some(&doc.read[..])
+    };
+    if same(app) {
+        return;
+    }
     let Some(data) = source_now(app, &app.tables[at]) else { return };
+    app.tables[at].seen = seen;
     if data[..] == app.tables[at].read[..] {
         return;
     }
@@ -1892,7 +1956,7 @@ pub(crate) fn grid_in(
     let widths: Vec<f32> = column_widths(settings, table_name, &columns, CELL)
         .into_iter()
         .zip(&columns)
-        .map(|(w, c)| if doc.hidden.contains(&c.to_ascii_lowercase()) { 0.0 } else { w })
+        .map(|(w, c)| if doc.hidden.contains(&c.to_lowercase()) { 0.0 } else { w })
         .collect();
     // Where each column begins, from the first's left.
     let lefts: Vec<f32> = widths
@@ -3170,6 +3234,9 @@ fn row_choice(
 
 /// Add Column…: its name.
 fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    // (What the table's widths are kept by: a hak's or a file's table's
+    // not by its name alone, and a column renamed in one lost its width.)
+    let widths_of = app.tables[at].widths_key(app);
     let settings = &mut app.settings;
     let doc = &mut app.tables[at];
     let Some(mut name) = doc.new_column.clone() else { return };
@@ -3213,7 +3280,7 @@ fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
                 let was = doc.edit.table().columns()[column].clone();
                 let done = doc.edit.rename_column(column, name.trim());
                 if done.is_ok() {
-                    rename_column_width(settings, &doc.name(), &was, name.trim());
+                    rename_column_width(settings, &widths_of, &was, name.trim());
                 }
                 done.map(|_| ())
             }
@@ -3533,5 +3600,67 @@ mod tests {
         let next = doc.shared();
         assert!(!Arc::ptr_eq(&first, &next));
         assert_eq!((first.cell(0, 0), next.cell(0, 0)), (Some("a"), Some("b")));
+    }
+
+    /// The review of November 2026's smaller notes on the 2DA editor: a
+    /// file's table is written through a temporary file, and a Save As
+    /// File… that fails leaves the table where it lived (its next Save
+    /// went to the file that wasn't there); a selection on a row an Undo
+    /// took back goes to the last row; a column renamed in a file's table
+    /// keeps its width (kept by the table's place, not its name alone).
+    #[test]
+    fn a_table_s_save_as_selection_and_widths_keep_their_place() {
+        let dir = mg_testkit::scratch_dir("ui-table-smaller");
+        let file = dir.join("mg_t.2da");
+        std::fs::write(&file, "2DA V2.0\n\n  Label\n0 a\n").unwrap();
+        // (No folder can be made under a file: the write fails.)
+        std::fs::write(dir.join("a_file"), "x").unwrap();
+        let bad = dir.join("a_file").join("mg_t.2da");
+        let dialogs = crate::NoDialogs { save: vec![bad], ..Default::default() };
+        let mut app = Moonglow::new(None, Box::new(dialogs));
+        let id = open_path(&mut app, &file).expect("opened");
+        let home = Home::File(file.clone());
+        save_as_file(&mut app, id);
+        assert_eq!(app.tables[0].home, home, "still its own file's");
+        assert!(app.tables[0].problem.as_deref().is_some_and(|p| p.starts_with("Not saved")));
+        // Saved: whole, and nothing left beside it.
+        app.tables[0].edit.set(0, 0, Some("b".into())).unwrap();
+        assert!(save(&mut app, id));
+        let written = TwoDa::parse(&std::fs::read(&file).unwrap(), mg_core::Codepage::default());
+        assert_eq!(written.unwrap().cell(0, 0), Some("b"));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2, "the table and the other file");
+
+        // Rows added and taken back with the selection on the last.
+        let doc = &mut app.tables[0];
+        doc.edit.add_rows(3);
+        doc.changed();
+        doc.selected = Some((3, 0));
+        doc.edit.undo();
+        doc.changed();
+        assert_eq!(doc.selected, Some((0, 0)), "on the last row there is");
+
+        // A column renamed keeps its width, under the file's key.
+        let key = app.tables[0].widths_key(&app);
+        assert_ne!(key, "mg_t", "a file's table's is not kept by its name alone");
+        app.settings.table_widths = vec![(key.clone(), vec![("Label".into(), 222)])];
+        rename_column_width(&mut app.settings, &key, "Label", "Name");
+
+        // Its file is looked at (its time and size) before it is read
+        // again, and read when those change.
+        let ctx = egui::Context::default();
+        let look = |app: &mut Moonglow| {
+            app.tables[0].read_at = f64::NEG_INFINITY;
+            read_again(app, &ctx, 0);
+        };
+        look(&mut app);
+        let seen = app.tables[0].seen.clone();
+        assert!(matches!(seen, Some(Seen::File(..))), "{seen:?}");
+        look(&mut app);
+        assert_eq!(app.tables[0].seen, seen, "as it was: not read");
+        std::fs::write(&file, "2DA V2.0\n\n  Label\n0 changed_outside\n").unwrap();
+        look(&mut app);
+        assert_eq!(app.tables[0].edit.table().cell(0, 0), Some("changed_outside"));
+        assert_ne!(app.tables[0].seen, seen);
+        assert_eq!(app.settings.table_widths, [(key, vec![("Name".to_string(), 222)])]);
     }
 }

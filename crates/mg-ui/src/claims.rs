@@ -267,6 +267,35 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
     })
 }
 
+impl Moonglow {
+    /// [`Moonglow::apply`] for a caller that goes on once its command is
+    /// applied: `Ok(true)` when it was; `Ok(false)` when it was held for
+    /// the Protected Area window (asked first: the caller stops without a
+    /// word, and nothing is to be said of an error); an error otherwise.
+    /// `then`: what goes ahead if the builder says to change it anyway,
+    /// where the caller has an action of its own for it (its follow-ups
+    /// happen then too); none: the command alone. A caller that asked
+    /// plain `apply` and said the error left the mark of a held command
+    /// set, and the next command that failed for another reason failed
+    /// without a word.
+    pub(crate) fn apply_or_ask(
+        &mut self,
+        cmd: Command,
+        then: Option<Action>,
+    ) -> Result<bool, EditError> {
+        match self.apply(cmd) {
+            Ok(()) => Ok(true),
+            Err(_) if std::mem::take(&mut self.claims.held) => {
+                if let (Some(ask), Some(then)) = (&mut self.claims.protected_ask, then) {
+                    ask.then = then;
+                }
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
 impl Protected {
     fn noun(self) -> &'static str {
         match self {

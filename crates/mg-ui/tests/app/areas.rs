@@ -153,7 +153,7 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     into(&mut h, "Export Minimaps…");
     let ask = h.state().dialog_export_ask.clone().expect("asked before writing over them");
     assert_eq!(ask.existing, ["chess.png", "chess2.png"]);
-    h.get_by_label("Overwrite").click();
+    h.get_by_label("Replace 2").click();
     h.run_steps(3);
     assert_eq!(read("chess.png"), drawn(&h, chess, false), "unmarked now");
     let said = h.state().log.entries.last().unwrap().1.clone();
@@ -170,7 +170,7 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     into(&mut h, "Export Minimaps with Map Notes…");
     h.get_by_label("Always do this").click();
     h.run_steps(2);
-    h.get_by_label("Overwrite").click();
+    h.get_by_label("Replace 2").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.files_there, FilesThere::Replace);
     assert_eq!(read("chess.png"), one, "written over");

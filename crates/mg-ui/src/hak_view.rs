@@ -239,11 +239,13 @@ impl HakDoc {
             let items = self.hak.items();
             let mut rows: Vec<usize> =
                 (0..items.len()).filter(|&i| needle.finds(&items[i].key.to_string())).collect();
-            rows.sort_by_key(|&i| items[i].key.to_string());
+            // (A name made once an item, not at every comparison: 300,000
+            // for a hak of 20,000, at each letter typed into Find.)
+            rows.sort_by_cached_key(|&i| items[i].key.to_string());
             match self.sort {
                 Sort::Name => {}
                 // (Stable: by name within a type or a size.)
-                Sort::Type => rows.sort_by_key(|&i| items[i].key.restype.to_string()),
+                Sort::Type => rows.sort_by_cached_key(|&i| items[i].key.restype.to_string()),
                 Sort::Size => rows.sort_by_key(|&i| std::cmp::Reverse(items[i].size)),
             }
             self.rows = Some((filter, self.sort, self.revision, rows));
@@ -256,6 +258,12 @@ impl HakDoc {
     /// the window's).
     pub(crate) fn holds_game(&self) -> bool {
         self.resources.as_ref().is_some_and(|rm| rm.layers().len() > 1)
+    }
+
+    /// How many times the hak changed in its editor (a save too): what is
+    /// made from its resources is kept while this stays.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub(crate) fn changed(&mut self) {

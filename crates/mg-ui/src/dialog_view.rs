@@ -14,7 +14,7 @@ use mg_gff::{Gff, Struct, Value};
 use mg_module::dialog::{
     ANIMATIONS, Branch, Kind, Parent, Renumbering, add_node, copy_branch, is_link, link_index,
     link_lines, links, move_link_to, new_dialog, node, paste_branch, remove, shift_link,
-    word_count,
+    word_count, words_of,
 };
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
@@ -728,6 +728,14 @@ fn row_label(
 /// Linked (and a double click on it, as Aurora's), a bookmark.
 pub(crate) fn go_to_line(view: &mut DialogView, g: &Gff, kind: Kind, index: u32) {
     let Some((parent, pos)) = mg_module::dialog::owner(g, kind, index) else { return };
+    go_to_row(view, g, Row { parent, pos });
+}
+
+/// Selects a row (a link under its parent), its parents opened out, and
+/// has it scrolled to: what a search's result or a reference names. They
+/// selected it where it was, under a folded line and out of sight.
+pub(crate) fn go_to_row(view: &mut DialogView, g: &Gff, row: Row) {
+    let Row { parent, pos } = row;
     let mut up = parent;
     let mut seen = HashSet::new();
     while let Parent::Node(k, i) = up {
@@ -886,7 +894,41 @@ fn set(key: ResKey, what: &str, path: GffPath, label: &str, value: Value) -> Act
 }
 
 fn replace(key: ResKey, what: &str, g: &Gff) -> Action {
-    Action::Apply(Command::new(what, vec![Edit::SetResource { key, data: g.to_bytes().ok() }]))
+    Action::Apply(Command::new(what, written(key, g).into_iter().collect()))
+}
+
+/// The edit that keeps conversation `key`'s count of words (`NumWords`,
+/// which the status line shows and the file keeps) with a line's text
+/// changed from `was` to `now`: the count stayed as it was when a line
+/// was typed over.
+fn words_edit(
+    app: &mut Moonglow,
+    key: ResKey,
+    was: &mg_core::LocString,
+    now: &mg_core::LocString,
+) -> Option<Edit> {
+    let g = app.ws.as_mut()?.doc(&key).ok()?;
+    let words = word_count(g).saturating_sub(words_of(was)) + words_of(now);
+    Some(Edit::SetField {
+        key,
+        path: GffPath::root(),
+        label: "NumWords".into(),
+        value: Some(Value::Dword(words)),
+    })
+}
+
+/// The edit that makes conversation `key` what `g` is; none where `g`
+/// can't be written (the conversation stays as it is). With `data:
+/// g.to_bytes().ok()` a write that failed would have been the edit that
+/// deletes the conversation.
+fn written(key: ResKey, g: &Gff) -> Option<Edit> {
+    match g.to_bytes() {
+        Ok(data) => Some(Edit::SetResource { key, data: Some(data) }),
+        Err(e) => {
+            crate::trace::note(format!("{key} could not be written, and is left as it is: {e}"));
+            None
+        }
+    }
 }
 
 /// The key/value pairs of a parameter list, in the game's codepage (as
@@ -1090,6 +1132,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let mut ng = g.clone();
             if paste_branch(&mut ng, p, &c.branch, c.from == key) {
                 view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
+                // (Under a folded line: opened, so that what was pasted
+                // shows.)
+                if let Parent::Node(k, i) = p {
+                    view.collapsed.remove(&(k, i));
+                }
                 actions.push(replace(key, "Paste lines", &ng));
             }
         }
@@ -1487,6 +1534,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 let at = move_link_to(&mut ng, d.from.parent, d.from.pos, onto, d.before);
                 if let Some(pos) = at {
                     view.selected = Some(Row { parent: onto, pos });
+                    // (Dropped under a folded line: opened, to show it.)
+                    if let Parent::Node(k, i) = onto {
+                        view.collapsed.remove(&(k, i));
+                    }
                 }
                 at.is_some()
             }
@@ -1549,8 +1600,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 label: "Text".into(),
                 value: Some(Value::LocString(t)),
             };
-            let made = Edit::SetResource { key, data: ng.to_bytes().ok() };
-            actions.push(Action::ApplyTyped(Command::new("Add line", vec![made, text])));
+            if let Some(made) = written(key, &ng) {
+                actions.push(Action::ApplyTyped(Command::new("Add line", vec![made, text])));
+            }
         } else if !cancel {
             view.input = Some(input);
         }
@@ -1928,13 +1980,16 @@ fn text_panel(
     if let Some(v) = typed {
         // (Put in the module's talk table first, where Options › Language
         // says so.)
+        let now = with_english(ls.clone(), &v);
+        let words = words_edit(app, key, &ls, &now);
         let edit = Edit::SetField {
             key,
             path: path.clone(),
             label: "Text".into(),
-            value: Some(with_english(ls.clone(), &v).into_value()),
+            value: Some(now.into_value()),
         };
-        actions.push(Action::ApplyTyped(Command::new("Line text", vec![edit])));
+        let edits = std::iter::once(edit).chain(words).collect();
+        actions.push(Action::ApplyTyped(Command::new("Line text", edits)));
     }
     if let Some(t) = from_tlk {
         ui.weak(format!("From the talk table (string {}): {t}", ls.strref.0));
@@ -1942,7 +1997,7 @@ fn text_panel(
     if view.token_picker {
         // (Those of the language edited: Options › General.)
         let tokens = crate::widgets::language_tokens(app, crate::text::edit_language());
-        let mut close = false;
+        let (mut close, mut with_token) = (false, None);
         let ctx = ui.ctx().clone();
         let window = crate::widgets::modal(&ctx, "Select Token");
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(260.0, 340.0))
@@ -1955,14 +2010,7 @@ fn text_panel(
             list.show(ui, |ui| {
                 for t in &tokens {
                     if ui.selectable_label(false, t).clicked() {
-                        let v = crate::widgets::with_token(ui.ctx(), id, &shown, t);
-                        actions.push(set(
-                            key,
-                            "Insert token",
-                            path.clone(),
-                            "Text",
-                            with_english(ls.clone(), &v).into_value(),
-                        ));
+                        with_token = Some(crate::widgets::with_token(ui.ctx(), id, &shown, t));
                         close = true;
                     }
                 }
@@ -1971,6 +2019,18 @@ fn text_panel(
                 close = true;
             }
         });
+        if let Some(v) = with_token {
+            let now = with_english(ls.clone(), &v);
+            let words = words_edit(app, key, &ls, &now);
+            let edit = Edit::SetField {
+                key,
+                path: path.clone(),
+                label: "Text".into(),
+                value: Some(now.into_value()),
+            };
+            let edits = std::iter::once(edit).chain(words).collect();
+            actions.push(Action::Apply(Command::new("Insert token", edits)));
+        }
         if close {
             view.token_picker = false;
         }
@@ -2543,6 +2603,9 @@ fn search_pane(
             }
         }
         if n > 0 {
+            // (With the count of its words as it is now.)
+            let words = word_count(&ng);
+            ng.root.set("NumWords", Value::Dword(words));
             actions.push(replace(key, "Replace text", &ng));
         }
         app.log.info(format!("Replaced {n} in {key}"));
@@ -2572,13 +2635,13 @@ fn search_pane(
             clicked = Some(at);
         }
     }
-    if let Some((k, kind, index, _)) = clicked.and_then(|at| s.results.get(at)) {
-        if *k == key {
-            if let Some((parent, pos)) = mg_module::dialog::owner(g, *kind, *index) {
-                view.selected = Some(Row { parent, pos });
-            }
+    let clicked = clicked.and_then(|at| s.results.get(at)).map(|r| (r.0, r.1, r.2));
+    if let Some((k, kind, index)) = clicked {
+        if k == key {
+            // (Its parents opened out, and scrolled to.)
+            go_to_line(view, g, kind, index);
         } else {
-            actions.push(Action::OpenTab(Tab::Dialog(*k)));
+            actions.push(Action::OpenTab(Tab::Dialog(k)));
         }
     }
 }
@@ -2620,9 +2683,13 @@ impl Moonglow {
         })?;
         let lines = mg_module::dialog::nodes(&g, Kind::Entry).len()
             + mg_module::dialog::nodes(&g, Kind::Reply).len();
+        let Some(made) = written(key, &g) else {
+            self.log.error(format!("{} could not be made a conversation", path.display()));
+            return None;
+        };
         self.actions.push(Action::Apply(mg_edit::Command::new(
             format!("Import conversation {}", key.resref),
-            vec![mg_edit::Edit::SetResource { key, data: g.to_bytes().ok() }],
+            vec![made],
         )));
         self.actions.push(Action::OpenTab(Tab::Dialog(key)));
         self.log.info(format!("Imported {} as {key}: {lines} lines", path.display()));

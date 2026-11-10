@@ -335,7 +335,8 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
         let row = match choice {
             Answer::File => continue,
             Answer::Use(row) => {
-                said.push(format!("uses line {row} of the talk table ({})", strref(row)));
+                let uses = format!("uses line {row} of the talk table ({})", strref(row));
+                said.push((short(&w.text), uses));
                 row
             }
             Answer::Add => {
@@ -361,7 +362,8 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
                         continue;
                     }
                 }
-                said.push(format!("is line {row} of the talk table ({})", strref(row)));
+                let is = format!("is line {row} of the talk table ({})", strref(row));
+                said.push((short(&w.text), is));
                 row
             }
         };
@@ -383,8 +385,10 @@ pub(crate) fn apply_with(app: &mut Moonglow, cmd: Command, answers: Vec<(String,
             if !typed.is_empty() {
                 app.typed.undo.push((now, typed));
             }
-            for (w, s) in wanted.iter().zip(&said) {
-                app.log.info(format!("“{}” {s}", short(&w.text)));
+            // (Each with its own text: paired by place, a text kept in the
+            // file before it gave its line to the next text.)
+            for (text, s) in &said {
+                app.log.info(format!("“{text}” {s}"));
             }
         }
         // (Nothing changed: a blueprint only looked at.)

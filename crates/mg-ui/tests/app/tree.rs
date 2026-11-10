@@ -2106,15 +2106,15 @@ fn several_conversations_are_exported_as_ink_twine_text_and_csv() {
     // leaves them.
     std::fs::write(ink.join("gate.ink"), "kept").unwrap();
     export(&mut h, "gate", "Export as Ink…", &ink);
-    h.get_by_label_contains("Files of these names are in");
+    h.get_by_label_contains("already has 3 of the 3 files");
     for name in ["gate.ink", "inn.ink", "well.ink"] {
-        h.get_by_label(&format!("  {name}"));
+        h.get_by_label(name);
     }
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run_steps(3);
     assert_eq!(read(ink.join("gate.ink")), b"kept");
     export(&mut h, "gate", "Export as Ink…", &ink);
-    h.get_by_label("Overwrite").click();
+    h.get_by_label("Replace 3").click();
     h.run_steps(3);
     assert!(h.state().dialog_export_ask.is_none());
     assert_ne!(read(ink.join("gate.ink")), b"kept", "overwritten");

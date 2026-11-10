@@ -352,16 +352,57 @@ fn read_pipe(pipe: Option<impl std::io::Read>, err: bool, output: &Output) {
             Ok(n) => n,
         };
         let mut o = output.lock().unwrap_or_else(|e| e.into_inner());
-        o.partial[at].extend_from_slice(&buf[..n]);
-        while let Some(end) = o.partial[at].iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = o.partial[at].drain(..=end).collect();
-            o.lines.push((said, line_text(&line)));
-        }
+        o.take(at, said, &buf[..n]);
     }
     let mut o = output.lock().unwrap_or_else(|e| e.into_inner());
     let rest = std::mem::take(&mut o.partial[at]);
     if !rest.is_empty() {
-        o.lines.push((said, line_text(&rest)));
+        o.lines.push((said, line_text(written_last(&rest))));
+    }
+}
+
+/// The most bytes a line begun and not ended is kept as, before it is
+/// taken for a line (a program that writes megabytes without a line end).
+const BEGUN_MOST: usize = 64 * 1024;
+
+/// What a line shows of its bytes: what was written after its last
+/// carriage return (progress written over itself, `10%\r20%\r30%`), its
+/// line end apart.
+fn written_last(line: &[u8]) -> &[u8] {
+    let ends = |b: &u8| *b == b'\n' || *b == b'\r';
+    let text = line.len() - line.iter().rev().take_while(|b| ends(b)).count();
+    match line[..text].iter().rposition(|b| *b == b'\r') {
+        Some(cr) => &line[cr + 1..],
+        None => line,
+    }
+}
+
+impl Incoming {
+    /// Takes bytes read from a pipe (`at`: 0 its output, 1 its errors):
+    /// its lines ended, and the line begun as it stands. Only what was
+    /// just read is looked through for a line's end (the whole line begun
+    /// was, after every read), what a carriage return wrote over goes
+    /// (progress showed as one line growing, and only when it ended), and
+    /// a line begun that grows past [`BEGUN_MOST`] is taken as a line.
+    fn take(&mut self, at: usize, said: Said, read: &[u8]) {
+        let begun = &mut self.partial[at];
+        let mut from = begun.len();
+        begun.extend_from_slice(read);
+        while let Some(end) = begun[from..].iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = begun.drain(..=from + end).collect();
+            self.lines.push((said, line_text(written_last(&line))));
+            from = 0;
+        }
+        // (A carriage return at the very end may be a line end's first
+        // half: kept until what follows it is read.)
+        let before_last = begun.len().saturating_sub(1);
+        if let Some(cr) = begun[..before_last].iter().rposition(|b| *b == b'\r') {
+            begun.drain(..=cr);
+        }
+        if begun.len() > BEGUN_MOST {
+            let line = std::mem::take(begun);
+            self.lines.push((said, line_text(&line)));
+        }
     }
 }
 
@@ -392,13 +433,10 @@ fn stop(child: &mut Child) {
     {
         use std::os::windows::process::CommandExt;
         // (Before the shell ends: the tree is found from it.)
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(0x0800_0000)
-            .status();
+        // (Within a time: a taskkill that hangs left Cancel waiting on it.)
+        let mut kill = Command::new("taskkill");
+        kill.args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(0x0800_0000);
+        let _ = mg_core::process::output_within(&mut kill, std::time::Duration::from_secs(10));
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -939,6 +977,39 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod mg_tests {
     use super::*;
+
+    /// A command's output as it comes: lines as they end, the line begun
+    /// as it stands, progress written over itself with carriage returns
+    /// as its last state (it never showed until its line ended, and then
+    /// whole), a Windows line end as one, and a line begun that never
+    /// ends taken as a line once it is long.
+    #[test]
+    fn a_command_s_output_is_taken_as_it_comes() {
+        let mut o = Incoming::default();
+        o.take(0, Said::Out, b"one\ntwo\r\nContinue? ");
+        let lines = |o: &Incoming| o.lines.iter().map(|l| l.1.clone()).collect::<Vec<_>>();
+        assert_eq!(lines(&o), ["one", "two"]);
+        assert_eq!(o.begun()[0], "Continue? ");
+        o.take(0, Said::Out, b"[y/N] ");
+        assert_eq!(o.begun()[0], "Continue? [y/N] ");
+        o.end_lines();
+        // Progress: the last written shows, and is the line when it ends.
+        o.take(0, Said::Out, b"10%\r20%\r");
+        assert_eq!(o.begun()[0], "20%");
+        o.take(0, Said::Out, b"30%\rdone");
+        assert_eq!(o.begun()[0], "done");
+        // (A line end split over two reads is one line end.)
+        o.take(0, Said::Out, b"\r");
+        o.take(0, Said::Out, b"\nnext\n");
+        assert_eq!(lines(&o)[3..], ["done".to_string(), "next".to_string()]);
+        assert_eq!(o.begun()[0], "");
+        // Errors apart, and a line begun that grows without end.
+        o.take(1, Said::Error, &vec![b'x'; BEGUN_MOST]);
+        assert!(o.partial[1].len() == BEGUN_MOST && o.lines.len() == 5);
+        o.take(1, Said::Error, b"y");
+        assert!(o.partial[1].is_empty());
+        assert_eq!(o.lines.last().map(|l| (l.0, l.1.len())), Some((Said::Error, BEGUN_MOST + 1)));
+    }
 
     /// Commands are given the `mg` beside the window's program, where
     /// there is one.

@@ -176,61 +176,31 @@ impl Moonglow {
     }
 }
 
-/// The question, while there is one: the files named, Overwrite, Skip
-/// Those (the others written) or Cancel, and Always do this.
+/// The question, while there is one: the files named, Replace, Skip
+/// Those (the others written) or Cancel, and Always do this. The one
+/// every "files there already" question is (`widgets::files_already`):
+/// this was a second copy of it, with other buttons.
 pub(crate) fn ask_window(app: &mut Moonglow, ctx: &egui::Context) {
-    use crate::settings::FilesThere;
+    use crate::widgets::Already;
     let Some(ask) = &app.dialog_export_ask else { return };
-    let mut answer: Option<Option<FilesThere>> = None;
-    let always_id = egui::Id::new("dialog-export-always");
-    let always = ctx.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
-    let title = match ask.what {
-        Exported::Conversations(format) => format!("Export as {}", word(format)),
-        Exported::Minimaps { .. } => "Export Minimaps".to_string(),
+    let (n, all) = (ask.existing.len(), ask.keys.len());
+    let said = format!("{} already has {n} of the {all} files:", ask.dir.display());
+    let files: Vec<_> = ask.existing.iter().map(|name| (name.clone(), None)).collect();
+    let tips = [
+        "Write all the files: these take the place of the folder's",
+        "Write the other files and leave the folder's as they are",
+    ];
+    let there = &mut app.settings.files_there;
+    let Some(answer) = crate::widgets::files_already(ctx, there, "Folder", &said, &files, tips)
+    else {
+        return;
     };
-    crate::widgets::modal(ctx, title).id(egui::Id::new("dialog-export-ask")).show(ctx, |ui| {
-        ui.set_max_width(460.0);
-        let n = ask.existing.len();
-        let these = if n == 1 { "A file of this name is" } else { "Files of these names are" };
-        ui.label(format!("{these} in {} already:", ask.dir.display()));
-        egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
-            for name in &ask.existing {
-                ui.label(format!("  {name}"));
-            }
-        });
-        ui.add_space(6.0);
-        ui.label(if n == 1 { "Overwrite it?" } else { "Overwrite them?" });
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("Overwrite").clicked() {
-                answer = Some(Some(FilesThere::Replace));
-            }
-            if ui
-                .button("Skip Those")
-                .on_hover_text("Write the others, and leave these as they are")
-                .clicked()
-            {
-                answer = Some(Some(FilesThere::Skip));
-            }
-            if crate::widgets::cancel(ui) {
-                answer = Some(None);
-            }
-        });
-        crate::widgets::always_box(
-            ui,
-            always_id,
-            "Always do this",
-            &format!("{} › Files there already", crate::widgets::QUESTIONS_AT),
-        );
-    });
-    let Some(answer) = answer else { return };
     let Some(ask) = app.dialog_export_ask.take() else { return };
-    let Some(choice) = answer else { return };
-    // (Always so: Options' choice, from now on.)
-    if always {
-        app.settings.files_there = choice;
-    }
-    let keys = if choice == FilesThere::Skip { ask.new_ones() } else { ask.keys.clone() };
+    let keys = match answer {
+        Already::Replace => ask.keys.clone(),
+        Already::Skip => ask.new_ones(),
+        Already::Cancel => return,
+    };
     app.write_exported(&ask, &keys);
 }
 

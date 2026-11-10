@@ -753,10 +753,9 @@ impl Moonglow {
             return;
         };
         self.erf_chosen(&path);
-        match bytes
-            .map_err(|e| e.to_string())
-            .and_then(|b| std::fs::write(&path, b).map_err(|e| format!("{}: {e}", path.display())))
-        {
+        match bytes.map_err(|e| e.to_string()).and_then(|b| {
+            mg_module::write_replacing(&path, &b).map_err(|e| format!("{}: {e}", path.display()))
+        }) {
             Ok(()) => {
                 let held = roots.len() - 1;
                 let others = plan.resources.len() - roots.len();
@@ -873,7 +872,7 @@ impl Moonglow {
             None => mg_module::transfer::export_erf(&ws.module, resources, comments, reset),
         }
         .map_err(|e| e.to_string())
-        .and_then(|bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()));
+        .and_then(|bytes| mg_module::write_replacing(path, &bytes).map_err(|e| e.to_string()));
         match result {
             Ok(()) => self.log.info(format!(
                 "{} {} resources to {}, stamped with {}",
@@ -1187,18 +1186,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 );
             });
             ui.horizontal(|ui| {
-                let all = listed.iter().all(|k| draft.selected.contains(k));
+                // (How many of those listed are ticked, counted once for
+                // both buttons: each asked every listed key of the
+                // selection.)
+                let mut ticked = listed.iter().filter(|k| draft.selected.contains(k)).count();
                 if ui
                     .add_enabled(
-                        !all,
+                        ticked < listed.len(),
                         egui::Button::new(format!("Select the {} Listed", listed.len())),
                     )
                     .clicked()
                 {
                     draft.selected.extend(listed.iter().copied());
+                    ticked = listed.len();
                 }
-                let any = listed.iter().any(|k| draft.selected.contains(k));
-                if ui.add_enabled(any, egui::Button::new("Clear Them")).clicked() {
+                if ui.add_enabled(ticked > 0, egui::Button::new("Clear Them")).clicked() {
                     for k in listed.iter() {
                         draft.selected.remove(k);
                     }
@@ -1245,7 +1247,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
 
     if let Some(draft) = &mut app.import {
-        let mut close = false;
+        let (mut close, mut import) = (false, false);
         let name = draft.name.clone();
         let auto_compile = app.settings.auto_compile;
         // Resized as a builder likes (GitHub issue 40: an archive of
@@ -1371,7 +1373,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if ui.add_enabled(any, egui::Button::new("Import")).clicked()
                     || (any && crate::widgets::enter(ui))
                 {
-                    app.actions.push(Action::Import(draft.clone()));
+                    import = true;
                     close = true;
                 }
                 if crate::widgets::cancel(ui) {
@@ -1386,6 +1388,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
         });
+        // (The import itself, not a copy of it: every incoming resource's
+        // bytes were copied once to run it.)
+        if import && let Some(draft) = app.import.take() {
+            app.actions.push(Action::Import(draft));
+        }
         if close {
             app.import = None;
         }

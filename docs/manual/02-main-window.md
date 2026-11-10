@@ -339,7 +339,8 @@ its ResRef (`gate.ink`, `gate.twee`, `gate.txt`, `gate.csv`), exactly as
 the conversation editor's [Export](06-conversations.md) writes it (a
 conversation open in an editor goes as it is there, changes not saved
 yet included). Files of those names in the folder are asked about once,
-each named, before they are overwritten (**Overwrite** or **Cancel**).
+each named, before they are overwritten (**Replace** them, **Skip Those**
+and write the rest, or **Cancel**).
 The log says how many were written and where; one that can't be
 written is named there with why, and the rest are written. `mg
 dialog-export --to` does the same from the [command

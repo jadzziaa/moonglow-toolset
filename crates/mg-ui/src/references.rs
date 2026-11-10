@@ -321,9 +321,11 @@ impl Moonglow {
             .map(|k| Edit::SetResource { key: k, data: staged.get(&k).map(<[u8]>::to_vec) })
             .collect();
         let new = ResKey::new(to, from.restype);
-        if let Err(e) = self.apply(Command::new(format!("Rename {from} to {new}"), edits)) {
-            self.log.error(e.to_string());
-            return;
+        match self.apply_or_ask(Command::new(format!("Rename {from} to {new}"), edits), None) {
+            Ok(true) => {}
+            // (Held for the Protected Area window: asked there.)
+            Ok(false) => return,
+            Err(e) => return self.log.error(e.to_string()),
         }
         self.retarget(from, to);
         self.log.info(format!(
@@ -336,7 +338,9 @@ impl Moonglow {
                 "Some scripts the rename changed aren't compiled; compile them before testing",
             );
         }
-        if self.references.query.is_some() {
+        // (Where it shows the resource renamed: any rename pointed it at
+        // that resource, whatever it was showing.)
+        if self.references.query == Some(Query::Resource(main_key(from))) {
             self.references.query = Some(Query::Resource(new));
             self.references.input = to.to_string();
             self.references.revision = None;
@@ -418,9 +422,10 @@ impl Moonglow {
             None => Ok(None),
         };
         let new = ResKey::new(to, from.restype);
-        if let Err(e) = self.apply(made.command) {
-            self.log.error(e.to_string());
-            return;
+        match self.apply_or_ask(made.command, None) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => return self.log.error(e.to_string()),
         }
         // The window's tab and what it keeps, and the tabs and buffers of
         // its two scripts where they moved with it. (Only those: another
@@ -638,9 +643,10 @@ impl Moonglow {
                     Some(Edit::SetResource { key: *k, data })
                 })
                 .collect();
-            if let Err(e) = self.apply(Command::new(format!("Edit {}", unsaved[0]), edits)) {
-                self.log.error(e.to_string());
-                return;
+            match self.apply_or_ask(Command::new(format!("Edit {}", unsaved[0]), edits), None) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(e) => return self.log.error(e.to_string()),
             }
         }
         let mut gone: Vec<ResKey> = going.iter().flat_map(|k| self.deleted_with(*k)).collect();
@@ -668,9 +674,13 @@ impl Moonglow {
             [key] => format!("Delete {key}"),
             several => format!("Delete {} resources", several.len()),
         };
-        if let Err(e) = self.apply(Command::new(label, edits)) {
-            self.log.error(e.to_string());
-            return;
+        // (Held for the Protected Area window: what goes ahead from there
+        // is this deletion whole, its tabs closed too.)
+        let again = Action::DeleteResources(keys.to_vec());
+        match self.apply_or_ask(Command::new(label, edits), Some(again)) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => return self.log.error(e.to_string()),
         }
         // (Every tab that shows one of them: `Tab::tree_keys`'s, an Edit
         // Together tab of several too.)
@@ -769,7 +779,13 @@ impl Moonglow {
             ResType::GIT => self.actions.push(Action::OpenTab(Tab::Area(u.from.resref))),
             ResType::DLG => {
                 if let Some(row) = self.ws.as_ref().and_then(|ws| dialog_row(&ws.module, u)) {
-                    self.dialog_views.entry(u.from).or_default().selected = Some(row);
+                    // (Its parents opened out, and scrolled to.)
+                    let doc = self.ws.as_mut().and_then(|ws| ws.doc(&u.from).ok().cloned());
+                    let view = self.dialog_views.entry(u.from).or_default();
+                    match doc {
+                        Some(g) => crate::dialog_view::go_to_row(view, &g, row),
+                        None => view.selected = Some(row),
+                    }
                 }
                 self.actions.push(Action::OpenTab(Tab::Dialog(u.from)));
             }

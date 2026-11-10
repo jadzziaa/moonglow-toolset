@@ -656,12 +656,16 @@ pub fn word_count(g: &Gff) -> u32 {
         .iter()
         .flat_map(|k| nodes(g, *k))
         .filter_map(|n| n.locstring("Text"))
-        .map(|t| {
-            t.strings.first().map_or(0, |(_, b)| {
-                b.split(|c| c.is_ascii_whitespace()).filter(|w| !w.is_empty()).count()
-            })
-        })
-        .sum::<usize>() as u32
+        .map(words_of)
+        .sum()
+}
+
+/// The words of one line's text, as [`word_count`] counts them (its first
+/// language's): what a change of the line's text changes the count by.
+pub fn words_of(text: &LocString) -> u32 {
+    text.strings.first().map_or(0, |(_, b)| {
+        b.split(|c| c.is_ascii_whitespace()).filter(|w| !w.is_empty()).count() as u32
+    })
 }
 
 /// A copied branch: its lines (the first is the top), with links between

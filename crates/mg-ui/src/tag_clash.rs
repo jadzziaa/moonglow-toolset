@@ -373,9 +373,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             .filter(|e| matches!(e, Edit::SetField { label, .. } if label == "Tag"))
             .count();
         let links = edits.len() - n;
-        if let Err(e) = app.apply(Command::new("Retag", edits)) {
+        let applied = app.apply_or_ask(Command::new("Retag", edits), None);
+        if let Err(e) = &applied {
             app.log.error(e.to_string());
-        } else {
+        } else if matches!(applied, Ok(true)) {
             let s = |n: usize| if n == 1 { "" } else { "s" };
             let led = match links {
                 0 => String::new(),
