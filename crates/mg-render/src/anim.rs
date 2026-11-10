@@ -121,21 +121,10 @@ pub struct Binding {
 }
 
 impl Binding {
-    /// `anim`, played by `model`.
-    pub fn new(model: &Model, anim: &Animation) -> Binding {
-        Nodes::of(model, None).bind(model, anim, None)
-    }
-
-    /// Each of `anims`, played by `model` (its nodes looked up once).
-    pub fn all<'a>(model: &Model, anims: impl IntoIterator<Item = &'a Animation>) -> Vec<Binding> {
-        let nodes = Nodes::of(model, None);
-        anims.into_iter().map(|a| nodes.bind(model, a, None)).collect()
-    }
-
-    /// [`Binding::all`] of animations each with the scale it plays at
-    /// through the model's chain of supermodels
+    /// Each of `anims`, played by `model` (its nodes looked up once), with
+    /// the scale it plays at through the model's chain of supermodels
     /// ([`mg_mdl::animations_scaled`]: the product of each link's but the
-    /// owner's), where `all` takes the model's own scale alone.
+    /// owner's).
     pub fn all_scaled<'a>(
         model: &Model,
         anims: impl IntoIterator<Item = (&'a Animation, f32)>,
@@ -935,7 +924,9 @@ mod tests {
         };
         for model in [model([Some(0), Some(1), Some(2)]), model([None; 3])] {
             let layers = [&model.animations[0], &borrowed];
-            let bound = Binding::all(&model, layers);
+            // (Each at the model's own scale, as `pose_layers` plays it.)
+            let nodes = Nodes::of(&model, None);
+            let bound: Vec<Binding> = layers.iter().map(|a| nodes.bind(&model, a, None)).collect();
             let pairs: Vec<(&Animation, &Binding)> = layers.into_iter().zip(&bound).collect();
             for t in [0.0, 0.25, 1.0, 1.5] {
                 let playing = Playing::new(&model, &pairs, t);

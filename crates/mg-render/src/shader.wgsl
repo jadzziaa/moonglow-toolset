@@ -57,7 +57,7 @@ struct Draw {
     // The texture's turn (the game's `m_texture`: a tile's ground turned
     // with it): x = cos, y = sin.
     uv_turn: vec4<f32>,
-    // x = number of lights for this draw, y = 1 if skinned, z = first bone,
+    // x = number of lights for this draw, y = nothing, z = first bone,
     // w = 1 if the mesh's tangents were made (not the model's)
     light_count: vec4<u32>,
     // Up to 32 light indices.
@@ -708,7 +708,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
     ambient = ambient * ao;
     var total = draws[this_draw].emissive.rgb + (1.0 - env_spec) * (ambient + diffuse);
-    total = max(total, min(frame.scene_color.rgb * draws[this_draw].diffuse.rgb, vec3<f32>(1.0)));
+    total = max(total, vec3<f32>(0.0));
     var rgb = color.rgb * total;
     if (draws[this_draw].maps2.x > 0.5) {
         rgb = rgb + lin(textureSampleGrad(tex_illum, samp0, uv, duv1, duv2).rgb);

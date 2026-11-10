@@ -16,10 +16,8 @@ struct Frame {
     fog: vec4<f32>,
     // Gamma space.
     fog_color: vec4<f32>,
-    // 1 / max intensity, falloff factor, light count, target height (pixels)
+    // 1 / max intensity, falloff factor, nothing, target height (pixels)
     light_params: vec4<f32>,
-    // Minimum light (the GUI "scene colour"), linear.
-    scene_color: vec4<f32>,
     // x = seconds, for what moves by itself (water).
     time: vec4<f32>,
 };

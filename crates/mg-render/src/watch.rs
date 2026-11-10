@@ -294,14 +294,6 @@ impl Watch {
     pub fn failure(&self) -> Option<Failure> {
         self.failed
     }
-
-    /// Forgets the looks (another area, the switch of the game's shaders):
-    /// the next look starts again, warming up. A failure stays.
-    pub fn restart(&mut self) {
-        self.ready_since = None;
-        self.waiting = None;
-        self.collapse = None;
-    }
 }
 
 /// The look's format: the depth, and the picture's colour (as drawn,
@@ -420,7 +412,6 @@ pub struct Sampler {
     layout: wgpu::BindGroupLayout,
     grid: wgpu::TextureView,
     texture: wgpu::Texture,
-    samples: u32,
     pending: Option<Pending>,
 }
 
@@ -494,12 +485,7 @@ impl Sampler {
             view_formats: &[],
         });
         let grid = texture.create_view(&Default::default());
-        Sampler { pipeline, layout, grid, texture, samples, pending: None }
-    }
-
-    /// The samples a pixel of the targets it is for.
-    pub fn samples(&self) -> u32 {
-        self.samples
+        Sampler { pipeline, layout, grid, texture, pending: None }
     }
 
     /// Whether a look is under way (the next is taken once it is read).
@@ -795,8 +781,6 @@ mod tests {
         let mut w = Watch::default();
         let v = looks(&mut w, look(1000, 200, 0.0), 0.0, 60.0);
         assert_eq!(v, Verdict::Quiet(Quiet::Drawn));
-        w.restart();
-        assert_eq!(w.judge(look(1000, 1000, 61.0)), Verdict::Quiet(Quiet::WarmingUp));
     }
 
     fn camera(eye: Vec3, target: Vec3) -> Camera {

@@ -77,7 +77,6 @@ struct FrameUniform {
     fog: [f32; 4],
     fog_color: [f32; 4],
     light_params: [f32; 4],
-    scene_color: [f32; 4],
     time: [f32; 4],
 }
 
@@ -457,8 +456,8 @@ pub struct Renderer {
     /// default.
     pub game_shaders: bool,
     /// Shiny water is drawn by the game's `vswater`/`fswater` too, where
-    /// the game's shaders are on ([`GAME_WATER`] by default: Moonglow's own
-    /// water; on, for comparing).
+    /// the game's shaders are on ([`GAME_WATER`] by default: on; off,
+    /// Moonglow's own water, for comparing).
     pub game_water: bool,
     /// The game's programs are compiled, and their pipelines made, while
     /// the frames go on (a view drawn again and again: the area view, the
@@ -1618,16 +1617,16 @@ impl Renderer {
         self.game.stats
     }
 
-    /// From now on, each pipeline of the game's programs made is kept in
-    /// what this gives back, its modules and layouts as they go to wgpu
-    /// (a test of what a backend makes of them: Direct3D 12's HLSL).
-    #[doc(hidden)]
     /// Waits until the game's pipelines asked for are made (a test that
     /// moves on once they are, whatever the time they take).
+    #[doc(hidden)]
     pub fn wait_for_game_programs(&mut self) {
         self.game.finish_all();
     }
 
+    /// From now on, each pipeline of the game's programs made is kept in
+    /// what this gives back, its modules and layouts as they go to wgpu
+    /// (a test of what a backend makes of them: Direct3D 12's HLSL).
     #[doc(hidden)]
     pub fn capture_game_modules(&mut self) -> crate::game::Captured {
         self.game.capture.get_or_insert_with(Default::default).clone()
@@ -2254,10 +2253,9 @@ impl Renderer {
         // The lights' shadows: which creatures cast them from which light.
         // (The sun's, what casts them and where their map is, are worked
         // out beside the meshes' draws, below.)
-        // (Skins cast into a map; the stencil volumes, as the game's, cast
-        // none of them.)
-        let skins_cast = !self.shadow_volumes;
-        let light_plan = crate::shadow::light_plan(scene, camera, skins_cast);
+        // (Planned for a map, or for the stencil volumes.)
+        let for_volumes = self.shadow_volumes;
+        let light_plan = crate::shadow::light_plan(scene, camera, for_volumes);
         // (Whether there may be shadows: what they fall on is drawn first
         // where there are, and among the rest where there aren't.)
         let may_shadow = scene.shadows.is_some_and(|s| s.opacity > 0.0) || light_plan.is_some();
@@ -2274,9 +2272,8 @@ impl Renderer {
             fog_color: scene.fog.map_or([0.0; 4], |f| f.color.extend(1.0).to_array()),
             light_params: {
                 let (max_inv, falloff) = attenuation_params();
-                [max_inv, falloff, scene.lights.len() as f32, size.1 as f32]
+                [max_inv, falloff, 0.0, size.1 as f32]
             },
-            scene_color: [0.0; 4],
             time: [scene.time, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
@@ -2394,7 +2391,7 @@ impl Renderer {
         let shadow_plan = std::thread::scope(|threads| {
             let apart = scene.instances.len() >= PLAN_APART && scene.shadows.is_some();
             let planning = apart
-                .then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect, skins_cast)));
+                .then(|| threads.spawn(|| crate::shadow::plan(scene, camera, aspect, for_volumes)));
             for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
                 // (Only where the frame has shadows: else the solid draws keep
                 // their order.)
@@ -2835,7 +2832,7 @@ impl Renderer {
                         // tangent frame is taken from the derivatives.)
                         light_count: [
                             chosen.len() as u32,
-                            u32::from(mesh.skin.is_some()),
+                            0,
                             bone_base,
                             u32::from(mesh.tangents_made),
                         ],
@@ -2893,7 +2890,7 @@ impl Renderer {
             }
             match planning {
                 Some(p) => p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)),
-                None => crate::shadow::plan(scene, camera, aspect, skins_cast),
+                None => crate::shadow::plan(scene, camera, aspect, for_volumes),
             }
         });
         let shadowing = shadow_plan.is_some() || light_plan.is_some();
@@ -4137,11 +4134,11 @@ mod tests {
                 panic!("{name}: Frame is no struct");
             };
             assert_eq!(*span as usize, std::mem::size_of::<super::FrameUniform>(), "{name}");
-            assert_eq!(members.len(), 10, "{name}");
+            assert_eq!(members.len(), 9, "{name}");
             // (The last field, which the copies lacked, where it is written.)
             let time = members.last().unwrap();
-            assert_eq!((time.name.as_deref(), time.offset), (Some("time"), 240), "{name}");
-            assert_eq!(std::mem::offset_of!(super::FrameUniform, time), 240);
+            assert_eq!((time.name.as_deref(), time.offset), (Some("time"), 224), "{name}");
+            assert_eq!(std::mem::offset_of!(super::FrameUniform, time), 224);
         }
     }
 

@@ -519,11 +519,6 @@ impl GpuModel {
     }
 }
 
-/// A node's transform relative to its parent.
-pub fn local(position: [f32; 3], orientation: [f32; 4], scale: f32) -> Mat4 {
-    crate::anim::Local::new(position, orientation, scale).matrix()
-}
-
 /// Each node's transform in model space, in the rest pose. (A node whose
 /// parent comes after it, which no model of the game's has, stands as if
 /// it had none.)

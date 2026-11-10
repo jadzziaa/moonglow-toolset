@@ -1298,11 +1298,13 @@ mod tests {
         info.backend = wgpu::Backend::Vulkan;
         let older = GraphicsFailure { version: "0.0.1".into(), ..GraphicsFailure::of(&info, "x") };
         let undated = GraphicsFailure { version: String::new(), ..older.clone() };
-        let mut s = Settings::default();
-        s.graphics_failures = vec![older, ours.clone(), undated];
+        let mut s = Settings {
+            graphics_failures: vec![older, ours.clone(), undated],
+            ..Default::default()
+        };
         assert_eq!(s.failed_backends(), [ours.failed().unwrap()]);
         assert_eq!(s.forget_other_releases_graphics_failures(), 2);
-        assert_eq!(s.graphics_failures, [ours.clone()]);
+        assert_eq!(s.graphics_failures, std::slice::from_ref(&ours));
         assert_eq!(s.forget_other_releases_graphics_failures(), 0);
         // (A record saved before the field reads as of no release.)
         let saved = "(graphics_failures:[(vendor:4098,device:26591,backend:\"Vulkan\")])";

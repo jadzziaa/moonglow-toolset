@@ -253,14 +253,17 @@ type Met<'a> = (Caster<'a>, (Vec3, Vec3), Option<&'a [Mat4]>);
 
 /// The shadow map a scene needs, seen by `camera` in a picture of
 /// `aspect`: `None` where it has no shadows (none asked for, none to cast
-/// or none to receive one in sight). `skins`: skinned meshes cast (the
-/// map's; the stencil volumes, as the game's, cast none of them).
+/// or none to receive one in sight). `volumes`: it is the stencil
+/// volumes' (else the map's), which cast no skinned mesh, as the game's
+/// cast none, and end a tile's volumes at its box's bottom
+/// ([`Caster::bottom`], which the map reads nothing of).
 pub(crate) fn plan<'a>(
     scene: &'a Scene,
     camera: &Camera,
     aspect: f32,
-    skins: bool,
+    volumes: bool,
 ) -> Option<Plan<'a>> {
+    let skins = !volumes;
     let shadows = scene.shadows.filter(|s| s.opacity > 0.0)?;
     // (Each with its box, and a skinned one's pose: its bones are worked
     // out once it is known to cast into the map's region.)
@@ -274,7 +277,7 @@ pub(crate) fn plan<'a>(
         let node = |n: usize| inst.transform * pose.get(n).copied().unwrap_or(Mat4::IDENTITY);
         let model: &'a crate::GpuModel = &inst.model;
         // (A tile's box's bottom, of all its meshes.)
-        let bottom = inst.tile.then(|| {
+        let bottom = (inst.tile && volumes).then(|| {
             (model.meshes.iter().chain(&model.shadow_only))
                 .map(|m| world_box(node(m.node), m).0.z)
                 .fold(f32::MAX, f32::min)
@@ -500,12 +503,14 @@ pub(crate) fn light_projection(light: Vec3, at: Vec3, radius: f32, reach: f32) -
 
 /// The lights' shadows a scene needs, seen by `camera`: `None` where it
 /// has none (none asked for, or no creature with a light that casts).
-/// `skins`: skinned meshes cast ([`plan`]).
+/// `volumes`: it is the stencil volumes', which cast no skinned mesh
+/// ([`plan`]).
 pub(crate) fn light_plan<'a>(
     scene: &'a Scene,
     camera: &Camera,
-    skins: bool,
+    volumes: bool,
 ) -> Option<LightPlan<'a>> {
+    let skins = !volumes;
     let shadows = scene.light_shadows.filter(|s| s.opacity > 0.0)?;
     // A creature's instances (its base first, then its parts: one made of
     // body parts is an instance a part), the nearest the camera's target
@@ -1467,6 +1472,10 @@ impl Darkener {
 mod tests {
     use super::*;
 
+    /// A plan for the shadow map, and one for the stencil volumes.
+    const MAP: bool = false;
+    const VOLUMES: bool = true;
+
     /// The client's camera of the reference scenes (pitch 50, its eye 19 m
     /// from a focus 12 m below it) with the fog ending at 45 m: its
     /// shadows half as opaque as they can be a little over halfway up the
@@ -1648,24 +1657,24 @@ mod tests {
         };
         // In the region: both cast, the skin with its bone.
         let near = scene(1.0);
-        let sun = plan(&near, &camera, 1.0, true).expect("a plan");
+        let sun = plan(&near, &camera, 1.0, MAP).expect("a plan");
         assert_eq!((sun.casters.len(), sun.bones.len()), (2, 1));
         assert_eq!(sun.casters.iter().filter(|c| c.bones.is_some()).count(), 1);
         // The skin out of the region: the rigid one alone, and no bones.
         let far = scene(60.0);
-        let sun = plan(&far, &camera, 1.0, true).expect("a plan");
+        let sun = plan(&far, &camera, 1.0, MAP).expect("a plan");
         assert_eq!((sun.casters.len(), sun.bones.len()), (1, 0));
         // Skins casting nothing (the stencil volumes): none planned.
-        let sun = plan(&near, &camera, 1.0, false).expect("a plan");
+        let sun = plan(&near, &camera, 1.0, VOLUMES).expect("a plan");
         assert_eq!((sun.casters.len(), sun.bones.len()), (1, 0));
         // The lights': the skin within the lamp's reach casts, with its
         // bone; out of it, nothing of it is left; nor where skins cast
         // nothing.
-        let lit = light_plan(&near, &camera, true).expect("a plan");
+        let lit = light_plan(&near, &camera, MAP).expect("a plan");
         assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (2, 2, 1));
-        let lit = light_plan(&far, &camera, true).expect("a plan");
+        let lit = light_plan(&far, &camera, MAP).expect("a plan");
         assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
-        let lit = light_plan(&near, &camera, false).expect("a plan");
+        let lit = light_plan(&near, &camera, VOLUMES).expect("a plan");
         assert_eq!((lit.lights.len(), lit.casters.len(), lit.bones.len()), (1, 1, 0));
     }
 
@@ -1719,16 +1728,16 @@ mod tests {
         let good =
             || vec![tile(-4.0), tile(0.0), tile(4.0), Instance::new(caster.clone(), at(0.5))];
         let all_good = scene(good());
-        let whole = plan(&all_good, &camera, 1.5, true).expect("a plan");
+        let whole = plan(&all_good, &camera, 1.5, MAP).expect("a plan");
         for place in [0, 1, 2, 4] {
             let mut instances = good();
             instances.insert(place, nowhere.clone());
             let scene = scene(instances);
-            let with = plan(&scene, &camera, 1.5, true).expect("a plan");
+            let with = plan(&scene, &camera, 1.5, MAP).expect("a plan");
             assert_eq!(with.light, whole.light, "at {place}");
             assert_eq!((with.casters.len(), with.floor), (whole.casters.len(), whole.floor));
             // (Nor a light's shadow of it.)
-            assert!(light_plan(&scene, &camera, true).is_none(), "at {place}");
+            assert!(light_plan(&scene, &camera, MAP).is_none(), "at {place}");
         }
     }
 
