@@ -249,6 +249,9 @@ pub struct VarHelp {
     /// Each described variable's values, by its description's name, read
     /// when first needed (a table's rows, a script's constants).
     choices: std::collections::HashMap<String, Choices>,
+    /// Those values as their lists show them ([`Offered`]), made with
+    /// them.
+    offered: std::collections::HashMap<String, Offered>,
     /// The rows' names at the frame before, to see one change.
     names: Vec<String>,
     /// The row whose name is being typed: the names offered under it.
@@ -261,6 +264,36 @@ pub struct VarHelp {
     /// The row and name Escape closed the offer at: not offered again
     /// until the name changes.
     dismissed: Option<(usize, String)>,
+}
+
+/// A described variable's values as its list shows them, made once when
+/// they are read: a table's rows (`rows = "placeables"`, 25,000 with CEP)
+/// were copied every frame for each such variable, and each row of the
+/// open list was looked up in the whole list.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Offered {
+    /// Each value's row, numbered by its place among the values: the
+    /// value, and what it means after it.
+    rows: Vec<mg_rules::Choice>,
+    /// Where each value is among them (the first, of one written twice).
+    at: std::collections::HashMap<String, usize>,
+}
+
+impl Offered {
+    fn of(c: &Choices) -> Offered {
+        let mut at = std::collections::HashMap::with_capacity(c.list.len());
+        let rows = (c.list.iter().enumerate())
+            .map(|(row, x)| {
+                at.entry(x.value.clone()).or_insert(row);
+                let text = match &x.note {
+                    Some(n) => format!("{} — {n}", x.value),
+                    None => x.value.clone(),
+                };
+                mg_rules::Choice { row, text }
+            })
+            .collect();
+        Offered { rows, at }
+    }
 }
 
 /// A name the Variables window offers as one is typed: a described
@@ -302,6 +335,7 @@ impl VarHelp {
             let rm = app.game.as_deref().map(|g| &g.resman);
             let lookup = lookup.get_or_insert_with(|| ModuleLookup::new(&ws.module, rm));
             let c = d.choices(lookup);
+            self.offered.insert(d.name.clone(), Offered::of(&c));
             self.choices.insert(d.name.clone(), c);
         }
     }
@@ -647,50 +681,54 @@ fn offer_keys(ui: &Ui, count: usize, highlighted: &mut usize) -> (bool, bool) {
 }
 
 /// A described variable's value, chosen from its values (and typed, where
-/// it takes others too).
+/// it takes `other`s too): the list every editor has for a table's rows
+/// ([`RowChoice`]), in the order the description gives them, which lays
+/// out the rows in sight and has a Filter field over a long one.
 fn value_choice(
     ui: &mut Ui,
     row: usize,
-    d: &Described,
+    other: bool,
     c: &Choices,
+    offered: &Offered,
     value: &mut String,
     width: f32,
 ) {
-    let listed = c.list.iter().find(|x| x.value == *value);
-    let shown = |x: &mg_module::var_desc::Choice| match &x.note {
-        Some(n) => format!("{} — {n}", x.value),
-        None => x.value.clone(),
+    let at = offered.at.get(value.as_str()).copied();
+    let current = at.map(|a| a as i64);
+    let chosen = |picked: Option<i64>, value: &mut String| {
+        let picked = picked.and_then(|p| usize::try_from(p).ok());
+        if let Some(x) = picked.and_then(|p| c.list.get(p)) {
+            value.clone_from(&x.value);
+        }
     };
-    if d.other {
+    if other {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
             // (Its values to choose from, the arrow keys stepping through
             // them as every dropdown's do.)
-            let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
-            dropdown(("var-value-offer", row))
-                .selected_text("")
-                .width(24.0)
-                .height(320.0)
-                .show(ui, value, &values, |v| {
-                    c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown)
-                })
-                .on_hover_text("Its values (variables.toml)");
+            let picked =
+                row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
+                    .shown("")
+                    .width(24.0)
+                    .ordered()
+                    .hover_text("Its values (variables.toml)")
+                    .show(ui);
+            chosen(picked, value);
         });
         return;
     }
-    let text = match listed {
-        Some(x) => egui::RichText::new(shown(x)),
+    let text = match at {
+        Some(a) => egui::RichText::new(&offered.rows[a].text),
         None if value.is_empty() => egui::RichText::new("(choose)").weak(),
         None => egui::RichText::new(format!("{value} (not one of its values)"))
             .color(ui.visuals().warn_fg_color),
     };
-    let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
-    dropdown(("var-value", row)).selected_text(text).width(width).height(320.0).show(
-        ui,
-        value,
-        &values,
-        |v| c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown),
-    );
+    let picked = row_choice(egui::Id::new(("var-value", row)), &offered.rows, current)
+        .shown(text)
+        .width(width)
+        .ordered()
+        .show(ui);
+    chosen(picked, value);
 }
 
 /// A variable's type as the window names it.
@@ -705,6 +743,23 @@ pub struct Picker {
     pub title: String,
     pub filter: String,
     choices: Vec<ResRef>,
+    /// The choices the Filter finds, and what it had typed (folded) when
+    /// they were found: not looked for every frame (60,000 sounds with
+    /// CEP's haks, a text made of each).
+    found: Option<(String, Vec<ResRef>)>,
+}
+
+impl Picker {
+    /// The choices the Filter finds, in their order.
+    fn shown(&mut self) -> &[ResRef] {
+        let filter = mg_core::text::Needle::new(&self.filter);
+        if self.found.as_ref().is_none_or(|(typed, _)| typed != filter.as_str()) {
+            let found =
+                self.choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
+            self.found = Some((filter.as_str().to_string(), found));
+        }
+        self.found.as_ref().map_or(&[], |(_, found)| found)
+    }
 }
 
 impl Moonglow {
@@ -723,7 +778,8 @@ impl Moonglow {
         }
         choices.sort();
         choices.dedup();
-        self.picker = Some(Picker { id, title: title.to_string(), filter: String::new(), choices });
+        let (title, filter) = (title.to_string(), String::new());
+        self.picker = Some(Picker { id, title, filter, choices, found: None });
     }
 
     /// The resource picked for a field, once.
@@ -1270,10 +1326,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .response;
                 crate::widgets::autofocus(ui, &field);
             });
-            let filter = mg_core::text::Needle::new(&p.filter);
-            let shown: Vec<ResRef> =
-                p.choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
-            ui.weak(format!("{} of {}", shown.len(), p.choices.len()));
+            let (id, all) = (p.id, p.choices.len());
+            let shown = p.shown();
+            ui.weak(format!("{} of {all}", shown.len()));
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
                 egui::ScrollArea::vertical().max_height(300.0).show_rows(
@@ -1284,7 +1339,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.set_width(260.0);
                         for r in &shown[range] {
                             if ui.selectable_label(false, r.to_string()).clicked() {
-                                app.picked.insert(p.id, *r);
+                                app.picked.insert(id, *r);
                                 close = true;
                             }
                         }
@@ -1504,10 +1559,11 @@ fn var_body(
                     );
                 });
                 let typed = desc.is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
-                let choices = desc.and_then(|d| help.choices.get(&d.name));
+                let choices =
+                    desc.and_then(|d| help.choices.get(&d.name).zip(help.offered.get(&d.name)));
                 match (desc, choices) {
-                    (Some(d), Some(c)) if edits && typed && !c.list.is_empty() => {
-                        value_choice(ui, i, d, c, &mut r.value, value_width);
+                    (Some(d), Some((c, o))) if edits && typed && !c.list.is_empty() => {
+                        value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
                     }
                     _ if edits && colored(r) => {
                         // A color's swatch beside its text.
@@ -3199,7 +3255,7 @@ pub(crate) struct RowChoice<'a> {
     choices: &'a [mg_rules::Choice],
     current: Option<i64>,
     width: Option<f32>,
-    shown: Option<String>,
+    shown: Option<egui::WidgetText>,
     unset: &'a str,
     none: Option<&'a str>,
     ordered: bool,
@@ -3281,7 +3337,7 @@ impl<'a> RowChoice<'a> {
     }
 
     /// What the box shows, in place of the chosen row's name.
-    pub(crate) fn shown(mut self, text: impl Into<String>) -> Self {
+    pub(crate) fn shown(mut self, text: impl Into<egui::WidgetText>) -> Self {
         self.shown = Some(text.into());
         self
     }
@@ -3357,8 +3413,8 @@ impl<'a> RowChoice<'a> {
             mut about,
         } = self;
         let shown = shown.unwrap_or_else(|| match current {
-            Some(row) => mg_rules::choice_text(choices, row),
-            None => unset.to_string(),
+            Some(row) => mg_rules::choice_text(choices, row).into(),
+            None => unset.into(),
         });
         // (The widget's own state, by `id`, where `in_use` finds it.)
         let key = ui.make_persistent_id(id);
@@ -5004,6 +5060,98 @@ mod row_choice_tests {
         let (at, lists) = open_list(200, true);
         assert!(lists.iter().all(|l| *l == lists[0]), "{lists:?}");
         assert!(lists[0].width() > at.width() + 50.0, "{lists:?} beside {at:?}");
+    }
+
+    /// A described variable's values from a table of 20,000 rows
+    /// (`rows = "placeables"` with CEP): the list lays out the rows in
+    /// sight, the chosen one among them, shows each value with what it
+    /// means, and the one clicked becomes the variable's value. Closed, it
+    /// costs nothing a row: the values were copied each frame, and the
+    /// open list laid out whole, each row looked up among them all (the
+    /// review's S20).
+    #[test]
+    fn a_described_variable_s_values_lay_out_only_the_rows_in_sight() {
+        use mg_module::var_desc::{Choice, Choices};
+        struct State {
+            choices: Choices,
+            offered: super::Offered,
+            value: String,
+        }
+        let list: Vec<Choice> = (0..20_000)
+            .map(|n| Choice { value: n.to_string(), note: Some(format!("Placeable {n:05}")) })
+            .collect();
+        let choices = Choices { list, rows: Some(20_000), problem: None };
+        let offered = super::Offered::of(&choices);
+        // (As the list each frame made them: every value, each with what
+        // it means, found by its value.)
+        for (n, x) in choices.list.iter().enumerate().step_by(997) {
+            assert_eq!(offered.at[&x.value], n);
+            assert_eq!(offered.rows[n].text, format!("{n} — Placeable {n:05}"));
+            assert_eq!(offered.rows[n].row, n);
+        }
+        let state = State { choices, offered, value: "12345".into() };
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, s: &mut State| {
+                super::value_choice(ui, 0, false, &s.choices, &s.offered, &mut s.value, 220.0);
+            },
+            state,
+        );
+        h.run();
+        let t = std::time::Instant::now();
+        for _ in 0..20 {
+            h.step();
+        }
+        // (Closed: 20,000 texts were made a frame.)
+        assert!(t.elapsed() < std::time::Duration::from_millis(20 * 10), "{:?}", t.elapsed());
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        assert_eq!(h.get(combo).value().as_deref(), Some("12345 — Placeable 12345"));
+        h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox)).click();
+        h.run();
+        let rows = h.query_all_by_label_contains(" — Placeable ").count();
+        assert!(rows < 30, "{rows} rows laid out");
+        assert!(h.query_by_label("12345 — Placeable 12345").is_some(), "the chosen one in sight");
+        let t = std::time::Instant::now();
+        for _ in 0..20 {
+            h.step();
+        }
+        assert!(t.elapsed() < std::time::Duration::from_millis(20 * 40), "{:?}", t.elapsed());
+        // (In the description's order, not by name: 12346 follows 12345.)
+        h.get_by_label("12346 — Placeable 12346").click();
+        h.run();
+        assert_eq!(h.state().value, "12346");
+        // A value it doesn't list is said; one typed too, where it takes
+        // others.
+        h.state_mut().value = "none".into();
+        h.run();
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        assert_eq!(h.get(combo).value().as_deref(), Some("none (not one of its values)"));
+    }
+
+    /// Select Resource keeps what its Filter finds until what is typed
+    /// changes: the names it finds, in their order, as a look through
+    /// them all finds.
+    #[test]
+    fn select_resource_keeps_what_its_filter_finds() {
+        let choices: Vec<mg_core::ResRef> = (0..500)
+            .map(|n| mg_core::ResRef::from_str(&format!("as_sound_{n:03}")).unwrap())
+            .collect();
+        let mut p = super::Picker {
+            id: egui::Id::new("picker"),
+            title: "Select Resource".into(),
+            filter: String::new(),
+            choices: choices.clone(),
+            found: None,
+        };
+        assert_eq!(p.shown(), choices);
+        for typed in ["12", "SOUND 4", "sound_499", "none", "", "12"] {
+            p.filter = typed.into();
+            let filter = mg_core::text::Needle::new(typed);
+            let look: Vec<mg_core::ResRef> =
+                choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
+            assert_eq!(p.shown(), look, "{typed}");
+            assert_eq!(p.shown(), look, "{typed}, again");
+            assert_eq!(p.found.as_ref().map(|f| f.0.as_str()), Some(filter.as_str()));
+        }
     }
 
     /// A list of tens of thousands of rows (a 2DA's) lays out only those

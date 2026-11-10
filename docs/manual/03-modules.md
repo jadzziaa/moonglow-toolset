@@ -1190,7 +1190,8 @@ patterns' (`tdod_rental_*`) by what their names begin with
 **Up** move to it and **Enter** takes it (Enter is the offer's then, not
 the window's OK); **Escape** closes the offer and leaves the window
 open. One chosen (or
-typed whole) takes its type, a value is chosen from its values, and its
+typed whole) takes its type, a value is chosen from its values (a list
+of more than 30, a table's rows, has a Filter field over it), and its
 help is the name's tip. Under the list, the window says what the
 description finds wrong (another type, a value not listed, the wrong
 kind of object, a name in another case or like the project's and
