@@ -4,7 +4,7 @@
 //! from Folder… open it. Saving a hak the module uses reloads it.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use egui::Ui;
 use mg_module::hak_edit::{Added, Hak, Source};
@@ -47,6 +47,27 @@ pub struct HakDoc {
     /// Resources about to be extracted over files a folder has already:
     /// asked about before anything is written.
     pub extracting: Option<Extracting>,
+    /// Whether the hak's file is in the game's folder ([`in_folder`]), for
+    /// the path it was worked out for: looked at again when that changes.
+    in_game: Option<(PathBuf, bool)>,
+}
+
+/// Whether the file `path` (there or not yet) is in `folder` or under it,
+/// as written or once the links on the way to it are followed (a hak
+/// folder that is a link into the game's folder).
+pub(crate) fn in_folder(path: &Path, folder: &Path) -> bool {
+    let resolved = |p: &Path| p.canonicalize().ok();
+    let file = match (path.parent().and_then(resolved), path.file_name()) {
+        (Some(dir), Some(name)) => dir.join(name),
+        _ => path.to_path_buf(),
+    };
+    path.starts_with(folder) || resolved(folder).is_some_and(|f| file.starts_with(f))
+}
+
+/// Whether the file `path` is in the game's folder, which Moonglow never
+/// writes into: the hak editor's Save and NUI Images › Into ask by this.
+pub(crate) fn in_game_folder(app: &Moonglow, path: &Path) -> bool {
+    app.install.as_ref().is_some_and(|gi| in_folder(path, &gi.root))
 }
 
 /// A hak's resource as it is shown under the list: a picture (a TGA, DDS
@@ -208,6 +229,20 @@ impl HakDoc {
             folder: None,
             adding: None,
             extracting: None,
+            in_game: None,
+        }
+    }
+
+    /// Whether the hak's file is in the game's folder (`root`).
+    pub(crate) fn is_in_game(&mut self, root: Option<&Path>) -> bool {
+        let (Some(path), Some(root)) = (&self.hak.path, root) else { return false };
+        match &self.in_game {
+            Some((p, is)) if p == path => *is,
+            _ => {
+                let is = in_folder(path, root);
+                self.in_game = Some((path.clone(), is));
+                is
+            }
         }
     }
 
@@ -418,12 +453,8 @@ fn hak_dir(app: &Moonglow) -> Option<PathBuf> {
 /// chosen (asked for a new hak, one of the game's, or with `ask`). `Err`:
 /// nowhere (the dialog canceled, or the game's folder chosen: said).
 fn save_to(app: &mut Moonglow, i: usize, ask: bool) -> Result<Option<PathBuf>, ()> {
-    let in_game = app.haks[i]
-        .hak
-        .path
-        .as_ref()
-        .zip(app.install.as_ref())
-        .is_some_and(|(p, gi)| p.starts_with(&gi.root));
+    let root = app.install.as_ref().map(|gi| gi.root.clone());
+    let in_game = app.haks[i].is_in_game(root.as_deref());
     if !(ask || in_game || app.haks[i].hak.path.is_none()) {
         return Ok(None);
     }
@@ -433,7 +464,7 @@ fn save_to(app: &mut Moonglow, i: usize, ask: bool) -> Result<Option<PathBuf>, (
         .or_else(|| app.haks[i].hak.path.clone())
         .or_else(|| hak_dir(app).map(|d| d.join("new.hak")));
     match app.dialogs.save_file(FileKind::Hak, suggested.as_deref()) {
-        Some(p) if app.install.as_ref().is_some_and(|gi| p.starts_with(&gi.root)) => {
+        Some(p) if in_game_folder(app, &p) => {
             app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
             Err(())
         }
@@ -665,7 +696,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     // The game's own haks are never written: Save As makes a copy.
     let game_root = app.install.as_ref().map(|gi| gi.root.clone());
     let doc = &mut app.haks[i];
-    let in_game = doc.hak.path.as_ref().zip(game_root).is_some_and(|(p, r)| p.starts_with(r));
+    let in_game = doc.is_in_game(game_root.as_deref());
     let mut changed = false;
     if in_game {
         ui.colored_label(
@@ -1139,4 +1170,35 @@ pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
     let added = app.haks[i].hak.add_files(&files);
     app.haks[i].changed();
     report(app, &added);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A hak opened through a hak folder that is a link into the game's
+    /// folder is the game's: its Save is refused and the module's Save
+    /// leaves it, as for one opened by the game's own path. The check
+    /// compared the path as written, which passed it (the last pass's
+    /// item 10; NUI Images › Into goes by the same function).
+    #[test]
+    fn a_hak_reached_through_a_link_into_the_game_s_folder_is_the_game_s() {
+        let dir = mg_testkit::scratch_dir("hak-view-in-game");
+        let (game, user) = (dir.join("game"), dir.join("user"));
+        std::fs::create_dir_all(game.join("data/hk")).unwrap();
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        let mut doc = HakDoc::new(1, Hak::new());
+        assert!(!doc.is_in_game(Some(&game)), "not saved: nowhere");
+        doc.hak.path = Some(user.join("hak/mine.hak"));
+        assert!(!doc.is_in_game(Some(&game)));
+        assert!(!doc.is_in_game(None), "no game: in none");
+        doc.hak.path = Some(game.join("data/hk/theirs.hak"));
+        assert!(doc.is_in_game(Some(&game)), "the path changed: looked at again");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(game.join("data/hk"), user.join("linked")).unwrap();
+            doc.hak.path = Some(user.join("linked/theirs.hak"));
+            assert!(doc.is_in_game(Some(&game)), "through the link");
+        }
+    }
 }

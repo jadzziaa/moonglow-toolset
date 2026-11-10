@@ -196,17 +196,6 @@ pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
     }
 }
 
-/// Whether the file `path` (there or not yet) is in `folder` or under it,
-/// as written or once the links on the way to it are followed.
-fn in_folder(path: &Path, folder: &Path) -> bool {
-    let resolved = |p: &Path| p.canonicalize().ok();
-    let file = match (path.parent().and_then(resolved), path.file_name()) {
-        (Some(dir), Some(name)) => dir.join(name),
-        _ => path.to_path_buf(),
-    };
-    path.starts_with(folder) || resolved(folder).is_some_and(|f| file.starts_with(f))
-}
-
 /// The hak pictures go into: the one chosen (in the user's hak folder) or a
 /// new one asked for. A hak saved elsewhere is copied into the hak folder.
 fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option<PathBuf> {
@@ -241,7 +230,7 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
     };
     // As the hak editor's Save: never into the game's folder, by whatever
     // name the path reaches it (a hak folder linked into it).
-    if app.install.as_ref().is_some_and(|gi| in_folder(&path, &gi.root)) {
+    if crate::hak_view::in_game_folder(app, &path) {
         app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
         return None;
     }
@@ -573,6 +562,7 @@ mod tests {
     /// folder in it is joined to none (`mg_resman::named_file`).
     #[test]
     fn a_hak_reached_through_a_link_is_in_the_folder_it_is_in() {
+        use crate::hak_view::in_folder;
         let dir = mg_testkit::scratch_dir("nui-images-in-folder");
         let (game, user) = (dir.join("game"), dir.join("user"));
         std::fs::create_dir_all(game.join("data")).unwrap();

@@ -1944,7 +1944,8 @@ folder's files, subfolders included, to look over and save.
   mark, or remove the others and use **Save As…**, to split it in two.
   Saving the module saves open haks too.
 - **Reloading:** saving a hak the module uses reads it again.
-- **The game's own haks** (in its `data/hk`) aren't written: **Save As…**
+- **The game's own haks** (in its `data/hk`, also when opened through a
+  folder that is a link into the game's) aren't written: **Save As…**
   keeps your changes in a copy.
 
 Closing a hak with unsaved changes asks first: **Save**, **Don't

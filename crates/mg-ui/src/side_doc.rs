@@ -49,8 +49,9 @@ impl SideDoc for hak_view::HakDoc {
         self.hak.is_dirty()
     }
     fn saved_with_module(&self, app: &Moonglow) -> bool {
-        let root = app.install.as_ref().map(|gi| &gi.root);
-        self.hak.path.as_ref().is_some_and(|p| root.is_none_or(|r| !p.starts_with(r)))
+        // (By whatever name the path reaches the game's folder: a hak
+        // folder linked into it.)
+        self.hak.path.as_ref().is_some_and(|p| !hak_view::in_game_folder(app, p))
     }
     fn can_undo(&self, redo: bool) -> bool {
         self.step_name(redo).is_some()
