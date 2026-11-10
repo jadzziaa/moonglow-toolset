@@ -406,6 +406,13 @@ pub struct AreaView {
     /// drag began ([`AreaView::lift_of`]): asked of the walkmesh once a
     /// drag, not every frame of it.
     lifts: std::cell::RefCell<std::collections::HashMap<(ObjectKind, usize), f32>>,
+    /// The outlines of tile-sized squares laid along the ground
+    /// ([`AreaView::tile_outline`]), by the square's place: asked of the
+    /// walkmesh once for the ground as it is, not every frame (every tile
+    /// of a hilly area selected was tens of thousands of lookups a
+    /// frame). And how many were laid (for tests).
+    outlines: std::cell::RefCell<std::collections::HashMap<[u32; 3], std::sync::Arc<Vec<Vec3>>>>,
+    outlines_laid: std::cell::Cell<u64>,
     /// The model with a drag, Q and E's turning or Adjust Location
     /// applied to what they move, as the last frame drew it, and which of
     /// its objects were posed: kept from frame to frame, those objects
@@ -591,7 +598,7 @@ pub struct AreaView {
     pub brush_cursor: CursorShapes,
     /// The tiles a tile brush's click would make, as the last frame showed
     /// them under the pointer.
-    pub tile_preview: Vec<mg_area::AreaTile>,
+    pub tile_preview: std::sync::Arc<Vec<mg_area::AreaTile>>,
     /// Chooses among the tiles that fit for the preview, and so for the
     /// click it shows (then anew).
     pub(crate) preview_seed: u64,
@@ -920,6 +927,7 @@ impl AreaView {
         self.terrain = None;
         self.scene = None;
         self.ground = None;
+        self.outlines.borrow_mut().clear();
         self.walkable = None;
         self.object_walks = Default::default();
         self.object_faces = None;
@@ -1021,7 +1029,7 @@ impl AreaView {
         self.crossing_outline = None;
         self.preview_cache = None;
         self.cursor_cache = None;
-        self.tile_preview.clear();
+        self.tile_preview = Default::default();
         self.tile_selection.clear();
         self.menu_tile = None;
         self.refused = None;
@@ -1035,6 +1043,8 @@ impl AreaView {
             scene: None,
             places: Default::default(),
             lifts: Default::default(),
+            outlines: Default::default(),
+            outlines_laid: Default::default(),
             posed: None,
             reading: None,
             textures_drawn: 0,
@@ -1115,7 +1125,7 @@ impl AreaView {
             camera_press: false,
             told: Vec::new(),
             left_out: std::collections::HashMap::new(),
-            tile_preview: Vec::new(),
+            tile_preview: Default::default(),
             preview_seed: fastrand::u64(..),
             preview_cache: None,
             cursor_cache: None,
@@ -1424,7 +1434,29 @@ impl AreaView {
     /// view. A tile whose corners and middle are level is its four corners
     /// (a large selection of flat tiles asks the ground no more than that).
     pub(crate) fn square_along_ground(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
-        self.tile_outline(x, y, z).into_iter().map(|p| self.screen_pos(p)).collect()
+        // (The outline in the area is the ground's, kept while the ground
+        // is as it is; where it is on screen is the camera's, each frame.)
+        let key = [x, y, z].map(f32::to_bits);
+        let kept = self.outlines.borrow().get(&key).cloned();
+        let outline = kept.unwrap_or_else(|| {
+            let laid = std::sync::Arc::new(self.tile_outline(x, y, z));
+            self.outlines_laid.set(self.outlines_laid.get() + 1);
+            let mut outlines = self.outlines.borrow_mut();
+            // (Squares that follow the pointer, a paste's: not kept for
+            // ever.)
+            if outlines.len() > 8192 {
+                outlines.clear();
+            }
+            outlines.insert(key, laid.clone());
+            laid
+        });
+        outline.iter().map(|p| self.screen_pos(*p)).collect()
+    }
+
+    /// How many tile outlines were laid along the ground (for tests: not
+    /// every frame).
+    pub fn outlines_laid(&self) -> u64 {
+        self.outlines_laid.get()
     }
 
     /// [`square_along_ground`](Self::square_along_ground)'s points in the
@@ -2634,6 +2666,7 @@ fn show(
     view.drawn = None;
     view.places = model.objects.iter().enumerate().map(|(at, o)| ((o.kind, o.index), at)).collect();
     view.lifts.borrow_mut().clear();
+    view.outlines.borrow_mut().clear();
     view.posed = None;
     view.model = Some(model);
 }
@@ -3481,8 +3514,10 @@ fn viewport(
                 (instances, hidden)
             }
             _ => {
-                view.tile_preview.clear();
-                (Vec::new(), Vec::new())
+                if !view.tile_preview.is_empty() {
+                    view.tile_preview = Default::default();
+                }
+                (Vec::new(), Default::default())
             }
         };
     let (ghost_instances, ghost_box) =

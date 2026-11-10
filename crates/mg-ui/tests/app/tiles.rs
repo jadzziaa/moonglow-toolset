@@ -3670,6 +3670,18 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     assert_eq!(undo_label(&h), before);
 }
 
+/// An edit of the area (a waypoint's tag), which its view reads.
+fn set_waypoint_tag(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("WaypointList", 0),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"MG_READ".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(3);
+}
+
 /// The tile selection's outline on a tile that isn't flat (the owner's
 /// report on Tile Properties): on Rural's cliff corner, turned away from
 /// the view, it showed as a thin strip, its corners joined straight across
@@ -3696,6 +3708,14 @@ fn the_tile_selection_s_outline_follows_a_cliff_tile() {
     click_pos(&h, at);
     h.run_steps(3);
     assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
+    // (The review's A24: the outline is laid along the ground once, and
+    // put on screen each frame; laid again when the ground changes.)
+    let laid = h.state().area_views[&area].outlines_laid();
+    assert!(laid > 0);
+    h.run_steps(8);
+    assert_eq!(h.state().area_views[&area].outlines_laid(), laid, "not every frame");
+    set_waypoint_tag(&mut h, area);
+    assert!(h.state().area_views[&area].outlines_laid() > laid, "laid again for the area read");
     // Along the ground in half-metre steps, from the plateau down into the
     // corner and back; a flat tile, its four corners.
     let view = &h.state().area_views[&area];
@@ -4139,7 +4159,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
         }
         h.run_steps(3);
         let g = grid(h);
-        for t in &shown {
+        for t in shown.iter() {
             let placed = g.tile(t.column, t.row);
             assert_eq!(
                 (i64::from(placed.tile), placed.orientation, placed.height),
@@ -4200,7 +4220,7 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
         press(h, to, false, egui::Modifiers::NONE);
         h.run_steps(3);
         let g = grid(h);
-        for t in &shown {
+        for t in shown.iter() {
             let placed = g.tile(t.column, t.row);
             assert_eq!(
                 (i64::from(placed.tile), placed.orientation, placed.height),

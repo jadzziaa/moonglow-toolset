@@ -743,8 +743,9 @@ pub(crate) fn preview(app: &mut Moonglow, view: &mut AreaView, shift: bool) -> O
 }
 
 /// What a tile preview shows: the changed tiles, and the indices of those
-/// they replace.
-pub(crate) type Preview = (Vec<mg_area::AreaTile>, Vec<usize>);
+/// they replace. (Shared: the one worked out is handed out every frame
+/// it is shown, a thousand tiles of a rectangle over a whole area.)
+pub(crate) type Preview = (Arc<Vec<mg_area::AreaTile>>, Arc<Vec<usize>>);
 
 /// What a tile preview (and the brush's cursor) depends on, with Shift
 /// held or not.
@@ -808,7 +809,7 @@ fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<
         tiles.push(t);
         hidden.push(i);
     }
-    (!tiles.is_empty()).then_some((tiles, hidden))
+    (!tiles.is_empty()).then(|| (Arc::new(tiles), Arc::new(hidden)))
 }
 
 /// One command putting `changes` (cells and their new tiles) into the
@@ -1203,7 +1204,10 @@ fn paint_corners(
         return refine_cells(tools, g, brush, &drag.marked());
     }
     let mut rng = fastrand::Rng::with_seed(seed);
+    // (The cells changed, in the order they first were, each once: asked
+    // of a set, not of the list, for every cell of every stroke.)
     let mut changed: Vec<(u32, u32)> = Vec::new();
+    let mut seen: std::collections::HashSet<(u32, u32)> = Default::default();
     let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
     // A tile's spot is its middle.
     let middle = if drag.tiles { 0.5 } else { 0.0 };
@@ -1220,7 +1224,7 @@ fn paint_corners(
             Some(st) => {
                 label = l;
                 for (cell, _) in g.apply(&tools.index, st, &mut rng) {
-                    if !changed.contains(&cell) {
+                    if seen.insert(cell) {
                         changed.push(cell);
                     }
                 }
