@@ -71,19 +71,42 @@ impl Pairs {
     /// `old` replaced by `new`: its entry (`entry`) given the new name,
     /// else a new entry at the end.
     fn replace(&self, f: &mut Form<'_>, entry: Option<usize>, old: &str, new: ResRef) {
-        let Ok(old_ref) = ResRef::from_str(old) else { return };
-        let mut items = self.items(f);
-        match entry.filter(|&i| i < items.len()) {
+        if let Some(items) = self.replaced(self.items(f), entry, old, new) {
+            self.set(f, items);
+        }
+    }
+
+    /// `items` with `old` replaced by `new` ([`replace`](Self::replace));
+    /// `None` where nothing changes. `entry` is where `old`'s entry was
+    /// when the pick was begun (Select Texture's window doesn't block):
+    /// where another's is there by now (one before it reset behind the
+    /// window), `old`'s is found by its name, and where it is gone a new
+    /// one is made.
+    fn replaced(
+        &self,
+        mut items: Vec<Struct>,
+        entry: Option<usize>,
+        old: &str,
+        new: ResRef,
+    ) -> Option<Vec<Struct>> {
+        let old_ref = ResRef::from_str(old).ok()?;
+        let of_old = |s: &Struct| same(&resref_text(s, self.old), old);
+        let at = match entry {
+            Some(i) if items.get(i).is_some_and(of_old) => Some(i),
+            Some(_) => items.iter().position(of_old),
+            None => None,
+        };
+        match at {
             Some(i) => {
                 if resref_text(&items[i], self.new) == new.to_string() {
-                    return;
+                    return None;
                 }
                 items[i].set(self.new, Value::resref(new));
             }
-            None if new.is_empty() => return,
+            None if new.is_empty() => return None,
             None => items.push(self.entry(old_ref, new)),
         }
-        self.set(f, items);
+        Some(items)
     }
 }
 
@@ -794,6 +817,38 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pick is given to the entry of the texture it was made for, not to
+    /// whatever is at that entry's place by OK (the review's B11: with A
+    /// reset behind Select Texture, B's pick drew C).
+    #[test]
+    fn a_pick_goes_to_its_texture_s_entry_wherever_it_is_by_then() {
+        let p = Pairs::TEXTURES;
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        let (a, b, c) =
+            (p.entry(r("a"), r("a2")), p.entry(r("b"), r("b2")), p.entry(r("c"), r("c2")));
+        let news = |items: &[Struct]| -> Vec<String> {
+            items.iter().map(|s| resref_text(s, p.new)).collect()
+        };
+        // As it was: B is the second.
+        let all = vec![a.clone(), b.clone(), c.clone()];
+        let set = p.replaced(all.clone(), Some(1), "B", r("pick")).unwrap();
+        assert_eq!(news(&set), ["a2", "pick", "c2"]);
+        assert_eq!(p.replaced(all, Some(1), "b", r("b2")), None, "the same: nothing to set");
+        // A reset behind the window: B is the first now.
+        let set = p.replaced(vec![b.clone(), c.clone()], Some(1), "b", r("pick")).unwrap();
+        assert_eq!(news(&set), ["pick", "c2"]);
+        // B itself reset: a new entry, C as it was.
+        let set = p.replaced(vec![a.clone(), c.clone()], Some(1), "b", r("pick")).unwrap();
+        assert_eq!(news(&set), ["a2", "c2", "pick"]);
+        assert_eq!(resref_text(&set[2], p.old), "b");
+        // No entry yet: one is made, unless nothing is picked.
+        assert_eq!(
+            news(&p.replaced(vec![a.clone()], None, "b", r("pick")).unwrap()),
+            ["a2", "pick"]
+        );
+        assert_eq!(p.replaced(vec![a], None, "b", ResRef::EMPTY), None);
+    }
 
     #[test]
     fn the_interface_s_pictures_are_told_by_their_names() {

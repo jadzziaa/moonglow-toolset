@@ -36,7 +36,7 @@ pub struct JournalView {
     pub open: std::collections::BTreeSet<usize>,
 }
 
-fn key() -> ResKey {
+pub(crate) fn key() -> ResKey {
     ResKey::new(ResRef::from_str("module").expect("valid"), ResType::JRL)
 }
 

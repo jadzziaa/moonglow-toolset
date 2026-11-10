@@ -1732,6 +1732,22 @@ pub(super) struct Moving {
     taken: Vec<Edit>,
 }
 
+/// The Missing Feats question kept while it is asked: the slot, the item's
+/// blueprint, the feats, the item moved (if one is), and the pass it was
+/// last drawn in.
+type Asked = (u32, ResRef, Vec<u16>, Option<Moving>, u64);
+
+/// Whether the item `moving` is to take from where it was is still there:
+/// each of its removals finds that item at its place.
+fn still_there(f: &mut Form<'_>, moving: &Moving) -> bool {
+    moving.taken.iter().all(|e| {
+        let Edit::RemoveItem { key, path, list, index } = e else { return true };
+        let Some(Ok(doc)) = f.app.ws.as_mut().map(|ws| ws.doc(key)) else { return false };
+        let items = path.get(&doc.root).and_then(|s| s.list(list));
+        items.and_then(|l| l.get(*index)) == Some(&moving.item)
+    })
+}
+
 /// The creature's `items` of its list `of` once `taken` has run: without
 /// those it takes out of them (an item moved from one slot to another, or
 /// from the backpack).
@@ -2186,12 +2202,28 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     apply(f, "Equip", e);
                 }
             } else {
-                ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing, moving)));
+                let asked: Asked = (bit, r, missing, moving, ui.ctx().cumulative_pass_nr());
+                ui.data_mut(|d| d.insert_temp(ask, asked));
             }
         }
     }
-    type Asked = (u32, ResRef, Vec<u16>, Option<Moving>);
-    if let Some((bit, r, missing, moving)) = ui.data(|d| d.get_temp::<Asked>(ask)) {
+    // (The question's window doesn't block. One left unanswered when the
+    // page was (not drawn in the pass before) is dropped, not asked again
+    // of whatever creature is at this place later; so is one whose item is
+    // no longer where it was to be taken from: its Yes took out whatever
+    // stood there by then, and equipped the copy it kept.)
+    let pass = ui.ctx().cumulative_pass_nr();
+    let asked = ui.data(|d| d.get_temp::<Asked>(ask)).filter(|(.., moving, drawn)| {
+        drawn + 1 >= pass && moving.as_ref().is_none_or(|m| still_there(f, m))
+    });
+    ui.data_mut(|d| match &asked {
+        Some((bit, r, missing, moving, _)) => {
+            let drawn: Asked = (*bit, *r, missing.clone(), moving.clone(), pass);
+            d.insert_temp(ask, drawn);
+        }
+        None => d.remove::<Asked>(ask),
+    });
+    if let Some((bit, r, missing, moving, _)) = asked {
         let game = f.app.game.as_deref();
         let names: Vec<String> = missing
             .iter()

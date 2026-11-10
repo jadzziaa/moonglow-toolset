@@ -1579,6 +1579,29 @@ fn journal_editor_builds_what_aurora_builds() {
         mg_module::journal::entries(&doc.root.items(&mg_schema::jrl::CATEGORIES)[0]).len(),
         2
     );
+    // String Edit of the second entry's text holds the entry by its place:
+    // with the first deleted behind it, its OK set the text of whatever
+    // stood there (the review's B11). It follows its entry, and closes
+    // when the entry is deleted.
+    use mg_ui::widgets::{FieldTarget, LocStringEdit};
+    let entry = |e: usize| mg_edit::GffPath::root().item("Categories", 0).item("EntryList", e);
+    let target = FieldTarget::new(key, entry(1), "Text");
+    h.state_mut().loc_edit = Some(LocStringEdit::new(target, "Text", &LocString::default()));
+    h.run();
+    let held =
+        |h: &Harness<'_, Moonglow>| h.state().loc_edit.as_ref().map(|w| w.target.path.clone());
+    use mg_ui::journal_view::Node;
+    h.state_mut().journal_view.selected = Some(Node::Entry(0, 0));
+    h.run();
+    click(&mut h, "Delete");
+    assert_eq!(held(&h), Some(entry(0)));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(held(&h), Some(entry(1)), "back with the Undo");
+    h.state_mut().journal_view.selected = Some(Node::Entry(0, 1));
+    h.run();
+    click(&mut h, "Delete");
+    assert_eq!(held(&h), None, "its entry is gone");
 }
 
 /// A waypoint's editor in a module whose hak has (or, `table` off, has

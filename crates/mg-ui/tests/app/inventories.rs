@@ -1744,3 +1744,42 @@ fn a_store_s_item_is_found_in_the_palette() {
     let chosen = items.iter().any(|r| h.query_by_label_contains(&format!("· {r}")).is_some());
     assert!(chosen, "an item's blueprint is chosen in the palette");
 }
+
+/// The Missing Feats question doesn't block: with an item before the one
+/// asked about removed from the backpack behind it, Yes took out whatever
+/// stood at the place by then and equipped the copy it kept, one item
+/// twice and one gone (the review's B11). The question goes when its item
+/// is no longer where it was, and is not asked again of what is there.
+#[test]
+fn the_missing_feats_question_goes_when_its_item_has_moved() {
+    use mg_edit::{Command, Edit};
+    let Some((mut h, area)) = area_harness("held-feat-moved") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let held = |game: &mg_rules::GameData| {
+        vec![
+            own_item(game, "nw_it_torch001", 0, ("MG_TORCH", "Torch Probe")),
+            own_item(game, "nw_wswls001", 1, ("MG_SWORD", "Sword Probe")),
+            own_item(game, "nw_it_torch001", 2, ("MG_LAST", "Last Probe")),
+        ]
+    };
+    let bandit = bandit_holding(&mut h, area, &held);
+    let featless = Edit::SetField {
+        key: git,
+        path: bandit.clone(),
+        label: "FeatList".into(),
+        value: Some(mg_gff::Value::List(Vec::new())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("No feats", vec![featless])));
+    h.run_steps(4);
+    let (worn, pack) = creature_items(&mut h, area, &bandit);
+    menu_of(&mut h, "Sword Probe", "Equip");
+    assert!(h.query_by_label("Missing Feats").is_some(), "asked");
+    // The torch before it removed behind the question: the sword is the
+    // first now.
+    let gone = Edit::remove_item(git, bandit.clone(), "ItemList", 0);
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Remove", vec![gone])));
+    h.run_steps(4);
+    assert!(h.query_by_label("Missing Feats").is_none(), "the question went with its place");
+    let left = vec![pack[1].clone(), pack[2].clone()];
+    assert_eq!(creature_items(&mut h, area, &bandit), (worn, left), "the last item still held");
+}

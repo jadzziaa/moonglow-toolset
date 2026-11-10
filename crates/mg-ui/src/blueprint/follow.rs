@@ -232,7 +232,7 @@ pub(crate) fn follow(
             step(t, e, &docs);
         }
         if let Edit::SetField { key, path, label, value: Some(Value::List(_)) } = e
-            && key.restype == ResType::GIT
+            && matches!(key.restype, ResType::GIT | ResType::JRL)
         {
             set.push((*key, path.clone(), label.clone()));
         }
@@ -283,7 +283,52 @@ pub(crate) type Place = (ResRef, GffPath);
 /// the items they hold) in the areas `edits` insert into, remove from or
 /// set lists in, where each is after the edits (`None`: gone). Worked out
 /// before they run; [`retarget`] once they have.
-pub(crate) type Followed = HashMap<Place, Option<Place>>;
+#[derive(Debug, Default)]
+pub(crate) struct Followed {
+    places: HashMap<Place, Option<Place>>,
+    /// The structs of the journal (its categories and entries, which its
+    /// editor deletes by setting their list whole) that String Edit
+    /// holds, likewise.
+    journal: HashMap<GffPath, Option<GffPath>>,
+}
+
+impl Followed {
+    fn is_empty(&self) -> bool {
+        self.places.is_empty() && self.journal.is_empty()
+    }
+
+    fn get(&self, place: &Place) -> Option<&Option<Place>> {
+        self.places.get(place)
+    }
+}
+
+/// The journal's structs that String Edit (or a Variables window) holds,
+/// where `edits` move them.
+fn followed_journal(app: &mut Moonglow, edits: &[Edit]) -> HashMap<GffPath, Option<GffPath>> {
+    let key = crate::journal_view::key();
+    let mut out = HashMap::new();
+    if !edits.iter().any(|e| moves_items(e) && *e.key() == key) {
+        return out;
+    }
+    let targets =
+        [app.var_edit.as_ref().map(|w| &w.target), app.loc_edit.as_ref().map(|w| &w.target)];
+    let places: Vec<(ResKey, GffPath)> = (targets.into_iter().flatten())
+        .filter(|t| t.key == key)
+        .map(|t| (key, t.path.clone()))
+        .collect();
+    let Some(Ok(doc)) = app.ws.as_mut().filter(|_| !places.is_empty()).map(|ws| ws.doc(&key))
+    else {
+        return out;
+    };
+    let docs = HashMap::from([(key, doc.root.clone())]);
+    for ((_, path), now) in places.iter().zip(follow(docs, &places, edits)) {
+        let now = now.map(|(_, p)| p);
+        if now.as_ref() != Some(path) {
+            out.insert(path.clone(), now);
+        }
+    }
+    out
+}
 
 /// Whether `e` may move what is in a list: an item inserted or removed,
 /// or a field set whole (a list set back) or removed.
@@ -297,7 +342,7 @@ fn moves_items(e: &Edit) -> bool {
 
 /// [`Followed`] for `edits`, those that moved.
 pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
-    let mut out = Followed::new();
+    let mut out = Followed { journal: followed_journal(app, edits), ..Default::default() };
     let mut areas: Vec<ResRef> = Vec::new();
     for e in edits.iter().filter(|e| moves_items(e)) {
         let k = e.key();
@@ -339,7 +384,7 @@ pub(crate) fn followed(app: &mut Moonglow, edits: &[Edit]) -> Followed {
     for ((area, path), now) in open.into_iter().zip(follow(docs, &places, edits)) {
         let now = now.map(|(k, p)| (k.resref, p));
         if now.as_ref() != Some(&(area, path.clone())) {
-            out.insert((area, path), now);
+            out.places.insert((area, path), now);
         }
     }
     out
@@ -461,6 +506,10 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
     crate::tabs::close_tabs(&mut app.dock, |t| !closed.contains(t));
     // (Where an object of a window moved: `Some(None)` gone.)
     let now = |key: &ResKey, path: &GffPath| -> Option<Option<(ResKey, GffPath)>> {
+        if *key == crate::journal_view::key() {
+            let to = moved.journal.get(path)?;
+            return Some(to.clone().map(|p| (*key, p)));
+        }
         if key.restype != ResType::GIT {
             return None;
         }
