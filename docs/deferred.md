@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:19:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:23:56Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -254,6 +254,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     scroll bar dragged to its end (B25); an item's Appearance page with
     a thousand icons, Select Portrait, Select Texture with a search
     (B26);
+  - an item blueprint's Properties page with text in its search, which
+    still matches every subtype row a frame (G4's half; the page is
+    timed without it, 1.6 ms);
   - the editors: `spells.2da` at full width (D20's rest); Choose Model
     open, and a described table whose `Row` column names itself (D21);
     Advanced Search with a plugin menu command (D23's rest); the Claims
@@ -591,7 +594,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     than on 27 October, in steps of 1 and 2 November (its Z2, [the
     finders' page](review-2026-11/mechanical.md)); the figures above are
     27 October's. Profiled on 10 November (shadows off, The Domains of
-    Dread's haks as rebuilt on 9 November, three runs, the lowest): half
+    Dread's haks as rebuilt on 9 November, three runs, the lowest; the
+    GPU's figures with the switch on are those haks', not comparable
+    with 27 October's): half
     the draws seen whole bound another of the meshes' 13 chunks than the
     draw before (12,621 of 24,965), and Moonglow's own see-through draws
     now go in runs of one chunk too (2,159 changes); the game's keep
@@ -601,7 +606,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     13.4); turned 17.9 off (19.7, 15.6), 27.4 on (27.7, 22.3). The whole
     frame with the wheel turning: 14.3 ms seen whole and 22.2 turned off,
     16.9 and 29.9 on. What is left against 27 October (2.4 ms seen whole
-    off, 2.7 on, 5 turned on) is no one thing in the profile: wgpu's
+    off, 2.7 on, 5 turned on) is no one thing in the profile (taken
+    before the change): wgpu's
     encoding of the pass (29% of the frame's samples), placing the draws
     in batches (16% with its look for draws met), writing the frame's
     values (12%), sorting (9%), the reach of the lights (8%); the game's

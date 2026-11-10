@@ -3,7 +3,7 @@ type: Report
 title: The fixes of the review of November 2026
 description: 'What became of the 349 findings of the code review of 2026-11-09 in the fix pass of 9 and 10 November, for 4.0.0: a table a part (fixed whole, fixed in part, found fixed by another finding''s commit, does not hold, left), every finding not fixed whole with what is left and why, those fixed on 10 November (four settled by the game client and Aurora, R4 by the owner''s decision, Z2 in part after the reviewer''s timing run, which also found and fixed a slowdown of the content doctor), the findings fixed with a choice for the owner or a check that could not be made here, the last pass''s 24 items seen on the way, and the owner''s word on S15. Hand-written from the fixers'' reports and the commits; the part pages beside it are the record of what was found.'
 tags: [review, code-review, fixes, deferred]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:19:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:23:56Z }
 sources:
   - id: overview
     resource: overview.md
@@ -84,14 +84,14 @@ fixer, its recovery half by the shell's).
 
 | Id | What is left | Why |
 | --- | --- | --- |
-| R5 | (d): the shadow volume buffers kept in each `GpuMesh` for the model's life; (a) to (c) fixed | waits on the reviewer's measurement: freeing them is a restructure of the casters' path that Z2's measurement would have to cover |
-| G4 | the "only when the header is open" half: while the search has text, the Properties page matches every subtype row each frame | not done by its fixer; filed with the views for the reviewer's timing run |
+| R5 | (d): the shadow volume buffers kept in each `GpuMesh` for the model's life; (a) to (c) fixed | beyond what was asked: freeing them is a restructure of the casters' path; the Z2 measurement it waited on was made on 10 November |
+| G4 | the "only when the header is open" half: while the search has text, the Properties page matches every subtype row each frame | not done by its fixer; its page is timed (1.6 ms) but not with search text: filed with the views still to be made |
 | V5 | whether the CSV export should begin with a byte order mark (Import Lines reads one now) | the owner's decision |
 | V14 | a hak rebuilt with the same time, size and layout, only its data changed, is taken for the old one | the owner's decision: hashing a hak's data means reading it each run |
 | P4 | (c): no bound on how far past its end an import may grow a table | the owner's decision: refuse or ask past some number of empty lines |
 | D19 | the module's Save and the NUI picture hak still write a hak at once; Add Haks has no byte progress or Cancel mid-copy | a real unintended consequence: what follows those saves in the same step reads the files written |
 | D26 | the half that remembers the editor's own edits as `renumbered: None` | not done: its fixer judged it would save little after the fix; not filed |
-| N13 | `check`'s own copy a frame, Interact's two whole comparisons of its session, a variant's context document cached | waits on the reviewer's timing run (suspected, not measured) |
+| N13 | `check`'s own copy a frame, Interact's two whole comparisons of its session, a variant's context document cached | suspected, not measured: the Design page of 300 controls has no timing view (filed with the views still to be made) |
 | N16 | Options' and Tabs' entries, named only in the entry's confidence line | bounded by the file's size; filed with N13 |
 | Z2 | in part: Moonglow's own see-through draws are drawn chunk by chunk (`6b26e702`, `452bba34`); against the build of 27 October with the same haks, TDoD's woods seen whole still take 2.4 ms more to encode with the Shaders switch off (12.6 against 10.2) and 2.7 more on, 5 ms more turned with it on | profiled on 10 November: no one cause is left (wgpu's encoding of the pass, the batches, the frame's values, sorting, the lights' reach); the game's see-through draws keep their runs by material, as splitting them by chunk cost the GPU more than it saved |
 
