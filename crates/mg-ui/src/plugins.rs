@@ -41,6 +41,19 @@ pub struct Installed {
     /// One of the open project's own plugins (its `plugins/`): it runs
     /// only as the user allowed it, and is not Moonglow's to remove.
     pub project: bool,
+    /// It has tests of its own (`tests/*.toml`), as its folder had them
+    /// when it was read: the Plugins window's Run Tests. (Looked for in
+    /// its folder every frame the window was open.)
+    pub has_tests: bool,
+}
+
+impl Installed {
+    /// A plugin's folder as it was read.
+    fn read(dir: PathBuf, plugin: Result<Plugin, String>, project: bool) -> Installed {
+        let from_archive = !project && mg_plugin::from_archive(&dir);
+        let has_tests = plugin.as_ref().is_ok_and(|p| !mg_plugin::test_files(p).is_empty());
+        Installed { dir, plugin, from_archive, project, has_tests }
+    }
 }
 
 /// A plugin's settings in their form: whose, and the values in it.
@@ -97,6 +110,11 @@ pub struct Plugins {
     /// in the question that comes when the project is opened. Emptied
     /// when each is answered, or all are put off (Decide Later).
     pub project_asking: Vec<String>,
+    /// The project's plugins put off with Decide Later, each as it was
+    /// then (its id and digest): not asked about again when the plugins
+    /// are read again for a change in their folder, until the project is
+    /// next opened or the plugin itself changes.
+    put_off: Vec<(String, Option<String>)>,
     /// A plugin's settings being edited.
     pub settings_form: Option<SettingsForm>,
     /// What the job that just ended set, until it is kept.
@@ -135,6 +153,11 @@ const MOST_EVENT_SECONDS: u32 = 120;
 
 /// What a folder of plugins holds, as a number that changes when a file
 /// in it is added, removed, written or renamed (none: no such folder).
+/// Of the files a plugin's digest reads (`mg_plugin`'s rule for a
+/// plugin's files): no hidden entries or links, nor a plugin's own
+/// `tests/`. (A plugin's fixtures, an unpacked module's thousands of
+/// files, and a nested checkout's `.git` were walked every few seconds
+/// on the window's thread, and a change in them read the plugins again.)
 fn folder_stamp(dir: &Path) -> Option<u64> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -151,13 +174,28 @@ fn folder_stamp(dir: &Path) -> Option<u64> {
             if seen > 20_000 {
                 return Some(h.finish());
             }
+            let Ok(kind) = e.file_type() else { continue };
+            let name = e.file_name();
+            if name.to_string_lossy().starts_with('.') || kind.is_symlink() {
+                continue;
+            }
+            // (A plugin's folder is one level in: its `tests` are its
+            // author's.)
+            if kind.is_dir() && depth == 1 && name == "tests" {
+                continue;
+            }
             let Ok(m) = e.metadata() else { continue };
             e.path().hash(&mut h);
+            // (A folder by its name alone: its size and time change with
+            // what is left out here, and what it holds is gone through.)
+            if m.is_dir() {
+                if depth < 8 {
+                    todo.push((e.path(), depth + 1));
+                }
+                continue;
+            }
             m.len().hash(&mut h);
             m.modified().ok().hash(&mut h);
-            if m.is_dir() && depth < 8 {
-                todo.push((e.path(), depth + 1));
-            }
         }
     }
     Some(h.finish())
@@ -597,13 +635,7 @@ impl Moonglow {
         {
             for dir in mg_plugin::folders(dir) {
                 let plugin = Plugin::load(&dir).map_err(|e| e.to_string());
-                let from_archive = mg_plugin::from_archive(&dir);
-                self.plugins.installed.push(Installed {
-                    dir,
-                    plugin,
-                    from_archive,
-                    project: false,
-                });
+                self.plugins.installed.push(Installed::read(dir, plugin, false));
             }
         }
         self.read_project_plugins();
@@ -619,10 +651,24 @@ impl Moonglow {
     }
 
     /// Reads the open project's plugins again (none of their code runs),
-    /// and asks about those it has no answer for.
+    /// and asks about those it has no answer for: when a project is
+    /// opened (or closed), so those put off with Decide Later too.
     pub fn load_project_plugins(&mut self) {
+        self.plugins.put_off.clear();
         self.read_project_plugins();
         self.plugins_changed();
+    }
+
+    /// Puts the question about the project's plugins off (Decide Later):
+    /// they stay off, and are asked about when the project is next
+    /// opened, not when something else in their folder changes.
+    pub fn put_off_project_plugins(&mut self) {
+        let asking = std::mem::take(&mut self.plugins.project_asking);
+        let put_off: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
+            .filter(|p| asking.contains(&p.manifest.id))
+            .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
+            .collect();
+        self.plugins.put_off.extend(put_off);
     }
 
     fn read_project_plugins(&mut self) {
@@ -651,18 +697,17 @@ impl Moonglow {
             if let Err(e) = &f.plugin {
                 self.log.warn(format!("The project's plugin in {}: {e}", f.dir.display()));
             }
-            let plugin = f.plugin;
-            self.plugins.installed.push(Installed {
-                dir: f.dir,
-                plugin,
-                from_archive: false,
-                project: true,
-            });
+            self.plugins.installed.push(Installed::read(f.dir, f.plugin, true));
         }
         let asking: Vec<String> = (self.plugins.installed.iter())
             .filter(|i| i.project)
             .filter_map(|i| i.plugin.as_ref().ok())
             .filter(|p| self.project_trust(p).is_some_and(|t| t.to_ask()))
+            // (Put off, and as it was then: asked at the next opening.)
+            .filter(|p| {
+                let as_now = (p.manifest.id.clone(), p.digest().map(str::to_string));
+                !self.plugins.put_off.contains(&as_now)
+            })
             .map(|p| p.manifest.id.clone())
             .collect();
         self.plugins.project_asking = asking;
@@ -718,7 +763,9 @@ impl Moonglow {
         let before: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
             .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
             .collect();
-        self.load_project_plugins();
+        // (Not `load_project_plugins`: those put off stay put off.)
+        self.read_project_plugins();
+        self.plugins_changed();
         let after: Vec<(String, Option<String>)> = (self.project_plugins().into_iter())
             .map(|p| (p.manifest.id.clone(), p.digest().map(str::to_string)))
             .collect();
@@ -2392,7 +2439,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 }
                                 // (Its own tests, as `mg plugin test` runs them.)
                                 if let Ok(p) = &installed.plugin
-                                    && !mg_plugin::test_files(p).is_empty()
+                                    && installed.has_tests
                                     && ui
                                         .small_button("Run Tests")
                                         .on_hover_text(
@@ -2677,7 +2724,7 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
         app.allow_project_plugin(&id, allow);
     }
     if later || modal.should_close() {
-        app.plugins.project_asking.clear();
+        app.put_off_project_plugins();
     }
 }
 

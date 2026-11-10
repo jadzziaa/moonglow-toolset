@@ -145,7 +145,8 @@ checks, what it does by itself, and the settings it keeps (those the
 team shares are written into `moonglow.toml`). For each, **Allow** or
 **Don't Allow**; **Allow All** allows each of them as it is;
 **Decide Later** leaves them all off now and asks again at the next
-opening.
+opening (and before it about one of them whose own files change
+meanwhile, a pull's; not for other changes in the folder).
 
 - What you allow is the plugin **as it is now**: Moonglow reads its
   files when the project is opened, runs it from what it read, and

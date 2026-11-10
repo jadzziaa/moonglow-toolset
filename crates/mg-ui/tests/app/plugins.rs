@@ -1571,6 +1571,62 @@ fn a_changed_project_plugin_s_events_ask_again() {
     assert_eq!(h.state().settings.plugin_grants, kept, "nothing kept for the new code");
 }
 
+/// Decide Later holds until the project is next opened: a change in the
+/// plugins' folder that is not the plugin's (a test fixture touched, an
+/// editor's hidden swap file, another plugin added) does not bring the
+/// question about it back, as it did within seconds; its own code
+/// changed does, and so does opening the project again.
+#[test]
+fn decide_later_holds_while_the_plugins_folder_changes() {
+    let dir = plugin_project("ui-project-plugins-put-off");
+    let id = "example.builder-tags";
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, [id]);
+    h.get_by_label("Decide Later").click();
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    // What no plugin's digest reads: the folder is as it was.
+    let plugin = dir.join("plugins/builder-tags");
+    std::fs::create_dir_all(plugin.join("tests/fixtures")).unwrap();
+    std::fs::write(plugin.join("tests/fixtures/area.are"), b"a fixture").unwrap();
+    std::fs::write(plugin.join(".main.luau.swp"), b"a swap file").unwrap();
+    std::fs::create_dir_all(dir.join("plugins/.git/objects")).unwrap();
+    std::fs::write(dir.join("plugins/.git/objects/pack"), b"a nested checkout").unwrap();
+    assert!(!h.state_mut().project_plugins_changed(), "nothing a plugin is made of changed");
+    assert!(h.state().plugins.project_asking.is_empty());
+    // Another plugin comes (a pull): it is asked about, the one put off
+    // is not.
+    let hello = dir.join("plugins/hello");
+    std::fs::create_dir_all(&hello).unwrap();
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/hello");
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), hello.join(file)).unwrap();
+    }
+    assert!(h.state_mut().project_plugins_changed());
+    assert_eq!(h.state().plugins.project_asking, ["example.hello"]);
+    h.run();
+    h.get_by_label("Decide Later").click();
+    h.run();
+    // The plugin put off changes itself: asked about again, it alone.
+    let main = plugin.join("main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- pulled\n")).unwrap();
+    assert!(h.state_mut().project_plugins_changed());
+    assert_eq!(h.state().plugins.project_asking, [id]);
+    h.run();
+    h.get_by_label("Decide Later").click();
+    h.run();
+    assert!(!runs(&h, id) && !runs(&h, "example.hello"), "put off is off");
+    // The project opened again: both.
+    h.state_mut().open_module(&dir);
+    h.run();
+    let mut asking = h.state().plugins.project_asking.clone();
+    asking.sort();
+    assert_eq!(asking, [id, "example.hello"]);
+}
+
 /// A project's plugins are asked about when it is opened, with what each
 /// adds and keeps; none runs until allowed, and the answer is kept by the
 /// plugin's content in the builder's own file: a change asks again, a no
