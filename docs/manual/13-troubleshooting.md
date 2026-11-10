@@ -270,8 +270,8 @@ off.)
 | What | Linux | Windows | macOS |
 | --- | --- | --- | --- |
 | Settings | `~/.local/share/moonglowtoolset` | `%APPDATA%\Moonglow Toolset\data` | `~/Library/Application Support/Moonglow-Toolset` |
-| Recovery copies, crash reports, debug logs (`logs`), prefabs (`prefabs`), variable sets (`variable-sets`), conversation parameter sets (`parameter-sets`), plugins (`plugins`), each module's open tabs (`open-tabs`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
-| Conversation backups | `/tmp/moonglow-backups` | `%TEMP%\moonglow-backups` | `$TMPDIR/moonglow-backups` |
+| Recovery copies, crash reports, debug logs (`logs`), prefabs (`prefabs`), variable sets (`variable-sets`), conversation parameter sets (`parameter-sets`), conversation backups (`conversation-backups`), plugins (`plugins`), each module's open tabs (`open-tabs`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
+| What Moonglow makes and can make again (`MOONGLOW_CACHE_DIR`): the game's shaders compiled, and a folder of each run's own (`scratch`) for a script opened in the external editor, a page to print, a Round-Trip Check's copy | `~/.cache/moonglow` | `%LOCALAPPDATA%\Moonglow\cache` | `~/Library/Caches/Moonglow` |
 
 On Linux, `$XDG_DATA_HOME` takes the place of `~/.local/share` when set
 (in the Flatpak: `~/.var/app/io.github.moonglow_toolset.Moonglow/data`).

@@ -1238,8 +1238,12 @@ fn the_external_script_editor_s_saves_come_back() {
     h.get_by_label("External Editor").click();
     h.run_steps(3);
     // The editor's file: the script; an edit saved there comes back.
-    let file =
-        std::env::temp_dir().join(format!("moonglow-{}", std::process::id())).join("hello.nss");
+    // (In the run's own folder, of a name no one can guess: not the
+    // system's temporary folder's `moonglow-PID`, which another user of
+    // the machine could make first. The last pass's item 24.)
+    let guessable = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
+    assert!(!guessable.join("hello.nss").exists());
+    let file = mg_module::build::own_scratch_dir().unwrap().join("edit").join("hello.nss");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "void main() {}\n");
     std::fs::write(&file, "void main() { int n; }\n").unwrap();
     let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
@@ -1351,7 +1355,7 @@ fn print_opens_a_highlighted_page_of_the_script() {
     m.save().unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    app.print_dir = dir.join("print");
+    app.print_dir = Some(dir.join("print"));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
     h.run();

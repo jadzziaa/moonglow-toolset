@@ -708,7 +708,7 @@ fn conversation_options_popup_link_directions_drag_and_backup() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    app.conversation_backups = dir.join("backups");
+    app.conversation_backups = Some(dir.join("backups"));
     app.new_dialog = Some("optdlg".into());
     let mut h = window_harness(app);
     h.run();

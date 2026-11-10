@@ -765,10 +765,19 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let text = app.scripts[&key].text.clone();
             let html =
                 print_html(&format!("{}.nss", key.resref), &text, &app.settings.script_style);
-            let path = app.print_dir.join(format!("{}.html", key.resref));
-            match std::fs::create_dir_all(&app.print_dir).and_then(|()| std::fs::write(&path, html))
-            {
-                Ok(()) => ui.ctx().open_url(egui::OpenUrl::new_tab(file_url(&path))),
+            // (In the run's own folder, not a name anyone could guess in
+            // the system's temporary folder.)
+            let dir = match &app.print_dir {
+                Some(dir) => Ok(dir.clone()),
+                None => mg_module::build::own_scratch_dir().map(|d| d.join("print")),
+            };
+            let written = dir.and_then(|dir| {
+                let path = dir.join(format!("{}.html", key.resref));
+                std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, html))?;
+                Ok(path)
+            });
+            match written {
+                Ok(path) => ui.ctx().open_url(egui::OpenUrl::new_tab(file_url(&path))),
                 Err(e) => app.log.error(format!("Print: {e}")),
             }
         }
@@ -1729,14 +1738,24 @@ fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
     let path = match in_place {
         Some(path) => path,
         None => {
-            let dir = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
-            let path = dir.join(format!("{}.nss", key.resref.to_lowercase()));
-            let written =
-                std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, buf.bytes()));
-            if let Err(e) = written {
-                app.log.error(format!("{}: {e}", path.display()));
-                return;
-            }
+            // (In the run's own folder: the system's temporary folder's
+            // `moonglow-PID` could be made, or linked elsewhere, by another
+            // user of the machine first, to read the script or give the
+            // editor another.)
+            let name = format!("{}.nss", key.resref.to_lowercase());
+            let written = mg_module::build::own_scratch_dir().and_then(|own| {
+                let dir = own.join("edit");
+                std::fs::create_dir_all(&dir)?;
+                std::fs::write(dir.join(&name), buf.bytes())?;
+                Ok(dir.join(&name))
+            });
+            let path = match written {
+                Ok(path) => path,
+                Err(e) => {
+                    app.log.error(format!("{key}: the copy for the external editor: {e}"));
+                    return;
+                }
+            };
             if in_project {
                 app.log.info(format!(
                     "{key}: a copy is opened, not the project's file: Moonglow has changes to \
@@ -1773,7 +1792,7 @@ fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
 /// Whether `path` is a file of its own (a project's), not Moonglow's
 /// scratch copy.
 fn in_place_of(path: &std::path::Path) -> bool {
-    !path.starts_with(std::env::temp_dir().join(format!("moonglow-{}", std::process::id())))
+    !mg_module::build::own_scratch_dir().is_ok_and(|d| path.starts_with(d))
 }
 
 /// Reads back a script the external editor has saved since.

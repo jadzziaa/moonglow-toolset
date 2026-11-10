@@ -5843,7 +5843,9 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
     let original = crate::open_module(path)?;
     let copy = match keep {
         Some(k) => k.to_path_buf(),
-        None => std::env::temp_dir().join(format!("mg-roundtrip-{}.mod", std::process::id())),
+        // (In the run's own folder: a name anyone could guess in the
+        // system's temporary folder could be made, or linked, first.)
+        None => mg_module::build::own_scratch_dir()?.join("roundtrip.mod"),
     };
     if keep.is_some() && copy.exists() {
         bail!("{} is there already", copy.display());

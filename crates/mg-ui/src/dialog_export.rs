@@ -246,7 +246,7 @@ mod tests {
         );
 
         // A conversation's backup, the same.
-        app.conversation_backups = dir.join("backups");
+        app.conversation_backups = Some(dir.join("backups"));
         app.actions.push(crate::Action::OpenTab(crate::Tab::Dialog(hostile)));
         app.run_actions();
         let e = mg_edit::Edit::SetResource { key: plain, data: m.get(&plain).map(<[u8]>::to_vec) };

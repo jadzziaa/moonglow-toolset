@@ -320,6 +320,7 @@ there gives or takes nothing. A float variable's value is a number: `nan`,
 
 While a conversation with unsaved changes is open, Moonglow backs it up
 as `<name>.bak` every 5 minutes, as Aurora does (Options › Conversation
-Editor), in a `moonglow-backups/<module>` folder in the system's temporary
-folder. Moonglow's recovery copies (see [Modules](03-modules.md)) also
+Editor), in a `conversation-backups/<module>` folder in Moonglow's data
+folder (see [Troubleshooting](13-troubleshooting.md#where-moonglow-keeps-its-files);
+without one, none are written). Moonglow's recovery copies (see [Modules](03-modules.md)) also
 keep the whole module safe.
