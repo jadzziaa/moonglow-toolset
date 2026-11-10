@@ -49,12 +49,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         .map(|(row, text)| Choice { row: *row as usize, text: (*text).into() })
         .collect();
     egui::Grid::new(("utt-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocalizedName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocalizedName");
         crate::widgets::field_label(ui, "Trigger Type");
         f.choice(ui, "Trigger type", "Type", &types, FieldType::Int);
         ui.end_row();

@@ -46,12 +46,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         Choice { row: 1, text: "Single Shot".into() },
     ];
     egui::Grid::new(("ute-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocalizedName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocalizedName");
         crate::widgets::field_label(ui, "Difficulty");
         // The index, and the difficulty value it stands for.
         f.mark_mixed(ui, "DifficultyIndex");

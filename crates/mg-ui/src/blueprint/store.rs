@@ -65,12 +65,7 @@ fn optional_price(
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("utm-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Name");
-        f.locstring(ui, "Name", "LocName");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
+        f.name_and_tag(ui, "LocName");
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Store);
         ui.end_row();
