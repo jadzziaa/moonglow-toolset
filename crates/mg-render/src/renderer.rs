@@ -1312,75 +1312,50 @@ impl Renderer {
             bind_group_layouts: &[Some(&particle_frame_layout)],
             immediate_size: 0,
         });
-        let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("lines"),
-            layout: Some(&line_layout),
-            vertex: wgpu::VertexState {
-                module: &line_shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(LineVertex::LAYOUT)],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &line_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-        // Copies of a shape's lines: the same, but for where the ends are.
-        let line_copy_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("line copies"),
-            layout: Some(&line_layout),
-            vertex: wgpu::VertexState {
-                module: &line_shader,
-                entry_point: Some("vs_copy"),
-                compilation_options: Default::default(),
-                buffers: &[Some(SHAPE_LAYOUT), Some(LineCopyRaw::LAYOUT)],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &line_shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // The lines and the copies of a shape's lines: one pipeline but for
+        // the vertex entry point and its buffers (where the ends are).
+        let line_pipeline_of = |label, entry, buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&line_layout),
+                vertex: wgpu::VertexState {
+                    module: &line_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::LineList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &line_shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let line_pipeline = line_pipeline_of("lines", "vs_main", &[Some(LineVertex::LAYOUT)]);
+        let line_copy_pipeline = line_pipeline_of(
+            "line copies",
+            "vs_copy",
+            &[Some(SHAPE_LAYOUT), Some(LineCopyRaw::LAYOUT)],
+        );
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
