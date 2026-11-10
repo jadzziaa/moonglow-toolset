@@ -18,6 +18,7 @@ mod search;
 mod serve;
 mod test;
 mod tlk_alloc;
+mod twoda_set;
 mod usage;
 mod watch;
 
@@ -509,6 +510,32 @@ enum Cmd {
         /// are not looked up)
         #[arg(long)]
         tlk: Option<PathBuf>,
+    },
+    /// Set cells of a 2DA file and save it as it is laid out (its columns'
+    /// widths, its rows' labels, its line ends): in the row of a number,
+    /// the one row whose column has a value, or a row added at the end.
+    /// Each cell `COLUMN=VALUE` (`COLUMN=` or `COLUMN=****`: empty).
+    #[command(name = "2da-set")]
+    TwodaSet {
+        table: PathBuf,
+        /// `COLUMN=VALUE`, as many as needed.
+        #[arg(value_name = "COLUMN=VALUE", required = true)]
+        cells: Vec<String>,
+        /// The row by its number.
+        #[arg(long, conflicts_with_all = ["matching", "append"])]
+        row: Option<usize>,
+        /// The row whose column has this value (one row must).
+        #[arg(long = "where", value_name = "COLUMN=VALUE", conflicts_with = "append")]
+        matching: Option<String>,
+        /// A row added at the end, its other cells empty.
+        #[arg(long)]
+        append: bool,
+        /// Write the table here rather than over the file.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Say what would change; write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// What differs between two talk tables (.tlk), by line. With --base
     /// (the table both were made from), the two merged, as `mg 2da-diff`
@@ -3179,6 +3206,18 @@ fn run(cli: &Cli) -> Result<Output> {
             out.notes = ran.notes.clone();
             out.note(ran.summary());
             out
+        }
+        Cmd::TwodaSet { table, cells, row, matching, append, output, dry_run } => {
+            let asked = twoda_set::Asked {
+                table,
+                row: *row,
+                matching: matching.as_deref(),
+                append: *append,
+                cells,
+                output: output.as_ref(),
+                dry_run: *dry_run,
+            };
+            twoda_set::run(&asked, Codepage::default())?
         }
         Cmd::TwodaCheck { paths, beside, tlk } => {
             // (A table that names nothing of the game's needs no game.)

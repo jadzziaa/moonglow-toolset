@@ -72,6 +72,8 @@ mod tlk_alloc;
 mod tlk_io;
 #[path = "../twoda_check.rs"]
 mod twoda_check;
+#[path = "../twoda_set.rs"]
+mod twoda_set;
 #[path = "../update_instances.rs"]
 mod update_instances;
 #[path = "../vars.rs"]
