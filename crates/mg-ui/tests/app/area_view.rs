@@ -6839,3 +6839,229 @@ fn an_edit_undone_behind_another_tab_and_saved_is_undone_in_the_view() {
     h.run_steps(3);
     assert!((x(&h) - 30.0).abs() < 1e-4, "and in the view: {}", x(&h));
 }
+
+/// Waypoint `i` of `area` taken out of its list, as a command made
+/// elsewhere (the module tree's Delete, a plugin).
+fn remove_waypoint(h: &mut Harness<'_, Moonglow>, area: ResRef, i: usize) {
+    let edit = mg_edit::Edit::RemoveItem {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root(),
+        list: "WaypointList".into(),
+        index: i,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Remove", vec![edit])));
+    h.run_steps(3);
+}
+
+/// [`area_harness`] with a third waypoint at (10, 20), the three tagged
+/// `WP_A`, `WP_B` and `WP_C` in their list's order.
+fn three_waypoints(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (mut h, area) = area_harness(name)?;
+    let git = ResKey::new(area, ResType::GIT);
+    let mut third = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone()
+    };
+    third.set("XPosition", mg_gff::Value::Float(10.0));
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: "WaypointList".into(),
+        index: 2,
+        item: third,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Third", vec![edit])));
+    h.run_steps(3);
+    for (i, tag) in ["WP_A", "WP_B", "WP_C"].into_iter().enumerate() {
+        set_waypoint(&mut h, area, i, "Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+    }
+    Some((h, area))
+}
+
+/// The tags of the waypoints selected in `area`'s view.
+fn selected_tags(h: &mut Harness<'_, Moonglow>, area: ResRef) -> Vec<String> {
+    let selection = h.state().area_views[&area].selection.clone();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    let list = git.root.list("WaypointList").unwrap();
+    (selection.iter())
+        .map(|&(_, i)| String::from_utf8_lossy(list[i].string("Tag").unwrap()).into_owned())
+        .collect()
+}
+
+/// The review's A5: the view's selection is its objects' kinds and places
+/// in their lists, and stayed as it was when an object before one of
+/// them was taken out or put back (Undo, Redo, a delete made elsewhere):
+/// the yellow box jumped to the next object, and Delete or a drag acted
+/// on that. The selection follows its objects, and lets go of one that
+/// is gone.
+#[test]
+fn the_selection_follows_its_objects_through_undo_and_redo() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = three_waypoints("selection-follows") else { return };
+    // The first deleted; the last (now the second of two) selected; Undo.
+    remove_waypoint(&mut h, area, 0);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    h.run_steps(2);
+    assert_eq!(selected_tags(&mut h, area), ["WP_C"]);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 2)]);
+    assert_eq!(selected_tags(&mut h, area), ["WP_C"], "the same waypoint after Undo");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run_steps(3);
+    assert_eq!(selected_tags(&mut h, area), ["WP_C"], "and after Redo");
+    // The selected one deleted elsewhere: let go of, not the next one.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 2)];
+    h.run_steps(2);
+    remove_waypoint(&mut h, area, 0);
+    assert_eq!(selected_tags(&mut h, area), ["WP_C"]);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
+}
+
+/// The review's A6: Adjust Location holds its objects by kind and place
+/// in their lists too, and with the window open (it shows a live
+/// preview, so the view is worked in meanwhile) an object deleted before
+/// one of them sent OK's numbers to whatever stood in its place. The
+/// window follows its objects, and closes when they are gone. The
+/// outline being drawn anew (Redraw Polygon) follows its object alike.
+#[test]
+fn adjust_location_follows_its_object_when_one_before_it_is_deleted() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = three_waypoints("adjust-follows") else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    h.run_steps(2);
+    let at = h.state().area_views[&area].model.as_ref().unwrap();
+    let at = at.object(ObjectKind::Waypoint, 1).unwrap().position;
+    let at = screen(&h, area, at + glam::Vec3::new(0.0, 0.0, 0.02));
+    h.hover_at(at);
+    let right = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(right(true));
+    h.event(right(false));
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    assert_eq!(h.state().adjust.as_ref().expect("the window").objects, [(ObjectKind::Waypoint, 1)]);
+    // The first waypoint deleted by a command made elsewhere.
+    remove_waypoint(&mut h, area, 0);
+    let adjust = h.state_mut().adjust.as_mut().expect("still open");
+    assert_eq!(adjust.objects, [(ObjectKind::Waypoint, 0)], "it follows WP_B");
+    adjust.position.x = 12.5;
+    adjust.changed = [true, false, false, false];
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let x_of = |h: &mut Harness<'_, Moonglow>, tag: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let list = git.root.list("WaypointList").unwrap();
+        let w = list.iter().find(|w| w.string("Tag") == Some(tag.as_bytes())).unwrap();
+        w.float("XPosition").unwrap()
+    };
+    assert_eq!(x_of(&mut h, "WP_B"), 12.5, "the waypoint it was opened on moved");
+    assert_eq!(x_of(&mut h, "WP_C"), 10.0, "not the one that took its place");
+    // Opened again on WP_B, and WP_B itself deleted: the window closes.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    let at = screen(&h, area, glam::Vec3::new(12.5, 20.0, 0.02));
+    h.hover_at(at);
+    let right = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(right(true));
+    h.event(right(false));
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    assert!(h.state().adjust.is_some());
+    h.state_mut().area_views.get_mut(&area).unwrap().redraw = Some((ObjectKind::Waypoint, 1));
+    remove_waypoint(&mut h, area, 0);
+    assert!(h.state().adjust.is_none(), "closed with its object");
+    assert_eq!(
+        h.state().area_views[&area].redraw,
+        Some((ObjectKind::Waypoint, 0)),
+        "an outline being drawn anew follows its object"
+    );
+    remove_waypoint(&mut h, area, 0);
+    assert_eq!(h.state().area_views[&area].redraw, None, "and is let go of with it");
+}
+
+/// The review's A13: a Ctrl + wheel scaling still under way when its
+/// object is cut (Ctrl+X, within the wheel's rest) was made a command in
+/// the next frame, of the object that had taken its place in the list: a
+/// Scale step on a placeable never touched. The scaling goes with what
+/// is deleted, and the next placeable keeps its size.
+#[test]
+fn a_wheel_scaling_under_way_is_not_given_to_the_next_object_by_a_cut() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("scale-wheel-cut") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let pivot = Vec3::new(12.0, 20.0, 0.0);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let edits = [pivot.x, 28.0]
+            .into_iter()
+            .enumerate()
+            .map(|(index, x)| {
+                let at = Placement { position: [x, pivot.y, 0.0], rotation: 0.0 };
+                let item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+                mg_edit::Edit::InsertItem {
+                    key: git_key,
+                    path: mg_edit::GffPath::root(),
+                    list: "Placeable List".into(),
+                    index,
+                    item,
+                }
+            })
+            .collect();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let chests = |h: &mut Harness<'_, Moonglow>| -> Vec<Option<f32>> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let list = git.root.list("Placeable List").unwrap();
+        list.iter().map(|c| mg_area::VisualTransform::read(c).map(|v| v.scale.x)).collect()
+    };
+    let ctrl = egui::Modifiers::COMMAND;
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.hover_at(screen(&h, area, pivot));
+    h.run_steps(2);
+    h.event(egui::Event::ModifiersChanged(ctrl));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 200.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: ctrl,
+    });
+    h.run_steps(8);
+    assert!(h.state().area_views[&area].wheel_scaling(), "under way");
+    let steps = h.state().ws.as_ref().unwrap().undo_depth();
+    // Cut, Ctrl still held.
+    h.key_press_modifiers(ctrl, egui::Key::X);
+    h.run_steps(3);
+    assert_eq!(chests(&mut h), [None], "one chest left, the size it had");
+    assert!(!h.state().area_views[&area].wheel_scaling(), "the scaling went with its object");
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(40);
+    assert_eq!(chests(&mut h), [None], "nor scaled once the wheel has rested");
+    let ws = h.state().ws.as_ref().unwrap();
+    assert_eq!((ws.undo_depth(), ws.can_undo()), (steps + 1, Some("Delete")));
+}

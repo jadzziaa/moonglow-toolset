@@ -6402,6 +6402,16 @@ pub(crate) fn delete_objects(
 ) {
     let edits = mg_area::edit::delete_edits(view.git(), objects);
     view.selection.clear();
+    // (A Ctrl + wheel scaling or Q and E's turning under way of these
+    // alone goes with them: not made a step for what is deleted, nor
+    // given to the objects that take their places.)
+    let all_gone = |held: &[(ObjectKind, usize)]| held.iter().all(|o| objects.contains(o));
+    if view.wheel_scale.as_ref().is_some_and(|w| all_gone(&w.selection)) {
+        view.wheel_scale = None;
+    }
+    if view.key_turn.as_ref().is_some_and(|k| all_gone(&k.selection)) {
+        view.key_turn = None;
+    }
     // Objects after the deleted ones move up their lists: their Properties
     // would show others.
     let area = view.area;
@@ -6472,7 +6482,21 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, ow
         return 0;
     }
     let what = format!("Replace with {}", key.resref);
-    app.actions.push(Action::Apply(Command::new(what, edits)));
+    // (Each is taken out and another put in its place: the selection,
+    // which follows its objects, would let go of them. They stay
+    // selected, as the objects in those places.)
+    let selection = app.area_views.get(&area).map(|v| v.selection.clone());
+    match app.apply_or_ask(Command::new(what, edits), None) {
+        Ok(true) => {}
+        Ok(false) => return 0,
+        Err(e) => {
+            app.log.error(e.to_string());
+            return 0;
+        }
+    }
+    if let (Some(view), Some(selection)) = (app.area_views.get_mut(&area), selection) {
+        view.selection = selection;
+    }
     replaced
 }
 
@@ -6684,7 +6708,10 @@ fn pose(o: &mut mg_area::AreaObject, p: Vec3, r: f32) {
 /// others: before another edit, which then comes after it.)
 fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
     let Some(k) = view.key_turn.take() else { return };
+    // (What it was begun on, not what is selected by now.)
+    let selected = std::mem::replace(&mut view.selection, k.selection);
     let moved = view.turned(k.by);
+    view.selection = selected;
     if let Some(command) = moves_command(app, view, &moved, "Rotate") {
         if !now {
             app.actions.push(Action::Apply(command));
@@ -8028,6 +8055,160 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if !open || done {
         app.area_stats = None;
+    }
+}
+
+/// Where the placed object `index` of `kind` is in `area`'s GIT, as
+/// [`crate::blueprint::follow`] names a place.
+fn place_of(area: ResRef, kind: ObjectKind, index: usize) -> crate::blueprint::follow::Place {
+    (area, mg_edit::GffPath::root().item(kind.list(), index))
+}
+
+/// The placed objects that the area views and the windows and tools over
+/// them hold by kind and place in the GIT's list: a view's selection, a
+/// Ctrl + wheel scaling and Q and E's turning under way, the outline
+/// being drawn anew and the eraser's stroke; Adjust Location's, Bake
+/// Walkmesh's and Change Light's objects. An object put in or taken out
+/// before one of them moves it in its list (Undo, Redo, a plugin's edit,
+/// a delete from the module tree): [`objects_moved`] then points each at
+/// where its object went, as the Properties windows are.
+///
+/// Those in `areas`, and only the places the GITs have now: a view that
+/// places or pastes selects what its command will put in before the
+/// command runs, and those places are no object's yet.
+pub(crate) fn held_objects(
+    app: &mut Moonglow,
+    areas: &[ResRef],
+) -> Vec<crate::blueprint::follow::Place> {
+    let mut out = held_places(app);
+    out.retain(|(area, _)| areas.contains(area));
+    if out.is_empty() {
+        return out;
+    }
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let mut sizes = std::collections::HashMap::new();
+    for &area in areas {
+        let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
+        for kind in ObjectKind::ALL {
+            let n = git.root.list(kind.list()).map_or(0, |l| l.len());
+            sizes.insert((area, kind.list()), n);
+        }
+    }
+    out.retain(|(area, path)| match path.0.as_slice() {
+        [mg_edit::Step::Item(list, i)] => sizes.get(&(*area, list.as_str())).is_some_and(|n| i < n),
+        _ => false,
+    });
+    out
+}
+
+/// [`held_objects`], wherever and whether or not they are.
+fn held_places(app: &Moonglow) -> Vec<crate::blueprint::follow::Place> {
+    let mut out = Vec::new();
+    for (&area, view) in &app.area_views {
+        let lists = [
+            Some(&view.selection),
+            view.wheel_scale.as_ref().map(|w| &w.selection),
+            view.key_turn.as_ref().map(|k| &k.selection),
+        ];
+        for &(kind, index) in lists.into_iter().flatten().flatten().chain(&view.redraw) {
+            out.push(place_of(area, kind, index));
+        }
+        out.extend(view.paint.erasing.iter().map(|&i| place_of(area, ObjectKind::Placeable, i)));
+    }
+    if let Some(a) = &app.adjust {
+        out.extend(a.objects.iter().map(|&(k, i)| place_of(a.area, k, i)));
+    }
+    if let Some(d) = &app.bake.draft {
+        out.extend(d.objects.iter().map(|&i| place_of(d.area, ObjectKind::Placeable, i)));
+    }
+    if let Some(d) = &app.light_draft {
+        out.extend(d.change.iter().map(|&(k, i)| place_of(d.area, k, i)));
+    }
+    out
+}
+
+/// Where the object `(kind, index)` of `area` is after the edits `moved`
+/// tells of: `None` where it is gone (or no longer an object of that
+/// area's lists).
+fn object_now(
+    moved: &crate::blueprint::follow::Followed,
+    area: ResRef,
+    (kind, index): (ObjectKind, usize),
+) -> Option<(ObjectKind, usize)> {
+    match moved.get(&place_of(area, kind, index)) {
+        // (Not among those that moved.)
+        None => Some((kind, index)),
+        Some(Some((to, path))) if *to == area => match path.0.as_slice() {
+            [mg_edit::Step::Item(list, i)] => Some((ObjectKind::from_list(list)?, *i)),
+            _ => None,
+        },
+        Some(_) => None,
+    }
+}
+
+/// Points what [`held_objects`] names at where its objects went (`moved`,
+/// worked out before the edits ran); what is gone is let go of, and a
+/// window or tool whose objects are all gone closes. (Bake Walkmesh
+/// closes where any is: its plan is by its objects, in their order.)
+pub(crate) fn objects_moved(app: &mut Moonglow, moved: &crate::blueprint::follow::Followed) {
+    if moved.is_empty() {
+        return;
+    }
+    let follow = |area: ResRef, objects: &mut Vec<(ObjectKind, usize)>| {
+        if objects.iter().any(|&o| object_now(moved, area, o) != Some(o)) {
+            *objects = objects.iter().filter_map(|&o| object_now(moved, area, o)).collect();
+        }
+    };
+    for (&area, view) in app.area_views.iter_mut() {
+        follow(area, &mut view.selection);
+        if let Some(w) = &mut view.wheel_scale {
+            follow(area, &mut w.selection);
+            if w.selection.is_empty() {
+                view.wheel_scale = None;
+            }
+        }
+        if let Some(k) = &mut view.key_turn {
+            follow(area, &mut k.selection);
+            if k.selection.is_empty() {
+                view.key_turn = None;
+            }
+        }
+        if let Some(o) = view.redraw {
+            view.redraw = object_now(moved, area, o);
+            if view.redraw.is_none() {
+                view.outline.clear();
+            }
+        }
+        view.paint.erasing = (view.paint.erasing.iter())
+            .filter_map(|&i| object_now(moved, area, (ObjectKind::Placeable, i)))
+            .filter(|(k, _)| *k == ObjectKind::Placeable)
+            .map(|(_, i)| i)
+            .collect();
+    }
+    if let Some(a) = app.adjust.as_mut().filter(|a| !a.start) {
+        follow(a.area, &mut a.objects);
+        if a.objects.is_empty() {
+            app.adjust = None;
+        }
+    }
+    if let Some(d) = &mut app.bake.draft {
+        let now: Option<Vec<usize>> = (d.objects.iter())
+            .map(|&i| match object_now(moved, d.area, (ObjectKind::Placeable, i)) {
+                Some((ObjectKind::Placeable, i)) => Some(i),
+                _ => None,
+            })
+            .collect();
+        match now {
+            Some(now) => d.objects = now,
+            None => app.bake.draft = None,
+        }
+    }
+    if let Some(d) = app.light_draft.as_mut().filter(|d| !d.change.is_empty()) {
+        follow(d.area, &mut d.change);
+        // (With none left it would place a new light.)
+        if d.change.is_empty() {
+            app.light_draft = None;
+        }
     }
 }
 

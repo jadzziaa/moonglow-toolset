@@ -4356,6 +4356,11 @@ impl Moonglow {
         if self.area_views.values().any(area_view::AreaView::key_turning) {
             area_view::commit_key_turns(self);
         }
+        // (So does a Ctrl + wheel scaling: of the objects it was begun
+        // on, which the command may take out or move in their list.)
+        if self.area_views.values().any(area_view::AreaView::wheel_scaling) {
+            area_view::commit_wheel_scales(self);
+        }
         self.warn_shadowing(&cmd);
         // Claimed areas kept read-only, protected names asked about.
         claims::gate(self, &cmd)?;

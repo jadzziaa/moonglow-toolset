@@ -59,8 +59,18 @@ pub struct BakeDraft {
     pub area: ResRef,
     /// The placeables baked (their places in the area's list).
     pub objects: Vec<usize>,
-    /// What baking them will do, worked out as the window opened.
+    /// What baking them will do, worked out as the window opened, and
+    /// again when the area's objects changed since.
     pub plan: Result<Plan, String>,
+    /// When the area's GIT last changed as the plan was made
+    /// (`Workspace::changed_at`).
+    planned_at: u64,
+}
+
+/// When `area`'s GIT last changed.
+fn changed_at(app: &Moonglow, area: ResRef) -> u64 {
+    let key = mg_resman::ResKey::new(area, mg_core::ResType::GIT);
+    app.ws.as_ref().map_or(0, |ws| ws.changed_at(&key))
 }
 
 /// The project's rules and rows file, or why nothing can be baked.
@@ -175,7 +185,8 @@ pub(crate) fn open(app: &mut Moonglow, area: ResRef, objects: Vec<usize>) {
     if let Some(v) = app.area_views.get_mut(&area) {
         v.object_walkmesh = true;
     }
-    app.bake.draft = Some(BakeDraft { area, objects, plan });
+    let planned_at = changed_at(app, area);
+    app.bake.draft = Some(BakeDraft { area, objects, plan, planned_at });
 }
 
 /// Sets `objects` (each with the row it goes back to) back: one step.
@@ -195,7 +206,15 @@ fn unbake(app: &mut Moonglow, area: ResRef, objects: &[(usize, u32)]) {
 
 /// Draws the window, when open.
 pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(d) = app.bake.draft.take() else { return };
+    let Some(mut d) = app.bake.draft.take() else { return };
+    // (Its placeables scaled or turned again, or given another
+    // appearance, with the window open: what it would bake is worked out
+    // from them as they are now.)
+    let now = changed_at(app, d.area);
+    if now != d.planned_at {
+        d.plan = plan_for(app, d.area, &d.objects);
+        d.planned_at = now;
+    }
     let mut open = true;
     let mut done = None;
     // (Beside the view, not over the objects whose walkmeshes it shows.)
