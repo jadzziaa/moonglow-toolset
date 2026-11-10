@@ -1842,6 +1842,57 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     assert_eq!(prefix, mg_plugin::SettingValue::Text(String::new()), "its default");
 }
 
+/// A value Tidy Up moves out of the project's file into the user's own
+/// is kept there though the tidy fails further on (here the builder's
+/// own project file can't be written): it was out of the project's file
+/// and in neither place, as with `mg plugin tidy` (the review's C23).
+#[cfg(unix)]
+#[test]
+fn a_setting_moved_by_tidy_up_is_kept_when_the_tidy_fails_further_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = plugin_project("ui-plugin-tidy-fails");
+    let plugins = dir.join("installed");
+    let one = plugins.join("one");
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::write(
+        one.join("plugin.cfg"),
+        "[plugin]\nid = \"a.one\"\nname = \"One\"\nversion = \"1\"\napi = \"0.5\"\nlicense = \
+         \"MIT\"\n\n[setting]\nid = \"name\"\nlabel = \"Name\"\nscope = \"user\"\n",
+    )
+    .unwrap();
+    std::fs::write(one.join("main.luau"), "local mg = require(\"@moonglow\")\n").unwrap();
+    let team = dir.join("moonglow.toml");
+    std::fs::write(&team, "[plugins.\"a.one\"]\nname = \"mine\"\n").unwrap();
+    let own = dir.join(".moonglow");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("user.toml"), "[plugins.\"a.one\"]\nlost = 1\n").unwrap();
+    let values = dir.with_extension("values.json");
+    let _ = std::fs::remove_file(&values);
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugins);
+    app.plugin_answers = Some(dir.with_extension("answers.toml"));
+    app.plugin_values = Some(values.clone());
+    app.load_plugins();
+    app.open_module(&dir);
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // (Who may write anywhere, the administrator, is not held by it.)
+    let held = std::fs::write(own.join("probe"), b"").is_err();
+    app.tidy_plugin_settings("a.one");
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if !held {
+        return;
+    }
+    let log = &app.log.entries;
+    assert!(log.iter().any(|(_, m)| m.starts_with("One: not tidied: ")), "{log:?}");
+    assert!(!std::fs::read_to_string(&team).unwrap().contains("mine"), "out of the team's file");
+    let mine = mg_plugin::SettingValue::Text("mine".into());
+    let kept = mg_plugin::settings::user_values(&app.settings.plugin_settings, "a.one");
+    assert_eq!(kept.get("name"), Some(&mine), "held by the window");
+    let written = mg_plugin::settings::read_user(&values).unwrap();
+    let kept = mg_plugin::settings::user_values(&written, "a.one");
+    assert_eq!(kept.get("name"), Some(&mine), "and in the user's own file");
+}
+
 /// The kinds of setting API 0.5 added, in the form: a number with a
 /// fraction, a list (of choices, and free), a color, text held to a
 /// pattern and a folder chosen by Choose…; kept, those of scope `user`, in

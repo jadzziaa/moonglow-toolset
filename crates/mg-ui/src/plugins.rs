@@ -1026,22 +1026,31 @@ impl Moonglow {
         let root = self.project_root();
         let file = self.ws.as_ref().map(|ws| ws.module.project_file.clone());
         let project = root.as_deref().zip(file.as_ref());
-        let done = match mg_plugin::settings::tidy(&p.manifest, &mut user, project, false) {
+        let had = user.clone();
+        let done = mg_plugin::settings::tidy(&p.manifest, &mut user, project, false);
+        // What it moved into the user's own values is kept whether or not
+        // the tidy went through: it is out of the project's file already,
+        // and a tidy that failed further on left it in neither place (as
+        // `mg plugin tidy` did: the review's C23).
+        if done.is_ok() || user != had {
+            if let Some(path) = &self.plugin_values
+                && let Err(e) = mg_plugin::settings::write_user(path, &user)
+            {
+                self.log.error(format!("{}: {e}", p.manifest.name));
+            }
+            self.settings.plugin_settings = user;
+        }
+        // (The project's files as the tidy left them, done or not.)
+        if let (Some(root), Some(ws)) = (&root, &mut self.ws) {
+            ws.module.project_file = ProjectFile::read(root);
+        }
+        let done = match done {
             Ok(done) => done,
             Err(e) => {
                 self.log.error(format!("{}: not tidied: {e}", p.manifest.name));
                 return;
             }
         };
-        if let Some(path) = &self.plugin_values
-            && let Err(e) = mg_plugin::settings::write_user(path, &user)
-        {
-            self.log.error(format!("{}: {e}", p.manifest.name));
-        }
-        self.settings.plugin_settings = user;
-        if let (Some(root), Some(ws)) = (&root, &mut self.ws) {
-            ws.module.project_file = ProjectFile::read(root);
-        }
         for line in &done {
             self.log.info(format!("{}: tidied: {line}", p.manifest.name));
         }
