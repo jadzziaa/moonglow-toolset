@@ -90,27 +90,45 @@ impl Control<'_> {
     }
 }
 
-/// A scrollbar as the pointer finds it: its strip along `axis`, an end
-/// button's length at each end of it, how far its view scrolls at most,
-/// and what a click on an end button scrolls by (`None`: nothing of its
-/// own, the click is taken as one on the track's end).
+/// A scrollbar as the pointer finds it: its strip along `axis` (end
+/// buttons and track), an end button's length at each end of it, and how
+/// far its view scrolls at most.
 pub(super) struct Bar {
     pub strip: Rect,
     pub axis: usize,
     pub button: f32,
     pub max: f32,
-    pub step: Option<f32>,
+}
+
+/// The frames a second the client is taken to draw at, for how fast an
+/// end button held scrolls ([`end_button_scroll`]): its scrolling is by
+/// the frame, so it is as fast as the client draws (60 where it waits on
+/// a 60 Hz display).
+const CLIENT_FPS: f32 = 60.0;
+
+/// How far an end button held for `seconds` scrolls a bar whose strip is
+/// `length` long: 1% of the length a frame of the client's, for a list's,
+/// a group's and a text's alike (Nuklear's repeating end buttons:
+/// `reading_scrollbar_end_buttons` in `client_render.rs`, where a group
+/// 150, 300 and 600 high scrolled 1, 2 and 5 pixels a frame down, 2, 3 and
+/// 6 up, the client keeping whole pixels, and a list a row at a time).
+/// A click shorter than a frame scrolls nothing in the client.
+pub(super) fn end_button_scroll(length: f32, seconds: f32) -> f32 {
+    0.01 * length * CLIENT_FPS * seconds
 }
 
 /// How far a view is scrolled after this frame's input, from `offset`:
-/// the wheel over `over` (the control), a click on the bar's end buttons,
-/// and a click or a drag on its track, which goes from the view's start
-/// to its end between the two buttons. In the canvas's pixels, as
-/// `offset` is: what is kept between frames is kept in points
+/// the wheel over `over` (the control), an end button of the bar held
+/// ([`end_button_scroll`] for the frame's time, the window drawn again
+/// while it is held), and a click or a drag on its track, which goes from
+/// the view's start to its end between the two buttons. In the canvas's
+/// pixels, as `offset` is: what is kept between frames is kept in points
 /// (`offset / scale`), so that a change of zoom or of the UI scale leaves
 /// the view where it was. A group's bars, a list's and a text's all
 /// scroll by this (each had its own copy, and the list's kept pixels: at
-/// 200% a list scrolled to row 30 showed row 15).
+/// 200% a list scrolled to row 30 showed row 15; a click on an end button
+/// scrolled a group 20 points, a text a line and a list to the track's
+/// end).
 pub(super) fn scroll_by(
     ui: &Ui,
     response: &egui::Response,
@@ -118,20 +136,28 @@ pub(super) fn scroll_by(
     bar: &Bar,
     offset: f32,
 ) -> f32 {
-    let Bar { strip, axis, button, max, step } = *bar;
+    let Bar { strip, axis, button, max } = *bar;
     let mut offset = offset;
     if ui.rect_contains_pointer(over) {
         offset -= ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta[axis]));
     }
-    if (response.clicked() || response.dragged())
-        && let Some(pointer) = response.interact_pointer_pos()
+    let (start, end) = (strip.min[axis] + button, strip.max[axis] - button);
+    let on_button = |p: egui::Pos2| p[axis] < start || p[axis] > end;
+    // (Where the press began: a drag begun on the track that runs over a
+    // button still drags the track, and a press begun on a button scrolls
+    // until it is let go, wherever the pointer goes.)
+    let origin = ui.input(|i| i.pointer.press_origin());
+    if response.is_pointer_button_down_on()
+        && let Some(from) = origin.filter(|&p| on_button(p))
     {
-        let (start, end) = (strip.min[axis] + button, strip.max[axis] - button);
-        match step {
-            Some(step) if pointer[axis] < start => offset -= step,
-            Some(step) if pointer[axis] > end => offset += step,
-            _ => offset = ((pointer[axis] - start) / (end - start).max(1.0)).clamp(0.0, 1.0) * max,
-        }
+        let seconds = ui.input(|i| i.stable_dt).min(0.1);
+        let by = end_button_scroll(strip.size()[axis], seconds);
+        offset += if from[axis] < start { -by } else { by };
+        ui.ctx().request_repaint();
+    } else if let Some(pointer) = response.interact_pointer_pos()
+        && (response.dragged() || (response.clicked() && !on_button(pointer)))
+    {
+        offset = ((pointer[axis] - start) / (end - start).max(1.0)).clamp(0.0, 1.0) * max;
     }
     offset.clamp(0.0, max)
 }

@@ -79,6 +79,24 @@ impl SpellSlots {
     }
 }
 
+/// The spells of level `level` a class has from its table's cell (`None`:
+/// `****`, a level it does not cast) and its casting ability's modifier
+/// (0 for a class that knows its spells): the cell, and a bonus slot for
+/// each four points of modifier from the level up wherever the class
+/// casts the level, a cell of 0 too (a paladin's and a ranger's first
+/// spell level, cast by bonus slots alone). `at_zero`: whether level 0
+/// takes a bonus too, as Aurora's spell check counts it; its Levelup
+/// Wizard gives level 0 none (`aurora_levelup.rs`: a cleric's five
+/// cantrips, a paladin's one first-level spell at Wisdom 14). Both the
+/// check ([`GameData::spell_slots`]) and the level-up count by this.
+pub(crate) fn level_slots(cell: Option<i32>, modifier: i32, level: usize, at_zero: bool) -> i64 {
+    let Some(cell) = cell else { return 0 };
+    let level = level as i32;
+    let bonus =
+        if (level > 0 || at_zero) && modifier >= level { (modifier - level) / 4 + 1 } else { 0 };
+    i64::from(cell.max(0)) + i64::from(bonus)
+}
+
 impl GameData {
     /// What `entry` (an item of the creature's `ClassList`) may have of
     /// each spell level; `None` for a class that casts no spells.
@@ -118,14 +136,11 @@ impl GameData {
         let score = own.saturating_add(racial[ability]);
         let (base, m) =
             if prepares { (gain, modifier(score)) } else { (table("SpellKnownTable"), 0) };
+        // (A level whose cell is `****` counts as 0 here: the check holds
+        // spells past the levels it casts to `levels` first.)
         let max = std::array::from_fn(|l| {
-            let n = base
-                .as_ref()
-                .and_then(|(t, r)| t.get_int(*r, &format!("SpellLevel{l}")))
-                .unwrap_or(0)
-                .max(0) as usize;
-            let bonus = if m >= l as i32 { (m - l as i32) / 4 + 1 } else { 0 };
-            n.saturating_add(bonus as usize)
+            let cell = base.as_ref().and_then(|(t, r)| t.get_int(*r, &format!("SpellLevel{l}")));
+            level_slots(cell.or(Some(0)), m, l, true) as usize
         });
         Some(SpellSlots { prepares, levels, ability, score, max })
     }

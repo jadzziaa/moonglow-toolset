@@ -131,7 +131,7 @@ impl Renderer<'_> {
                     )
                 });
                 if !disabled && editable {
-                    let bar = Bar { strip, axis, button: thick, max, step: Some(20.0 * scale) };
+                    let bar = Bar { strip, axis, button: thick, max };
                     offset = scroll_by(ui, &scroll_response, body, &bar, offset);
                 }
                 offset = offset.clamp(0.0, max);
@@ -345,9 +345,8 @@ impl Renderer<'_> {
             });
             if !disabled && editable {
                 // (The track is what is between the native end buttons, so
-                // that its bottom reaches the final row; a click on a
-                // button is one on the track's end.)
-                let bar = Bar { strip: track, axis: 1, button: width, max: max_scroll, step: None };
+                // that its bottom reaches the final row.)
+                let bar = Bar { strip: track, axis: 1, button: width, max: max_scroll };
                 offset = scroll_by(ui, &scroll_response, body, &bar, offset);
             }
             offset = offset.clamp(0.0, max_scroll);

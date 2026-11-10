@@ -100,12 +100,17 @@ impl HandednessSplit {
 
 /// A triangle's tangent and handedness from its first UV set, as the
 /// game's compiler takes them: flat in UV, its normals' mean turned
-/// (y, z, x), handedness 1.
-fn triangle_tangent(mesh: &Mesh, [a, b, c]: [usize; 3]) -> (Vec3, f32) {
-    let (p, uv) = (&mesh.vertices, &mesh.uvs[0]);
+/// (y, z, x), handedness 1. The game's client makes an ASCII model's
+/// tangents at load by the same rule (`reading_tangents_flat_in_uv` in
+/// `client_render.rs`), which Moonglow's renderer takes for the
+/// tangents it makes. (A coordinate or normal the mesh lacks is zero;
+/// the corners are the mesh's vertices.)
+pub fn triangle_tangent(mesh: &Mesh, [a, b, c]: [usize; 3]) -> (Vec3, f32) {
+    let p = &mesh.vertices;
+    let uv = |v: usize| mesh.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]);
     let (e1, e2) = (sub(p[b], p[a]), sub(p[c], p[a]));
-    let (du1, dv1) = (uv[b][0] - uv[a][0], uv[b][1] - uv[a][1]);
-    let (du2, dv2) = (uv[c][0] - uv[a][0], uv[c][1] - uv[a][1]);
+    let (du1, dv1) = (uv(b)[0] - uv(a)[0], uv(b)[1] - uv(a)[1]);
+    let (du2, dv2) = (uv(c)[0] - uv(a)[0], uv(c)[1] - uv(a)[1]);
     let det = du1 * dv2 - du2 * dv1;
     if det != 0.0 {
         (
@@ -113,8 +118,8 @@ fn triangle_tangent(mesh: &Mesh, [a, b, c]: [usize; 3]) -> (Vec3, f32) {
             if det >= 0.0 { 1.0 } else { -1.0 },
         )
     } else {
-        let n = &mesh.normals;
-        let mean: Vec3 = std::array::from_fn(|k| (n[a][k] + n[b][k] + n[c][k]) / 3.0);
+        let n = |v: usize| mesh.normals.get(v).copied().unwrap_or([0.0; 3]);
+        let mean: Vec3 = std::array::from_fn(|k| (n(a)[k] + n(b)[k] + n(c)[k]) / 3.0);
         ([mean[1], mean[2], mean[0]], 1.0)
     }
 }

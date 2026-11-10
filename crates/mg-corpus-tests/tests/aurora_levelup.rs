@@ -1,8 +1,10 @@
 //! The Levelup Wizard against Aurora's: bandits (Fighter 1) levelled up in
 //! Aurora (`levelup/bandit-fighter5.mod`: to Fighter 5; `six-after.mod`:
 //! Fighter 2, 3 and 10, and Wizard 1, Rogue 3 and Cleric 5 added; made from
-//! `examples/popup_probe_module.rs` and `levelup_probe_module.rs`). Hit
-//! points, abilities, feats (in order), skills, a new class's memorized
+//! `examples/popup_probe_module.rs` and `levelup_probe_module.rs`;
+//! `spells-after.mod`: Paladin 4 added at Wisdom 14, Sorcerer 1 and Bard 1
+//! added, from `levelup_probe_module.rs spells`). Hit
+//! points, abilities, feats (in order), skills, a new class's memorized and known
 //! spells and package equipment (equipped or where in the backpack), and
 //! maximum hit points must be Aurora's.
 
@@ -29,9 +31,10 @@ fn summary(game: &GameData, c: &Struct) -> Vec<String> {
                 .unwrap()
                 .iter()
                 .map(|e| {
-                    let spells: Vec<(String, Vec<i64>)> = (0..10)
-                        .filter_map(|n| {
-                            let l = format!("MemorizedList{n}");
+                    let spells: Vec<(String, Vec<i64>)> = ["MemorizedList", "KnownList"]
+                        .iter()
+                        .flat_map(|kind| (0..10).map(move |n| format!("{kind}{n}")))
+                        .filter_map(|l| {
                             let list = e.list(&l)?;
                             Some((l, list.iter().filter_map(|s| s.integer("Spell")).collect()))
                         })
@@ -66,13 +69,27 @@ fn summary(game: &GameData, c: &Struct) -> Vec<String> {
     out
 }
 
+/// A creature's feats sorted by their names, as Aurora's creature
+/// Properties window writes them when it is OK'd.
+fn sort_feats_by_name(game: &GameData, c: &mut Struct) {
+    let feats = game.table("feat").unwrap();
+    let name = |f: &Struct| {
+        let row = f.integer("Feat").unwrap_or(0).max(0) as usize;
+        let strref = feats.get_int(row, "FEAT").unwrap_or(-1);
+        game.string(mg_core::StrRef(strref as u32)).unwrap_or_default().to_lowercase()
+    };
+    let mut list = c.list("FeatList").unwrap_or(&[]).to_vec();
+    list.sort_by_cached_key(name);
+    c.set("FeatList", mg_gff::Value::List(list));
+}
+
 #[test]
 fn levelling_up_matches_aurora() {
     let root = corpus!();
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     // (capture before, after, each creature's class levels).
     type Case<'a> = (&'a str, &'a str, Vec<Vec<(u32, u32)>>);
-    let cases: [Case; 2] = [
+    let cases: [Case; 3] = [
         ("levelup/bandit-before.mod", "levelup/bandit-fighter5.mod", vec![vec![(4, 5)]]),
         (
             "levelup/six-before.mod",
@@ -86,6 +103,14 @@ fn levelling_up_matches_aurora() {
                 vec![(4, 1), (2, 5)],
             ],
         ),
+        // (Paladin 4 at Wisdom 14, lawful good: a level whose slots are
+        // bonus slots alone; Sorcerer 1 and Bard 1: classes that know
+        // their spells.)
+        (
+            "levelup/spells-before.mod",
+            "levelup/spells-after.mod",
+            vec![vec![(4, 1), (6, 4)], vec![(4, 1), (9, 1)], vec![(4, 1), (1, 1)]],
+        ),
     ];
     let item = |r: ResRef| {
         let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
@@ -93,12 +118,19 @@ fn levelling_up_matches_aurora() {
     };
     let mut failures = Vec::new();
     for (before, after, targets) in cases {
+        // (These were levelled through the creature's Properties window,
+        // whose OK writes the feats sorted by name: Moonglow's are so
+        // sorted to be compared.)
+        let by_name = before.starts_with("levelup/spells");
         let (before, after) = (
             Module::open(&aurora_capture!(before)).unwrap(),
             Module::open(&aurora_capture!(after)).unwrap(),
         );
         for ((c, aurora), t) in creatures(&before).iter().zip(creatures(&after)).zip(targets) {
-            let ours = game.level_up(c, &t);
+            let mut ours = game.level_up(c, &t);
+            if by_name {
+                sort_feats_by_name(&game, &mut ours);
+            }
             let (a, b) = (summary(&game, &ours), summary(&game, &aurora));
             for (x, y) in a.iter().zip(&b) {
                 if x != y {

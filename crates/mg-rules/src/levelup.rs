@@ -26,20 +26,18 @@
 //!
 //! A class the creature did not have gets its spells: for a class that
 //! prepares them, each spell level's slots (the `SpellGainTable`, and
-//! bonus slots for the casting ability where the table gives the level a
-//! slot of its own) filled with a domain spell (the
+//! bonus slots for the casting ability wherever the table gives the level
+//! a number, 0 too, but at level 0: [`crate::spell_warnings::level_slots`])
+//! filled with a domain spell (the
 //! package's first domain's for that level, else the second's) and then
 //! the package's spells of that level (`SpellPref2DA`) in order, the first
 //! repeated in what is left; for one that knows them, the package's first
 //! spells of each level up to the `SpellKnownTable`. Its package's
 //! equipment is [`GameData::new_class_gear`]'s (the caller makes the items).
-//!
-//! Two things here are not Aurora's by a capture, and wait on one
-//! (`docs/deferred.md`): the spells of a class that knows them (a
-//! sorcerer's or a bard's first level), and a level whose slots are bonus
-//! slots alone (a paladin's and a ranger's first: the gain table's cell
-//! is 0, which gives none here, while Aurora's spell check
-//! ([`crate::spell_warnings`]) and the game give the bonus slot).
+//! Captured (`levelup/spells-after.mod`): Paladin 4 added at Wisdom 14, a
+//! level whose gain cell is 0, has its one bonus first-level spell;
+//! Sorcerer 1 and Bard 1 added know the package's first four cantrips
+//! (and the sorcerer two first-level spells), each entry `SpellFlags` 1.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -430,20 +428,16 @@ impl GameData {
             let of_level: Vec<u16> =
                 prefs.iter().copied().filter(|&sp| spell_level(sp) == Some(n)).collect();
             if prepares {
-                let base = table("SpellGainTable")
-                    .and_then(|t| t.get_int(level as usize - 1, &format!("SpellLevel{n}")))
-                    .unwrap_or(0)
-                    .max(0);
-                // Bonus slots: one for each four points of modifier from
-                // the spell level up.
-                let bonus = if n > 0 && base > 0 && ability >= n as i32 {
-                    (ability - n as i32) / 4 + 1
-                } else {
-                    0
-                };
-                // (As many as a table's cell and an ability say, held to
-                // [`MOST_SLOTS`]: a cell of two billion was as many spells.)
-                let slots = base.saturating_add(bonus).clamp(0, MOST_SLOTS) as usize;
+                // The cell and a bonus slot for each four points of
+                // modifier from the spell level up, a cell of 0 too (a
+                // paladin's first level, cast by bonus slots alone); none
+                // for `****`, nor at level 0. (As many as a table's cell
+                // and an ability say, held to [`MOST_SLOTS`]: a cell of two
+                // billion was as many spells.)
+                let cell = table("SpellGainTable")
+                    .and_then(|t| t.get_int(level as usize - 1, &format!("SpellLevel{n}")));
+                let slots = crate::spell_warnings::level_slots(cell, ability, n, false)
+                    .clamp(0, i64::from(MOST_SLOTS)) as usize;
                 let mut list: Vec<u16> = Vec::new();
                 if n > 0
                     && let Some(d) = domain_spell(n)
@@ -465,10 +459,11 @@ impl GameData {
                     out.push((format!("MemorizedList{n}"), list));
                 }
             } else {
-                let known = table("SpellKnownTable")
-                    .and_then(|t| t.get_int(level as usize - 1, &format!("SpellLevel{n}")))
-                    .unwrap_or(0)
-                    .clamp(0, MOST_SLOTS) as usize;
+                // (The table's count: no ability bonus for spells known.)
+                let cell = table("SpellKnownTable")
+                    .and_then(|t| t.get_int(level as usize - 1, &format!("SpellLevel{n}")));
+                let known = crate::spell_warnings::level_slots(cell, 0, n, false)
+                    .clamp(0, i64::from(MOST_SLOTS)) as usize;
                 let list: Vec<u16> = of_level.into_iter().take(known).collect();
                 if !list.is_empty() {
                     out.push((format!("KnownList{n}"), list));
@@ -791,6 +786,49 @@ mod tests {
         let after = game.level_up(&many, &[(1, 60)]);
         assert_eq!(after.list("ClassList").unwrap().len(), 2);
         assert_eq!(game.base_attack(&[(1, u32::MAX), (1, u32::MAX)]), 0);
+    }
+
+    /// A level whose gain cell is 0 is cast by bonus slots alone: a new
+    /// paladin's first spell level at Wisdom 14 has one spell, as Aurora's
+    /// Levelup Wizard gives it (`aurora_levelup.rs`, Paladin 4); a cell
+    /// of `****` none, and level 0 no bonus. (A cell of 0 gave none.)
+    #[test]
+    fn a_level_of_bonus_slots_alone_has_its_spells() {
+        let tables = |cell: &str| {
+            [
+                (
+                    "classes",
+                    "Label HitDie SkillPointBase Package PlayerClass SpellCaster \
+                     MemorizesSpells SpellTableColumn SpellGainTable SpellcastingAbil\n\
+                     0 Paladin 10 2 0 1 1 1 Paladin cls_spgn_pal WIS\n"
+                        .to_string(),
+                ),
+                ("packages", "Label Attribute SpellPref2DA\n0 Paladin WIS packsppal\n".into()),
+                (
+                    "cls_spgn_pal",
+                    format!("NumSpellLevels SpellLevel0 SpellLevel1\n0 2 **** {cell}\n"),
+                ),
+                ("spells", "Label Paladin\n0 Bless 1\n1 Light 0\n".into()),
+                ("packsppal", "SpellIndex\n0 0\n1 1\n".into()),
+                ("racialtypes", "Label FirstLevelSkillPointsMultiplier\n0 Human 1\n".into()),
+            ]
+        };
+        for (cell, wis, want) in [("0", 14, Some(vec![0])), ("****", 14, None), ("0", 11, None)] {
+            let owned = tables(cell);
+            let refs: Vec<(&str, &str)> = owned.iter().map(|(n, t)| (*n, t.as_str())).collect();
+            let game = crate::test_game(&refs);
+            let mut creature = Struct::new(0);
+            creature.set("Wis", Value::Byte(wis));
+            let after = game.level_up(&creature, &[(0, 1)]);
+            let class = &after.list("ClassList").unwrap()[0];
+            let spells = |label: &str| {
+                class
+                    .list(label)
+                    .map(|l| l.iter().filter_map(|s| s.integer("Spell")).collect::<Vec<_>>())
+            };
+            assert_eq!(spells("MemorizedList1"), want, "cell {cell}, Wisdom {wis}");
+            assert_eq!(spells("MemorizedList0"), None, "cell {cell}, Wisdom {wis}");
+        }
     }
 
     /// A base item 60,000 by 60,000 in a hak's table takes the room the

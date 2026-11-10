@@ -19,8 +19,12 @@
 //!   segment, the end within `lightningradius` of the target.
 //! - `Linked` particles are drawn as one strip through them in birth order.
 //! - Chunk emitters throw models (`chunkName`) instead of quads, scaled by
-//!   the size, tumbling at `particlerot` turns a second (not read in the
-//!   client, as the quads' spin was: [`Particles::chunks`]).
+//!   the size, each born facing as its emitter does and turning about the
+//!   emitter's z at `particlerot` radians a second, anticlockwise seen from
+//!   above (read in the client, `reading_chunk_spin`: a chunk a second
+//!   at 0.25 rose as a stair turning 14° a step, a still one turned 14° a
+//!   second; [`Particles::chunks`]). An emitter turned off the upright was
+//!   not read.
 //! - Particles live `lifeexp` seconds, fall with `mass` (× 9.8 m/s²; negative
 //!   rises), spin `particlerot` radians a second (read in the client:
 //!   `reading_particle_spin_and_order`), and go from `colorstart`,
@@ -265,7 +269,6 @@ struct Particle {
     vel: Vec3,
     age: f32,
     life: f32,
-    rot: f32,
     frame0: f32,
 }
 
@@ -672,7 +675,6 @@ impl Particles {
                     vel: if update == Update::Single { Vec3::ZERO } else { vel },
                     age: 0.0,
                     life: if update == Update::Single && em.looping { -1.0 } else { life },
-                    rot: rng.range(0.0, std::f32::consts::TAU),
                     frame0,
                 });
             }
@@ -902,15 +904,17 @@ impl Particles {
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;
             let (s0, s1) = (p(P::SizeStart, 1.0), p(P::SizeEnd, 1.0));
-            // (Turns a second, as the wiki has it; the quads' spin was
-            // read in the client as radians, a chunk's tumble was not.)
-            let spin = p(P::ParticleRot, 0.0) * std::f32::consts::TAU;
+            // (Radians a second about the emitter's z, from the way the
+            // emitter faces at birth, anticlockwise seen from above: as the
+            // quads' spin, read in the client, `reading_chunk_spin`. It
+            // was taken as turns a second about an axis of each chunk's
+            // own, from a random angle.)
+            let spin = p(P::ParticleRot, 0.0);
+            let (_, facing, _) = world.to_scale_rotation_translation();
             for q in &e.particles {
                 let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
                 let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
-                // A tumbling axis fixed per particle (from its random angle).
-                let axis = Vec3::new(q.rot.cos(), q.rot.sin(), 0.5).normalize();
-                let rot = Quat::from_axis_angle(axis, q.rot + spin * q.age);
+                let rot = facing * Quat::from_rotation_z(spin * q.age);
                 out.push(Chunk {
                     model: chunk.clone(),
                     transform: Mat4::from_scale_rotation_translation(
@@ -1701,6 +1705,43 @@ mod tests {
         }
         let n = p.emitters[0].particles.len();
         assert!((9..=10).contains(&n), "{n} particles over 2 m");
+    }
+
+    /// A chunk is born facing as its emitter does and turns about the
+    /// emitter's z by `particlerot` radians a second, anticlockwise seen
+    /// from above, as the client turns one (`reading_chunk_spin`: at 0.25,
+    /// a chunk a second rising made a stair whose steps turn 14°); it was
+    /// taken as turns a second, about an axis and from an angle of each
+    /// chunk's own.
+    #[test]
+    fn a_chunk_turns_particlerot_radians_a_second_about_its_emitter_s_z() {
+        let chunky = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            chunk: Some("mgchunk".into()),
+            ..Default::default()
+        };
+        let m = emitter(
+            chunky,
+            &[("birthrate", 1.0), ("lifeexp", 10.0), ("velocity", 0.25), ("particlerot", 0.25)],
+        );
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        for _ in 0..40 {
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        }
+        // Placed facing east (a quarter turn): born facing east too.
+        let placed = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        for (transform, facing) in [(Mat4::IDENTITY, 0.0), (placed, std::f32::consts::FRAC_PI_2)] {
+            let chunks = p.chunks(&m, None, 0.0, &pose, transform);
+            let ages: Vec<f32> = p.emitters[0].particles.iter().map(|q| q.age).collect();
+            assert!(ages.len() >= 3 && ages.iter().any(|&a| a > 2.5), "{ages:?}");
+            for (c, age) in chunks.iter().zip(ages) {
+                let (_, rot, _) = c.transform.to_scale_rotation_translation();
+                let want = Quat::from_rotation_z(facing + 0.25 * age);
+                assert!(rot.angle_between(want) < 1e-3, "at {age} s: {rot:?}, not {want:?}");
+            }
+        }
     }
 
     /// A linked particle's piece runs its cell past the next particle, as

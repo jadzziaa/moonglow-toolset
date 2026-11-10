@@ -158,8 +158,7 @@ impl Renderer<'_> {
                 )
             });
             if !disabled && editable {
-                let step = Some(a.font_height(font) * scale);
-                let bar = Bar { strip, axis, button: size, max: maximum, step };
+                let bar = Bar { strip, axis, button: size, max: maximum };
                 offset[axis] = scroll_by(ui, &response, body, &bar, offset[axis]);
             }
             offset[axis] = offset[axis].clamp(0.0, maximum);

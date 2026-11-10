@@ -662,6 +662,12 @@ and the preview follow them.
   padding on each side) meets the end of the bar's track. The track stops
   short of the view by the bar's two buttons, so a group always scrolls 36
   points past its content. The preview scrolls groups both ways.
+- **A scrollbar's end buttons** scroll while they are held, not by a step a
+  click: a hundredth of the bar's length each frame the game draws, the same
+  for a list, a group and a text (a list shows whole rows of it). So a click
+  scrolls a few points, and how fast a button held scrolls goes with the
+  player's frame rate; the preview scrolls as the game does at 60 frames a
+  second.
 - **Sliders** keep a bound value between their bound minimum and maximum, and
   write the corrected value back: 100 in 0 to 8 becomes 8, and raising the
   minimum to 5 turns 0 into 5. Interact does the same.

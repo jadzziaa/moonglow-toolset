@@ -6,6 +6,7 @@
     xdrive.py winshot TITLE OUT.png   # screenshot of one window (title contains TITLE)
     xdrive.py click X Y [--right|--double] [--ctrl] [--shift]   # Ctrl or Shift held with --ctrl, --shift
     xdrive.py press X Y | release X Y | move X Y   # the left button held, let go; the pointer moved
+    xdrive.py hold X Y SECONDS        # the left button pressed at X Y and held SECONDS
     xdrive.py drag X1 Y1 X2 Y2 [--escape]  # a left-button drag; --escape presses Escape before letting go
     xdrive.py wheel X Y up|down [N] [--ctrl]    # N notches of the wheel (Ctrl held with --ctrl)
     xdrive.py key KEY [KEY...]        # e.g. Return, Tab, alt+f, ctrl+s
@@ -179,6 +180,19 @@ def main(argv):
         time.sleep(0.05)
         if cmd != "move":
             button(cmd == "press")
+    elif cmd == "hold":
+        # (Glided to from a little up and left, a hover first: a press with
+        # no motion before it is not always taken.)
+        x, y, secs = int(args[0]), int(args[1]), float(args[2])
+        move(x - 20, y - 10)
+        time.sleep(0.3)
+        move(x, y)
+        time.sleep(0.5)
+        xtest.fake_input(d, X.ButtonPress, 1)
+        d.sync()
+        time.sleep(secs)
+        xtest.fake_input(d, X.ButtonRelease, 1)
+        d.sync()
     elif cmd == "drag":
         x0, y0, x1, y1 = (int(a) for a in args[:4])
         move(x0, y0)

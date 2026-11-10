@@ -21,6 +21,13 @@ fn harness(children: Value, settings: Settings) -> Harness<'static, Case> {
 }
 
 fn click_at(h: &mut Harness<'_, Case>, pos: egui::Pos2) {
+    hold_at(h, pos, 1);
+}
+
+/// The pointer pressed at `pos` for `frames` frames, then let go. (A
+/// frame at a time while it is held: an end button held draws the window
+/// again each frame.)
+fn hold_at(h: &mut Harness<'_, Case>, pos: egui::Pos2, frames: usize) {
     h.hover_at(pos);
     h.run();
     for pressed in [true, false] {
@@ -30,7 +37,13 @@ fn click_at(h: &mut Harness<'_, Case>, pos: egui::Pos2) {
             pressed,
             modifiers: egui::Modifiers::NONE,
         });
-        h.run();
+        if pressed {
+            for _ in 0..frames {
+                h.step();
+            }
+        } else {
+            h.run();
+        }
     }
 }
 
@@ -418,11 +431,94 @@ fn list_scroll_reaches_later_rows_without_changing_source() {
     h.run();
     let before = h.state().doc.clone();
     let scroll = h.get_by_label("Scroll list /root/children/0").rect();
-    click_at(&mut h, scroll.center_bottom() - egui::vec2(0.0, 3.0));
+    // (The down button held until the end.)
+    hold_at(&mut h, scroll.center_bottom() - egui::vec2(0.0, 3.0), 400);
     assert!(h.state().state.list_scroll.values().any(|v| *v > 500.0));
     assert!(h.query_by_label("Canvas Label · Entry · row 0").is_none());
     assert!(h.query_by_label("Canvas Label · Entry · row 39").is_some());
     assert_eq!(h.state().doc, before);
+}
+
+/// An end button held scrolls a list, a group and a text alike, 1% of the
+/// bar's length a frame of the client's, as long as it is held, and back
+/// with the other end's (`reading_scrollbar_end_buttons`: the client's
+/// buttons repeat each frame they are held). A click on one scrolled a
+/// group 20 points, a text a line, and a list to the track's end.
+#[test]
+fn an_end_button_held_scrolls_a_hundredth_of_its_bar_a_client_frame() {
+    let lines: Vec<String> = (0..40).map(|i| format!("Line {i}")).collect();
+    let labels: Vec<Value> =
+        (0..40).map(|i| json!({"type":"label","value":format!("G {i}"),"height":30})).collect();
+    type Offset = fn(&State) -> f32;
+    let cases: [(Value, &str, Offset); 3] = [
+        (
+            json!({"type":"list","row_template":[[{"type":"label","value":"Entry"},150,true]],
+                "row_count":40,"row_height":30,"width":200,"height":300,"scrollbars":2}),
+            "Scroll list /root/children/0",
+            |s| s.list_scroll.values().copied().next().unwrap_or(0.0),
+        ),
+        (
+            json!({"type":"group","width":200,"height":300,"scrollbars":2,
+                "children":[{"type":"col","children":labels}]}),
+            "Scroll group vertically /root/children/0",
+            |s| s.group_scroll_y.values().copied().next().unwrap_or(0.0),
+        ),
+        (
+            json!({"type":"text","value":lines.join("\n"),"width":200,"height":300,
+                "scrollbars":2}),
+            "Scroll text vertically /root/children/0",
+            |s| s.text_scroll_y.values().copied().next().unwrap_or(0.0),
+        ),
+    ];
+    for (control, label, offset) in cases {
+        let mut h = harness(json!([control]), Settings::default());
+        h.state_mut().state.zoom = 1.0;
+        h.state_mut().state.preview_interactive = true;
+        h.run();
+        let bar = h.get_by_label(label).rect();
+        let press = |h: &mut Harness<'_, Case>, pos: egui::Pos2, pressed: bool| {
+            h.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        };
+        // Held for ten frames: ten frames' worth, the window drawn again
+        // while it is held.
+        let down = egui::pos2(bar.center().x, bar.bottom() - 3.0);
+        h.hover_at(down);
+        h.run();
+        press(&mut h, down, true);
+        for _ in 0..10 {
+            h.step();
+        }
+        let frame = super::super::node::end_button_scroll(
+            bar.height(),
+            h.ctx.input(|i| i.stable_dt).min(0.1),
+        );
+        let held = offset(&h.state().state);
+        assert!(h.ctx.has_requested_repaint(), "{label}: drawn again while held");
+        press(&mut h, down, false);
+        h.run();
+        assert!((held - 10.0 * frame).abs() < frame * 1.01, "{label}: {held}, a frame {frame}");
+        assert_eq!(offset(&h.state().state), held, "{label}: let go, it stops");
+        // A click (a press and its release a frame apart): a frame's worth.
+        click_at(&mut h, down);
+        let clicked = offset(&h.state().state) - held;
+        assert!(clicked <= 2.0 * frame && clicked >= 0.0, "{label}: a click {clicked}");
+        // The other end's, held as long: back.
+        let up = egui::pos2(bar.center().x, bar.top() + 3.0);
+        h.hover_at(up);
+        h.run();
+        press(&mut h, up, true);
+        for _ in 0..20 {
+            h.step();
+        }
+        press(&mut h, up, false);
+        h.run();
+        assert_eq!(offset(&h.state().state), 0.0, "{label}: back at the start");
+    }
 }
 
 /// A list scrolled to a row shows that row at another UI scale and at
@@ -578,8 +674,9 @@ fn list_scrolls_to_the_rows_the_client_ends_on() {
         h.state_mut().state.zoom = 1.0;
         h.state_mut().state.preview_interactive = true;
         h.run();
+        // (The track dragged past its end.)
         let track = h.get_by_label("Scroll list /root/children/0").rect();
-        click_at(&mut h, egui::pos2(track.center().x, track.bottom() - 2.0));
+        drag(&mut h, track.center(), egui::vec2(0.0, height));
         let offset = *h.state().state.list_scroll.values().next().unwrap();
         assert_eq!(offset, last_top_row * 29.0, "{count} rows in {height}");
     }
@@ -699,10 +796,8 @@ fn text_scrolls_its_measured_extents() {
         h.state_mut().state.preview_interactive = true;
         h.run();
         let track = h.get_by_label("Scroll text horizontally /root/children/0").rect();
-        // The increment arrow, until the end.
-        for _ in 0..4 {
-            click_at(&mut h, egui::pos2(track.right() - 4.0, track.center().y));
-        }
+        // The increment arrow held, until the end.
+        hold_at(&mut h, egui::pos2(track.right() - 4.0, track.center().y), 30);
         let offset = *h.state().state.text_scroll_x.values().next().unwrap();
         assert_eq!(offset, 36.0, "{width}");
     }

@@ -412,9 +412,13 @@ fn made_split(m: &Mesh) -> Option<mg_mdl::compile::HandednessSplit> {
 /// MTR, "Renderhint"): the stock normal-mapped shaders take the tangent as
 /// it comes (`SetupTSB` normalizes it), and a zero one is a black mesh.
 /// Each face's tangent and bitangent are added to its corners'; each
-/// vertex's tangent is made at right angles to its normal. Where the
-/// texture coordinates give none (no coordinates, a face without area in
-/// them), one at right angles to the normal. A vertex on a mirrored seam
+/// vertex's tangent is made at right angles to its normal. A face flat in
+/// its texture coordinates (no coordinates, or a face without area in
+/// them) gives its normals' mean turned (y, z, x) and no bitangent, as
+/// the game's compiler and client make it
+/// (`mg_mdl::compile::triangle_tangent`, `reading_tangents_flat_in_uv`);
+/// where the sum is still none, one at right angles to the normal. A
+/// vertex on a mirrored seam
 /// is two ([`made_split`]): the list has the copies' after the mesh's own
 /// vertices'.
 pub fn made_tangents(m: &Mesh) -> Vec<[f32; 4]> {
@@ -439,15 +443,17 @@ fn made_tangents_split(
         if i >= n || j >= n || k >= n {
             continue;
         }
+        // (The face's tangent the compiler's way, its normals' mean
+        // turned where it is flat in UV, as the client makes it:
+        // `reading_tangents_flat_in_uv`. Such a face was left out, and a
+        // vertex of such faces alone took any tangent square to its
+        // normal.)
+        let ft = Vec3::from(mg_mdl::compile::triangle_tangent(m, [i, j, k]).0);
         let p = |v: usize| Vec3::from(m.vertices[v]);
         let (e1, e2) = (p(j) - p(i), p(k) - p(i));
         let (d1, d2) = (uv(j) - uv(i), uv(k) - uv(i));
         let det = d1.x * d2.y - d2.x * d1.y;
-        if det.abs() < 1e-12 {
-            continue;
-        }
-        let r = 1.0 / det;
-        let (ft, fb) = ((e1 * d2.y - e2 * d1.y) * r, (e2 * d1.x - e1 * d2.x) * r);
+        let fb = if det != 0.0 { (e2 * d1.x - e1 * d2.x) / det } else { Vec3::ZERO };
         for v in to.map(|v| v as usize).into_iter().filter(|&v| v < all) {
             t[v] += ft;
             b[v] += fb;
@@ -619,17 +625,55 @@ mod tests {
         // Mirrored in v: the bitangent the other way.
         let down = quad(vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
         assert!(made_tangents(&down).iter().all(|t| t[0] > 0.99 && t[3] == -1.0));
-        // No coordinates: at right angles to the normal, not zero.
+        // No coordinates: the normal (+z) turned (y, z, x), +y.
         let none = quad(vec![]);
         for t in made_tangents(&none) {
-            let t = Vec3::from_slice(&t[..3]);
-            assert!((t.length() - 1.0).abs() < 1e-5 && t.z.abs() < 1e-5, "{t}");
+            assert!((Vec3::from_slice(&t[..3]) - Vec3::Y).length() < 1e-5 && t[3] == 1.0, "{t:?}");
         }
         // The model's own are kept.
         let mut own = quad(vec![[0.0, 0.0]; 4]);
         own.tangents = vec![[0.0, 1.0, 0.0, -1.0]; 4];
         assert!(mesh_vertices(&own).iter().all(|v| v.tangent == [0.0, 1.0, 0.0, -1.0]));
         assert!(mesh_vertices(&up).iter().all(|v| v.tangent[0] > 0.99));
+    }
+
+    /// A card whose texture coordinates are all one point takes its
+    /// normals' mean turned (y, z, x), made square to the normal, with
+    /// handedness 1, as the game's compiler and the client make it
+    /// (`reading_tangents_flat_in_uv`: the client painted a card facing
+    /// south −x and one facing south-west (−0.41, 0.41, −0.82)); it took
+    /// any tangent at right angles to the normal (+z, and (−0.5, 0.5,
+    /// 0.71)).
+    #[test]
+    fn a_face_flat_in_uv_takes_the_compiler_s_tangent() {
+        let card = |along: [f32; 2]| {
+            let [x, y] = along;
+            let normal = Vec3::new(x, y, 0.0).cross(Vec3::Z).normalize();
+            Mesh {
+                vertices: vec![[0.0, 0.0, 0.0], [x, y, 0.0], [x, y, 1.2], [0.0, 0.0, 1.2]],
+                normals: vec![normal.to_array(); 4],
+                uvs: [vec![[0.5, 0.5]; 4], vec![], vec![], vec![]],
+                faces: vec![
+                    mg_mdl::Face { vertices: [0, 1, 2], material: 0 },
+                    mg_mdl::Face { vertices: [0, 2, 3], material: 0 },
+                ],
+                ..Default::default()
+            }
+        };
+        // (Facing south, normal −y; facing south-west.)
+        let third = 1.0 / 6.0f32.sqrt();
+        for (along, want) in
+            [([1.2, 0.0], Vec3::NEG_X), ([0.85, -0.85], Vec3::new(-third, third, -2.0 * third))]
+        {
+            let mesh = card(along);
+            for t in made_tangents(&mesh) {
+                let got = Vec3::from_slice(&t[..3]);
+                assert!(
+                    (got - want).length() < 1e-4 && t[3] == 1.0,
+                    "{along:?}: {t:?}, not {want}"
+                );
+            }
+        }
     }
 
     /// Every texture coordinate set of a mesh is uploaded (a custom
