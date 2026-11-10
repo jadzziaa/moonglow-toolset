@@ -235,6 +235,42 @@ fn two_texts_the_talk_table_has_are_each_asked_about() {
     assert_eq!(h.state().talk.as_ref().unwrap().len(), 1, "no line added");
 }
 
+/// A text typed into the talk table leaves the game data's tables as they
+/// were read: every one forgot `appearance.2da` and the rest, which the
+/// open editors then read again (the review of November 2026, D27). With
+/// the game data held by something else past the wait, the new line was
+/// silently not shown: the log says so, and it shows once the game data
+/// is free.
+#[test]
+fn a_typed_text_keeps_the_tables_read_and_shows_once_the_game_data_is_free() {
+    let Some((mut h, _, _)) = typed_harness("ui-typed-tables-kept", true) else { return };
+    let table =
+        |h: &Harness<'_, Moonglow>| h.state().game.as_deref().unwrap().table("appearance").unwrap();
+    let before = table(&h);
+    retype(&mut h, "Sample", "Castle Krezk");
+    assert_eq!(module_name(&mut h).strref.0, BASE + 1);
+    assert!(std::sync::Arc::ptr_eq(&before, &table(&h)), "appearance.2da as it was read");
+    let shown = |h: &Harness<'_, Moonglow>, line: u32| {
+        h.state().game.as_deref().unwrap().string(mg_core::StrRef(BASE + line))
+    };
+    assert_eq!(shown(&h, 1).as_deref(), Some("Castle Krezk"));
+    drop(before);
+    // Held by another reader (past the wait for it): said, and shown when
+    // it lets go.
+    let held = h.state().game.clone();
+    retype(&mut h, "Castle Krezk", "Castle Ravenloft");
+    assert_eq!(h.state().talk.as_ref().unwrap().line(2).text, "Castle Ravenloft");
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, e)| e.contains(what))
+    };
+    assert!(said(&h, "The game data is in use"), "{:?}", h.state().log.entries);
+    assert_eq!(shown(&h, 2), None, "not yet");
+    drop(held);
+    h.step();
+    assert_eq!(shown(&h, 2).as_deref(), Some("Castle Ravenloft"));
+    assert!(said(&h, "show in the fields now"));
+}
+
 /// Off (as by default), the text is the field's own, as Aurora writes it.
 #[test]
 fn off_by_default_typed_text_is_the_field_s_own() {

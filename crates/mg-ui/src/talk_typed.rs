@@ -65,6 +65,9 @@ pub struct TypedState {
     /// The lines of the project's `[talk] map` ([`map_lines`]), kept
     /// while its file is as it was read.
     map: std::cell::RefCell<Option<MapKept>>,
+    /// The game data could not be given the table's new lines (it was
+    /// held): given them once it is free ([`show_when_free`]).
+    unshown: bool,
     /// Why typed text stayed in the file, each said once.
     said: BTreeSet<String>,
 }
@@ -421,12 +424,40 @@ fn short(text: &str) -> String {
 /// the module is saved.
 fn shown(app: &mut Moonglow) {
     app.talk_view.changed_outside();
-    let Some(t) = app.talk.as_ref().filter(|_| !app.talk_view.outside) else { return };
-    let tlk = t.tlk.clone();
     app.release_game_data();
-    if let Some(game) = crate::exclusive(&mut app.game) {
-        game.set_custom_tlk(Some(tlk));
-        game.invalidate();
+    if !show(app) && !std::mem::replace(&mut app.typed.unshown, true) {
+        // (Held past the wait by something that still reads it: the line
+        // is in the table, and its fields show no text of it until then.
+        // It was left so without a word.)
+        app.log.warn(
+            "The game data is in use: the talk table's new lines show in the fields once it is \
+             free",
+        );
+    }
+}
+
+/// Gives the game data the talk table as it is now, where it can be
+/// changed (nothing else reads it): whether it was (or there was nothing
+/// to give). Only what is made from the custom table's strings is
+/// forgotten (`GameData::set_custom_tlk`: the choice lists): the 2DAs
+/// read and the appearances judged have none of them, and every typed
+/// text made the open editors read `appearance.2da` and the rest again.
+fn show(app: &mut Moonglow) -> bool {
+    let Some(t) = app.talk.as_ref().filter(|_| !app.talk_view.outside) else {
+        app.typed.unshown = false;
+        return true;
+    };
+    let Some(game) = crate::exclusive(&mut app.game) else { return app.game.is_none() };
+    game.set_custom_tlk(Some(t.tlk.clone()));
+    app.typed.unshown = false;
+    true
+}
+
+/// Each frame: a talk table the game data could not be given while it
+/// was held ([`shown`]) is given it once it is free.
+fn show_when_free(app: &mut Moonglow) {
+    if app.typed.unshown && show(app) {
+        app.log.info("The talk table's new lines show in the fields now");
     }
 }
 
@@ -496,6 +527,7 @@ pub(crate) fn stepped(app: &mut Moonglow, redo: bool, depth: usize) {
 /// conversation as it was then, and edits made behind the question were
 /// taken back when the answer applied it.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+    show_when_free(app);
     let Some(ask) = app.typed.ask.clone() else { return };
     let mut answer = None;
     let mut always = false;
