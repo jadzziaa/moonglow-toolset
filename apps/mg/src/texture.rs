@@ -1,7 +1,8 @@
 //! `mg texture convert`: textures converted between TGA, PNG and DDS
 //! (BioWare's header and the standard one), from files or from the load
-//! order, one to a file or many into a folder; and `mg texture info`,
-//! their facts (size, format, mip levels, alpha) for many in one run.
+//! order, one to a file or many into a folder; `mg texture info`, their
+//! facts (size, format, mip levels, alpha) for many in one run; and PLTs
+//! split into a shade PNG and a layers PNG and joined again.
 
 use std::path::{Path, PathBuf};
 
@@ -30,6 +31,207 @@ pub(crate) enum TextureCmd {
     /// level, unless --headers) whether its texels use it. Fails if any
     /// can't be read (once the rest are said).
     Info(Info),
+    /// Split PLTs into two grayscale PNGs each, for scripts and paint
+    /// programs: NAME.shade.png (each texel's shade, the column of its
+    /// layer's palette) and NAME.layers.png (each texel's layer, 0 skin
+    /// to 9 tattoo 2), shown the right way up. plt-join puts them back
+    /// together, the same bytes.
+    PltSplit(PltSplit),
+    /// Join a shade PNG and a layers PNG (as plt-split writes them) into
+    /// a PLT.
+    PltJoin(PltJoin),
+}
+
+#[derive(clap::Args)]
+pub(crate) struct PltSplit {
+    // (A PLT's file, or its name in the load order: `pmh0_chest001`.)
+    #[command(flatten)]
+    inputs: Inputs,
+    /// The folder to write into (made if missing).
+    #[arg(long, value_name = "FOLDER")]
+    to: PathBuf,
+    /// Write over files of the same names.
+    #[arg(long)]
+    force: bool,
+    /// Say what would be written; write nothing.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct PltJoin {
+    /// The shades: a grayscale PNG.
+    shades: PathBuf,
+    /// The layers: a grayscale PNG of the same size, each texel 0 to 9.
+    layers: PathBuf,
+    /// The PLT to write.
+    #[arg(short, long, value_name = "FILE")]
+    output: PathBuf,
+    /// Write over a file there already.
+    #[arg(long)]
+    force: bool,
+}
+
+/// The layers PNG's text chunk that keeps the PLT header's bytes 8 to 15.
+const PLT_HEADER_KEY: &str = "PLT header";
+
+/// A PLT's layers' names (`skin`, `metal1`…), those it uses.
+fn layer_names(used: [bool; 10]) -> Vec<String> {
+    (mg_image::plt::LAYERS.iter().zip(used))
+        .filter(|(_, u)| *u)
+        .map(|(n, _)| n.to_ascii_lowercase().replace(' ', ""))
+        .collect()
+}
+
+/// `mg texture plt-split`.
+pub(crate) fn plt_split(cli: &Cli, a: &PltSplit) -> Result<Output> {
+    let mut out = Output::default();
+    let loaded = load_all(cli, &a.inputs, &mut out)?;
+    let paths = |stem: &str| {
+        (a.to.join(format!("{stem}.shade.png")), a.to.join(format!("{stem}.layers.png")))
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut clash = Vec::new();
+    let mut existing = Vec::new();
+    for l in loaded.iter().flatten() {
+        if !seen.insert(l.stem.to_ascii_lowercase()) {
+            clash.push(l.stem.clone());
+        }
+        let (s, y) = paths(&l.stem);
+        existing.extend([s, y].into_iter().filter(|p| p.exists()).map(|p| path_text(&p)));
+    }
+    if !clash.is_empty() {
+        bail!("two PLTs of one name would be written to the same files: {}", clash.join(", "));
+    }
+    if !existing.is_empty() && !a.force && !a.dry_run {
+        bail!("{} written already: --force writes over", existing.join(", "));
+    }
+    if !a.dry_run {
+        std::fs::create_dir_all(&a.to).with_context(|| path_text(&a.to))?;
+    }
+    let (mut files, mut failed) = (Vec::new(), Vec::new());
+    for l in &loaded {
+        let made = l.as_ref().map_err(|(g, e)| anyhow!("{g}: {e}")).and_then(|l| {
+            if l.kind != Kind::Plt {
+                bail!("{}: not a PLT", l.given);
+            }
+            let plt = mg_image::plt::Plt::read(&l.data).map_err(|e| anyhow!("{}: {e}", l.given))?;
+            // (Rows from the top, as a picture shows them.)
+            let row = plt.width as usize;
+            let top: Vec<&[[u8; 2]]> = plt.pixels.chunks_exact(row).rev().collect();
+            let shades: Vec<u8> = top.iter().flat_map(|r| r.iter().map(|p| p[0])).collect();
+            let layers: Vec<u8> = top.iter().flat_map(|r| r.iter().map(|p| p[1])).collect();
+            let header = mg_core::sha1::hex(&plt.header);
+            let png = |d: &[u8], text: &[(&str, &str)]| {
+                mg_image::png::write_gray(plt.width, plt.height, d, text).map_err(|e| anyhow!(e))
+            };
+            let shade_png = png(&shades, &[])?;
+            let layers_png = png(&layers, &[(PLT_HEADER_KEY, &header)])?;
+            let (sp, lp) = paths(&l.stem);
+            if !a.dry_run {
+                crate::write_one_of_many(&sp, &shade_png)?;
+                crate::write_one_of_many(&lp, &layers_png)?;
+            }
+            let used = layer_names(plt.layers());
+            out.line(format!(
+                "{}\t{}\t{}\t{}",
+                l.given,
+                sp.display(),
+                lp.display(),
+                used.join(" ")
+            ));
+            Ok(json!({
+                "input": l.given,
+                "from": l.from,
+                "shades": path_text(&sp),
+                "layers": path_text(&lp),
+                "width": plt.width,
+                "height": plt.height,
+                "layers_used": used,
+            }))
+        });
+        match made {
+            Ok(j) => files.push(j),
+            Err(e) => {
+                let given = match l {
+                    Ok(l) => l.given.clone(),
+                    Err((g, _)) => g.clone(),
+                };
+                out.line(format!("{given}\tnot split: {e:#}"));
+                failed.push(json!({ "input": given, "error": format!("{e:#}") }));
+            }
+        }
+    }
+    let done = if a.dry_run { "would be split" } else { "split" };
+    out.note(format!("{} of {} PLTs {done}", files.len(), files.len() + failed.len()));
+    out.failed = !failed.is_empty();
+    out.json = json!({ "written": !a.dry_run, "files": files, "failed": failed });
+    Ok(out)
+}
+
+/// `mg texture plt-join`.
+pub(crate) fn plt_join(a: &PltJoin) -> Result<Output> {
+    let read = |p: &Path| -> Result<(Vec<u8>, Rgba)> {
+        let data = std::fs::read(p).with_context(|| path_text(p))?;
+        let pic = mg_image::png::read_picture(&data, PNG_PIXELS)
+            .map_err(|e| anyhow!("{}: {e}", p.display()))?;
+        Ok((data, pic))
+    };
+    let ((_, shades), (layers_data, layers)) = (read(&a.shades)?, read(&a.layers)?);
+    if (shades.width, shades.height) != (layers.width, layers.height) {
+        bail!(
+            "the shades are {}×{}, the layers {}×{}: they must be one size",
+            shades.width,
+            shades.height,
+            layers.width,
+            layers.height
+        );
+    }
+    // Each a gray value: a texel of a color is no shade or layer.
+    let gray = |pic: &Rgba, what: &Path| -> Result<Vec<u8>> {
+        let px = pic.data.as_chunks::<4>().0;
+        let colored = px.iter().filter(|p| p[0] != p[1] || p[1] != p[2]).count();
+        if colored > 0 {
+            bail!("{}: {colored} texels are not gray", what.display());
+        }
+        Ok(px.iter().map(|p| p[0]).collect())
+    };
+    let (s, l) = (gray(&shades, &a.shades)?, gray(&layers, &a.layers)?);
+    let bad = l.iter().filter(|&&v| v > 9).count();
+    if bad > 0 {
+        bail!("{}: {bad} texels are not a layer (0 to 9)", a.layers.display());
+    }
+    // Rows bottom first, as the file keeps them.
+    let w = shades.width as usize;
+    let pixels: Vec<[u8; 2]> = (s.chunks_exact(w).rev().zip(l.chunks_exact(w).rev()))
+        .flat_map(|(s, l)| s.iter().zip(l).map(|(s, l)| [*s, *l]))
+        .collect();
+    let mut plt = mg_image::plt::Plt::new(shades.width, shades.height, pixels);
+    let text = mg_image::png::text(&layers_data).map_err(|e| anyhow!("{e}"))?;
+    if let Some((_, hex)) = text.iter().find(|(k, _)| k == PLT_HEADER_KEY) {
+        let bytes: Option<Vec<u8>> = (0..hex.len().min(16))
+            .step_by(2)
+            .map(|i| hex.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok()))
+            .collect();
+        if let Some(Ok(header)) = bytes.map(<[u8; 8]>::try_from) {
+            plt.header = header;
+        }
+    }
+    if a.output.exists() && !a.force {
+        bail!("{} is there already: --force writes over it", a.output.display());
+    }
+    let bytes = plt.write();
+    crate::write_bytes_whole(&a.output, &bytes)?;
+    let used = layer_names(plt.layers());
+    let mut out = Output::new(json!({
+        "output": path_text(&a.output),
+        "width": plt.width,
+        "height": plt.height,
+        "layers_used": used,
+        "size": bytes.len(),
+    }));
+    out.line(format!("{}\t{}×{}\t{}", a.output.display(), plt.width, plt.height, used.join(" ")));
+    Ok(out)
 }
 
 #[derive(clap::Args)]
@@ -353,7 +555,7 @@ fn alpha_use(rgba: &Rgba) -> &'static str {
 fn tga_format(data: &[u8], alpha: bool) -> &'static str {
     match (data.get(2).copied().unwrap_or(0) & !8, data.get(16).copied().unwrap_or(0)) {
         (1, _) => "indexed8",
-        (3, _) => "grey8",
+        (3, _) => "gray8",
         (_, 15 | 16) => "rgb5",
         _ if alpha => "rgba8",
         _ => "rgb8",
@@ -367,12 +569,7 @@ fn info_one(l: &Loaded, headers: bool) -> Result<(Value, String)> {
     let (w, h, format, mips, has_alpha, alpha) = match l.kind {
         Kind::Plt => {
             let plt = mg_image::plt::Plt::read(&l.data).map_err(fail)?;
-            let used = plt.layers();
-            let names: Vec<String> = (mg_image::plt::LAYERS.iter().zip(used))
-                .filter(|(_, u)| *u)
-                .map(|(n, _)| n.to_ascii_lowercase().replace(' ', ""))
-                .collect();
-            facts["layers"] = names.into();
+            facts["layers"] = layer_names(plt.layers()).into();
             (plt.width, plt.height, "plt".to_string(), 1, false, None)
         }
         Kind::Png if headers => {

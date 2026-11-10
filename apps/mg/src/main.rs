@@ -1217,7 +1217,8 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ModelCmd,
     },
-    /// Textures: convert between TGA, PNG and DDS; their facts.
+    /// Textures: convert between TGA, PNG and DDS; their facts; PLTs
+    /// split into PNGs and joined again.
     Texture {
         #[command(subcommand)]
         cmd: texture::TextureCmd,
@@ -5105,6 +5106,8 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Texture { cmd } => match cmd {
             texture::TextureCmd::Convert(a) => texture::convert(cli, a)?,
             texture::TextureCmd::Info(a) => texture::info(cli, a)?,
+            texture::TextureCmd::PltSplit(a) => texture::plt_split(cli, a)?,
+            texture::TextureCmd::PltJoin(a) => texture::plt_join(a)?,
         },
         Cmd::ModelFiles { what, out, module, added, all, force, dry_run } => {
             let gi = install(cli)?;

@@ -18,6 +18,7 @@ touches:
 - Texture encoding (crates/mg-image/src/encode.rs) scores every choice with bc.rs's own palettes (`color_palette`, `channel_palette`); alpha is scored against the rounded-down AND the exact values, or it loses to Neverblender's encoder under an exact decoder (measured: docs/research/notes_texture_encoder.md). Opaque DXT1 is four-color only (c0 > c1, or c0 == c1 with index 0): index 3 is transparent black, which the game draws black.
 - BioWare DDS alpha mean = the largest level's mean alpha (checked on 603 game DXT5 files), 1.0 for 3-channel. Both DDS containers hold the same rows (bottom first); PNG is turned over at the edge only (`png::read_picture(..).top_down()`, `write_rgba(top_down)`).
 - `mg texture convert` copies a DDS's blocks when its format and size are kept (`reencoded: false`), encoding only the levels it lacks; `Texture::to_rgba` forces DXT1 opaque (what the game draws), so conversion reads `stored_rgba`.
+- PLT bytes 8-15 ("unused" per nwn.wiki) vary in game files (10 mostly; 1-9 in ~1/8 of pmh0_): `Plt.header` keeps them, and plt-split carries them in the layers PNG's tEXt chunk `PLT header` (hex) so plt-join gives the same bytes (all 500 pmh0_ PLTs checked).
 ## Watch out
 - `cargo build -p mg` makes an unoptimized target/debug/mg; `cargo test -p mg --no-run` (test profile is optimized) overwrites it with a fast one. Time with the latter (ls --sha256 of 1.5 GB: 33 s vs 4 s).
 - The game's data/txpk/*.erf are empty stubs: time bulk reads on a builder's hak.

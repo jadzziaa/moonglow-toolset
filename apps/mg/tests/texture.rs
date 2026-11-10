@@ -1,7 +1,7 @@
 //! `mg texture convert`: textures between PNG, TGA and both DDS headers,
 //! the way up kept; a DDS kept in its format copied; resizing, alpha
 //! bleed, and what is refused before anything is written; and
-//! `mg texture info`, their facts.
+//! `mg texture info`, their facts; PLTs split into PNGs and joined.
 
 use std::path::Path;
 
@@ -224,6 +224,15 @@ fn textures_are_converted_by_name_from_the_load_order() {
     assert_eq!((t[0]["format"].as_str(), t[0]["alpha"].as_str()), (Some("dxt5"), Some("blended")));
     assert!(t[0]["alpha_mean"].as_f64().is_some_and(|m| m > 0.5 && m < 0.7), "{json}");
     assert_eq!((t[1]["type"].as_str(), t[1]["layers"][0].as_str()), (Some("plt"), Some("skin")));
+    // A game PLT by name, split and joined: the same bytes as the game's.
+    let (ok, json) = run(&["texture", "plt-split", "pmh0_chest001", "--to", s(&dir)]);
+    assert!(ok, "{json}");
+    let back = dir.join("chest.plt");
+    let (shades, layers) =
+        (dir.join("pmh0_chest001.shade.png"), dir.join("pmh0_chest001.layers.png"));
+    assert!(run(&["texture", "plt-join", s(&shades), s(&layers), "-o", s(&back)]).0);
+    let cat = crate::mg_on(&root, None).args(["cat", "pmh0_chest001.plt"]).output().unwrap();
+    assert_eq!(std::fs::read(&back).unwrap(), cat.stdout);
     let (ok, json) = run(&["texture", "convert", "mg_zz_nowhere", "--to", s(&dir)]);
     assert!(
         !ok && json["failed"][0]["error"].as_str().unwrap().contains("found nowhere"),
@@ -296,4 +305,83 @@ fn info_gives_each_texture_s_size_format_levels_and_alpha() {
     assert!(ok, "{json}");
     assert!(json["textures"].as_array().unwrap().iter().all(|t| t["alpha"].is_null()), "{json}");
     assert_eq!(json["textures"][0]["has_alpha"], true);
+}
+
+/// A PLT of 16×20: every shade and every layer, its header word 6.
+fn plt_file() -> Vec<u8> {
+    let mut f = b"PLT V1  ".to_vec();
+    for v in [6u32, 0, 16, 20] {
+        f.extend_from_slice(&v.to_le_bytes());
+    }
+    for i in 0..16 * 20u32 {
+        f.extend_from_slice(&[(i % 256) as u8, (i / 32 % 10) as u8]);
+    }
+    f
+}
+
+#[test]
+fn a_plt_split_into_pngs_joins_back_to_the_same_bytes() {
+    let dir = mg_testkit::scratch_dir("mg-texture-plt");
+    let plt = dir.join("part.plt");
+    std::fs::write(&plt, plt_file()).unwrap();
+    let (ok, json) = crate::json_out(crate::mg_alone().args([
+        "--json",
+        "texture",
+        "plt-split",
+        s(&plt),
+        "--to",
+        s(&dir.join("out")),
+    ]));
+    assert!(ok, "{json}");
+    let f = &json["files"][0];
+    assert_eq!(f["layers_used"].as_array().unwrap().len(), 10);
+    let (shades, layers) = (dir.join("out/part.shade.png"), dir.join("out/part.layers.png"));
+    // Shown the right way up: the PNG's top row is the file's last.
+    let pic = read_png(&layers);
+    assert_eq!((pic.width, pic.height), (16, 20));
+    assert_eq!(pic.pixel(0, 0), [9, 9, 9, 255], "the top row: the last stored, layer 9");
+    assert_eq!(
+        read_png(&shades).pixel(0, 19),
+        [0, 0, 0, 255],
+        "the first stored texel at the bottom"
+    );
+    let back = dir.join("back.plt");
+    let (ok, json) = crate::json_out(crate::mg_alone().args([
+        "--json",
+        "texture",
+        "plt-join",
+        s(&shades),
+        s(&layers),
+        "-o",
+        s(&back),
+    ]));
+    assert!(ok && json["width"] == 16, "{json}");
+    assert_eq!(std::fs::read(&back).unwrap(), plt_file(), "the same bytes, header word too");
+    // A texel of a color, a layer past 9, two sizes: refused.
+    let mut colored = read_png(&layers);
+    colored.data[0] = 200;
+    let bad = dir.join("colored.png");
+    std::fs::write(&bad, mg_image::png::write_rgba(16, 20, &colored.data).unwrap()).unwrap();
+    let join = |l: &Path| {
+        crate::json_out(crate::mg_alone().args([
+            "--json",
+            "texture",
+            "plt-join",
+            s(&shades),
+            s(l),
+            "-o",
+            s(&dir.join("x.plt")),
+        ]))
+    };
+    let (ok, json) = join(&bad);
+    assert!(!ok && json["error"].as_str().unwrap().contains("not gray"), "{json}");
+    let ten = dir.join("ten.png");
+    std::fs::write(&ten, mg_image::png::write_gray(16, 20, &[10; 320], &[]).unwrap()).unwrap();
+    let (ok, json) = join(&ten);
+    assert!(!ok && json["error"].as_str().unwrap().contains("0 to 9"), "{json}");
+    let small = dir.join("small.png");
+    std::fs::write(&small, mg_image::png::write_gray(2, 2, &[0; 4], &[]).unwrap()).unwrap();
+    let (ok, json) = join(&small);
+    assert!(!ok && json["error"].as_str().unwrap().contains("one size"), "{json}");
+    assert!(!dir.join("x.plt").exists());
 }
