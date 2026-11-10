@@ -301,15 +301,22 @@ fn start_pruning(app: &mut Moonglow) {
     let Some(folder) = folder(p) else { return };
     app.settings.nwsync_repository = Some(folder.clone());
     let at = folder.clone();
-    app.start_job_anywhere(
+    // (To its end: Cancel stops it before the next data file, and what
+    // it had removed by then is said. It never looked at Cancel, so a
+    // canceled one removed everything and the log said "canceled".)
+    app.start_job_to_its_end(
         PRUNING,
-        move |_| mg_module::nwsync::prune(&folder, mg_module::nwsync::PRUNE_MIN_AGE, false),
+        move |cx| {
+            let age = mg_module::nwsync::PRUNE_MIN_AGE;
+            mg_module::nwsync::prune_until(&folder, age, false, &|| cx.progress.cancelled())
+        },
         move |app, r| {
             let Some(p) = &mut app.publish else { return };
             match r {
                 Ok(pruned) => {
                     app.log.info(format!(
-                        "NWSync repository: removed {} ({:.1} MB)",
+                        "NWSync repository: {}removed {} ({:.1} MB)",
+                        if pruned.stopped { "canceled; " } else { "" },
                         count(pruned.removed.len(), "unused data file"),
                         pruned.removed_bytes as f64 / 1048576.0
                     ));
@@ -322,8 +329,9 @@ fn start_pruning(app: &mut Moonglow) {
                     for problem in &pruned.problems {
                         app.log.warn(format!("NWSync repository: {problem}"));
                     }
+                    let stopped = pruned.stopped;
                     p.pruned = Some(pruned);
-                    if app.settings.nwsync_upload_after {
+                    if app.settings.nwsync_upload_after && !stopped {
                         upload(app, &at, &AFTER_PRUNING);
                     }
                 }
@@ -409,8 +417,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if let Some(r) = &p.pruned {
                 ui.separator();
                 ui.label(format!(
-                    "{}. Removed {} ({:.1} MB); {} kept as written in the last two weeks.",
+                    "{}. {} {} ({:.1} MB); {} kept as written in the last two weeks.",
                     count(r.manifests, "manifest"),
+                    if r.stopped { "Canceled: by then it had removed" } else { "Removed" },
                     count(r.removed.len(), "unused data file"),
                     r.removed_bytes as f64 / 1048576.0,
                     r.kept_young

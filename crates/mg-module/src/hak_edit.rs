@@ -902,7 +902,7 @@ mod tests {
 
     #[test]
     fn bytes_go_into_a_new_hak_and_into_one_that_is_there() {
-        let dir = std::env::temp_dir().join(format!("mg-hak-bytes-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-hak-bytes");
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("made.hak");
         let key = |n: &str| ResKey::parse(n, ResType::TXT).unwrap();
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn built_from_a_folder_edited_and_saved() {
-        let dir = std::env::temp_dir().join(format!("mg-hak-edit-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-hak-edit");
         let _ = std::fs::remove_dir_all(&dir);
         let src = dir.join("content");
         write(&src, "plc_chair.mdl", b"model");

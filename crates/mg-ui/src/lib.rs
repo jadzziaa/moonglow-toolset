@@ -3675,10 +3675,20 @@ impl Moonglow {
         if ws.flush().is_err() {
             return;
         }
+        // (A texture of the module's own replaced, added or removed since
+        // the layer was made, through Import or a plugin: the views draw
+        // with it as it is now. Only then: this runs after every build
+        // and before every job, and the renderer reads all its textures
+        // again once they are forgotten.)
+        let layer = game.resman.layer_mut("module").and_then(|l| l.container.as_mem_mut());
+        let textures = layer.is_some_and(|was| drawn_with_changed(was, &ws.module));
         game.resman.remove("module");
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, ws.module.container());
         game.invalidate();
         text::set_game_codepage(Some(game.codepage()));
+        if textures {
+            self.forget_drawn_textures();
+        }
         self.load_order_changed();
     }
 
@@ -3715,8 +3725,7 @@ impl Moonglow {
         }
         // (A texture of the module's own, or what says how one is drawn,
         // changed outside: the views draw with it as it is now.)
-        let drawn_with = [ResType::DDS, ResType::TGA, ResType::PLT, ResType::MTR, ResType::TXI];
-        if keys.iter().any(|k| drawn_with.contains(&k.restype)) {
+        if keys.iter().any(|k| DRAWN_WITH.contains(&k.restype)) {
             self.forget_drawn_textures();
         }
         self.load_order_changed();
@@ -6252,5 +6261,64 @@ fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameDat
             log.warn("No Neverwinter Nights installation found; choose it in Tools > Options.");
             None
         }
+    }
+}
+
+/// The kinds of resource the renderer keeps by name once read: the
+/// textures, and what says how one is drawn.
+const DRAWN_WITH: [ResType; 5] =
+    [ResType::DDS, ResType::TGA, ResType::PLT, ResType::MTR, ResType::TXI];
+
+/// Whether the module's textures (and their MTR and TXI files) are others
+/// than the module's layer of the game data was made with (`was`): one
+/// set again (the module holds another `Arc` for it), added or removed.
+fn drawn_with_changed(was: &mg_resman::MemContainer, module: &Module) -> bool {
+    use mg_resman::Container;
+    let now = || DRAWN_WITH.iter().flat_map(|t| module.keys_of(*t));
+    let before = was.keys().filter(|k| DRAWN_WITH.contains(&k.restype)).count();
+    before != now().count()
+        || now().any(|k| match (was.shared(k), module.shared(k)) {
+            (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+            _ => true,
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The module's layer is made again after every build and before
+    /// every job: the renderer's textures are forgotten with it only
+    /// where one of the module's own (or its MTR, its TXI) was set again,
+    /// added or removed since. (None was: a texture replaced through
+    /// Import was drawn as before until the next reload.)
+    #[test]
+    fn a_module_s_textures_changed_are_told_from_its_other_resources() {
+        let key = |n: &str, t| ResKey::parse(n, t).unwrap();
+        let mut m = Module::new();
+        m.set(key("wall", ResType::TGA), b"old".to_vec());
+        m.set(key("wall", ResType::TXI), b"bumpyshinytexture x".to_vec());
+        m.set(key("start", ResType::ARE), b"area".to_vec());
+        let was = m.container();
+        assert!(!drawn_with_changed(&was, &m));
+        // Another kind of resource set again, added: not the textures'.
+        m.set(key("start", ResType::ARE), b"area, changed".to_vec());
+        m.set(key("more", ResType::NSS), b"void main() {}".to_vec());
+        assert!(!drawn_with_changed(&was, &m));
+        // A texture replaced (the same bytes too: it was set again).
+        m.set(key("wall", ResType::TGA), b"old".to_vec());
+        assert!(drawn_with_changed(&was, &m));
+        let was = m.container();
+        m.set(key("floor", ResType::DDS), b"new".to_vec());
+        assert!(drawn_with_changed(&was, &m), "one added");
+        let was = m.container();
+        m.remove(&key("wall", ResType::TXI));
+        assert!(drawn_with_changed(&was, &m), "one removed");
+        // (One removed and another added: as many, but others.)
+        let was = m.container();
+        m.remove(&key("floor", ResType::DDS));
+        m.set(key("roof", ResType::DDS), b"new".to_vec());
+        assert!(drawn_with_changed(&was, &m));
+        assert!(!drawn_with_changed(&m.container(), &m));
     }
 }

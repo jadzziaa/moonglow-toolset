@@ -552,7 +552,7 @@ mod tests {
     /// MB, at every command on the project.
     #[test]
     fn a_folder_past_the_limits_is_refused_before_it_is_read() {
-        let dir = std::env::temp_dir().join(format!("mg-plugin-folder-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-plugin-folder");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("data")).unwrap();
         std::fs::write(dir.join("main.luau"), "-- code").unwrap();

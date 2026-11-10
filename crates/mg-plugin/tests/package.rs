@@ -91,7 +91,7 @@ fn an_archive_of_several_plugins_is_read_and_installed() {
     deeper.extend(plugin_under("repo-main/names/", &manifest_of("example.names")));
     assert_eq!(Package::read_all(&zipped(&deeper)).unwrap().len(), 2);
     // Installed, each in its own folder.
-    let dir = std::env::temp_dir().join(format!("mg-plugin-several-{}", std::process::id()));
+    let dir = mg_testkit::scratch_dir("mg-plugin-several");
     let _ = std::fs::remove_dir_all(&dir);
     for p in &all {
         p.install(&dir, false).unwrap();

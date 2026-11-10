@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_full_log_is_set_aside_and_a_new_one_begun() {
-        let dir = std::env::temp_dir().join(format!("mg-trace-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-trace");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("debug-log.txt");
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(at(1_709_164_800).0, "2024-02-29");
         // The last sessions' logs stay, with what was set aside of them;
         // older ones and nothing else go.
-        let dir = std::env::temp_dir().join(format!("mg-trace-keep-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-trace-keep");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         for name in [

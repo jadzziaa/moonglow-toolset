@@ -135,6 +135,9 @@ release page:
   before downloading anything. Update it as you installed it.
 - A build without the project's key (one built before the key was
   made): it doesn't install updates.
+- No cache folder of yours is found to download into (no home folder
+  is set, for example): Moonglow never downloads an update into the
+  system's shared temporary folder.
 
 ## Keyboard shortcuts
 

@@ -22,5 +22,8 @@ wgpu.workspace = true
 [build-dependencies]
 winresource = "0.1"
 
+[dev-dependencies]
+mg-testkit.workspace = true
+
 [lints]
 workspace = true

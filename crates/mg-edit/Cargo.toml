@@ -22,6 +22,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 mg-schema.workspace = true
+mg-testkit.workspace = true
 proptest.workspace = true
 
 [lints]

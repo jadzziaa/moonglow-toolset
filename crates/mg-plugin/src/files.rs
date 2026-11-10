@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn a_folder_s_files_stay_inside_it() {
-        let dir = std::env::temp_dir().join(format!("mg-plugin-inside-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-plugin-inside");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("in/sub")).unwrap();
         std::fs::write(dir.join("in/a.txt"), "a").unwrap();

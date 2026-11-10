@@ -53,7 +53,7 @@ fn console(code: &str, host: &Rc<TestHost>) -> Result<Outcome, PluginError> {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mg-plugin-{name}-{}", std::process::id()));
+    let dir = mg_testkit::scratch_dir(&format!("mg-plugin-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir

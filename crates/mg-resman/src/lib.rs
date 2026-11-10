@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(rm.get(&key("x", ResType::NSS)).unwrap().as_ref(), b"one");
         assert!(rm.replace("third", one(b"3")).is_none());
 
-        let dir = std::env::temp_dir().join(format!("mg-resman-rescan-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-resman-rescan");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         rm.add(priority::OVERRIDE, "folder", LayerClass::Directory, DirContainer::open(&dir));
@@ -711,7 +711,7 @@ mod tests {
     /// alone) and from other containers alike.
     #[test]
     fn a_resource_s_first_bytes() {
-        let dir = std::env::temp_dir().join(format!("mg-resman-start-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-resman-start");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let hak = dir.join("x.hak");
@@ -771,7 +771,7 @@ mod tests {
 
     #[test]
     fn changed_folders_and_archives_are_reloaded() {
-        let dir = std::env::temp_dir().join(format!("mg-resman-reload-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-resman-reload");
         let _ = std::fs::remove_dir_all(&dir);
         let folder = dir.join("override");
         std::fs::create_dir_all(&folder).unwrap();

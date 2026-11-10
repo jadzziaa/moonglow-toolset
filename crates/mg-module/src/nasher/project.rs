@@ -1409,10 +1409,7 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("mg-nasher-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+        mg_testkit::scratch_dir(&format!("mg-nasher-{name}"))
     }
 
     /// A small module: module.ifo listing area `a1`, area `a1` and a script.
@@ -1447,7 +1444,7 @@ mod tests {
         let mut m = module();
         m.save_as(&project_location(&root)).unwrap();
         let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
-        assert!(cfg.contains("file = \"mg-nasher-create-"), "{cfg}");
+        assert!(cfg.contains("file = \"mg-nasher-create."), "{cfg}");
         let src = root.join("src");
         let mut files: Vec<String> = std::fs::read_dir(&src)
             .unwrap()

@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn the_module_is_named_from_the_modules_folder() {
-        let dir = std::env::temp_dir().join(format!("mg-test-module-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-test-module");
         let modules = dir.join("modules");
         std::fs::create_dir_all(modules.join("Folder Module")).unwrap();
         std::fs::write(modules.join("My Module.mod"), b"").unwrap();

@@ -566,6 +566,32 @@ fn an_update_with_a_bad_signature_is_refused() {
     h.get_by_label_contains("has no key to check a download against");
 }
 
+/// With no cache folder of the user's, nothing is downloaded: the page
+/// link alone, and why. (The download and its lock file went to the
+/// system's temporary folder, which every user of the machine writes to,
+/// under names anyone can guess.)
+#[test]
+fn an_update_is_not_downloaded_without_a_cache_folder() {
+    let dir = mg_testkit::scratch_dir("ui-update-no-cache");
+    let key = mg_testkit::signing::TestKey::new();
+    let server = serve_release(&key, "v99.0.0", false, b"Moonglow 99.0.0's AppImage");
+    let (mut app, image) = app_updating(&dir, &server, Some(key.public()));
+    app.updates.cache = None;
+    app.settings.update_auto_install = true;
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    close_window(&mut h);
+    assert!(h.query_by_label("Install Now").is_none());
+    h.get_by_label("Release Page");
+    h.get_by_label("What's New…").click();
+    h.run_steps(2);
+    h.get_by_label_contains("found no cache folder of yours to download an update into");
+    let asked = server.asked();
+    assert!(!asked.iter().any(|p| p.starts_with("/download/")), "{asked:?}");
+    assert_eq!(std::fs::read(&image).unwrap(), b"the AppImage running");
+    assert!(h.state_mut().updates.at_close().is_none());
+}
+
 /// Later: downloaded and verified now, the image left as it is until
 /// Moonglow closes, then replaced; with Install updates automatically,
 /// the check does it without being asked.

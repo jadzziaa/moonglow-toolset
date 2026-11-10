@@ -479,8 +479,7 @@ mod tests {
     #[test]
     fn a_compiler_is_run_and_what_it_made_read_back() {
         use std::os::unix::fs::PermissionsExt;
-        let dir =
-            std::env::temp_dir().join(format!("moonglow-extcomp-test-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("moonglow-extcomp-test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let program = dir.join("fakecomp");

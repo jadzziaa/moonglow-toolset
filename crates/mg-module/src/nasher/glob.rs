@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn walking_finds_files_by_pattern() {
-        let root = std::env::temp_dir().join(format!("mg-glob-{}", std::process::id()));
+        let root = mg_testkit::scratch_dir("mg-glob");
         let _ = std::fs::remove_dir_all(&root);
         for f in [
             "src/a.nss",

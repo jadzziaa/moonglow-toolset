@@ -231,7 +231,7 @@ impl Moonglow {
         let ws = self.ws.as_ref()?;
         let index = self.references.index(&ws.module, self.background_jobs)?;
         let codepage = crate::text::script_codepage();
-        let mentions = index.mentions(&key.resref.to_string(), true, codepage).len();
+        let mentions = index.mentions_of(key.resref.as_bytes(), true, codepage).len();
         Some((index.usages(key).len(), mentions))
     }
 
@@ -344,7 +344,7 @@ impl Moonglow {
             "Renamed {from} to {new}: {} reference(s), {} in scripts{in_tables}",
             report.references, report.in_scripts
         ));
-        self.warn_still_spelled(&from.resref.to_string());
+        self.warn_still_spelled(from.resref.as_bytes());
         // (A script's name in the haks' tables, which a rename can't
         // rewrite.)
         if matches!(from.restype, ResType::NSS | ResType::NCS | ResType::NDB)
@@ -371,17 +371,19 @@ impl Moonglow {
     }
 
     /// Says which strings in the module's scripts still spell `name`, a
-    /// name a rename just took away.
-    fn warn_still_spelled(&mut self, name: &str) {
+    /// name a rename just took away (its own bytes, as the scripts' files
+    /// have it: as text, a byte above 0x7F was two and matched nothing).
+    fn warn_still_spelled(&mut self, name: &[u8]) {
         let Some(ws) = &self.ws else { return };
         let codepage = crate::text::script_codepage();
         // (From the window's index where it is at hand, the scripts the
         // rename changed read again; else the scripts read for it, while
         // the index is read on its own thread.)
         let left = match self.references.index(&ws.module, self.background_jobs) {
-            Some(index) => index.mentions(name, true, codepage),
-            None => rename::mentions(&ws.module, name, true, codepage),
+            Some(index) => index.mentions_of(name, true, codepage),
+            None => rename::mentions_of(&ws.module, name, true, codepage),
         };
+        let name = codepage.decode(name);
         if !left.is_empty() {
             self.log.warn(format!(
                 "{} still spelled “{}” in scripts ({}); the game won't find it by that name. \
@@ -487,7 +489,7 @@ impl Moonglow {
             made.in_scripts
         ));
         for spelled in &made.spelled {
-            self.warn_still_spelled(spelled);
+            self.warn_still_spelled(spelled.as_bytes());
         }
         match built {
             Ok(Some(b)) => {
@@ -755,9 +757,8 @@ impl Moonglow {
         for &key in keys {
             if rename::renamable(key.restype) {
                 usages.extend(index.usages(key).into_iter().filter(outside));
-                let name = key.resref.to_string();
                 mentions.extend(
-                    (index.mentions(&name, true, codepage).into_iter())
+                    (index.mentions_of(key.resref.as_bytes(), true, codepage).into_iter())
                         .filter(|m| !gone.contains(&m.script)),
                 );
             }
@@ -934,8 +935,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         // waited for below.)
         let found =
             app.references.index(&ws.module, app.background_jobs).map(|index| match &query {
+                // (A name's own bytes, as a tag's below.)
                 Query::Resource(k) => {
-                    (index.usages(*k), index.mentions(&k.resref.to_string(), true, codepage))
+                    (index.usages(*k), index.mentions_of(k.resref.as_bytes(), true, codepage))
                 }
                 // (A tag as the files have it: an object's in the game's
                 // codepage, a script's string in the scripts'. Asked as

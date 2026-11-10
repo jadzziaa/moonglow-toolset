@@ -836,7 +836,7 @@ mod install_tests {
     /// inside the game's or above it, or none of those.
     #[test]
     fn a_folder_that_isn_t_the_game_says_why() {
-        let base = env::temp_dir().join(format!("moonglow-why-not-{}", std::process::id()));
+        let base = mg_testkit::scratch_dir("moonglow-why-not");
         let _ = std::fs::remove_dir_all(&base);
         let ee = base.join("common").join("Neverwinter Nights");
         std::fs::create_dir_all(ee.join("data")).unwrap();
@@ -927,7 +927,7 @@ mod install_tests {
     /// overrides under the user's own, their haks found by name.
     #[test]
     fn workshop_items_are_read_when_asked_for() {
-        let lib = env::temp_dir().join(format!("moonglow-workshop-test-{}", std::process::id()));
+        let lib = mg_testkit::scratch_dir("moonglow-workshop-test");
         let _ = std::fs::remove_dir_all(&lib);
         let root = lib.join("steamapps/common/Neverwinter Nights");
         let item = lib.join("steamapps/workshop/content/704450/123");
@@ -987,7 +987,7 @@ mod install_tests {
     /// directory's own.
     #[test]
     fn nwn_ini_s_aliases_name_the_user_s_folders() {
-        let dir = env::temp_dir().join(format!("moonglow-alias-test-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("moonglow-alias-test");
         let _ = std::fs::remove_dir_all(&dir);
         let (root, user, diamond) = (dir.join("game"), dir.join("user"), dir.join("Diamond"));
         for d in [root.join("data"), user.join("tlk"), diamond.join("hak"), diamond.join("tlk")] {
@@ -1036,7 +1036,7 @@ mod install_tests {
     #[cfg(unix)]
     #[test]
     fn a_proton_prefix_s_windows_aliases_are_read_through_it() {
-        let dir = env::temp_dir().join(format!("moonglow-proton-test-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("moonglow-proton-test");
         let _ = std::fs::remove_dir_all(&dir);
         let pfx = dir.join("compatdata/704450/pfx");
         let user = pfx.join("drive_c/users/steamuser/Documents/Neverwinter Nights");
@@ -1066,7 +1066,7 @@ mod install_tests {
     /// winning, from `nwn.ini`'s PATCH folder, over `override/`.
     #[test]
     fn userpatch_haks_are_read_when_asked_for() {
-        let dir = env::temp_dir().join(format!("moonglow-userpatch-test-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("moonglow-userpatch-test");
         let _ = std::fs::remove_dir_all(&dir);
         let root = dir.join("game");
         let user = dir.join("user");

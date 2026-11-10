@@ -701,7 +701,8 @@ enum Cmd {
     /// changed are compiled again. A NUI window (NAME.jui) goes with its
     /// settings and its two scripts, the scripts that open it follow, and
     /// it is built again under its new name, as the NUI Creator's Rename…
-    /// does.
+    /// does (a script that opens it and does not compile then is printed,
+    /// and the command fails, the rename saved).
     Rename {
         module: PathBuf,
         /// `name.ext` of the resource to rename.

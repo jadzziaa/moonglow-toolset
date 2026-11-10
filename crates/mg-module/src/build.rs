@@ -879,7 +879,7 @@ mod tests {
         r.note(&m, &stamps, inc);
         assert!(!r.stale(&m, &stamps, &nss) && !r.stale(&m, &stamps, &inc));
         // Kept in a file, and read back the same.
-        let dir = std::env::temp_dir().join(format!("mg-remembered-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-remembered");
         let file = Remembered::file(&dir, std::path::Path::new("/modules/My Module.mod"));
         // (By the path's SHA-1, which no release of Rust changes.)
         #[cfg(unix)]
@@ -993,7 +993,7 @@ mod tests {
     /// written (the window names it by its folder, `mg compile` as given).
     #[test]
     fn a_project_named_by_its_nasher_cfg_or_its_folder_is_one() {
-        let root = std::env::temp_dir().join(format!("mg-settled-{}", std::process::id()));
+        let root = mg_testkit::scratch_dir("mg-settled");
         let project = root.join("proj");
         std::fs::create_dir_all(&project).unwrap();
         std::fs::write(project.join("nasher.cfg"), "").unwrap();

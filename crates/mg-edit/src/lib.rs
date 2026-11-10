@@ -1061,7 +1061,7 @@ mod tests {
         ws.adopt(&[(item, None)]).unwrap();
         assert!(!ws.module.contains(&item));
         // Saved: what was saved.
-        let dir = std::env::temp_dir().join(format!("mg-edit-saved-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-edit-saved");
         ws.save_as(&mg_module::ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
         assert_eq!(ws.saved().get(&ifo_key), ws.module.get(&ifo_key));
         let _ = std::fs::remove_dir_all(dir);
@@ -1389,7 +1389,7 @@ mod tests {
 
     #[test]
     fn a_new_edit_after_an_undo_past_the_save_is_unsaved_work() {
-        let dir = std::env::temp_dir().join(format!("mg-edit-undone-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-edit-undone");
         std::fs::create_dir_all(&dir).unwrap();
         let mut ws = workspace();
         let k = key("module", ResType::IFO);

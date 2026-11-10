@@ -1861,6 +1861,18 @@ fn the_game_s_pipelines_made_before_are_made_before_the_first_frame() {
     before.render_image(&gpu, &assets, &scene, &camera, 64, 64);
     let mut lines = before.game_pipelines_made();
     assert!(lines.len() >= 2, "{lines:?}");
+    // (A mark holds across the resources changing, which forgets the
+    // pipelines: those made after it are the ones made again, though
+    // the list starts anew and the count made goes on.)
+    let mark = before.game_pipelines_mark();
+    assert!(before.game_pipelines_made_after(mark).is_empty());
+    before.clear_textures();
+    assert!(before.game_pipelines_made().is_empty());
+    before.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(before.game_pipelines_made_after(mark), lines);
+    assert_eq!(before.game_pipelines_made(), lines);
+    assert!(before.game_shader_stats().pipelines > lines.len(), "the count is of the whole run");
+    assert!(before.game_pipelines_made_after(before.game_pipelines_mark()).is_empty());
     // (A fresh one, as without the list: its first frame Moonglow's own.)
     let mut fresh = renderer();
     fresh.render_image(&gpu, &assets, &scene, &camera, 64, 64);

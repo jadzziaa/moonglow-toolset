@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn dxc_is_taken_where_it_lies_beside_the_program() {
-        let dir = std::env::temp_dir().join(format!("mg-dx12-{}", std::process::id()));
+        let dir = mg_testkit::scratch_dir("mg-dx12");
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join("moonglow.exe");
         let dll = dir.join(DXC_DLL);
