@@ -419,6 +419,10 @@ impl PaletteView {
         self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
+        // (A tile, terrain, crosser or group is a number in its tileset's
+        // file, which may be another now.)
+        self.tile_brush = None;
+        self.tile_choice = None;
         self.categories.clear();
         // (The Standard palette's tags read the module's blueprint first:
         // another module, or the game read again, has its own.)

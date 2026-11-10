@@ -603,6 +603,9 @@ fn stroke(
         }
         // Exact tile with a group: its tiles as they are, nothing around
         // fitted to them (a staircase among walls).
+        // (A group the tileset no longer has, after its file changed
+        // and was read again: no stroke.)
+        Brush::Group(g) if g >= tools.set.groups.len() => (None, label),
         Brush::Group(g) if brush.exact => {
             let group = &tools.set.groups[g];
             let (cx, cy) = spot.cell;
@@ -1436,7 +1439,7 @@ fn cursor_shapes(
         Brush::Group(gi) => {
             let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
             let color = if st.is_some() { ok } else { refused };
-            let group = &tools.set.groups[gi];
+            let Some(group) = tools.set.groups.get(gi) else { return };
             for k in 0..group.tiles.len() {
                 let (c, r) = mg_tiles::group_slot(k, group.columns, view.group_turns);
                 let (x, y) = ((s.cell.0 as i64 + c) as f32, (s.cell.1 as i64 + r) as f32);
@@ -2205,6 +2208,42 @@ mod tests {
         assert!(!run.iter().any(|(_, e)| *e == NORTH || *e == SOUTH));
         // One tile: itself.
         assert_eq!(outline((1, 1), (1, 1)).len(), 1);
+    }
+
+    /// The review's A1: a group's brush kept while the tileset's file lost
+    /// that group (Remove Last Group in the tileset editor, then Reload
+    /// Resources) indexed the groups unchecked, and the next frame over
+    /// the view panicked. Such a brush makes no stroke.
+    #[test]
+    fn a_brush_of_a_group_the_tileset_lost_makes_no_stroke() {
+        let text = [
+            "[GENERAL]\nName=TST01\nInterior=1\nTransition=3\nDisplayName=-1",
+            "Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A",
+            "[CROSSER TYPES]\nCount=0\n[PRIMARY RULES]\nCount=0\n[SECONDARY RULES]\nCount=0",
+            "[TILES]\nCount=2",
+            "[TILE0]\nModel=t0\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A",
+            "[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=A\nBottomRight=A",
+            "[GROUPS]\nCount=1\n[GROUP0]\nName=G\nRows=1\nColumns=1\nTile0=1\n",
+        ]
+        .join("\n");
+        let set = Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        let name = ResRef::from_str("tst01").unwrap();
+        let tools = Tools::new(name, Arc::new(set));
+        let p = Placement { tile: 0, orientation: 0, height: 0 };
+        let grid = Grid::new(&tools.index, 2, 2, vec![p; 4]).unwrap();
+        let at = spot(Vec3::new(5.0, 5.0, 0.0), 2, 2).unwrap();
+        let brush = |g, exact| TileBrush {
+            tileset: name,
+            label: "G".into(),
+            brush: Brush::Group(g),
+            target: None,
+            exact,
+        };
+        // (The group it has is placed.)
+        assert!(stroke(&tools, &grid, &brush(0, false), at, false, false, 0).0.is_some());
+        for exact in [false, true] {
+            assert!(stroke(&tools, &grid, &brush(1, exact), at, false, false, 0).0.is_none());
+        }
     }
 
     /// The quarters a crosser drag through `points` (metres) takes, as the
