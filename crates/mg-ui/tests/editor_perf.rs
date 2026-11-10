@@ -466,4 +466,21 @@ fn editing_a_large_table() {
     app.tables.iter_mut().find(|d| d.id == id).unwrap().filter = "dragon".into();
     println!("Find typed, idle: {:?}", frames(&mut app, 20, false));
     println!("Find typed, a cell set each frame: {:?}", frames(&mut app, 20, true));
+    // The same table with a custom StrRef in every row and no module (so
+    // no custom talk table): every one of them a fault, each cell's looked
+    // up in a map (they were each a scan of the whole list: the review's
+    // D20).
+    let column = t.column("STRING_REF").unwrap();
+    for (i, row) in t.rows.iter_mut().enumerate() {
+        row[column] = Some((16_777_216 + i).to_string());
+    }
+    let codepage = mg_core::Codepage::default();
+    let faults = dir.join("faults").join("appearance.2da");
+    std::fs::create_dir_all(faults.parent().unwrap()).unwrap();
+    std::fs::write(&faults, t.to_bytes(codepage).unwrap()).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let id = mg_ui::table_view::open_path(&mut app, &faults).unwrap();
+    assert!(app.tables.iter().any(|d| d.id == id));
+    let _ = frames(&mut app, 5, false);
+    println!("every StrRef a fault ({} rows): idle {:?}", t.len(), frames(&mut app, 20, false));
 }
