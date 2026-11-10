@@ -1571,6 +1571,109 @@ fn a_changed_project_plugin_s_events_ask_again() {
     assert_eq!(h.state().settings.plugin_grants, kept, "nothing kept for the new code");
 }
 
+/// The plugin harness with `test.asks` installed from a copy of its own
+/// (whose code a test may edit), enabled; and its code's file.
+fn asks_installed(name: &str) -> (Harness<'static, Moonglow>, ResKey, std::path::PathBuf) {
+    let (mut h, key) = plugin_harness(name, false).unwrap();
+    let plugins = mg_testkit::scratch_dir(&format!("{name}-plugins"));
+    let asks = plugins.join("asks");
+    std::fs::create_dir_all(&asks).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(plugin_fixtures().join("asks").join(file), asks.join(file)).unwrap();
+    }
+    h.state_mut().plugin_dir = Some(plugins);
+    h.state_mut().load_plugins();
+    h.run();
+    h.state_mut().enable_plugin("test.asks", true);
+    (h, key, asks.join("main.luau"))
+}
+
+/// What `test.asks` said of the saves, in order.
+fn asks_said(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    let log = h.state().log.entries.iter().map(|(_, m)| m.clone());
+    log.filter(|m| m.starts_with("Asks: ")).collect()
+}
+
+/// Changes the guard (its tag the `n`th) and saves, which `test.asks`
+/// acts on; until the window has done what the save started.
+fn save_guard(h: &mut Harness<'_, Moonglow>, key: ResKey, n: usize) {
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(format!("guard_{n}").into_bytes()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A guard",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(h);
+}
+
+/// Edits an installed plugin's code by hand, under the same version.
+fn edit_by_hand(main: &std::path::Path, mark: &str) {
+    let code = std::fs::read_to_string(main).unwrap();
+    std::fs::write(main, format!("{code}\n-- {mark}\n")).unwrap();
+}
+
+/// What an installed plugin's events were allowed is the allowance of its
+/// code, as a project's plugin's is: installed fresh it asks; edited by
+/// hand under the same version, it asks again. (Its grants were kept by
+/// id and version, so the edited code was answered from the old code's.)
+#[test]
+fn an_installed_plugin_edited_by_hand_asks_again() {
+    let (mut h, key, main) = asks_installed("ui-plugin-installed-edited");
+    assert_eq!(h.state().plugin_grants("test.asks"), 0);
+    // Installed fresh: asked (a no is a no, and not kept), asked again and
+    // answered yes; the next save is not asked.
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_guard(&mut h, key, 1);
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Yes));
+    save_guard(&mut h, key, 2);
+    save_guard(&mut h, key, 3);
+    assert_eq!(asks_said(&h), ["Asks: not noted", "Asks: noted", "Asks: noted"]);
+    assert!(!h.state().busy());
+    assert_eq!(h.state().plugin_grants("test.asks"), 1);
+    // Edited by hand: asked again, and a no this time is a no.
+    edit_by_hand(&main, "edited");
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_guard(&mut h, key, 4);
+    assert_eq!(asks_said(&h).last().unwrap(), "Asks: not noted", "the edited plugin asked");
+}
+
+/// What an installed plugin was allowed under its id and version (as
+/// Moonglow before 4.0.0 kept it) is carried over to its code as it is at
+/// its first event, once: it is not asked, and its grants are then its
+/// code's. The old record is gone, so code changed after that asks, after
+/// a restart too.
+#[test]
+fn an_installed_plugin_s_grants_by_version_are_carried_over_once() {
+    let (mut h, key, main) = asks_installed("ui-plugin-installed-carried");
+    // What an earlier Moonglow kept: the question answered yes, by
+    // version. (The question as asked, from an answer given now.)
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Yes));
+    save_guard(&mut h, key, 1);
+    h.state_mut().forget_plugin_session();
+    let old = "test.asks 0.0.1".to_string();
+    let grants = &mut h.state_mut().settings.plugin_grants;
+    assert_eq!(grants.len(), 1);
+    grants[0].0 = old.clone();
+    // Moonglow started again: not asked.
+    save_guard(&mut h, key, 2);
+    assert_eq!(asks_said(&h), ["Asks: noted"; 2]);
+    assert!(!h.state().busy());
+    let names: Vec<String> =
+        h.state().settings.plugin_grants.iter().map(|(p, _, _)| p.clone()).collect();
+    assert_eq!(names.len(), 1);
+    assert!(names[0].starts_with("test.asks sha256:"), "under its code's digest: {names:?}");
+    // Its code edited, and Moonglow started again: the old record is not
+    // carried over a second time.
+    edit_by_hand(&main, "edited");
+    h.state_mut().forget_plugin_session();
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::No));
+    save_guard(&mut h, key, 3);
+    assert_eq!(asks_said(&h).last().unwrap(), "Asks: not noted", "the edited plugin asked");
+    assert!(h.state().settings.plugin_grants.iter().all(|(p, _, _)| *p != old));
+}
+
 /// Decide Later holds until the project is next opened: a change in the
 /// plugins' folder that is not the plugin's (a test fixture touched, an
 /// editor's hidden swap file, another plugin added) does not bring the

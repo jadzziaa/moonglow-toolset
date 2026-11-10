@@ -54,10 +54,13 @@ A plugin's code runs in a sandbox. It can:
   ([below](#what-plugins-do-by-themselves)). What it changes then is a
   change like a command's, which Undo takes back; where it
   asks for a folder or for leave to write, it asks once, not at every
-  save: what you allowed is kept between runs (for that version of the
-  plugin), the Plugins window says how much, and **Forget** there makes
+  save: what you allowed is kept between runs, for the plugin's code as
+  it was (its files edited by hand, even under the same version, ask
+  again), the Plugins window says how much, and **Forget** there makes
   it ask again. Disabling, removing or installing the plugin anew
-  forgets it too.
+  forgets it too. (What an earlier Moonglow kept by the plugin's
+  version is kept for its code as it is at its first event in 4.0.0,
+  once.)
 
 It cannot open files of its own choosing, write any other file, use the
 network, start other programs, or reach anything of Moonglow's beyond

@@ -98,9 +98,9 @@ pub struct Plugins {
     pub save: crate::plugin_events::SaveState,
     /// What each plugin's events were allowed (a folder chosen, a yes to
     /// writing into it), by the plugin as its grants are kept
-    /// ([`grants_name`]: its id with its version, or a project's with its
-    /// content and place, so that other code under the same id asks
-    /// again): an event that comes again does not ask again. Kept between
+    /// ([`grants_name`]: its id with its code's digest and its folder, so
+    /// that other code under the same id asks again): an event that comes
+    /// again does not ask again. Kept between
     /// runs in the settings (`plugin_grants`).
     granted: std::collections::HashMap<String, Granted>,
     /// An event's job ran since what was allowed was last put into the
@@ -204,17 +204,34 @@ fn folder_stamp(dir: &Path) -> Option<u64> {
 /// Answers remembered, by question.
 type Granted = Arc<Mutex<std::collections::HashMap<String, Answer>>>;
 
-/// A plugin as its grants are kept under: another version asks again (a
-/// project's plugin, other content).
+/// A plugin as its grants are kept under: its id, its code's digest
+/// ([`Plugin::code_digest`]) and its folder, a project's or an installed
+/// one's alike. Other code asks again (a project's plugin pulled, an
+/// installed one edited by hand under the same version), and so does
+/// another folder's of the same code (another project's).
 fn grants_name(p: &Plugin) -> String {
-    match p.digest() {
-        // (And by where it is: another project's of the same content is
-        // another plugin.)
-        Some(digest) => {
-            let dir = p.dir.canonicalize().unwrap_or_else(|_| p.dir.clone());
-            format!("{} {digest} {}", p.manifest.id, dir.display())
-        }
-        None => format!("{} {}", p.manifest.id, p.manifest.version),
+    let digest = p.code_digest().unwrap_or_else(|| "unread".into());
+    let dir = p.dir.canonicalize().unwrap_or_else(|_| p.dir.clone());
+    format!("{} {digest} {}", p.manifest.id, dir.display())
+}
+
+/// What an installed plugin's grants were kept under before Moonglow
+/// 4.0.0: its id and version (none for a project's).
+fn old_grants_name(p: &Plugin) -> Option<String> {
+    (!p.is_project()).then(|| format!("{} {}", p.manifest.id, p.manifest.version))
+}
+
+/// Moves what the settings keep under `old` to `name`, once: what is kept
+/// under `old` is taken out whether or not it is carried over (`name` has
+/// grants of its own already), so it is never carried over again, to
+/// other code.
+fn carry_grants(kept: &mut Vec<(String, String, String)>, old: &str, name: &str) {
+    if kept.iter().any(|(p, _, _)| p == name) {
+        kept.retain(|(p, _, _)| p != old);
+        return;
+    }
+    for (p, _, _) in kept.iter_mut().filter(|(p, _, _)| p == old) {
+        *p = name.to_string();
     }
 }
 
@@ -1452,9 +1469,16 @@ impl Moonglow {
         let (name, title) = (plugin.manifest.name.clone(), event.kind.name().to_string());
         // (By the plugin as it is now: what other code of its id was
         // allowed, a project's plugin changed and allowed again or one
-        // replaced by hand, answers none of this one's questions.)
-        let kept = &self.settings.plugin_grants;
+        // replaced by hand or edited, answers none of this one's questions.)
         let as_kept = grants_name(&plugin);
+        // (An installed plugin's grants kept by its version, as Moonglow
+        // before 4.0.0 kept them, are its code's as it is now, once.)
+        if !self.plugins.granted.contains_key(&as_kept)
+            && let Some(old) = old_grants_name(&plugin)
+        {
+            carry_grants(&mut self.settings.plugin_grants, &old, &as_kept);
+        }
+        let kept = &self.settings.plugin_grants;
         let granted = (self.plugins.granted.entry(as_kept.clone()))
             .or_insert_with(|| Arc::new(Mutex::new(kept_grants(kept, &as_kept))))
             .clone();
@@ -3147,5 +3171,22 @@ mod tests {
         assert!(keep_grants(&mut kept, "mine 1.2.0", &granted));
         assert_eq!(kept_grants(&kept, "mine 1.2.0").len(), 1);
         assert_eq!(kept_grants(&kept, "other 1.0.0").len(), 1);
+    }
+
+    #[test]
+    fn grants_kept_by_version_are_carried_over_once() {
+        let row = |p: &str, q: &str| (p.to_string(), q.to_string(), "yes".to_string());
+        let (old, code, edited) = ("mine 1.2.0", "mine sha256:aa /p", "mine sha256:bb /p");
+        let mut kept = vec![row(old, "q1"), row(old, "q2"), row("other 1.0.0", "q")];
+        carry_grants(&mut kept, old, code);
+        assert_eq!(kept, [row(code, "q1"), row(code, "q2"), row("other 1.0.0", "q")]);
+        // Consumed: other code is given nothing of it.
+        carry_grants(&mut kept, old, edited);
+        assert!(kept_grants(&kept, edited).is_empty());
+        assert_eq!(kept_grants(&kept, code).len(), 2);
+        // Code with grants of its own keeps them, and the old ones go.
+        let mut kept = vec![row(old, "q1"), row(code, "q2")];
+        carry_grants(&mut kept, old, code);
+        assert_eq!(kept, [row(code, "q2")]);
     }
 }

@@ -615,9 +615,11 @@ pub struct Settings {
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
     /// What each plugin's events were allowed, kept between runs: the
-    /// plugin (its id and version), the question as it was asked, and the
-    /// answer (`yes`, or `path:` and the folder chosen). Forgotten when
-    /// the plugin is disabled, removed or installed anew.
+    /// plugin (its id, its code's digest and its folder; an installed
+    /// plugin's id and version before 4.0.0, carried over to its code once),
+    /// the question as it was asked, and the answer (`yes`, or `path:` and
+    /// the folder chosen). Forgotten when the plugin is disabled, removed
+    /// or installed anew.
     pub plugin_grants: Vec<(String, String, String)>,
     /// The projects' commands (moonglow.toml's `[commands]`) allowed to
     /// run: the project's folder (its canonical path), the command's name

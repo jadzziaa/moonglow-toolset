@@ -145,7 +145,8 @@ module then has unsaved changes again: an event that edits should have
 little to say. `resource-saved` only reads. Where such a handler asks
 for a folder (`ctx.ui:open_folder`) or for leave to write (a hak, a
 folder), the user is asked once and the answer is kept for that
-plugin's events; a form is asked every time.
+plugin's events while its code stays as it is: an edit of its files
+asks again, as a new version does; a form is asked every time.
 
 ```lua
 mg.on("emit", function(ctx)
