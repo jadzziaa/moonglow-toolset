@@ -476,8 +476,13 @@ pub fn remove_property(targets: &[Target], key: PropertyKey) -> Outcome {
 }
 
 /// The page (its `StoreList` struct id) of each baseitems.2da
-/// `StorePanel`, as Aurora writes a store's pages.
-pub const STORE_PANEL_PAGE: [u32; 5] = [0, 4, 2, 3, 1];
+/// `StorePanel`, as Aurora writes a store's pages: those of
+/// [`mg_rules::rows::STORE_PAGES`], the one table of them, which is in
+/// the panels' order.
+pub const STORE_PANEL_PAGE: [u32; 5] = {
+    let pages = mg_rules::rows::STORE_PAGES;
+    [pages[0].0, pages[1].0, pages[2].0, pages[3].0, pages[4].0]
+};
 
 /// The first free place for a `w`×`h` item in an inventory grid
 /// `width` wide, row by row, among `taken` rectangles (x, y, w, h).

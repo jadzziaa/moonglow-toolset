@@ -239,7 +239,8 @@ pub fn list_table(file_type: &str, path: &[&str], list: &str) -> Option<RowTable
 }
 
 /// A store's pages, by the id of their struct in its `StoreList` (as
-/// Aurora writes them, in the order its Inventory shows them).
+/// Aurora writes them, in the order its Inventory shows them, which is
+/// that of baseitems.2da's `StorePanel`: panel 0 is the first here).
 pub const STORE_PAGES: [(u32, &str); 5] = [
     (0, "Armor"),
     (4, "Weapons"),

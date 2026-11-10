@@ -47,27 +47,14 @@ pub fn tile_edits(
     changes: &[((u32, u32), Placement)],
     lights: &mut dyn FnMut() -> [u8; 3],
 ) -> Vec<Edit> {
-    let width = root.integer("Width").unwrap_or(0).max(0) as u32;
+    let width = root.integer("Width").unwrap_or(0).max(0) as usize;
     let mut edits = Vec::new();
     for &((x, y), p) in changes {
-        let i = (y * width + x) as usize;
+        let i = y as usize * width + x as usize;
         let path = GffPath::root().item("Tile_List", i);
         let current = root.list("Tile_List").and_then(|l| l.get(i));
-        let loops = set.tiles.get(p.tile as usize).map_or([false; 3], |t| t.anim_loops);
         let [main1, main2, source] = lights();
-        let fields: [(&str, Value); 10] = [
-            ("Tile_ID", Value::Int(p.tile as i32)),
-            ("Tile_Orientation", Value::Int(i32::from(p.orientation))),
-            ("Tile_Height", Value::Int(p.height)),
-            ("Tile_MainLight1", Value::Byte(main1)),
-            ("Tile_MainLight2", Value::Byte(main2)),
-            ("Tile_SrcLight1", Value::Byte(source)),
-            ("Tile_SrcLight2", Value::Byte(source)),
-            ("Tile_AnimLoop1", Value::Byte(u8::from(loops[0]))),
-            ("Tile_AnimLoop2", Value::Byte(u8::from(loops[1]))),
-            ("Tile_AnimLoop3", Value::Byte(u8::from(loops[2]))),
-        ];
-        for (label, value) in fields {
+        for (label, value) in tile_fields(set, p, [main1, main2, source, source]) {
             if current.and_then(|s| s.get(label)) == Some(&value) {
                 continue;
             }
@@ -80,6 +67,55 @@ pub fn tile_edits(
         }
     }
     edits
+}
+
+/// A tile's fields as Moonglow writes one into an ARE's `Tile_List`, in
+/// their order: tile `p` of `set`, its `lights` (main 1, main 2, source 1,
+/// source 2) and the animation loops the tileset's tile has. The one
+/// place a tile's struct is spelled: painting sets these fields, and
+/// Resize and Change Tileset write the struct of them ([`tile_struct`]).
+pub fn tile_fields(set: &Tileset, p: Placement, lights: [u8; 4]) -> [(&'static str, Value); 10] {
+    let loops = set.tiles.get(p.tile as usize).map_or([false; 3], |t| t.anim_loops);
+    [
+        ("Tile_ID", Value::Int(p.tile as i32)),
+        ("Tile_Orientation", Value::Int(i32::from(p.orientation))),
+        ("Tile_Height", Value::Int(p.height)),
+        ("Tile_MainLight1", Value::Byte(lights[0])),
+        ("Tile_MainLight2", Value::Byte(lights[1])),
+        ("Tile_SrcLight1", Value::Byte(lights[2])),
+        ("Tile_SrcLight2", Value::Byte(lights[3])),
+        ("Tile_AnimLoop1", Value::Byte(u8::from(loops[0]))),
+        ("Tile_AnimLoop2", Value::Byte(u8::from(loops[1]))),
+        ("Tile_AnimLoop3", Value::Byte(u8::from(loops[2]))),
+    ]
+}
+
+/// A new tile's struct, as the area wizard writes one ([`tile_fields`]).
+pub fn tile_struct(set: &Tileset, p: Placement, lights: [u8; 4]) -> Struct {
+    let mut s = Struct::new(1);
+    for (label, value) in tile_fields(set, p, lights) {
+        s.set(label, value);
+    }
+    s
+}
+
+/// The door hooks of a tileset's tile `tile` lying with its middle at
+/// `centre`, turned `orientation` quarters: each hook's doortypes.2da row
+/// (0: one that brings no door), where a door on it stands and its
+/// `Bearing`. The one place a tile's hooks are put into an area: the
+/// area's view, painting, Resize and Change Tileset read them here.
+pub fn hooks(
+    tile: &mg_set::Tile,
+    centre: glam::Vec3,
+    orientation: u8,
+) -> impl Iterator<Item = (i32, glam::Vec3, f32)> + '_ {
+    let turn = f32::from(orientation) * 90.0;
+    let rotation = glam::Quat::from_rotation_z(turn.to_radians());
+    tile.doors.iter().map(move |d| {
+        let degrees = (d.orientation + turn).rem_euclid(360.0);
+        let degrees = if degrees > 180.0 { degrees - 360.0 } else { degrees };
+        (d.door_type, centre + rotation * glam::Vec3::from_array(d.position), degrees.to_radians())
+    })
 }
 
 /// A tile's door hooks that bring a door (type not 0): doortypes.2da row,
@@ -97,21 +133,7 @@ pub fn typed_hooks(
         (y as f32 + 0.5) * TILE_SIZE,
         p.height as f32 * step,
     );
-    let turn = f32::from(p.orientation) * 90.0;
-    let rotation = glam::Quat::from_rotation_z(turn.to_radians());
-    tile.doors
-        .iter()
-        .filter(|d| d.door_type != 0)
-        .map(|d| {
-            let degrees = (d.orientation + turn).rem_euclid(360.0);
-            let degrees = if degrees > 180.0 { degrees - 360.0 } else { degrees };
-            (
-                d.door_type,
-                centre + rotation * glam::Vec3::from_array(d.position),
-                degrees.to_radians(),
-            )
-        })
-        .collect()
+    hooks(tile, centre, p.orientation).filter(|(door_type, ..)| *door_type != 0).collect()
 }
 
 /// The doors tiles bring and take, as Aurora handles them: a tile it puts
@@ -203,6 +225,44 @@ Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
         });
         are.set("Tile_List", Value::List(tiles.collect()));
         are
+    }
+
+    /// A tile's struct and a tile's edits are the same ten fields, and a
+    /// tile's hooks stand where its middle and its turn put them, those
+    /// that bring a door (a type that is not 0) being the typed ones.
+    #[test]
+    fn a_tile_is_written_and_its_hooks_placed_in_one_way() {
+        let text = SET.replace(
+            "[TILE0]\nModel=t0\n",
+            "[TILE0]\nModel=t0\nAnimLoop2=1\nDoors=2\n[TILE0DOOR0]\nType=3\nX=5\nY=0\nZ=0\n\
+             Orientation=90\n[TILE0DOOR1]\nType=0\nX=0\nY=5\nZ=1\nOrientation=0\n[TILE0X]\n",
+        );
+        let set = Tileset::parse(text.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(set.tiles[0].doors.len(), 2, "{:?}", set.tiles[0]);
+        let p = Placement { tile: 0, orientation: 1, height: 2 };
+        let s = tile_struct(&set, p, [1, 2, 3, 4]);
+        let fields = tile_fields(&set, p, [1, 2, 3, 4]);
+        let written: Vec<(String, Value)> =
+            s.fields.iter().map(|f| (f.label.to_string(), f.value.clone())).collect();
+        let listed: Vec<(String, Value)> =
+            fields.iter().map(|(l, v)| (l.to_string(), v.clone())).collect();
+        assert_eq!(written, listed);
+        assert_eq!(s.id, 1);
+        assert_eq!((s.integer("Tile_SrcLight2"), s.integer("Tile_AnimLoop2")), (Some(4), Some(1)));
+        // Painting the same tile into an area that has it there: no edit.
+        let mut are = are(1, 1, &[]);
+        are.set("Tile_List", Value::List(vec![s]));
+        let key = ResKey::parse("a", ResType::ARE).unwrap();
+        assert!(tile_edits(key, &are, &set, &[((0, 0), p)], &mut || [1, 2, 3]).len() == 1);
+        // Cell (2, 1), a quarter turned, two steps of 5 m up.
+        let all: Vec<_> = hooks(&set.tiles[0], glam::Vec3::new(25.0, 15.0, 10.0), 1).collect();
+        assert_eq!(all.len(), 2);
+        let typed = typed_hooks(&set, (2, 1), p, 5.0);
+        assert_eq!(typed, [all[0]]);
+        let (door_type, at, bearing) = typed[0];
+        assert_eq!(door_type, 3);
+        assert!((at - glam::Vec3::new(25.0, 20.0, 10.0)).length() < 1e-4, "{at}");
+        assert!((bearing - std::f32::consts::PI).abs() < 1e-5, "{bearing}");
     }
 
     /// An ARE's numbers are whatever the file says: a tile two billion

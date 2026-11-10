@@ -19,7 +19,7 @@ use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
 use mg_set::Tileset;
 use mg_tiles::paint::Grid;
-use mg_tiles::{Lattice, Placement, TileIndex};
+use mg_tiles::{Lattice, TileIndex};
 
 use crate::{ObjectKind, TILE_SIZE};
 
@@ -37,23 +37,6 @@ pub struct Reshaped {
 /// its tiles, turned and raised as one).
 pub fn groups_in(index: &TileIndex, _set: &Tileset, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
     grid.groups(index)
-}
-
-/// A new tile's struct, as the area wizard writes one.
-fn tile_struct(set: &Tileset, p: Placement, lights: [u8; 3]) -> Struct {
-    let loops = set.tiles.get(p.tile as usize).map_or([false; 3], |t| t.anim_loops);
-    let mut s = Struct::new(1);
-    s.set("Tile_ID", Value::Int(p.tile as i32));
-    s.set("Tile_Orientation", Value::Int(i32::from(p.orientation)));
-    s.set("Tile_Height", Value::Int(p.height));
-    s.set("Tile_MainLight1", Value::Byte(lights[0]));
-    s.set("Tile_MainLight2", Value::Byte(lights[1]));
-    s.set("Tile_SrcLight1", Value::Byte(lights[2]));
-    s.set("Tile_SrcLight2", Value::Byte(lights[2]));
-    for (k, on) in loops.into_iter().enumerate() {
-        s.set(&format!("Tile_AnimLoop{}", k + 1), Value::Byte(u8::from(on)));
-    }
-    s
 }
 
 /// Where an object stands (its position fields).
@@ -148,7 +131,8 @@ pub fn resize(
                 }
                 n => fits[rng.usize(..n)],
             };
-            list.push(tile_struct(set, p, lights()));
+            let [main1, main2, source] = lights();
+            list.push(crate::terrain::tile_struct(set, p, [main1, main2, source, source]));
         }
     }
     let mut edits = vec![
@@ -159,21 +143,8 @@ pub fn resize(
     // Objects outside go, and doors on the hooks of the cut groups' tiles.
     let hooks: Vec<(f32, f32)> = cut
         .iter()
-        .flat_map(|&(x, y)| {
-            let p = old.tile(x, y);
-            let tile = set.tiles.get(p.tile as usize);
-            let centre =
-                glam::Vec3::new((x as f32 + 0.5) * TILE_SIZE, (y as f32 + 0.5) * TILE_SIZE, 0.0);
-            let turn = glam::Quat::from_rotation_z(f32::from(p.orientation) * FRAC_PI_2);
-            tile.map(|t| t.doors.clone())
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|d| d.door_type != 0)
-                .map(move |d| {
-                    let at = centre + turn * glam::Vec3::from_array(d.position);
-                    (at.x, at.y)
-                })
-        })
+        .flat_map(|&(x, y)| crate::terrain::typed_hooks(set, (x, y), old.tile(x, y), 0.0))
+        .map(|(_, at, _)| (at.x, at.y))
         .collect();
     let (wm, hm) = (width as f32 * TILE_SIZE, height as f32 * TILE_SIZE);
     let mut deleted = 0;

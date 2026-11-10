@@ -188,4 +188,4 @@ fn group_of(set: &Tileset, model: &str) -> Option<usize> {
     })
 }
 
-pub use mg_edit::terrain::{door_edits, grid, tile_edits, typed_hooks};
+pub use mg_edit::terrain::{door_edits, grid, tile_edits, tile_fields, tile_struct, typed_hooks};

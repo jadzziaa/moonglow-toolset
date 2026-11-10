@@ -114,6 +114,23 @@ const SET_CORNERS: [usize; 4] = [2, 3, 1, 0];
 /// Tile edges are listed Top, Right, Bottom, Left (`mg_set::EDGES`).
 const SET_EDGES: [usize; 4] = [2, 1, 0, 3];
 
+/// A tileset's tile as it lies turned `quarter_turns`, not raised: its
+/// corners (terrain and height) counter-clockwise from the south-west
+/// ([`SW`]) and its edges' crossers ("": none) counter-clockwise from the
+/// south ([`SOUTH`]), as the tileset names them. The one place a `.set`'s
+/// order of corners and edges becomes the grid's: the index is made of
+/// it, and so is the tile border.
+pub fn tile_sides(tile: &mg_set::Tile, quarter_turns: u8) -> ([(&str, i32); 4], [&str; 4]) {
+    let q = usize::from(quarter_turns % 4);
+    let (mut corners, mut edges) = ([("", 0); 4], [""; 4]);
+    for i in 0..4 {
+        let (name, height) = &tile.corners[SET_CORNERS[i]];
+        corners[(i + q) % 4] = (name.as_str(), *height);
+        edges[(i + q) % 4] = tile.edges[SET_EDGES[i]].as_str();
+    }
+    (corners, edges)
+}
+
 fn intern(names: &mut Vec<String>, name: &str) -> u16 {
     match names.iter().position(|n| n.eq_ignore_ascii_case(name)) {
         Some(i) => i as u16,
@@ -141,16 +158,13 @@ impl TileIndex {
             .tiles
             .iter()
             .map(|t| {
-                let mut corner = |i: usize| {
-                    let (name, height) = &t.corners[SET_CORNERS[i]];
-                    let height = (*height).clamp(-MAX_HEIGHT, MAX_HEIGHT);
+                let (corners, edges) = tile_sides(t, 0);
+                let corners = corners.map(|(name, height)| {
+                    let height = height.clamp(-MAX_HEIGHT, MAX_HEIGHT);
                     Corner { terrain: Terrain(intern(&mut terrains, name)), height }
-                };
-                let corners = [corner(0), corner(1), corner(2), corner(3)];
-                let edges = SET_EDGES.map(|i| {
-                    let name = &t.edges[i];
-                    (!name.is_empty()).then(|| Crosser(intern(&mut crossers, name)))
                 });
+                let edges = edges
+                    .map(|name| (!name.is_empty()).then(|| Crosser(intern(&mut crossers, name))));
                 Cell { corners, edges }
             })
             .collect();
@@ -610,6 +624,36 @@ mod tests {
         assert_eq!(terrains[NW], b);
         assert_eq!(terrains.iter().filter(|t| **t == a).count(), 3);
         assert_eq!(cell.turned(1).turned(3), cell);
+    }
+
+    /// A tile's corners and edges as the grid has them, from the `.set`'s
+    /// own order (TopLeft, TopRight, BottomLeft, BottomRight; Top, Right,
+    /// Bottom, Left), turned as the tile lies: what the index holds.
+    #[test]
+    fn a_tile_s_sides_are_the_index_s() {
+        let text = SET.replace(
+            "[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=B\nBottomRight=A\n",
+            "[TILE1]\nModel=t1\nTopLeft=A\nTopRight=A\nBottomLeft=B\nBottomRight=A\n\
+             BottomLeftHeight=1\nTop=Road\nLeft=Stream\n",
+        );
+        assert_ne!(text, SET);
+        let set = Tileset::parse(text.as_bytes(), Codepage::WINDOWS_1252).unwrap();
+        let (corners, edges) = tile_sides(&set.tiles[1], 0);
+        assert_eq!(corners, [("B", 1), ("A", 0), ("A", 0), ("A", 0)], "from the south-west");
+        assert_eq!(edges, ["", "", "Road", "Stream"], "from the south");
+        let (corners, edges) = tile_sides(&set.tiles[1], 1);
+        assert_eq!(corners[SE], ("B", 1));
+        assert_eq!((edges[WEST], edges[SOUTH]), ("Road", "Stream"));
+        let index = TileIndex::new(&set);
+        for turns in 0..4 {
+            let (corners, edges) = tile_sides(&set.tiles[1], turns);
+            let cell = index.cell(Placement { tile: 1, orientation: turns, height: 0 }).unwrap();
+            for i in 0..4 {
+                let c = cell.corners[i];
+                assert_eq!((index.terrain_name(c.terrain), c.height), corners[i]);
+                assert_eq!(cell.edges[i].map_or("", |e| index.crosser_name(e)), edges[i]);
+            }
+        }
     }
 
     #[test]

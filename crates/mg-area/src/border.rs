@@ -96,20 +96,12 @@ type Step = (i64, i64);
 /// from the south-west and the south ([`mg_tiles::SW`], [`mg_tiles::SOUTH`]).
 fn sides(set: &Tileset, tile: &AreaTile) -> Option<(Corners, Crossers)> {
     let t = set.tiles.get(usize::try_from(tile.id).ok()?)?;
-    // (The set lists corners TopLeft, TopRight, BottomLeft, BottomRight
-    // and edges Top, Right, Bottom, Left.)
-    const CORNERS: [usize; 4] = [NW, NE, SW, SE];
-    const EDGES: [usize; 4] = [2, 1, 0, 3];
-    let mut corners: Corners = Default::default();
-    let mut edges: Crossers = Default::default();
-    let q = usize::from(tile.orientation % 4);
-    for (k, (name, height)) in t.corners.iter().enumerate() {
-        corners[(CORNERS[k] + q) % 4] = (name.clone(), tile.height + height);
-    }
-    for (k, crosser) in t.edges.iter().enumerate() {
-        let crosser = (!crosser.is_empty()).then(|| crosser.to_ascii_lowercase());
-        edges[(EDGES[k] + q) % 4] = crosser;
-    }
+    // (The set's own order of corners and edges, and the turn, are
+    // `mg_tiles::tile_sides`'s, as the painting grid's index has them.)
+    let (corners, edges) = mg_tiles::tile_sides(t, tile.orientation);
+    let corners =
+        corners.map(|(name, height)| (name.to_string(), tile.height.saturating_add(height)));
+    let edges = edges.map(|crosser| (!crosser.is_empty()).then(|| crosser.to_ascii_lowercase()));
     Some((corners, edges))
 }
 

@@ -184,8 +184,10 @@ struct Loaded {
 
 impl Loaded {
     /// `anims`: [`anim::animations_scaled`]'s, each at the scale it plays
-    /// at through the chain of supermodels.
-    fn new(gpu: Arc<GpuModel>, anims: Vec<(String, Arc<Model>, f32)>) -> Loaded {
+    /// at through the chain of supermodels; `resref`: the resource the
+    /// model was read from (a tile's source lights are nodes named after
+    /// it or after the model: [`crate::source_light_node`]).
+    fn new(resref: &str, gpu: Arc<GpuModel>, anims: Vec<(String, Arc<Model>, f32)>) -> Loaded {
         let model = &gpu.model;
         let at: Vec<Option<usize>> = (anims.iter())
             .map(|(name, owner, _)| {
@@ -201,10 +203,7 @@ impl Loaded {
         let anims: Vec<(String, Arc<Model>)> = anims.into_iter().map(|(n, m, _)| (n, m)).collect();
         let tile =
             TILE_ANIMATIONS.map(|t| anims.iter().position(|(n, _)| n.eq_ignore_ascii_case(t)));
-        let sources = [1, 2].map(|slot| {
-            let suffix = format!("sl{slot}");
-            model.nodes.iter().position(|n| n.name.to_ascii_lowercase().ends_with(&suffix))
-        });
+        let sources = [1, 2].map(|slot| crate::source_light_node(model, resref, slot));
         Loaded { gpu, anims, bound, tile, sources }
     }
 
@@ -602,7 +601,7 @@ impl AreaScene {
             mg_render::guard::guarded(name, || {
                 let model = load(name)?;
                 let anims = anim::animations_scaled(&model, &load);
-                Some(Loaded::new(Arc::new(GpuModel::new(gpu, model)), anims))
+                Some(Loaded::new(name, Arc::new(GpuModel::new(gpu, model)), anims))
             })
         };
         let loaded = |name: &str| built(name).flatten();
@@ -847,7 +846,11 @@ impl AreaScene {
                     mg_render::guard::guarded(name, || {
                         let model = load(name)?;
                         let anims = anim::animations_scaled(&model, &load);
-                        Some(Arc::new(Loaded::new(Arc::new(GpuModel::new(gpu, model)), anims)))
+                        Some(Arc::new(Loaded::new(
+                            name,
+                            Arc::new(GpuModel::new(gpu, model)),
+                            anims,
+                        )))
                     })
                     .flatten()
                 })
