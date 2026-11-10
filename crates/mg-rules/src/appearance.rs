@@ -394,7 +394,10 @@ impl crate::GameData {
             ObjectKind::Creature => "Appearance_Type",
             _ => "Appearance",
         };
-        let key = (kind, choices.len(), choices.first().map(|c| c.text.clone()));
+        // (By all of the list: two lists of one kind and length, the same
+        // rows in another order or other rows after the same first one,
+        // are not each other's.)
+        let key = (kind, choices.len(), rows_hash(choices));
         let cache = &self.marked;
         if let Some(made) = cache.read().expect("marked cache poisoned").get(&key) {
             return made.clone();
@@ -415,6 +418,27 @@ impl crate::GameData {
         cache.write().expect("marked cache poisoned").insert(key, marked.clone());
         marked
     }
+}
+
+/// A number for a list's rows, each one's number and name, in their
+/// order: what tells one Appearance list from another of its length. It
+/// is taken each frame the list shows, of lists of thousands of rows, so
+/// a name goes in eight bytes at a time.
+fn rows_hash(choices: &[crate::Choice]) -> u64 {
+    const MIX: u64 = 0x9e37_79b9_7f4a_7c15;
+    let step = |h: u64, v: u64| (h.rotate_left(5) ^ v).wrapping_mul(MIX);
+    let mut h = 0;
+    for c in choices {
+        h = step(step(h, c.row as u64), c.text.len() as u64);
+        let mut chunks = c.text.as_bytes().chunks_exact(8);
+        for chunk in &mut chunks {
+            h = step(h, u64::from_le_bytes(chunk.try_into().expect("eight bytes")));
+        }
+        let mut rest = [0; 8];
+        rest[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
+        h = step(h, u64::from_le_bytes(rest));
+    }
+    h
 }
 
 impl crate::GameData {
@@ -563,6 +587,24 @@ mod tests {
         game.forget_appearance_marks();
         let again = game.appearance_choices(ObjectKind::Placeable, &rows);
         assert!(!std::sync::Arc::ptr_eq(&marked, &again) && marked == again);
+        // Another list of the kind, as long and with the same first row
+        // (the rest in another order, or other rows, or other names), is
+        // its own: not the first one's marks.
+        let texts = |list: &[crate::Choice]| -> Vec<String> {
+            let marked = game.appearance_choices(ObjectKind::Placeable, list);
+            marked.iter().map(|c| c.text.clone()).collect()
+        };
+        let mut swapped = rows.to_vec();
+        swapped.swap(1, 3);
+        assert_eq!(
+            texts(&swapped),
+            ["Chair", "Mine  (no model)", "Empty  (no model)", "Gone  (no model)"]
+        );
+        let mut others = rows.to_vec();
+        (others[1].row, others[2].text) = (0, "Hollow".into());
+        assert_eq!(texts(&others), ["Chair", "Gone", "Hollow  (no model)", "Mine  (no model)"]);
+        let first: Vec<String> = again.iter().map(|c| c.text.clone()).collect();
+        assert_eq!(texts(&rows), first);
         let columns = crate::ChoiceColumns { name: None, label: Some("LABEL") };
         let creatures = game.choices("appearance", columns).unwrap();
         let marked = game.appearance_choices(ObjectKind::Creature, &creatures);

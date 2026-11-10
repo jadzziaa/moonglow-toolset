@@ -112,8 +112,9 @@ pub struct ChoiceColumns<'a> {
 
 type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
 
-/// An appearance list's kind of object, its length and first row's name.
-type MarkedKey = (ObjectKind, usize, Option<String>);
+/// An appearance list's kind of object, its length and a hash of its rows
+/// (each row's number and name: `appearance::rows_hash`).
+type MarkedKey = (ObjectKind, usize, u64);
 
 /// What looking up a 2DA found, kept until [`GameData::invalidate`]. (A
 /// read that failed on I/O is not kept: it may succeed next time.)
