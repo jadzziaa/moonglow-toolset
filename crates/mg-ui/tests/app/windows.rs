@@ -2701,3 +2701,45 @@ fn closing_a_module_closes_the_windows_that_held_its_places() {
     assert!(app.ws.is_none());
     assert!(app.var_edit.is_none() && app.loc_edit.is_none());
 }
+
+/// Which tabs show a resource was written three times (Rename, Delete,
+/// files gone outside Moonglow) beside `Tab::tree_keys`, and the lists
+/// differed: an area deleted outside left its objects' windows open, and
+/// none of them knew an Edit Together tab, which kept a blueprint deleted
+/// or renamed (the review of November 2026, D30). All three ask the tab.
+#[test]
+fn tabs_follow_a_rename_and_close_with_what_they_show() {
+    use mg_edit::{Command, Edit, GffPath};
+    let dir = project_folder("ui-tabs-of-resources", &[]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let blueprint = |name: &str| ResKey::parse(name, ResType::UTP).unwrap();
+    let (a, b, c) = (blueprint("mg_a"), blueprint("mg_b"), blueprint("mg_c"));
+    let made = [a, b]
+        .map(|key| Edit::SetResource { key, data: Some(Gff::new(*b"UTP ").to_bytes().unwrap()) });
+    app.ws.as_mut().unwrap().apply(Command::new("Blueprints", made.to_vec())).unwrap();
+    let area = ResRef::from_str("start").unwrap();
+    let object = Tab::Instance { area, path: GffPath::root().item("Placeable List", 0) };
+    let has = |app: &Moonglow, tab: &Tab| app.dock.find_tab(tab).is_some();
+    // Renamed: an Edit Together tab that holds it holds it by its new name.
+    app.run(mg_ui::Action::OpenTab(Tab::Blueprints(vec![a, b])));
+    app.rename_resource(a, c.resref, false);
+    assert!(has(&app, &Tab::Blueprints(vec![c, b])), "{:?}", app.log.entries);
+    // Deleted: the tab that holds it closes, as its own tab would.
+    app.run(mg_ui::Action::OpenTab(Tab::Blueprint(b)));
+    app.run(mg_ui::Action::DeleteResources(vec![b]));
+    assert!(!has(&app, &Tab::Blueprints(vec![c, b])) && !has(&app, &Tab::Blueprint(b)));
+    // An area's file gone outside Moonglow: its tabs close, its objects'
+    // windows with them.
+    app.run(mg_ui::Action::OpenTab(object.clone()));
+    app.run(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    app.run(mg_ui::Action::OpenTab(Tab::Journal));
+    assert!(has(&app, &object));
+    std::fs::remove_file(dir.join("start.are")).unwrap();
+    app.reload_project_files();
+    assert!(!app.ws.as_ref().unwrap().module.contains(&ResKey::new(area, ResType::ARE)));
+    assert!(!has(&app, &object), "an object's window of an area that is gone");
+    assert!(!has(&app, &Tab::AreaProperties(area)));
+    assert!(has(&app, &Tab::Journal), "the journal's stays");
+}

@@ -25,7 +25,7 @@ use mg_module::palette::BlueprintKind;
 use mg_module::watch::Watch;
 use mg_resman::ResKey;
 
-use crate::{Moonglow, Tab};
+use crate::Moonglow;
 
 /// What is known of the files changed outside.
 #[derive(Debug, Default)]
@@ -620,16 +620,9 @@ impl Moonglow {
         // What is gone has no editor any more.
         let gone: Vec<_> = changes.iter().filter(|c| c.resource.is_none()).map(|c| c.key).collect();
         if !gone.is_empty() {
-            crate::tabs::close_tabs(&mut self.dock, |t| match t {
-                Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
-                    !gone.contains(k)
-                }
-                Tab::Nui(k) => !gone.contains(k),
-                Tab::Area(r) | Tab::AreaProperties(r) => {
-                    !gone.iter().any(|k| k.restype == mg_core::ResType::ARE && k.resref == *r)
-                }
-                _ => true,
-            });
+            // (As Delete closes them: an area's objects' windows, and an
+            // Edit Together tab that holds one, were left open here.)
+            crate::tabs::close_tabs(&mut self.dock, |t| !t.shows_any(&gone));
         }
         // Names shown from the module are read again.
         self.area_names = Default::default();

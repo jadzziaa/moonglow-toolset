@@ -498,26 +498,12 @@ impl Moonglow {
         };
         let is_area = with(ResType::ARE);
         let from = from.resref;
-        let moved = |k: &mut ResKey| {
-            if k.resref == from && with(k.restype) {
-                k.resref = to;
-            }
-        };
-        let moved_ref = |r: &mut ResRef| {
-            if *r == from && is_area {
-                *r = to;
-            }
-        };
+        // (Every tab that shows it, a tab of several too: `Tab::retarget`
+        // knows them as `Tab::tree_keys` does.)
+        let moved =
+            |k: ResKey| (k.resref == from && with(k.restype)).then(|| ResKey::new(to, k.restype));
         for (_, tab) in self.dock.iter_all_tabs_mut() {
-            match tab {
-                Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => moved(k),
-                Tab::Nui(k) => moved(k),
-                Tab::Area(r) | Tab::AreaProperties(r) => moved_ref(r),
-                Tab::Instance { area, .. }
-                | Tab::Instances { area, .. }
-                | Tab::InstanceModel { area, .. } => moved_ref(area),
-                _ => {}
-            }
+            tab.retarget(&moved);
         }
         let old_keys: Vec<ResKey> =
             self.scripts.keys().filter(|k| k.resref == from && with(k.restype)).copied().collect();
@@ -686,17 +672,9 @@ impl Moonglow {
             self.log.error(e.to_string());
             return;
         }
-        let area_gone = |r: &ResRef| areas.contains(r);
-        crate::tabs::close_tabs(&mut self.dock, |t| match t {
-            Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Nui(k) => {
-                !gone.contains(k)
-            }
-            Tab::Area(r) | Tab::AreaProperties(r) => !area_gone(r),
-            Tab::Instance { area: r, .. }
-            | Tab::Instances { area: r, .. }
-            | Tab::InstanceModel { area: r, .. } => !area_gone(r),
-            _ => true,
-        });
+        // (Every tab that shows one of them: `Tab::tree_keys`'s, an Edit
+        // Together tab of several too.)
+        crate::tabs::close_tabs(&mut self.dock, |t| !t.shows_any(&gone));
         for area in areas {
             self.area_views.remove(&area);
         }
