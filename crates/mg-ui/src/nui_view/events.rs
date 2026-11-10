@@ -366,20 +366,28 @@ fn handler_target(handler: &mg_nui::Handler) -> Target {
 }
 
 /// The element a new handler of this target names: the bind for a value's
-/// change, else the control's ID (one made up for it if it has none).
-fn element(target: &Target, event: &str, doc: &mut Value, s: &Settings, state: &State) -> String {
+/// change, else the control's ID; and, for a control that has none, the
+/// ID made up for it, to be written at its path (the one thing the events'
+/// editor writes into the window).
+fn element(
+    target: &Target,
+    event: &str,
+    doc: &Value,
+    s: &Settings,
+    state: &State,
+) -> (String, Option<(String, String)>) {
     if event == "watch"
         && let Some(bind) = node(target, doc, s).and_then(|n| n["value"]["bind"].as_str())
     {
-        return bind.into();
+        return (bind.into(), None);
     }
     match target {
-        Target::Window => String::new(),
-        Target::Id(n) | Target::Bind(n) => n.clone(),
+        Target::Window => (String::new(), None),
+        Target::Id(n) | Target::Bind(n) => (n.clone(), None),
         Target::Control(path) => {
-            let Some(node) = doc.pointer(path) else { return String::new() };
+            let Some(node) = doc.pointer(path) else { return (String::new(), None) };
             if let Some(id) = node["id"].as_str() {
-                return id.into();
+                return (id.into(), None);
             }
             let base = format!("{}_event", node["type"].as_str().unwrap_or("control"));
             let mut ids = mg_nui::element_ids(state.main_doc.as_ref().unwrap_or(doc));
@@ -393,10 +401,7 @@ fn element(target: &Target, event: &str, doc: &mut Value, s: &Settings, state: &
                 id = format!("{base}_{n}");
                 n += 1;
             }
-            if let Some(node) = doc.pointer_mut(path) {
-                node["id"] = json!(id);
-            }
-            id
+            (id.clone(), Some((path.clone(), id)))
         }
     }
 }
@@ -510,6 +515,38 @@ pub(super) fn editor(
     state: &mut State,
     scope: Option<Target>,
 ) {
+    // (A control given a handler has an ID: one is made for it.)
+    if let Some((path, id)) = editor_of(ui, doc, s, state, scope)
+        && let Some(node) = doc.pointer_mut(&path)
+    {
+        node["id"] = json!(id);
+    }
+}
+
+/// [`editor`] for a target that is no control by its place (a bind, the
+/// window, a control by its ID): the window is read, and nothing of it
+/// written, so it needs no copy of it. (The Bindings page copied the
+/// whole window for each bind, every frame, to lend this a `&mut` it
+/// never wrote through.)
+pub(super) fn editor_reading(
+    ui: &mut Ui,
+    doc: &Value,
+    s: &mut Settings,
+    state: &mut State,
+    scope: Option<Target>,
+) {
+    editor_of(ui, doc, s, state, scope);
+}
+
+/// The events' editor; a control to be given an ID (its path, the ID).
+fn editor_of(
+    ui: &mut Ui,
+    doc: &Value,
+    s: &mut Settings,
+    state: &mut State,
+    scope: Option<Target>,
+) -> Option<(String, String)> {
+    let mut new_id = None;
     ui.push_id(("events", format!("{:?}", scope), &state.edit_view.clone()), |ui| {
         if scope.is_none() {
             widgets::section_heading(ui, "Events");
@@ -655,7 +692,8 @@ pub(super) fn editor(
                 },
             );
             if ui.button("+ Add Handler").on_hover_text(explanation(&event)).clicked() {
-                let element = element(t, &event, doc, s, state);
+                let (element, id) = element(t, &event, doc, s, state);
+                new_id = id;
                 s.handlers.push(mg_nui::Handler::new(event.clone(), element, mg_nui::Action::Code));
             }
         });
@@ -668,6 +706,7 @@ pub(super) fn editor(
         }
         ui.ctx().data_mut(|d| d.insert_temp(add_id, (target, event, offered)));
     });
+    new_id
 }
 
 #[cfg(test)]
@@ -706,9 +745,25 @@ mod tests {
         let s = Settings::default();
         let state = State::default();
         let slider = Target::Control("/root/children/0".into());
-        assert_eq!(element(&slider, "watch", &mut doc, &s, &state), "volume");
+        assert_eq!(element(&slider, "watch", &doc, &s, &state), ("volume".into(), None));
         let button = Target::Control("/root/children/1".into());
-        assert_eq!(element(&button, "click", &mut doc, &s, &state), "button_event_2");
-        assert_eq!(doc["root"]["children"][1]["id"], "button_event_2");
+        let made = Some(("/root/children/1".to_string(), "button_event_2".to_string()));
+        assert_eq!(element(&button, "click", &doc, &s, &state), ("button_event_2".into(), made));
+        // A bind's handler names the bind, and writes nothing into the
+        // window: its editor reads it (no copy of it for each bind).
+        let bind = Target::Bind("volume".into());
+        assert_eq!(element(&bind, "watch", &doc, &s, &state), ("volume".into(), None));
+        // The editor writes the ID made, where the control is.
+        let ctx = egui::Context::default();
+        let mut s = Settings::default();
+        let mut state = State::default();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                editor(ui, &mut doc, &mut s, &mut state, Some(button.clone()));
+                editor_reading(ui, &doc, &mut s, &mut state, Some(bind.clone()));
+            });
+            out.textures_delta.clear();
+        }
+        assert!(doc["root"]["children"][1].get("id").is_none(), "drawn, nothing written");
     }
 }

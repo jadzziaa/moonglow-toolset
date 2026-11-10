@@ -66,17 +66,36 @@ fn title(ty: &str) -> &str {
 }
 
 /// Where a document binds a property to `name`: the bound properties' paths.
-fn bind_uses(v: &Value, name: &str, at: String, out: &mut Vec<String>) {
+/// Where each bind is used in `v`: by bind, the paths of the properties
+/// bound to it, in the window's order. One walk for every bind, a path
+/// written out only where a bind is found (`at` is the path so far): each
+/// bind in use walked the whole window, a new text for every value in it,
+/// every frame the Bindings page showed.
+fn binds_uses(
+    v: &Value,
+    at: &mut String,
+    out: &mut std::collections::BTreeMap<String, Vec<String>>,
+) {
+    use std::fmt::Write;
+    let here = at.len();
     match v {
-        Value::Object(o) if o.get("bind").and_then(Value::as_str) == Some(name) => out.push(at),
         Value::Object(o) => {
+            if let Some(name) = o.get("bind").and_then(Value::as_str) {
+                out.entry(name.to_owned()).or_default().push(at.clone());
+                return;
+            }
             for (k, v) in o {
-                bind_uses(v, name, format!("{at}/{k}"), out);
+                at.push('/');
+                at.push_str(k);
+                binds_uses(v, at, out);
+                at.truncate(here);
             }
         }
         Value::Array(a) => {
             for (i, v) in a.iter().enumerate() {
-                bind_uses(v, name, format!("{at}/{i}"), out);
+                let _ = write!(at, "/{i}");
+                binds_uses(v, at, out);
+                at.truncate(here);
             }
         }
         _ => {}
@@ -408,6 +427,20 @@ struct Tree<'a> {
     active_root: &'a Value,
 }
 
+/// Whether a control, or anything under it, has what Layers' filter looks
+/// for: in a property's name or in a value, as its JSON text had it (a
+/// control shows when one under it does), read where it is.
+fn holds(v: &Value, search: &mg_core::text::Needle) -> bool {
+    match v {
+        Value::Object(o) => o.iter().any(|(k, v)| search.finds(k) || holds(v, search)),
+        Value::Array(a) => a.iter().any(|v| holds(v, search)),
+        Value::String(text) => search.finds(text),
+        Value::Null => search.finds("null"),
+        Value::Bool(b) => search.finds(if *b { "true" } else { "false" }),
+        Value::Number(n) => search.finds(&n.to_string()),
+    }
+}
+
 /// A control in Layers with what is under it: its row, its draw layers,
 /// then its children (a swap layout: its first contents and its variants).
 fn layer(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize, tree: Tree<'_>) {
@@ -415,7 +448,10 @@ fn layer(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize,
         return;
     }
     let search = mg_core::text::Needle::new(&state.layer_search);
-    if !search.finds(&node.to_string()) {
+    // (With nothing typed every control is listed: each was written out
+    // as JSON text first, with everything under it, at every level of
+    // the tree, every frame.)
+    if !search.is_empty() && !holds(node, &search) {
         return;
     }
     layer_row(ui, node, path, state, depth, tree);
@@ -769,13 +805,43 @@ pub(super) fn bindings(
             ui.weak("No binds yet.");
         }
         let names: Vec<_> = s.bindings.keys().cloned().collect();
-        let doc = v.as_deref().cloned().unwrap_or_else(mg_nui::window);
-        for name in names {
-            let in_use = used.contains(&name);
-            egui::CollapsingHeader::new(&name)
-                .id_salt(("bind", &name))
-                .default_open(true)
-                .show(ui, |ui| bind(ui, &name, in_use, &doc, s, v.as_deref_mut(), state));
+        // The window is read by every bind's part of the page and written
+        // by none: a bind renamed is renamed in it once they are drawn.
+        // (It was copied whole for the page, and again for each bind.)
+        let mut uses = std::collections::BTreeMap::new();
+        let mut in_variants = std::collections::BTreeSet::new();
+        for view in s.variants.values() {
+            in_variants.extend(mg_nui::bind_names(view));
+        }
+        let mut renamed = None;
+        {
+            let none;
+            let doc: &Value = match v.as_deref() {
+                Some(doc) => doc,
+                None => {
+                    none = mg_nui::window();
+                    &none
+                }
+            };
+            binds_uses(doc, &mut String::new(), &mut uses);
+            for name in names {
+                let used = Used {
+                    anywhere: used.contains(&name),
+                    at: uses.get(&name).map_or(&[], Vec::as_slice),
+                    in_a_variant: in_variants.contains(&name),
+                };
+                egui::CollapsingHeader::new(&name)
+                    .id_salt(("bind", &name))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if let Some(to) = bind(ui, &name, used, doc, s, state) {
+                            renamed = Some(to);
+                        }
+                    });
+            }
+        }
+        if let (Some(names), Some(doc)) = (renamed, v.as_deref_mut()) {
+            shortcuts::rename_binds(doc, &names);
         }
         egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
             ui.checkbox(&mut s.from_resref, "Load JUI from the client by resource name");
@@ -810,18 +876,30 @@ pub(super) fn bindings(
     });
 }
 
+/// Where a bind is used: whether anywhere, the paths of the window's
+/// properties bound to it, and whether a swap layout's variant uses it.
+#[derive(Clone, Copy)]
+struct Used<'a> {
+    anywhere: bool,
+    at: &'a [String],
+    in_a_variant: bool,
+}
+
 /// One bind on the Bindings page: its initial value, its handlers, its name
-/// and where it is used (`doc` is the window as it was when the page began).
+/// and where it is used (`doc` is the window, read here). Renamed, the
+/// names to rename in the window (its variants, its value and its handlers
+/// are renamed here).
 fn bind(
     ui: &mut Ui,
     name: &str,
-    in_use: bool,
+    used: Used<'_>,
     doc: &Value,
     s: &mut Settings,
-    v: Option<&mut Value>,
     state: &mut State,
-) {
-    let Some(binding) = s.bindings.get_mut(name) else { return };
+) -> Option<std::collections::BTreeMap<String, String>> {
+    let in_use = used.anywhere;
+    let mut renamed = None;
+    let binding = s.bindings.get_mut(name)?;
     widgets::field_label(ui, "Initial value");
     fields::value(ui, &mut binding.value, 0);
     if !in_use {
@@ -837,7 +915,9 @@ fn bind(
             .labelled_by(label.id)
             .on_hover_text("A new name for this bind");
         let taken = to != name && s.bindings.contains_key(&to);
-        let plain = !to.is_empty() && mg_nui::plain_name(&to);
+        // (A new bind's name, by the rule the windows that make one have;
+        // typed here with no spaces at either end, as the tooltip says.)
+        let plain = to == name || workflow::new_bind_name(&to, &s.bindings) == Ok(to.as_str());
         let why_not = if taken {
             "Another bind has that name"
         } else {
@@ -850,9 +930,7 @@ fn bind(
         {
             // Every property, variant and handler using it follows.
             let names = std::collections::BTreeMap::from([(name.to_owned(), to.clone())]);
-            if let Some(doc) = v {
-                shortcuts::rename_binds(doc, &names);
-            }
+            renamed = Some(names.clone());
             for view in s.variants.values_mut() {
                 shortcuts::rename_binds(view, &names);
             }
@@ -882,10 +960,8 @@ fn bind(
     if in_use {
         ui.horizontal_wrapped(|ui| {
             ui.weak("Used by");
-            let mut paths = Vec::new();
-            bind_uses(doc, name, String::new(), &mut paths);
-            for path in paths {
-                let (target, place) = super::describe_path(doc, &path);
+            for path in used.at {
+                let (target, place) = super::describe_path(doc, path);
                 if ui.link(place).on_hover_text("Select it").clicked()
                     && let Some(target) = target
                 {
@@ -893,18 +969,20 @@ fn bind(
                     ui.ctx().request_repaint();
                 }
             }
-            if s.variants.values().any(|view| mg_nui::bind_names(view).contains(name)) {
+            if used.in_a_variant {
                 ui.weak("a swap layout variant");
             }
         });
     }
+    renamed
 }
 
 /// Where Properties is drawn: no game install or GPU is needed.
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui_kittest::{Harness, kittest::Queryable};
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::{NodeT, Queryable};
 
     struct Fixture {
         doc: Value,
@@ -1054,5 +1132,128 @@ mod tests {
             assert!(errors.is_empty(), "Adding an option must produce valid NUI: {errors:?}");
             assert_inspector_fits(&h);
         }
+    }
+
+    /// A window of every kind of place a bind can be at, for the walks.
+    fn bound_window() -> Value {
+        json!({"version":1,"title":{"bind":"title"},"root":{"type":"col","children":[
+            {"type":"label","id":"caption","value":{"bind":"a"},"enabled":{"bind":"b"}},
+            {"type":"list","row_count":3,"row_template":[
+                [{"type":"label","value":{"bind":"a"},"height":30.5},100.0,true]]},
+            {"type":"group","children":[{"type":"button","label":"R\u{e9}sum\u{e9}",
+                "draw_list":[{"type":4,"text":{"bind":"b"},"enabled":true,"color":null}]}]}]}})
+    }
+
+    /// Every bind's uses, gathered in one walk of the window, are those a
+    /// walk for each bind found, in the same order.
+    #[test]
+    fn every_bind_s_uses_are_gathered_in_one_walk() {
+        fn plain(v: &Value, name: &str, at: String, out: &mut Vec<String>) {
+            match v {
+                Value::Object(o) if o.get("bind").and_then(Value::as_str) == Some(name) => {
+                    out.push(at)
+                }
+                Value::Object(o) => {
+                    for (k, v) in o {
+                        plain(v, name, format!("{at}/{k}"), out);
+                    }
+                }
+                Value::Array(a) => {
+                    for (i, v) in a.iter().enumerate() {
+                        plain(v, name, format!("{at}/{i}"), out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let doc = bound_window();
+        let mut uses = std::collections::BTreeMap::new();
+        binds_uses(&doc, &mut String::new(), &mut uses);
+        assert_eq!(uses.keys().collect::<Vec<_>>(), ["a", "b", "title"]);
+        for name in ["a", "b", "title", "none"] {
+            let mut want = Vec::new();
+            plain(&doc, name, String::new(), &mut want);
+            assert_eq!(uses.get(name).cloned().unwrap_or_default(), want, "{name}");
+        }
+        assert_eq!(uses["a"].len(), 2);
+        assert!(uses["b"].contains(&"/root/children/2/children/0/draw_list/0/text".to_string()));
+    }
+
+    /// Layers' filter finds in a control, read where it is, what it found
+    /// in the control's JSON text; with nothing typed nothing is looked
+    /// for at all.
+    #[test]
+    fn layers_filter_finds_what_a_control_s_json_text_held() {
+        fn each(v: &Value, f: &mut impl FnMut(&Value)) {
+            f(v);
+            match v {
+                Value::Object(o) => o.values().for_each(|v| each(v, f)),
+                Value::Array(a) => a.iter().for_each(|v| each(v, f)),
+                _ => {}
+            }
+        }
+        let doc = bound_window();
+        let needles = [
+            "caption",
+            "LABEL",
+            "resume",
+            "30.5",
+            "100",
+            "true",
+            "null",
+            "row_count",
+            "bind",
+            "draw",
+            "3",
+            "nowhere",
+            "titl",
+        ];
+        for needle in needles {
+            let search = mg_core::text::Needle::new(needle);
+            let mut seen = 0;
+            each(&doc, &mut |v| {
+                seen += 1;
+                assert_eq!(holds(v, &search), search.finds(&v.to_string()), "{needle} in {v}");
+            });
+            assert!(seen > 30);
+        }
+    }
+
+    /// A list tried at its real size: its row arrays are drawn to a count
+    /// in the forms (Properties' Initial value, Row data), the rest said
+    /// and left to Binding JSON, and nothing of them is changed by being
+    /// shown. Every row's header was laid out, every frame.
+    #[test]
+    fn a_list_of_thousands_of_rows_is_drawn_to_a_count() {
+        let rows: Vec<Value> = (0..5_000).map(|i| json!(format!("Row text {i}"))).collect();
+        let mut f = fixture();
+        f.doc["root"] = json!({"type":"list","row_count":5000,"row_height":30.0,"row_template":[
+            [{"type":"label","value":{"bind":"names"}},150.0,true]]});
+        f.settings
+            .bindings
+            .insert("names".into(), Binding { value: json!(rows), ..Default::default() });
+        f.state.selected = "/root/row_template/0/0".into();
+        f.state.binding_property = "value".into();
+        let before = f.settings.bindings["names"].value.clone();
+        let mut h = Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
+        h.run();
+        let headers = |h: &Harness<'_, Fixture>, what: &str| {
+            let all = h.query_all_by_label_contains(what);
+            // ("Row 12", not "Row data".)
+            let numbered =
+                |l: String| l.strip_prefix(what).is_some_and(|n| n.parse::<usize>().is_ok());
+            all.filter(|n| n.accesskit_node().label().is_some_and(numbered)).count()
+        };
+        // (Properties shows the bind twice: as the property, and as its
+        // bind.)
+        let forms = 2;
+        assert_eq!(headers(&h, "Item "), forms * fields::MOST_ITEMS, "each form to its count");
+        let said = h.query_all_by_label("And 4800 more items: edit them in Binding JSON.");
+        assert_eq!(said.count(), forms);
+        h.state_mut().state.selected = "/root".into();
+        h.run();
+        assert_eq!(headers(&h, "Row "), fields::MOST_ITEMS);
+        h.get_by_label("And 4800 more rows: edit them in Binding JSON.");
+        assert_eq!(h.state().settings.bindings["names"].value, before);
     }
 }
