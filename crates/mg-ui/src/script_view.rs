@@ -90,6 +90,12 @@ impl Moonglow {
     pub(crate) fn script_source(&self, key: &ResKey) -> Option<String> {
         script_source(&self.scripts, self.ws.as_ref(), self.game.as_deref(), key)
     }
+
+    /// Whether a script's laid-out text is kept (for tests).
+    #[doc(hidden)]
+    pub fn script_laid_out_for_test(&self, key: ResKey) -> bool {
+        self.laid_out.contains_key(&key)
+    }
 }
 
 /// The room a side list's row takes beside its name: the scroll bar and
@@ -2613,6 +2619,13 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
 /// Script, Save As.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    // A script whose tab is closed keeps no laid-out text (a galley a
+    // line: megabytes a script, kept for every script ever opened until
+    // the module closed).
+    if !app.laid_out.is_empty() {
+        let Moonglow { laid_out, dock, .. } = app;
+        laid_out.retain(|k, _| dock.find_tab(&Tab::Script(*k)).is_some());
+    }
     open_script_ui(app, &ctx);
     if app.script_tools.search.open {
         // (Its options copied for the window, not the results found: those

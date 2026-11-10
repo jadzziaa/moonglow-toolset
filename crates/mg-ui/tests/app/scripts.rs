@@ -1540,6 +1540,38 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     assert!(top(&h) < before, "and no line kept for one");
 }
 
+/// A script's laid-out text (a galley a line) is kept while its tab is
+/// open and no longer: it stayed, for every script ever opened, until
+/// the module was closed.
+#[test]
+fn a_closed_script_keeps_no_laid_out_text() {
+    let dir = mg_testkit::scratch_dir("ui-script-laid-out");
+    let path = sample_module(&dir);
+    let keys = ["one", "two"].map(|n| ResKey::parse(n, ResType::NSS).unwrap());
+    let mut m = Module::open(&path).unwrap();
+    for key in keys {
+        m.set(key, b"void main()\n{\n}\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    for key in keys {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        h.run_steps(4);
+        assert!(h.state().script_laid_out_for_test(key), "{key} laid out");
+    }
+    // One closed by its tab, the other by its Cancel.
+    close_tab(h.state_mut(), &Tab::Script(keys[1]));
+    h.run_steps(3);
+    assert!(!h.state().script_laid_out_for_test(keys[1]));
+    assert!(h.state().script_laid_out_for_test(keys[0]), "the open one's is kept");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(keys[0])).is_none(), "closed");
+    assert!(!h.state().script_laid_out_for_test(keys[0]));
+}
+
 /// Find In Files for a word a large module's scripts have on tens of
 /// thousands of lines: Search Results keeps the first 10,000 (the log
 /// says how many were found) and lays out the rows in sight, not all of
