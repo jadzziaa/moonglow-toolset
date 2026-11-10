@@ -293,11 +293,11 @@ pub(crate) struct Followed {
 }
 
 impl Followed {
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.places.is_empty() && self.journal.is_empty()
     }
 
-    fn get(&self, place: &Place) -> Option<&Option<Place>> {
+    pub(crate) fn get(&self, place: &Place) -> Option<&Option<Place>> {
         self.places.get(place)
     }
 }
