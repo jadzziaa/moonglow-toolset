@@ -125,9 +125,59 @@ pub struct ScriptWizard {
     pub filter: String,
     pub name: String,
     pub open_editor: bool,
+    /// The conversation as it was when the wizard opened: `path` is a place
+    /// in it, and the wizard is a window over a live editor, so its line
+    /// is found again at Finish ([`ScriptWizard::field_now`]).
+    pub(crate) was: Option<Arc<mg_gff::Gff>>,
 }
 
 impl ScriptWizard {
+    /// Where the wizard's field is in the conversation as it is `now`:
+    /// `path` while nothing changed; else its line found again (lines are
+    /// numbered by their place, so a line deleted or put back before it
+    /// while the wizard was up left `path` on another line), and, for a
+    /// condition, its link found again among its parent's. `None` when the
+    /// line or the link is no longer there, or can't be told from others.
+    pub(crate) fn field_now(&self, now: &mg_gff::Gff) -> Option<GffPath> {
+        use mg_edit::Step;
+        use mg_module::dialog::{Kind, Renumbering, is_link, link_index};
+        let mut path = self.path.clone();
+        let Some(was) = self.was.as_deref().filter(|was| *was != now) else {
+            return path.get(&now.root).map(|_| path);
+        };
+        let map = Renumbering::by_lines(was, now);
+        // The line: the action's own, or the one a condition's link is on.
+        if let Some(Step::Item(list, i)) = path.0.first_mut()
+            && let Some(kind) = [Kind::Entry, Kind::Reply].into_iter().find(|k| k.list() == list)
+        {
+            *i = map.line(kind, u32::try_from(*i).ok()?)? as usize;
+        }
+        if !self.condition {
+            return path.get(&now.root).map(|_| path);
+        }
+        // The link: the one that leads to the same line, where it is now
+        // among its parent's.
+        let link = self.path.get(&was.root)?;
+        let (links, at) = match path.0.pop()? {
+            Step::Item(links, at) => (links, at),
+            Step::Field(_) => return None,
+        };
+        let child = if links == Kind::Entry.links() { Kind::Reply } else { Kind::Entry };
+        let to = map.line(child, link_index(link))?;
+        let same = |l: &mg_gff::Struct| link_index(l) == to && is_link(l) == is_link(link);
+        let list = path.get(&now.root)?.list(&links)?;
+        let at = if list.get(at).is_some_and(same) { at } else { list.iter().position(same)? };
+        path.0.push(Step::Item(links, at));
+        Some(path)
+    }
+
+    /// The wizard, opened on conversation `g` as it is now: what its line
+    /// is found again by at Finish.
+    pub fn opened_on(mut self, g: &mg_gff::Gff) -> ScriptWizard {
+        self.was = Some(Arc::new(g.clone()));
+        self
+    }
+
     pub fn new(
         dialog: ResKey,
         path: GffPath,
@@ -180,6 +230,7 @@ impl ScriptWizard {
             filter: String::new(),
             name,
             open_editor: false,
+            was: None,
         }
     }
 
@@ -291,7 +342,12 @@ impl Moonglow {
                     .any(|&t| ResKey::parse(n, t).is_some_and(|k| m.contains(&k)))
             })
         });
-        self.script_wizard = Some(ScriptWizard::new(dialog, path, label, condition, lists, name));
+        let wizard = ScriptWizard::new(dialog, path, label, condition, lists, name);
+        let now = self.ws.as_mut().and_then(|ws| ws.doc(&dialog).ok());
+        self.script_wizard = Some(match now {
+            Some(g) => wizard.opened_on(g),
+            None => wizard,
+        });
     }
 }
 
@@ -978,8 +1034,8 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
             }
         });
     });
-    if finish {
-        finish_wizard(app, &w);
+    // (One that could not finish stays, with its pages.)
+    if finish && finish_wizard(app, &w) {
         close = true;
     }
     if !close {
@@ -987,16 +1043,27 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
-/// Writes, compiles and sets the script.
-fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) {
-    let Ok(name) = ResRef::from_str(w.name.trim()) else { return };
+/// Writes, compiles and sets the script on the line the wizard was opened
+/// for, where that is now. Whether it is done with: not where the line is
+/// gone or the command was refused, which the log says.
+fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) -> bool {
+    let Ok(name) = ResRef::from_str(w.name.trim()) else { return false };
+    let now = app.ws.as_mut().and_then(|ws| ws.doc(&w.dialog).ok());
+    let Some(path) = now.and_then(|now| w.field_now(now)) else {
+        app.log.error(format!(
+            "Script Wizard: the line this script was for is no longer in {} as it was. Undo the \
+             change to the conversation and finish again, or cancel the wizard.",
+            w.dialog
+        ));
+        return false;
+    };
     let source = w.source(&mg_core::time::today());
     let nss = ResKey::new(name, ResType::NSS);
     let mut edits = vec![
         Edit::SetResource { key: nss, data: Some(crate::text::encode_script(&source)) },
         Edit::SetField {
             key: w.dialog,
-            path: w.path.clone(),
+            path,
             label: w.label.clone(),
             value: Some(Value::resref(name)),
         },
@@ -1013,11 +1080,23 @@ fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) {
         Some(ws) => crate::plugin_events::Made::new_in(ws, &cmd, "wizard"),
         None => crate::plugin_events::Made::resources("wizard", Vec::new()),
     };
-    app.actions.push(crate::Action::ApplyMade(cmd, made));
+    // Applied here, not as the frame ends: what the log says of it is said
+    // once it is done (it said "wrote" of a command that then failed).
+    let cmd = crate::plugin_events::with_plugins(app, cmd, &made);
+    if let Err(e) = app.apply(cmd) {
+        // (One held for an answer says so in its window, and is applied
+        // by the answer.)
+        let held = std::mem::take(&mut app.claims.held);
+        if !held {
+            app.log.error(format!("Script Wizard: {e}"));
+        }
+        return held;
+    }
     app.log.info(format!("Script Wizard: wrote {nss}"));
     if w.open_editor {
         app.actions.push(crate::Action::OpenResource(nss));
     }
+    true
 }
 
 #[cfg(test)]
@@ -1030,6 +1109,79 @@ mod tests {
         assert_eq!(d.len(), 10);
         assert!(d.starts_with("20"));
         assert_eq!(&d[4..5], "-");
+    }
+
+    /// The wizard's field is where its line is at Finish, not where it was
+    /// when the wizard opened: with a reply deleted before the one it was
+    /// opened on (in the conversation behind it), Finish set the script on
+    /// the reply that had taken its number.
+    #[test]
+    fn the_wizard_s_field_follows_its_line() {
+        use mg_module::dialog::{self, Kind, Parent};
+        let key = ResKey::parse("d", ResType::DLG).unwrap();
+        let mut g = dialog::new_dialog();
+        let hello = dialog::add_node(&mut g, Parent::Root, "Hello.");
+        let replies: Vec<u32> = ["One.", "Two.", "Three.", "Four."]
+            .iter()
+            .map(|text| dialog::add_node(&mut g, Parent::Node(Kind::Entry, hello), text))
+            .collect();
+        let wizard = |g: &mg_gff::Gff, path: GffPath, condition: bool| {
+            let label = if condition { "Active" } else { "Script" };
+            let lists = Arc::new(Lists::default());
+            ScriptWizard::new(key, path, label, condition, lists, "sc_001".into()).opened_on(g)
+        };
+        let line = |i: u32| GffPath::root().item("ReplyList", i as usize);
+        let link = |pos: usize| GffPath::root().item("EntryList", 0).item("RepliesList", pos);
+        let text_at = |g: &mg_gff::Gff, path: &GffPath| {
+            let at = path.get(&g.root).expect("a struct");
+            // (A link's line, for a condition's.)
+            let at = match at.dword("Index") {
+                Some(i) => dialog::node(g, Kind::Reply, i).unwrap(),
+                None => at,
+            };
+            dialog::text(at)
+        };
+        // An action on "Three.", a condition on the link to "Three." too.
+        let action = wizard(&g, line(replies[2]), false);
+        let condition = wizard(&g, link(2), true);
+        assert_eq!(action.field_now(&g), Some(line(replies[2])), "nothing changed");
+        assert_eq!(condition.field_now(&g), Some(link(2)));
+        // "Two." deleted behind the wizard: every later reply has another
+        // number, and every later link another place. Where the wizard
+        // was opened is "Four." now.
+        let mut after = g.clone();
+        dialog::remove(&mut after, Parent::Node(Kind::Entry, hello), 1);
+        assert_eq!(text_at(&after, &line(replies[2])), "Four.");
+        assert_eq!(text_at(&after, &link(2)), "Four.");
+        let now = action.field_now(&after).expect("found again");
+        assert_eq!(text_at(&after, &now), "Three.");
+        let now = condition.field_now(&after).expect("found again");
+        assert_eq!(text_at(&after, &now), "Three.");
+        assert_eq!(now, link(1));
+        // Its text changed: the same line.
+        let mut typed = g.clone();
+        let reply = dialog::node_mut(&mut typed, Kind::Reply, replies[2]).unwrap();
+        *reply = dialog::new_node(Kind::Reply, "Three, said otherwise.");
+        assert_eq!(action.field_now(&typed), Some(line(replies[2])));
+        assert_eq!(condition.field_now(&typed), Some(link(2)));
+        // The line itself deleted: nowhere, and Finish refuses.
+        let mut gone = g.clone();
+        dialog::remove(&mut gone, Parent::Node(Kind::Entry, hello), 2);
+        assert_eq!(action.field_now(&gone), None);
+        assert_eq!(condition.field_now(&gone), None);
+        // The starting line's condition, with another start before it.
+        let mut two = g.clone();
+        dialog::add_node(&mut two, Parent::Root, "Later.");
+        let start = wizard(&two, GffPath::root().item("StartingList", 1), true);
+        let mut after = two.clone();
+        dialog::remove(&mut after, Parent::Root, 0);
+        assert_eq!(start.field_now(&after), Some(GffPath::root().item("StartingList", 0)));
+        // A wizard made without the conversation (as the pictures' is)
+        // keeps its path where there is such a place.
+        let mut plain = wizard(&g, line(replies[2]), false);
+        plain.was = None;
+        assert_eq!(plain.field_now(&g), Some(line(replies[2])));
+        assert_eq!(plain.field_now(&dialog::new_dialog()), None);
     }
 
     #[test]
