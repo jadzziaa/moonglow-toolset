@@ -457,6 +457,170 @@ fn reading_particle_spin_and_order() {
     print_log(&dir);
 }
 
+/// A box trimesh `name` of [`chunk_model`] from `lo` to `hi`, textured
+/// `bitmap`.
+fn chunk_box(name: &str, parent: &str, lo: [f32; 3], hi: [f32; 3], bitmap: &str) -> String {
+    let [x0, y0, z0] = lo;
+    let [x1, y1, z1] = hi;
+    let verts: String = [
+        [x0, y0, z0],
+        [x1, y0, z0],
+        [x1, y1, z0],
+        [x0, y1, z0],
+        [x0, y0, z1],
+        [x1, y0, z1],
+        [x1, y1, z1],
+        [x0, y1, z1],
+    ]
+    .iter()
+    .map(|[x, y, z]| format!("    {x} {y} {z}\n"))
+    .collect();
+    // (Each face's corners anticlockwise seen from outside.)
+    let faces: String = [
+        [0, 2, 1],
+        [0, 3, 2],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+        [1, 2, 6],
+        [1, 6, 5],
+    ]
+    .iter()
+    .map(|[a, b, c]| format!("    {a} {b} {c} 1 0 0 0 0\n"))
+    .collect();
+    format!(
+        "node trimesh {name}\n  parent {parent}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  \
+         selfillumcolor 1 1 1\n  bitmap {bitmap}\n  render 1\n  shadow 0\n  verts 8\n{verts}  \
+         tverts 1\n    0.5 0.5 0\n  faces 12\n{faces}endnode\n"
+    )
+}
+
+/// A chunk's model whose turn can be read from any side: three sticks a
+/// metre long from its origin, red along +x, green along +y and blue
+/// along +z.
+fn chunk_model(name: &str) -> String {
+    let t = 0.07;
+    probe_model(
+        name,
+        &[
+            chunk_box("stick_x", name, [0.0, -t, -t], [1.0, t, t], "mgred"),
+            chunk_box("stick_y", name, [-t, 0.0, -t], [t, 1.0, t], "mggreen"),
+            chunk_box("stick_z", name, [-t, -t, 0.0], [t, t, 1.0], "mgblue"),
+        ],
+    )
+}
+
+/// An 8×8 TGA of one color.
+fn colored_tga(rgb: [u8; 3]) -> Vec<u8> {
+    mg_image::write_tga(&Rgba {
+        width: 8,
+        height: 8,
+        data: [rgb[0], rgb[1], rgb[2], 255].repeat(64),
+    })
+}
+
+/// How fast a chunk emitter's models turn (the review's R18: the quads'
+/// `particleRot` was read as radians a second,
+/// [`reading_particle_spin_and_order`]; a chunk's was taken as turns): in
+/// a lit tic01 room, north of the player, west to east, chunk emitters of
+/// [`chunk_model`] (red +x, green +y, blue +z sticks) at `particleRot`
+/// 0.25: a Single one standing still in the air (its one chunk never
+/// dies), and a Fountain one throwing a chunk up a second at 0.25 m/s
+/// (each chunk's age its height); and at `particleRot` 1 a Fountain one
+/// at velocity 0, a chunk a second living 3 s (three in one place, a
+/// second apart in age). Four pictures a second apart (`client_<i>.png`),
+/// and Moonglow's area view beside them (`moonglow.png`).
+///
+/// What tells radians from turns: at 0.25, a quarter radian (14°) a
+/// second or a quarter turn (90°); at 1, the three chunks of the still
+/// Fountain a radian (57°) apart, or as one (a whole turn apart).
+///
+/// Seen (2026-11-10): radians, about the emitter's z (each chunk's blue
+/// stick stays upright), anticlockwise seen from above, every chunk born
+/// facing as the emitter does (the newest of the rising column's red
+/// stick points east): the rising column a stair of chunks whose steps
+/// turn about 14° (a quarter radian a second of age); the Single chunk
+/// turned about 15° between pictures a second apart, its green stick
+/// pointing west a little south at about 7 s old (1.75 radians); the
+/// still Fountain's three chunks about a radian apart. Moonglow's area
+/// view draws no chunks (only the model view does, `mg-ui`'s
+/// `model_view.rs`).
+#[test]
+#[ignore]
+fn reading_chunk_spin() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let m = "mg_chunks";
+    let chunk = "chunkName mgchunk\n  sizeStart 0.5\n  sizeEnd 0.5";
+    let model = probe_model(
+        m,
+        &[
+            emitter(
+                m,
+                "single",
+                [-2.0, 0.0, 1.0],
+                &format!("{chunk}\n  update Single\n  velocity 0\n  particleRot 0.25"),
+            ),
+            emitter(
+                m,
+                "rising",
+                [0.0, 0.0, 0.3],
+                &format!(
+                    "{chunk}\n  birthrate 1\n  velocity 0.25\n  lifeExp 10\n  particleRot 0.25\n  \
+                     sizeStart 0.3\n  sizeEnd 0.3"
+                ),
+            ),
+            emitter(
+                m,
+                "still",
+                [2.0, 0.0, 1.0],
+                &format!("{chunk}\n  birthrate 1\n  velocity 0\n  lifeExp 3\n  particleRot 1"),
+            ),
+        ],
+    );
+    let (table, first) = placeables_with(&base, &[(m, 0)]);
+    let overrides = [
+        ("mg_chunks.mdl", model.into_bytes()),
+        ("mgchunk.mdl", chunk_model("mgchunk").into_bytes()),
+        ("mgred.tga", colored_tga([255, 0, 0])),
+        ("mggreen.tga", colored_tga([0, 255, 0])),
+        ("mgblue.tga", colored_tga([0, 0, 255])),
+        ("mgwhite.tga", white_tga()),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x808080, main_light: 0, only_tile: None };
+    let mut r = Reading::new("chunk_spin", "tic01", light, &overrides);
+    r.place(first, [20.0, 24.0, 0.0], 0.0, &[]);
+    let (are, git) = (r.are.clone(), r.git.clone());
+    r.save(&enter(INVISIBLE, (90.0, 12.0, 45.0)), SETTINGS);
+    let shots = common::client_screenshots(&r.dir, "MgScene", 4, Duration::from_secs(1))
+        .expect("the client's pictures");
+    for (t, _) in &shots {
+        eprintln!("picture at {t:.2} s");
+    }
+    print_log(&r.dir);
+    if let Some((_, client)) = shots.first() {
+        let game =
+            GameData::open(&GameInstall::new(&root, Some(r.dir.join("user")), "en")).unwrap();
+        super::readings::moonglow_beside_as(
+            &r.dir,
+            &game,
+            &are,
+            &git,
+            client,
+            &|v| v.animate = true,
+            "moonglow",
+        );
+    }
+    eprintln!("{}", r.dir.display());
+}
+
 /// What the client gives a lightning and a `Linked` emitter of
 /// `particleSoftness` (the M5 item "Soft particles"), read as
 /// `soft_particles_in_the_client` reads the others: the game's
