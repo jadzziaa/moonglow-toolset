@@ -2,7 +2,7 @@
 //! compiler): references to resources that exist nowhere, and module
 //! resources nothing references.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use mg_core::ResType;
 use mg_resman::{ResKey, ResMan, priority};
@@ -249,13 +249,16 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
     // stack has it.
     let local = resman.layers().iter().any(|l| Local::of_priority(l.priority).is_some());
     let only_local = |k: &ResKey| if local { only_local(module, resman, k) } else { None };
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for r in references {
-        let candidates = r.candidates();
+    // What is wrong with a name of a kind, if anything (whether it is not
+    // compiled, and where alone it is found): the same for every reference
+    // to it, so each is looked for in the layers once, however many
+    // creatures name the script (a quarter of a million placed creatures
+    // each name the same dozen default scripts, found under every hak).
+    let verdict = |kind: RefKind, target: mg_core::ResRef| -> Option<(bool, Option<Local>)> {
+        let candidates = kind.candidates(target);
         // The game runs compiled scripts; a source alone does not satisfy a
         // script reference (but is reported as uncompiled, not missing).
-        let satisfying: Vec<&ResKey> = match r.kind {
+        let satisfying: Vec<&ResKey> = match kind {
             RefKind::Script => {
                 candidates.iter().filter(|k| k.restype == ResType::NCS && has(k)).collect()
             }
@@ -267,16 +270,25 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
         let local_only =
             if !locals.is_empty() && locals.iter().all(Option::is_some) { locals[0] } else { None };
         if candidates.is_empty() || (!satisfying.is_empty() && local_only.is_none()) {
-            continue;
+            return None;
         }
+        let uncompiled = local_only.is_none()
+            && kind == RefKind::Script
+            && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
+        Some((uncompiled, local_only))
+    };
+    let mut verdicts: HashMap<(RefKind, mg_core::ResRef), Option<(bool, Option<Local>)>> =
+        HashMap::new();
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for r in references {
+        let found = verdicts.entry((r.kind, r.target)).or_insert_with(|| verdict(r.kind, r.target));
+        let Some((uncompiled, local_only)) = *found else { continue };
         // Each missing target once per referencing resource (a dialog may
         // use the same script on hundreds of nodes).
         if !seen.insert((r.from, r.kind, r.target)) {
             continue;
         }
-        let uncompiled = local_only.is_none()
-            && r.kind == RefKind::Script
-            && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
         out.push(Missing {
             category: Category::of(&r),
             reference: r,
@@ -716,6 +728,53 @@ mod tests {
         );
         let unused: Vec<String> = unused(&m).iter().map(|k| k.to_string()).collect();
         assert_eq!(unused, ["lonely.ncs (compiled only (no source))", "spare_bp.utc"]);
+    }
+
+    /// A name many references share is looked for once and said for each
+    /// resource that names it, once: missing, not compiled, found only in
+    /// the player's own content, or fine (the review's V12: each of a
+    /// world's millions of references walked every layer again).
+    #[test]
+    fn a_name_many_references_share_is_said_once_a_resource() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        for area in ["area1", "area2"] {
+            let mut g = Gff::new(*b"GIT ");
+            for _ in 0..3 {
+                let mut c = git::CREATURE_LIST.new_item();
+                c.write(&git::creature_list::SCRIPT_SPAWN, rr("nowhere"));
+                c.write(&git::creature_list::SCRIPT_HEARTBEAT, rr("src_only"));
+                c.write(&git::creature_list::SCRIPT_DEATH, rr("base_script"));
+                c.write(&git::creature_list::SCRIPT_ATTACKED, rr("mine_only"));
+                g.root.items_mut(&git::CREATURE_LIST).push(c);
+            }
+            m.set_gff(key(area, ResType::GIT), &g).unwrap();
+        }
+        m.set(key("src_only", ResType::NSS), Vec::new());
+        let (mut base, mut mine) = (MemContainer::new(), MemContainer::new());
+        base.insert(key("base_script", ResType::NCS), Vec::new());
+        mine.insert(key("mine_only", ResType::NCS), Vec::new());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, mine);
+        let refs = module_references(&m);
+        assert_eq!(refs.len(), 24);
+        let mut got: Vec<(String, String, bool, Option<Local>)> = missing_of(&m, &rm, refs)
+            .iter()
+            .map(|x| {
+                let r = &x.reference;
+                (r.from.to_string(), r.target.to_string(), x.uncompiled, x.only_local)
+            })
+            .collect();
+        got.sort();
+        let of = |area: &str| {
+            [
+                (format!("{area}.git"), "mine_only".to_string(), false, Some(Local::Override)),
+                (format!("{area}.git"), "nowhere".to_string(), false, None),
+                (format!("{area}.git"), "src_only".to_string(), true, None),
+            ]
+        };
+        assert_eq!(got, [of("area1"), of("area2")].concat());
     }
 
     /// A script is said once, with the files the module has of it.
