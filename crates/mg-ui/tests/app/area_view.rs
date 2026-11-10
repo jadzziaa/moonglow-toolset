@@ -7397,3 +7397,87 @@ fn create_set_and_find_instance_keep_no_other_area_s_document() {
     assert_eq!(places, [(other, "Patrol_01"), (area, "Patrol_02")]);
     assert!(!kept(&h), "nor by the search");
 }
+
+/// The review's A11: the pointer over the void around an area is over
+/// the ground's plane, which has no end. A drag let go there moved the
+/// selection off the area (kilometres, with the view pitched low), a
+/// paste clicked there put its objects there, and Set Start Location
+/// Here started the module off its walkmesh. A drag leads no further
+/// than the area's edge; nothing is put down, and the area's menu places
+/// nothing, on the void.
+#[test]
+fn nothing_is_put_down_or_dragged_onto_the_void_around_the_area() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("off-the-area") else { return };
+    // (The area is 40 m a side: a point 8 m east of it, in the view.)
+    let void = screen(&h, area, Vec3::new(48.0, 20.0, 0.0));
+    assert!(h.state().area_views[&area].rect.contains(void), "the void is in the view");
+    // The first waypoint dragged from (20, 20) out there, and let go.
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(on);
+    press(&h, on, true, egui::Modifiers::NONE);
+    press(&h, on, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    press(&h, on, true, egui::Modifiers::NONE);
+    for k in 1..=5 {
+        h.hover_at(on + (void - on) * (k as f32 / 5.0));
+        h.run_steps(1);
+    }
+    press(&h, void, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let (x, y, _) = waypoint(&mut h, area, 0).unwrap();
+    assert!((x - 40.0).abs() < 0.05 && (y - 20.0).abs() < 0.5, "at the edge: {x}, {y}");
+    // A paste clicked on the void puts nothing down, and goes on.
+    let count = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").unwrap().len()
+    };
+    h.hover_at(screen(&h, area, Vec3::new(15.0, 30.0, 0.0)));
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pasting);
+    h.hover_at(void);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].pasted_shown, 0, "no see-through copy out there");
+    press(&h, void, true, egui::Modifiers::NONE);
+    press(&h, void, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 2, "nothing pasted");
+    assert!(h.state().area_views[&area].pasting, "still in hand");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // The area's menu opened on the void sets no start location there.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: void,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Set Start Location Here").is_none());
+    // And on the area, it does.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    let inside = screen(&h, area, Vec3::new(30.0, 30.0, 0.0));
+    h.hover_at(inside);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: inside,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Set Start Location Here").is_some());
+}

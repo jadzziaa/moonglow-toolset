@@ -754,7 +754,9 @@ file](03-modules.md#the-project-file-moonglowtoml)'s `[store]`:
 Choose a blueprint in the palette and click in the area to place it, or
 drag it onto the area from the palette or the module tree. Until it is
 placed, a see-through copy in a blue box follows the pointer where it
-would go (on the snapping grid; a door on the nearest hook). **Q** and
+would go (on the snapping grid; a door on the nearest hook). Nothing is
+placed or pasted on the void around the area, where no copy shows, and
+a drag leads what it moves no further than the area's edge. **Q** and
 **E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
 placed facing that way; a door faces as its hook does. With **Onto
 Objects** on (the toolbar, beside Together) it goes onto the top of the

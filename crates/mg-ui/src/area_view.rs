@@ -1310,10 +1310,36 @@ impl AreaView {
     }
 
     /// The ground point under the pointer: on the walkmesh, else on the
-    /// plane at height `z`.
+    /// plane at height `z`. The plane has no end: with the view pitched
+    /// low, a point past the area's far edge is kilometres off
+    /// ([`AreaView::area_point`] for what is put down there).
     pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
         let ray = self.ray(pos)?;
         self.ground.as_ref().and_then(|g| g.hit(&ray)).or_else(|| ray.at_height(z))
+    }
+
+    /// The ground point under the pointer where that is in the area (over
+    /// its tiles' rectangle): where an object, a paste, a light or the
+    /// start location is put down, an outline's corner set and the area's
+    /// menu opened. `None` on the void around the area, as Aurora places
+    /// nothing there.
+    pub(crate) fn area_point(&self, pos: Pos2) -> Option<Vec3> {
+        self.ground_at(pos, 0.0).filter(|p| self.in_area(*p))
+    }
+
+    /// Whether `p` is over the area's tiles (anywhere, before it is read).
+    fn in_area(&self, p: Vec3) -> bool {
+        self.model.as_ref().is_none_or(|m| {
+            let (east, north) = m.size();
+            (0.0..=east).contains(&p.x) && (0.0..=north).contains(&p.y)
+        })
+    }
+
+    /// `p` kept over the area's tiles: where a drag that strays past the
+    /// area's edge leaves what it leads, at the edge.
+    fn kept_in_area(&self, p: Vec3) -> Vec3 {
+        let Some((east, north)) = self.model.as_ref().map(AreaModel::size) else { return p };
+        Vec3::new(p.x.clamp(0.0, east), p.y.clamp(0.0, north), p.z)
     }
 
     /// The point Alt + middle click puts the camera's focus on: where the ray
@@ -1432,7 +1458,7 @@ impl AreaView {
     /// the ground below it, as Drop onto Object sets it. (Higher, a
     /// tree's canopy: on the ground, as off.)
     pub(crate) fn put_down_at(&self, pos: Pos2) -> Option<Vec3> {
-        let ground = self.ground_at(pos, 0.0)?;
+        let ground = self.area_point(pos)?;
         if !self.onto_objects {
             return Some(self.snapped(ground));
         }
@@ -3452,7 +3478,7 @@ fn viewport(
     let mut ghost_instances = ghost_instances;
     let pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
         (Some(clip), true) => {
-            let at = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
+            let at = view.pointer_over(ui).and_then(|p| view.area_point(p));
             let at = at.map(|at| view.snapped(at));
             at.map_or_else(Vec::new, |at| {
                 let places = pasted_places(view, clip, at);
@@ -3673,10 +3699,9 @@ fn viewport(
         Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
         // About to be placed (the palette's Start Location): under the
         // pointer, facing the way the view looks.
-        _ if app.palette.placing_start => view
-            .pointer_over(ui)
-            .and_then(|p| view.ground_at(p, 0.0))
-            .map(|at| (at, view_facing(view))),
+        _ if app.palette.placing_start => {
+            view.pointer_over(ui).and_then(|p| view.area_point(p)).map(|at| (at, view_facing(view)))
+        }
         // As Adjust Location has it, changed.
         _ => match app.adjust.as_ref().filter(|a| a.start && a.area == view.area) {
             Some(a) => start.map(|s| crate::area_tools::previewed_start(a, s)),
@@ -4648,7 +4673,7 @@ fn overlays(
     }
     if view.pasting
         && let Some(clip) = clip
-        && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0))
+        && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.area_point(p))
     {
         let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
         let places = pasted_places(view, clip, view.snapped(at));
@@ -5172,7 +5197,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.pasting = false;
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             paste_at(app, view, at);
             view.pasting = false;
@@ -5188,7 +5213,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.outline.clear();
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             // Alt and a click after the first corner: the rectangle from
             // there to here, closed at once.
@@ -5224,7 +5249,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             app.palette.placing_start = false;
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             set_start_location(app, view, at, view_facing(view));
             view.selection.clear();
@@ -5258,7 +5283,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             app.palette.placing_light = None;
         } else if response.clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
             && let Some(light) = light_of_row(app, row)
         {
             add_light(app, view, &light, at);
@@ -5283,7 +5308,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         if response.clicked()
             && (!command || alt || rectangle)
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(at) = view.ground_at(pos, 0.0)
+            && let Some(at) = view.area_point(pos)
         {
             let kind = ObjectKind::from_restype(key.restype).expect("a brush places objects");
             if kind.has_outline() {
@@ -5418,7 +5443,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.tile_selection = vec![tile];
     }
     if response.secondary_clicked() {
-        view.menu_at = response.interact_pointer_pos().and_then(|p| view.ground_at(p, 0.0));
+        view.menu_at = response.interact_pointer_pos().and_then(|p| view.area_point(p));
         // On the ground with no object there: the tile's items too (as
         // Aurora's menu has Tile Properties for a tile).
         view.menu_tile = response
@@ -5530,6 +5555,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     match view.drag {
         Some(Drag::Move { from, .. }) if held.by(button) => {
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, from.z)) {
+                // (Past the area's edge: led no further than the edge.)
+                let now = view.kept_in_area(now);
                 view.drag = Some(Drag::Move { from, offset: (now - from).truncate() });
             }
         }
@@ -5566,7 +5593,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         Some(Drag::MoveSpawn { object, point, was, .. }) if held.by(button) => {
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, was.z)) {
                 // On the ground there.
-                let to = view.snapped(now);
+                let to = view.kept_in_area(view.snapped(now));
                 let z = view.ground.as_ref().and_then(|g| g.height(to.truncate(), to.z));
                 let at = to.with_z(z.unwrap_or(to.z));
                 view.drag = Some(Drag::MoveSpawn { object, point, at, was });
@@ -5582,6 +5609,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, was.0.z)) {
                 // On the ground there, as the marker is shown.
                 let to = view.snapped((now.truncate() - grip).extend(now.z));
+                let to = view.kept_in_area(to);
                 let z = view.ground.as_ref().and_then(|g| g.height(to.truncate(), to.z));
                 let at = to.with_z(z.unwrap_or(to.z));
                 view.drag = Some(Drag::Start { turn: false, grip, at, facing, was });
