@@ -1413,7 +1413,8 @@ enum ModelCmd {
     /// rest, its skins with their faces and the bones their weights move
     /// (and the bones of all of them), the textures and
     /// materials it names, its supermodel and its own animations with
-    /// their lengths. Text or compiled alike.
+    /// their lengths. Text or compiled alike; a text's faces the game's
+    /// compiler leaves out are counted apart, with the reader's notes.
     Info {
         /// A model's file, or a model's name (`plc_a01`, `plc_a01.mdl`)
         /// found in the game's load order.
