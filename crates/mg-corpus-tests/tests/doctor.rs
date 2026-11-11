@@ -60,6 +60,18 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     // ending at a cliff tile that has none (c1ar2000_northco).
     ("Neverwinter Nights - Darkness over Daggerford", "tile-seam", "module", 1),
     ("Neverwinter Nights - Tyrants of the Moonsea", "tile-seam", "module", 8),
+    // Six areas' music of the hak's ambientmusic.2da row 83, whose Resource,
+    // mus_wc_ruralguitar, is longer than 16 characters (`sound-silent`):
+    // silent in the game by the client's reading of 2026-11-11, though the
+    // game's data/mus has a file of that name; the track under the name
+    // mus_wc_ruralg (the same bytes) is the one that plays.
+    ("Neverwinter Nights - Wyvern Crown of Cormyr", "sound-silent", "module", 6),
+    // q3_area_sanctum's placed LavaLakeLoop, positional, of the stereo IMA
+    // ADPCM al_na_lavalake1.wav (`sound-silent`): the blueprint's fields
+    // were read in the client on 2026-11-11 (`client_audio`,
+    // MG_AUDIO_FORMS=stereo), silent as shipped and heard made area-wide;
+    // the area's own instance was not loaded.
+    ("XP2_Chapter2", "sound-silent", "module", 1),
 ];
 
 #[test]

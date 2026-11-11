@@ -8091,6 +8091,39 @@ fn a_preview_of_a_sound_that_is_only_a_bmu_plays_and_warns_once() {
     );
 }
 
+/// A sound `PlaySound` or a placed sound plays as `.wav` must hold a WAVE or
+/// MP3 behind the `BMU V1.0` header, as the game's own do: MP3 without the
+/// header (here inside a WAVE) plays in Moonglow and warns, once; MP3 with
+/// it says nothing.
+#[test]
+fn a_preview_of_mp3_under_wav_without_the_header_plays_and_warns_once() {
+    use mg_ui::audio::{Channel, Silence};
+    let bmu_mp3 = [b"BMU V1.0".as_slice(), &mp3_in_wave_track()[58..]].concat();
+    assert_eq!(mg_audio::form(&bmu_mp3), Some(mg_audio::Form::BmuMp3));
+    let prepare = |m: &mut Module, _: &mg_rules::GameData, _: ResRef| {
+        m.set(ResKey::from_filename("mg_snd3.wav").unwrap(), mp3_in_wave_track());
+        m.set(ResKey::from_filename("mg_snd4.wav").unwrap(), bmu_mp3.clone());
+    };
+    let Some((mut h, _)) = area_harness_with("preview-mp3-wav", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
+    h.state_mut().speaker = Box::new(speaker.clone());
+    for name in ["mg_snd3", "mg_snd3", "mg_snd4"] {
+        let name = ResRef::from_str(name).unwrap();
+        assert!(h.state_mut().play_sound(Channel::Preview, name, 1.0, false), "{name}");
+    }
+    let said: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    let lines: Vec<_> = said.iter().filter(|m| m.contains("mg_snd")).collect();
+    assert_eq!(
+        lines,
+        [
+            "Sound mg_snd3 is MP3 under .wav without the BMU V1.0 header, which the game does not play"
+        ],
+    );
+}
+
 /// An MP3 of silent MPEG-1 layer III frames (417 bytes each, 44100 Hz mono)
 /// inside a RIFF WAVE with the `fmt ` tag 0x55 (MPEGLAYER3): what the game
 /// plays as music from a WAV renamed `.bmu`.

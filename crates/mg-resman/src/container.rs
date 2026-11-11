@@ -371,6 +371,18 @@ impl Container for DirContainer {
         std::fs::read(p).map(Cow::Owned).map_err(|e| ResError::io(p, e))
     }
 
+    /// Reads only the file's first `n` bytes (a sound's header, of a
+    /// track of 50 MB).
+    fn read_start(&self, key: &ResKey, n: usize) -> Result<Cow<'_, [u8]>, ResError> {
+        use std::io::Read;
+        let p = self.files.get(key).ok_or(ResError::NotFound(*key))?;
+        let file = std::fs::File::open(p).map_err(|e| ResError::io(p, e))?;
+        let mut start = Vec::new();
+        let limit = u64::try_from(n).unwrap_or(u64::MAX);
+        file.take(limit).read_to_end(&mut start).map_err(|e| ResError::io(p, e))?;
+        Ok(Cow::Owned(start))
+    }
+
     fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
         Box::new(self.files.keys().copied())
     }

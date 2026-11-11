@@ -2645,6 +2645,7 @@ dependencies = [
 name = "mg-audio"
 version = "0.0.0"
 dependencies = [
+ "mg-core",
  "symphonia",
  "thiserror 2.0.21",
 ]
@@ -2769,6 +2770,7 @@ dependencies = [
  "fastrand",
  "indexmap",
  "mg-2da",
+ "mg-audio",
  "mg-core",
  "mg-erf",
  "mg-gff",

@@ -11,7 +11,7 @@ publish.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
-mg-audio.workspace = true
+mg-audio = { workspace = true, features = ["decode"] }
 mg-core.workspace = true
 mg-ui.workspace = true
 mg-update = { workspace = true, features = ["http"] }

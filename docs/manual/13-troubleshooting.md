@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:32:33Z }
 ---
 
 # Troubleshooting
@@ -203,7 +203,8 @@ Sounds need a sound device. On Linux, Moonglow plays through ALSA
 **Sounds**, **Ambient** or **Music** on in the area viewer's toolbar.
 When a sound does not play, the log says why: that it was not found, or
 what kind of file it is. The log also says when a sound that plays in
-Moonglow would be silent in the game. [Area sounds](04-areas.md#area-sounds) lists
+Moonglow would be silent in the game, and Verify Module lists such
+music, ambient sounds and placed sounds of every area (`sound-silent`). [Area sounds](04-areas.md#area-sounds) lists
 the files the game plays as music and as ambient sounds.
 
 ## A model is left out
