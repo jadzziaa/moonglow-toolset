@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-11
+* **Update**: [The UI redesign](ui-redesign-proposal.md): M1 done, the shared crate `mg-uikit`; [the plan](PLAN.md) names it.
 * **Creation**: The UI redesign's design documents, written from the mockup working files (not in git): [the proposal](ui-redesign-proposal.md) (the owner's brief and rulings of 2026-11-10 and 2026-11-11, the seven rules, every token in dark and light, the shell, components, icons, each editor, the gizmos' Fine Lines look, the features it adds, what is not drawn, the bugs found in today's app, and milestones M1 to M6) and [Where every control goes](ui-redesign-moves.md) (the three Where Things Moved boards as tables). The pictures are on the owner's private design canvas.
 
 ## 2026-11-10

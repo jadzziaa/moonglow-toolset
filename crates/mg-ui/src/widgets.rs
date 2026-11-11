@@ -4495,41 +4495,11 @@ pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
         field.request_focus();
     }
 }
-/// The bold font family (Ubuntu Bold, the bold of egui's own Ubuntu), for
-/// section headings.
-const BOLD: &str = "bold";
-
-/// Adds the bold font family to `ctx`'s fonts (once a context; it is there
-/// from the next frame): Ubuntu Bold, then egui's emoji fonts for the
-/// glyphs it lacks.
-pub fn install_fonts(ctx: &egui::Context) {
-    let done = egui::Id::new("moonglow-fonts");
-    if ctx.data(|d| d.get_temp::<bool>(done)).is_some() {
-        return;
-    }
-    ctx.data_mut(|d| d.insert_temp(done, true));
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "Ubuntu-Bold".into(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../fonts/Ubuntu-Bold.ttf"
-        ))),
-    );
-    let fallbacks = fonts.families.get(&egui::FontFamily::Proportional).cloned();
-    let mut bold = vec!["Ubuntu-Bold".to_string()];
-    bold.extend(fallbacks.unwrap_or_default().into_iter().skip(1));
-    fonts.families.insert(egui::FontFamily::Name(BOLD.into()), bold);
-    ctx.set_fonts(fonts);
-}
-
-/// A form's field label (the first column of an editor's grid: "Tag",
-/// "Name"…): in the strong text colour (white in the dark theme), to stand
-/// apart from the values beside it; not bold, which is the headings'.
-/// (Public, with the headings, [`install_fonts`] and [`palette_color`], for
-/// Moonglow Viewer's forms to look as the toolset's.)
-pub fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    ui.label(egui::RichText::new(text).strong())
-}
+// The fonts and the form helpers Moonglow Viewer's forms share with the
+// toolset's (field labels, section headings, a palette's swatches) are
+// mg-uikit's, under their old names here.
+pub use mg_uikit::form::SECTION_GAP;
+pub use mg_uikit::{field_label, install_fonts, section_heading, swatch, table_heading};
 
 /// How large a gallery's pictures are: a slider of their side in `range`
 /// (its value not shown, `text` beside it where given). The side moved
@@ -4582,34 +4552,13 @@ pub fn palette_color(
                         ui.weak("No palette");
                         return;
                     };
-                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                    // 176 colours, 16 to a row.
-                    for row in 0..11u8 {
-                        ui.horizontal(|ui| {
-                            for i in row * 16..row * 16 + 16 {
-                                let size = egui::vec2(16.0, 14.0);
-                                let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
-                                swatch(ui, rect, &tones(p, i));
-                                if i == current && text.is_none() {
-                                    let stroke = ui.visuals().selection.stroke;
-                                    ui.painter().rect_stroke(
-                                        rect,
-                                        0.0,
-                                        stroke,
-                                        egui::StrokeKind::Outside,
-                                    );
-                                }
-                                let name = format!("{what} {i}");
-                                r.widget_info(|| {
-                                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
-                                });
-                                if r.on_hover_text(&name).clicked() {
-                                    *chosen = i;
-                                    pick = Some(i);
-                                    ui.close();
-                                }
-                            }
-                        });
+                    let outline = text.is_none();
+                    if let Some(i) =
+                        mg_uikit::palette_swatches(ui, |i| tones(p, i), what, current, outline)
+                    {
+                        *chosen = i;
+                        pick = Some(i);
+                        ui.close();
                     }
                 },
             );
@@ -4630,57 +4579,6 @@ pub fn tones(palette: &mg_image::Rgba, index: u8) -> [egui::Color32; 4] {
         egui::Color32::from_rgb(r, g, b)
     })
 }
-
-/// Paints a swatch: the tones side by side.
-pub fn swatch(ui: &egui::Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
-    let w = rect.width() / tones.len() as f32;
-    for (i, c) in tones.iter().enumerate() {
-        let r = egui::Rect::from_min_size(
-            rect.min + egui::vec2(w * i as f32, 0.0),
-            egui::vec2(w, rect.height()),
-        );
-        ui.painter().rect_filled(r, 0.0, *c);
-    }
-}
-
-/// A heading in a table's cell (a group of rows: Options › Keyboard's):
-/// as a section's, without its rule and room, which a cell has no place
-/// for.
-pub fn table_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    let bold = egui::FontFamily::Name(BOLD.into());
-    let size = egui::TextStyle::Body.resolve(ui.style()).size * HEADING_SCALE;
-    let mut text = egui::RichText::new(text).strong().size(size);
-    if ui.fonts(|f| f.families().contains(&bold)) {
-        text = text.family(bold);
-    }
-    ui.label(text)
-}
-
-/// A form's section heading ("Lighting Scheme", "Environment"): in Ubuntu
-/// Bold (headings alone are bold), the strong text colour, and larger than
-/// the field labels under it; under it a rule a pixel thick, three quarters
-/// as wide as the pane it is in, then a little room before what follows.
-pub fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    let heading = table_heading(ui, text);
-    // (A pane with no width of its own yet: the heading's.)
-    let pane = ui.available_width();
-    let width = if pane.is_finite() { pane * HEADING_RULE } else { heading.rect.width() };
-    let (rule, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
-    let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
-    ui.painter().hline(rule.x_range(), rule.center().y, stroke);
-    ui.add_space(HEADING_ROOM);
-    heading
-}
-
-/// The room above a section heading that follows other content (its rule
-/// is under it; no separator above).
-pub const SECTION_GAP: f32 = 10.0;
-/// How much larger than the body text a section heading is.
-const HEADING_SCALE: f32 = 1.25;
-/// How much of its pane's width a section heading's rule spans.
-const HEADING_RULE: f32 = 0.75;
-/// The room between a section heading's rule and what follows.
-const HEADING_ROOM: f32 = 6.0;
 
 /// The tokens text in `language` can use, each as written (`<FirstName>`):
 /// the language's own table where the game has one (its

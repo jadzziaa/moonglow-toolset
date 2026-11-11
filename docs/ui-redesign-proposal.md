@@ -731,6 +731,12 @@ Planned, not done. Each milestone is planned in detail when it starts (the files
 
 ### M1. The shared crate `mg-uikit`
 
+**Done 2026-11-11.** `crates/mg-uikit` depends on egui (and serde) alone. It holds `Tokens::DARK` and `Tokens::LIGHT` (67 colors, the fixed colors of section 4.2 among them), the metrics, `Theme` with `apply`, the fonts, the 192 icons turned into strokes at build time from `icons/icons.json` (painted by egui's painter, with icon, toggle and icon-and-words buttons whose accessible name is their words), and the form helpers `field_label`, `section_heading`, `table_heading` and the swatches, which `mg-ui` re-exports under their old paths. Nothing in the application calls `apply` yet, so nothing looks different. Its tests assert the contrast of every text pair in both themes and draw a kit sheet in both (`cargo test -p mg-uikit --test kit -- --ignored`).
+
+What egui's style cannot express, which M2 answers with widgets of the crate's own where a screen shows it: one border setting shared by buttons and fields; a text field's height (20 px, not 22) and its focus border; the check box and radio (no accent fill when on); the slider's rail and thumb; chevrons for the combo box and the tree (egui draws triangles); the hover color of list and menu rows; the tooltip's own fill; a disabled control fading whole; every heading bold once the theme is applied. Key cap, badge and chip helpers come with the milestones that first use them.
+
+As planned:
+
 A new crate under `crates/`, below `mg-ui` in the layering (and the viewer's `mgv-ui` later depends on it by tag).
 
 - The tokens, dark and light (section 4.1), each as a named constant or a field of a `Theme`; the fixed colors of section 4.2 made tokens (so the light theme is complete); the metrics (section 4.4); the type (section 4.3).
