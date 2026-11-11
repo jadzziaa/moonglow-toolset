@@ -201,6 +201,10 @@ if there is none, make one in the game first.
 Sounds need a sound device. On Linux, Moonglow plays through ALSA
 (PulseAudio and PipeWire provide it). The area's sounds also need
 **Sounds**, **Ambient** or **Music** on in the area viewer's toolbar.
+When a sound does not play, the log says why: that it was not found, or
+what kind of file it is. The log also says when a sound that plays in
+Moonglow would be silent in the game. [Area sounds](04-areas.md#area-sounds) lists
+the files the game plays as music and as ambient sounds.
 
 ## A model is left out
 

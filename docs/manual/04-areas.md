@@ -1692,6 +1692,15 @@ maximum, each repeating, looping or playing once as set. **Ambient** and
 view shows). Options › Sounds sets which play when an area opens, and the
 music's volume.
 
+The game is stricter than Moonglow about what a sound may be. An area's
+music is a `.bmu` holding MP3, with the `BMU V1.0` header or without,
+and also the MP3 inside a WAVE that some tools write (a WAVE of PCM
+renamed to `.bmu` stays silent in the game). An ambient sound is a
+`.wav` holding a PCM or ADPCM WAVE. Moonglow plays some files the game
+does not, and says so in the log, once for each: a WAVE as music, a
+music track that exists only as `.wav`, MP3 under `.wav` as an ambient
+sound (or a WAVE under `.bmu`), and a sound that exists only as `.bmu`.
+
 ## Making tilesets
 
 **Tools › Tilesets** edits a tileset's `.set` file: **New Tileset…**

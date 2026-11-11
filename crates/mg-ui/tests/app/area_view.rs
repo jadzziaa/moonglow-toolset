@@ -7867,3 +7867,278 @@ fn a_paste_s_outlines_stop_under_a_window_as_its_copies_do() {
     let left = blue(&img);
     assert!(left * 10 < over, "nor outlines: {left} pixels of {over}");
 }
+
+/// A PCM WAVE a builder might keep as a custom music track: 16-bit stereo,
+/// 44.1 kHz, a tenth of a second of two tones.
+pub(crate) fn pcm_track() -> Vec<u8> {
+    let mut data = Vec::new();
+    for i in 0..4410u32 {
+        let t = i as f32 / 44100.0;
+        for hz in [440.0f32, 660.0] {
+            let v = (t * hz * std::f32::consts::TAU).sin() * 0.5;
+            data.extend(((v * 32767.0) as i16).to_le_bytes());
+        }
+    }
+    let mut out = b"RIFF".to_vec();
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    for n in [1u16, 2] {
+        out.extend(n.to_le_bytes());
+    }
+    for n in [44100u32, 44100 * 4] {
+        out.extend(n.to_le_bytes());
+    }
+    for n in [4u16, 16] {
+        out.extend(n.to_le_bytes());
+    }
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    out
+}
+
+/// A channel's track and whether it loops.
+type Music = Option<(ResRef, bool)>;
+
+/// What a channel played, what the log said, and the file it was given.
+type Heard = (Music, Vec<String>, Option<std::sync::Arc<[u8]>>);
+
+/// What the area view does with an area whose music (`music`) or ambient
+/// sound is a custom ambientmusic.2da (ambientsound.2da) row naming
+/// `mg_track`, with `files` (names and bytes) in the module: what the
+/// channel plays, what the log said, and the file it got. Turning the sound
+/// off and on again after the first look is part of it, so that what the
+/// log says twice shows.
+fn custom_row(name: &str, music: bool, files: Vec<(&'static str, Vec<u8>)>) -> Option<Heard> {
+    use mg_ui::audio::{Channel, Silence};
+    let (table, labels, channel) = if music {
+        ("ambientmusic", ["MusicDay", "MusicNight"], Channel::Music)
+    } else {
+        ("ambientsound", ["AmbientSndDay", "AmbientSndNight"], Channel::Ambient)
+    };
+    let prepare = move |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
+        // The game's table with a row added: the second's, naming mg_track.
+        let t = game.table(table).unwrap();
+        let resource = t.column("Resource").unwrap();
+        let cell = |r: usize, c: usize| {
+            let cell = t.cell(r, c).unwrap_or("****");
+            if cell.contains(' ') { format!("\"{cell}\"") } else { cell.to_string() }
+        };
+        let mut text = format!("2DA V2.0\n\n   {}\n", t.columns().join(" "));
+        for r in 0..t.len() {
+            let cells: Vec<String> = (0..t.columns().len()).map(|c| cell(r, c)).collect();
+            text += &format!("{r} {}\n", cells.join(" "));
+        }
+        let mut cells: Vec<String> = (0..t.columns().len()).map(|c| cell(1, c)).collect();
+        cells[resource] = "mg_track".into();
+        text += &format!("{} {}\n", t.len(), cells.join(" "));
+        m.set(ResKey::parse(table, ResType::TWODA).unwrap(), text.into_bytes());
+        for (file, data) in &files {
+            m.set(ResKey::from_filename(file).unwrap(), data.clone());
+        }
+        let key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&key).unwrap().unwrap();
+        let props = git.root.child_mut("AreaProperties").unwrap();
+        for label in labels {
+            props.set(label, mg_gff::Value::Int(t.len() as i32));
+        }
+        for label in ["AmbientSndDayVol", "AmbientSndNitVol"] {
+            props.set(label, mg_gff::Value::Int(100));
+        }
+        m.set_gff(key, &git).unwrap();
+    };
+    let (mut h, area) = area_harness_with(name, "ttr01", None, 4, None, &prepare)?;
+    let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
+    h.state_mut().speaker = Box::new(speaker.clone());
+    h.state_mut().area_views.get_mut(&area).unwrap().night = false;
+    h.state_mut().settings.ambient_music = music;
+    h.state_mut().settings.ambient_sound = !music;
+    h.run_steps(20);
+    let playing = speaker.borrow().channels.get(&channel).cloned();
+    let data = speaker.borrow().data.get(&channel).cloned();
+    // Off and on again: the same file is not told of twice.
+    h.state_mut().settings.ambient_music = false;
+    h.state_mut().settings.ambient_sound = false;
+    h.run_steps(5);
+    h.state_mut().settings.ambient_music = music;
+    h.state_mut().settings.ambient_sound = !music;
+    h.run_steps(20);
+    let said = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    Some((playing.map(|(n, _, looped)| (n, looped)), said, data))
+}
+
+/// [`custom_row`] for music: what the Music channel plays and what the log
+/// said.
+fn custom_music(name: &str, files: Vec<(&'static str, Vec<u8>)>) -> Option<(Music, Vec<String>)> {
+    custom_row(name, true, files).map(|(m, said, _)| (m, said))
+}
+
+/// The log's lines that are about `mg_track` and the game's silence.
+fn silence_lines(said: &[String]) -> Vec<&String> {
+    said.iter().filter(|m| m.contains("mg_track") && m.contains("game does not")).collect()
+}
+
+/// Moonglow plays this; the game does not (the client test `client_audio.rs`
+/// finds that it plays an MP3 as music, in a WAVE too, and no PCM WAVE), and
+/// the owner ruled that Moonglow says so in the log, once for the file.
+#[test]
+fn custom_music_kept_as_a_pcm_wave_named_bmu_plays_and_warns_once() {
+    // The builder's report: a WAV renamed .bmu so that the game reads it.
+    let files = vec![("mg_track.bmu", pcm_track())];
+    let Some((music, said)) = custom_music("music-bmu", files) else { return };
+    let (name, looped) = music.unwrap_or_else(|| panic!("no music; the log: {said:?}"));
+    assert_eq!((name.to_string(), looped), ("mg_track".into(), true));
+    assert!(!said.iter().any(|m| m.starts_with("Sound mg_track")), "{said:?}");
+    // (Music was turned off and on again: still one line.)
+    assert_eq!(
+        silence_lines(&said),
+        ["Music mg_track is a WAVE under .bmu, which the game does not play: music must be MP3"],
+    );
+}
+
+/// Moonglow plays this; the game never looks for a music track named
+/// `.wav`: it says so in the log.
+#[test]
+fn custom_music_kept_as_a_wav_plays_and_warns() {
+    let files = vec![("mg_track.wav", pcm_track())];
+    let Some((music, said)) = custom_music("music-wav", files) else { return };
+    let (name, looped) = music.unwrap_or_else(|| panic!("no music; the log: {said:?}"));
+    assert_eq!((name.to_string(), looped), ("mg_track".into(), true));
+    assert!(!said.iter().any(|m| m.starts_with("Sound mg_track")), "{said:?}");
+    assert_eq!(
+        silence_lines(&said),
+        [
+            "Music mg_track exists only as a .wav, which the game does not look for: music must be a .bmu"
+        ],
+    );
+}
+
+/// With both, the game plays the `.bmu` (it never looks for the `.wav`), and
+/// so does Moonglow, without a word.
+#[test]
+fn custom_music_with_a_bmu_and_a_wav_plays_the_bmu() {
+    let files = vec![("mg_track.bmu", mp3_in_wave_track()), ("mg_track.wav", pcm_track())];
+    let Some((music, said, data)) = custom_row("music-both", true, files) else { return };
+    assert!(music.is_some(), "no music; the log: {said:?}");
+    assert_eq!(data.as_deref(), Some(&mp3_in_wave_track()[..]), "the .bmu is played");
+    assert!(silence_lines(&said).is_empty(), "{said:?}");
+}
+
+/// A PCM WAVE `.wav` is what the game plays as an ambient sound.
+#[test]
+fn a_pcm_wav_plays_as_an_ambient_sound_without_a_warning() {
+    let files = vec![("mg_track.wav", pcm_track())];
+    let Some((sound, said, _)) = custom_row("ambient-wav", false, files) else { return };
+    let (name, looped) = sound.unwrap_or_else(|| panic!("no sound; the log: {said:?}"));
+    assert_eq!((name.to_string(), looped), ("mg_track".into(), true));
+    assert!(silence_lines(&said).is_empty(), "{said:?}");
+}
+
+/// MP3 under `.wav` is silent as an ambient sound in the game.
+#[test]
+fn an_mp3_under_wav_plays_as_an_ambient_sound_and_warns_once() {
+    let files = vec![("mg_track.wav", mp3_in_wave_track())];
+    let Some((sound, said, _)) = custom_row("ambient-mp3-wav", false, files) else { return };
+    assert!(sound.is_some(), "no sound; the log: {said:?}");
+    assert_eq!(
+        silence_lines(&said),
+        [
+            "Ambient sound mg_track is MP3 under .wav, which the game does not play: it plays a WAVE there"
+        ],
+    );
+}
+
+/// A WAVE under `.bmu` is not played as an ambient sound by the game.
+#[test]
+fn a_wave_under_bmu_plays_as_an_ambient_sound_and_warns() {
+    let files = vec![("mg_track.bmu", pcm_track())];
+    let Some((sound, said, _)) = custom_row("ambient-wave-bmu", false, files) else { return };
+    assert!(sound.is_some(), "no sound; the log: {said:?}");
+    assert_eq!(
+        silence_lines(&said),
+        [
+            "Ambient sound mg_track is a WAVE under .bmu, which the game does not play: it plays MP3 there"
+        ],
+    );
+}
+
+/// A sound that exists only as `.bmu` is not found by the game (a Play
+/// button's, a placed sound): Moonglow plays it and says so, once.
+#[test]
+fn a_preview_of_a_sound_that_is_only_a_bmu_plays_and_warns_once() {
+    use mg_ui::audio::{Channel, Silence};
+    let prepare = |m: &mut Module, _: &mg_rules::GameData, _: ResRef| {
+        m.set(ResKey::from_filename("mg_snd2.bmu").unwrap(), mp3_in_wave_track());
+    };
+    let Some((mut h, _)) = area_harness_with("preview-bmu", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
+    h.state_mut().speaker = Box::new(speaker.clone());
+    let name = ResRef::from_str("mg_snd2").unwrap();
+    assert!(h.state_mut().play_sound(Channel::Preview, name, 1.0, false));
+    assert!(speaker.borrow().channels.contains_key(&Channel::Preview));
+    assert!(h.state_mut().play_sound(Channel::Preview, name, 1.0, false));
+    let said: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    let lines: Vec<_> = said.iter().filter(|m| m.contains("mg_snd2")).collect();
+    assert_eq!(
+        lines,
+        [
+            "Sound mg_snd2 exists only as a .bmu, which the game does not look for: sounds must be a .wav"
+        ],
+    );
+}
+
+/// An MP3 of silent MPEG-1 layer III frames (417 bytes each, 44100 Hz mono)
+/// inside a RIFF WAVE with the `fmt ` tag 0x55 (MPEGLAYER3): what the game
+/// plays as music from a WAV renamed `.bmu`.
+pub(crate) fn mp3_in_wave_track() -> Vec<u8> {
+    let mut frame = vec![0xFF, 0xFB, 0x90, 0xC4];
+    frame.resize(417, 0);
+    let mp3 = frame.repeat(40);
+    let mut fmt = Vec::new();
+    for n in [0x55u16, 1] {
+        fmt.extend(n.to_le_bytes());
+    }
+    fmt.extend(44100u32.to_le_bytes());
+    fmt.extend(16000u32.to_le_bytes());
+    for n in [1u16, 0, 12, 1] {
+        fmt.extend(n.to_le_bytes());
+    }
+    fmt.extend(2u32.to_le_bytes());
+    for n in [417u16, 1, 1393] {
+        fmt.extend(n.to_le_bytes());
+    }
+    let mut body = b"WAVEfmt ".to_vec();
+    body.extend((fmt.len() as u32).to_le_bytes());
+    body.extend(fmt);
+    body.extend(b"data");
+    body.extend((mp3.len() as u32).to_le_bytes());
+    body.extend(mp3);
+    let mut out = b"RIFF".to_vec();
+    out.extend((body.len() as u32).to_le_bytes());
+    out.extend(body);
+    out
+}
+
+#[test]
+fn custom_music_kept_as_mp3_in_a_wave_named_bmu_plays() {
+    // The report's form: the game plays it as music, and so does Moonglow.
+    let files = vec![("mg_track.bmu", mp3_in_wave_track())];
+    let Some((music, said)) = custom_music("music-mp3-wave", files) else { return };
+    let (name, looped) = music.unwrap_or_else(|| panic!("no music; the log: {said:?}"));
+    assert_eq!((name.to_string(), looped), ("mg_track".into(), true));
+    assert!(!said.iter().any(|m| m.contains("Sound mg_track")), "{said:?}");
+    assert!(silence_lines(&said).is_empty(), "{said:?}");
+}
+
+#[test]
+fn custom_music_that_is_not_a_sound_does_not_play_and_the_log_says_why() {
+    let files = vec![("mg_track.bmu", b"this is a note, not a sound".to_vec())];
+    let Some((music, said)) = custom_music("music-text", files) else { return };
+    assert!(music.is_none(), "{music:?}");
+    let line = said.iter().find(|m| m.starts_with("Sound mg_track")).expect("a line about it");
+    assert_eq!(line, "Sound mg_track: not a sound the game plays (neither WAVE nor MP3)");
+}

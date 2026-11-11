@@ -39,6 +39,11 @@ name = "scripts"
 path = "tests/groups/scripts.rs"
 
 [[test]]
+name = "client_audio"
+path = "tests/client_audio.rs"
+test = false
+
+[[test]]
 name = "client_minimap"
 path = "tests/client_minimap.rs"
 test = false

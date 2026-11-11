@@ -90,10 +90,10 @@ fn sounds_agree_with_ffmpeg() {
     let picked = sweep(picked, 6);
     let mut wrong = Vec::new();
     for (name, data) in &picked {
-        let Some((start, kind)) = mg_audio::container(data).map(|c| (c.1, c.0)) else { continue };
+        let Some((kind, range)) = mg_audio::container(data) else { continue };
         // ffmpeg is given what the game decodes: the MP3 after the header.
         let ext = if kind == mg_audio::Container::Mp3 { "mp3" } else { "wav" };
-        let Some(theirs) = ffmpeg(&data[start..], &dir, &format!("probe.{ext}")) else {
+        let Some(theirs) = ffmpeg(&data[range], &dir, &format!("probe.{ext}")) else {
             wrong.push(format!("{name}: ffmpeg failed"));
             continue;
         };

@@ -32,6 +32,7 @@ mod renderer_check;
 mod resources;
 mod scripts;
 mod search;
+mod sounds;
 mod tables;
 mod tiles;
 mod tree;

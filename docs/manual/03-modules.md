@@ -1892,7 +1892,8 @@ folder's files, subfolders included, to look over and save.
   or by size (the largest first).
 - **Viewing:** **View**, or a double click, shows a resource under the
   list: a picture (a TGA or DDS; a PLT in each layer's first color), a
-  sound with **Play**, a 2DA's rows and columns as the resource browser
+  sound with **Play** (a `.bmu` holding a WAVE is marked as one the game
+  does not play), a 2DA's rows and columns as the resource browser
   shows them, a GFF's fields, a text file's text, else its first bytes.
   A model is drawn in the model viewer: where the game reads this hak's
   copy (the hak is one of the module's, saved as it is) as the game
