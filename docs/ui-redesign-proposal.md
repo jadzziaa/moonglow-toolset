@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-11T23:05:33Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-11T23:31:14Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -768,8 +768,8 @@ Can ship alone.
 
 ### M3. The shell
 
-- Top Bar (menus, New, Open, Save, Undo, Redo, Quick Open, Compile, Verify, Test Module) replacing the menu bar and toolbar row; the "Toolbar buttons" setting retired.
-- Left Dock: Module, Resources and the Outliner; Right Dock; Bottom Dock; Status Bar with panel switches, hints as key caps and counts.
+- Top Bar (menus, New, Open, Save, Undo, Redo, Quick Open, Compile, Verify, Test Module) replacing the menu bar and toolbar row; the "Toolbar buttons" setting retired at M4 pending ruling R4 (the Top Bar ignores it from M3, because the area and editor toolbars read it until M4).
+- Left Dock: Module, Resources and the Outliner; Right Dock; Bottom Dock; Status Bar with panel switches, hints as key caps and counts (M3 has the Log's switch; Problems and Search Results arrive with their panels in M4).
 - Document tabs and editor groups; the **Open editors** switch (As Tabs by default for a new installation, existing settings keep As Floating Windows) and the stored "this kind goes to a window".
 - Quick Open (the Command Palette extended to resources); the shell yielding at the measured widths (section 5.2); the wide layout (section 5.3).
 - Exit: today's editors open in the new shell, docked or floating, without yet changing their insides; the Where Things Moved rows for the main window are checked off.
@@ -779,7 +779,490 @@ Can ship alone.
   - Remembered window sizes keep the heights they were kept at before the theme (a new window opens at its new size).
   - Wizard dialogs cover part of the Welcome page's subtitle.
   - Menu rows are 26 px apart (22 and a 4 px gap); the mock's are 24 with none between.
-- An option for later, not work to do now: the drawn icons' meshes could be cached by icon, size and color instead of tessellated each frame. egui draws a stroke's round ends and small dots from discs pre-drawn in the font atlas, whose texture coordinates move when the atlas grows (a new glyph or size), so a cache would need the atlas's size in its key, or draw those dots as plain circles.
+- An option for later, not work to do now: the drawn icons' meshes could be cached by icon, size and color instead of tessellated each frame. egui draws a stroke's round ends and small dots from discs pre-drawn in the font atlas, whose texture coordinates move when the atlas grows (a new glyph or size), so a cache would need the atlas's size in its key, or draw those dots as plain circles. T15 decides it by measure.
+
+**Planned in detail, 2026-11-11.**
+
+M3 as scoped is too big to merge as one change (about 16 days of work, with roughly 300 test lines to migrate). It holds as one milestone cut into three merge points: M3a (the new frame), M3b (editors in the shell) and M3c (widths, Outliner, hints). That makes 16 tasks, T0 to T15. Five facts frame the plan:
+
+- **Where the shell lives.** The side docks are egui panels with the kit's own tab bars. The editor area stays the one egui_dock `DockArea` it is today. This is a hard constraint of egui_dock 0.21 (Part 2).
+- **Settings.** `Settings::default()` keeps today's floating windows, so existing settings and the roughly 1,100 UI tests keep working. Only a new installation (no settings file) gets As Tabs and the Bottom Dock closed.
+- **The parity file.** `docs/parity/aurora-ui-inventory.md` is generated from Aurora's executable and lists only Aurora's controls; the file M3's tasks update is `docs/parity/checklists.md`.
+- **Tools.** Code is read with `trail` (`trail ask`, `trail grep`, `trail skeleton`, `trail callers`, `trail check`) and with Read.
+- **Rulings.** Seven choices are decided (the Decided list), and the owner ruled the five rulings (Rulings for M3) on 2026-11-11, each as recommended: no task waits on an answer.
+
+#### Part 1. How today's shell is built (what the tasks change)
+
+**The frame, top to bottom.** All in `Moonglow::ui`, `crates/mg-ui/src/lib.rs:1580-1985`.
+
+- `Panel::top("menu")` (lib.rs:1706) draws `commands::menu_bar` (commands.rs:1209) and then `commands::toolbar` (commands.rs:2059), which wraps to a second row. The toolbar is one group named "Toolbar" (`mg_uikit::name_group`); tests find its buttons with `common::tool` and `in_toolbar` (`tests/app/common.rs:323-358`).
+- While the pointer is on the bars, `pointer_on_bars` and `undo_before_bars` (lib.rs:1711-1718) keep Undo pointed at the editor the pointer came from.
+- The update and renderer notices are strips under the toolbar (lib.rs:1719-1723).
+- `Panel::bottom("status")` calls `status_bar` (lib.rs:3040), which shows the module's full path, "(modified)" and the game folder.
+- `Panel::bottom("log")`, 120 px, `hide_log` (lib.rs:1736).
+- `Panel::left("tree")`, 240 px, `hide_tree` (lib.rs:1746).
+- Each of these panes has a 16 px fold strip, `pane_edge` and `pane_fold` (lib.rs:2237-2285), which follows the one-button rule of GitHub issue 10 (`docs/deferred.md:921-944`).
+- `CentralPanel` holds one `DockArea` over one `DockState<Tab>` (lib.rs:1789-1838). After it come `dock_look::marks`, `window_bars` (Maximize) and `palettes_edge`.
+- Then about 60 dialog windows (lib.rs:1848-1942), the Command Palette modal (`commands::palette_window`, commands.rs:1960) and `run_actions`.
+
+**Everything else lives in that one `DockState`.**
+
+- The middle is the leaf holding `Tab::Area` or `Tab::NoArea`.
+- The palettes are `Tab::Palette`, a leaf split off the root's right (`OpenTab(Tab::Palette)`, lib.rs:4245-4269).
+- Splits off the middle are `Place::Split(Side, share)` (lib.rs:157-208, `split_middle` 2071, `split_of` 2090).
+- Floating editors are egui_dock window surfaces (`open_window` 2725, `WindowTrack` 513, `remember_window_sizes` 2878, `toggle_maximize` 2986).
+- Much code exists only for the palettes' pane: `keep_middle` (2646, issues 11, 20, 23), `palette_split` and `palette_share`, `pass_covered_arrow` (2291), `palettes_edge` (2323).
+- `Tab` is `pub` (tabs.rs:15). `Tab::docks()` (tabs.rs:118) is true only for Area, Welcome and NoArea; every other tab opens through `place_for` (lib.rs:2123), which defaults to `Place::Window`.
+- Kinds gather into one window by `Tab::gathers()` and the `*_own_windows` settings (lib.rs:4289).
+- Tabs are drawn by `tabs::Viewer`: `title` (" *" for a dirty script or talk table), the tab menu `context_menu` (tabs.rs:670), and `on_close`, which calls `may_close`.
+- Escape cancels only a floating Properties or Options window (`front` needs `Order::Middle`, tabs.rs:393-431).
+
+**Settings and stored layouts.**
+
+- `Settings` is `#[derive(Default)] #[serde(default)]` with no `deny_unknown_fields` (settings.rs:505). A missing field takes its default and an unknown field is ignored.
+- A new installation and an old file can only be told apart in `read_eframe`'s `NotFound` branch (settings.rs:1131), used in `apps/moonglow/src/main.rs:618-622`.
+- Layout fields: `window_sizes`, `window_places` (`middle`, `palettes`, `split left 300`; a window is never stored, settings.rs:605-609, lib.rs:2152-2193), `hide_tree`, `hide_log`, `hide_palettes` (672-674), `toolbar_icons_only` (743).
+- Dock widths are egui `PanelState`s under the ids `"tree"` and `"log"`, persisted by eframe.
+- Each module's open tabs are kept in `open-tabs/<name>-<hash>.json` (`open_tabs.rs`; `Pane.place` is the `Place` text). An unknown place parses to `None`, which means "where its kind opens" (`place_pane`, open_tabs.rs:1204-1273). So old and new records read each other gracefully.
+
+**Commands.**
+
+- `commands::Id` (commands.rs:19-131), `MENUS` (8 menus, :161) and `TOOLBAR` (16 entries, :289). Today's toolbar has **no Test Module**.
+- Keys are kept by id; `keys::Cmd` (keys.rs) gives Ctrl+Shift+P to the Command Palette. Ctrl+P is free.
+- `found()` (commands.rs:1894) feeds the palette: commands, plugin commands, plugin entries and project commands.
+- The plugin API names menus by their text ("Plugins", "File › Export") and reads "the pane last clicked in" (`plugins.pane`, set in tree.rs:792 and tabs.rs:437). `crates/mg-plugin` reads nothing from `commands.rs`.
+
+**Outside users of `mg_ui`.**
+
+- `apps/moonglow` (graphics, recovery, plugins paths, `Moonglow::new`), `apps/mg` (`nui_render`, `project_commands::shell`), a corpus test (`test_module::command`). None uses `commands`, `Tab::Palette` or `Tab::Resources`.
+- **Moonglow Viewer** pins `v3.14.0` of mg-core, mg-render, mg-preview and others, but neither `mg-ui` nor `mg-uikit`. No M3 change to a `pub` item of `mg-ui` reaches it. `mg-uikit` is not consumed yet (M6), so M3 sets the API the viewer will adopt. Additions only; no renames are needed.
+
+**Tests that pin today's layout.** `--test app` has about 1,100 tests. These are hit:
+
+- `windows.rs` (49 tests): panes, palettes pane, splits, windows, maximize, open-tabs records.
+- `Tab::Palette`: about 100 uses (tiles 31, windows 26, palettes 21, frame_perf 15, screens 12, area_view 8, looks 5, others).
+- `Tab::Resources`: about 33 uses (windows 17, resources 8, others).
+- Fold-button names "Show/Fold Module Tree|Palettes|Log": 20 uses.
+- Command Palette: 14 uses.
+- `common::tool`: about 15 uses on main-toolbar buttons.
+- `own_window`, `is_main()`, `click_window_close`, `close_windows`: about 40 uses.
+- `screens.rs` has 169 `Moonglow::new`. Shell-relevant cases include `panes_folded`, `main_window_log_and_tree`, `view_menu`, `toolbar_icons_only`, `command_palette`, `windows_at_their_sizes`, `window_bar_maximize_and_an_older_hak`, `dialog_windows`, `theme_read_only_focus_and_tabs`, `readme_screenshots`.
+- Perf tests open `Tab::Palette` through actions, not labels. `frame_perf.rs:45` measures at 3440 by 1400.
+
+#### Part 2. Architecture decisions for M3
+
+1. **The docks are egui panels; the editor area stays egui_dock.**
+   - egui_dock 0.21 has one `Style` per `DockArea`, so the document tabs (28 px) and dock tabs (26 px) cannot both come from it.
+   - Its splits are fractions, with no fixed or least widths.
+   - Its collapse arrow is on every leaf or none.
+   - So Left, Right and Bottom Docks are `egui::Panel`s holding a kit dock-tab bar and the panels. The Editor Area is today's `DockArea`, now holding only editors: document tabs, editor groups as main-surface splits, floating windows as egui_dock windows.
+   - This keeps `WindowTrack`, Maximize, `may_close` and close-as-Cancel, and the open-tabs records. It retires the palettes-pane code (`Place::Palettes`, `palettes_edge`, `pass_covered_arrow`, `palette_split`, `palette_share`, the side-pane half of `keep_middle`).
+   - Keep the panel ids `"tree"` and `"log"` for the Left and Bottom Docks, so remembered sizes carry over.
+2. **A panel registry in mg-ui** (`shell.rs`):
+   - `enum Panel { Module, Resources, Outliner, Palette, Preview, Log }` plus, per editor kind, the panels it brings.
+   - The docks follow the active *docked* editor: the front tab of the focused main-surface leaf, else the last one.
+   - In M3 the area brings Palette and Preview (right) and Outliner (left). Other editors bring nothing yet (M4 adds Reference, Node, Cell and the rest).
+   - A dock or split with no panels is not drawn. **No merge point shows an empty panel.**
+3. **Floating editors keep drawing their own side and bottom panes**, as `script_view` does today (`Panel::right("script-side")`, `Panel::bottom("script-info")`). Handing those panes to the docks when docked is each editor's M4 change.
+4. **Settings.**
+   - `Settings::default()` keeps today's meaning, the settings before M3: floating, log shown.
+   - A new `Settings::new_installation()` (As Tabs, `hide_log = true`) is used only in main.rs's `NotFound` branch. An unreadable file gets the defaults, as an existing user.
+   - Every existing test keeps passing without change; the new shell's tests set Tabs themselves.
+5. **What lives where.**
+   - `mg-uikit` (egui, plus the optional `dock` feature for egui_dock 0.21, decided as O5 below):
+     - key cap, badge, modified dot;
+     - dock-tab bar and panel header;
+     - the fold strip (24 px icon strip with chevron);
+     - Status Bar parts (switch with count badge, separator, the hint list that drops whole from the end, right items, job with bar);
+     - Top Bar parts (menu title style, 24 px menu rows, centered field slot);
+     - the document-tab painting helpers (kind icon, dot, close);
+     - `shell::Yields`, a pure function from window and editor width to the yields of section 5.2;
+     - the egui_dock `Style` from tokens (today's `dock_look::style`).
+   - `mg-ui`:
+     - the command table and menus' contents;
+     - the panel registry and which editor brings which panels;
+     - Quick Open's index;
+     - settings and migrations, open-tabs records, `DockState` management;
+     - the panels' contents (tree, browser, palette, preview, log).
+
+**Checked against the code on 2026-11-11:**
+
+- egui_dock 0.21.1 takes one `Style` for a `DockArea` (`widgets/dock_area/mod.rs`, the `style: Option<Style>` field), which is why the docks are egui panels and the editor area stays the one `DockArea`.
+- Moonglow Viewer's `Cargo.toml` takes twelve toolset crates by git tag (v3.14.0) and neither `mg-ui` nor `mg-uikit`, so removing `Tab::Resources` and `Tab::Palette` does not reach it.
+- A new installation is told from an existing one only in `Settings::read_eframe`'s `NotFound` branch (`crates/mg-ui/src/settings.rs:1134`).
+- Ctrl+P is bound to nothing today (`keys.rs:382` gives the Command Palette Ctrl+Shift+P).
+
+#### Part 3. The plan
+
+Three merge points cut M3 into coherent, taggable states. Every task ends with:
+
+- `cargo test --workspace --exclude mg-corpus-tests --lib --bins --tests`;
+- the three clippy commands (including the hand-run tests);
+- `cargo fmt`;
+- `trail check`;
+- where docs changed: `okf index docs`, `okf lint docs --links` and a `docs/log.md` entry;
+- the task's pictures re-rendered with `screens.rs` and looked at before and after.
+
+##### M3a: The frame (T0 to T8; merge point after T8)
+
+**T0. The shell's pictures (do first).**
+
+- **Goal.** Add the `screens.rs` cases every later task re-renders. The rule "reproduce a view as a picture before fixing it" needs the "before".
+- **User sees.** Nothing.
+- **Files.** `crates/mg-ui/tests/screens.rs`: a `shell` family on Chapter1 `map_m1q1a`, in both themes:
+  - `shell_main` at 1600x900 (board Main.png);
+  - `shell_narrow` at 1280x800 (Narrow.png);
+  - `shell_wide` at 3440x1440 (WideArea.png);
+  - `shell_floating`, a script floating over the area (Floating.png);
+  - `shell_welcome` (Welcome.png).
+
+  Do not touch `src/`.
+- **Baseline for frame times (already measured).** The measuring half of T0 is done: the quiet runs of `frame_perf` and `editor_perf` made on 2026-11-11 on this same tree are kept at `/home/august/Projects/moonglow-toolset/target/ui-mock/perf-m2/perf-after/quiet-frame_perf.log` and `quiet-editor_perf.log`, with `compare.md` beside them, against `develop` before the redesign in `perf-before/`. (`target/` is not in git.) Later tasks compare their `frame_perf` runs with those logs. Also run `FRAME_SHOTS=1`.
+- **Order.** Nothing before it. No app change, so the app stays coherent.
+- **Tests.** The pictures only (ignored cases).
+
+**T1. The kit's shell parts (`mg-uikit`).**
+
+- **Goal.** The components the shell draws, each once.
+- **User sees.** Only menu rows at 24 px with no gap (known difference "menu rows 26 vs 24", settled here). Today `menu_style` and `menu_rows` give 22 + 4 (controls.rs:478-506).
+- **Adds.** `KeyCap`, `Badge` (accent, error, warn, ok, info, tag; text per proposal section 4.2), `modified_dot`, `DockTabs`, `PanelHeader`, `FoldStrip`, the `status` parts (switch with badge, separator, `Hints` that drop whole, right items, job bar), `TopBar` menu-title style, and `shell::Yields` (pure). Move `dock_look::style` behind feature `dock` (O5) and keep `dock_look` as a re-export; the crate's "egui alone" comment (`mg-uikit/Cargo.toml` and `lib.rs:11`) is changed with it. Measures come from `moonglow.css` (.kbd, .badge, .docktab, .statusbar, .sb-*, .menu, .menu-row, .topbar).
+- **Must not touch.** mg-ui's layout.
+- **Tests.**
+  - Unit: `Yields` at 1279, 1280, 1299, 1300, 1399, 1400, 1499, 1500; menu row pitch 24; badge text contrast in both themes.
+  - Kit sheet picture (`cargo test -p mg-uikit --test kit -- --ignored`), compared with Foundations and LightFoundations.
+  - Run `menus_by_the_keyboard` and the context-menu screens.
+- **Risks.** Every menu's height changes: `grouped_context_menus` and `context_menus` pictures.
+- **Coherent.** Yes.
+
+**T2. The frame skeleton: Top Bar, Left and Bottom Dock frames, Status Bar (the smallest task that proves the frame end to end).**
+
+- **Goal.** Replace lib.rs:1706-1753 with `shell.rs`:
+  - a 30 px **Top Bar**: the eight menus; New, Open, Save, Undo, Redo as icon buttons; Compile, Verify and **Test Module** with an arrow for Choose Character on the right (Test Module is new to the bar);
+  - the **Left Dock** frame with one dock tab, Module (today's tree inside);
+  - the **Bottom Dock** frame with one tab, Log, opened by a **Log** switch in a new **Status Bar**;
+  - the editor area unchanged, palettes pane included for now.
+- **User sees.** One top row instead of two; the tree and log in docks with tab bars; a Status Bar with the Log switch and its right items.
+- **Today's toolbar buttons get homes:**
+  - Properties and New Area: Module panel header icon buttons.
+  - Start: View › Go to Start (exists; the compass button is M4).
+  - Resources, Palettes: the Tools menu (until T4 and T5).
+  - Preview: the Command Palette (until T6).
+- **Files.**
+  - `lib.rs:1706-1753` and `pane_edge`/`pane_fold` for tree and log (the strip becomes the Left Dock's `FoldStrip`; the Bottom Dock's one button is its Status Bar switch).
+  - `commands::toolbar` and `TOOLBAR` become `TOP_BAR`; the test `the_toolbar_and_menus_name_commands_once` (commands.rs:2145) follows to `TOP_BAR`.
+  - The accessible group becomes "Top Bar". Undo and Redo keep the `undo_before_bars` path (lib.rs:1711-1718) keyed on the Top Bar's rect, and fall back to the focused leaf's side editor (the active editor).
+- **Settings.** `toolbar_icons_only` stops applying to the Top Bar, which is always icons. The Options control is renamed "Editors' toolbar buttons" until M4 (scope move S1; R4 gates only this wording). `hide_tree` means "Left Dock folded" and `hide_log` "Bottom Dock closed".
+- **Tests.**
+  - `common::tool` and `in_toolbar` look in "Top Bar".
+  - Rewrite `the_toolbar_shows_icons_only_when_asked` as "the Top Bar draws icons with tips; the area toolbar still honors the setting".
+  - Migrate `panels_fold_away_and_come_back`, `each_pane_folds_by_one_button_on_its_inner_edge`, `the_log_shrinks_to_one_line` and `screens::panes_folded`, `main_window_log_and_tree`, `toolbar_icons_only`: about 8 tests, 20 fold-name lines.
+  - New: Top Bar buttons named, enabled and run; Test Module's arrow runs Test Module, Choose Character.
+  - Pictures: `shell_main` against Main.png (Top Bar, Status Bar).
+- **Manual.** 02-main-window intro (lines 11-29) and "The log" (761); 01-getting-started:83 ("New Area on the toolbar"); 07-scripts:86,99 and 03-modules:1739 ("the toolbar's Undo" becomes the Top Bar's); 10-options:256.
+- **Risks.**
+  - `frame_perf` run: the Top Bar's icons are tessellated each frame.
+  - Plugin menus unchanged.
+  - Not a merge point.
+
+**T3. The Module panel.**
+
+- **Goal.** The Left Dock's Module panel as drawn:
+  - header icon buttons Module Properties, New Area, Expand All, Collapse All;
+  - the filter;
+  - a kind icon and right-aligned count per group;
+  - the **Areas group scrolls inside its own group** (ruling 10);
+  - the Left Dock folds to the 24 px icon strip with chevron.
+- **Files.** `tree.rs:786-860` (`module_tree` header and groups), `shell.rs`.
+- **Must not touch.** The tree's keys, selection, filter or follow-the-tab logic (learnings 2026-10-16, 10-28).
+- **Tests.**
+  - App: the Areas group scrolls on its own with 113 areas while groups below stay in place; header buttons run their commands; the strip unfolds.
+  - Migrate the `tree.rs` tests that find "Expand All" globally (the palette has one too).
+  - Picture `shell_main` Left Dock against Main.png and LightArea_crop_left.png.
+- **Manual.** 02 "The module tree" (225).
+
+**T4. The Resources panel (R5, ruled).**
+
+- **Goal.** `Tab::Resources` becomes `Panel::Resources`, the Left Dock's second tab: Type, Name filter and Overridden copies on top; Refresh and Export N as Files… in the panel header; the count in the panel; double-click opens the read-only tab in the editor area.
+- **Files.** `browser.rs` (`ui` and its width), `tabs.rs` (remove the variant), `lib.rs` (`keep_middle`'s `Tab::Resources` branch at 2672-2678, `step_pane`'s Browser at 2526-2537), `commands.rs:787` (`Id::Resources` shows the panel), `open_tabs.rs` (`parse_tab("resources")` shows the panel; never written as a tab).
+- **Settings and layouts.** `window_places` entries of kind `resources` are dropped (one migration function, `Settings::shell_migrate`, idempotent). An open-tabs record with "resources" shows the panel.
+- **Tests.**
+  - Migrate `resources.rs` (36 tests; 8 open the tab).
+  - Retire with a reason in the commit `the_resource_browser_dropped_on_a_side_is_docked_there` and `the_resource_browser_alone_keeps_the_middle_beside_it` (the behavior is gone; see R5). Their deferred entry (issues 11, 20, 23, deferred.md:957-975) closes.
+  - Migrate the windows.rs record tests that name it (`side_editors_and_tools_open_again_with_the_module`, `what_side_editors_…`).
+  - New: an old record with "resources" opens the panel.
+  - Picture against Resources.png at 260 px.
+- **Manual.** 02 "The resource browser" (645).
+- **Risks.** The browser at 260 px wide: its columns must cut with an ellipsis, not overflow (picture at the least width).
+
+**T5. The Right Dock and the Palette panel (R5, ruled).**
+
+- **Goal.** `Tab::Palette` becomes `Panel::Palette` in a Right Dock (320 px default, **least width 280**). The palettes' pane machinery goes.
+- **User sees.** The palette in a dock with its own tab bar; the Right Dock folds to a strip like the left (issue 10's one-button rule, kept; see U3).
+- **Files.**
+  - `lib.rs`: `Place::Palettes`, `palettes_edge`, `pass_covered_arrow`, `palette_split`, `palette_share`, the side-pane half of `keep_middle`, `OpenTab(Tab::Palette)` (4245-4269), `open_palette` (1756-1761), `show_panel`/`panel_shown` (2197-2231), `reset_layout` (2369), `closed` (2419).
+  - `tabs.rs:437` (`plugins.pane = Palette` moves into the panel's draw).
+  - `palette_view.rs` (its keys and `Keys::Palette` in `step_pane`).
+- **Settings and layouts.**
+  - `hide_palettes` means "Right Dock folded".
+  - `window_places` entries with place `palettes` are dropped (the kind opens at its default), and so is the palette's own entry (`split left …`).
+  - Open-tabs place `palettes` already parses to "where its kind opens"; the tab text "palette" means "show the panel".
+- **Tests.**
+  - Add `common::show_palette(h)` first and make the about 100 `Tab::Palette` lines call it (tiles 31, palettes 21, windows 26, area_view 8, looks 5, tree 3, screens 12, frame_perf 15, world_perf 2, campaign_perf 1).
+  - Retire `the_palettes_dropped_on_the_middle_join_its_tabs`, `the_palettes_covered_arrow_is_passed_by_the_keyboard`, `tabs_open_beside_the_palette_not_in_its_pane`, `the_middle_says_no_area_is_open_without_the_palettes` (the pane they test is gone).
+  - Turn `a_tab_kept_in_the_palettes_pane_opens_there_again` into the migration test.
+  - Run `views_draw_nothing_over_anything_else` (windows.rs:914) at the Right Dock's least width: the palette list toolbar no longer spills under the fold button at about 135 px (known difference, settled here).
+  - Unit: `shell_migrate`.
+  - Pictures `shell_main` and `shell_wide` against Main.png.
+- **Manual.** 02 "The palette" (624) and the intro sentence "Palettes on the toolbar brings it back".
+- **Parity.** `docs/parity/checklists.md` "Palettes" (192).
+- **Risks.**
+  - `frame_perf` run: the palette draws in a panel now.
+  - Plugin `ctx.selection` from the palette: run `plugins.rs`.
+  - Closes the issue-10 entry's palettes part (deferred.md:921-944).
+  - Largest task of the milestone; if it runs past a day, land `show_palette` and the registry stub first as their own commit.
+
+**T6. The Preview panel; the docks follow the active editor.**
+
+- **Goal.** `preview_window` (`area_tools::preview_window`, area_tools.rs:787) becomes `Panel::Preview` under the Palette, stacked, each with its own tab bar. The registry rule goes live: the Right Dock shows the active docked editor's panels and is not drawn when there are none.
+- **User sees.** Preview under the palette. With a script tab in front (once As Tabs exists), the Right Dock goes away.
+- **Files.** `area_tools.rs:787-833`, `commands.rs:901` (`Id::PreviewWindow` toggles the panel), `shell.rs`.
+- **Tests.**
+  - App: Preview shows the palette's blueprint and the toggle hides it; the Right Dock follows the front tab of the focused main leaf, not a floating window's.
+  - Migrate `tool(&h, "Preview")`.
+  - Picture against Main.png's right column.
+- **Manual.** 02 (the Preview button line); 05-blueprints if it names the Preview window.
+- **Risks.** `frame_perf` run (the preview's 3D view now draws every frame while shown).
+
+**T7. Bottom Dock and Status Bar completed.**
+
+- **Goal.**
+  - The Log's Status Bar switch shows the **last log line** while closed.
+  - Right items: the module's **name** with "(modified)" and its path in the tip (U4), a running job with a bar, the game folder.
+  - The notices stay strips under the Top Bar.
+  - The Log keeps Copy, Save…, Clear in its panel header (today in its corner).
+  - A new installation's Bottom Dock is closed (`new_installation()`).
+- **Not in M3.** Problems and Search Results switches arrive with their panels in M4 (dialogs to panels), so no switch without a panel. M3 has the Log's switch only.
+- **Files.** `lib.rs:3040-3068` (`status_bar`), `log_ui` (3070), `apps/moonglow/src/main.rs:618-622`.
+- **Tests.**
+  - Unit: `new_installation()` differs from `default()` only in `open_editors` and `hide_log`; an old RON file without the new fields reads as `default()` with nothing unread; the retired field reads with no warning and no `app.ron.unreadable-*` copy.
+  - App: the last line shows when closed; the switch opens and closes and keeps its size.
+  - Migrate the log tests (`the_log_s_lines_carry_their_time`, `the_whole_log_is_copied_and_saved`, `the_log_takes_the_keys_only_from_its_own_clicks`).
+  - Picture `shell_main` Status Bar against Main-status.png.
+- **Manual.** 02 "The log", 13-troubleshooting mentions.
+
+**T8. Quick Open.**
+
+- **Goal.** The Top Bar field "Go to resource or command" (Ctrl+P key cap; at most 440 px) with a popover of results:
+  - the module's resources (by ResRef and, for areas, by name), the read-only load-order resources, the commands, plugin entries and project commands;
+  - empty field: recent areas and recent modules' areas first.
+
+  Ctrl+Shift+P and Help › Command Palette… open it restricted to commands (U7). The modal `palette_window` goes.
+- **Files.** New `quick_open.rs` (an index cached by `ws.revision()` and the load order's generation; `Needle` filter; at most 50 rows with `show_rows`). `commands.rs` (`found` reused; a new `Id::QuickOpen` in the `Id::all` extras, as `FullScreen` is), `keys.rs` (`Cmd::QuickOpen`, Ctrl+P, id `quick-open`), `lib.rs:3032-3034` (`shortcuts` waits while the field has focus).
+- **Tests.**
+  - Unit: ranking (module before game, name before ResRef); an empty query shows recent areas; the index is rebuilt on revision change only.
+  - App: Ctrl+P, type "formosa", Enter opens `m1q3_formosa_9`'s tab; Ctrl+Shift+P finds Build Module and runs it.
+  - Migrate `the_command_palette_finds_a_command_and_runs_it` and the 14 palette lines; `the_keys_that_work_anywhere_are_all_commands` holds with the new id.
+  - Picture `screens::command_palette` becomes `quick_open`, against Main.png.
+- **Manual.** 02 "Keyboard shortcuts" (147) and "Menus"; **17-plugin-api.md:274** ("the Command Palette" becomes "Quick Open"); 14-coming-from-aurora if it names the palette.
+- **Risks.**
+  - A user who bound Ctrl+P keeps their key (Keymap's conflicts).
+  - Index cost on a large load order: build lazily on first focus, off the frame if it exceeds 2 ms (time it).
+  - `frame_perf` not needed unless the field draws results at rest.
+
+**Merge point M3a, after T8.** Coherent:
+
+- The toolbar is gone and every one of its buttons has a home; Top Bar, Left Dock (Module, Resources), Right Dock (Palette, Preview), Bottom Dock (Log) and Status Bar exist.
+- Editors still open as today (floating unless moved).
+- The manual is true. Tick the Main Toolbar and Window rows of `ui-redesign-moves.md` that are done (all but Start's compass button, which is M4).
+- `frame_perf` against the T0 baseline logs.
+
+##### M3b: Editors in the shell (T9 to T11; merge point after T11)
+
+**T9. Document tabs and editor groups.**
+
+- **Goal.**
+  - Document tabs with a kind icon (`icons::object` and editor icons), the name, a **modified dot** replacing " *" (script, talk table, side editors' dirty state), and a close button shown on hover and on the active tab.
+  - The 2 px accent line kept (`dock_look::marks`), `line-soft` in an unfocused group.
+  - A **Split** button at the tab bar's right makes a second editor group from the front tab.
+  - Groups are main-surface splits stored as `split right 500`, so older versions read them.
+- **Files.** `tabs.rs:536-609` (`title` with room left for the icon), `dock_look.rs` (paint icon and dot in `marks`), `lib.rs` (`middle_pane`, `split_of`, `split_middle`, `keep_middle` generalized from "the leaf with an area" to "the editor groups"; `NoArea` stays the empty editor area's state).
+- **Tests.**
+  - App: the dot appears on an edited script and goes on save; Split makes two groups and the docks follow the focused one; the tab keys (Ctrl+Tab, Ctrl+digit, Ctrl+W) work per group.
+  - Migrate `tabs_by_the_keyboard`, `a_tool_window_reopens_in_its_split_of_the_middle`, `a_tool_window_opens_where_its_kind_was_last_docked`.
+  - Picture `shell_wide` (a script in a second group) against WideArea.png.
+- **Manual.** 02 "Tabs and windows" (450-622, the tab part).
+- **Risks.**
+  - `frame_perf` run (icons on every tab).
+  - Accessibility: the tab's name stays its title without " *". Tests that read titles with " *" (only the OS window title, modules.rs:49, which stays) are unaffected.
+
+**T10. The Open editors switch and stored places (R1 and R3, ruled).**
+
+- **Goal.**
+  - Options › General › Editors: **Open editors: As Tabs | As Floating Windows**, with its note. Under it: Open Properties as tabs of one window, Closing a window cancels its changes, Move windows by dragging anywhere.
+  - As Tabs opens every editor in the focused group; areas always as tabs.
+  - **"This kind goes to a window" is stored** in As Tabs mode (found-on-the-way 5): `remember_window_places` stops skipping `Place::Window` (lib.rs:2187-2189).
+  - Eject, or a drag out, stores it; View › Reset Layout forgets it.
+  - Escape on a docked tab with OK and Cancel follows R1; plugin panels (`Tab::PluginPanel`) follow R3.
+- **Files.** `settings.rs` (`open_editors: OpenEditors`, default `Floating`, `new_installation()` gives `Tabs`), `options.rs` (General page, Editors section; the draft field), `lib.rs:2123` (`place_for` default by mode), `lib.rs:4270-4319` (`OpenTab`).
+- **Settings migration.** An existing file has no field and reads `Floating`; no file reads `Tabs`. Stored places keep their meaning in both modes.
+- **Tests.**
+  - Unit: defaults and the stored "window" place.
+  - App, each in both modes: a script opens as a tab or a window; Eject in Tabs mode makes the next script open as a window; Reset Layout clears it; Properties gather in Floating mode only.
+  - Migrate `editors_open_in_windows_over_the_area` (keeps Floating) and `properties_and_conversations_open_as_tabs_of_one_window`, `scripts_open_as_tabs_of_one_window` (Floating).
+  - Both modes for the existing families. Because `Settings::default()` stays As Floating Windows, the mode every new installation gets (As Tabs, log closed, the docks following the active tab) would otherwise be covered only by new tests. T10 therefore runs these existing test families in both modes, through a shared helper that builds the app with `Settings::new_installation()`: closing a tab with unsaved changes and its Cancel, Escape (per R1), the open-tabs records written and read back, the tab keys per group (Ctrl+Tab, Ctrl+digit, Ctrl+W), and the stored places of kinds.
+  - Picture `options_window` against Options.png's Editors section.
+- **Manual.** 02 "Tabs and windows" ("Everything else opens in a window of its own…" rewritten for both modes); 10-options (the new switch, the three settings).
+- **Risks.** Escape as Cancel (R1). Without an answer, As Tabs users lose Escape on Properties and Options tabs: say so in the manual either way.
+
+**T11. Floating windows and dialogs.**
+
+- **Goal.**
+  - Floating editors get the border, 4 px radius and `--shadow`, a bar row (collapse arrow, tabs with ×, Maximize, Close) and a resize grip, keeping `window_bars`.
+  - Dialog titles are **left-aligned in a bar row**: `widgets::centered` (widgets.rs:3212) draws its own bar with `title_bar(false)`, with drag by the bar and a Close named "Close". Known difference "window titles centered", settled here.
+  - Dialogs open centered in the editor area, so **wizards no longer cover the Welcome subtitle** (known difference, settled).
+  - **Remembered window sizes** taken before the theme are scaled once by `Tab::taller()` of their kind (a marker field `window_sizes_scaled`). Known difference, settled.
+- **Files.** `lib.rs:2785-2845`, `widgets.rs:3212-3265`, `tabs.rs:100-242` (a `taller_of_kind(&str)`), `settings.rs`.
+- **Tests.**
+  - Unit: the size migration runs once; a missing marker means unscaled sizes.
+  - App: a dialog drags by its bar and closes by its Close; `a_window_is_maximized_by_its_key_and_button_and_stays_so` and `windows_remember_their_size_and_maximize` still pass (migrated where they read sizes).
+  - Pictures `shell_floating` against Floating.png; `dialog_windows` and `script_wizard_pages` against Dialogs.png's title rows; `shell_welcome` with the Area Wizard open (the subtitle in sight).
+- **Manual.** 02 (window bar paragraph).
+- **Risks.** `click_window_close` (common.rs:811) finds egui's close today and must find the new one; about 40 helper uses run through it.
+
+**Merge point M3b, after T11.** Coherent: new installations open editors as tabs and existing ones keep windows; the manual says both.
+
+##### M3c: Widths, Outliner, hints (T12 to T15; merge point after T15)
+
+**T12. Status Bar hints and counts.**
+
+- **Goal.**
+  - A hints API (`shell::hints(&[Hint])`, key caps and a word, dropping whole from the end).
+  - The **area view's hint line** (area_view.rs:3380-3447) moves into it as key caps, state by state: idle, one selected, several selected, placing a blueprint, placing a light, a brush, scaling, a refused scale, Select Tiles with its notice. Its row in the area view goes.
+  - The counts "11 by 11 tiles, 192 objects" move from the area toolbar (3305-3307) to the Status Bar's right.
+  - The Welcome page's hints (Ctrl+N, Ctrl+O, Ctrl+P).
+- **Files.** `area_view.rs:3300-3447`, `tabs.rs` (welcome), `shell.rs`.
+- **Tests.**
+  - Unit: hints drop whole at a narrow width.
+  - App: each state's hints (migrate the tests reading the hint line; grep the tests for "Click to select" and "Placing").
+  - Pictures `shell_main` and `shell_welcome` against Main.png and Welcome.png Status Bars.
+- **Manual.** 04-areas (where the hint line is described).
+- **Risks.** `frame_perf` run (hints laid out every frame).
+
+**T13. The Outliner (R2, ruled).**
+
+- **Goal.**
+  - The Left Dock splits: Module/Resources over the **Outliner** (resizable seam).
+  - For an area: the placed objects by kind, each with its count and an **eye** bound to `view.show[kind]` (the same state as the area toolbar's Show toggles); rows with a kind icon, name and weak tag; click selects in the view; the selected object is revealed.
+  - Shown only while the active editor brings one (the area in M3).
+- **Files.** New `outliner.rs` (reuse the tree's per-area contents code, `tree.rs` contents and row helpers), `shell.rs`.
+- **Tests.**
+  - App: the eye hides a kind in the view and toggles the area toolbar's "Show Creatures"; selecting in the view marks the row and selecting a row selects in the view.
+  - Accessibility: the group is named "Outliner", so `area_tool` and Outliner eyes do not collide.
+  - Picture against Main.png and LightArea_crop_outl.png.
+- **Risks.**
+  - **`frame_perf` must run**: area084's 549 objects; kinds closed by default except the selection's; `show_rows`.
+  - The module tree keeps its opened-out area rows until R2 is answered.
+- **Manual.** 02 (new Outliner section), 04-areas.
+
+**T14. How the shell yields, and the wide layout.**
+
+- **Goal.** Apply `Yields` (section 5.2):
+  - below W 1300: Compile, Verify and Test Module lose their words, Quick Open is capped at 300 px and becomes an icon under 240;
+  - below 1500: the Left Dock folds to its strip automatically, without writing `hide_tree`, and the user can unfold it;
+  - below 1400: the Right Dock goes to 280 px with its panels as tabs, and the Status Bar switches become icons, then the game folder drops, then hints drop.
+
+  Section 5.3 at W ≥ 2560 (U1): Left Dock 320 by default; the Right Dock stands two columns (Palette | Preview) when wider than 2 × 280.
+- **Not in M3.** The area header's compact form (E < 990), Snap and Turn text (E < 550) and More (E < 490) are M4's area header.
+- **Tests.**
+  - App at 1280, 1399, 1499 and 3440: what is shown, by name.
+  - Pictures `shell_narrow` against Narrow.png and Narrow_crop_*.png; `shell_wide` against WideArea.png.
+- **Risks.** `frame_perf` at 3440 (and 1280 with `FRAME_TARGET`).
+- **Manual.** 02 (a paragraph on narrow and wide windows).
+
+**T15. Closing pass.**
+
+- **Goal.**
+  - `frame_perf` and `editor_perf` against the T0 baseline logs.
+  - **The icon mesh cache, decided by measure.** If the shell's median view cost rises more than about 0.1 ms, or tessellation grows more than 25% over the baseline, build the cache keyed by icon, size, color and the font atlas's size (proposal line 782). Otherwise record the numbers and the decision in the proposal.
+  - Replace README's `docs/images/area.jpg` from `readme_screenshots` (U2).
+  - Tick the Where Things Moved rows done in M3.
+  - Close the deferred entries the shell supersedes (issue 10's palettes and arrow parts, deferred.md:921-944; issues 11, 20 and 23, :957-975; the window bar, :1701), each with its reason.
+  - Sweep the manual and `docs/parity/checklists.md` (§1 "Main menus…", :315-345 naming `TOOLBAR`; "Area viewer" :261).
+- **Merge point M3c.**
+
+#### Part 4. Where the documents disagree
+
+| # | One side | Other side |
+|---|---|---|
+| 1 | `frame_perf.rs:45` measures at 3440x1400 | Its own doc (`:6`) and the brief say 3440x1440 (probably the usable height under the taskbar; say so in the file) |
+| 2 | `ui-redesign-moves.md:47` lists "Test Module (F9)" in today's toolbar | `commands.rs:289-313` `TOOLBAR` has none (Build menu only) |
+| 3 | Proposal:252 and moves:202: a floating script window is 1040 by 640 | `tabs.rs:196`: 1120x720, times `ROWS_TALLER` |
+| 4 | Proposal:252,604: the tab menu is "Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right", "unchanged" | `tabs.rs:670-753` also has Claim/Release Claim, Maximize/Restore, plugin commands, Close All. Keep the code's. |
+| 5 | Proposal:757 (M2): the screenshots are replaced with M3 | Proposal:800 (M5): replaced in M5 |
+| 6 | Brief and `CLAUDE.md:6` call `aurora-ui-inventory.md` the parity checklist to update | It is generated from Aurora's exe (frontmatter `process:aurora-uiinv-gen`; CLAUDE.md:113-116) and lists Aurora alone. The Moonglow file is `docs/parity/checklists.md` (:328, :342 name `TOOLBAR`). Consequence: M3's tasks update `docs/parity/checklists.md`; `docs/parity/aurora-ui-inventory.md` is generated and not edited by hand |
+| 7 | Mock Status Bar: the module name ("Chapter1 (modified)", Main.png; "No module open", Welcome.png) | `lib.rs:3041-3065` and moves:52: the full path |
+| 8 | Moves:576: Plugins "a Right Dock panel or a tab" | Ruling, proposal:697: "Plugins becomes a tab" (the ruling wins) |
+| 9 | `mg-uikit/Cargo.toml` and `lib.rs:11`: "Egui alone among the UI crates" | Ruling 9 (proposal:686): one shared crate for theme, icons, **shell** and widgets; the shell's editor area is egui_dock (decided: O5) |
+| 10 | Proposal M3 (771): "the Toolbar buttons setting retired" in M3 | The area and editor toolbars read it (`icons::Tools::of`, 19 sites) until M4 replaces them |
+| 11 | Boards show Problems and Search Results switches (Main.png, Welcome.png) | Their panels exist only after M4's dialogs-to-panels |
+| 12 | Proposal section 5: Start moves "to the area editor (the camera button under the compass; also the View menu)" | The compass is M4: in M3 Start is View › Go to Start and Quick Open |
+| 13 | Notices "under the toolbar" (`lib.rs:1719-1723`; 10-options:290,661,670) | No board places them with a module open (Welcome puts the update in its Status section). Plan: strips under the Top Bar |
+| 14 | Proposal 5.3 "docks stand two columns wide" at 3440 | No width threshold is given anywhere (U1) |
+
+#### Part 5. Decided
+
+Decided by the implementer on 2026-11-11:
+
+- **U1.** Wide layout from W ≥ 2560: Left Dock 320 by default, Right Dock two columns when wider than 560.
+- **U2.** Replace README's `area.jpg` at M3c (the shell picture changes then); the editors' screenshots at M5.
+- **U3.** Each dock keeps one fold button on its inner edge (issue 10's rule): the strip chevron for Left and Right; the Status Bar switch for Bottom.
+- **U4.** The Status Bar shows the module's name and "(modified)", the path in the tip.
+- **U5.** Existing settings keep the Log open; new installations start closed.
+- **U6.** No dragging panels between docks in M3 (ruled by the owner as R5).
+- **U7.** Ctrl+Shift+P opens Quick Open restricted to commands.
+- **O5.** `mg-uikit` takes egui_dock 0.21 behind an optional `dock` feature, so that the viewer gets the dock style and tab marks from the same place: ruling 9 put the shell in the shared crate. The crate's "egui alone" comment is changed with it.
+- **Merge points.** M3 is merged into `develop` at three points, M3a, M3b and M3c, each coherent with the manual true.
+
+#### Part 6. Rulings for M3
+
+Put to the owner on 2026-11-11 with a recommendation each, and ruled the same day: "You may proceed as suggested." Each is carried out as its recommendation says.
+
+- **R1 (the plan's O1). Escape on a docked tab with OK and Cancel** (a Properties tab, Options). Today Escape cancels only a floating one (`tabs.rs:393`), so As Tabs takes it away from new users, and the Options board's hints omit it (proposal finding 13.4). **Ruled, as recommended:** Escape cancels the active docked tab that has OK and Cancel while the pointer or keyboard is in it, as floating does; the hints then show Esc. Gates T10.
+- **R2 (O2). The module tree's area rows opened out to their objects, once the Outliner exists.** The boards' Module panel lists areas without arrows; the moves tables do not say. **Ruled, as recommended:** keep both in M3 (builders rely on "the tree follows the selected object", and its tests are many); decide the removal with M4's area editor. Gates T13.
+- **R3 (O3). Plugin panels** (`Tab::PluginPanel`, Plugins › Panels) as editor tabs or windows, following the switch, or as Right Dock panels. **Ruled, as recommended:** tabs or windows in M3 (they are not one editor's); revisit when the dialogs become panels in M4. Gates T10.
+- **R4 (O4). Retiring "Toolbar buttons" at M4, not M3**, since the area toolbar's Icons-only mode is what keeps it on one row until M4's header. **Ruled, as recommended:** yes, at M4. The Top Bar ignores the setting from T2 and the Options control is renamed until then. Gates T2's Options wording only.
+- **R5 (new, from U6 with T4 and T5). Panels are fixed to their docks in M3.** Today the resource browser and the palettes can be dragged to a side or into the middle and are docked there (GitHub issues 10, 11, 20 and 23, the `docs/deferred.md` entries named in T4 and T5); with the docks as panels that goes away: Resources lives in the Left Dock, Palette and Preview in the Right Dock, and a dock folds but its panels do not move. **Ruled, as recommended:** accept it for M3 and M4 (the mock's shell places every panel, and no board shows a panel moved), and file moving panels between docks as its own later piece of work only if the owner wants it. Gates T4 and T5; tasks before them (T0 to T3) do not depend on it.
+
+#### Part 7. Scope moves
+
+| Move | Reason |
+|---|---|
+| **S1** "Toolbar buttons" retirement, M3 to M4 | R4 |
+| **S2** The Properties panel (a placed object's properties in the Right Dock, apply-at-once with Undo, ruling 2), M3 to M4's area editor | It changes the editor's insides (its pages as a rail, Cancel becoming Undo) against M3's exit "without yet changing their insides" |
+| **S3** Problems and Search Results switches, and every editor's own dock panels (Reference, Node, Cell…), stay in M4 | They come with their panels |
+| **S4** The area view's hint line moves *into* M3 (T12) | Rule 5 and the Main board put hints in the Status Bar, and a hints slot with no client would ship empty |
+| **S5** The area's Outliner moves into M3 (T13); the other editors' Outliners stay M4 | The M3 bullet names it, and an Outliner frame with no contents would show an empty panel |
+
+#### Handing out the tasks
+
+A standing note for whoever hands out the tasks:
+
+- One code writer at a time in the worktree.
+- After each task, an independent read-only reviewer on the commit, then a fix round.
+- The owner's findings from live testing M2 take the writer's slot ahead of M3 tasks.
+- The hand-run timing tests (`frame_perf`, `editor_perf`, `world_perf`, `campaign_perf`, `nui_perf`) are run after any task that renames or moves controls, since the suite only compiles them.
+
+#### Critical files for implementation
+
+All under `crates/` in the worktree:
+
+- `crates/mg-ui/src/lib.rs`
+- `crates/mg-ui/src/tabs.rs`
+- `crates/mg-ui/src/commands.rs`
+- `crates/mg-ui/src/settings.rs`
+- `crates/mg-ui/src/open_tabs.rs`
+- `crates/mg-uikit/src/controls.rs`
+- `crates/mg-ui/tests/app/windows.rs`
 
 ### M4. Editor by editor
 
