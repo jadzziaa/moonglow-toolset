@@ -64,6 +64,8 @@ mod row_names;
 mod search;
 #[path = "../serve.rs"]
 mod serve;
+#[path = "../sounds.rs"]
+mod sounds;
 #[path = "../test_cmd.rs"]
 mod test_cmd;
 #[path = "../texture.rs"]

@@ -1,6 +1,6 @@
 [package]
 name = "mg-audio"
-description = "The game's sounds and music decoded: PCM and IMA ADPCM WAV, MP3 (BMU)"
+description = "The game's sounds and music decoded: PCM and IMA ADPCM WAV, MP3 (BMU, bare, tagged or inside a WAV)"
 version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true

@@ -14,7 +14,7 @@ cargo test -p mg-corpus-tests --release --tests                         # corpus
 MOONGLOW_FULL_CORPUS=1 cargo test -p mg-corpus-tests --release --tests    # the same over the whole install: before a release
 cargo clippy --workspace --all-targets          # must be warning-free
 cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf --test nui_perf   # the tests run by hand, which --all-targets leaves out
-cargo clippy -p mg-corpus-tests --test client_render --test client_minimap --test client_nui
+cargo clippy -p mg-corpus-tests --test client_render --test client_minimap --test client_nui --test client_audio
 cargo fmt                                       # rustfmt.toml: width 100, "Max" heuristics
 ```
 
@@ -91,6 +91,10 @@ It starts a scratch module with `+TestNewModule` and screenshots the client's
 window. To read what the client actually computes, put a patched copy of the
 game's own shader include in the scratch user directory's `override` (as
 `light_uniforms_match_the_client` does): no tracing tools needed.
+To hear what the client plays (which music and sound files it takes),
+`client_audio.rs` runs it with `MG_CLIENT_AUDIO_OUT` set, which has
+`run-client.sh` give it OpenAL Soft's `wave` backend: what it plays is
+written to a WAV file in the scratch folder, still with no audio device.
 Reading the client's own code (`nm`, `objdump` on the unstripped
 `nwmain-linux`) is a last resort, by the owner's word: only once its
 pictures, patched includes, scripts, shims and runs made to tell the

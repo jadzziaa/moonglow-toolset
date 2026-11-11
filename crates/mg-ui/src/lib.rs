@@ -637,6 +637,10 @@ pub struct Moonglow {
     /// Where sounds play: [`audio::Silence`] until the desktop app gives
     /// its speakers.
     pub speaker: Box<dyn audio::Speaker>,
+    /// The files the log was told the game is silent on (by role, name, type
+    /// found and length), told once each; let go when a module is closed.
+    pub(crate) sound_said:
+        std::collections::HashSet<(audio::Role, mg_core::ResRef, ResType, usize)>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
     /// The game's NUI skin, its fonts and the pictures the open windows
@@ -1225,6 +1229,7 @@ impl Moonglow {
             actions: Vec::new(),
             dialogs,
             speaker: Box::new(audio::Silence::default()),
+            sound_said: Default::default(),
             pictures: HashMap::new(),
             nui_assets: Default::default(),
             nui_views: HashMap::new(),
@@ -3607,6 +3612,7 @@ impl Moonglow {
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
+        self.sound_said.clear();
         self.tag_cache = Default::default();
         // (The project's plugins were its own.)
         self.plugins.settings_form = None;

@@ -138,7 +138,7 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-tlk` | TLK V3.0, custom TLK StrRefs |
 | `mg-set` | tilesets (SET/INI) with data warnings |
 | `mg-ssf` | soundsets |
-| `mg-audio` | sounds and music decoded (MP3 behind `BMU V1.0`, IMA ADPCM and PCM WAVE) for playback |
+| `mg-audio` | sounds and music decoded for playback: MP3 (its first frame found behind `BMU V1.0`, ID3v2 tags or junk, bare or inside a WAVE), IMA ADPCM and PCM WAVE; what is refused is named |
 | `mg-resman` | layered resolution in the engine's order, DDS/TGA rule, install detection |
 | `mg-image` | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
 | `mg-shader` | the game's own shaders (`.shd`): a program assembled as the engine does it (preamble, `#include` splicing through the load order), compiled by glslang (built in), its combined samplers split and locations given on the SPIR-V, read into a validated naga module with its uniforms, textures and varyings by name; errors at their file and line ([the shaders proposal](shaders-proposal.md), M0) |
@@ -300,7 +300,7 @@ What a phase left undone is in the [deferred list](deferred.md).
 | 8 Blueprints and palettes | Standard and custom palettes, the palette pane, editors and wizards for every blueprint type, item costs as the engine computes them | `aurora_blueprints.rs`, `aurora_palette_add.rs`, `engine_blueprints.rs`, `engine_item_cost.rs`, `item_properties.rs` |
 | 9 Area editor, objects | Every shipped area opens and draws; the area viewer with Aurora's camera and selection bindings, filters, grid, placing, moving, turning, raising, copy and paste, polygons, Adjust Location, Find Instance, Area Properties, the context menu's commands, the Preview window | `areas.rs`, `aurora_instances.rs`, `engine_area_edits.rs`, `engine_facings.rs` |
 | 10 Area editor, terrain | Painting as Aurora paints (terrain, crossers, groups, heights), Resize Area and Rotate Area, tile properties, the walkmesh overlay, Area Statistics | `aurora_terrain.rs`, `engine_terrain.rs`, `tiles.rs` |
-| 11 Build, verify, test | Build Module with Aurora's options, the challenge rating calculation, Test Module (F9), Verify, Update Instances, the Levelup and Creature Wizards, creature spell and inventory warnings, sound playback, the remaining dialogs | `aurora_creatures.rs`, `aurora_levelup.rs`, `aurora_creature_wizard.rs`, `aurora_spell_warnings.rs`, `aurora_inventory.rs`, `aurora_update_instances.rs`, `audio.rs` |
+| 11 Build, verify, test | Build Module with Aurora's options, the challenge rating calculation, Test Module (F9), Verify, Update Instances, the Levelup and Creature Wizards, creature spell and inventory warnings, sound playback, the remaining dialogs | `aurora_creatures.rs`, `aurora_levelup.rs`, `aurora_creature_wizard.rs`, `aurora_spell_warnings.rs`, `aurora_inventory.rs`, `aurora_update_instances.rs`, `audio.rs`, `client_audio.rs` (by hand) |
 | 12 Hardening and release | Recovery copies of unsaved work and crash reports; performance budgets on the largest campaigns; packages (AppImage, Flatpak, Windows installer, macOS disk image, built by `.github/workflows/release.yml` on every `v*` tag); the user manual (17 chapters, also in the application) | `crates/mg-ui/src/recovery.rs`, `crates/mg-ui/tests/campaign_perf.rs` (by hand), `packaging/`, `docs/manual/` |
 
 Parity itself is tracked row by row in `docs/parity/checklists.md`: each row

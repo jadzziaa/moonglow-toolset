@@ -145,7 +145,11 @@ fn viewing(
         ResType::WAV | ResType::BMU => {
             let data: std::sync::Arc<[u8]> = data.into();
             match mg_audio::Stream::open(data.clone()) {
-                Ok(_) => Viewing::Sound(data),
+                Ok(_) => {
+                    // (The game plays a WAVE under .bmu in no role.)
+                    app.warn_silent(crate::audio::Role::Viewed, key.resref, key.restype, &data);
+                    Viewing::Sound(data)
+                }
                 Err(e) => Viewing::Plain(crate::browser::Plain::Error(e.to_string())),
             }
         }
@@ -1003,6 +1007,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             }
             Viewing::Sound(data) => {
                 ui.weak(format!("A sound, {} bytes: Play plays it", data.len()));
+                // (Asked each frame, so only of a RIFF file, whose chunks
+                // answer at once: an MP3's first frame is searched for.)
+                let wave = || {
+                    data.starts_with(b"RIFF")
+                        && mg_audio::container(data)
+                            .is_some_and(|(c, _)| c == mg_audio::Container::Wave)
+                };
+                if key.restype == mg_core::ResType::BMU && wave() {
+                    ui.weak("The game does not play a WAVE under .bmu: music must be MP3");
+                }
             }
             Viewing::Table(table, made) => {
                 let label = table.copies[0].0.clone();
