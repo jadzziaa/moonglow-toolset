@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 encoding_rs.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -259,6 +259,49 @@ fn model_info_gives_a_model_s_facts_from_its_text_and_compiled() {
     assert!(lines.contains("Bounds\t0.000 0.000 2.000 to 1.000 1.000 2.000\n"), "{lines}");
 }
 
+/// A text's faces its mesh leaves out are counted apart: one whose two
+/// corners merge into one vertex (vertices 2 and 3 are at one place, with
+/// one UV, and in smoothing group 0 each corner takes the face's own
+/// normal), as the game's compiler leaves it out
+/// (nwn-mdl-spec MDL-MESH-020); one past the vertices is the reader's
+/// note, with its line. The vertices of the face left out stay (5).
+#[test]
+fn model_info_says_which_faces_of_a_text_are_left_out() {
+    let dir = mg_testkit::scratch_dir("mg-model-info-left-out");
+    let text = dir.join("mg_left.mdl");
+    std::fs::write(
+        &text,
+        "newmodel mg_left\nsetsupermodel mg_left NULL\nbeginmodelgeom mg_left\n\
+         node dummy mg_left\n  parent NULL\nendnode\n\
+         node trimesh plane\n  parent mg_left\n  bitmap mg_tex\n\
+         verts 4\n    0 0 0\n    1 0 0\n    0 1 0\n    0 1 0\n\
+         faces 3\n    0 1 2 1 0 0 0 0\n    0 2 3 0 0 0 0 0\n    0 1 7 1 0 0 0 0\n\
+         tverts 1\n    0 0 0\nendnode\nendmodelgeom mg_left\ndonemodel mg_left\n",
+    )
+    .unwrap();
+    let (ok, json) = crate::mg_json(&["model", "info", text.to_str().unwrap()]);
+    assert!(ok, "{json}");
+    assert_eq!((json["faces"].as_u64(), json["faces_left_out"].as_u64()), (Some(1), Some(1)));
+    assert_eq!(
+        json["notes"],
+        serde_json::json!(["line 15: 1 faces refer to vertices past the 4 given and are left out"])
+    );
+    let out = mg(&["model", "info", text.to_str().unwrap()]);
+    let lines = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        lines.contains("Faces\t1 (1 drawn), 5 vertices\nLeft out\t1 faces of the text"),
+        "{lines}"
+    );
+    // A compiled model's faces are its own: none left out.
+    let binary = dir.join("compiled/mg_left.mdl");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    let out = mg(&["model", "compile", text.to_str().unwrap(), binary.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let (ok, json) = crate::mg_json(&["model", "info", binary.to_str().unwrap()]);
+    assert!(ok, "{json}");
+    assert_eq!((json["faces"].as_u64(), json["faces_left_out"].as_u64()), (Some(1), Some(0)));
+}
+
 #[test]
 fn model_info_finds_a_model_by_its_name() {
     let root = mg_testkit::corpus!();
