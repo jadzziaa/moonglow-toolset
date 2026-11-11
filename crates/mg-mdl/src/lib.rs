@@ -680,6 +680,38 @@ mod tests {
         assert_eq!(axis_angle([0.0, 0.0, 0.0], 0.0), IDENTITY);
     }
 
+    /// The classification byte as the game's compiler writes it
+    /// (nwn-mdl-spec MDL-ASCII-021, its classification table): any word
+    /// but these four leaves the byte 0, `gui` and `item` among them (as
+    /// 323 and 126 of the game's text models declare), and only `effects`
+    /// has a plural. A compiled model's byte reads back the same way.
+    #[test]
+    fn a_classification_the_game_does_not_know_is_other() {
+        let known = [
+            ("effect", Classification::Effect),
+            ("Effects", Classification::Effect),
+            ("TILE", Classification::Tile),
+            ("character", Classification::Character),
+            ("door", Classification::Door),
+        ];
+        for (word, class) in known {
+            assert_eq!(Classification::from_name(word), class, "{word}");
+        }
+        for word in ["gui", "GUI", "item", "other", "tiles", "characters", "doors", "placeable"] {
+            assert_eq!(Classification::from_name(word), Classification::Other, "{word}");
+        }
+        let bytes = [
+            (0, Classification::Other),
+            (1, Classification::Effect),
+            (2, Classification::Tile),
+            (4, Classification::Character),
+            (8, Classification::Door),
+        ];
+        for (byte, class) in bytes {
+            assert_eq!(Classification::from_byte(byte), class, "{byte}");
+        }
+    }
+
     /// The client's chain of scaled supermodels (`batch6_supermodel_chain`):
     /// a model of 2 on one of 3 plays the owner's animation at 6, the
     /// supermodel's own at 2, its own at 1; the owner's scale (0.5) not
