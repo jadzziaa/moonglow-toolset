@@ -1413,7 +1413,8 @@ enum ModelCmd {
     /// rest, its skins with their faces and the bones their weights move
     /// (and the bones of all of them), the textures and
     /// materials it names, its supermodel and its own animations with
-    /// their lengths. Text or compiled alike.
+    /// their lengths. Text or compiled alike; a text's faces the game's
+    /// compiler leaves out are counted apart, with the reader's notes.
     Info {
         /// A model's file, or a model's name (`plc_a01`, `plc_a01.mdl`)
         /// found in the game's load order.
@@ -2207,9 +2208,28 @@ fn model_info(
         let data = rm.get_in(at, &key)?.into_owned();
         (data, rm.layers()[at].label.clone())
     };
-    let m = mg_mdl::Model::read(&data).map_err(|e| anyhow::anyhow!("{model}: {e}"))?;
+    let binary = mg_mdl::is_binary(&data);
+    let (m, map) = match binary {
+        true => (mg_mdl::binary::read(&data), None),
+        false => match mg_mdl::ascii::read_mapped(&data) {
+            Ok((m, map)) => (Ok(m), Some(map)),
+            Err(e) => (Err(e), None),
+        },
+    };
+    let m = m.map_err(|e| anyhow::anyhow!("{model}: {e}"))?;
     let f = mg_mdl::facts::Facts::of(&m);
-    let format = if mg_mdl::is_binary(&data) { "binary" } else { "ascii" };
+    let format = if binary { "binary" } else { "ascii" };
+    // (A text's faces that its mesh leaves out once its vertices are
+    // merged, two corners on one vertex, as the game's compiler leaves
+    // them out (nwn-mdl-spec MDL-MESH-020): its rows less the mesh's
+    // faces. Rows past its vertices are the reader's notes.)
+    let left_out: usize = (map.iter().flat_map(|map| m.nodes.iter().zip(&map.meshes)))
+        .filter_map(|(node, source)| Some((node.mesh()?, source.as_ref()?)))
+        .map(|(mesh, source)| source.faces.len().saturating_sub(mesh.faces.len()))
+        .sum();
+    for n in map.iter().flat_map(|map| &map.notes) {
+        out.note(format!("line {}: {}", n.line, n.message));
+    }
     let classification = format!("{:?}", f.classification).to_lowercase();
     let bounds = f.bounds.map(|(min, max)| json!({ "min": min, "max": max }));
     out.json = json!({
@@ -2224,6 +2244,7 @@ fn model_info(
         "node_types": f.node_types,
         "faces": f.faces,
         "faces_rendered": f.faces_rendered,
+        "faces_left_out": left_out,
         "vertices": f.vertices,
         "bounds": bounds,
         "skins": (f.skins.iter())
@@ -2245,6 +2266,12 @@ fn model_info(
     let types = list(&mut f.node_types.iter().map(|(t, n)| format!("{n} {t}")));
     out.line(format!("Nodes\t{} ({types})", f.nodes));
     out.line(format!("Faces\t{} ({} drawn), {} vertices", f.faces, f.faces_rendered, f.vertices));
+    if left_out > 0 {
+        out.line(format!(
+            "Left out\t{left_out} faces of the text: two corners on one vertex once merged, \
+             as the game's compiler leaves them out"
+        ));
+    }
     let shown = |v: mg_mdl::Vec3| format!("{:.3} {:.3} {:.3}", v[0], v[1], v[2]);
     out.line(match f.bounds {
         Some((min, max)) => format!("Bounds\t{} to {}", shown(min), shown(max)),
