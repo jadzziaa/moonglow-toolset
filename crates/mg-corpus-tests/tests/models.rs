@@ -399,6 +399,9 @@ fn body_parts_that_name_another_part_s_texture() {
             .into_iter()
             .any(|t| rm.contains(&mg_resman::ResKey::new(r, t)))
     };
+    // (Meshes naming a texture that exists and is no part's name: a
+    // head's hair, a gem.)
+    let mut no_part = Vec::new();
     let (mut parts, mut other, mut both) = (0, 0, Vec::new());
     for r in rm.list(ResType::MDL) {
         let name = r.to_string().to_ascii_lowercase();
@@ -419,6 +422,9 @@ fn body_parts_that_name_another_part_s_texture() {
                 if has(&name) && has(&t) {
                     both.push(format!("{name} names {t}"));
                 }
+                if has(&t) && mg_rules::models::part_name(&t).is_none() {
+                    no_part.push(format!("{name} names {t}"));
+                }
             }
         }
     }
@@ -435,5 +441,11 @@ fn body_parts_that_name_another_part_s_texture() {
                     || b.starts_with("pmh0_pelvis")
             })
             .collect::<Vec<_>>()
+    );
+    no_part.sort();
+    no_part.dedup();
+    eprintln!(
+        "{} meshes name a texture that exists and is no part's name: {no_part:?}",
+        no_part.len()
     );
 }

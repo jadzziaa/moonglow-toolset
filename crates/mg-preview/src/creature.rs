@@ -389,10 +389,12 @@ pub(crate) fn dressed(
 }
 
 /// The textures a part model is drawn with in place of those its meshes
-/// name: the part's own (`p<g><r><pheno>_<part>NNN`), which the game
-/// applies whatever the model names; and for one that is missing, the
-/// game's fallbacks: the part's own name → phenotype 0 → human of the
-/// same gender → human male; then the same from the texture's name.
+/// name. Where the part has a PLT of its own name
+/// (`p<g><r><pheno>_<part>NNN`, or the first of its fallbacks: phenotype
+/// 0 → human of the same gender → human male; a head's stop at its
+/// race's phenotype 0), the game draws every mesh with that name, whatever
+/// each names; otherwise each keeps what it names, and one that is missing
+/// takes the first texture of the part's own names, then of its own.
 pub(crate) fn plt_fallbacks(
     lk: &Lookup<'_>,
     model: &str,
@@ -409,34 +411,46 @@ pub(crate) fn plt_fallbacks(
 
 /// [`plt_fallbacks`] of `model` (lower case), read from the load order.
 fn read_plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
-    // A part's name, and its fallbacks.
+    // A part's name, and its fallbacks: a head's no other race's or
+    // gender's (an elf's or a woman's head drawn in the human man's PLT of
+    // its name keeps what its mesh names, and one whose mesh names a
+    // texture that is missing is drawn without).
     let named = |name: &str| -> Vec<String> {
         let Some(part) = models::part_name(name) else { return Vec::new() };
         let (g, r, rest) = (part.gender, part.race, part.part);
-        vec![
-            name.to_string(),
-            format!("p{g}{r}0_{rest}"),
-            format!("p{g}h0_{rest}"),
-            format!("pmh0_{rest}"),
-        ]
+        let mut names = vec![name.to_string(), format!("p{g}{r}0_{rest}")];
+        if !rest.to_ascii_lowercase().starts_with("head") {
+            names.extend([format!("p{g}h0_{rest}"), format!("pmh0_{rest}")]);
+        }
+        names
     };
     let mut out = std::collections::BTreeMap::new();
-    // The part's own texture, where there is one, is what the game draws
-    // on it, though its mesh names another part's (the game's own thigh 3
-    // names thigh 2's, chest 32 chest 13's: seen in the client,
-    // `creatures_look` with `MG_PARTS`). A race's part without a texture
-    // of its name takes the human's of that name the same way (the elf's
-    // chest 3 names the human's chest 4 and is drawn in the human's
-    // chest 3). A mesh naming something that is no part's (a head's hair,
-    // a gem) keeps that.
-    let own = named(model).into_iter().take(3).find(|c| lk.has_texture(c));
     // (The model read once, for its textures and for a mesh without one.)
     let parsed = lk.model(model);
-    for b in parsed.as_deref().map_or_else(Vec::new, crate::bitmaps) {
-        if let Some(own) = own.as_ref().filter(|own| **own != b && !named(&b).is_empty()) {
+    let bitmaps = parsed.as_deref().map_or_else(Vec::new, crate::bitmaps);
+    // The part's own PLT, where it has one, is what the game draws on every
+    // mesh of it, whatever the mesh names: another part's texture (the
+    // game's own thigh 3 names thigh 2's, chest 32 chest 13's), a texture
+    // of no part's name, a PLT or a TGA, one mesh of two (a head's hair,
+    // a gem). A race's part without a PLT of its name takes the human's
+    // (the elf's chest 3 names the human's chest 4 and is drawn in the
+    // human's chest 3). A texture of the part's own name that is only a
+    // DDS or TGA replaces nothing. Which of a DDS or TGA and a PLT of the
+    // name is drawn is the renderer's (`mg_render::Assets::texture_kept`):
+    // the DDS or true-color TGA. Seen in the client: `part_textures_look`
+    // in mg-corpus-tests' `client_render.rs`. A mesh whose `bitmap` names a
+    // material (MTR) with a `texture0` keeps the material, as one whose
+    // `materialname` does (the renderer draws that over the bitmap).
+    if let Some(own) = named(model).into_iter().find(|c| lk.has_plt(c)) {
+        for b in bitmaps.into_iter().filter(|b| *b != own && !lk.has_material_texture(b)) {
             out.insert(b, own.clone());
-            continue;
         }
+        if parsed.as_deref().is_some_and(crate::unnamed_mesh) {
+            out.insert(String::new(), own);
+        }
+        return out;
+    }
+    for b in bitmaps {
         if lk.has_texture(&b) {
             continue;
         }

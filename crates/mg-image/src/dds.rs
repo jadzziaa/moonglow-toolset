@@ -10,6 +10,19 @@ use mg_core::bin::Reader;
 
 use crate::{Format, ImageError, Texture, check_size};
 
+/// Whether a DDS is of one gray channel: a standard one whose pixel format
+/// is luminance. The game draws a PLT of the same name over it on a
+/// colored part, as over a gray TGA ([`crate::tga::is_gray`]), where it
+/// draws a DXT1 or DXT5 of gray texels over the PLT (seen in the client,
+/// `part_textures_look` in mg-corpus-tests' `client_render.rs`). Too
+/// short a header: not.
+pub fn is_gray(data: &[u8]) -> bool {
+    data.starts_with(b"DDS ")
+        && data
+            .get(80..84)
+            .is_some_and(|f| u32::from_le_bytes([f[0], f[1], f[2], f[3]]) & DDPF_LUMINANCE != 0)
+}
+
 /// Reads either kind of DDS.
 pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     if data.starts_with(b"DDS ") { standard(data) } else { bioware(data) }
@@ -186,6 +199,22 @@ fn standard(data: &[u8]) -> Result<Texture, ImageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A standard header's pixel format flags tell a gray DDS (luminance)
+    /// from one in color; a BioWare DDS and a short file are not gray.
+    #[test]
+    fn a_luminance_dds_is_gray() {
+        let header = |flags: u32| {
+            let mut h = b"DDS ".to_vec();
+            h.extend([0; 76]);
+            h.extend(flags.to_le_bytes());
+            h
+        };
+        assert!(is_gray(&header(DDPF_LUMINANCE)));
+        assert!(!is_gray(&header(DDPF_RGB)) && !is_gray(&header(DDPF_FOURCC)));
+        assert!(!is_gray(&header(DDPF_LUMINANCE)[..82]));
+        assert!(!is_gray(&[0; 128]));
+    }
 
     fn bioware_file(w: u32, h: u32, channels: u32, levels: usize) -> Vec<u8> {
         let format = if channels == 3 { Format::Bc1 } else { Format::Bc3 };

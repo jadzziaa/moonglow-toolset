@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T00:59:30Z }
 ---
 
 # Blueprints
@@ -743,7 +743,9 @@ every change, as Aurora does on OK.
 - **Appearance** opens with the creature's model, as it looks now and as
   large as the window has room for; its wings, tail and colors, and its
   body parts, are to the right, so a change shows as you make it (a
-  body part may be **0 (none)**, which draws nothing). Each part's list
+  body part may be **0 (none)**, which draws nothing; wings or a tail
+  that are an effect, CEP's `@VFX` rows, show their particles, as a
+  held torch shows its flame). Each part's list
   offers the numbers the creature's phenotype has a model of and those
   its phenotype.2da `DefaultPhenoType` has, which the game falls back
   to: a phenotype with few parts of its own, or none, wears the default

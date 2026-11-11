@@ -306,6 +306,10 @@ pub struct ModelView {
     shown_in: Option<u64>,
     last_frame: Option<f64>,
     particles: Option<Particles>,
+    /// The particles of the parts that have emitters (an effect worn as
+    /// a tail or wings, a held torch), by their number
+    /// ([`mg_preview::compose::Emitting::source`]).
+    part_particles: HashMap<usize, Particles>,
     dangly: Option<Dangly>,
     /// Chunk emitters' models, by name.
     chunk_models: HashMap<String, Option<Arc<GpuModel>>>,
@@ -859,6 +863,7 @@ impl ModelView {
                 self.model = Err(e);
                 (self.composed, self.preview) = (None, None);
                 (self.particles, self.dangly) = (None, None);
+                self.part_particles.clear();
                 return;
             }
         };
@@ -878,6 +883,7 @@ impl ModelView {
         self.preview = Some(preview);
         self.supermodels = RefCell::new(HashMap::new());
         (self.particles, self.dangly) = (None, None);
+        self.part_particles.clear();
         self.chunk_models.clear();
     }
 
@@ -918,6 +924,7 @@ impl ModelView {
             shown_in: None,
             last_frame: None,
             particles: None,
+            part_particles: HashMap::new(),
             dangly: None,
             chunk_models: HashMap::new(),
             composed,
@@ -940,6 +947,12 @@ impl ModelView {
     /// lying), not shown as it is.
     pub fn stood(&self) -> bool {
         self.stand != Mat4::IDENTITY
+    }
+
+    /// How many of its parts' emitters (an effect worn as a tail or wings,
+    /// a held torch) have particles in the air.
+    pub fn parts_emitting(&self) -> usize {
+        self.part_particles.values().filter(|p| p.live()).count()
     }
 
     /// How what it shows is stood for the viewer ([`ModelView::stood`]):
@@ -1263,19 +1276,15 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     } else {
         Vec::new()
     };
-    // Particles run whenever the view plays.
+    // Particles run whenever the view plays. (Where the base is drawn:
+    // stood up, an item made lying.)
     let camera = view.camera();
+    let base_at = if view.composed.is_some() { view.stand } else { Mat4::IDENTITY };
     let particles = view.particles.get_or_insert_with(|| Particles::new(&model.model));
     let current_pose: &[Mat4] = pose.as_deref().map_or(&model.rest, Vec::as_slice);
-    particles.update(&model.model, playing, view.time, dt, current_pose, Mat4::IDENTITY);
-    let batches = particles.batches(
-        &model.model,
-        playing,
-        view.time,
-        current_pose,
-        Mat4::IDENTITY,
-        camera.view(),
-    );
+    particles.update(&model.model, playing, view.time, dt, current_pose, base_at);
+    let mut batches =
+        particles.batches(&model.model, playing, view.time, current_pose, base_at, camera.view());
     // Animated alpha, self-illumination and vertices; dangly meshes.
     // (Guarded, as building the model is: custom content's animated meshes
     // hold surprises, and the model is then shown at rest.)
@@ -1289,8 +1298,25 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
     dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
     // Chunk emitters' models.
-    let chunks = particles.chunks(&model.model, playing, view.time, current_pose, Mat4::IDENTITY);
-    let live = particles.live();
+    let mut chunks = particles.chunks(&model.model, playing, view.time, current_pose, base_at);
+    let mut live = particles.live();
+    // The parts' emitters (an effect worn as a tail or wings, a held
+    // torch's flame), each its own simulation, where the part hangs as
+    // drawn below. (The base's are the viewer's own above.)
+    if let Some(c) = &view.composed {
+        let name = &model.model.name;
+        let asked = view.animation.as_deref();
+        let emitting = mg_render::guard::guarded(name, || c.emitting(asked, view.time));
+        for e in emitting.unwrap_or_default().into_iter().filter(|e| e.source > 0) {
+            let (m, keys, pose) = (e.model, e.animation, &e.pose);
+            let (at, t) = (view.stand * e.transform, e.held_at.unwrap_or(view.time));
+            let sim = view.part_particles.entry(e.source).or_insert_with(|| Particles::new(m));
+            sim.update(m, keys, t, dt, pose, at);
+            batches.extend(sim.batches(m, keys, t, pose, at, camera.view()));
+            chunks.extend(sim.chunks(m, keys, t, pose, at));
+            live |= sim.live();
+        }
+    }
     let mut chunk_instances = Vec::new();
     for c in chunks {
         let gm = view
@@ -1341,8 +1367,11 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     let mut lights = lights;
     if let Some(c) = &view.composed {
         // (The base's light nodes are the viewer's own above, as Lights
-        // has them.)
+        // has them; its parts' as they stand, with them.)
         lights.extend(c.row_lights(Mat4::IDENTITY));
+        if view.model_lights {
+            lights.extend(c.part_point_lights(view.stand));
+        }
     }
     // (The ground that takes its shadow, with the Shadow switch on.)
     if let Some(rest) = shadow {
@@ -2255,18 +2284,23 @@ fn draw_composed(
         None if shield => usual + std::f32::consts::PI,
         None => best(usual, [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]),
     };
+    // (Its base's and its parts': an effect worn as a tail, a held
+    // torch's flame.)
     let mut particles = Vec::new();
-    if let Some((model, playing, pose)) = composed.emitters(idle, 0.0) {
+    for e in composed.emitting(idle, 0.0) {
+        let (model, playing, pose, at) = (e.model, e.animation, &e.pose, e.transform);
         let mut sim = Particles::new(model);
+        let time = |t: f32| e.held_at.unwrap_or(t);
         for step in 0..THUMBNAIL_STEPS {
             let t = step as f32 * THUMBNAIL_STEP;
-            sim.update(model, playing, t, THUMBNAIL_STEP, &pose, Mat4::IDENTITY);
+            sim.update(model, playing, time(t), THUMBNAIL_STEP, pose, at);
         }
         // (Drawn for a camera on that side; where exactly comes after.)
         let rough = Camera::orbit(Vec3::ZERO, 10.0, yaw, pitch);
         let seconds = THUMBNAIL_STEPS as f32 * THUMBNAIL_STEP;
-        particles = sim.batches(model, playing, seconds, &pose, Mat4::IDENTITY, rough.view());
-        points.extend(particles.iter().flat_map(|b| &b.vertices).map(|v| Vec3::from(v.pos)));
+        let batches = sim.batches(model, playing, time(seconds), pose, at, rough.view());
+        points.extend(batches.iter().flat_map(|b| &b.vertices).map(|v| Vec3::from(v.pos)));
+        particles.extend(batches);
     }
     // Framed tightly on what it shows, as the picture sees it: a dragon,
     // long and winged, filled a corner of its picture framed by a ball

@@ -1,7 +1,8 @@
 //! Where textures come from: the resource manager, with the game's order.
 //! A mesh's texture name may name an MTR (which wins and may point to other
 //! textures), else a DDS or TGA (DDS first within each layer class), else a
-//! PLT (coloured with the default palette rows).
+//! PLT (colored with the default palette rows); in colors, a PLT over a
+//! gray TGA of its name ([`Assets::texture_kept`]).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -9,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use mg_core::{ResRef, ResType};
 use mg_image::mtr::Mtr;
 use mg_image::plt::Plt;
+use mg_image::tga;
 use mg_image::txi::Txi;
 use mg_image::{Rgba, Texture};
 use mg_resman::{LayerClass, ResKey, ResMan};
@@ -112,6 +114,17 @@ pub trait Assets {
 // them without a renderer.)
 pub use mg_image::plt::{colored_name, split_colors};
 
+/// Whether a plain texture's file (its start will do) is gray: a TGA of
+/// one channel, or a DDS of luminance. The game draws a PLT of its name
+/// over it on a colored part.
+fn is_gray(t: ResType, data: &[u8]) -> bool {
+    match t {
+        ResType::TGA => tga::is_gray(data),
+        ResType::DDS => mg_image::dds::is_gray(data),
+        _ => false,
+    }
+}
+
 /// The MTR a texture name names, if any, and the image it is read from
 /// (the MTR's first texture where it names another, else the name's own).
 fn image_of(rm: &ResMan, name: &str) -> Option<(Option<Mtr>, ResRef)> {
@@ -139,15 +152,20 @@ impl Assets for ResMan {
             let read = |palette: &'static str| read_palette(self, palette);
             Some(plt_colored(&Plt::read(&data).ok()?, colors.unwrap_or([0; 10]), kept, read))
         };
+        let found = self.texture(image);
+        let gray = found.as_ref().is_some_and(|(t, d)| is_gray(*t, d));
         let plain = || {
-            let (t, data) = self.texture(image)?;
-            mg_image::read(t, &data).ok()
+            let (t, data) = found.as_ref()?;
+            mg_image::read(*t, data).ok()
         };
-        // Asked for in colours (a creature's or an item's part), the PLT,
-        // as the game colours it: some parts have a plain grey TGA of the
-        // same name too (a dwarf's head, pmd0_head001). Otherwise, and
-        // through an MTR, the DDS or TGA first.
-        let texture = if colors.is_some() && mtr.is_none() {
+        // Asked for in colors (a creature's or an item's part) and not
+        // through an MTR, a DDS or a true-color TGA of the name first, over
+        // a PLT of it, wherever each is in the load order; a gray TGA, or a
+        // DDS of one gray channel, after the PLT, which the game colors (a
+        // dwarf's head, pmd0_head001, is both). Seen in the client: `part_textures_look` in
+        // mg-corpus-tests' `client_render.rs`. Otherwise, and through an
+        // MTR, the DDS or TGA first.
+        let texture = if colors.is_some() && mtr.is_none() && gray {
             plt().or_else(plain)?
         } else {
             plain().or_else(plt)?
@@ -156,11 +174,19 @@ impl Assets for ResMan {
     }
 
     fn takes_colors(&self, name: &str) -> bool {
-        // (As `texture_kept` reads it in colors: the PLT, but through an
-        // MTR only where there is no DDS or TGA.)
+        // (As `texture_kept` reads it in colors: the PLT where there is no
+        // DDS or TGA of the name, or, not through an MTR, a gray one.)
         let Some((mtr, image)) = image_of(self, name) else { return false };
-        self.contains(&ResKey::new(image, ResType::PLT))
-            && (mtr.is_none() || self.texture_type(image).is_none())
+        if !self.contains(&ResKey::new(image, ResType::PLT)) {
+            return false;
+        }
+        match self.texture_type(image) {
+            None => true,
+            Some(t) if mtr.is_none() => {
+                self.get_start(&ResKey::new(image, t), 128).is_ok_and(|d| is_gray(t, &d))
+            }
+            Some(_) => false,
+        }
     }
 
     fn material(&self, name: &str) -> Option<Mtr> {
@@ -325,9 +351,53 @@ mod tests {
         game.insert(key("pmh0_head001", ResType::PLT), plt_of(&[0, 0]));
         game.insert(key("pal_skin01", ResType::TGA), tga(palette_of([200, 150, 100, 255])));
         game.insert(key("custom_head", ResType::TGA), tga(palette_of([1, 2, 3, 255])));
-        // (A part with a PLT and a gray TGA of its name: the PLT, colored.)
+        // (A part with a PLT and a gray TGA of its name, 8 bits of one
+        // channel as the game's: the PLT, colored.)
+        let gray =
+            |v: u8| [&[0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 8, 8][..], &[v, v]].concat();
         game.insert(key("pmd0_head001", ResType::PLT), plt_of(&[0]));
-        game.insert(key("pmd0_head001", ResType::TGA), tga(palette_of([9, 9, 9, 255])));
+        game.insert(key("pmd0_head001", ResType::TGA), gray(9));
+        // (A PLT and a true-color TGA of its name: the TGA, in colors too.
+        // Seen in the client, a builder's part: `part_textures_look`.)
+        game.insert(key("pmh0_chest201", ResType::PLT), plt_of(&[0]));
+        game.insert(key("pmh0_chest201", ResType::TGA), tga(palette_of([9, 8, 7, 255])));
+        // (A PLT beside a DDS of one gray channel, luminance: the PLT; beside
+        // a DXT1 of gray texels: the DDS. `part_textures_look`, rows Q, P.)
+        let luminance = |v: u8| {
+            let mut h = b"DDS ".to_vec();
+            for x in [124u32, 0x100F, 1, 2, 2, 0, 0] {
+                h.extend(x.to_le_bytes());
+            }
+            h.extend([0; 44]);
+            for x in [32u32, 0x2_0000, 0, 8, 0xFF, 0, 0, 0, 0x1000, 0, 0, 0, 0] {
+                h.extend(x.to_le_bytes());
+            }
+            h.extend([v, v]);
+            h
+        };
+        game.insert(key("pmh0_chest234", ResType::PLT), plt_of(&[0]));
+        game.insert(key("pmh0_chest234", ResType::DDS), luminance(60));
+        let gray_dxt1 = {
+            let mut h = b"DDS ".to_vec();
+            for x in [124u32, 0x1007, 4, 4, 8, 0, 1] {
+                h.extend(x.to_le_bytes());
+            }
+            h.extend([0; 44]);
+            h.extend(32u32.to_le_bytes());
+            h.extend(4u32.to_le_bytes());
+            h.extend(*b"DXT1");
+            h.extend([0; 20]);
+            h.extend(0x1000u32.to_le_bytes());
+            h.extend([0; 16]);
+            // (One block, both colors gray 60 in 5:6:5.)
+            let c: u16 = (60 >> 3) << 11 | (60 >> 2) << 5 | 60 >> 3;
+            h.extend(c.to_le_bytes());
+            h.extend(c.to_le_bytes());
+            h.extend([0; 4]);
+            h
+        };
+        game.insert(key("pmh0_chest235", ResType::PLT), plt_of(&[0]));
+        game.insert(key("pmh0_chest235", ResType::DDS), gray_dxt1);
         // (An MTR over a PLT that has a TGA too: the TGA.)
         game.insert(key("with_mtr", ResType::MTR), b"renderhint NormalAndSpecMapped\n".to_vec());
         game.insert(key("with_mtr", ResType::PLT), plt_of(&[0]));
@@ -336,6 +406,8 @@ mod tests {
         rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
         assert!(rm.takes_colors("pmh0_head001") && rm.takes_colors("pmd0_head001"));
         assert!(!rm.takes_colors("custom_head") && !rm.takes_colors("with_mtr"));
+        assert!(!rm.takes_colors("pmh0_chest201"));
+        assert!(rm.takes_colors("pmh0_chest234") && !rm.takes_colors("pmh0_chest235"));
         assert!(!rm.takes_colors("nowhere"));
         let colored = Assets::texture(&rm, &colored_name("pmh0_head001", [0; 10])).unwrap();
         assert_eq!(colored.texture.to_rgba().data, [200, 150, 100, 255, 200, 150, 100, 255]);
@@ -344,5 +416,14 @@ mod tests {
         let in_colors =
             Assets::texture(&rm, &colored_name("custom_head", [7; 10])).unwrap().texture;
         assert_eq!(plain.to_rgba(), in_colors.to_rgba());
+        let drawn = |name: &str| {
+            let t = Assets::texture(&rm, &colored_name(name, [0; 10])).unwrap().texture;
+            t.to_rgba().data
+        };
+        // (Its top row: `palette_of`'s color, the last of the stored rows.)
+        assert_eq!(drawn("pmh0_chest201")[28..], [9, 8, 7, 255], "the true-color TGA");
+        assert_eq!(drawn("pmd0_head001")[..4], [200, 150, 100, 255], "the PLT over the gray");
+        assert_eq!(drawn("pmh0_chest234")[..4], [200, 150, 100, 255], "the PLT over luminance");
+        assert_ne!(drawn("pmh0_chest235")[..4], [200, 150, 100, 255], "a gray DXT1 over the PLT");
     }
 }

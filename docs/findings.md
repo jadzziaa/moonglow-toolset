@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T23:01:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T01:38:15Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -943,16 +943,138 @@ All checked by screenshots of the game client beside Moonglow's picture,
 by eye (`client_render.rs`, the test named in each; exploration, no
 assertions).
 
-### A body part is drawn in its own texture
+### A body part is drawn in its own PLT
 
-A creature's part (`p<g><r><pheno>_<part>NNN`) is drawn with the texture
-of its own name, whatever texture its mesh names: the game's thigh 3
-names thigh 2's texture and chest 32 chest 13's (598 such meshes in the
-base game). A mesh that names something that is no part's texture keeps
-it.
+A creature's part (`p<g><r><pheno>_<part>NNN`) that has a PLT of its own
+name is drawn with that name on every mesh, whatever each mesh names:
+another part's texture (the game's thigh 3 names thigh 2's, chest 32
+chest 13's: 598 such meshes in the base game), a TGA or a PLT of no
+part's name, no texture at all (`bitmap NULL`, as several of CEP's
+heads), or one mesh of two whose other names the part's own (a head's
+hair, a gem). Without a PLT of its own name, the first of its
+fallbacks that has one counts the same: phenotype 0, the human of its
+gender, the human man; a head's stop at its race's phenotype 0 (an elf's
+or a woman's head with only the human man's PLT of its name keeps what
+its mesh names, and a mesh naming its own missing texture is drawn
+untextured, light gray). A DDS or TGA of the part's name alone replaces
+nothing: the mesh keeps its texture. Of a PLT and a DDS or true-color
+TGA of one name, the client draws the DDS or TGA, wherever each is in
+the load order (both in the override or in a hak, the TGA in a hak and
+the PLT in the override, or the other way about), on a part or on an
+item (a helmet); it draws the PLT over a gray TGA of 8 bits (type 3,
+with or without alpha bits declared), as the game's own `pmd0_head001`
+and `pmh0_handl003` are beside their PLTs, the only PLTs of the base game
+with a plain texture of their name; and over a DDS of one luminance
+channel, where a DXT1 of gray texels wins as any DDS. Such a luminance
+DDS alone the client draws in colors of no rule (60 blue, 128 dark red,
+0 and 255 black); Moonglow draws it gray.
 
-- **Checked:** `creatures_look` with `MG_PARTS`.
-- **Moonglow:** `crates/mg-preview`.
+Materials: a mesh whose `bitmap` or `materialname` names a material
+(MTR) with a `texture0` keeps the material, its own PLT or not; one
+naming a material with no `texture0` (a normal map alone) takes the PLT.
+The name a mesh is given in place of its own is drawn without that
+name's material: with an MTR of the part's own name whose `texture0`
+names another texture beside the part's PLT, a mesh naming something
+else is drawn in the PLT, a mesh naming the part's own name in the
+material. Robes (`p<g><r><pheno>_robeNNN`) are parts as any: an elf's
+takes the human man's PLT.
+
+The earlier finding said a mesh naming something that is no part's
+texture keeps it (a head's hair, a gem): that half had never been read in
+the client (no stock body part names such a texture: only the cloaks do,
+whose textures come from `cloakmodel.2da`) and was wrong (a builder's
+report on 4.0: a part drawn in the texture its mesh names).
+
+- **Checked:** `creatures_look` with `MG_PARTS` (the stock thighs and
+  chests, 2026-10-07); `part_textures_look` (2026-11-10): 32 rows of
+  authored parts, flat-colored textures and palettes, in the override and
+  a hak, beside Moonglow's area view (pictures in
+  `target/test-output/part_textures/`); the base game's PLTs with a plain
+  texture of their name, `the_game_s_plts_with_a_plain_texture_of_their_name_have_a_gray_tga`;
+  the materials, robes and gray DDS rows G to V (2026-11-10). Over the
+  owner's module (The Domains of Dread's 150 haks and the base game,
+  56,664 part models): the rule draws 2,556 meshes of 2,520 parts
+  otherwise than Moonglow drew them before it, all in the haks, nothing
+  in the base game: 2,489 meshes naming a PLT, TGA or DDS of no part's
+  name (mostly TDoD's `cmh0_`, `cfh0_`, `qmh0_`, `qfh0_` textures on its
+  cloth parts, bandages, a snowshoe's wood), 28 naming a material, 29
+  newly given the human man's PLT, 10 another name's; none a PLT losing
+  to a color texture. Nine of them read in the client beside Moonglow
+  before and after (`part_textures_tdod_look`): eight the client draws
+  as the rule does (Moonglow before did not), and a head of 146 (its
+  mesh naming a material) neither draws.
+- **Moonglow:** `crates/mg-preview` (`creature::plt_fallbacks`; tests
+  `a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name`,
+  `a_part_s_own_plt_is_used_whatever_its_mesh_names`) and
+  `mg_render::Assets::texture_kept` (`only_a_plt_takes_an_instance_s_colors`;
+  `mg_image::tga::is_gray`, `mg_image::dds::is_gray`). Not as the
+  client: the material of the part's own name is drawn on a mesh given
+  that name (row J), and a luminance DDS alone is drawn gray (rows R to
+  U); both on [the deferred list](deferred.md).
+- **Not read:** a DDS in the game's own files beside a PLT (the game has
+  none), a BC4 (one-channel compressed) DDS beside a PLT.
+- **Wiki:** missing.
+
+### A creature's parts' emitters: tails, wings, helmets, held items
+
+The emitters of a creature's parts run in the client as its own do:
+an effect worn as a tail or wings (CEP's `tailmodel.2da` rows 616 and
+up and `wingmodel.2da` 109 and up, `@VFX: ...`, name the game's effect
+models, emitters and lights and no mesh; its "Balor: Flame" wings,
+`c_wingsbalr`, are wings full of fire emitters), a helmet's, a held
+torch's flame. What keys them:
+
+| The part | Its emitters keyed by |
+| --- | --- |
+| Tail, wings | its own animation of the name the creature plays (`pause1` keyed over 0 at rest: emits); else its own `default` (CEP's 620, `fx_lavaspurt`, 0 at rest, spurts); else as the model has them at rest (619 `wwhip_fxfire` burns; 753 `vdr_smoke`, keyed only in `duration`, smokes) |
+| Helmet | as the model has them at rest: its `equip` plays no part (0 at rest, 8 at `equip`'s end: none) |
+| Held item (a torch in the left hand) | its `equip`, as it ends: the game's torch (0 at rest, 9 and 12 at `equip`'s end) burns; ours keyed from 8 at rest to 0 at its end throws nothing |
+
+CEP's 629 (`vco_mehanfire01`, keyed only in `conjure01` and `fade`)
+shows no particle on a creature standing: its emitters are trails
+(`spawntype 1`, made as they move); its three lights light the
+creature and the floor. 668 (`vpm_circfire`) shows its flares at
+rest, 4 m off, one in sight. Wings a cloak hides (`cloakmodel.2da`
+`HIDEWING`) show nothing.
+
+A part's scale sizes its particles and not their speed: a tail at
+`WING_TAIL_SCALE` 3 throws squares three times as big that rise as far
+in their life as at 1; the tail's visual transform (scope 253) scaled 2
+doubles them, moved 0.5 m up starts them 0.5 m up. So does any
+object's: a placeable scaled 2 by its visual transform (scope 0) throws
+squares twice as big, as fast.
+
+- **Checked:** `part_emitters_look` (`client_render/part_emitters.rs`,
+  2026-11-10, EE 89.8193.37): commoners with authored `tailmodel.2da`
+  and `wingmodel.2da` rows naming the game's effect models and an
+  emitter of ours (12 cm white squares rising 1 m/s), helmets and a
+  torch whose models were the override's, beside Moonglow's area view
+  (`target/test-output/client_reading_part_emitters_<group>/`).
+- **Moonglow:** `mg_preview::compose::Composed::emitting` (each model
+  of a preview that emits, keyed as above: tests
+  `a_part_s_emitters_hang_where_the_part_does`,
+  `a_tail_s_emitters_play_its_own_animation_or_its_default`), drawn by
+  the area view (`AreaScene::particles_and_chunks`), the model view and
+  the pictures (`mg-ui`'s `model_view.rs`; UI test
+  `an_effect_worn_as_a_tail_shows_its_particles`); the size,
+  `mg_render::particles` (`a_scaled_emitter_throws_bigger_particles_as_fast`).
+  Until 2026-11-10 only a preview's base model was simulated.
+- **Not read:** a body part's or a shield's emitters, a held item's
+  `default`, a tail's own `cpause1` on a creature standing in `pause1`,
+  whether a scaled object scales the models a chunk emitter throws.
+- **Wiki:** missing.
+
+### A chunk emitter's models are drawn at their own size
+
+A chunk emitter (`chunkName`) throws its models at their own size,
+whatever its `sizeStart` and `sizeEnd`: chunks of sizes 0.25, 0.5 and 1
+were alike in the client. Moonglow drew them at that size (half the
+client's in `reading_chunk_spin`), and the area view drew none.
+
+- **Checked:** `reading_chunk_size` (`client_render/batch4.rs`,
+  2026-11-10, EE 89.8193.37).
+- **Moonglow:** `mg_render::particles::Particles::chunks`; the area view
+  draws them since 2026-11-10 (`AreaScene::particles_and_chunks`).
 - **Wiki:** missing.
 
 ### A skin mesh in a body part or a held item

@@ -1629,6 +1629,50 @@ mod tests {
         assert_eq!(reached("cloak_008.plt"), None);
     }
 
+    /// A worn part whose mesh names a texture of no part's name (a gem)
+    /// and that has a PLT of its own name is drawn in its own (the client:
+    /// `part_textures_look`), so the PLT, and a TGA of its name the game
+    /// draws over it, are used with the model; one whose own name is a
+    /// TGA alone keeps its mesh's, and that TGA is no texture of it.
+    #[test]
+    fn a_part_s_own_plt_is_used_whatever_its_mesh_names() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        stock.insert(key("appearance.2da"), table("   LABEL MODELTYPE RACE\n0 Human P H\n"));
+        stock.insert(
+            key("baseitems.2da"),
+            table(" label ItemClass ModelType DefaultModel\n0 armor AArmor 3 ****\n"),
+        );
+        stock.insert(key("phenotype.2da"), table(" Label DefaultPhenoType\n0 Normal 0\n"));
+        let mut content = MemContainer::new();
+        content.insert(key("pmh0_chest201.mdl"), model("pmh0_chest201", "mg_gem"));
+        content.insert(key("mg_gem.tga"), &b"tga"[..]);
+        content.insert(key("pmh0_chest201.plt"), &b"plt"[..]);
+        content.insert(key("pmh0_chest201.tga"), &b"tga"[..]);
+        content.insert(key("pmh0_chest202.mdl"), model("pmh0_chest202", "mg_gem2"));
+        content.insert(key("mg_gem2.tga"), &b"tga"[..]);
+        content.insert(key("pmh0_chest202.tga"), &b"tga"[..]);
+        let mut page = Struct::new(0);
+        let armor = |torso: u8| {
+            let mut a = Struct::new(0);
+            a.set("BaseItem", Value::Int(0));
+            a.set("ArmorPart_Torso", Value::Byte(torso));
+            a
+        };
+        page.set("ItemList", Value::List(vec![armor(201), armor(202)]));
+        let mut shop = Gff::new(*b"UTM ");
+        shop.root.set("StoreList", Value::List(vec![page]));
+        let (_, from) = walked(vec![("shop.utm", shop.to_bytes().unwrap())], content, stock);
+        let reached = |n: &str| from.get(&key(n)).map(|f| f.to_string());
+        for n in ["pmh0_chest201.mdl", "pmh0_chest201.plt", "pmh0_chest201.tga", "mg_gem.tga"] {
+            assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
+        }
+        for n in ["pmh0_chest202.mdl", "mg_gem2.tga"] {
+            assert_eq!(reached(n).as_deref(), Some("shop.utm"), "{n}");
+        }
+        assert_eq!(reached("pmh0_chest202.tga"), None, "a TGA alone of the part's name");
+    }
+
     /// A container that counts how often each of its resources is read
     /// and asked after.
     #[derive(Debug)]

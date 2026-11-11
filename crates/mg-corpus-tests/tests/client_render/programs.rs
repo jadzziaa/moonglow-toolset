@@ -251,7 +251,7 @@ fn checker(x: u32, y: u32) -> [u8; 4] {
 /// A standard DDS of 64 by 64 texels with all its levels (the client reads
 /// past a single level: what it drew was noise), in `fourcc`'s blocks:
 /// `block(x, of)` for each block, `x` of the level's `of` blocks a row.
-fn dds(fourcc: &[u8; 4], block: impl Fn(u32, u32) -> Vec<u8>) -> Vec<u8> {
+pub(super) fn dds(fourcc: &[u8; 4], block: impl Fn(u32, u32) -> Vec<u8>) -> Vec<u8> {
     let block = &block;
     let mut blocks = Vec::new();
     for level in 0..7u32 {

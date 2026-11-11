@@ -18,8 +18,9 @@
 //!   `birthrate`) halvings, each bend up to `lightningscale` × a fifth of its
 //!   segment, the end within `lightningradius` of the target.
 //! - `Linked` particles are drawn as one strip through them in birth order.
-//! - Chunk emitters throw models (`chunkName`) instead of quads, scaled by
-//!   the size, each born facing as its emitter does and turning about the
+//! - Chunk emitters throw models (`chunkName`) instead of quads, at the
+//!   models' own size whatever the emitter's (read in the client,
+//!   `reading_chunk_size`: chunks of sizes 0.25, 0.5 and 1 alike), each born facing as its emitter does and turning about the
 //!   emitter's z at `particlerot` radians a second, anticlockwise seen from
 //!   above (read in the client, `reading_chunk_spin`: a chunk a second
 //!   at 0.25 rose as a stair turning 14° a step, a still one turned 14° a
@@ -731,11 +732,13 @@ impl Particles {
             let (s0, s1) = (p(P::SizeStart, 1.0), p(P::SizeEnd, 1.0));
             let softness = soft(s0, s1, e.render);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
+            let grown = grown_by(world);
+            let (s0, s1) = (s0 * grown, s1 * grown);
             let tint = (em.flags & 0x8 != 0).then(|| world.w_axis.truncate());
             let inherit = em.flags & (0x40 | 0x100) != 0;
             let (c0, c1) = (color(e, at, false, Vec3::ONE), color(e, at, true, Vec3::ONE));
             let (a0, a1) = (p(P::AlphaStart, 1.0), p(P::AlphaEnd, 1.0));
-            let (sy0, sy1) = (p(P::SizeStartY, 0.0), p(P::SizeEndY, 0.0));
+            let (sy0, sy1) = (p(P::SizeStartY, 0.0) * grown, p(P::SizeEndY, 0.0) * grown);
             // (Radians a second: the client turned a 0.25 particle a
             // quarter turn in about 7 s; `reading_particle_spin_and_order`.)
             let rot_speed = p(P::ParticleRot, 0.0);
@@ -903,7 +906,11 @@ impl Particles {
             let p = |which, default| param(e, at, which, default);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;
-            let (s0, s1) = (p(P::SizeStart, 1.0), p(P::SizeEnd, 1.0));
+            // (At the model's own size: the client draws chunks of sizes
+            // 0.25, 0.5 and 1 alike, `reading_chunk_size`. As much bigger
+            // as the emitter is scaled where it stands, as its quads are:
+            // not read for chunks.)
+            let grown = grown_by(world);
             // (Radians a second about the emitter's z, from the way the
             // emitter faces at birth, anticlockwise seen from above: as the
             // quads' spin, read in the client, `reading_chunk_spin`. It
@@ -912,21 +919,26 @@ impl Particles {
             let spin = p(P::ParticleRot, 0.0);
             let (_, facing, _) = world.to_scale_rotation_translation();
             for q in &e.particles {
-                let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
                 let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
                 let rot = facing * Quat::from_rotation_z(spin * q.age);
                 out.push(Chunk {
                     model: chunk.clone(),
-                    transform: Mat4::from_scale_rotation_translation(
-                        Vec3::splat(s0 + (s1 - s0) * k),
-                        rot,
-                        pos,
-                    ),
+                    transform: Mat4::from_scale_rotation_translation(Vec3::splat(grown), rot, pos),
                 });
             }
         }
         out
     }
+}
+
+/// How much bigger an emitter's particles are drawn than their sizes
+/// say: as much as its node is scaled where it stands (`world`, through a
+/// placed object's visual transform, a creature's `WING_TAIL_SCALE` for
+/// its tail and wings, their own visual transform). Their speed is not:
+/// read in the client, `client_render/part_emitters.rs` (a tail scaled 3
+/// threw squares three times as big, rising as far in their life).
+fn grown_by(world: Mat4) -> f32 {
+    world.x_axis.truncate().length()
 }
 
 /// A `Motion_Blur` particle's quad: twice its size across and from its
@@ -1660,6 +1672,57 @@ mod tests {
         }
     }
 
+    /// An emitter scaled where it stands (a tail at its appearance's
+    /// `WING_TAIL_SCALE`, a placeable's visual transform) throws particles
+    /// as much bigger, as fast: as the client draws them
+    /// (`client_render/part_emitters.rs`).
+    #[test]
+    fn a_scaled_emitter_throws_bigger_particles_as_fast() {
+        let rising =
+            Emitter { update: "Fountain".into(), render: "Normal".into(), ..Default::default() };
+        let m = emitter(
+            rising,
+            &[
+                ("birthrate", 10.0),
+                ("lifeexp", 5.0),
+                ("velocity", 1.0),
+                ("sizestart", 0.1),
+                ("sizeend", 0.1),
+            ],
+        );
+        let pose = crate::rest_pose(&m);
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+        // (Each particle's quad: its width and its middle's height.)
+        let quads = |scale: f32| {
+            let at = Mat4::from_scale(Vec3::splat(scale));
+            let mut p = Particles::new_seeded(&m, 1);
+            p.update(&m, None, 0.0, 0.1, &pose, at);
+            p.update(&m, None, 0.0, 1.0, &pose, at);
+            let b = p.batches(&m, None, 0.0, &pose, at, view);
+            let v = &b[0].vertices;
+            let width = Vec3::from(v[1].pos).distance(Vec3::from(v[0].pos));
+            let middle = (Vec3::from(v[0].pos) + Vec3::from(v[2].pos)) / 2.0;
+            (width, middle.z)
+        };
+        let (one, three) = (quads(1.0), quads(3.0));
+        assert!((one.0 - 0.1).abs() < 1e-4 && (three.0 - 0.3).abs() < 1e-4, "{one:?} {three:?}");
+        assert!((one.1 - three.1).abs() < 1e-4, "as high a second in: {one:?} {three:?}");
+        // Chunks too, at their models' own size times that (their size, 0.1, aside).
+        let chunky = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            chunk: Some("rock".into()),
+            ..Default::default()
+        };
+        let m = emitter(chunky, &[("birthrate", 10.0), ("lifeexp", 5.0), ("sizestart", 0.1)]);
+        let at = Mat4::from_scale(Vec3::splat(2.0));
+        let mut p = Particles::new(&m);
+        p.update(&m, None, 0.0, 0.5, &pose, at);
+        let chunks = p.chunks(&m, None, 0.0, &pose, at);
+        let (scale, _, _) = chunks[0].transform.to_scale_rotation_translation();
+        assert!((scale - Vec3::splat(2.0)).abs().max_element() < 1e-4, "{scale}");
+    }
+
     #[test]
     fn chunks_and_trails() {
         let chunky = Emitter {
@@ -1680,7 +1743,9 @@ mod tests {
         let chunks = p.chunks(&m, None, 0.0, &pose, Mat4::IDENTITY);
         assert!(!chunks.is_empty() && chunks.iter().all(|c| c.model == "plc_chunk_w01"));
         let (scale, _, _) = chunks[0].transform.to_scale_rotation_translation();
-        assert!((scale - Vec3::splat(0.1)).abs().max_element() < 1e-4);
+        // (At the model's own size, not the emitter's 0.1:
+        // `reading_chunk_size`.)
+        assert!((scale - Vec3::ONE).abs().max_element() < 1e-4);
         // Chunks draw as models, not quads.
         let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
         assert!(p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view).is_empty());

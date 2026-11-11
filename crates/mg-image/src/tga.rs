@@ -38,6 +38,15 @@ pub fn read_picture(data: &[u8]) -> Result<Rgba, ImageError> {
     Ok(rgba)
 }
 
+/// Whether a TGA is a grayscale one (image type 3, or 11 run-length
+/// encoded): the game draws a PLT of the same name over it on a colored
+/// part, where it draws a true-color TGA over the PLT (the game's
+/// `pmd0_head001` and `pmh0_handl003` are such gray TGAs beside their
+/// PLTs). Too short a header: not.
+pub fn is_gray(data: &[u8]) -> bool {
+    matches!(data.get(2), Some(3 | 11))
+}
+
 /// Reads a TGA into a single RGBA level, rows bottom first.
 pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let mut r = Reader::new(data);
@@ -178,6 +187,14 @@ fn color(px: &[u8], bits: u8) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A TGA of one gray channel (image type 3, or 11 run-length encoded)
+    /// is gray; one in true color is not, nor a short file.
+    #[test]
+    fn a_grayscale_tga_is_gray() {
+        assert!(is_gray(&header(3, 1, 1, 8, 8)) && is_gray(&header(11, 1, 1, 8, 0)));
+        assert!(!is_gray(&header(2, 1, 1, 24, 0)) && !is_gray(&[0, 0]));
+    }
 
     fn header(image_type: u8, w: u16, h: u16, bits: u8, desc: u8) -> Vec<u8> {
         let mut v = vec![0, 0, image_type, 0, 0, 0, 0, 0, 0, 0, 0, 0];

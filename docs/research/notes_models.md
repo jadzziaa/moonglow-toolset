@@ -13,7 +13,7 @@ sources:
   - id: corpus
     resource: crates/mg-corpus-tests/tests/mdl_compile.rs
     title: every_binary_model_writes_back_the_same and decompiled_models_compile_back over the whole install (MOONGLOW_FULL_CORPUS=1, 89.8193.37), 2026-10-29
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T03:16:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T00:20:31Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -1296,7 +1296,7 @@ node dummy pmh0_chest001 (parent NULL)
 node trimesh pmh0_chest001g   bitmap pmh0_chest001
 ```
 - Geometry is authored in the attach node's local space: attach the part model root at the skeleton node (capart NODENAME), inherit its animated transform. E.g. head001 z∈[-0.06,0.18] above head_g; chest z∈[-0.05,0.50] above torso_g; handr z∈[-0.16,0.01].
-- **Texture = the mesh `bitmap`, not the model name** (as the files say; the client draws a part with the texture of its own name where one exists, `docs/findings.md` "A body part is drawn in its own texture"): pmh0_handr001→`pmh0_handl003`, pmh0_shor001→`pmh0_shol001`, pfd0_chest001→`pfh0_chest001`, pma0_chest005→`pmh0_chest036`, pmo0_chest010→`pmh0_forer017`, pmh2_chest001→`pmh0_chest001`. Heads use race-specific (pmd0_head001→pmd0_head001). [W:53670455] also warns the PLT is whatever BITMAP says.
+- **Texture = the mesh `bitmap`, not the model name** (as the files say; the client draws every mesh of a part with the name of its own PLT where it has one, `docs/findings.md` "A body part is drawn in its own PLT"): pmh0_handr001→`pmh0_handl003`, pmh0_shor001→`pmh0_shol001`, pfd0_chest001→`pfh0_chest001`, pma0_chest005→`pmh0_chest036`, pmo0_chest010→`pmh0_forer017`, pmh2_chest001→`pmh0_chest001`. Heads use race-specific (pmd0_head001→pmd0_head001). [W:53670455] also warns the PLT is whatever BITMAP says.
 - Texture lookup order DDS > PLT > TGA [W:14618045]; a PLT found → colorize (D3). Sub-meshes whose bitmap names an MTR can override PLT use [W:14618045 "Overriding Palette Colors"].
 - PLT fallback when the named PLT is missing (EE, [W:38176344]; example chest 400, pheno 123, female half-orc): `pfo123_chest400.plt` (or the fallback-phenotype name if the MDL fell back) → `pfo0_chest400.plt` (pheno 0, hardcoded) → `pfh0_chest400.plt` (human, same gender) → `pmh0_chest400.plt`. Also [W:14618045]: race-specific → `pmh0_…plt`. 85.32: "PLT textures can now be phenotype-specific"; 1.67: custom P races past row 481 use their RACE letter for PLT names, else human; 37-13: "Toolset properly loads non-human PLT textures".
 - MDL fallback: requested phenotype missing → DefaultPhenoType (`pfo123_chest400` → `pfo2_chest400`). No documented gender/race fallback for MDLs (missing = part invisible) [W:38176344, W:49447501 "bodypart just disappears"].

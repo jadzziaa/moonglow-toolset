@@ -387,6 +387,21 @@ fn object_place(o: &AreaObject) -> usize {
 /// shown now is at (`wanted`: the keys of what is): an object before it
 /// in its list was deleted or placed, and its particles go on rather
 /// than start again.
+/// The key of the particles of `source` (an [`mg_preview::compose::Emitting`]'s:
+/// 0 the base, then its parts) of the object at `place` shown as `shown`
+/// in [`AreaScene::particles`]' simulations: its place, a part's put
+/// above every object's ([`carry_over`] takes one's particles only to
+/// another place of the same kind and source), and its shown models'
+/// address.
+fn source_key(place: usize, shown: &Arc<Shown>, source: usize) -> (usize, usize) {
+    (place + (source << SOURCE_SHIFT), Arc::as_ptr(shown) as usize)
+}
+
+/// Where [`source_key`] puts a part's number: above every object's
+/// place ([`OBJECT_PLACES`] a kind), below the tiles' keys (counted down
+/// from the top and the middle).
+const SOURCE_SHIFT: u32 = 40;
+
 fn carry_over<T>(
     sims: &mut HashMap<(usize, usize), T>,
     key: (usize, usize),
@@ -438,6 +453,10 @@ pub struct AreaScene {
     /// read from the resources again for each look.
     parsed: HashMap<String, Option<Arc<Model>>>,
     flame: Option<Option<Loaded>>,
+    /// The models chunk emitters throw (`chunkName`), by name, lower
+    /// case (`None`: not there, or not readable): those of the emitters
+    /// of the tiles' and objects' models, loaded as they are.
+    chunk_models: HashMap<String, Option<Arc<GpuModel>>>,
     /// The skybox's day and night models, and its skyboxes.2da row.
     sky: [Option<Arc<GpuModel>>; 2],
     sky_box: Option<u32>,
@@ -655,6 +674,37 @@ impl AreaScene {
         if needs_flame && self.flame.is_none() {
             self.flame = Some(loaded("fx_flame01"));
         }
+        self.load_chunks(gpu, models);
+    }
+
+    /// Loads the models the chunk emitters of the tiles' and objects'
+    /// models throw, those not loaded yet. (Most models have none: a
+    /// look at each one's emitters.)
+    fn load_chunks(&mut self, gpu: &Gpu, models: &Models<'_>) {
+        // (Each tile model once; the objects whose models emit.)
+        let tiles = self.tile_cache.values().flatten().map(|l| &l.gpu);
+        let flame = self.flame.iter().flatten().map(|l| &l.gpu);
+        let emitting = self.objects.iter().flatten().filter(|s| s.composed.emits());
+        let objects = emitting.flat_map(|s| s.composed.models());
+        let mut names: Vec<String> = Vec::new();
+        for gm in tiles.chain(flame).chain(objects) {
+            for n in &gm.model.nodes {
+                if let mg_mdl::NodeKind::Emitter(e) = &n.kind
+                    && let Some(c) = &e.chunk
+                {
+                    let c = c.to_ascii_lowercase();
+                    if !self.chunk_models.contains_key(&c) && !names.contains(&c) {
+                        names.push(c);
+                    }
+                }
+            }
+        }
+        for name in names {
+            let built = models
+                .load(&name)
+                .and_then(|m| mg_render::guard::guarded(&name, || Arc::new(GpuModel::new(gpu, m))));
+            self.chunk_models.insert(name, built);
+        }
     }
 
     /// The objects at `at` (their places in `area.objects`) shown anew,
@@ -675,6 +725,7 @@ impl AreaScene {
             (self.objects[i], self.object_missing[i]) =
                 shown(gpu, &mut self.object_cache, o, &load);
         }
+        self.load_chunks(gpu, &models);
         self.keep(models);
         self.settle(area);
     }
@@ -991,65 +1042,104 @@ impl AreaScene {
         dt: f32,
         camera: Mat4,
     ) -> Vec<mg_render::particles::ParticleBatch> {
+        self.particles_and_chunks(area, view, sims, dt, camera).0
+    }
+
+    /// [`AreaScene::particles`], and the models their chunk emitters
+    /// throw (a placeable's rubble, `chunkName`), where they are, to draw
+    /// with the rest.
+    pub fn particles_and_chunks(
+        &self,
+        area: &AreaModel,
+        view: &View,
+        sims: &mut HashMap<(usize, usize), mg_render::particles::Particles>,
+        dt: f32,
+        camera: Mat4,
+    ) -> (Vec<mg_render::particles::ParticleBatch>, Vec<Instance>) {
         let mut out = Vec::new();
+        let mut chunks = Vec::new();
+        let chunk = |c: mg_render::particles::Chunk| {
+            let gm = self.chunk_models.get(&c.model)?.clone()?;
+            Some(Instance::new(gm, c.transform))
+        };
         let mut seen = Vec::new();
         // The objects with emitters, those nearest the view first: past
         // [`MAX_PARTICLE_OBJECTS`] the far ones go without.
         let eye = camera.inverse().w_axis.truncate();
         let emits = |n: &mg_mdl::Node| matches!(n.kind, mg_mdl::NodeKind::Emitter(_));
+        // (Whether one emits is found once, as it is loaded: an area full
+        // of creatures without emitters costs nothing more.)
         let emitting = (area.objects.iter().zip(&self.objects).enumerate())
             .filter(|(_, (o, shown))| {
-                view.shows(o.kind)
-                    && shown
-                        .as_ref()
-                        .is_some_and(|s| s.composed.base().model.nodes.iter().any(emits))
+                view.shows(o.kind) && shown.as_ref().is_some_and(|s| s.composed.emits())
             })
             .map(|(i, (o, _))| (i, o.position));
         let chosen = nearest(emitting, eye, MAX_PARTICLE_OBJECTS);
-        let key_of = |i: usize| {
-            let shown = self.objects[i].as_ref()?;
-            Some((object_place(&area.objects[i]), Arc::as_ptr(shown) as usize))
-        };
-        let wanted: std::collections::HashSet<(usize, usize)> =
-            chosen.iter().filter_map(|&i| key_of(i)).collect();
+        // An object's simulations, one a model of it that emits (its base,
+        // a tail, a held torch), by its place and its shown models' and
+        // the model's number among them ([`source_key`]).
+        let wanted: std::collections::HashSet<(usize, usize)> = chosen
+            .iter()
+            .filter_map(|&i| {
+                let shown = self.objects[i].as_ref()?;
+                let place = object_place(&area.objects[i]);
+                Some(shown.composed.emitting_sources().map(move |s| source_key(place, shown, s)))
+            })
+            .flatten()
+            .collect();
         for i in chosen {
             let (o, Some(shown)) = (&area.objects[i], &self.objects[i]) else { continue };
-            let key = (object_place(o), Arc::as_ptr(shown) as usize);
-            if self.failed.borrow().contains(&key.1) {
+            let object = Arc::as_ptr(shown) as usize;
+            if self.failed.borrow().contains(&object) {
                 continue;
             }
-            carry_over(sims, key, &wanted);
             let c = &shown.composed;
             let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
             let transform = o.model_transform();
+            let place = object_place(o);
             let drawn = mg_render::guard::guarded(name, || {
-                let (model, playing, pose) = c.emitters(c.idle.as_deref(), view.time)?;
-                let new = !sims.contains_key(&key);
-                // (Each its own random numbers, by its number: emitters of
-                // one model side by side are no copies of one another.)
-                let sim = sims.entry(key).or_insert_with(|| {
-                    mg_render::particles::Particles::new_seeded(model, key.0 as u64)
-                });
-                sim.ground = o.position.z;
-                if new {
-                    let mut ahead = 0.0;
-                    while ahead < PARTICLES_AHEAD {
-                        let step = PARTICLES_AHEAD_STEP;
-                        sim.update(model, playing, view.time, step, &pose, transform);
-                        ahead += step;
+                let (mut batches, mut thrown) = (Vec::new(), Vec::new());
+                let mut keys = Vec::new();
+                for e in c.emitting(c.idle.as_deref(), view.time) {
+                    let key = source_key(place, shown, e.source);
+                    carry_over(sims, key, &wanted);
+                    let (model, playing) = (e.model, e.animation);
+                    let t = e.held_at.unwrap_or(view.time);
+                    let (pose, at) = (&e.pose, transform * e.transform);
+                    let new = !sims.contains_key(&key);
+                    // (Each its own random numbers, by its number: emitters
+                    // of one model side by side are no copies of one
+                    // another.)
+                    let seed = key.0 as u64;
+                    let sim = sims.entry(key).or_insert_with(|| {
+                        mg_render::particles::Particles::new_seeded(model, seed)
+                    });
+                    sim.ground = o.position.z;
+                    if new {
+                        let mut ahead = 0.0;
+                        while ahead < PARTICLES_AHEAD {
+                            let step = PARTICLES_AHEAD_STEP;
+                            sim.update(model, playing, t, step, pose, at);
+                            ahead += step;
+                        }
                     }
+                    sim.update(model, playing, t, dt, pose, at);
+                    batches.extend(sim.batches(model, playing, t, pose, at, camera));
+                    thrown.extend(
+                        sim.chunks(model, playing, t, pose, at).into_iter().filter_map(chunk),
+                    );
+                    keys.push(key);
                 }
-                sim.update(model, playing, view.time, dt, &pose, transform);
-                Some(sim.batches(model, playing, view.time, &pose, transform, camera))
+                (batches, thrown, keys)
             });
             match drawn {
-                Some(Some(batches)) => {
-                    seen.push(key);
+                Some((batches, thrown, keys)) => {
+                    seen.extend(keys);
                     out.extend(batches);
+                    chunks.extend(thrown);
                 }
-                Some(None) => {}
                 None => {
-                    self.failed.borrow_mut().insert(key.1);
+                    self.failed.borrow_mut().insert(object);
                 }
             }
         }
@@ -1114,12 +1204,14 @@ impl AreaScene {
                     }
                 }
                 sim.update(model, keys.as_ref(), view.time, dt, &pose, transform);
-                sim.batches(model, keys.as_ref(), view.time, &pose, transform, camera)
+                let thrown = sim.chunks(model, keys.as_ref(), view.time, &pose, transform);
+                (sim.batches(model, keys.as_ref(), view.time, &pose, transform, camera), thrown)
             });
             match drawn {
-                Some(batches) => {
+                Some((batches, thrown)) => {
                     seen.push(key);
                     out.extend(batches);
+                    chunks.extend(thrown.into_iter().filter_map(chunk));
                 }
                 None => {
                     self.failed.borrow_mut().insert(key.1);
@@ -1194,7 +1286,7 @@ impl AreaScene {
             }
         }
         sims.retain(|k, _| seen.contains(k));
-        out
+        (out, chunks)
     }
 
     /// The animations playing on a tile, later ones over earlier: its

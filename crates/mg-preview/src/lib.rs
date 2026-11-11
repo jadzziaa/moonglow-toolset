@@ -470,6 +470,22 @@ impl<'a> Lookup<'a> {
         Model::read(&data).ok().map(Arc::new)
     }
 
+    /// Whether the game has a PLT of the name (cut to 16 characters).
+    fn has_plt(&self, name: &str) -> bool {
+        ResRef::cut(name)
+            .is_some_and(|r| self.game.resman.contains(&mg_resman::ResKey::new(r, ResType::PLT)))
+    }
+
+    /// Whether the name is a material (MTR) that names a `texture0`: what
+    /// a mesh naming it is drawn with, whatever else its part has.
+    fn has_material_texture(&self, name: &str) -> bool {
+        let Some(r) = ResRef::cut(name) else { return false };
+        self.game
+            .resman
+            .get(&mg_resman::ResKey::new(r, ResType::MTR))
+            .is_ok_and(|d| mg_image::mtr::Mtr::parse(&d).textures[0].is_some())
+    }
+
     /// Whether a texture name resolves to anything (DDS, TGA, PLT, or an
     /// MTR that names a `texture0`), by the game's lists: cut to 16
     /// characters, as the renderer and the game find it (a longer name was
@@ -484,11 +500,7 @@ impl<'a> Lookup<'a> {
         [ResType::DDS, ResType::TGA, ResType::PLT]
             .into_iter()
             .any(|t| self.game.resman.contains(&key(t)))
-            || self
-                .game
-                .resman
-                .get(&key(ResType::MTR))
-                .is_ok_and(|d| mg_image::mtr::Mtr::parse(&d).textures[0].is_some())
+            || self.has_material_texture(name)
     }
 
     /// The meshes' textures (lower case).

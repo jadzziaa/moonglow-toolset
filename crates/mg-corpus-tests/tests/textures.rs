@@ -198,3 +198,28 @@ fn coloured_parts_take_the_plt_over_a_grey_tga_of_the_same_name() {
     let plain = Assets::texture(&rm, "pmd0_head001").unwrap().texture.to_rgba();
     assert_eq!(plain.data, grey.data);
 }
+
+/// The game's PLTs that have a plain texture (DDS, TGA) of their name too:
+/// each a gray TGA (8 bits, one channel), which the client draws the PLT
+/// over (`client_render.rs`'s `part_textures_look`, rows n, o, A and B),
+/// so that what a colored part is drawn with is the PLT for all of them,
+/// as the rule that a color TGA or a DDS is drawn over the PLT
+/// (`mg_render::assets`) leaves it.
+#[test]
+fn the_game_s_plts_with_a_plain_texture_of_their_name_have_a_gray_tga() {
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut gray = 0;
+    let mut other = Vec::new();
+    for r in rm.list(ResType::PLT) {
+        let Some((t, data)) = rm.texture(r) else { continue };
+        if t == ResType::TGA && mg_image::tga::is_gray(&data) {
+            gray += 1;
+        } else {
+            other.push(format!("{r}.{t}"));
+        }
+    }
+    eprintln!("{gray} PLTs with a gray TGA of their name; others: {other:?}");
+    assert!(gray > 10, "{gray}");
+    assert!(other.is_empty(), "{other:?}");
+}

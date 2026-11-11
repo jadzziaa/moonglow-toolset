@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T07:23:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T00:59:30Z }
 ---
 
 # Areas
@@ -74,7 +74,9 @@ palette's Gallery is 🖼, the Grid ⊞.
 - **▶ Animations**: creatures and other placed objects play their
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
-  nothing otherwise), as do the tiles: a chimney smokes with its
+  nothing otherwise; a creature's wings or tail that is an effect, as
+  CEP's `@VFX` rows are, and a torch it holds, as in the game; the
+  models a chunk emitter throws, rubble), as do the tiles: a chimney smokes with its
   animation loop on in Tile Properties, and a torch on a wall burns where
   its source light has a color (Tile Properties). Particles show as they
   do once going from the moment the area is shown, a forge's fire as

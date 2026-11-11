@@ -214,7 +214,10 @@ pub(super) fn moonglow_beside_as(
     // runs those new to it.)
     if v.animate {
         let mut sims = HashMap::new();
-        scene.particles = area_scene.particles(&model, &v, &mut sims, 1.0 / 60.0, camera.view());
+        let (particles, chunks) =
+            area_scene.particles_and_chunks(&model, &v, &mut sims, 1.0 / 60.0, camera.view());
+        scene.particles = particles;
+        scene.instances.extend(chunks);
     }
     // (Where nothing is drawn: magenta, told apart from black meshes.)
     if std::env::var_os("MG_MAGENTA").is_some() {

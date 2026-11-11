@@ -3692,7 +3692,12 @@ fn viewport(
         if settings.animate {
             let camera = orbit.camera().view();
             let step = since.map_or(dt, |s| s.clamp(0.0, 0.25));
-            frame.particles = scene.particles(shown, &settings, &mut view.particles, step, camera);
+            let sims = &mut view.particles;
+            let (particles, chunks) =
+                scene.particles_and_chunks(shown, &settings, sims, step, camera);
+            frame.particles = particles;
+            // (A chunk emitter's models: rubble thrown.)
+            frame.instances.extend(chunks);
         } else {
             view.particles.clear();
         }

@@ -61,7 +61,10 @@ pub(super) fn shoot_close(
     let mut scene = area_scene.scene(&model, &v);
     if v.animate {
         let mut sims = HashMap::new();
-        scene.particles = area_scene.particles(&model, &v, &mut sims, 1.0 / 60.0, camera.view());
+        let (particles, chunks) =
+            area_scene.particles_and_chunks(&model, &v, &mut sims, 1.0 / 60.0, camera.view());
+        scene.particles = particles;
+        scene.instances.extend(chunks);
     }
     off_and_on(
         &gpu,
@@ -549,8 +552,9 @@ fn colored_tga(rgb: [u8; 3]) -> Vec<u8> {
 /// turned about 15° between pictures a second apart, its green stick
 /// pointing west a little south at about 7 s old (1.75 radians); the
 /// still Fountain's three chunks about a radian apart. Moonglow's area
-/// view draws no chunks (only the model view does, `mg-ui`'s
-/// `model_view.rs`).
+/// view drew no chunks (only the model view did) until 2026-11-10; it
+/// draws them since (`AreaScene::particles_and_chunks`), at the size
+/// [`reading_chunk_size`] read.
 #[test]
 #[ignore]
 fn reading_chunk_spin() {
@@ -621,6 +625,56 @@ fn reading_chunk_spin() {
     eprintln!("{}", r.dir.display());
 }
 
+/// How big the client draws a chunk emitter's models (seen beside
+/// [`reading_chunk_spin`]: Moonglow's, at their size, were about half the
+/// client's): in the lit tic01 room, north of the player, west to east,
+/// still Single chunk emitters of [`chunk_model`] (1 m sticks) 1 m up, at
+/// `sizeStart` 0.25, 0.5 and 1, not turning; Moonglow's area view beside
+/// them (`moonglow.png`).
+///
+/// Seen (2026-11-10, 89.8193.37): the three alike, each stick a meter
+/// long: the client draws a chunk at its model's own size, whatever the
+/// emitter's `sizeStart` and `sizeEnd`. Moonglow drew them at that size
+/// (a quarter, a half and the whole) until then; at the model's own since.
+#[test]
+#[ignore]
+fn reading_chunk_size() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let m = "mg_chunksz";
+    let nodes: Vec<String> = [0.25f32, 0.5, 1.0]
+        .iter()
+        .enumerate()
+        .map(|(i, size)| {
+            emitter(
+                m,
+                &format!("single{i}"),
+                [-2.0 + 2.0 * i as f32, 0.0, 1.0],
+                &format!(
+                    "chunkName mgchunk\n  sizeStart {size}\n  sizeEnd {size}\n  update Single\n  \
+                     velocity 0\n  particleRot 0"
+                ),
+            )
+        })
+        .collect();
+    let model = probe_model(m, &nodes);
+    let (table, first) = placeables_with(&base, &[(m, 0)]);
+    let overrides = [
+        ("mg_chunksz.mdl", model.into_bytes()),
+        ("mgchunk.mdl", chunk_model("mgchunk").into_bytes()),
+        ("mgred.tga", colored_tga([255, 0, 0])),
+        ("mggreen.tga", colored_tga([0, 255, 0])),
+        ("mgblue.tga", colored_tga([0, 0, 255])),
+        ("mgwhite.tga", white_tga()),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0xA0A0A0, diffuse: 0x808080, main_light: 0, only_tile: None };
+    let mut r = Reading::new("chunk_size", "tic01", light, &overrides);
+    r.place(first, [20.0, 24.0, 0.0], 0.0, &[]);
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| v.animate = true);
+    print_log(&dir);
+}
+
 /// What the client gives a lightning and a `Linked` emitter of
 /// `particleSoftness` (the M5 item "Soft particles"), read as
 /// `soft_particles_in_the_client` reads the others: the game's
@@ -687,7 +741,12 @@ fn reading_soft_particles_of_lightning_and_linked() {
 /// A `VisTransformList` entry of `scope`: scaled by `scale`, turned by
 /// `rotate` (degrees about x, y, z) and moved by `translate` (metres), as
 /// Aurora's Adjust Location writes one.
-fn transform(scope: i32, scale: f32, rotate: [f32; 3], translate: [f32; 3]) -> mg_gff::Struct {
+pub(super) fn transform(
+    scope: i32,
+    scale: f32,
+    rotate: [f32; 3],
+    translate: [f32; 3],
+) -> mg_gff::Struct {
     let mut e = super::batch2::transform_entry(scope, scale, 0.0);
     for (prefix, v) in [("Rotate", rotate), ("Translate", translate)] {
         for (i, a) in ["X", "Y", "Z"].iter().enumerate() {

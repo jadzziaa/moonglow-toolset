@@ -1122,6 +1122,182 @@ fn a_part_s_material_without_texture0_takes_the_human_s_plt() {
     assert_eq!(drawn("pme0_bicepr001", "pme0_bicepr001"), "pmh0_bicepr001");
 }
 
+/// A part model of one mesh per texture of `bitmaps`.
+fn part_model(name: &str, bitmaps: &[&str]) -> String {
+    let mut s = format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+         beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n"
+    );
+    for (i, b) in bitmaps.iter().enumerate() {
+        s += &format!(
+            "node trimesh m{i}\n  parent {name}\n  ambient 1 1 1\n  diffuse 1 1 1\n  \
+             bitmap {b}\n  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n  faces 1\n    \
+             0 1 2 1 0 0 0 0\nendnode\n"
+        );
+    }
+    s + &format!("endmodelgeom {name}\ndonemodel {name}\n")
+}
+
+/// What a body part is drawn with where its mesh names another texture,
+/// row by row of the client's reading (`part_textures_look` in
+/// mg-corpus-tests' `client_render.rs`; a builder's report on 4.0: a part
+/// drawn in the texture its mesh names, where the game draws its PLT).
+/// Where the part has a PLT of its own name, or of the first of its
+/// fallbacks that has one (a head's stop at its race's phenotype 0), every
+/// mesh is drawn with that name; a texture of its own name that is a TGA
+/// alone replaces nothing, and a mesh naming a material with a `texture0`
+/// keeps it; robes are parts as any. (Which of a TGA and a PLT of
+/// one name is drawn is the renderer's: `mg_render`'s
+/// `only_a_plt_takes_an_instance_s_colors`.)
+#[test]
+fn a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let user = mg_testkit::scratch_dir("preview_part_textures");
+    let over = user.join("override");
+    std::fs::create_dir_all(&over).unwrap();
+    let put = |file: &str, data: &[u8]| std::fs::write(over.join(file), data).unwrap();
+    for t in ["mg_red.tga", "mg_green.tga", "pmh0_chest299.tga"] {
+        put(t, b"tga");
+    }
+    put("mg_pltx.plt", b"plt");
+    // (Materials: one with a texture0, one with a normal map alone.)
+    put("mg_mtrb.mtr", b"texture0 mg_pink\n");
+    put("mg_mtrm.mtr", b"renderhint NormalAndSpecMapped\ntexture1 mg_nrm\n");
+    // (Robes: a man's, and an elf's with only the man's PLT.)
+    put("pmh0_robe232.mdl", part_model("pmh0_robe232", &["mg_red"]).as_bytes());
+    put("pmh0_robe232.plt", b"plt");
+    put("pme0_robe233.mdl", part_model("pme0_robe233", &["mg_red"]).as_bytes());
+    put("pmh0_robe233.plt", b"plt");
+    // (Row by row: the part's number, its skeleton, its meshes' textures,
+    // `own` the part's own name, and the files of its own name, `pmh0`
+    // where only the human man's has them.)
+    let rows: [(u16, &str, &[&str], &[&str]); 12] = [
+        (201, "pmh0", &["mg_red"], &["plt"]),
+        (202, "pmh0", &["mg_pltx"], &["plt"]),
+        (203, "pmh0", &["own", "mg_green"], &["plt"]),
+        (204, "pmh0", &["mg_red"], &[]),
+        (206, "pmh0", &["own"], &["tga", "plt"]),
+        (207, "pmh0", &["pmh0_chest299"], &["plt"]),
+        (210, "pmh0", &["mg_red"], &["tga"]),
+        (211, "pmh0", &["mg_red", "mg_green"], &["plt"]),
+        (212, "pmh0", &["mg_red"], &["tga", "plt"]),
+        (223, "pmh0", &["pmh0_chest299"], &["tga"]),
+        (205, "pme0", &["mg_red"], &["pmh0.plt"]),
+        (209, "pme0", &["own", "mg_green"], &["pmh0.plt"]),
+    ];
+    let extra: [(u16, &str, &[&str], &[&str]); 5] = [
+        (226, "pmh0", &["mg_mtrb"], &["plt"]),
+        (240, "pmh0", &["mg_mtrm"], &["plt"]),
+        (205, "pmh2", &["mg_red"], &[]),
+        (224, "pme0", &["mg_red"], &["tga", "pmh0.plt"]),
+        (219, "pfh0", &["mg_red"], &["pmh0.plt"]),
+    ];
+    for (n, skeleton, meshes, own) in rows.iter().chain(&extra) {
+        for part in ["chest", "head"] {
+            let name = format!("{skeleton}_{part}{n}");
+            let bitmaps: Vec<&str> =
+                meshes.iter().map(|m| if *m == "own" { name.as_str() } else { m }).collect();
+            put(&format!("{name}.mdl"), part_model(&name, &bitmaps).as_bytes());
+            for file in *own {
+                match file.split_once('.') {
+                    Some((other, ext)) => put(&format!("{other}_{part}{n}.{ext}"), ext.as_bytes()),
+                    None => put(&format!("{name}.{file}"), file.as_bytes()),
+                }
+            }
+        }
+    }
+    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    // What each mesh of the creature's chest and head is drawn with.
+    let drawn = |appearance: u16, gender: u8, phenotype: u8, n: u16| -> [Vec<String>; 2] {
+        let look = CreatureLook { gender, phenotype, ..CreatureLook::new(appearance) };
+        let mut utc = look.to_utc();
+        utc.set("BodyPart_Torso", mg_gff::Value::Byte(n as u8));
+        utc.set("Appearance_Head", mg_gff::Value::Byte(n as u8));
+        let c = creature(&game, &utc, &|_| None).unwrap();
+        ["chest", "head"].map(|part| {
+            let p = c
+                .parts
+                .iter()
+                .find(|p| p.model.ends_with(&format!("_{part}{n}")))
+                .unwrap_or_else(|| panic!("{part} {n}: {:?}", models(&c)));
+            let model = game.resman.get_named(&p.model, ResType::MDL).unwrap();
+            let model = Model::read(&model).unwrap();
+            model
+                .nodes
+                .iter()
+                .filter_map(|node| match &node.kind {
+                    mg_mdl::NodeKind::Mesh(m) => m.textures[0].clone(),
+                    _ => None,
+                })
+                .map(|b| p.textures.get(&b).cloned().unwrap_or(b))
+                .collect()
+        })
+    };
+    let man = |n| drawn(6, 0, 0, n);
+    let both =
+        |name: &str| [vec![name.replace("PART", "chest")], vec![name.replace("PART", "head")]];
+    // The report: a mesh naming a texture of no part's name, a PLT of the
+    // part's name: the PLT; a PLT of no part's name, the same.
+    assert_eq!(man(201), both("pmh0_PART201"));
+    assert_eq!(man(202), both("pmh0_PART202"));
+    // A head's hair, a gem: the second mesh too.
+    let own = |n| ["chest", "head"].map(|p| vec![format!("pmh0_{p}{n}"); 2]);
+    assert_eq!(man(203), own(203));
+    assert_eq!(man(211), own(211));
+    // Another part's TGA: the PLT.
+    assert_eq!(man(207), both("pmh0_PART207"));
+    // No PLT of the part's name: what the mesh names, though a TGA of the
+    // part's name is there.
+    assert_eq!(man(204), both("mg_red"));
+    assert_eq!(man(210), both("mg_red"));
+    assert_eq!(man(223), both("pmh0_chest299"));
+    // A TGA and a PLT of the part's name: its name (the renderer draws the
+    // TGA), whatever the mesh names.
+    assert_eq!(man(206), both("pmh0_PART206"));
+    assert_eq!(man(212), both("pmh0_PART212"));
+    // An elf's chest without a PLT of its name takes the human's, its own
+    // TGA alone not counting; its head does not, and keeps what its mesh
+    // names, a mesh of its own name that is missing too.
+    let elf = |n| drawn(1, 0, 0, n);
+    assert_eq!(elf(205), [vec!["pmh0_chest205".to_string()], vec!["mg_red".to_string()]]);
+    assert_eq!(elf(224), [vec!["pmh0_chest224".to_string()], vec!["mg_red".to_string()]]);
+    let [chest, head] = elf(209);
+    assert_eq!(chest, ["pmh0_chest209"; 2]);
+    assert_eq!(head, ["pme0_head209", "mg_green"]);
+    // Phenotype 2's chest and head take phenotype 0's; a woman's chest the
+    // man's, her head not.
+    assert_eq!(drawn(6, 0, 2, 205), both("pmh0_PART205"));
+    assert_eq!(
+        drawn(6, 1, 0, 219),
+        [vec!["pmh0_chest219".to_string()], vec!["mg_red".to_string()]]
+    );
+    // A mesh naming a material with a texture0 keeps it; one whose
+    // material has no texture0 (a normal map alone) takes the PLT.
+    assert_eq!(man(226), both("mg_mtrb"));
+    assert_eq!(man(240), both("pmh0_PART240"));
+    // A robe as any part: its PLT, the human man's for an elf's.
+    let robe = |appearance: u16, n: u16| -> Vec<String> {
+        let mut armor = blueprint(&game, "nw_cloth001", ResType::UTI);
+        armor.root.set("ArmorPart_Robe", mg_gff::Value::Byte(n as u8));
+        let mut utc = CreatureLook::new(appearance).to_utc();
+        let mut slot = mg_gff::Struct::new(2);
+        slot.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+        utc.set("Equip_ItemList", mg_gff::Value::List(vec![slot]));
+        let c = creature(&game, &utc, &|_| Some(armor.clone())).unwrap();
+        let p = c
+            .parts
+            .iter()
+            .find(|p| p.model.ends_with(&format!("_robe{n}")))
+            .unwrap_or_else(|| panic!("robe {n}: {:?}", models(&c)));
+        vec![p.textures.get("mg_red").cloned().unwrap_or_else(|| "mg_red".into())]
+    };
+    assert_eq!(robe(6, 232), ["pmh0_robe232"]);
+    assert_eq!(robe(1, 233), ["pmh0_robe233"]);
+}
+
 /// An authored ASCII model: a small square, the dummies `nodes` (name,
 /// position) and the lights `lights` (position, colour, radius,
 /// multiplier).

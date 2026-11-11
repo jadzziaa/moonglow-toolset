@@ -80,6 +80,10 @@ mod joined;
 mod local_z;
 #[path = "client_render/nui.rs"]
 mod nui;
+#[path = "client_render/part_emitters.rs"]
+mod part_emitters;
+#[path = "client_render/part_textures.rs"]
+mod part_textures;
 #[path = "client_render/programs.rs"]
 mod programs;
 #[path = "client_render/readings.rs"]

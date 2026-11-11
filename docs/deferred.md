@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T09:47:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T01:38:15Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -539,6 +539,44 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
+- **A body part's name given in place of its mesh's is drawn with that
+  name's material:** the client draws the part's PLT on a mesh that names
+  something else even where an MTR of the part's own name names another
+  `texture0` (`part_textures_look`, row J: pink MTR, orange PLT drawn);
+  Moonglow draws the MTR, as the renderer reads every texture name
+  through its material. Deferred for its consequences: drawing a renamed
+  texture without its material would change every rename, the creature's
+  `ReplaceObjectTexture` ones too, whose material the client was not
+  read for; and nothing found hits it (the 24 TDoD necks given
+  `pmh0_neck028`, an MTR, name it in its own `texture0`, the same
+  picture). S. (a builder's report on 4.0, the part textures, 2026-11-10)
+- **A DDS of one luminance channel drawn alone:** the client draws it in
+  colors of no rule (`part_textures_look`, rows R to U: 60 blue, 128
+  dark red, 0 and 255 black), Moonglow gray. Awaiting a verdict: copying
+  colors of no rule, or calling such a file one the game misreads
+  (Verify could say so). (the part textures, 2026-11-10)
+
+- **A mesh whose texture is nowhere is drawn black, the client draws it
+  light gray:** seen beside the part textures' reading
+  (`part_textures_look`, rows l and z: a head's mesh naming its own
+  missing texture), with the Shaders switch off and on alike, though the
+  renderer binds white for a missing texture. Deferred as beyond what was
+  asked (it is every model's missing textures, not a part's, and wants a
+  reading of its own: whether the client lights it as white, or as the
+  material's diffuse). S to M. (a builder's report on 4.0, the part
+  textures, 2026-11-10)
+- **A creature holding a torch** stands in the client with its arm
+  raised, the torch held up, and the torch lights the area around it;
+  Moonglow draws the arm as in any other stance and no light (its flame
+  burns, as the client's: [findings](findings.md), "A creature's parts'
+  emitters"). Seen beside the part emitters' reading
+  (`part_emitters_look`, group h). Deferred as beyond what was asked
+  (a stance and an item's light, not its emitters), and it wants a
+  reading of its own: which animation the client plays for it, and the
+  light's color and reach (the item's Light property, or the base
+  item's). M. (a builder's report on 4.0, CEP's effect tails,
+  2026-11-10)
+
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21; Verify
@@ -683,13 +721,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     3×3 part, or values that the camera alone changes kept per instance
     and multiplied in the vertex program, would cut it. (M)
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
-  braziers, shafts of light, all without particles in his area): not
-  reproduced. The game's own balor, fire elemental, campfire and brazier
-  show theirs in the area view here (`look_particles_of`), and a static
-  brazier's fire and smoke run in the client as a dynamic one's, as in
-  the area view (`reading_static_placeable_emitters`, 2026-10-30), so it
-  is his content, a setting (Animations off shows none) or his machine;
-  asked of him. (?) (from builders' reports after 1.16.2)
+  braziers, shafts of light, all without particles in his area): the
+  wings are likely explained and fixed on 2026-11-10. Wings a creature
+  wears from `wingmodel.2da` are a part, and a part's emitters were not
+  simulated (only a preview's base model's): CEP's "Balor: Flame" wings
+  (`c_wingsbalr`, row 9) are wings full of fire emitters, as its `@VFX`
+  rows are effects; the area view draws them now ([findings](findings.md),
+  "A creature's parts' emitters"). The game's own balor carries its fire
+  in its own model, which was drawn. The braziers and shafts of light
+  are not reproduced: the game's brazier and campfire show theirs here
+  (`look_particles_of`), and a static brazier's fire runs in the client
+  as a dynamic one's, as in the area view
+  (`reading_static_placeable_emitters`, 2026-10-30), so it is his
+  content, a setting (Animations off shows none) or his machine. Waits
+  on him: which wings and which braziers. (?) (from builders' reports
+  after 1.16.2)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
@@ -735,8 +781,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   fixed against the content itself but none of it compared with the
   client: a supermodel's position keys scaled by `setanimationscale`
   (taken as the size against the model whose animation is played); a
-  body part drawn only where the base has its node; a mesh with `bitmap
-  NULL` given the part's own texture; a bitmap name over 16 characters
+  body part drawn only where the base has its node; a bitmap name over 16 characters
   cut to 16; a blank line among ASCII skin weights read as a vertex
   without any (its faces not drawn since 2026-10-29, as the game draws
   none of a vertex no bone weighs), and since 2026-10-30 as spacing only
@@ -746,7 +791,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   of scaled supermodels plays at each link's scale but the owner's, as
   the client's (since 2026-11-02; [the findings](findings.md), "An
   animation played through a chain of supermodels is scaled by each
-  link"). Waiting: the model
+  link"). A mesh with `bitmap NULL` drawn in the part's own PLT is the
+  client's (2026-11-10, `part_textures_look`, row F). Waiting: the model
   viewer's own check of names over 16 characters (the Moonglow Viewer
   session's); and the Mindwitness's pose, other than in Aurora and the
   game (the builder's model). (S)
@@ -814,12 +860,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     ends (F22, held by its guard's own test).
   (S, waits on a client run) (the review of November 2026, M10, M13,
   F22)
-- **The area view never draws chunk emitters:** only the model viewer
-  (`model_view.rs`) calls `Particles::chunks`, so an area's chunk
-  emitters are not drawn, and `reading_chunk_spin`'s Moonglow picture
-  of an area is empty. Seen on the way by the client reading that
-  settled the review's R18, not changed: beyond what was asked. (M)
-  (the review of November 2026, R18)
 - **The model viewer's ground shadow, the owner's call:** it is drawn
   as a shadow map always (`shadow_volumes = false` before its draw),
   since stencil volumes cast no skins: the renderer's fixer's choice in
@@ -1883,8 +1923,8 @@ is not taken for a new gap.
   or turns on and off (a lamp's "on" and "off" states keying its light's
   colour) is drawn as it is at that moment. A part's light nodes are taken
   in the part's rest pose. The model viewer's **Lights** shows the base
-  model's light nodes (animated) and the appearance's light, not a
-  part's. (S) (from Troubletcat's and Heed's reports, October 2026) (Settled in the triage of 2026-10-28.)
+  model's light nodes (animated), the appearance's light and, since
+  2026-11-10, its parts' (a tail's effect's) as they stand. (S) (from Troubletcat's and Heed's reports, October 2026) (Settled in the triage of 2026-10-28.)
 - **Moonglow draws the rooms the player can't see:** in an interior the
   client draws only the tiles the player's tile sees (the tileset's
   visibility); the area view draws every tile, as Aurora does. Comparing

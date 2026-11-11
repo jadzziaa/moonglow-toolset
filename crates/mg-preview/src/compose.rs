@@ -34,6 +34,9 @@ struct Placed {
     /// the scale it plays at through the chain of supermodels
     /// ([`anim::animations_scaled`]).
     anims: Vec<(String, Arc<Model>, f32)>,
+    /// An item held in a hand (a weapon, a shield, a torch): its emitters
+    /// stand as its `equip` animation leaves them ([`Composed::emitting`]).
+    held: bool,
 }
 
 impl Placed {
@@ -132,6 +135,10 @@ pub struct Composed {
     /// Its idle animation keys the base's meshes (their alpha or
     /// self-illumination, or their vertices): played with the pose.
     idle_keys_meshes: bool,
+    /// Which of its models have particle emitters ([`Emitting::source`]),
+    /// found once: most have none, and an area full of creatures asks
+    /// every frame.
+    emitting: Vec<usize>,
     /// Models named by the preview that could not be loaded.
     pub missing: Vec<String>,
     /// Posing it failed once: it is drawn no more (rather than fail again
@@ -199,7 +206,42 @@ fn place_unguarded(
         animated: part.animated,
         skeleton,
         anims,
+        held: part.item
+            && part
+                .attach
+                .as_deref()
+                .is_some_and(|n| HANDS.iter().any(|h| h.eq_ignore_ascii_case(n))),
     })
+}
+
+/// The nodes a creature holds its items at: its weapons, its shield (on
+/// its forearm), a torch.
+const HANDS: [&str; 3] = ["rhand", "lhand", "lforearm"];
+
+/// Whether a model has particle emitters.
+fn has_emitters(m: &Model) -> bool {
+    m.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_)))
+}
+
+/// One of a preview's models that has particle emitters, as it stands
+/// ([`Composed::emitting`]): what a particle simulation is given.
+#[derive(Debug)]
+pub struct Emitting<'a> {
+    /// Which of the preview's models: 0 the base, then each part (in
+    /// [`crate::Preview::parts`]' order, those that hang) from 1. The
+    /// same model from frame to frame: what its simulation is kept by.
+    pub source: usize,
+    pub model: &'a Model,
+    /// The animation that keys its emitters (`None`: they are as the
+    /// model has them).
+    pub animation: Option<&'a Animation>,
+    /// The time in it its keys stand at, whatever the clock (a held
+    /// item's, as its `equip` ends); `None`: the clock's.
+    pub held_at: Option<f32>,
+    /// Its nodes.
+    pub pose: Vec<Mat4>,
+    /// Where it is in the preview's space.
+    pub transform: Mat4,
 }
 
 /// A part hung from a node, with the skin meshes the game does not draw
@@ -338,6 +380,7 @@ impl Composed {
             lamps: Vec::new(),
             base_lamps: 0,
             idle_keys_meshes: false,
+            emitting: Vec::new(),
             missing,
             failed: Default::default(),
         };
@@ -351,6 +394,11 @@ impl Composed {
             .filter(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_)))
             .count()
             .min(c.lamps.len());
+        let models = std::iter::once(&c.base).chain(&c.parts);
+        c.emitting = (models.enumerate())
+            .filter(|(_, p)| has_emitters(&p.gpu.model))
+            .map(|(i, _)| i)
+            .collect();
         let idle = c.idle.as_deref().and_then(|a| playing(a, |n| c.base.animation(n)));
         c.idle_keys_meshes = idle.is_some_and(|a| {
             a.nodes.iter().any(|n| {
@@ -407,24 +455,84 @@ impl Composed {
         self.base.anims.iter().map(|(n, ..)| n.clone()).collect()
     }
 
-    /// The base model's particle emitters, to simulate: the model, the
-    /// animation it stands in and its nodes' places at `t`. `None` for a
-    /// model without emitters (most).
-    pub fn emitters(
-        &self,
-        animation: Option<&str>,
-        t: f32,
-    ) -> Option<(&Model, Option<&Animation>, Vec<Mat4>)> {
-        let model = &*self.base.gpu.model;
-        if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_))) {
-            return None;
+    /// Whether any of its models (the base's or a part's) has particle
+    /// emitters.
+    pub fn emits(&self) -> bool {
+        !self.emitting.is_empty()
+    }
+
+    /// Which of its models have particle emitters ([`Emitting::source`]).
+    pub fn emitting_sources(&self) -> impl Iterator<Item = usize> + '_ {
+        self.emitting.iter().copied()
+    }
+
+    /// Its models with particle emitters, to simulate, as it stands in
+    /// `animation` at `t`: the base's, and its parts' where they hang (an
+    /// effect worn as a tail or wings, CEP's 574 `@VFX` tails: the game's
+    /// effect models, all emitters; a held torch's flame). Each keyed as
+    /// the client keys it (`client_render/part_emitters.rs`): the base by
+    /// the animation it plays; a tail or wings by its own animation of the
+    /// name, else its own `default` (none: as the model has them, so an
+    /// effect's `duration` or `conjure01` keys play no part); a held item
+    /// by its `equip`, as it ends; another part (a helmet) as its model
+    /// has them. Empty for a
+    /// preview without emitters (most).
+    pub fn emitting(&self, animation: Option<&str>, t: f32) -> Vec<Emitting<'_>> {
+        if self.emitting.is_empty() {
+            return Vec::new();
         }
-        let playing = animation.and_then(|name| self.base.animation(name));
-        let pose = match playing {
-            Some(a) => self.base.pose(a, t),
-            None => self.base.gpu.rest.clone(),
-        };
-        Some((model, playing, pose))
+        let (base_anim, base_pose) = self.base_posed(animation, t);
+        let mut out = Vec::with_capacity(self.emitting.len());
+        for &source in &self.emitting {
+            let Some(i) = source.checked_sub(1) else {
+                out.push(Emitting {
+                    source,
+                    model: &self.base.gpu.model,
+                    animation: base_anim,
+                    held_at: None,
+                    pose: base_pose.clone(),
+                    transform: self.base.local,
+                });
+                continue;
+            };
+            let Some(p) = self.parts.get(i) else { continue };
+            let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+            let (hung, bones) = p.hung(at);
+            let mut pose = self.part_pose(p, animation, base_anim, &base_pose, bones, t);
+            let (keys, held_at) = if p.animated {
+                let own = animation.and_then(|a| p.animation(a));
+                // (An effect keyed in its `default` alone, CEP's tail 620
+                // `fx_lavaspurt`, spurts in the client: one of no animation
+                // of the name plays its `default`, posed by it.)
+                let default = own.is_none().then(|| p.animation("default")).flatten();
+                if let Some(a) = default {
+                    pose = Some(p.pose(a, t));
+                }
+                (own.or(default), None)
+            } else if p.held {
+                let equip = p.gpu.model.animation("equip");
+                (equip, equip.map(|a| a.length))
+            } else {
+                (None, None)
+            };
+            out.push(Emitting {
+                source,
+                model: &p.gpu.model,
+                animation: keys,
+                held_at,
+                pose: pose.unwrap_or_else(|| p.gpu.rest.clone()),
+                transform: hung,
+            });
+        }
+        out
+    }
+
+    /// The light nodes of its parts (a tail's effect's, a held lamp's), as
+    /// they stand in its idle animation, placed by `transform`: those of
+    /// [`Composed::point_lights`] that are not the base model's.
+    pub fn part_point_lights(&self, transform: Mat4) -> Vec<PointLight> {
+        let parts = self.lamps.iter().skip(self.base_lamps);
+        parts.filter_map(|l| l.placed(transform, &|_| None)).collect()
     }
 
     /// Instances at time `t` of `animation` (none: the rest pose), placed
@@ -1423,6 +1531,170 @@ mod ray_tests {
         assert_eq!(name(playing("deadfnt", find)), Some("deadfnt".into()));
         assert_eq!(name(playing("CPAUSE1", find)), Some("pause1".into()));
         assert_eq!(name(playing("pause1", find)), Some("pause1".into()));
+    }
+
+    /// A creature of an animated `tail` node (moved 1 m up over its
+    /// `pause1`), wearing as a tail an effect of one emitter and no mesh
+    /// (`fx`), keyed as `anims` says, and holding in its right hand an
+    /// item (`torch`) whose emitter is keyed in its `equip`, and a helmet
+    /// (`helm`) of one emitter.
+    fn effect_creature(gpu: &Gpu, fx_anims: &str, scale: f32) -> Option<Composed> {
+        let base = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
+            beginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
+            node dummy tail\n  parent base\n  position 0 -0.2 1\nendnode\n\
+            node dummy rhand\n  parent base\n  position 0.3 0 1\nendnode\n\
+            node dummy head_g\n  parent base\n  position 0 0 1.7\nendnode\n\
+            node trimesh body\n  parent base\n  bitmap NULL\n  verts 3\n    0 0 0\n    0.1 0 0\n    0 0 1\n\
+            faces 1\n    0 1 2 1 0 0 0 0\nendnode\n\
+            endmodelgeom base\n\
+            newanim pause1 base\n  length 2\n  transtime 0\n  animroot base\n\
+            node dummy base\n  parent NULL\nendnode\n\
+            node dummy tail\n  parent base\n  positionkey 2\n    0 0 -0.2 1\n    2 0 -0.2 3\nendnode\n\
+            doneanim pause1 base\ndonemodel base\n";
+        let emitter = |model: &str, rest: f32| {
+            format!(
+                "node emitter jet\n  parent {model}\n  update Fountain\n  render Normal\n\
+                 birthrate {rest}\n  lifeExp 1\n  velocity 1\n  sizeStart 0.1\n  sizeEnd 0.1\nendnode\n"
+            )
+        };
+        let model = |name: &str, rest: f32, anims: &str| {
+            Model::read(
+                format!(
+                    "newmodel {name}\nsetsupermodel {name} NULL\nclassification effects\n\
+                     beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n{}\
+                     endmodelgeom {name}\n{}donemodel {name}\n",
+                    emitter(name, rest),
+                    anims.replace("MODEL", name)
+                )
+                .as_bytes(),
+            )
+            .map(Arc::new)
+            .unwrap()
+        };
+        let keyed = |anim: &str, from: f32, to: f32| {
+            format!(
+                "newanim {anim} MODEL\n  length 1\n  transtime 0\n  animroot MODEL\n\
+                 node dummy MODEL\n  parent NULL\nendnode\nnode emitter jet\n  parent MODEL\n\
+                 birthratekey 2\n    0 {from}\n    1 {to}\nendnode\ndoneanim {anim} MODEL\n"
+            )
+        };
+        let base = Arc::new(Model::read(base.as_bytes()).unwrap());
+        let fx = model("fx", 0.0, fx_anims);
+        let torch = model("torch", 0.0, &keyed("equip", 0.0, 8.0));
+        let helm = model("helm", 8.0, &keyed("equip", 8.0, 0.0));
+        let load = |name: &str| match name {
+            "base" => Some(base.clone()),
+            "fx" => Some(fx.clone()),
+            "torch" => Some(torch.clone()),
+            "helm" => Some(helm.clone()),
+            _ => None,
+        };
+        let tail = crate::Part {
+            attach: Some("tail".into()),
+            animated: true,
+            scale,
+            ..crate::Part::new("fx")
+        };
+        let held =
+            crate::Part { attach: Some("rhand".into()), item: true, ..crate::Part::new("torch") };
+        let worn =
+            crate::Part { attach: Some("head_g".into()), item: true, ..crate::Part::new("helm") };
+        let preview = Preview {
+            parts: vec![tail, held, worn],
+            idle: Some("pause1".into()),
+            ..Preview::model("base")
+        };
+        Composed::new(gpu, &preview, &load)
+    }
+
+    /// The birthrate an [`Emitting`]'s emitter has as it is keyed.
+    fn birthrate(e: &Emitting<'_>, clock: f32) -> f32 {
+        let t = e.held_at.unwrap_or(clock);
+        let keyed = e.animation.and_then(|a| {
+            let node = a.nodes.iter().find(|n| n.name == "jet")?;
+            let c = node.controllers.iter().find(|c| c.name == "birthrate")?;
+            mg_render::anim::sample(c, mg_render::anim::time_in(a, t)).first().copied()
+        });
+        keyed.unwrap_or_else(|| {
+            let fx = e.model.nodes.iter().find(|n| n.name == "jet").unwrap();
+            fx.value("birthrate").and_then(|v| v.first().copied()).unwrap_or(0.0)
+        })
+    }
+
+    /// The parts' emitters are simulated where the parts hang, as the
+    /// client runs them (`client_render/part_emitters.rs`): a tail's
+    /// follows its node as the base's animation moves it, at the part's
+    /// scale; a held item's stands as its `equip` ends; a helmet's as its
+    /// model has it.
+    #[test]
+    fn a_part_s_emitters_hang_where_the_part_does() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let c = effect_creature(&gpu, "", 3.0).unwrap();
+        assert!(c.emits());
+        assert_eq!(c.emitting_sources().collect::<Vec<_>>(), vec![1, 2, 3]);
+        let at = |t: f32| {
+            let e = c.emitting(Some("pause1"), t);
+            let tail = e.iter().find(|e| e.source == 1).unwrap();
+            let fx = tail.model.nodes.iter().position(|n| n.name == "jet").unwrap();
+            tail.transform * tail.pose[fx]
+        };
+        // (Up the tail's node with the pause, at the part's scale.)
+        let (start, half) = (at(0.0), at(1.0));
+        assert!(start.w_axis.truncate().abs_diff_eq(Vec3::new(0.0, -0.2, 1.0), 1e-4), "{start}");
+        assert!(half.w_axis.truncate().abs_diff_eq(Vec3::new(0.0, -0.2, 2.0), 1e-4), "{half}");
+        assert!((start.x_axis.length() - 3.0).abs() < 1e-4, "{start}");
+        let all = c.emitting(Some("pause1"), 0.5);
+        // A tail without the animation: as its model has it.
+        let tail = &all[0];
+        assert!(tail.animation.is_none() && tail.held_at.is_none());
+        // The torch: its `equip`, as it ends (8); the helmet: at rest (8).
+        let torch = &all[1];
+        assert_eq!(torch.animation.map(|a| a.name.as_str()), Some("equip"));
+        assert_eq!(torch.held_at, Some(1.0));
+        assert!((birthrate(torch, 0.5) - 8.0).abs() < 1e-4);
+        let helm = &all[2];
+        assert!(helm.animation.is_none());
+        assert!((birthrate(helm, 0.5) - 8.0).abs() < 1e-4);
+        assert!(helm.transform.w_axis.truncate().abs_diff_eq(Vec3::new(0.0, 0.0, 1.7), 1e-4));
+        // A preview with no emitter anywhere has none to give.
+        let plain = Preview::model("base");
+        let base = Arc::new(skeleton());
+        let none = Composed::new(&gpu, &plain, &|_| Some(base.clone())).unwrap();
+        assert!(!none.emits() && none.emitting(None, 0.0).is_empty());
+    }
+
+    /// A tail's emitters are keyed by its own animation of the name the
+    /// creature plays, else its own `default`; an effect's others
+    /// (`duration`) play no part (the client: `mg_tailkey`, CEP's
+    /// `fx_lavaspurt` and `vdr_smoke`).
+    #[test]
+    fn a_tail_s_emitters_play_its_own_animation_or_its_default() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let keyed = |anim: &str| {
+            format!(
+                "newanim {anim} MODEL\n  length 1\n  transtime 0\n  animroot MODEL\n\
+                 node dummy MODEL\n  parent NULL\nendnode\nnode emitter jet\n  parent MODEL\n\
+                 birthratekey 2\n    0 6\n    1 6\nendnode\ndoneanim {anim} MODEL\n"
+            )
+        };
+        let tail_keys = |anims: &str| {
+            let c = effect_creature(&gpu, anims, 1.0).unwrap();
+            let e = c.emitting(Some("pause1"), 0.5);
+            (e[0].animation.map(|a| a.name.clone()), birthrate(&e[0], 0.5))
+        };
+        assert_eq!(tail_keys(&keyed("pause1")), (Some("pause1".into()), 6.0));
+        let both = keyed("pause1") + &keyed("default");
+        assert_eq!(tail_keys(&both).0.as_deref(), Some("pause1"));
+        assert_eq!(tail_keys(&keyed("default")), (Some("default".into()), 6.0));
+        assert_eq!(tail_keys(&keyed("duration")), (None, 0.0));
     }
 }
 

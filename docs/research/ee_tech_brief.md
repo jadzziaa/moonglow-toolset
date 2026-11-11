@@ -3,7 +3,7 @@ type: Research Note
 title: 'Moonglow Toolset: NWN:EE technical research brief'
 description: Technical brief on NWN:EE 89.8193.37 for the toolset - file formats, GFF resource types, resource loading order, script compilation, Test Module, Aurora's known bugs and limits, each claim tagged with its evidence; tilesets, models and rendering are short sections pointing at the detail notes and the findings.
 tags: [nwn-ee, formats, gff, rendering, tilesets, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:27:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T00:20:32Z }
 ---
 
 # Moonglow Toolset: NWN:EE technical research brief
@@ -303,7 +303,7 @@ The base game ships 32,832 models, 7,235 of them ASCII and 25,597 binary (a 32-b
 | 5.1 MDL ASCII | `notes_models.md` §A |
 | 5.2 Binary MDL | `notes_models.md` §B (byte layout, controllers, reader recipe in §B.21); `../findings.md` "Binary models from the game's own compiler" |
 | 5.3 Animations the editor must play | `notes_models.md` §C (per object type in §C1, supermodels and animation scale in §C2); `../findings.md` "A worn part moves at its wearer's animation scale" |
-| 5.4 Part-based creatures | `notes_models.md` §D1–D2; `../findings.md` "A body part is drawn in its own texture", "A skin mesh in a body part or a held item", "EE \"x\" twin part fields" |
+| 5.4 Part-based creatures | `notes_models.md` §D1–D2; `../findings.md` "A body part is drawn in its own PLT", "A skin mesh in a body part or a held item", "EE \"x\" twin part fields" |
 | 5.5 PLT coloring | `notes_models.md` §D3; `../findings.md` "An armor's per-part colors" |
 | 5.6 Textures | `notes_models.md` §E (lookup, TGA, DDS, KTX, TXI, MTR), §D4–D5 (items, placeables, doors); `../findings.md` "A TGA's origin bits are ignored", "Two-sided faces, cut-outs and decals" |
 
