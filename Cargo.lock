@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "mg"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3142,7 +3142,7 @@ dependencies = [
 
 [[package]]
 name = "moonglow"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "eframe",
  "egui",

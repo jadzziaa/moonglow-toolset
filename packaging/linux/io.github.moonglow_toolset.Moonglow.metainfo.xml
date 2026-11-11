@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="4.1.0" date="2026-11-10">
+      <description>
+        <p>A body part is drawn in its own PLT, and effects worn as
+        tails and wings show their particles, as in the game. A color
+        TGA or DDS is drawn over a PLT of the same name, and a DXT1's
+        one-bit texels are opaque black with Shaders on.</p>
+        <p>New mg commands: texture convert, info, plt-split and
+        plt-join; cat --to for many resources in one run; --hak for
+        your own haks and folders; model info; 2da-set; ls --sha256.</p>
+      </description>
+    </release>
     <release version="4.0.0" date="2026-11-10">
       <description>
         <p>The fixes of a review of the whole codebase: of its 349
