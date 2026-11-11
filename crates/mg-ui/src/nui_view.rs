@@ -2201,7 +2201,10 @@ fn property(
                 widgets::field_label(ui, &label)
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "More").menu(ui, |ui| {
+                // (Named with its property: each row has one.)
+                let more = widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "More")
+                    .name(format!("More for {label}"));
+                let menu = more.menu(ui, |ui| {
                     mg_uikit::menu_rows(ui);
                     if let Some(name) = &bind {
                         if ui.button("Use a Constant Value").clicked() {
@@ -2262,6 +2265,8 @@ fn property(
                         ui.close();
                     }
                 });
+                let tip = "Bind it, use a talk-table string, or remove it";
+                menu.response.on_hover_text(tip);
             });
             heading
         })
@@ -2629,12 +2634,12 @@ mod tests {
             (json!("Text"), Settings::default()),
         );
         h.run();
-        h.get_by_label("More").click();
+        h.get_by_label_contains("More for ").click();
         h.run();
         h.get_by_label("Use TLK String (StrRef)").click();
         h.run();
         assert_eq!(h.state().0, json!({"strref":0}));
-        h.get_by_label("More").click();
+        h.get_by_label_contains("More for ").click();
         h.run();
         h.get_by_label("Make Dynamic (Bind)").click();
         h.run();
@@ -2660,7 +2665,7 @@ mod tests {
                 (initial.clone(), settings),
             );
             h.run();
-            h.get_by_label("More").click();
+            h.get_by_label_contains("More for ").click();
             h.run();
             h.query_by_label_contains("Use existing bind")
                 .expect("Missing existing-bind selector")
@@ -2691,7 +2696,7 @@ mod tests {
             (json!(128), settings),
         );
         h.run();
-        h.get_by_label("More").click();
+        h.get_by_label_contains("More for ").click();
         h.run();
         assert!(
             h.query_by_label_contains("Use existing bind").is_none(),

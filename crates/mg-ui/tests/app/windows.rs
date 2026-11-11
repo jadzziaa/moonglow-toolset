@@ -540,11 +540,21 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     h.get_by_label("Show Log").click();
     h.run_steps(2);
     assert!(!h.state().settings.hide_log);
-    // (The others are gone: the tree's «, the palettes' » after their
-    // types, and the log's old arrow buttons.)
-    for old in ["«", "»", "⏷ Log", "⏶ Log", "⏴"] {
-        assert!(h.query_by_label(old).is_none(), "{old}");
-    }
+    // The panes' edge buttons are the only ones that fold or show them
+    // (the tree's and the palettes' arrows after their types, and the
+    // log's arrow buttons, are gone): every button named for a pane, by
+    // itself or with a verb, is one of the three.
+    let panes = ["Module Tree", "Palettes", "Log"];
+    let verbs = ["", "Fold ", "Show ", "Hide ", "Collapse ", "Expand "];
+    let mut named: Vec<String> = h
+        .query_all_by(|n| n.role() == egui::accesskit::Role::Button)
+        // (The main toolbar's Palettes opens the palettes' tab: a command.)
+        .filter(|n| !in_toolbar(n))
+        .filter_map(|n| n.accesskit_node().label())
+        .filter(|l| panes.iter().any(|p| verbs.iter().any(|v| *l == format!("{v}{p}"))))
+        .collect();
+    named.sort();
+    assert_eq!(named, ["Fold Log", "Fold Module Tree", "Fold Palettes"]);
 }
 
 /// GitHub issue 20: the palettes' tab dragged onto the middle of the
@@ -926,9 +936,12 @@ fn views_draw_nothing_over_anything_else() {
         let width = h.ctx.content_rect().width();
         found.extend(overlapping(h).into_iter().map(|o| format!("{what} at {width}: {o}")));
     };
+    // (A window's button: not the toolbars' or the palette's types, whose
+    // Sounds was clicked for Options' Sounds page.)
     let button = |h: &Harness<'_, Moonglow>, label: &str| {
         use egui_kittest::kittest::NodeT;
         h.query_all_by_label(label)
+            .filter(|n| !in_toolbar(n) && !in_group(n, "Palette types"))
             .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
             .map(|n| n.click())
             .is_some()

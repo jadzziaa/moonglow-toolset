@@ -241,7 +241,7 @@ fn the_conversation_editor_s_text_has_its_own_size() {
         let line = h.get_by_label_contains("Hello there.").rect().height();
         (
             line,
-            h.get_all_by_label("Expand All").last().unwrap().rect().height(),
+            h.get_by_label("Conversation toolbar").get_by_label("Expand All").rect().height(),
             h.get_by_label("File").rect().height(),
         )
     };
@@ -1937,8 +1937,10 @@ fn folding_over_the_selection_selects_the_line_folded() {
     let hello = Some(Row { parent: Parent::Root, pos: 0 });
     h.get_by_label("Farewell. [END DIALOGUE]").click();
     h.run();
-    // Who's Collapse (the second: Hello's, Who's, the traveller's, Go's).
-    h.get_all_by_label("Collapse").nth(1).unwrap().click();
+    // Who's Collapse, named with its line and said open.
+    let who_arrow = h.get_by_label("Collapse Who are you?");
+    assert_eq!(who_arrow.accesskit_node().data().is_expanded(), Some(true));
+    who_arrow.click();
     h.run();
     h.run();
     assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Reply, 0)));
@@ -1948,17 +1950,20 @@ fn folding_over_the_selection_selects_the_line_folded() {
     h.run();
     h.run();
     assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 1 }));
+    // Closed, said so, and named for what it does now.
+    let who_arrow = h.get_by_label("Expand Who are you?");
+    assert_eq!(who_arrow.accesskit_node().data().is_expanded(), Some(false));
     // A fold elsewhere leaves the selection.
-    h.get_all_by_label("Collapse").last().unwrap().click();
+    h.get_by_label("Collapse [OWNER] - Go away.").click();
     h.run();
     h.run();
     assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Entry, 2)));
     assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 1 }));
-    h.get_all_by_label("Expand All").last().unwrap().click();
+    h.get_by_label("Conversation toolbar").get_by_label("Expand All").click();
     h.run();
     h.get_by_label("[OWNER] - A traveller.").click();
     h.run();
-    h.get_all_by_label("Collapse All").last().unwrap().click();
+    h.get_by_label("Conversation toolbar").get_by_label("Collapse All").click();
     h.run();
     h.run();
     assert_eq!(selected(&h), hello);
@@ -2655,7 +2660,7 @@ fn parameter_sets_are_managed() {
     // Broken deleted (it is a file all the same), and forgotten.
     beside(&mut h, "Broken (not a set)", "Delete");
     assert_eq!(param_sets::list(Some(&sets)), ["Check", "Gold"]);
-    h.get_by_label("Clear").click();
+    h.get_by_label("Dismiss").click();
     settle(&mut h);
     // Gold renamed: not over Check's name, then to Treasure.
     beside(&mut h, "Gold", "Rename…");

@@ -478,10 +478,10 @@ fn a_known_spell_is_added_to_each_creature_of_the_class() {
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::CheckBox)
         .unwrap()
         .rect();
-    h.get_all_by_label("Remove")
-        .find(|n| (n.rect().center().y - shown.center().y).abs() < 6.0)
-        .expect("its Remove")
-        .click();
+    let named = format!("Remove {other_name}");
+    let cross = h.get_by_label(&named);
+    assert!((cross.rect().center().y - shown.center().y).abs() < 6.0, "on its row");
+    cross.click();
     h.run();
     assert!(each(&mut h, &keys, known).iter().all(|k| !k.contains(&other)));
     undo(&mut h);
@@ -832,10 +832,9 @@ fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::CheckBox)
         .unwrap()
         .rect();
-    let cross = h
-        .get_all_by_label("Remove")
-        .find(|n| (n.rect().center().y - row.center().y).abs() < 6.0)
-        .expect("its Remove");
+    let named = format!("Remove {first_name}");
+    let cross = h.get_by_label(&named);
+    assert!((cross.rect().center().y - row.center().y).abs() < 6.0, "on its row");
     cross.click();
     h.run();
     for feats in each(&mut h, &keys, feat_rows) {

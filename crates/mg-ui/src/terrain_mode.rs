@@ -1675,9 +1675,13 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         selected,
         stepped: None,
         keys: tool_key_names(app, ui.ctx()),
-        // (With its key, as the toolbar's tip has it; its name then is
-        // the palette's own.)
-        select_tiles: app.keymap.titled(SELECT_TILES, crate::keys::Cmd::SelectTiles, ui.ctx()),
+        // (Its key in its tip, as the area toolbar's has it: its words and
+        // its name are "Select Tiles".)
+        select_tiles: app.keymap.titled(
+            "Select tiles rather than objects",
+            crate::keys::Cmd::SelectTiles,
+            ui.ctx(),
+        ),
         fold: fold.or(app.palette.fold),
         filter: &filter,
         gallery: gallery.then_some(Pictures { side, ready }),
@@ -1735,10 +1739,9 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 /// The tiles palette's Select Tiles: the area view's tile mode (its
 /// toolbar's Select Tiles, F10), on or off, beside the tools.
 fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place) {
-    let button = mg_uikit::IconButton::new(crate::icons::SELECT_TILES, at.select_tiles.as_str());
-    let r = ui
-        .add(button.selectable(*at.tile_mode))
-        .on_hover_text("Select tiles rather than objects. Right-click a tile for its menu.");
+    let button = mg_uikit::IconButton::new(crate::icons::SELECT_TILES, SELECT_TILES);
+    let tip = format!("{}. Right-click a tile for its menu.", at.select_tiles);
+    let r = ui.add(button.selectable(*at.tile_mode)).on_hover_text(tip);
     if r.clicked() {
         *at.tile_mode = !*at.tile_mode;
         if *at.tile_mode {
@@ -1879,7 +1882,7 @@ struct Place<'a> {
     stepped: Option<OnSelection>,
     /// The tile tools' keys, for their tips ([`tool_key_names`]).
     keys: Vec<(Brush, String)>,
-    /// The Select Tiles row's name.
+    /// The Select Tiles row's tip, with its key.
     select_tiles: String,
     fold: Option<bool>,
     filter: &'a Needle,

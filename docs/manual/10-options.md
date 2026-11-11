@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
 ---
 
 # Options
@@ -307,7 +307,7 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   A window with **OK** and **Cancel** (a blueprint's or a placed
   object's Properties, several edited together, Module and Area
   Properties, a conversation, the journal, the factions, the raw fields
-  view, a NUI window) closed any way but OK (its tab's ×, the tab's
+  view, a NUI window) closed any way but OK (its tab's close button, the tab's
   **Close**, **Close Others**, **Close Tabs to the Right** or **Close
   All**, Ctrl+W) does what its Cancel does, as Aurora's close button
   does: what was changed in it is set back, as one step that Undo takes
@@ -610,7 +610,8 @@ tree and the palettes). Every command of the menus
 is listed, in the menus' order, whether it has a key or not: give Build
 Module or Verify Module one here. **Find a command** narrows the list to
 what you type (a command's name, or its group's).
-- **+** then the keys adds a key (Escape: none); a key's **×** removes
+- **Add a key** (the plus button) then the keys adds a key (Escape:
+  none); a key's own button (**Remove Ctrl+S from Save**, say) removes
   it. A command can have several keys, or none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
   command.

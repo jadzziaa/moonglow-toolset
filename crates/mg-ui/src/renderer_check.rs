@@ -426,7 +426,9 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
             {
                 hide = true;
             }
-            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Close", "").clicked() {
+            // (Named for what it closes: the update notice can show with it.)
+            let (name, tip) = ("Close Renderer Notice", "Close the notice");
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, name, tip).clicked() {
                 close = true;
             }
         });

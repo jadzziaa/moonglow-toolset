@@ -1162,11 +1162,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 crate::widgets::dropdown("palette-type")
                     .selected_text(shown.2)
                     .width(ui.available_width())
-                    .show(ui, &mut pick, &all, |t| {
-                        let (_, _, name, _) =
-                            types.iter().find(|x| x.0 == *t).expect("one of them");
-                        name.to_string()
-                    });
+                    .show_with(
+                        ui,
+                        &mut pick,
+                        || all.clone(),
+                        |ui, pick| {
+                            // (Its list named as the row of icons is.)
+                            mg_uikit::name_group(ui, "Palette types");
+                            for (t, _, name, _) in &types {
+                                ui.selectable_value(pick, *t, *name);
+                            }
+                        },
+                    );
             });
             if pick != now {
                 chosen = Some(pick);
@@ -2220,10 +2227,11 @@ impl Tree<'_> {
             let sense = egui::Sense::click_and_drag();
             match favorite {
                 true => {
-                    let row =
-                        mg_uikit::IconButton::new(crate::icons::FAVORITE, label).selectable(on);
-                    let r = ui.add(row);
-                    r.interact(sense)
+                    // (Its own sense, a click and a drag, as the other rows'.)
+                    let row = mg_uikit::IconButton::new(crate::icons::FAVORITE, label)
+                        .selectable(on)
+                        .sense(sense);
+                    ui.add(row)
                 }
                 false => ui.add(egui::Button::selectable(on, label).sense(sense)),
             }
@@ -2701,7 +2709,9 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
                 keep = false;
             }
-            if ui.add(crate::widgets::clear_button()).on_hover_text("Forget it").clicked() {
+            let dismiss = crate::widgets::clear_button().name("Dismiss");
+            let tip = "Dismiss this note: the prefab stays deleted";
+            if ui.add(dismiss).on_hover_text(tip).clicked() {
                 keep = false;
             }
         });

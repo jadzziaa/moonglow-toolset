@@ -238,7 +238,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
                 };
                 let hint = if open { "Close the category" } else { "Show its entries" };
                 let named = format!("{verb} {name}");
-                if crate::widgets::icon_button(ui, arrow, &named, hint).clicked() {
+                let button = crate::widgets::icon_only(arrow, &named).expanded(open);
+                if ui.add(button).on_hover_text(hint).clicked() {
                     if open {
                         view.open.remove(&c);
                         // (Its entry, now out of sight, isn't left selected.)

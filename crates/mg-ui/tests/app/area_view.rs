@@ -1132,15 +1132,13 @@ fn placed_objects_open_their_properties() {
     assert_eq!(tag_of(&mut h, 1), tag);
 }
 
-/// The arrow `name` ("One More" or "One Less") after the field on the row of the label
-/// `label`: the nearest one right of it.
+/// The arrow `name` ("One More" or "One Less") of the field labelled
+/// `label`, named with it ("X: One More"), on its row and right of it.
 fn arrow_beside(h: &Harness<'_, Moonglow>, label: &str, name: &str) -> egui::Pos2 {
     let at = h.get_by_label(label).rect();
-    h.query_all_by_label(name)
-        .map(|n| n.rect().center())
-        .filter(|c| (c.y - at.center().y).abs() < 12.0 && c.x > at.right())
-        .min_by(|a, b| a.x.total_cmp(&b.x))
-        .unwrap_or_else(|| panic!("no {name} beside {label}"))
+    let c = h.get_by_label(&format!("{label}: {name}")).rect().center();
+    assert!((c.y - at.center().y).abs() < 12.0 && c.x > at.right(), "{label}'s {name} at {c:?}");
+    c
 }
 
 /// A click at `at`, pressed and let go in one frame.
@@ -4259,7 +4257,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
         h.state().area_views[&area].show[kind.index()]
     };
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
-    area_tool(&h, "Triggers").click();
+    area_tool(&h, "Show Triggers").click();
     h.run_steps(2);
     assert!(!shown(&h, second, ObjectKind::Trigger), "hidden where it was clicked");
     assert!(!shown(&h, first, ObjectKind::Trigger), "and in the other open area");
@@ -5691,8 +5689,8 @@ fn setup_area_transition_picks_on_the_target_area_s_map() {
     let west = h.get_by_label_contains("WP_WEST").accesskit_node().label().unwrap_or_default();
     assert!(west.len() > "WP_WEST".len(), "its name beside its tag: {west:?}");
     // Doors alone: no waypoint listed; then both again.
-    // (The window's, drawn last: the area toolbar has a Doors filter too.)
-    h.get_all_by_label("Doors").last().unwrap().click();
+    // (The window's, in its group: the palette's types name Doors too.)
+    h.get_by_label("Destinations Shown").get_by_label("Doors").click();
     h.run_steps(2);
     assert!(h.query_by_label_contains("WP_WEST").is_none(), "doors alone");
     assert!(h.query_by_label("Available Waypoints:").is_none());

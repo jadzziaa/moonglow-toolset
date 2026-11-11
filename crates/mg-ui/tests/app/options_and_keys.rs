@@ -323,7 +323,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.query_by_label("Build Module").is_none());
     // User Manual: F1 taken away, Ctrl+M added by pressing it.
-    h.get_by_label("F1").click();
+    h.get_by_label("Remove F1 from User Manual").click();
     h.run();
     h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
@@ -336,7 +336,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.query_by_label_contains("is the key of both Save and User Manual").is_some());
     // The User Manual's Ctrl+S is taken away again (the only row shown).
-    h.get_by_label("Ctrl+S").click();
+    h.get_by_label("Remove Ctrl+S from User Manual").click();
     h.run();
     // A menu command that never had a key takes one.
     h.state_mut().options.as_mut().unwrap().recording = Some("build-module".to_string());

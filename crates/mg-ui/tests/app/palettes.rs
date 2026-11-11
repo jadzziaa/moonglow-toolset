@@ -652,6 +652,77 @@ fn empty_palette_categories_are_hidden_when_asked() {
     assert!(h.query_by_label("Custom 2").is_some(), "listed again");
 }
 
+/// The palette's types in a narrow pane: a row of icons (wrapped) down to
+/// the width where four fit, a dropdown with its icon below it; at every
+/// width across the change, nothing of either is cut at the pane's edge.
+/// (MG_SHOT: a picture at each width.)
+#[test]
+fn the_palette_s_types_fit_a_narrow_pane() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-palette-types-narrow");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    let mut h = harness(app, 900.0, 700.0);
+    h.run_steps(3);
+    let tab = Tab::Palette;
+    let at = h.state().dock.find_tab(&tab).expect("the palettes' pane");
+    let rect = egui::Rect::from_min_size(egui::pos2(300.0, 60.0), egui::vec2(200.0, 600.0));
+    h.state_mut().dock.detach_tab(at, rect);
+    settle(&mut h);
+    let shots = std::env::var_os("MG_SHOT").is_some();
+    let out = shots.then(|| mg_testkit::scratch_dir("ui-palette-types-narrow-shots"));
+    let (mut rows, mut lists) = (0, 0);
+    // (Across the change, at 96 px of pane: from a window of 90, its pane
+    // a little narrower.)
+    for width in (90..=130).step_by(2) {
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        let state = h.state_mut().dock.get_window_state_mut(at.surface).unwrap();
+        state.set_size(egui::vec2(width as f32, 600.0));
+        settle(&mut h);
+        let body = (h.state().dock.iter_leaves())
+            .find(|(_, leaf)| leaf.tabs.contains(&tab))
+            .map(|(_, leaf)| leaf.viewport)
+            .unwrap();
+        let inside =
+            |r: egui::Rect| r.left() >= body.left() - 0.5 && r.right() <= body.right() + 0.5;
+        if let Some(row) = h.query_by_label("Palette types") {
+            rows += 1;
+            for n in row.query_all_by(|n| n.role() == egui::accesskit::Role::Button) {
+                let r = n.rect();
+                assert!(
+                    inside(r),
+                    "{:?} at {r:?}, past the pane {body:?}",
+                    n.accesskit_node().label()
+                );
+            }
+        } else {
+            lists += 1;
+            let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+            let is_type = |n: &egui_kittest::Node<'_>| {
+                PALETTE_TYPES.contains(&n.accesskit_node().value().unwrap_or_default().as_str())
+            };
+            let list = h.query_all(combo).find(is_type).expect("the types' dropdown").rect();
+            assert!(inside(list), "the dropdown at {list:?}, past the pane {body:?}");
+            // (Its icon before it, on its row.)
+            let icons = mg_uikit::icons_drawn(&h.ctx);
+            let lead = icons.iter().find(|(_, r)| {
+                (r.center().y - list.center().y).abs() < 4.0 && r.right() <= list.left() + 0.5
+            });
+            let lead = lead.expect("the type's icon before the dropdown").1;
+            assert!(inside(lead), "its icon at {lead:?}, past the pane {body:?}");
+        }
+        if let Some(out) = &out {
+            mg_testkit::gpu::hold();
+            h.render().unwrap().save(out.join(format!("types-{width}.png"))).unwrap();
+        }
+    }
+    assert!(rows > 0 && lists > 0, "both seen: {rows} rows, {lists} lists");
+}
+
 /// GitHub issue 16: the palette's header. The types are one row of icons
 /// (a dropdown in a pane too narrow for it), the one shown named under
 /// it; the search says what it looks in and has a button to clear it; the
@@ -680,7 +751,13 @@ fn the_palette_s_header() {
     palette_type(&mut h, "Doors");
     h.run_steps(2);
     assert_eq!(h.state().palette.kind, mg_module::palette::BlueprintKind::Door);
-    h.get_by_label("Palette types").get_by_label("Doors");
+    // Named above the list: the heading, the one "Doors" outside the
+    // types' row and the area toolbar (whose filter is "Show Doors").
+    let in_types = |n: &egui_kittest::Node<'_>| in_group(n, "Palette types");
+    let headings: Vec<_> = h.query_all_by_label("Doors").filter(|n| !in_types(n)).collect();
+    assert_eq!(headings.len(), 1, "the doors, named in the heading");
+    assert_eq!(headings[0].accesskit_node().role(), egui::accesskit::Role::Label);
+    assert!(headings[0].rect().top() > last.bottom(), "under the types");
     // How many the list has; a search that finds none, and cleared.
     let count = |h: &Harness<'_, Moonglow>| -> usize {
         let counts = h.query_all_by_label_contains(" item").filter_map(|n| {

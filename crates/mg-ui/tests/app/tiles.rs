@@ -1121,7 +1121,7 @@ fn groups_and_features_change_only_whole() {
     h.run_steps(2);
     // Shift + right click in Select Tiles; and Tile Properties offers no
     // variants.
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     let at = screen(&h, area, east);
     h.hover_at(at);
@@ -2165,7 +2165,7 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     // The palette's Select Tiles: the view's tile mode, the brush let go.
     h.get_by_label("Raise/Lower").click();
     h.run_steps(2);
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     assert!(h.state().area_views[&area].tile_mode);
     assert!(h.state().palette.tile_brush.is_none());
@@ -2209,7 +2209,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     // three, Raise/Lower; then the terrains (Rural's Grass, Road, Water…).
     let top = |h: &Harness<'_, Moonglow>, label: &str| apart(h, label).rect().top();
     let order = [
-        "Select Tiles (F10)",
+        "Select Tiles",
         "Eraser",
         "Refine Tile",
         "Next Tile Appearance",
@@ -2275,7 +2275,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     // The tile menu's, in tile mode: on the tile selected.
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     click(&mut h);
     assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
@@ -2360,7 +2360,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     let (a, b) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
     click(&mut h, a, egui::Modifiers::NONE);
@@ -2470,7 +2470,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     h.run_steps(2);
     let placed = grid(&mut h);
     assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     click(&mut h, b, egui::Modifiers::NONE);
     let east = vec![(2, 1)];
@@ -2553,7 +2553,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     let (a, b) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
     click(&mut h, a, egui::Modifiers::NONE);
@@ -2616,7 +2616,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
     h.run_steps(2);
     let placed = grid(&mut h);
     assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
-    h.get_by_label("Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     click(&mut h, b, egui::Modifiers::NONE);
     let east = vec![(2, 1)];

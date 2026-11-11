@@ -33,7 +33,7 @@ pub use fonts::install_fonts;
 pub use form::{field_label, palette_swatches, section_heading, swatch, table_heading};
 pub use icons::{
     Icon, IconButton, Label, icon, icon_button, icon_label, icon_text_button, icon_text_toggle,
-    icon_toggle, icons_drawn, menu_button, name_group, record_icons, submenu_button,
+    icon_toggle, icons_drawn, menu_button, name_group, record_icons, say_expanded, submenu_button,
 };
 pub use theme::{Theme, TokensExt, applied, apply, tokens};
 pub use tokens::Tokens;

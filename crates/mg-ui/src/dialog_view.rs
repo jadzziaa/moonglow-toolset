@@ -1099,6 +1099,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         tools.named(r, name, tip)
     };
     ui.horizontal_wrapped(|ui| {
+        // (Its buttons found within it: the module tree and the palettes
+        // have an Expand All and a Collapse All too.)
+        mg_uikit::name_group(ui, "Conversation toolbar");
         let sel = view.selected;
         let add_parent = match sel {
             None => Some(Parent::Root),
@@ -1232,6 +1235,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let clicked = ui
                 .add_enabled(can, crate::widgets::icon_only(icon, label))
                 .on_hover_text(hint)
+                .on_disabled_hover_text(hint)
                 .clicked();
             if (clicked || key_move)
                 && can
@@ -1789,7 +1793,7 @@ fn tree(
         } else {
             look.pc
         };
-        let mut rich = RichText::new(label).color(color);
+        let mut rich = RichText::new(label.as_str()).color(color);
         if linked {
             rich = rich.italics();
         }
@@ -1801,11 +1805,16 @@ fn tree(
         ui.horizontal(|ui| {
             ui.add_space(depth as f32 * 16.0);
             if children {
-                let (icon, name) = match open {
-                    true => (mg_uikit::Icon::ChevronDown, "Collapse"),
-                    false => (mg_uikit::Icon::ChevronRight, "Expand"),
+                // (Named with its line, said open or not: a screen reader's
+                // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
+                let (icon, verb, tip) = match open {
+                    true => (mg_uikit::Icon::ChevronDown, "Collapse", "Hide the lines under it"),
+                    false => (mg_uikit::Icon::ChevronRight, "Expand", "Show the lines under it"),
                 };
-                if ui.add(crate::widgets::icon_only(icon, name)).clicked() {
+                let arrow = crate::widgets::icon_only(icon, verb)
+                    .name(format!("{verb} {label}"))
+                    .expanded(open);
+                if ui.add(arrow).on_hover_text(tip).clicked() {
                     if open {
                         view.collapsed.insert((kind, index));
                     } else {
@@ -2261,8 +2270,11 @@ fn script_with_params(
                     // (First in its row: at the row's end it was past the
                     // page's edge where the page is narrow.)
                     let tip = "Remove the parameter";
-                    if crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, "Remove", tip)
-                        .clicked()
+                    let named = match k.is_empty() {
+                        true => format!("Remove Parameter {}", i + 1),
+                        false => format!("Remove Parameter {k}"),
+                    };
+                    if crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, &named, tip).clicked()
                     {
                         remove_at = Some(i);
                     }

@@ -5237,6 +5237,31 @@ fn area_toolbar_narrow() {
     h.run_steps(5);
     h.run_steps(10);
     shoot(&mut h, &dir, "area-toolbar-narrow");
+    // With Icons only, at a width where a dropdown with its lead icon once
+    // had room for the dropdown alone: it ran past the tab's edge.
+    h.state_mut().settings.toolbar_icons_only = true;
+    // (1068 wide: Turn's dropdown ran 4 px past the edge before.)
+    h.set_size(egui::vec2(1068.0, 700.0));
+    h.run_steps(6);
+    shoot(&mut h, &dir, "area-toolbar-narrow-icons-only");
+}
+
+/// The View menu: its panes ticked, the tick drawn in the room its row
+/// leaves for it, and its submenus' chevrons.
+#[test]
+#[ignore]
+fn view_menu() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(700.0, 520.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h.get_by_label("View").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "view-menu");
 }
 
 #[test]
@@ -7341,6 +7366,29 @@ fn nui_creator() {
     h.get_by_label("Events & variants").click();
     h.run();
     shoot(&mut h, &dir, "nui-events");
+    // Draw layers deep in the tree, in Layers' pane: their rows cut short
+    // at the pane's edge, not past it.
+    let mut deep = json!({"type":"spacer","id":"deep_drawing","height":40.0,"draw_list":[
+        {"type":7,"rect":{"x":8.0,"y":8.0,"w":60.0,"h":20.0},"color":{"r":173,"g":142,"b":96,"a":255},"line_thickness":2.0},
+        {"type":4,"rect":{"x":10.0,"y":10.0,"w":80.0,"h":20.0},"text":"Deep","font":""}
+    ]});
+    // (Nine lines first: the rectangle is the tenth, its row's name the
+    // longest a draw layer has.)
+    let line = json!({"type":6,"points":[0.0,0.0,10.0,10.0],"color":{"r":80,"g":180,"b":240,"a":255},"line_thickness":1.0});
+    let list = deep["draw_list"].as_array_mut().unwrap();
+    for _ in 0..9 {
+        list.insert(0, line.clone());
+    }
+    for _ in 0..16 {
+        deep = json!({"type":"col","children":[deep]});
+    }
+    window["root"]["children"] = json!([deep]);
+    set(h.state_mut(), &window, &mg_nui::Settings::default());
+    h.get_by_label("Design").click();
+    h.run_steps(3);
+    h.get_by_label("Draw layer 11 · Text").scroll_to_me();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "nui-draw-layers-narrow");
 
     // One GPU device at a time: this harness goes before the next is made.
     drop(h);
@@ -9206,7 +9254,7 @@ fn main_window_log_and_tree() {
     open(&mut h, script("m1s1gillclg09"));
     shoot(&mut h, &dir, "w3-tree-filtered-tab");
     // Rows chosen with Shift and Ctrl, and their menu.
-    h.get_all_by_label("Clear").next().expect("the Filter's clear button").click();
+    h.get_by_label("Clear Filter").click();
     h.run_steps(4);
     let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
         let at = h.get_by_label(label).rect().center();

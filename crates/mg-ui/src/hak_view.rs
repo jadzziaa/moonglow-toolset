@@ -688,6 +688,10 @@ fn extracting_window(app: &mut Moonglow, ctx: &egui::Context) {
     extract_as_job(app, extracting.plan, extracting.dir, skip);
 }
 
+/// The least room the hak's path is shown in at the end of its row: less,
+/// and it begins the next row (cut to a bare ellipsis it said nothing).
+const PATH_LEAST: f32 = 120.0;
+
 fn size(n: u64) -> String {
     match n {
         n if n >= 1 << 30 => format!("{:.2} GB", n as f64 / f64::from(1u32 << 30)),
@@ -732,43 +736,52 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             "This hak is part of the game: Save As… keeps your changes in a copy.",
         );
     }
+    // (The first row: what the hak holds, then its two buttons; the path
+    // after them where it has room, cut short, else on a row of its own.
+    // The words give way to the icons before the row wraps, the count
+    // measured with them.)
+    let where_ = doc.hak.path.as_ref().map_or("not saved yet".into(), |p| p.display().to_string());
+    let count = format!("{} resources, {}", doc.hak.items().len(), size(doc.hak.size()));
+    let folder = doc.folder.as_ref().map(|f| f.display().to_string());
     let first_row = [
         tools.word_widget(Icon::Update, "Update from Folder"),
         tools.word_widget(Icon::Compile, "Compile Models"),
     ];
-    let first = tools.fitted(ui, &first_row);
+    let count_width = {
+        let font = egui::FontSelection::Default.resolve(ui.style());
+        let bold = egui::WidgetText::from(egui::RichText::new(&count).strong());
+        let galley = bold.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, font);
+        galley.size().x + ui.spacing().item_spacing.x
+    };
+    let first = tools.fitted_after(ui, count_width, &first_row);
     ui.horizontal_wrapped(|ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        let where_ =
-            doc.hak.path.as_ref().map_or("not saved yet".into(), |p| p.display().to_string());
-        ui.strong(format!("{} resources, {}", doc.hak.items().len(), size(doc.hak.size())));
-        let folder = doc.folder.as_ref().map(|f| f.display().to_string());
+        ui.strong(&count);
         let update = first.word_widget(Icon::Update, "Update from Folder");
-        if ui
-            .add_enabled(folder.is_some(), update)
-            .on_hover_text(match &folder {
-                Some(f) => format!("The hak's files again from {f}: what the folder has now"),
-                None => "For a hak built with Build Hak from Folder".into(),
-            })
-            .clicked()
-        {
+        let tip = match &folder {
+            Some(f) => format!("The hak's files again from {f}: what the folder has now"),
+            None => "For a hak built with Build Hak from Folder".into(),
+        };
+        // (Named in its tip with Icons only, disabled too.)
+        let r = ui.add_enabled(folder.is_some(), update);
+        if first.named(r, "Update from Folder", &tip).clicked() {
             todo = Some(Do::UpdateFromFolder);
         }
         // (Here, not among the buttons under: that row is full.)
         let compile = first.word_widget(Icon::Compile, "Compile Models");
-        if ui
-            .add(compile)
-            .on_hover_text(
-                "Compile the hak's ASCII models against their supermodels. One that fails stays \
-                 text.",
-            )
-            .clicked()
-        {
+        let tip =
+            "Compile the hak's ASCII models against their supermodels, a failed one kept as text";
+        if first.named(ui.add(compile), "Compile Models", tip).clicked() {
             todo = Some(Do::CompileModels);
         }
         // (Cut short where the editor is narrow, whole in its tip: a long
         // path widened the editor past its window, and the rows under it
-        // with it.)
+        // with it. Where what is left of the row is too narrow for some of
+        // it, it begins the next row.)
+        let row_begun = ui.cursor().left() > ui.max_rect().left() + 1.0;
+        if row_begun && ui.available_size_before_wrap().x < PATH_LEAST {
+            ui.end_row();
+        }
         let path = egui::Label::new(egui::RichText::new(&where_).weak());
         ui.add(path.wrap_mode(egui::TextWrapMode::Truncate)).on_hover_text(&where_);
     });

@@ -138,7 +138,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.strong("Level");
                         ui.end_row();
                         for (i, (class, level, had)) in w.slots.iter_mut().enumerate() {
-                            ui.label(name(*class));
+                            let named = name(*class);
+                            ui.label(&named);
+                            crate::widgets::name_next_number(ui, &named);
                             // (A class a file has past level 60 stays as it is.)
                             let least = (*had).clamp(1, MAX_LEVEL);
                             crate::widgets::spin_draft(ui, level, least..=MAX_LEVEL, 1.0, |d| d)
@@ -148,7 +150,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 && crate::widgets::icon_button(
                                     ui,
                                     mg_uikit::Icon::Close,
-                                    "Remove",
+                                    &format!("Remove {named}"),
                                     "Remove this class",
                                 )
                                 .clicked()

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
 ---
 
 # Blueprints
@@ -27,7 +27,7 @@ the top:
   palettes open on the next time Moonglow starts, with what was typed
   in the search and the categories left open.
 - **Standard** and **Custom**, beside the type's name: whose blueprints.
-- **The search**, the pane's width; **×** clears it. What is typed opens
+- **The search**, the pane's width; its clear button clears it. What is typed opens
   every category with a match (close one again as you look); cleared,
   each category is open or closed again as it was before the search,
   in the List and the Gallery alike.
@@ -330,7 +330,7 @@ The palette's buttons:
   one is offered, after your builder code where you have one, named as
   Aurora's Edit Copy names it: without `nw_`, the first free number after
   the blueprint's own, `nw_w1copy007` to `w1copy008`) and Tag first.
-  The copy's window keeps it with **OK** (or its tab's ×, unless
+  The copy's window keeps it with **OK** (or its tab's close button, unless
   **Closing a window cancels its changes** is on in Options › General);
   its **Cancel** (or Escape) takes the copy back with what you changed in
   it, as one step that Undo takes back, so a copy made only to try
@@ -413,7 +413,7 @@ marked **≠** and shows the first one's.
   own list, and leaves those that have it. **Give to All**, beside or
   under an entry some have, does the same; a half-ticked box (a feat
   some have, a spell some know) gives it to the rest.
-- **Removing** an entry (×, **Remove**) takes it, every copy of it,
+- **Removing** an entry (its row's **Remove**) takes it, every copy of it,
   from each that has it.
 - **A value** typed or picked (a skill's rank, a class's level, an
   ability's uses, a property's parameters, an item's flags) is set on
@@ -517,7 +517,7 @@ there gives the blueprint text of its own.
 Each blueprint opens as a tab with Aurora's pages. Every change takes
 effect at once and is one undoable step. Under the pages are **OK** and
 **Cancel**: OK closes the window (what was changed is the module's
-already, as it is when the window is closed by its tab's ×); Cancel closes it
+already, as it is when the window is closed by its tab's close button); Cancel closes it
 and sets back the fields that were changed in it since it was opened, as
 one step that Undo takes back. What was changed somewhere else meanwhile
 (the same object moved in its area, another field set by a script or a
@@ -525,10 +525,10 @@ plugin) stays. So you can try things and take them back: add, change or
 remove an item's properties to see what it would cost and the level it
 would ask for (its Total Cost and Required Level show each change), then
 press **Cancel** or Escape, and the item, its cost and level are as they
-were. (Aurora's window drops its changes when closed by its × too.
-Moonglow's tab × keeps them, as OK does, unless **Closing a window
+were. (Aurora's window drops its changes when closed by its close button too.
+Moonglow's tab close button keeps them, as OK does, unless **Closing a window
 cancels its changes (as Aurora)** is on in Options › General: then
-closing the window any way but OK (its tab's ×, the tab's **Close**,
+closing the window any way but OK (its tab's close button, the tab's **Close**,
 **Close Others** or **Close All**, Ctrl+W) does what its Cancel does,
 as one step that Undo takes back, and Edit Copy's copy closed so is not
 made; a window with nothing changed just closes. A window closed
@@ -553,9 +553,9 @@ talk table, a script) have **OK** and **Cancel** too: OK saves (a new
 hak asks where; a script's Save puts its text into the module) and
 closes the window; Cancel closes it as last saved, asking first where
 there are unsaved changes (**Save**, **Don't Save** or **Cancel**). The
-talk table's and a script's × keep what is unsaved for the module's
+talk table's and a script's close buttons keep what is unsaved for the module's
 Save, as before; their Cancel drops it. (Closing a window cancels its
-changes leaves these editors' × as it is.) A talk table found in a hak has
+changes leaves these editors' close buttons as they are.) A talk table found in a hak has
 **Close**.
 
 Shared parts:
@@ -768,7 +768,8 @@ every change, as Aurora does on OK.
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
 - **Feats** shows the feats the creature has beside the list to choose
-  from, under **Assigned**; × takes one away.
+  from, under **Assigned**; a feat's remove button (**Remove** and its
+  name) takes it away.
 - **Feats** and **Spells** are found by name (**Find**) and by category:
   the toolset's categories of feats (combat, defensive, magical…), and
   spells' talent categories (harmful ranged, beneficial healing…).
@@ -798,8 +799,8 @@ A domain or school left **Not set** is the game's to choose.
   spell tables, and for a class that prepares them its ability's bonus
   spells). A class that knows its spells ticks them in the list; a
   click on a spell of one that prepares them prepares one more, and the
-  number beside a prepared spell (with its arrows) says how many. × takes
-  a spell away. **Meta-Magic** (for a class that prepares its spells)
+  number beside a prepared spell (with its arrows) says how many. A
+  spell's remove button (**Remove** and its name) takes it away. **Meta-Magic** (for a class that prepares its spells)
   lists the metamagic feats the creature has, as Aurora's does: with one
   chosen, each spell shows its casting level (its level raised by the
   metamagic: Empower Spell two), a click prepares it so, at that level,

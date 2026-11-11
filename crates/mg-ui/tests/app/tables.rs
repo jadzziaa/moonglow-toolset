@@ -2541,8 +2541,11 @@ fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
 /// The hak editor's buttons stay inside its window however narrow it is
 /// made (the design's rule: a header never overflows): at 640 and 480 px
 /// wide their words yield to their icons, and what still has no room
-/// goes to a second row; a long path is cut short, not the buttons. Each
-/// is found by its words with them shown or not.
+/// goes to a second row; a long path is cut short, not the buttons, and
+/// begins a row of its own where the row's end has too little room for
+/// it. Each is found by its words with them shown or not, and each has a
+/// tip, enabled and disabled: with its icon alone, its name in it (Update
+/// from Folder, disabled, had none at all).
 #[test]
 fn the_hak_editor_s_buttons_stay_inside_a_narrow_window() {
     use mg_module::hak_edit::{Hak, Source};
@@ -2554,7 +2557,7 @@ fn the_hak_editor_s_buttons_stay_inside_a_narrow_window() {
     let mut hak = Hak::new();
     hak.add_sources(vec![(key, Source::Bytes(SMALL_TABLE.to_vec().into()))]).unwrap();
     hak.save(Some(&hak_path)).unwrap();
-    let dialogs = NoDialogs { open: vec![hak_path], ..Default::default() };
+    let dialogs = NoDialogs { open: vec![hak_path.clone()], ..Default::default() };
     let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1200.0, 800.0);
     h.run();
     mg_ui::hak_view::open_hak(h.state_mut());
@@ -2566,48 +2569,111 @@ fn the_hak_editor_s_buttons_stay_inside_a_narrow_window() {
         h.state_mut().dock.detach_tab(path, rect);
         settle(&mut h);
     }
-    let buttons = [
+    // (The header's buttons, Remove by the words it begins with: it says
+    // how many are selected.)
+    let header = [
         "Update from Folder",
         "Compile Models",
         "Add Files…",
         "Add Folder…",
-        "Remove (0)",
+        "Remove (",
         "Extract…",
         "Extract All…",
         "Undo",
         "Redo",
         "Save",
         "Save As…",
-        "OK",
-        "Cancel",
     ];
-    for width in [1000.0, 640.0, 480.0] {
-        let path = h.state().dock.find_tab(&tab).unwrap();
-        let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
-        state.set_size(egui::vec2(width, 600.0));
-        settle(&mut h);
-        // (The window's body, under its tabs.)
-        let window = (h.state().dock.iter_leaves())
-            .find(|(_, leaf)| leaf.tabs.contains(&tab))
-            .map(|(_, leaf)| leaf.viewport)
-            .unwrap();
-        assert!((window.width() - width).abs() < 20.0, "{window:?} for {width}");
-        // (The editor's, not the main toolbar's Undo, Redo and Save: its
-        // window is drawn after the main window's.)
-        let rect_of = |name: &str| h.get_all_by_label(name).last().unwrap().rect();
-        for name in buttons {
-            let rect = rect_of(name);
-            assert!(
-                window.expand(0.5).contains_rect(rect),
-                "{name} at {rect:?}, outside the window at {window:?} ({width} wide)"
-            );
+    let buttons: Vec<&str> = header.iter().copied().chain(["OK", "Cancel"]).collect();
+    // (The editor's, not the main toolbar's Undo, Redo and Save: its
+    // window is drawn after the main window's.)
+    let node = |h: &Harness<'_, Moonglow>, name: &str| -> (egui::Rect, bool, String) {
+        let button =
+            |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
+        let n = match name.ends_with('(') {
+            true => h.get_all_by_label_contains(name).rfind(button),
+            false => h.get_all_by_label(name).rfind(button),
+        };
+        let n = n.unwrap_or_else(|| panic!("no button {name}"));
+        let a = n.accesskit_node();
+        (n.rect(), a.is_disabled(), a.label().unwrap_or_default())
+    };
+    // (MG_SHOT: its pictures at each width, before anything is checked.)
+    if std::env::var_os("MG_SHOT").is_some() {
+        mg_testkit::gpu::hold();
+        let out = mg_testkit::scratch_dir("ui-hak-narrow-shots");
+        for width in [1000.0, 640.0, 480.0] {
+            let path = h.state().dock.find_tab(&tab).unwrap();
+            let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
+            state.set_size(egui::vec2(width, 600.0));
+            settle(&mut h);
+            h.render().unwrap().save(out.join(format!("hak-{width}.png"))).unwrap();
         }
-        // (Words where they fit, the icons alone where not.)
-        let save_as = rect_of("Save As…").width();
-        if width >= 1000.0 {
-            assert!(save_as > 40.0, "Save As… {save_as} wide at {width}");
-        } else {
-            assert!(save_as < 30.0, "Save As… {save_as} wide at {width}: its icon alone");
+    }
+    // Seen enabled and disabled, with a tip each time.
+    let mut seen: std::collections::BTreeMap<&str, [bool; 2]> = Default::default();
+    for changed in [false, true] {
+        if changed {
+            // A folder to update from, a resource selected, a change to
+            // undo and one undone to redo.
+            let doc = &mut h.state_mut().haks[0];
+            doc.folder = Some(dir.clone());
+            doc.hak.set_description("one");
+            doc.hak.set_description("two");
+            doc.hak.undo();
+            doc.selected.insert(key);
+            settle(&mut h);
         }
+        for width in [1000.0, 640.0, 480.0] {
+            let path = h.state().dock.find_tab(&tab).unwrap();
+            let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
+            state.set_size(egui::vec2(width, 600.0));
+            settle(&mut h);
+            // (The window's body, under its tabs.)
+            let window = (h.state().dock.iter_leaves())
+                .find(|(_, leaf)| leaf.tabs.contains(&tab))
+                .map(|(_, leaf)| leaf.viewport)
+                .unwrap();
+            assert!((window.width() - width).abs() < 20.0, "{window:?} for {width}");
+            for name in &buttons {
+                let (rect, _, label) = node(&h, name);
+                assert!(!label.trim().is_empty(), "{name} has a name");
+                assert!(
+                    window.expand(0.5).contains_rect(rect),
+                    "{name} at {rect:?}, outside the window at {window:?} ({width} wide)"
+                );
+            }
+            // (Words where they fit, the icons alone where not.)
+            let save_as = node(&h, "Save As…").0.width();
+            if width >= 1000.0 {
+                assert!(save_as > 40.0, "Save As… {save_as} wide at {width}");
+            } else {
+                assert!(save_as < 30.0, "Save As… {save_as} wide at {width}: its icon alone");
+            }
+            // The path: in sight, cut short at the least, never a bare
+            // ellipsis at a row's end.
+            let shown = h.get_by_label_contains("a folder with a long name").rect();
+            assert!(shown.width() >= 60.0, "the path {shown:?} at {width}");
+            // Each button's tip: its name in it where its icon is alone.
+            for name in header {
+                let (rect, disabled, label) = node(&h, name);
+                let alone = rect.width() < 30.0;
+                // (With their words, those with no tip of their own have
+                // none: the two of the first row have theirs.)
+                if !alone && !matches!(name, "Update from Folder" | "Compile Models") {
+                    continue;
+                }
+                let tip = tip_at(&mut h, rect).unwrap_or_else(|| {
+                    panic!("{name} (disabled: {disabled}) has no tip at {width}")
+                });
+                if alone {
+                    assert!(tip.contains(label.as_str()), "{name}'s tip names it: {tip:?}");
+                }
+                seen.entry(name).or_default()[usize::from(disabled)] = true;
+            }
+        }
+    }
+    for name in ["Update from Folder", "Remove (", "Extract…", "Undo", "Redo", "Save"] {
+        assert_eq!(seen.get(name), Some(&[true, true]), "{name} seen enabled and disabled");
     }
 }

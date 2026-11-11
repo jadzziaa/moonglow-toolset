@@ -291,7 +291,8 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 for (name, row, n) in assigned {
                     ui.horizontal(|ui| {
                         let tip = "Take this feat away";
-                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Remove", tip)
+                        let named = format!("Remove {name}");
+                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
                             .clicked()
                         {
                             toggle = Some((row, false));
@@ -720,7 +721,8 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                     for (name, g) in rows {
                         ui.horizontal(|ui| {
                             let tip = if prepares { "Prepare none of it" } else { "Forget it" };
-                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Remove", tip)
+                            let named = format!("Remove {name}");
+                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
                                 .clicked()
                             {
                                 let edits = g.entries.iter().rev();
@@ -1159,7 +1161,8 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             } else {
                                 "Forget it, on each"
                             };
-                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Remove", tip)
+                            let named = format!("Remove {name}");
+                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
                                 .clicked()
                             {
                                 let out = lists::remove(&class_targets, &list, is, |_| None);

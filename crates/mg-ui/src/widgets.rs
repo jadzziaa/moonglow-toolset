@@ -1048,7 +1048,14 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
                     }
                     keep = false;
                 }
-                if ui.add(clear_button()).on_hover_text("Forget it").clicked() {
+                // (One word for one action: the note goes, the set stays
+                // deleted.)
+                let dismiss = clear_button().name("Dismiss");
+                if ui
+                    .add(dismiss)
+                    .on_hover_text("Dismiss this note: the set stays deleted")
+                    .clicked()
+                {
                     keep = false;
                 }
             });
@@ -2383,6 +2390,8 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
     make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
 ) -> Option<T> {
     let stepped = |v: f64, by: f64| spin_step(v, by, range.start().to_f64(), range.end().to_f64());
+    // (Its label, before the field: the arrows are named with it.)
+    let label = number_name(ui);
     ui.horizontal(|ui| {
         // (A field with its buttons glued on, the mock's `.field-group`:
         // 1 point between their frames, each a point past its widget.)
@@ -2418,16 +2427,20 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         }
         let mut held = focused && ui.input(|i| keys.iter().any(|k| i.key_down(*k)));
         use mg_uikit::Icon;
-        for (icon, name, arrow, tip) in [
+        for (icon, words, arrow, tip) in [
             (Icon::ChevronUp, "One More", 1i8, "One more"),
             (Icon::ChevronDown, "One Less", -1i8, "One less"),
         ] {
+            // (Named with the field's label, first: "Hit Points: One More".)
+            let name = label.as_ref().map_or(words.to_string(), |l| format!("{l}: {words}"));
+            let name = name.as_str();
             let by = f64::from(arrow) * step;
             let can = stepped(shown, by) != shown;
             // (A drag too: egui takes a press held past a click's time for
             // no click, and the arrow for no longer pressed.)
             let arrow_button = icon_only(icon, name).sense(egui::Sense::click_and_drag());
-            let b = ui.add_enabled(can, arrow_button).on_hover_text(tip);
+            let b =
+                ui.add_enabled(can, arrow_button).on_hover_text(tip).on_disabled_hover_text(tip);
             if !b.is_pointer_button_down_on() {
                 continue;
             }
@@ -2569,11 +2582,13 @@ pub(crate) fn clear_button() -> mg_uikit::IconButton {
 }
 
 /// A small button of `text` and a small `icon` after it (a key and the
-/// cross that takes it away), named by `text`.
+/// cross that takes it away), named `name`: what a click does ("Remove
+/// Ctrl+S from Save"), which its words alone do not say.
 pub(crate) fn text_then_icon(
     ui: &mut egui::Ui,
     text: &str,
     icon: mg_uikit::Icon,
+    name: &str,
 ) -> egui::Response {
     let id = ui.next_auto_id().with("after-icon");
     let side = egui::Vec2::splat(mg_uikit::metrics::ICON_SMALL);
@@ -2585,7 +2600,9 @@ pub(crate) fn text_then_icon(
         let color = ui.style().interact(&drawn.response).text_color();
         icon.paint(ui.painter(), rect, color);
     }
-    drawn.response
+    let r = drawn.response;
+    r.ctx.accesskit_node_builder(r.id, |node| node.set_label(name));
+    r
 }
 
 /// An icon button (22 px, frameless until hovered) named `name`, to add
@@ -2619,6 +2636,7 @@ pub(crate) struct SearchField<'a> {
     text: &'a mut String,
     hint: &'a str,
     clear_tip: &'a str,
+    clear_name: &'a str,
     find: Option<bool>,
     find_over: bool,
     down: bool,
@@ -2639,6 +2657,7 @@ impl<'a> SearchField<'a> {
             text,
             hint: "",
             clear_tip: "Clear the search",
+            clear_name: "Clear",
             find: None,
             find_over: false,
             down: false,
@@ -2655,6 +2674,14 @@ impl<'a> SearchField<'a> {
     /// What the pointer over its clear button says.
     pub(crate) fn clear_tip(mut self, tip: &'a str) -> Self {
         self.clear_tip = tip;
+        self
+    }
+
+    /// What its clear button is named, for a screen reader and tests
+    /// ("Clear", where not given): a pane's own ("Clear Filter", the module
+    /// tree's), apart from the palettes' beside it.
+    pub(crate) fn clear_name(mut self, name: &'a str) -> Self {
+        self.clear_name = name;
         self
     }
 
@@ -2685,7 +2712,8 @@ impl<'a> SearchField<'a> {
     }
 
     pub(crate) fn show(self, ui: &mut egui::Ui) -> Searched {
-        let SearchField { id, text, hint, clear_tip, find, find_over, down, width } = self;
+        let SearchField { id, text, hint, clear_tip, clear_name, find, find_over, down, width } =
+            self;
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
@@ -2719,7 +2747,7 @@ impl<'a> SearchField<'a> {
                     mg_uikit::Icon::Search.paint(ui.painter(), rect, color);
                 }
                 if clear {
-                    let b = ui.add(clear_button()).on_hover_text(clear_tip);
+                    let b = ui.add(clear_button().name(clear_name)).on_hover_text(clear_tip);
                     let wide = b.rect.width() + ui.spacing().item_spacing.x;
                     if (wide - button).abs() > 0.1 {
                         ui.data_mut(|d| d.insert_temp(button_id, wide));
@@ -4572,7 +4600,53 @@ pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
 // toolset's (field labels, section headings, a palette's swatches) are
 // mg-uikit's, under their old names here.
 pub use mg_uikit::form::SECTION_GAP;
-pub use mg_uikit::{field_label, install_fonts, section_heading, swatch, table_heading};
+pub use mg_uikit::{install_fonts, section_heading, swatch, table_heading};
+
+/// A field's label (`mg_uikit::field_label`), which also names the number
+/// field after it on its row ([`name_next_number`]).
+pub fn field_label(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
+    let text = text.into();
+    let r = mg_uikit::field_label(ui, text.clone());
+    name_number_by(ui, &text, r.rect);
+    r
+}
+
+/// Names the number field after this on the row (its arrows: "Level: One
+/// More"), where no field label names it ([`field_label`] does).
+pub(crate) fn name_next_number(ui: &mut Ui, label: &str) {
+    let at =
+        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(0.0, ui.spacing().interact_size.y));
+    name_number_by(ui, label, at);
+}
+
+fn number_name_id() -> egui::Id {
+    egui::Id::new("number-field-name")
+}
+
+/// The label `text` at `rect`, kept for a number field after it on its row.
+fn name_number_by(ui: &Ui, text: &str, rect: egui::Rect) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let text = text.trim_end_matches(':').trim().to_string();
+    ui.data_mut(|d| d.insert_temp(number_name_id(), (pass, text, rect)));
+}
+
+/// The label of the number field about to be drawn at `ui`'s cursor: the
+/// last one kept this pass, on the same row and before it (taken: a field
+/// on a later row isn't named by it).
+fn number_name(ui: &Ui) -> Option<String> {
+    let kept = ui.data_mut(|d| {
+        let kept = d.get_temp::<(u64, String, egui::Rect)>(number_name_id());
+        d.remove::<(u64, String, egui::Rect)>(number_name_id());
+        kept
+    })?;
+    let (pass, text, rect) = kept;
+    let at = ui.cursor();
+    let row = rect.y_range().expand(4.0);
+    let same_row = row.contains(at.top()) || row.contains(at.center().y);
+    let before = rect.left() <= at.left() + 1.0;
+    (pass == ui.ctx().cumulative_pass_nr() && same_row && before && !text.is_empty())
+        .then_some(text)
+}
 
 /// How large a gallery's pictures are: a slider of their side in `range`
 /// (its value not shown, `text` beside it where given). The side moved

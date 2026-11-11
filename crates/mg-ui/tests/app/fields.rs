@@ -364,9 +364,9 @@ fn a_creature_s_statistics_have_arrows_to_step_by_one() {
     h.run();
     let strength = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("Str").unwrap();
     let was = strength(&mut h);
-    // (The first pair on the page is Strength's.)
-    let up = h.query_all_by_label("One More").next().expect("an arrow up").rect().center();
-    let down = h.query_all_by_label("One Less").next().expect("an arrow down").rect().center();
+    // (Strength's, named with its label.)
+    let up = h.get_by_label("Strength: One More").rect().center();
+    let down = h.get_by_label("Strength: One Less").rect().center();
     let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {
@@ -403,7 +403,7 @@ fn a_held_arrow_repeats_and_the_keys_step_in_the_field() {
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
     let was = int(&mut h, "Str");
-    let up = h.query_all_by_label("One More").next().expect("an arrow up").rect().center();
+    let up = h.get_by_label("Strength: One More").rect().center();
     let button = |pressed| egui::Event::PointerButton {
         pos: up,
         button: egui::PointerButton::Primary,
@@ -432,13 +432,8 @@ fn a_held_arrow_repeats_and_the_keys_step_in_the_field() {
     assert_eq!(int(&mut h, "Str"), was + 1);
     // Natural AC is 0 at the least: its arrow down is off.
     assert_eq!(int(&mut h, "NaturalAC"), 0, "the chicken has no natural armor");
-    // (Strength to Charisma's, then Natural AC's.)
-    assert!(
-        h.query_all_by_label("One Less").nth(6).is_some_and(|n| n.accesskit_node().is_disabled())
-    );
-    assert!(
-        !h.query_all_by_label("One More").nth(6).is_some_and(|n| n.accesskit_node().is_disabled())
-    );
+    assert!(h.get_by_label("Natural AC: One Less").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Natural AC: One More").accesskit_node().is_disabled());
 }
 
 /// Aurora's arrows are on the other editors' number fields too: a
@@ -451,8 +446,7 @@ fn a_placeable_s_numbers_have_arrows() {
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
     let hardness = int(&mut h, "Hardness");
-    // (Hit points' arrows first, then hardness's.)
-    let up = h.query_all_by_label("One More").nth(1).expect("hardness's arrow up").rect().center();
+    let up = h.get_by_label("Hardness: One More").rect().center();
     h.hover_at(up);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
@@ -471,8 +465,8 @@ fn a_placeable_s_numbers_have_arrows() {
         let row = h.get_by_label(dc).rect();
         let on_row =
             |n: &egui_kittest::Node<'_>| (n.rect().center().y - row.center().y).abs() < 4.0;
-        assert!(h.query_all_by_label("One More").any(|n| on_row(&n)), "{dc} has its arrows");
-        assert!(h.query_all_by_label("One Less").any(|n| on_row(&n)), "{dc} has its arrows");
+        assert!(on_row(&h.get_by_label(&format!("{dc}: One More"))), "{dc} has its arrows");
+        assert!(on_row(&h.get_by_label(&format!("{dc}: One Less"))), "{dc} has its arrows");
     }
 }
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
 ---
 
 # Areas
@@ -686,7 +686,7 @@ Aurora):
     its blueprint's without a reserved prefix (`nw_`, `plc_`, `x0_`…)
     where that name is free (`nw_waypoint001` gives `waypoint001`), else
     numbered (`mgp_utd001`). The new blueprint opens in its window: OK
-    keeps it, and its Cancel (or Escape; its tab's × too with
+    keeps it, and its Cancel (or Escape; its tab's close button too with
     Options' **Closing a window cancels its changes**) takes it back,
     the instance naming its blueprint as before, as in Aurora.
   - **Reuse › Export as Blueprint…**: the instance written into an
@@ -1278,10 +1278,10 @@ height dragged), Defaults. While the window stays open, all of them are
 **one step to undo**, however many you make. **OK** keeps them and
 closes the window. **Cancel** takes them back, and the tiles and what
 stands on them are as they were when the window opened (nothing is left
-for Redo). Closed any other way with changes (its tab's or window's ×,
+for Redo). Closed any other way with changes (its tab's or window's close button,
 Escape), it asks, as a side editor's tab does: **Save** keeps them,
 **Don't Save** takes them back, **Cancel** leaves the window open
-(Aurora's × discards them without asking).
+(Aurora's close button discards them without asking).
 
 A tile put in from the window's pictures (a variant, a tile of All
 tiles, or the tiles turned by its Turn, below) is a step of its own,

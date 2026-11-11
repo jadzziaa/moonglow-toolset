@@ -1479,7 +1479,6 @@ fn submenu(
 ) -> egui::Response {
     use egui::containers::menu::{MenuState, SubMenu};
     let (button, chosen) = row(app, level, name, egui::Button::new(name), enabled);
-    let lit = app.menu_keys.at(level, app.menu_row[level] - 1);
     let index = app.menu_row[level] - 1;
     let at = app.menu_keys.at(level, index);
     let inside = app.menu_keys.path.len() == level + 2 && app.menu_keys.path[level] == index;
@@ -1505,7 +1504,7 @@ fn submenu(
     // (Its words and a chevron: `mg_uikit`'s submenu row.)
     let entry = mg_uikit::IconButton::new(Icon::ChevronRight, name)
         .label(mg_uikit::Label::WordsOnly)
-        .selected(lit);
+        .selected(at);
     let response = entry
         .menu(ui, |ui| {
             if app.menu_row.len() <= level + 1 {
@@ -1678,10 +1677,10 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     }
     let enabled = id.enabled(app);
     let (entry, chosen) = row(app, level, &name, entry, enabled);
-    let mut r = ui.add_enabled(enabled, entry);
+    let (mut r, tick) = add_entry(ui, enabled, entry);
     if let Some(on) = ticked {
         let at = app.menu_keys.at(level, app.menu_row[level] - 1);
-        paint_tick(ui, &r, on, at, &name);
+        paint_tick(ui, &r, tick, on, at, &name);
     }
     let hint = id.text().2;
     if !hint.is_empty() {
@@ -1695,27 +1694,48 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     }
 }
 
+/// The id of a tick's room in a menu row ([`tick_atoms`]).
+fn tick_id() -> egui::Id {
+    egui::Id::new("menu-tick")
+}
+
 /// A menu row's words after a tick's room (an icon's, 16 px).
 fn tick_atoms(name: &str) -> egui::Atoms<'static> {
     let mut atoms = egui::Atoms::default();
-    atoms.push_right(egui::Atom::custom(egui::Id::new("menu-tick"), egui::Vec2::splat(16.0)));
+    atoms.push_right(egui::Atom::custom(tick_id(), egui::Vec2::splat(16.0)));
     atoms.push_right(name.to_string());
     atoms
 }
 
-/// A ticked menu row's tick (`check`, in its words' color) in the room
-/// [`tick_atoms`] left at its start (`lit`: the keys' cursor is at it),
-/// and its state for a screen reader: a check box named `name`, ticked or
-/// not.
-fn paint_tick(ui: &Ui, r: &egui::Response, on: bool, lit: bool, name: &str) {
+/// A menu row `entry` added, enabled or not, and the room it laid out for
+/// its tick, where it has one ([`tick_atoms`]).
+fn add_entry(
+    ui: &mut Ui,
+    enabled: bool,
+    entry: egui::Button<'_>,
+) -> (egui::Response, Option<egui::Rect>) {
+    ui.add_enabled_ui(enabled, |ui| {
+        let laid = entry.atom_ui(ui);
+        (laid.response.clone(), laid.rect(tick_id()))
+    })
+    .inner
+}
+
+/// A ticked menu row's tick (`check`, in its words' color) in `room`, the
+/// room [`tick_atoms`] left at its start (`lit`: the keys' cursor is at
+/// it), and its state for a screen reader: a check box named `name`,
+/// ticked or not.
+fn paint_tick(
+    ui: &Ui,
+    r: &egui::Response,
+    room: Option<egui::Rect>,
+    on: bool,
+    lit: bool,
+    name: &str,
+) {
     let enabled = r.enabled();
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, name));
-    if on && ui.is_rect_visible(r.rect) {
-        let x = r.rect.left() + ui.spacing().button_padding.x;
-        let room = egui::Rect::from_min_size(
-            egui::pos2(x, r.rect.center().y - 8.0),
-            egui::Vec2::splat(16.0),
-        );
+    if let Some(room) = room.filter(|_| on && ui.is_rect_visible(r.rect)) {
         let color = ui.style().interact_selectable(r, lit).text_color();
         Icon::Check.paint(ui.painter(), room, color);
     }
@@ -1802,10 +1822,10 @@ fn plugin_entries(
             None => egui::Button::new(&e.title),
         };
         let (entry, chosen) = row(app, level, &e.title, entry, enabled);
-        let mut r = ui.add_enabled(enabled, entry);
+        let (mut r, tick) = add_entry(ui, enabled, entry);
         if let Some(on) = ticked {
             let at = app.menu_keys.at(level, app.menu_row[level] - 1);
-            paint_tick(ui, &r, on, at, &e.title);
+            paint_tick(ui, &r, tick, on, at, &e.title);
         }
         let tip = match e.hint.as_str() {
             "" => format!("Of the plugin {}", e.plugin_name),

@@ -277,10 +277,12 @@ pub(super) fn editor(
             ui.horizontal(|ui| {
                 widgets::table_heading(ui, "Layers");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "More").menu(ui, |ui| {
+                    let more = widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "Layer Actions");
+                    let menu = more.menu(ui, |ui| {
                         mg_uikit::menu_rows(ui);
                         edit_actions(ui, v, s, state, keymap);
                     });
+                    menu.response.on_hover_text("What can be done to the chosen layers");
                 });
             });
             egui::ScrollArea::vertical().id_salt("nui-layers").auto_shrink([false, false]).show(
@@ -406,6 +408,8 @@ fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
         state.tree_selection.clone_from(&state.selected);
     }
     ui.horizontal_wrapped(|ui| {
+        // (The layers' pair, found within it: the module tree has one too.)
+        mg_uikit::name_group(ui, "Layer tree");
         if ui.small_button("Expand All").clicked() {
             state.collapsed.clear();
         }
@@ -512,11 +516,13 @@ fn layer_row(
                 path.is_empty() || node["children"].is_array() || node["row_template"].is_array();
             if branch {
                 let closed = state.collapsed.contains(path);
-                let (icon, verb) = match closed {
-                    true => (mg_uikit::Icon::ChevronRight, "Expand"),
-                    false => (mg_uikit::Icon::ChevronDown, "Collapse"),
+                let (icon, verb, tip) = match closed {
+                    true => (mg_uikit::Icon::ChevronRight, "Expand", "Show the controls in it"),
+                    false => (mg_uikit::Icon::ChevronDown, "Collapse", "Hide the controls in it"),
                 };
-                let arrow = ui.add(crate::widgets::icon_only(icon, &format!("{verb} {name}")));
+                let button =
+                    crate::widgets::icon_only(icon, &format!("{verb} {name}")).expanded(!closed);
+                let arrow = ui.add(button).on_hover_text(tip);
                 if arrow.clicked() {
                     if closed {
                         state.collapsed.remove(path);
@@ -579,8 +585,11 @@ fn draw_rows(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: us
                     ((depth + 1) as f32 * 14.0 + 18.0).min((ui.available_width() - 90.0).max(0.0)),
                 );
                 let text = format!("{kind} {}", i + 1);
+                // (Cut short at the pane's edge, as the control rows are.)
                 let row = ui.add(
-                    mg_uikit::IconButton::new(mg_uikit::Icon::Layers, text).selectable(chosen),
+                    mg_uikit::IconButton::new(mg_uikit::Icon::Layers, text)
+                        .selectable(chosen)
+                        .truncate(),
                 );
                 row.widget_info(|| {
                     egui::WidgetInfo::labeled(

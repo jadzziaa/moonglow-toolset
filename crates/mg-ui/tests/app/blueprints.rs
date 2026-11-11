@@ -2860,7 +2860,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     h.get_all_by_label("Delete").next().unwrap().click();
     h.run();
     assert_eq!(mg_ui::var_sets::list(Some(&sets)), ["Doors", "Loot"]);
-    h.get_by_label("Clear").click();
+    h.get_by_label("Dismiss").click();
     h.run();
     // Rename… Loot (the second): refused over Doors and a name that isn't
     // a file's, then renamed.
@@ -3149,12 +3149,11 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), level1);
-    // The Empowered Bless is shown, and Remove takes it alone away.
+    // The Empowered Bless is shown, and Remove takes it alone away (its
+    // own, named with it, on its row).
     let shown = h.get_by_label("Bless (Empower Spell)").rect();
-    let x = h
-        .get_all_by_label("Remove")
-        .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
-        .expect("its Remove");
+    let x = h.get_by_label("Remove Bless (Empower Spell)");
+    assert!((x.rect().center().y - shown.center().y).abs() < 4.0, "on its row");
     x.click();
     h.run();
     let without: Vec<_> = level3.iter().copied().filter(|e| *e != (bless, 1, 1)).collect();
@@ -3261,12 +3260,12 @@ fn the_spells_page_ticks_known_spells() {
     let mut more = was.clone();
     more.push(acid_splash);
     assert_eq!(known(&mut h, 0), more);
-    // Listed beside, where its Remove forgets it.
+    // Listed beside, where its Remove forgets it (named with it, on its
+    // row).
     let shown = h.get_all_by_label("Acid Splash").last().unwrap().rect();
-    h.get_all_by_label("Remove")
-        .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
-        .expect("its Remove")
-        .click();
+    let x = h.get_by_label("Remove Acid Splash");
+    assert!((x.rect().center().y - shown.center().y).abs() < 4.0, "on its row");
+    x.click();
     h.run();
     assert_eq!(known(&mut h, 0), was);
 }
@@ -3453,12 +3452,13 @@ fn the_levelup_wizard_takes_a_class_past_level_sixty() {
     assert_eq!(h.state().levelup.as_ref().expect("the wizard").slots[0].1, 70, "as it is");
     // One less comes back to the most the wizard gives; one more does not
     // go further out.
-    let last = |h: &Harness<'_, Moonglow>, glyph: &str| {
-        let arrow = h.query_all_by_label(glyph).last().expect("an arrow");
+    // (The wizard's arrows, named with the class's row.)
+    let arrow = |h: &Harness<'_, Moonglow>, name: &str| {
+        let arrow = h.get_by_label(name);
         (arrow.rect().center(), arrow.accesskit_node().is_disabled())
     };
-    assert!(last(&h, "One More").1, "no more than it has");
-    let (down, off) = last(&h, "One Less");
+    assert!(arrow(&h, "Fighter: One More").1, "no more than it has");
+    let (down, off) = arrow(&h, "Fighter: One Less");
     assert!(!off);
     h.hover_at(down);
     for pressed in [true, false] {

@@ -476,3 +476,61 @@ fn an_icon_button_is_quiet_in_a_read_only_form() {
         }
     }
 }
+
+/// What `icons_drawn` reports is the last pass's alone: a pass that paints
+/// no icon leaves none from the pass before.
+#[test]
+fn icons_drawn_forgets_a_pass_that_paints_none() {
+    let show = Cell::new(true);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        if show.get() {
+            mg_uikit::icon(ui, Icon::Save);
+        } else {
+            ui.label("No icon");
+        }
+    });
+    mg_uikit::record_icons(&h.ctx);
+    h.run();
+    assert!(mg_uikit::icons_drawn(&h.ctx).iter().any(|(i, _)| *i == Icon::Save));
+    show.set(false);
+    h.run();
+    assert_eq!(mg_uikit::icons_drawn(&h.ctx), vec![], "none painted in the last pass");
+}
+
+/// A name given apart from the words is what a screen reader (and a test)
+/// finds, however the button is labelled, its words still drawn; an arrow
+/// says whether it is open; words cut short stay in the room given.
+#[test]
+fn an_icon_button_s_name_and_open_state_are_its_own() {
+    use mg_uikit::{IconButton, Label};
+    for label in [Label::Both, Label::IconOnly, Label::WordsOnly] {
+        for open in [true, false] {
+            let mut h = Harness::new_ui(|ui| {
+                mg_uikit::apply(ui.ctx(), Theme::Dark);
+                let b = IconButton::new(Icon::Close, "Remove").label(label);
+                ui.add(b.name("Remove Alertness").expanded(open));
+            });
+            h.run();
+            let node = h.get_by_label("Remove Alertness");
+            assert_eq!(node.accesskit_node().data().is_expanded(), Some(open), "{label:?}");
+            assert!(h.query_by_label("Remove").is_none(), "{label:?}: named, not by its words");
+        }
+    }
+    // (Unnamed and not an arrow: its words, and no open state.)
+    let mut h = Harness::new_ui(|ui| {
+        ui.add(IconButton::new(Icon::Close, "Remove"));
+    });
+    h.run();
+    assert_eq!(h.get_by_label("Remove").accesskit_node().data().is_expanded(), None);
+    // Cut short: as wide as the room, not as its words.
+    let width = Cell::new(0.0);
+    let mut h = Harness::new_ui(|ui| {
+        ui.set_max_width(80.0);
+        let words = "A name far too long for the room it is given here";
+        let r = ui.add(IconButton::new(Icon::Layers, words).truncate());
+        width.set(r.rect.width());
+    });
+    h.run();
+    assert!(width.get() <= 80.5, "{} wide", width.get());
+}

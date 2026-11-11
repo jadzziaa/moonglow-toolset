@@ -548,10 +548,15 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                 .width(260.0)
                 .show(ui, &mut state.area, &options, name);
             ui.separator();
-            // Doors, waypoints, or both, on the map and in the lists.
-            for (showing, label) in [(0, "Both"), (1, "Doors"), (2, "Waypoints")] {
-                ui.selectable_value(&mut state.showing, showing, label);
-            }
+            // Doors, waypoints, or both, on the map and in the lists (a
+            // group named for them: the area toolbar's and the palette's
+            // Doors are others).
+            ui.horizontal(|ui| {
+                mg_uikit::name_group(ui, "Destinations Shown");
+                for (showing, label) in [(0, "Both"), (1, "Doors"), (2, "Waypoints")] {
+                    ui.selectable_value(&mut state.showing, showing, label);
+                }
+            });
         });
         let showing = state.showing;
         let here: Vec<Destination> = (state.destinations.iter())

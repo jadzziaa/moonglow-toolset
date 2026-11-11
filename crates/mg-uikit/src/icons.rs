@@ -367,6 +367,9 @@ pub struct IconButton {
     fill: Option<Color32>,
     sense: Sense,
     gap: Option<f32>,
+    name: Option<String>,
+    expanded: Option<bool>,
+    truncate: bool,
 }
 
 impl IconButton {
@@ -383,7 +386,32 @@ impl IconButton {
             fill: None,
             sense: Sense::click(),
             gap: None,
+            name: None,
+            expanded: None,
+            truncate: false,
         }
+    }
+
+    /// Named `name` for a screen reader (and tests) in place of its words,
+    /// which stay what is shown: a row's Remove named "Remove Alertness",
+    /// a filter's "Creatures" named "Show Creatures".
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Said to be open (`true`) or closed: an arrow that opens and closes
+    /// what is under it (accesskit's expanded state).
+    pub fn expanded(mut self, open: bool) -> Self {
+        self.expanded = Some(open);
+        self
+    }
+
+    /// Its words cut short with an ellipsis where the room for them ends
+    /// (egui's `Button::truncate`), not widening what holds it.
+    pub fn truncate(mut self) -> Self {
+        self.truncate = true;
+        self
     }
 
     /// Labelled so ([`Label`]).
@@ -491,7 +519,26 @@ impl IconButton {
         if let Some(fill) = self.fill {
             button = button.fill(fill);
         }
+        if self.truncate {
+            button = button.truncate();
+        }
         button.sense(self.sense)
+    }
+
+    /// `response` named and said open or closed as asked ([`Self::name`],
+    /// [`Self::expanded`]), over what egui's button said.
+    fn described(&self, response: Response) -> Response {
+        if self.name.is_some() || self.expanded.is_some() {
+            response.ctx.accesskit_node_builder(response.id, |node| {
+                if let Some(name) = &self.name {
+                    node.set_label(name.as_str());
+                }
+                if let Some(open) = self.expanded {
+                    node.set_expanded(open);
+                }
+            });
+        }
+        response
     }
 
     /// Shown as a menu's button: the menu opens under it when clicked (as
@@ -527,7 +574,7 @@ impl IconButton {
 
 impl egui::Widget for IconButton {
     fn ui(self, ui: &mut Ui) -> Response {
-        let text = self.text.text().to_string();
+        let text = self.name.clone().unwrap_or_else(|| self.text.text().to_string());
         match self.label {
             Label::IconOnly => {
                 // (22 px, or as high as the rows it stands in where they
@@ -569,12 +616,13 @@ impl egui::Widget for IconButton {
                         paint_icon_button(ui.painter(), &tokens, rect, self.icon, state, on);
                     }
                 }
-                response
+                self.described(response)
             }
             Label::WordsOnly => {
                 let mut atoms = egui::Atoms::default();
                 atoms.push_right(self.text.clone());
-                ui.add(self.button(atoms))
+                let response = ui.add(self.button(atoms));
+                self.described(response)
             }
             Label::Both => {
                 // (The mock's `.btn .ic { margin-left: -2px }`: the icon
@@ -599,7 +647,7 @@ impl egui::Widget for IconButton {
                     );
                     self.icon.paint(ui.painter(), square, visuals.text_color());
                 }
-                atoms_ui.response
+                self.described(atoms_ui.response)
             }
         }
     }
@@ -701,6 +749,13 @@ pub fn name_group(ui: &Ui, name: &str) {
     });
 }
 
+/// Says of `response` (an arrow, or a collapsing header's row) whether
+/// what it opens is open, for a screen reader (and tests): accesskit's
+/// expanded state, which egui's collapsing header does not set.
+pub fn say_expanded(response: &Response, open: bool) {
+    response.ctx.accesskit_node_builder(response.id, |node| node.set_expanded(open));
+}
+
 /// The id under which the icons painted are kept while they are recorded.
 fn recording_id() -> egui::Id {
     egui::Id::new("mg-uikit-icons-drawn")
@@ -709,16 +764,27 @@ fn recording_id() -> egui::Id {
 /// The icons painted in a pass, while recorded ([`record_icons`]).
 #[derive(Default)]
 struct Drawn {
-    pass: u64,
     icons: Vec<(Icon, Rect)>,
 }
 
 type Recording = std::sync::Arc<std::sync::Mutex<Drawn>>;
 
 /// Has `ctx` keep the icons it paints, for [`icons_drawn`] (tests: which
-/// icon a widget drew, and where).
+/// icon a widget drew, and where). The list is emptied as each pass
+/// begins, so that a pass that paints none reports none.
 pub fn record_icons(ctx: &egui::Context) {
+    let had = ctx.data(|d| d.get_temp::<Recording>(recording_id())).is_some();
     ctx.data_mut(|d| d.insert_temp(recording_id(), Recording::default()));
+    if !had {
+        let forget = |ui: &mut Ui| {
+            if let Some(recording) = ui.data(|d| d.get_temp::<Recording>(recording_id()))
+                && let Ok(mut drawn) = recording.lock()
+            {
+                drawn.icons.clear();
+            }
+        };
+        ctx.on_begin_pass("mg-uikit-icons-drawn", std::sync::Arc::new(forget));
+    }
 }
 
 /// The icons the last pass of `ctx` painted, and where, while recorded
@@ -733,11 +799,7 @@ fn record(ctx: &egui::Context, icon: Icon, rect: Rect) {
     let Some(recording) = ctx.data(|d| d.get_temp::<Recording>(recording_id())) else {
         return;
     };
-    let pass = ctx.cumulative_pass_nr();
     if let Ok(mut drawn) = recording.lock() {
-        if drawn.pass != pass {
-            *drawn = Drawn { pass, icons: Vec::new() };
-        }
         drawn.icons.push((icon, rect));
     }
 }

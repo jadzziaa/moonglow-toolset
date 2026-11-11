@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
 ---
 
 # The main window
@@ -81,7 +81,8 @@ Moonglow runs, and once
 it is closed a line under the toolbar says so, with **What's New…** (the
 window again),
 **Install Now**, **Later**, **Don't Remind Me About This Version** (a
-later version is told again) and **×** to close it until the next check.
+later version is told again) and **Close Update Notice** (its close
+button) to close it until the next check.
 
 ### Installing an update
 
@@ -230,7 +231,7 @@ Placeables, Sounds, Stores, Triggers, Waypoints) and the journal and factions;
 rows with every word typed in their name or ResRef, in any order, case
 and accents aside (`arbol` finds `Árbol`, `sword iron` finds `Iron
 Sword`, as every Filter and Find field of names does: the palettes', the
-resource browser's, a list's, a wizard's; × clears it); it and Expand All / Collapse All stay in sight
+resource browser's, a list's, a wizard's; its clear button clears it); it and Expand All / Collapse All stay in sight
 while the tree scrolls, and Home and End go to the tree's top and bottom
 with the pointer over it. A name too long for the pane goes on past
 its edge, and the tree scrolls sideways to it (Shift and the mouse
@@ -307,7 +308,7 @@ do the same (Options › Keyboard, under Module Tree and Palettes). Collapse All
 also closes every area opened out to its objects, and the kinds under
 it; Expand All leaves them closed (an area's objects can be hundreds of
 rows). Beside them is how many resources the module has. The Filter says what it looks in,
-and has a × to clear it.
+and has a clear button (**Clear Filter**) to clear it.
 
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
@@ -410,7 +411,7 @@ A pane folded away leaves a thin strip at that edge, with the same
 button in the same place, pointing the other way: a click brings the
 pane back, as wide as it was. Palettes you moved to the left of the
 middle have their button on their right edge and leave their strip on
-the left. Closing the palettes' pane by its × folds it away the same.
+the left. Closing the palettes' pane by its close button folds it away the same.
 What is folded stays so the next time Moonglow starts. **View › Reset
 Layout** shows all three at the sizes they have at first.
 
@@ -476,7 +477,7 @@ tabs of its pane), and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
 the module's area list), and its tab with it. A window with **OK** and
-**Cancel** closed by its tab's ×, Close, Close Others, Close Tabs to the
+**Cancel** closed by its tab's close button, Close, Close Others, Close Tabs to the
 Right, Close All or Ctrl+W keeps what was changed in it, as OK does;
 with **Closing a window cancels its changes (as Aurora)** on in
 Options › General, it does what its Cancel does instead.
@@ -537,7 +538,7 @@ encounter's), and a size dragged at its edge or corner is kept so.
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too, and the button at the
-right of the window's bar, before its ×, does it and shows which it is:
+right of the window's bar, before its close button, does it and shows which it is:
 a maximize icon, or restore while the window is maximized. **Ctrl+Shift+M** (Maximize Window in Options ›
 Keyboard) does it for the window of the tab in front. Any window does
 this, one of a tab dragged out of a pane (the main pane's Module

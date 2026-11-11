@@ -421,6 +421,87 @@ fn the_area_toolbar_shows_icons_only_when_asked() {
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
 }
 
+/// The area toolbar's controls stay inside its tab's sides at every width, with
+/// Icons and text and with Icons only, and each dropdown's lead icon (Icons
+/// only) stays just before its dropdown on the same row: a dropdown begun
+/// on a row with room for it alone ran some 20 px past the tab's edge, its
+/// icon left at the end of the row above.
+#[test]
+fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
+    let Some((mut h, area)) = area_harness("area-toolbar-sweep") else { return };
+    let tab = Tab::Area(area);
+    // (The tab's body, and the toolbar's controls: each widget in it.)
+    let body = |h: &Harness<'_, Moonglow>| {
+        (h.state().dock.iter_leaves())
+            .find(|(_, leaf)| leaf.tabs.contains(&tab))
+            .map(|(_, leaf)| leaf.viewport)
+            .unwrap()
+    };
+    let controls = |h: &Harness<'_, Moonglow>| -> Vec<(String, egui::Rect)> {
+        let group = h.get_by_label("Area toolbar");
+        let all = group.query_all_by(|n| n.bounding_box().is_some());
+        let named = |n: &egui_kittest::Node<'_>| {
+            let a = n.accesskit_node();
+            format!("{:?} {}", a.role(), a.label().or(a.value()).unwrap_or_default())
+        };
+        all.map(|n| (named(&n), n.rect())).collect()
+    };
+    let (mut first_wrong, mut widths) = (None, Vec::new());
+    for icons_only in [false, true] {
+        h.state_mut().settings.toolbar_icons_only = icons_only;
+        for width in (640..=1600).step_by(4) {
+            h.set_size(egui::vec2(width as f32, 800.0));
+            // (A dropdown's room is the one it took the frame before: run
+            // until the toolbar is laid out the same twice, with a deadline.)
+            let started = std::time::Instant::now();
+            let mut was = Vec::new();
+            loop {
+                h.run();
+                let now = controls(&h);
+                if now == was {
+                    break;
+                }
+                assert!(started.elapsed().as_secs() < 20, "the toolbar never settles at {width}");
+                was = now;
+            }
+            let body = body(&h).expand(0.5);
+            let mut wrong: Vec<String> = (was.iter())
+                .filter(|(_, r)| r.left() < body.left() || r.right() > body.right())
+                .map(|(n, r)| format!("{n} at {r:?}"))
+                .collect();
+            // Each lead icon: on its dropdown's row, just before it.
+            let combos: Vec<egui::Rect> =
+                (was.iter()).filter(|(n, _)| n.starts_with("ComboBox")).map(|(_, r)| *r).collect();
+            for (icon, name) in [
+                (mg_uikit::Icon::Fade, "Fade Geometry"),
+                (mg_uikit::Icon::Magnet, "Snap"),
+                (mg_uikit::Icon::Rotate, "Turn"),
+            ] {
+                let drawn = mg_uikit::icons_drawn(&h.ctx);
+                let leads: Vec<egui::Rect> = (drawn.iter())
+                    .filter(|(i, r)| *i == icon && body.x_range().contains(r.center().x))
+                    .map(|(_, r)| *r)
+                    .collect();
+                assert_eq!(leads.len(), usize::from(icons_only), "{name}'s icon at {width}");
+                for lead in leads {
+                    let beside = combos.iter().any(|c| {
+                        let gap = c.left() - lead.right();
+                        (0.0..=12.0).contains(&gap) && c.y_range().contains(lead.center().y)
+                    });
+                    if !beside {
+                        wrong.push(format!("{name}'s icon at {lead:?}, apart from its dropdown"));
+                    }
+                }
+            }
+            if !wrong.is_empty() {
+                widths.push((icons_only, width));
+                first_wrong.get_or_insert((icons_only, width, body, wrong));
+            }
+        }
+    }
+    assert!(first_wrong.is_none(), "fails at {widths:?}, first: {first_wrong:#?}");
+}
+
 #[test]
 fn area_properties_edit_the_area() {
     let Some((mut h, area)) = area_harness("area-props") else { return };

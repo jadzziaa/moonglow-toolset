@@ -223,9 +223,16 @@ impl Tools {
     /// header's words yield to icons before it wraps; what still has no
     /// room wraps to the next row).
     pub(crate) fn fitted(self, ui: &egui::Ui, buttons: &[IconButton]) -> Tools {
+        self.fitted_after(ui, 0.0, buttons)
+    }
+
+    /// [`Tools::fitted`] for a row that begins with `before` points of
+    /// something else (the hak editor's count of what it holds, and the
+    /// room after it).
+    pub(crate) fn fitted_after(self, ui: &egui::Ui, before: f32, buttons: &[IconButton]) -> Tools {
         let gaps = ui.spacing().item_spacing.x * buttons.len().saturating_sub(1) as f32;
         let words: f32 = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gaps;
-        Tools { icons_only: self.icons_only || words > ui.available_width(), ..self }
+        Tools { icons_only: self.icons_only || before + words > ui.available_width(), ..self }
     }
 
     /// The area view's toolbar's: those its settings hide left out.
@@ -311,10 +318,26 @@ impl Tools {
         name: &str,
         tip: &str,
     ) -> egui::Response {
-        if self.hides(name) {
+        self.toggle_as(ui, on, icon, name, name, tip)
+    }
+
+    /// [`Tools::toggle`] showing `words` (by which it is hidden) and named
+    /// `name` for a screen reader and in its tip: the area toolbar's
+    /// "Sounds" filter named "Show Sounds", its "Sounds" switch "Play
+    /// Sounds".
+    pub(crate) fn toggle_as(
+        self,
+        ui: &mut egui::Ui,
+        on: &mut bool,
+        icon: Icon,
+        words: &str,
+        name: &str,
+        tip: &str,
+    ) -> egui::Response {
+        if self.hides(words) {
             return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
         }
-        let r = toggled(ui.add(self.widget(icon, name).selectable(*on)), on);
+        let r = toggled(ui.add(self.widget(icon, words).name(name).selectable(*on)), on);
         self.with_tip(r, name, tip)
     }
 

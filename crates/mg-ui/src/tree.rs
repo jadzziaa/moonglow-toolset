@@ -718,6 +718,10 @@ fn contents_ui(
                 }
                 room(ui, shown.len() - last);
             });
+            mg_uikit::say_expanded(
+                &shown_header.header_response,
+                shown_header.body_returned.is_some(),
+            );
             if at_kind && keys.moved {
                 bring_into_view(ui, shown_header.header_response.rect);
             }
@@ -802,6 +806,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let left = crate::widgets::SearchField::new(egui::Id::new("tree-filter-field"), &mut filter)
         .hint("Filter name, resref")
         .clear_tip("Clear the filter")
+        .clear_name("Clear Filter")
         .find_when(here)
         .down()
         .show(ui)
@@ -1420,7 +1425,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             };
                             // (Lit only under the pointer: a column of
                             // them, filled, read as a stack of tiles.)
-                            let button = crate::widgets::icon_only(arrow, "Placed Objects");
+                            // (Named with its area, said open or not.)
+                            let button = crate::widgets::icon_only(arrow, "Placed Objects")
+                                .name(format!("Placed Objects in {label}"))
+                                .expanded(out);
                             let toggle = ui
                                 .add(button)
                                 .on_hover_text("What is placed in the area, by kind");
@@ -1716,6 +1724,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 app.tree_object_pending = false;
             }
         }
+        mg_uikit::say_expanded(&header.header_response, header.body_returned.is_some());
         if header.header_response.clicked() {
             clicked = Some(TreeAt::Group(name));
         }

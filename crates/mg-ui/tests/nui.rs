@@ -779,11 +779,11 @@ fn a_control_selected_on_the_canvas_is_revealed_in_collapsed_layers() {
             .any(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
     );
     // (The layers': the module tree has the same pair.)
-    h.get_all_by_label("Collapse All").last().unwrap().click();
+    h.get_by_label("Layer tree").get_by_label("Collapse All").click();
     h.run();
     assert!(h.query_by_label("Collapse Column").is_none());
     assert!(h.query_by_label("Expand Column").is_none());
-    h.get_all_by_label("Expand All").last().unwrap().click();
+    h.get_by_label("Layer tree").get_by_label("Expand All").click();
     h.run();
     assert!(
         h.get_all_by_label("Button · Close")

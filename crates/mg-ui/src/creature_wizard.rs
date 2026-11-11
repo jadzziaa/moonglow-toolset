@@ -410,13 +410,15 @@ fn page(
                             ui.end_row();
                             let n = w.classes.len();
                             for (i, (k, level)) in w.classes.iter_mut().enumerate() {
-                                ui.label(name(*k));
+                                let class = name(*k);
+                                ui.label(&class);
+                                crate::widgets::name_next_number(ui, &class);
                                 crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
                                 if n > 1
                                     && crate::widgets::icon_button(
                                         ui,
                                         mg_uikit::Icon::Close,
-                                        "Remove",
+                                        &format!("Remove {class}"),
                                         "Remove this class",
                                     )
                                     .clicked()

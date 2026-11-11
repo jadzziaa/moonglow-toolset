@@ -1799,7 +1799,10 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                     let mut keys = draft.keymap.keys_of(id);
                     let mut remove = None;
                     for (i, k) in keys.iter().enumerate() {
-                        if crate::widgets::text_then_icon(ui, &shown(k, mac), mg_uikit::Icon::Close)
+                        let key = shown(k, mac);
+                        let named = format!("Remove {key} from {name}");
+                        let close = mg_uikit::Icon::Close;
+                        if crate::widgets::text_then_icon(ui, &key, close, &named)
                             .on_hover_text("Take this key away")
                             .clicked()
                         {

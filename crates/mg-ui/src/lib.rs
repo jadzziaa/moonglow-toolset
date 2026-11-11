@@ -6288,7 +6288,7 @@ pub fn verify_report_fixes(
     let reference = |m: &mg_module::verify::Missing| {
         let what = format!("is {}", m.what());
         format!(
-            "{:?}: {}{} -> {} {} {what}",
+            "{:?}: {}{} → {} {} {what}",
             m.category,
             m.reference.from,
             m.reference.path,

@@ -309,11 +309,11 @@ pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, name: &str) {
     };
     h.query_all(combo).find(is_type).expect("the palette's type dropdown").click();
     settle(h);
-    // (The list's, drawn last: the area toolbar names the kinds too. The
-    // last of them are below the dropdown's edge until scrolled to.)
-    h.get_all_by_label(name).last().unwrap().scroll_to_me();
+    // (The open list, named as the row is. The last of them are below
+    // the dropdown's edge until scrolled to.)
+    h.get_by_label("Palette types").get_by_label(name).scroll_to_me();
     settle(h);
-    h.get_all_by_label(name).last().unwrap().click();
+    h.get_by_label("Palette types").get_by_label(name).click();
     settle(h);
 }
 
@@ -335,6 +335,18 @@ pub(crate) fn apart_all<'t>(
     h.query_all_by_label(name).filter(|n| !in_toolbar(n))
 }
 
+/// Whether `n` is in the group named `group` (`mg_uikit::name_group`).
+pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
+    let mut up = n.accesskit_node().parent();
+    while let Some(p) = up {
+        if p.label().as_deref() == Some(group) {
+            return true;
+        }
+        up = p.parent();
+    }
+    false
+}
+
 /// Whether `n` is in the main toolbar or the area view's.
 pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
@@ -347,26 +359,62 @@ pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     false
 }
 
-/// The first of them ([`apart_all`]).
+/// The one of them ([`apart_all`]): exactly one, as `get_by_label` asks,
+/// or it panics naming how many there are.
 #[track_caller]
 pub(crate) fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
-    apart_all(h, name).next().unwrap_or_else(|| panic!("no {name} apart from the toolbar"))
+    let mut found = apart_all(h, name);
+    let Some(first) = found.next() else { panic!("no {name} apart from the toolbars") };
+    let more = found.count();
+    assert!(more == 0, "{} named {name:?} apart from the toolbars, not one", more + 1);
+    first
 }
 
 /// The area view's toolbar's button `name` (found within it: the palette
-/// names the kinds of objects too, and the toolbar has two Sounds, the
-/// objects' filter first and the switch that plays them second: `nth`).
+/// names the kinds of objects too). The objects' filters are "Show
+/// Creatures"…, "Show Start"; the switch that plays the placed sounds is
+/// "Play Sounds".
 #[track_caller]
 pub(crate) fn area_tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
     h.get_by_label("Area toolbar").get_by_label(name)
 }
 
-/// The area toolbar's switch that plays the placed sounds (its second
-/// "Sounds": the first is the sound objects' filter).
-#[track_caller]
-#[allow(dead_code)] // (No test plays the sounds yet.)
-pub(crate) fn play_sounds<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
-    h.get_by_label("Area toolbar").get_all_by_label("Sounds").nth(1).unwrap()
+/// The tooltip shown with the pointer at `rect`'s middle: the words of
+/// what appears there (the nodes that were not there before), or `None`
+/// if nothing appears in a second and a half of frames (a tip waits a
+/// moment; on a busy machine the same moment is more frames, so the wait
+/// is long for an absent tip and short for a present one).
+pub(crate) fn tip_at(h: &mut Harness<'_, Moonglow>, rect: egui::Rect) -> Option<String> {
+    use std::collections::HashMap;
+    fn words(h: &Harness<'_, Moonglow>) -> HashMap<String, usize> {
+        let mut out = HashMap::new();
+        for n in h.query_all_by(|n| n.bounding_box().is_some()) {
+            let a = n.accesskit_node();
+            let text = a.label().or(a.value()).unwrap_or_default();
+            if !text.trim().is_empty() {
+                *out.entry(text).or_default() += 1;
+            }
+        }
+        out
+    }
+    // (Away first, so that a tip shown before is gone.)
+    h.hover_at(egui::pos2(1.0, 1.0));
+    h.run_steps(2);
+    let before = words(h);
+    h.hover_at(rect.center());
+    for _ in 0..90 {
+        h.run_steps(1);
+        let now = words(h);
+        let mut new: Vec<String> = (now.into_iter())
+            .filter(|(t, n)| *n > before.get(t).copied().unwrap_or(0))
+            .map(|(t, _)| t)
+            .collect();
+        if !new.is_empty() {
+            new.sort();
+            return Some(new.join("\n"));
+        }
+    }
+    None
 }
 
 /// Whether the icon `icon` is drawn inside `rect` in the last frame (the

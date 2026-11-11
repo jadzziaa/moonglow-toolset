@@ -2997,14 +2997,18 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             if hidden.contains(&icons::area_tool_kind(name)) {
                 continue;
             }
+            // (Named for what they do, as the view's switches are: "Show
+            // Sounds", apart from the "Play Sounds" switch.)
             let all = tools.showing_all();
-            all.toggle(ui, on, icons::object(kind), name, &format!("Show {name}"));
+            let show = format!("Show {name}");
+            all.toggle_as(ui, on, icons::object(kind), name, &show, &show);
         }
-        tools.toggle(
+        tools.toggle_as(
             ui,
             &mut view.show_start,
             icons::START,
             "Start",
+            "Show Start",
             "Show the start location's marker, a blue ring with a red arrow",
         );
         if tools.button(ui, icons::SHOW_ALL, "All", "Show All").clicked() {
@@ -3052,17 +3056,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 true => view.fade.name().to_string(),
                 false => format!("Fade Geometry: {}", view.fade.name()),
             };
-            let fits = Fits::before(ui, "fade-geometry", &fade);
-            lead_icon(ui, tools, icons::FADE, "Fade Geometry");
             // (The arrow keys step through it once it is clicked, as through
             // every list of choices.)
-            let r = crate::widgets::dropdown("fade-geometry")
-                .selected_text(fade)
-                .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
-                .on_hover_text(
-                    "Hide the roofs and upper walls the game fades, to see what is under them",
-                );
-            fits.after(ui, &r);
+            let tip = "Hide the roofs and upper walls the game fades, to see what is under them";
+            lead_dropdown(ui, tools, "fade-geometry", &fade, icons::FADE, "Fade Geometry", |ui| {
+                crate::widgets::dropdown("fade-geometry")
+                    .selected_text(fade.clone())
+                    .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
+                    .on_hover_text(tip)
+            });
             if view.fade != before {
                 app.settings.fade_geometry = view.fade as u8;
             }
@@ -3130,7 +3132,14 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         // Music (the Options › Sounds settings).
         let mut placed = !app.settings.no_placed_sounds;
         if tools
-            .toggle(ui, &mut placed, icons::SOUNDS, "Sounds", "Play placed sound objects in area")
+            .toggle_as(
+                ui,
+                &mut placed,
+                icons::SOUNDS,
+                "Sounds",
+                "Play Sounds",
+                "Play placed sound objects in area",
+            )
             .changed()
         {
             app.settings.no_placed_sounds = !placed;
@@ -3157,47 +3166,47 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             let grid = |v: Option<u16>| {
                 v.map_or(format!("{snap}off"), |cm| format!("{snap}{} m", f32::from(cm) / 100.0))
             };
-            let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
-            lead_icon(ui, tools, icons::SNAP, "Snap");
             let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
-            let r = crate::widgets::dropdown("snap-grid")
-                .selected_text(grid(app.settings.snap_grid))
-                .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
-                .on_hover_text("Moved and placed objects snap to this grid");
-            fits.after(ui, &r);
+            let shown = grid(app.settings.snap_grid);
+            lead_dropdown(ui, tools, "snap-grid", &shown, icons::SNAP, "Snap", |ui| {
+                crate::widgets::dropdown("snap-grid")
+                    .selected_text(shown.clone())
+                    .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
+                    .on_hover_text("Moved and placed objects snap to this grid")
+            });
         }
         if !tools.hides("Turn") {
             let turn = if tools.icons_only { "" } else { "Turn: " };
             let angle = |v: Option<u16>| v.map_or(format!("{turn}free"), |a| format!("{turn}{a}°"));
-            let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
-            lead_icon(ui, tools, icons::TURN, "Turn");
             let angles = [None, Some(5), Some(15), Some(45), Some(90)];
-            let r = crate::widgets::dropdown("snap-angle")
-                .selected_text(angle(app.settings.snap_angle))
-                .show_with(
-                    ui,
-                    &mut app.settings.snap_angle,
-                    || angles.to_vec(),
-                    |ui, snap| {
-                        for a in angles {
-                            ui.selectable_value(snap, a, angle(a));
-                        }
-                        // Any other angle, in whole degrees.
-                        ui.horizontal(|ui| {
-                            ui.label("Other");
-                            let mut degrees = snap.unwrap_or(30);
-                            let field =
-                                egui::DragValue::new(&mut degrees).range(1..=180).suffix("°");
-                            if ui.add(field).changed() {
-                                *snap = Some(degrees);
+            let shown = angle(app.settings.snap_angle);
+            lead_dropdown(ui, tools, "snap-angle", &shown, icons::TURN, "Turn", |ui| {
+                crate::widgets::dropdown("snap-angle")
+                    .selected_text(shown.clone())
+                    .show_with(
+                        ui,
+                        &mut app.settings.snap_angle,
+                        || angles.to_vec(),
+                        |ui, snap| {
+                            for a in angles {
+                                ui.selectable_value(snap, a, angle(a));
                             }
-                        });
-                    },
-                )
-                .on_hover_text(
-                    "The angle turned objects snap to, and Q and E turn by (15° when free)",
-                );
-            fits.after(ui, &r);
+                            // Any other angle, in whole degrees.
+                            ui.horizontal(|ui| {
+                                ui.label("Other");
+                                let mut degrees = snap.unwrap_or(30);
+                                let field =
+                                    egui::DragValue::new(&mut degrees).range(1..=180).suffix("°");
+                                if ui.add(field).changed() {
+                                    *snap = Some(degrees);
+                                }
+                            });
+                        },
+                    )
+                    .on_hover_text(
+                        "The angle turned objects snap to, and Q and E turn by (15° when free)",
+                    )
+            });
         }
         tools.toggle(
             ui,
@@ -4316,41 +4325,44 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     }
 }
 
-/// A toolbar's list of choices, begun on the next row where it would not
-/// fit in what is left of this one. (A list is laid out as one group,
-/// which a wrapping row does not move down by itself: it ran past the
-/// tab's edge, and widened the rows after it.) Its width is the one it
-/// had in the last frame.
-struct Fits(egui::Id);
-
-impl Fits {
-    fn before(ui: &mut egui::Ui, salt: &str, text: &str) -> Fits {
-        let id = ui.id().with(("fits", salt));
-        // (Not drawn yet: about what its text will take.)
-        let width = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| {
-            let font = egui::TextStyle::Button.resolve(ui.style());
-            let text = ui.fonts_mut(|f| {
-                f.layout_no_wrap(text.to_string(), font, egui::Color32::WHITE).size().x
-            });
-            let spacing = ui.spacing();
-            let around = 2.0 * spacing.button_padding.x + spacing.icon_width + spacing.icon_spacing;
-            (text + around).max(spacing.combo_width)
-        });
-        let row_begun = ui.cursor().left() > ui.max_rect().left() + 1.0;
-        if row_begun && width > ui.available_size_before_wrap().x {
-            ui.end_row();
-        }
-        Fits(id)
+/// A toolbar's list of choices, with Icons only its lead icon before it
+/// (`icon`, `name` its tip), the two begun together on the next row where
+/// they would not fit in what is left of this one. (A list is
+/// laid out as one group, which a wrapping row does not move down by
+/// itself: it ran past the tab's edge, and widened the rows after it; and
+/// the room checked was once the list's alone, its icon added after, so
+/// that a list with room for itself and not its icon ran past the edge
+/// too.) The room is what the two took in the last frame; `text`, what
+/// the list shows, before they are first drawn.
+fn lead_dropdown(
+    ui: &mut egui::Ui,
+    tools: crate::icons::Tools,
+    salt: &str,
+    text: &str,
+    icon: crate::icons::Icon,
+    name: &str,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
+    let id = ui.id().with(("fits", salt, tools.icons_only));
+    let width = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| {
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let text = ui
+            .fonts_mut(|f| f.layout_no_wrap(text.to_string(), font, egui::Color32::WHITE).size().x);
+        let spacing = ui.spacing();
+        let around = 2.0 * spacing.button_padding.x + spacing.icon_width + spacing.icon_spacing;
+        let lead = match tools.icons_only {
+            true => mg_uikit::metrics::ICON + spacing.item_spacing.x,
+            false => 0.0,
+        };
+        (text + around).max(spacing.combo_width) + lead
+    });
+    let row_begun = ui.cursor().left() > ui.max_rect().left() + 1.0;
+    if row_begun && width > ui.available_size_before_wrap().x {
+        ui.end_row();
     }
-
-    fn after(self, ui: &mut egui::Ui, r: &egui::Response) {
-        ui.data_mut(|d| d.insert_temp(self.0, r.rect.width()));
-    }
-}
-
-/// With Icons only, the icon that says what the dropdown after it is
-/// (`name`, its tip).
-fn lead_icon(ui: &mut egui::Ui, tools: crate::icons::Tools, icon: crate::icons::Icon, name: &str) {
+    // (Laid out in the row itself, not as a group of their own: a group
+    // asks for the rest of the row, which widened the tab's least width.)
+    let mut lead = None;
     if tools.icons_only {
         // (In `text-2`, as an icon button's at rest: the mock's combo's
         // lead icon.)
@@ -4358,7 +4370,12 @@ fn lead_icon(ui: &mut egui::Ui, tools: crate::icons::Tools, icon: crate::icons::
         let (rect, r) = ui.allocate_exact_size(side, egui::Sense::hover());
         icon.paint(ui.painter(), rect, mg_uikit::tokens(ui.ctx()).text_2);
         r.on_hover_text(name);
+        lead = Some(rect);
     }
+    let r = add(ui);
+    let both = lead.map_or(r.rect, |lead| lead.union(r.rect));
+    ui.data_mut(|d| d.insert_temp(id, both.width()));
+    r
 }
 
 /// The area toolbar's buttons to show, ticked (its right-click menu, one

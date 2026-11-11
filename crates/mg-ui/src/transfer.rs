@@ -743,7 +743,7 @@ impl Moonglow {
         let plan = plan_export(&staged, &roots, &game.resman);
         for r in &plan.missing {
             self.log
-                .warn(format!("Not exported, not found: {} -> {:?} {}", r.from, r.kind, r.target));
+                .warn(format!("Not exported, not found: {} → {:?} {}", r.from, r.kind, r.target));
         }
         let stamp = mg_module::stamp::Stamp::of(module);
         let comments = mg_module::stamp::describe("", &stamp);
@@ -794,7 +794,7 @@ impl Moonglow {
             let plan = plan_export(&ws.module, &roots, resman);
             for r in &plan.missing {
                 self.log.warn(format!(
-                    "Not exported, not found: {} -> {:?} {}",
+                    "Not exported, not found: {} → {:?} {}",
                     r.from, r.kind, r.target
                 ));
             }

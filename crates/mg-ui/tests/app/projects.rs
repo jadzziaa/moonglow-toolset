@@ -2216,8 +2216,16 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     );
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    let merged = h.get_by_label("ab").rect().expand2(egui::vec2(24.0, 4.0));
-    assert!(icon_drawn(&h, mg_uikit::Icon::Pin, merged), "merged: a pin after ab");
+    // Merged: the check of yours before ab, and the pin after it.
+    let ab = h.get_by_label("ab").rect();
+    let before = egui::Rect::from_x_y_ranges(ab.left() - 24.0..=ab.left(), ab.y_range());
+    let after = egui::Rect::from_x_y_ranges(ab.right()..=ab.right() + 24.0, ab.y_range());
+    let drawn = mg_uikit::icons_drawn(&h.ctx);
+    let at = |icon, room: egui::Rect| {
+        drawn.iter().any(|(i, r)| *i == icon && room.expand(1.0).contains(r.center()))
+    };
+    assert!(at(mg_uikit::Icon::Check, before), "merged: a check before ab, {drawn:?}");
+    assert!(at(mg_uikit::Icon::Pin, after), "merged: a pin after ab, {drawn:?}");
     let key = ResKey::parse("start", ResType::ARE).unwrap();
     let retag = |tag: &str| {
         mg_ui::Action::Apply(mg_edit::Command::new(
