@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-10T16:29:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T19:40:46Z }
 ---
 
 # Command-line tools
@@ -40,7 +40,7 @@ JSON (below).
 | Command | Does |
 | --- | --- |
 | `mg tileset-palette SET [-o OUT]` | make a tileset's palette (`<tileset>palstd.itp`) from its `.set`: groups and features (in a folder a terrain), terrains and crossers |
-| `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav`: each resource's size and name (`--json`: `resources`, each with `name` and `size`); `--sha256` adds each one's SHA-256 (`sha256`), which reads the archive whole (a 1.5 GB hak takes about four seconds) |
+| `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav`: each resource's size and name (`--json`: `resources`, each with `name` and `size`); `--sha256` adds each one's SHA-256 (`sha256`), which reads the archive whole (a 1.5 GB hak takes under a second where the processor has SHA instructions, about three where it hasn't) |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
 | `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension), which takes the place of one that was there only once it is whole; warns when files would start past 2 GiB, where the game stops reading. `--compile-models` compiles the models kept as text (ASCII `.mdl`) on the way in, each against its supermodel from the folder or the game (which it then needs, as the other commands find it); a model that doesn't compile, has errors `mg verify` would name, or whose supermodel isn't found goes in as the text it is, and is named |
 | `mg model compile IN.mdl OUT.mdl` | compile one model kept as text into the binary model the game loads, as the game's own compiler makes it: its supermodel (whose part numbers its nodes take) and the materials (`.mtr`) its meshes name are looked for beside it, then in the game. The compiler's notes are printed (what it left out or made up, by line), among them a node with no `parent` line, which the game leaves out of the model with the nodes under it |
