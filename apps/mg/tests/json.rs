@@ -45,6 +45,13 @@ fn every_command_answers_in_json() {
     assert_eq!(ok(&["which", "classes.2da"])["resource"], "classes.2da");
     assert!(ok(&["cat", "classes.2da"])["text"].as_str().unwrap().starts_with("2DA"));
     assert!(ok(&["layers"])["layers"].as_array().unwrap().len() > 3);
+    let many = ok(&["cat", "classes.2da", "racialtypes.2da", "--to", &at("many"), "--hak", c]);
+    assert_eq!(many["missing"], serde_json::json!([]));
+    assert!(ok(&["ls", c, "--sha256"])["resources"][0]["sha256"].is_string());
+    assert!(ok(&["model", "info", "plc_a01"])["faces_rendered"].as_u64() > Some(0));
+    let table = at("many/classes.2da");
+    let set = ok(&["2da-set", &table, "--row", "0", "Label=MgFighter", "--dry-run"]);
+    assert_eq!(set["cells"][0]["to"], "MgFighter");
     assert_eq!(ok(&["tlk", "12"])["strings"][0]["text"], "Paladin");
 
     // Modules.

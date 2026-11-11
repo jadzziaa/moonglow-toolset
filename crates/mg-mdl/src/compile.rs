@@ -283,7 +283,7 @@ pub fn aabb_tree(mesh: &Mesh) -> Vec<AabbEntry> {
 
 type Quat = [f32; 4];
 
-fn quat_mul(a: Quat, b: Quat) -> Quat {
+pub(crate) fn quat_mul(a: Quat, b: Quat) -> Quat {
     let ([ax, ay, az, aw], [bx, by, bz, bw]) = (a.map(f64::from), b.map(f64::from));
     [
         aw * bx + ax * bw + ay * bz - az * by,
@@ -294,7 +294,7 @@ fn quat_mul(a: Quat, b: Quat) -> Quat {
     .map(|x| x as f32)
 }
 
-fn quat_unit(q: Quat) -> Quat {
+pub(crate) fn quat_unit(q: Quat) -> Quat {
     let len = q.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
     if len < 1e-12 { crate::IDENTITY } else { q.map(|x| (f64::from(x) / len) as f32) }
 }
@@ -303,7 +303,7 @@ fn quat_conjugate(q: Quat) -> Quat {
     [-q[0], -q[1], -q[2], q[3]]
 }
 
-fn rotate(q: Quat, v: Vec3) -> Vec3 {
+pub(crate) fn rotate(q: Quat, v: Vec3) -> Vec3 {
     let p = quat_mul(quat_mul(q, [v[0], v[1], v[2], 0.0]), quat_conjugate(q));
     [p[0], p[1], p[2]]
 }

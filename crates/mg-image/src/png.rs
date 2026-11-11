@@ -53,6 +53,59 @@ pub fn read_picture(data: &[u8], max_pixels: u64) -> Result<Rgba, ImageError> {
     Ok(Rgba { width, height, data: rgba })
 }
 
+/// An 8-bit grayscale PNG of `width` by `height` values, rows from the
+/// top as `data` has them, with text chunks (`tEXt`, Latin-1) of
+/// `(keyword, text)`. It fails only where `data` is not that many values.
+pub fn write_gray(
+    width: u32,
+    height: u32,
+    data: &[u8],
+    text: &[(&str, &str)],
+) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut enc = ::png::Encoder::new(&mut out, width, height);
+    enc.set_color(::png::ColorType::Grayscale);
+    enc.set_depth(::png::BitDepth::Eight);
+    for (k, t) in text {
+        enc.add_text_chunk(k.to_string(), t.to_string()).map_err(|e| e.to_string())?;
+    }
+    let mut w = enc.write_header().map_err(|e| e.to_string())?;
+    w.write_image_data(data).map_err(|e| e.to_string())?;
+    w.finish().map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// A PNG's text chunks (`tEXt`), as `(keyword, text)`.
+pub fn text(data: &[u8]) -> Result<Vec<(String, String)>, ImageError> {
+    let fail = |e: &dyn std::fmt::Display| ImageError::Png(e.to_string());
+    let reader =
+        ::png::Decoder::new(std::io::Cursor::new(data)).read_info().map_err(|e| fail(&e))?;
+    let chunks = &reader.info().uncompressed_latin1_text;
+    Ok(chunks.iter().map(|c| (c.keyword.clone(), c.text.clone())).collect())
+}
+
+/// A PNG's header: its size, its color type and depth as one word
+/// (`rgb8`, `rgba8`, `gray8`, `graya8`, `indexed8`, `rgb16`…), and
+/// whether it has alpha (an alpha channel, or a palette's or color's
+/// transparency), read without unpacking it.
+pub fn info(data: &[u8]) -> Result<(u32, u32, String, bool), ImageError> {
+    let fail = |e: &dyn std::fmt::Display| ImageError::Png(e.to_string());
+    let decoder = ::png::Decoder::new(std::io::Cursor::new(data));
+    let reader = decoder.read_info().map_err(|e| fail(&e))?;
+    let info = reader.info();
+    let kind = match info.color_type {
+        ::png::ColorType::Grayscale => "gray",
+        ::png::ColorType::GrayscaleAlpha => "graya",
+        ::png::ColorType::Rgb => "rgb",
+        ::png::ColorType::Rgba => "rgba",
+        ::png::ColorType::Indexed => "indexed",
+    };
+    let alpha =
+        matches!(info.color_type, ::png::ColorType::GrayscaleAlpha | ::png::ColorType::Rgba)
+            || info.trns.is_some();
+    Ok((info.width, info.height, format!("{kind}{}", info.bit_depth as u8), alpha))
+}
+
 /// A PNG of RGBA8 pixels, `width` by `height`, rows from the top as
 /// `data` has them. It fails only where `data` is not that many pixels.
 pub fn write_rgba(width: u32, height: u32, data: &[u8]) -> Result<Vec<u8>, String> {
@@ -143,6 +196,28 @@ mod tests {
         assert!(write_rgba(2, 2, &data).is_err(), "too few pixels");
         assert!(write_rgba(1, 1, &data).is_err(), "too many");
         assert!(write_rgba(0, 0, &[]).is_err(), "none: no PNG is empty");
+    }
+
+    #[test]
+    fn gray_written_reads_back_with_its_text() {
+        let png = write_gray(3, 1, &[0, 9, 255], &[("PLT header", "6 0")]).unwrap();
+        assert_eq!(
+            read_picture(&png, 16).unwrap().data,
+            [0, 0, 0, 255, 9, 9, 9, 255, 255, 255, 255, 255]
+        );
+        assert_eq!(text(&png).unwrap(), [("PLT header".to_string(), "6 0".to_string())]);
+        assert!(write_gray(2, 1, &[0], &[]).is_err());
+    }
+
+    #[test]
+    fn a_png_s_header_is_read_without_its_pixels() {
+        let rgb = png_of(ColorType::Rgb, BitDepth::Eight, None, &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(info(&rgb).unwrap(), (2, 1, "rgb8".to_string(), false));
+        let deep = png_of(ColorType::GrayscaleAlpha, BitDepth::Sixteen, None, &[0; 8]);
+        assert_eq!(info(&deep).unwrap(), (2, 1, "graya16".to_string(), true));
+        let indexed = png_of(ColorType::Indexed, BitDepth::Eight, Some((&[0; 6], &[77])), &[1, 0]);
+        assert!(info(&indexed).unwrap().3, "transparency in the palette");
+        assert!(info(&rgb[..20]).is_err());
     }
 
     #[test]

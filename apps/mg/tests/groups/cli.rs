@@ -2,6 +2,8 @@
 //! here, so that they are linked once and their tests run side by side. A
 //! new test file is named here (`every_test_file_is_in_the_group` says so).
 
+#[path = "../added_haks.rs"]
+mod added_haks;
 #[path = "../areas.rs"]
 mod areas;
 #[path = "../attach.rs"]
@@ -28,6 +30,8 @@ mod haks;
 mod import_files;
 #[path = "../json.rs"]
 mod json;
+#[path = "../ls.rs"]
+mod ls;
 #[path = "../lsp.rs"]
 mod lsp;
 #[path = "../merge_claims.rs"]
@@ -62,12 +66,16 @@ mod search;
 mod serve;
 #[path = "../test_cmd.rs"]
 mod test_cmd;
+#[path = "../texture.rs"]
+mod texture;
 #[path = "../tlk_alloc.rs"]
 mod tlk_alloc;
 #[path = "../tlk_io.rs"]
 mod tlk_io;
 #[path = "../twoda_check.rs"]
 mod twoda_check;
+#[path = "../twoda_set.rs"]
+mod twoda_set;
 #[path = "../update_instances.rs"]
 mod update_instances;
 #[path = "../vars.rs"]

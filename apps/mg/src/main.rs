@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod added;
 mod bake;
 mod claims;
 mod diff;
@@ -16,7 +17,9 @@ mod plugins;
 mod search;
 mod serve;
 mod test;
+mod texture;
 mod tlk_alloc;
+mod twoda_set;
 mod usage;
 mod watch;
 
@@ -66,8 +69,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List the contents of an ERF archive (mod, hak, erf, nwm, sav).
-    Ls { archive: PathBuf },
+    /// List the contents of an ERF archive (mod, hak, erf, nwm, sav): each
+    /// resource's size and name.
+    Ls {
+        archive: PathBuf,
+        /// Each resource's SHA-256 too (read whole: a hak of gigabytes
+        /// takes seconds).
+        #[arg(long)]
+        sha256: bool,
+    },
     /// Unpack an ERF archive into a directory.
     Unpack { archive: PathBuf, out: PathBuf },
     /// Pack a directory's files into an ERF archive (type from the extension).
@@ -116,13 +126,42 @@ enum Cmd {
         /// module itself, are in the load order too.
         #[arg(long)]
         module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
     },
-    /// Print a resource from the game's load order to stdout.
+    /// Print a resource from the game's load order to stdout; or, with
+    /// --to, write many into a folder, each with the layer it came from,
+    /// its size and its SHA-256 (one run reads every archive once).
+    /// Fails if a resource is found nowhere (with --to, once the rest are
+    /// written).
     Cat {
-        resource: String,
+        /// `name.ext`, e.g. `classes.2da`; with --to, as many as needed.
+        #[arg(value_name = "RESOURCE", required_unless_present = "list")]
+        resources: Vec<String>,
+        /// With --to: more names from a file, a line each (`-`: standard
+        /// input; blank lines and lines beginning with `#` passed over).
+        #[arg(long, value_name = "FILE", requires = "to")]
+        list: Option<PathBuf>,
+        /// Write each resource into this folder (made if missing) by its
+        /// name, rather than to standard output.
+        #[arg(long, value_name = "FOLDER")]
+        to: Option<PathBuf>,
+        /// With --to: write over files of the same names in the folder.
+        #[arg(long, requires = "to")]
+        force: bool,
+        /// With --to: say what would be written (and its size and
+        /// SHA-256); write nothing.
+        #[arg(long, requires = "to")]
+        dry_run: bool,
         /// A compiled model (.mdl) as the text it compiles from.
         #[arg(long)]
         text: bool,
+        /// A module (.mod, folder or nasher project) whose haks, and the
+        /// module itself, are in the load order too.
+        #[arg(long)]
+        module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
     },
     /// List the resource layers in load order with their sizes.
     Layers,
@@ -472,6 +511,32 @@ enum Cmd {
         /// are not looked up)
         #[arg(long)]
         tlk: Option<PathBuf>,
+    },
+    /// Set cells of a 2DA file and save it as it is laid out (its columns'
+    /// widths, its rows' labels, its line ends): in the row of a number,
+    /// the one row whose column has a value, or a row added at the end.
+    /// Each cell `COLUMN=VALUE` (`COLUMN=` or `COLUMN=****`: empty).
+    #[command(name = "2da-set")]
+    TwodaSet {
+        table: PathBuf,
+        /// `COLUMN=VALUE`, as many as needed.
+        #[arg(value_name = "COLUMN=VALUE", required = true)]
+        cells: Vec<String>,
+        /// The row by its number.
+        #[arg(long, conflicts_with_all = ["matching", "append"])]
+        row: Option<usize>,
+        /// The row whose column has this value (one row must).
+        #[arg(long = "where", value_name = "COLUMN=VALUE", conflicts_with = "append")]
+        matching: Option<String>,
+        /// A row added at the end, its other cells empty.
+        #[arg(long)]
+        append: bool,
+        /// Write the table here rather than over the file.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Say what would change; write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// What differs between two talk tables (.tlk), by line. With --base
     /// (the table both were made from), the two merged, as `mg 2da-diff`
@@ -1134,6 +1199,8 @@ enum Cmd {
         /// The module whose haks (and blueprints) to look in.
         #[arg(long)]
         module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
         /// The game's own files too.
         #[arg(long)]
         all: bool,
@@ -1149,6 +1216,12 @@ enum Cmd {
     Model {
         #[command(subcommand)]
         cmd: ModelCmd,
+    },
+    /// Textures: convert between TGA, PNG and DDS; their facts; PLTs
+    /// split into PNGs and joined again.
+    Texture {
+        #[command(subcommand)]
+        cmd: texture::TextureCmd,
     },
     /// Check that Moonglow keeps a module as it is: saves a copy (the
     /// module is not touched), opens it again and compares every resource
@@ -1334,6 +1407,23 @@ enum ModelCmd {
         input: PathBuf,
         /// The text to write.
         output: PathBuf,
+    },
+    /// A model's facts: its nodes by kind, faces (all, and those of the
+    /// meshes the game draws), vertices, the box its drawn meshes fill at
+    /// rest, its skins with their faces and the bones their weights move
+    /// (and the bones of all of them), the textures and
+    /// materials it names, its supermodel and its own animations with
+    /// their lengths. Text or compiled alike.
+    Info {
+        /// A model's file, or a model's name (`plc_a01`, `plc_a01.mdl`)
+        /// found in the game's load order.
+        model: String,
+        /// A module (.mod, folder or nasher project) whose haks, and the
+        /// module itself, are in the load order too.
+        #[arg(long)]
+        module: Option<PathBuf>,
+        #[command(flatten)]
+        added: added::Added,
     },
 }
 
@@ -2036,6 +2126,9 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
         ModelCmd::Compile { input, output } | ModelCmd::Decompile { input, output } => {
             (input, output)
         }
+        ModelCmd::Info { model, module, added } => {
+            return model_info(cli, model, module.as_deref(), added);
+        }
     };
     let data = std::fs::read(input).with_context(|| format!("{}", input.display()))?;
     let mut out = Output::new(serde_json::json!({
@@ -2062,6 +2155,7 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
             write_bytes_whole(output, text.as_ref())?;
             out.note(format!("wrote {}", output.display()));
         }
+        ModelCmd::Info { .. } => unreachable!("answered above"),
         ModelCmd::Compile { .. } => {
             let name = input.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
             let name = name.to_ascii_lowercase();
@@ -2085,6 +2179,84 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
             out.json["compiler_notes"] = notes.into();
             out.note(format!("wrote {}", output.display()));
         }
+    }
+    Ok(out)
+}
+
+/// `mg model info`: a model's facts ([`mg_mdl::facts::Facts`]), from its
+/// file, or by its name from the load order (with a module's haks and
+/// those `--hak` gives).
+fn model_info(
+    cli: &Cli,
+    model: &str,
+    module: Option<&Path>,
+    added: &added::Added,
+) -> Result<Output> {
+    use serde_json::json;
+    let mut out = Output::default();
+    let file = Path::new(model);
+    let (data, from) = if file.is_file() {
+        let data = std::fs::read(file).with_context(|| path_text(file))?;
+        (data, path_text(file))
+    } else {
+        let name = model.strip_suffix(".mdl").unwrap_or(model);
+        let key = ResKey::parse(name, ResType::MDL)
+            .with_context(|| format!("{model}: no such file, nor a model's name"))?;
+        let rm = resman_with(cli, module, added, &mut out)?;
+        let at = rm.find(&key).with_context(|| format!("{key} is found nowhere"))?;
+        let data = rm.get_in(at, &key)?.into_owned();
+        (data, rm.layers()[at].label.clone())
+    };
+    let m = mg_mdl::Model::read(&data).map_err(|e| anyhow::anyhow!("{model}: {e}"))?;
+    let f = mg_mdl::facts::Facts::of(&m);
+    let format = if mg_mdl::is_binary(&data) { "binary" } else { "ascii" };
+    let classification = format!("{:?}", f.classification).to_lowercase();
+    let bounds = f.bounds.map(|(min, max)| json!({ "min": min, "max": max }));
+    out.json = json!({
+        "model": model,
+        "from": from,
+        "format": format,
+        "name": f.name,
+        "supermodel": f.supermodel,
+        "classification": classification,
+        "animation_scale": f.animation_scale,
+        "nodes": f.nodes,
+        "node_types": f.node_types,
+        "faces": f.faces,
+        "faces_rendered": f.faces_rendered,
+        "vertices": f.vertices,
+        "bounds": bounds,
+        "skins": (f.skins.iter())
+            .map(|(node, bones, faces)| json!({ "node": node, "bones": bones, "faces": faces }))
+            .collect::<Vec<_>>(),
+        "bones": f.bones,
+        "textures": f.textures,
+        "materials": f.materials,
+        "animations": (f.animations.iter())
+            .map(|(name, length, transtime, events)| json!({
+                "name": name, "length": length, "transtime": transtime, "events": events,
+            }))
+            .collect::<Vec<_>>(),
+    });
+    let list = |v: &mut dyn Iterator<Item = String>| v.collect::<Vec<_>>().join(", ");
+    out.line(format!("Name\t{} ({format}, from {from})", f.name));
+    out.line(format!("Supermodel\t{}", f.supermodel.as_deref().unwrap_or("NULL")));
+    out.line(format!("Classification\t{classification}"));
+    let types = list(&mut f.node_types.iter().map(|(t, n)| format!("{n} {t}")));
+    out.line(format!("Nodes\t{} ({types})", f.nodes));
+    out.line(format!("Faces\t{} ({} drawn), {} vertices", f.faces, f.faces_rendered, f.vertices));
+    let shown = |v: mg_mdl::Vec3| format!("{:.3} {:.3} {:.3}", v[0], v[1], v[2]);
+    out.line(match f.bounds {
+        Some((min, max)) => format!("Bounds\t{} to {}", shown(min), shown(max)),
+        None => "Bounds\tnone (no mesh drawn)".to_string(),
+    });
+    for (node, bones, faces) in &f.skins {
+        out.line(format!("Skin\t{node}: {bones} bones, {faces} faces"));
+    }
+    out.line(format!("Textures\t{}", list(&mut f.textures.iter().cloned())));
+    out.line(format!("Materials\t{}", list(&mut f.materials.iter().cloned())));
+    for (name, length, _, _) in &f.animations {
+        out.line(format!("Animation\t{name}: {length} s"));
     }
     Ok(out)
 }
@@ -2266,18 +2438,35 @@ fn remember(out: &mut Output, module: &Path, now: &mg_module::build::Remembered)
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
-        Cmd::Ls { archive } => {
+        Cmd::Ls { archive, sha256 } => {
             // (Mapped, not read: a hak is gigabytes, and its names are in
             // its first pages.)
             let data = mg_key::map_file(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
+            // (Each resource's hash, asked for: its bytes read once.)
+            let hashes: Vec<Option<String>> = (erf.entries.iter())
+                .map(|e| match sha256 {
+                    true => erf
+                        .data(e)
+                        .map(|d| Some(mg_core::sha1::hex(&mg_core::sha256::sha256(&d))))
+                        .with_context(|| format!("{}: {}", archive.display(), e.filename())),
+                    false => Ok(None),
+                })
+                .collect::<Result<_>>()?;
+            let resources = (erf.entries.iter().zip(&hashes)).map(|(e, hash)| match hash {
+                Some(hash) => json!({ "name": e.filename(), "size": e.size, "sha256": hash }),
+                None => json!({ "name": e.filename(), "size": e.size }),
+            });
             let mut out = Output::new(json!({
                 "archive": path_text(archive),
                 "type": String::from_utf8_lossy(&erf.file_type).trim(),
-                "resources": erf.entries.iter().map(|e| json!({ "name": e.filename(), "size": e.size })).collect::<Vec<_>>(),
+                "resources": resources.collect::<Vec<_>>(),
             }));
-            for e in &erf.entries {
-                out.line(format!("{:>10}  {}", e.size, e.filename()));
+            for (e, hash) in erf.entries.iter().zip(&hashes) {
+                match hash {
+                    Some(hash) => out.line(format!("{:>10}  {hash}  {}", e.size, e.filename())),
+                    None => out.line(format!("{:>10}  {}", e.size, e.filename())),
+                }
             }
             out
         }
@@ -2474,14 +2663,10 @@ fn run(cli: &Cli) -> Result<Output> {
             out.notes.splice(0..0, notes.notes);
             out
         }
-        Cmd::Which { resource, module } => {
-            let gi = install(cli)?;
+        Cmd::Which { resource, module, added } => {
             let key = resource_key(resource)?;
             let mut out = Output::default();
-            let rm = match module {
-                Some(path) => module_resman(&gi, &crate::open_module(path)?, &mut out)?,
-                None => ResMan::for_game(&gi)?,
-            };
+            let rm = resman_with(cli, module.as_deref(), added, &mut out)?;
             // Every copy, highest first: the first is the one the game reads.
             let copies = rm.copies(&key);
             let Some(&top) = copies.first() else { bail!("{key} not found") };
@@ -2501,8 +2686,25 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Cat { resource, text } => {
-            let rm = ResMan::for_game(&install(cli)?)?;
+        Cmd::Cat { resources, list, to, force, dry_run, text, module, added } => {
+            let mut notes = Output::default();
+            let rm = resman_with(cli, module.as_deref(), added, &mut notes)?;
+            if let Some(dir) = to {
+                let names = added::names(resources, list.as_deref())?;
+                let asked = added::Many {
+                    names: &names,
+                    dir,
+                    text: *text,
+                    force: *force,
+                    dry_run: *dry_run,
+                };
+                let mut out = added::many(&rm, &asked)?;
+                out.notes.splice(0..0, notes.notes);
+                return Ok(out);
+            }
+            let [resource] = &resources[..] else {
+                bail!("{} resources: give --to FOLDER to write them into", resources.len())
+            };
             let key = resource_key(resource)?;
             let data = rm.get(&key)?;
             // (A model that is text already is printed as it is.)
@@ -2513,7 +2715,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 Some(Err(mg_mdl::DecompileError::NotBinary)) | None => data,
                 Some(Err(e)) => anyhow::bail!("{key}: {e}"),
             };
-            if cli.json {
+            let mut out = if cli.json {
                 // Text as text; other bytes as hexadecimal.
                 let text = std::str::from_utf8(&data).ok().map(str::to_string);
                 let hex = text
@@ -2529,7 +2731,9 @@ fn run(cli: &Cli) -> Result<Output> {
             } else {
                 io::stdout().lock().write_all(&data)?;
                 Output { done: true, ..Default::default() }
-            }
+            };
+            out.notes = notes.notes;
+            out
         }
         Cmd::Layers => {
             let rm = ResMan::for_game(&install(cli)?)?;
@@ -3011,6 +3215,18 @@ fn run(cli: &Cli) -> Result<Output> {
             out.notes = ran.notes.clone();
             out.note(ran.summary());
             out
+        }
+        Cmd::TwodaSet { table, cells, row, matching, append, output, dry_run } => {
+            let asked = twoda_set::Asked {
+                table,
+                row: *row,
+                matching: matching.as_deref(),
+                append: *append,
+                cells,
+                output: output.as_ref(),
+                dry_run: *dry_run,
+            };
+            twoda_set::run(&asked, Codepage::default())?
         }
         Cmd::TwodaCheck { paths, beside, tlk } => {
             // (A table that names nothing of the game's needs no game.)
@@ -4887,9 +5103,16 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Roundtrip { module, keep } => roundtrip(module, keep.as_deref())?,
         Cmd::Model { cmd } => model_file(cli, cmd)?,
-        Cmd::ModelFiles { what, out, module, all, force, dry_run } => {
+        Cmd::Texture { cmd } => match cmd {
+            texture::TextureCmd::Convert(a) => texture::convert(cli, a)?,
+            texture::TextureCmd::Info(a) => texture::info(cli, a)?,
+            texture::TextureCmd::PltSplit(a) => texture::plt_split(cli, a)?,
+            texture::TextureCmd::PltJoin(a) => texture::plt_join(a)?,
+        },
+        Cmd::ModelFiles { what, out, module, added, all, force, dry_run } => {
             let gi = install(cli)?;
-            model_files(&gi, what, out, module.as_deref(), *all, *force, *dry_run)?
+            let asked = ModelFiles { all: *all, force: *force, dry_run: *dry_run };
+            model_files(&gi, what, out, module.as_deref(), added, &asked)?
         }
         Cmd::Search(args) => search::run(cli, args)?,
         Cmd::Info { module } => {
@@ -5277,6 +5500,24 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     Ok(rm)
 }
 
+/// The resman `mg which` and `mg cat` read from: the game's, with a
+/// module's haks and the module where one is given, and the archives and
+/// folders given with `--hak` over them.
+fn resman_with(
+    cli: &Cli,
+    module: Option<&Path>,
+    added: &added::Added,
+    out: &mut Output,
+) -> Result<ResMan> {
+    let gi = install(cli)?;
+    let mut rm = match module {
+        Some(path) => module_resman(&gi, &crate::open_module(path)?, out)?,
+        None => ResMan::for_game(&gi)?,
+    };
+    added.stack_onto(&mut rm)?;
+    Ok(rm)
+}
+
 /// A word of `mg verify --skip`: something Verify can leave out.
 fn verify_skip(word: &str) -> std::result::Result<String, String> {
     mg_module::doctor::Skip::parse(&[word])?;
@@ -5604,22 +5845,35 @@ fn verify(
     Ok(out)
 }
 
-/// `mg model-files`: the files the game draws a model or a blueprint with.
+/// `mg model-files`'s switches.
+struct ModelFiles {
+    all: bool,
+    force: bool,
+    dry_run: bool,
+}
+
+/// `mg model-files`: the files the game draws a model or a blueprint with,
+/// from the game, a module's haks and the archives and folders `--hak`
+/// gives (over the rest).
 fn model_files(
     gi: &GameInstall,
     what: &str,
     dir: &Path,
     module: Option<&Path>,
-    all: bool,
-    force: bool,
-    dry_run: bool,
+    added: &added::Added,
+    asked: &ModelFiles,
 ) -> Result<Output> {
+    let ModelFiles { all, force, dry_run } = *asked;
     let mut out = Output::default();
     let m = match module {
         Some(path) => crate::open_module(path)?,
         None => Module::new(),
     };
-    let game = plugins::game_for(Some(gi), &m, &mut out).context("the game data")?;
+    // (The haks given are over the module's by their priority; the
+    // game's tables are read from them all, once asked for.)
+    let mut game = mg_rules::GameData::open(gi).context("the game data")?;
+    added.stack_onto(&mut game.resman)?;
+    let game = said(m.game_data_over(game, gi)?, &mut out)?;
     // (A blueprint's file and its fields, with its look's row.)
     let mut blueprint = None;
     // An area: what the game draws it with, after its own .are and .git.
