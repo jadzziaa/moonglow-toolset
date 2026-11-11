@@ -5,6 +5,7 @@
 
 use egui::{Rect, RichText, Ui, vec2};
 use egui_kittest::Harness;
+use mg_uikit::Controls as _;
 use mg_uikit::icons::{ButtonState, paint_icon_button};
 use mg_uikit::{Icon, Theme, TokensExt as _, metrics};
 
@@ -122,36 +123,47 @@ fn buttons(ui: &mut Ui, s: &mut State) {
 
 fn combos(ui: &mut Ui, s: &mut State) {
     ui.horizontal_wrapped(|ui| {
-        egui::ComboBox::from_id_salt("category").selected_text("Category").width(110.0).show_ui(
-            ui,
-            |ui| {
+        egui::ComboBox::from_id_salt("category")
+            .icon(mg_uikit::combo_icon)
+            .selected_text("Category")
+            .width(110.0)
+            .show_ui(ui, |ui| {
                 let _ = ui.selectable_label(true, "Category");
-            },
-        );
+            });
         as_hovered(ui, |ui| {
             egui::ComboBox::from_id_salt("hovered")
+                .icon(mg_uikit::combo_icon)
                 .selected_text("Hovered")
                 .width(90.0)
                 .show_ui(ui, |_| {})
         });
         as_open(ui, |ui| {
             egui::ComboBox::from_id_salt("open")
+                .icon(mg_uikit::combo_icon)
                 .selected_text("Female")
                 .width(90.0)
                 .show_ui(ui, |_| {})
         });
         ui.add_enabled_ui(false, |ui| {
-            egui::ComboBox::from_id_salt("off").selected_text("Off").width(60.0).show_ui(ui, |_| {})
+            egui::ComboBox::from_id_salt("off")
+                .icon(mg_uikit::combo_icon)
+                .selected_text("Off")
+                .width(60.0)
+                .show_ui(ui, |_| {})
         });
     });
     // An open combo box's list (one popup is open at a time: drawn in place).
     ui.horizontal_wrapped(|ui| {
         ui.label("Race");
-        egui::ComboBox::from_id_salt("race").selected_text(s.race).width(120.0).show_ui(ui, |ui| {
-            for r in ["Dwarf", "Elf", "Human"] {
-                ui.selectable_value(&mut s.race, r, r);
-            }
-        });
+        egui::ComboBox::from_id_salt("race")
+            .icon(mg_uikit::combo_icon)
+            .selected_text(s.race)
+            .width(120.0)
+            .show_ui(ui, |ui| {
+                for r in ["Dwarf", "Elf", "Human"] {
+                    ui.selectable_value(&mut s.race, r, r);
+                }
+            });
     });
     egui::Frame::popup(ui.style()).show(ui, |ui| {
         ui.set_width(150.0);
@@ -167,18 +179,18 @@ fn combos(ui: &mut Ui, s: &mut State) {
 
 fn fields(ui: &mut Ui, s: &mut State) {
     let width = CELL - 20.0;
-    let focused = ui.add(egui::TextEdit::singleline(&mut s.tag).desired_width(width));
+    let focused = ui.add(mg_uikit::text_field(&mut s.tag).desired_width(width));
     if ui.ctx().memory(|m| m.focused().is_none()) {
         focused.request_focus();
     }
-    let _ = ui.add(egui::TextEdit::singleline(&mut s.name).desired_width(width));
-    as_hovered(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s.note).desired_width(width)));
-    let _ = ui.add(egui::TextEdit::singleline(&mut s.search).hint_text("Search name, tag, resref"));
+    let _ = ui.add(mg_uikit::text_field(&mut s.name).desired_width(width));
+    as_hovered(ui, |ui| ui.add(mg_uikit::text_field(&mut s.note).desired_width(width)));
+    let _ = ui.add(mg_uikit::text_field(&mut s.search).hint_text("Search name, tag, resref"));
     let mut read_only = "m1q1faribeth".to_string();
-    let _ = ui.add(egui::TextEdit::singleline(&mut read_only).interactive(false));
+    let _ = ui.add(mg_uikit::text_field(&mut read_only).interactive(false));
     ui.add_enabled_ui(false, |ui| {
         let mut off = "None".to_string();
-        ui.add(egui::TextEdit::singleline(&mut off))
+        ui.add(mg_uikit::text_field(&mut off))
     });
     ui.horizontal_wrapped(|ui| {
         let _ = ui.add(egui::DragValue::new(&mut s.scale).speed(0.05).suffix(" m"));
@@ -190,21 +202,21 @@ fn fields(ui: &mut Ui, s: &mut State) {
 
 fn checks(ui: &mut Ui, s: &mut State) {
     ui.horizontal_wrapped(|ui| {
-        let _ = ui.checkbox(&mut s.plot, "Plot");
+        let _ = ui.check_box(&mut s.plot, "Plot");
         let mut on = true;
-        let _ = ui.checkbox(&mut on, "Static");
-        as_hovered(ui, |ui| ui.checkbox(&mut on, "Hovered"));
+        let _ = ui.check_box(&mut on, "Static");
+        as_hovered(ui, |ui| ui.check_box(&mut on, "Hovered"));
         ui.add_enabled_ui(false, |ui| {
             let mut off = false;
-            let _ = ui.checkbox(&mut off, "Useable");
+            let _ = ui.check_box(&mut off, "Useable");
             let mut on = true;
-            ui.checkbox(&mut on, "Locked")
+            ui.check_box(&mut on, "Locked")
         });
     });
     ui.horizontal_wrapped(|ui| {
-        let _ = ui.radio_value(&mut s.fast, true, "Fast");
-        let _ = ui.radio_value(&mut s.fast, false, "High");
-        ui.add_enabled_ui(false, |ui| ui.radio(false, "Off"));
+        let _ = ui.radio_choice(&mut s.fast, true, "Fast");
+        let _ = ui.radio_choice(&mut s.fast, false, "High");
+        ui.add_enabled_ui(false, |ui| ui.radio_button(false, "Off"));
     });
     ui.add(egui::Slider::new(&mut s.light, 0.0..=100.0).suffix(" %"));
     as_hovered(ui, |ui| ui.add(egui::Slider::new(&mut s.light, 0.0..=100.0).text("Hovered")));
@@ -223,16 +235,28 @@ fn checks(ui: &mut Ui, s: &mut State) {
 }
 
 fn tree(ui: &mut Ui) {
-    egui::CollapsingHeader::new("Areas").default_open(true).show(ui, |ui| {
-        egui::CollapsingHeader::new("map_m1q1a").default_open(true).show(ui, |ui| {
-            egui::CollapsingHeader::new("Creatures").default_open(true).show(ui, |ui| {
-                let _ = ui.selectable_label(true, "Halion  TALK_M1Q1NewGuard");
-                let _ = ui.selectable_label(false, "Aribeth");
-                as_hovered(ui, |ui| ui.add(hovered_row("Hovered row")));
-            });
-            egui::CollapsingHeader::new("Waypoints").show(ui, |_| {});
-        });
-    });
+    mg_uikit::list_rows(ui);
+    egui::CollapsingHeader::new("Areas").icon(mg_uikit::collapsing_icon).default_open(true).show(
+        ui,
+        |ui| {
+            egui::CollapsingHeader::new("map_m1q1a")
+                .icon(mg_uikit::collapsing_icon)
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::CollapsingHeader::new("Creatures")
+                        .icon(mg_uikit::collapsing_icon)
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            let _ = ui.selectable_label(true, "Halion  TALK_M1Q1NewGuard");
+                            let _ = ui.selectable_label(false, "Aribeth");
+                            as_hovered(ui, |ui| ui.add(hovered_row("Hovered row")));
+                        });
+                    egui::CollapsingHeader::new("Waypoints")
+                        .icon(mg_uikit::collapsing_icon)
+                        .show(ui, |_| {});
+                });
+        },
+    );
 }
 
 fn table(ui: &mut Ui) {
@@ -267,10 +291,11 @@ fn form(ui: &mut Ui, s: &mut State) {
         .min_col_width(metrics::LABEL_WIDTH)
         .show(ui, |ui| {
             mg_uikit::field_label(ui, "First Name");
-            let _ = ui.add(egui::TextEdit::singleline(&mut s.name).desired_width(200.0));
+            let _ = ui.add(mg_uikit::text_field(&mut s.name).desired_width(200.0));
             ui.end_row();
             mg_uikit::field_label(ui, "Race");
             egui::ComboBox::from_id_salt("form-race")
+                .icon(mg_uikit::combo_icon)
                 .selected_text(s.race)
                 .width(200.0)
                 .show_ui(ui, |_| {});
@@ -289,6 +314,7 @@ fn popups(ui: &mut Ui) {
         egui::Frame::menu(ui.style()).show(ui, |ui| {
             ui.set_width(200.0);
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                mg_uikit::menu_rows(ui);
                 let _ = ui.add(
                     egui::Button::new("Undo").shortcut_text("Ctrl+Z").frame_when_inactive(false),
                 );
@@ -304,8 +330,10 @@ fn popups(ui: &mut Ui) {
                 ui.add_enabled(false, egui::Button::new("Resize Area…").frame_when_inactive(false));
             });
         });
-        // A tooltip.
-        egui::Frame::popup(ui.style()).show(ui, |ui| {
+        // A tooltip (its own fill, which the theme's pass gives a tooltip's
+        // layer: here, drawn in place, the token itself).
+        let tip = egui::Frame::popup(ui.style()).fill(ui.tokens().tooltip_bg);
+        tip.show(ui, |ui| {
             ui.set_max_width(260.0);
             ui.label("Show the game's shadows. Hold or right-click to choose which.");
         });

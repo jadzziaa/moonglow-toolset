@@ -781,6 +781,69 @@ pub(crate) fn own_window(
     h.run_steps(4);
 }
 
+/// Scrolls the widget labeled `label` into its scroll area's view and
+/// waits until it stays still there (egui's scrolling is animated). A
+/// node's rect is where it is laid out, in sight or not, and kittest
+/// clicks at its center: out of sight, that is whatever is drawn there.
+pub(crate) fn bring_in_sight(h: &mut Harness<'_, Moonglow>, label: &str) {
+    h.get_by_label(label).scroll_to_me();
+    at_rest(h, label, &|h| h.get_by_label(label).rect());
+}
+
+/// Frames until the widget whose place `rect` gives (`what` names it)
+/// stays still: a scroll asked for begins a frame or two later and is
+/// animated, so still for a few frames in a row is at rest.
+pub(crate) fn at_rest(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    rect: &dyn Fn(&Harness<'_, Moonglow>) -> egui::Rect,
+) {
+    let started = std::time::Instant::now();
+    let (mut last, mut still) = (None, 0);
+    while still < 4 {
+        h.run_steps(1);
+        let now = rect(h);
+        still = if last == Some(now) { still + 1 } else { 0 };
+        assert!(started.elapsed() < SETTLE_TIME, "{what} never came to rest");
+        last = Some(now);
+    }
+}
+
+/// Turns the mouse wheel down over `at`, in a scroll area that lays out
+/// only the rows in sight (the module tree), a little at a time, until
+/// the row labeled `label` is laid out, then brings it into sight.
+pub(crate) fn wheel_to(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, label: &str) {
+    wheel_until(h, at, -20.0, label);
+}
+
+/// [`wheel_to`] turning the wheel up.
+pub(crate) fn wheel_up_to(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, label: &str) {
+    wheel_until(h, at, 20.0, label);
+}
+
+fn wheel_until(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, label: &str) {
+    let started = std::time::Instant::now();
+    h.hover_at(at);
+    while h.query_by_label(label).is_none() {
+        assert!(started.elapsed() < SETTLE_TIME, "{label} never came into sight");
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    bring_in_sight(h, label);
+}
+
+/// A click on the widget labeled `label`, brought into sight first
+/// ([`bring_in_sight`]).
+pub(crate) fn click_in_sight(h: &mut Harness<'_, Moonglow>, label: &str) {
+    bring_in_sight(h, label);
+    h.get_by_label(label).click();
+}
+
 /// A click of the pointer's first button at `pos`.
 pub(crate) fn click_pos(h: &Harness<'_, Moonglow>, pos: egui::Pos2) {
     h.hover_at(pos);

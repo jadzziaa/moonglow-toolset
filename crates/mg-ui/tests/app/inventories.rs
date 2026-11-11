@@ -114,7 +114,7 @@ fn placeable_editor_fills_its_inventory() {
     h.get_all_by_value("nw_it_torch001").find(typed).unwrap().type_text("nw_it_mpotion001");
     h.run();
     // (The palette's row is the leftmost of that name; the list's rows are
-    // right of it, top to bottom.)
+    // right of it or under it, top to bottom.)
     let named = |h: &Harness<'_, Moonglow>, name: &str| -> Vec<egui::Rect> {
         let mut rects: Vec<egui::Rect> = h
             .get_all_by_label(name)
@@ -167,8 +167,10 @@ fn placeable_editor_fills_its_inventory() {
     assert_eq!(held(&mut h)[3], "nw_it_mpotion001", "pasted");
     // The last row dragged onto the first: it takes that place (one step).
     let last = *named(&h, &potion).last().unwrap();
-    let first =
-        named(&h, "Torch").into_iter().find(|r| r.left() > 400.0).expect("the list's torch");
+    // (The palette shows the potion alone: the torches are the list's.)
+    let first = (named(&h, "Torch").into_iter())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("the list's torch");
     let (from, to) = (last.center(), first.center());
     h.hover_at(from);
     h.run_steps(1);
@@ -1324,11 +1326,12 @@ fn a_held_item_dragged_to_another_object_is_carried_as_it_is() {
     h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
     h.run_steps(6);
-    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 640.0));
+    // (Tall enough for the palette and the chest's three rows under it.)
+    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 780.0));
     let item = Tab::Instance { area, path: chest.item("ItemList", 1) };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(item.clone()));
     h.run_steps(6);
-    own_window(&mut h, &item, egui::pos2(920.0, 700.0), egui::vec2(560.0, 660.0));
+    own_window(&mut h, &item, egui::pos2(920.0, 830.0), egui::vec2(560.0, 560.0));
     assert_eq!(held_window(&h, area, "ITEM_B"), chest.item("ItemList", 1));
     // The chest's second sword (its rows at the right, top to bottom), onto
     // the creature's backpack (under its heading, at the left).
@@ -1336,7 +1339,7 @@ fn a_held_item_dragged_to_another_object_is_carried_as_it_is() {
         .query_all_by_label("Longsword")
         .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
         .map(|n| n.rect())
-        .filter(|r| r.left() > 920.0 && r.top() < 680.0 && r.width() > 80.0)
+        .filter(|r| r.left() > 920.0 && r.top() < 820.0 && r.width() > 80.0)
         .collect();
     rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
     assert_eq!(rows.len(), 3, "the chest's three swords");
@@ -1591,7 +1594,8 @@ fn items_dragged_between_a_creature_s_slots_and_a_chest() {
     h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
     h.run_steps(6);
-    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 640.0));
+    // (Tall enough for the palette and the chest's three rows under it.)
+    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 780.0));
     let in_chest = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
         let ws = h.state_mut().ws.as_mut().unwrap();
         let root = &ws.doc(&git).unwrap().root;

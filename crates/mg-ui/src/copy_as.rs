@@ -234,7 +234,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     crate::widgets::field_label(ui, "Tag");
                     // (As many characters as the game keeps of a tag.)
                     let limit = mg_module::tags::MAX_TAG;
-                    ui.add(egui::TextEdit::singleline(tag).char_limit(limit).desired_width(200.0));
+                    ui.add(mg_uikit::text_field(tag).char_limit(limit).desired_width(200.0));
                     ui.end_row();
                 }
             });

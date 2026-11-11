@@ -21,6 +21,7 @@ use mg_core::ResType;
 use mg_edit::{Command, Edit};
 use mg_nui::{Binding, Settings, Severity};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 use serde_json::{Value, json};
 
 mod bindings;
@@ -906,6 +907,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
             }
             // The window opens from a script of yours: what to put in it.
             let how = ui.menu_button(tools.word(glyph::HOW_TO_OPEN, "How to open it…"), |ui| {
+                mg_uikit::menu_rows(ui);
                 let code = format!(
                     "#include \"{name}_o\"\n\n\
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
@@ -953,6 +955,7 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                         .show(ui, &mut state.view_mode, &ViewMode::ALL, |m| m.label());
                 }
                 ui.menu_button("Advanced", |ui| {
+                    mg_uikit::menu_rows(ui);
                     if ui.selectable_label(state.page == Page::JuiSource, "JUI source").clicked() {
                         state.page = Page::JuiSource;
                         ui.close();
@@ -1733,6 +1736,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         }
         let revealing = reveal.as_deref().is_some_and(|key| keys.contains(&key));
         egui::CollapsingHeader::new(*section)
+            .icon(mg_uikit::collapsing_icon)
             .id_salt(("nui-properties", section))
             .open(revealing.then_some(true))
             .default_open(*open)
@@ -1778,14 +1782,17 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     add_property(ui, obj, &ty, reveal_id);
     let advanced_keys = advanced_keys(obj, &ty);
     if !advanced_keys.is_empty() {
-        egui::CollapsingHeader::new("Advanced properties").show(ui, |ui| {
-            for key in &advanced_keys {
-                let Some(value) = obj.get_mut(key) else { continue };
-                ui.push_id(key, |ui| {
-                    property(ui, key, &ty, value, s, &mut remove);
-                });
-            }
-        });
+        egui::CollapsingHeader::new("Advanced properties").icon(mg_uikit::collapsing_icon).show(
+            ui,
+            |ui| {
+                for key in &advanced_keys {
+                    let Some(value) = obj.get_mut(key) else { continue };
+                    ui.push_id(key, |ui| {
+                        property(ui, key, &ty, value, s, &mut remove);
+                    });
+                }
+            },
+        );
     }
     if let Some(key) = remove {
         obj.remove(&key);
@@ -1857,7 +1864,7 @@ const SECTIONS: &[(&str, &[&str], bool)] = &[
 fn title_bar(ui: &mut Ui, obj: &mut serde_json::Map<String, Value>, s: &mut Settings) {
     let mut shown = obj.get("title") != Some(&json!(false));
     if ui
-        .checkbox(&mut shown, "Title bar")
+        .check_box(&mut shown, "Title bar")
         .on_hover_text("Without it the window has no title, close or collapse button")
         .changed()
     {
@@ -1895,6 +1902,7 @@ fn add_property(
     let (fit_width, fit_height) =
         (fitting_size(obj, "width", 150.0), fitting_size(obj, "height", 30.0));
     ui.menu_button("+ Add property", |ui| {
+        mg_uikit::menu_rows(ui);
         for (k, label, val) in [
             ("id", "Element ID", json!("element")),
             ("width", "Width", json!(fit_width)),
@@ -2187,12 +2195,13 @@ fn property(
     let heading = ui
         .horizontal(|ui| {
             let heading = if let Value::Bool(flag) = value {
-                ui.checkbox(flag, &label)
+                ui.check_box(flag, &label)
             } else {
                 widgets::field_label(ui, &label)
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.menu_button("…", |ui| {
+                    mg_uikit::menu_rows(ui);
                     if let Some(name) = &bind {
                         if ui.button("Use a Constant Value").clicked() {
                             *value = s.bindings.get(name).map_or(Value::Null, |b| b.value.clone());
@@ -2348,7 +2357,7 @@ fn named_choices(key: &str) -> Option<&'static [&'static str]> {
 fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
     match v {
         Value::String(text) => return fields::text(ui, text, ui.available_width().max(0.0)),
-        Value::Bool(b) => return Some(ui.checkbox(b, "On")),
+        Value::Bool(b) => return Some(ui.check_box(b, "On")),
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 return Some(fields::number(ui, v, i, |d| d));

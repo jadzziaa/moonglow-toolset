@@ -3,6 +3,7 @@
 //! fonts.
 
 use mg_area::ObjectKind;
+use mg_uikit::Controls as _;
 
 /// Declares glyphs, each a constant, and `$all`, the list of them: a
 /// glyph is in the list by being declared, so the test that the fonts
@@ -307,7 +308,7 @@ impl Tools {
         name: &str,
         tip: &str,
     ) -> egui::Response {
-        let r = ui.checkbox(on, self.word(glyph, name));
+        let r = ui.check_box(on, self.word(glyph, name));
         if self.icons_only {
             let (enabled, ticked) = (r.enabled(), *on);
             r.widget_info(|| {

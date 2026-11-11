@@ -198,7 +198,7 @@ fn options_leave_the_module_open() {
     h.run();
     h.get_by_label("General").click();
     h.run();
-    h.get_by_label("Light theme").click();
+    click_in_sight(&mut h, "Light theme");
     h.run();
     h.get_all_by_label("OK").last().unwrap().click();
     h.run();
@@ -211,6 +211,11 @@ fn options_leave_the_module_open() {
     // Another game folder: unsaved work is asked about first.
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
+    // (The game folder's, the first: out of the page's sight until
+    // scrolled to.)
+    h.get_all_by_label("Browse…").next().unwrap().scroll_to_me();
+    let browse = |h: &Harness<'_, Moonglow>| h.get_all_by_label("Browse…").next().unwrap().rect();
+    at_rest(&mut h, "the game folder's Browse…", &browse);
     h.get_all_by_label("Browse…").next().unwrap().click();
     h.run();
     h.get_all_by_label("OK").last().unwrap().click();
@@ -774,12 +779,22 @@ fn the_toolbar_shows_icons_only_when_asked() {
 /// Options › General › Light theme.
 #[test]
 fn the_theme_is_set_in_options() {
+    use mg_uikit::{Theme, Tokens};
     let mut h = window_harness(app_with(Vec::new()));
     h.run();
     assert_eq!(h.ctx.theme(), egui::Theme::Dark);
-    h.state_mut().settings.light_theme = true;
-    h.run();
-    assert_eq!(h.ctx.theme(), egui::Theme::Light);
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Dark), "the suite's theme, not egui's");
+    // Both ways, as the window runs: the theme's colors and the panels'.
+    for (light, theme) in [(true, Theme::Light), (false, Theme::Dark), (true, Theme::Light)] {
+        h.state_mut().settings.light_theme = light;
+        h.run();
+        assert_eq!(h.ctx.theme(), theme.egui());
+        assert_eq!(mg_uikit::applied(&h.ctx), Some(theme));
+        let t = mg_uikit::tokens(&h.ctx);
+        assert_eq!(t, if light { Tokens::LIGHT } else { Tokens::DARK });
+        assert_eq!(h.ctx.global_style().visuals.panel_fill, t.panel);
+        assert_eq!(h.ctx.global_style().spacing.interact_size.y, mg_uikit::metrics::CONTROL_HEIGHT);
+    }
 }
 
 /// Options › General › Toolbar buttons, Icons only, in the editors'

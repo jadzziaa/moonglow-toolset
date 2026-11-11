@@ -13,6 +13,7 @@
 //! that changed since it was allowed. A plugin's settings are edited in a
 //! form of their own, and kept where each one's scope says.
 
+use mg_uikit::Controls as _;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -458,7 +459,10 @@ fn nested_commands(
         made.push(name);
         let inside: Vec<(usize, &PluginCommand)> =
             commands.iter().filter(|(_, d)| d.menu.get(depth) == Some(name)).copied().collect();
-        ui.menu_button(name, |ui| nested_commands(ui, &inside, depth + 1, chosen));
+        ui.menu_button(name, |ui| {
+            mg_uikit::menu_rows(ui);
+            nested_commands(ui, &inside, depth + 1, chosen)
+        });
     }
 }
 
@@ -2163,7 +2167,7 @@ pub(crate) fn field_widget(
     ui.push_id(salt, |ui| match &f.kind {
         FieldKind::Text { .. } => {
             let mut text = value.as_str().unwrap_or_default().to_string();
-            let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(220.0));
+            let r = ui.add(mg_uikit::text_field(&mut text).desired_width(220.0));
             drawn.editing = r.has_focus();
             drawn.set = r.lost_focus();
             *value = serde_json::json!(text);
@@ -2182,7 +2186,7 @@ pub(crate) fn field_widget(
         }
         FieldKind::Check { .. } => {
             let mut on = value.as_bool().unwrap_or_default();
-            drawn.set = ui.checkbox(&mut on, "").changed();
+            drawn.set = ui.check_box(&mut on, "").changed();
             *value = serde_json::json!(on);
         }
         FieldKind::Choice { choices, .. } => {
@@ -2451,7 +2455,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             ui.horizontal(|ui| {
                                 let label = format!("{} {}", m.name, m.version);
                                 if ui
-                                    .checkbox(&mut on, egui::RichText::new(&label).strong())
+                                    .check_box(&mut on, egui::RichText::new(&label).strong())
                                     .changed()
                                 {
                                     match trust {
@@ -2540,7 +2544,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             ui.separator();
-            egui::CollapsingHeader::new("Console").show(ui, |ui| {
+            egui::CollapsingHeader::new("Console").icon(mg_uikit::collapsing_icon).show(ui, |ui| {
                 ui.label(
                     "Try the plugin API on the open module: mg and ctx are at hand; what the code \
                  returns is shown, and its edits go in as one step.",
@@ -2905,7 +2909,7 @@ fn setting_field(
     use mg_plugin::{SettingKind, SettingValue};
     match (&d.kind, value) {
         (SettingKind::Bool, SettingValue::Bool(on)) => {
-            ui.checkbox(on, "");
+            ui.check_box(on, "");
         }
         (SettingKind::Int { min, max }, SettingValue::Int(n)) => {
             let range = min.unwrap_or(i64::MIN)..=max.unwrap_or(i64::MAX);
@@ -2920,7 +2924,7 @@ fn setting_field(
             ui.vertical(|ui| {
                 for c in choices {
                     let mut on = items.contains(c);
-                    if ui.checkbox(&mut on, c).changed() {
+                    if ui.check_box(&mut on, c).changed() {
                         let mut now: Vec<String> =
                             choices.iter().filter(|x| items.contains(x)).cloned().collect();
                         match on {
@@ -2951,12 +2955,12 @@ fn setting_field(
                 if ui.color_edit_button_srgb(&mut rgb).changed() {
                     *hex = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
                 }
-                ui.add(egui::TextEdit::singleline(hex).desired_width(70.0));
+                ui.add(mg_uikit::text_field(hex).desired_width(70.0));
             });
         }
         (SettingKind::Pattern(_), SettingValue::Text(text)) => {
             ui.vertical(|ui| {
-                ui.add(egui::TextEdit::singleline(text).desired_width(220.0));
+                ui.add(mg_uikit::text_field(text).desired_width(220.0));
                 // (What it is held to, said as it is typed.)
                 if let Err(why) = d.check(&SettingValue::Text(text.clone())) {
                     ui.colored_label(ui.visuals().warn_fg_color, why);
@@ -2973,7 +2977,7 @@ fn setting_field(
         }
         (SettingKind::Path { folder }, SettingValue::Text(path)) => {
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(path).desired_width(200.0));
+                ui.add(mg_uikit::text_field(path).desired_width(200.0));
                 let start = std::path::Path::new(path.as_str());
                 let start = match project.as_ref().filter(|_| d.scope.in_project()) {
                     Some(root) if start.is_relative() => root.join(start),
@@ -2999,7 +3003,7 @@ fn setting_field(
             });
         }
         (_, SettingValue::Text(text)) => {
-            ui.add(egui::TextEdit::singleline(text).desired_width(220.0));
+            ui.add(mg_uikit::text_field(text).desired_width(220.0));
         }
         // (A value not of its kind: back to the default.)
         (_, v) => *v = d.default.clone(),

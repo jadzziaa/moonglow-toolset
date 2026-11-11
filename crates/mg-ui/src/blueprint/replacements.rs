@@ -9,6 +9,7 @@
 //! The lists are written as the game writes them: an entry edited in
 //! place, a new one at the end (struct 0, the old name, then the new).
 
+use mg_uikit::Controls as _;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -576,7 +577,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
             ui.weak(format!("{} of {all} textures", shown.len())).on_hover_text(
                 "The game's, the haks' and the module's DDS and TGA textures, not PLTs",
             );
-            let interface = ui.checkbox(&mut state.interface, "Interface textures too");
+            let interface = ui.check_box(&mut state.interface, "Interface textures too");
             if interface
                 .on_hover_text(
                     "Also list icons, portraits, load screens and other interface pictures",

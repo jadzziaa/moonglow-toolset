@@ -17,6 +17,7 @@ use egui::Ui;
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use super::Form;
 use crate::Action;
@@ -282,7 +283,7 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal(|ui| {
         for (id, hint) in ids.iter().zip(["material", "parameter"]) {
             let buf = f.app.buffers.entry(*id).or_default();
-            ui.add(egui::TextEdit::singleline(buf).desired_width(120.0).hint_text(hint));
+            ui.add(mg_uikit::text_field(buf).desired_width(120.0).hint_text(hint));
         }
         let text = |id| f.app.buffers.get(&id).map(|s| s.trim().to_string()).unwrap_or_default();
         let (material, param) = (text(ids[0]), text(ids[1]));
@@ -320,7 +321,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let custom = rgb.iter().all(|c| *c >= 0.0);
             let mut on = custom;
-            if ui.checkbox(&mut on, "Own color").changed() {
+            if ui.check_box(&mut on, "Own color").changed() {
                 let v = if on { [1.0, 1.0, 1.0] } else { [-1.0; 3] };
                 set_highlight(f, v);
             }
@@ -401,7 +402,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             let mask = int("UiDiscoverMask", -1);
             let mut default = mask < 0;
-            if ui.checkbox(&mut default, "As the game decides").changed() {
+            if ui.check_box(&mut default, "As the game decides").changed() {
                 let v = if default { -1 } else { DEFAULT_DISCOVERY };
                 f.set_misc("Shown", &[("UiDiscoverMask", Value::Int(v as i32))]);
             }
@@ -409,7 +410,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.horizontal_wrapped(|ui| {
                     for (bit, n) in DISCOVERY {
                         let mut on = mask & bit != 0;
-                        if ui.checkbox(&mut on, n).changed() {
+                        if ui.check_box(&mut on, n).changed() {
                             let v = if on { mask | bit } else { mask & !bit };
                             f.set_misc("Shown", &[("UiDiscoverMask", Value::Int(v as i32))]);
                         }

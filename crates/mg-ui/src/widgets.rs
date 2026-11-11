@@ -12,6 +12,7 @@ use mg_module::var_desc::{
 };
 use mg_module::vars::VarType;
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::text::{decode, encode, to_editor, with_line_ends, with_loc_line_ends};
 use crate::{Action, FileKind, Moonglow};
@@ -734,7 +735,7 @@ fn value_choice(
     };
     if other {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
+            ui.add(mg_uikit::text_field(value).desired_width(width - 28.0));
             // (Its values to choose from, the arrow keys stepping through
             // them as every dropdown's do.)
             let picked =
@@ -977,7 +978,7 @@ pub(crate) fn set_name_row(ui: &mut Ui, name: &mut String) -> (bool, bool) {
     let mut cancel = false;
     ui.horizontal(|ui| {
         ui.label("Set name");
-        let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
+        let r = ui.add(mg_uikit::text_field(name).desired_width(180.0));
         autofocus(ui, &r);
         let ok = crate::saved::valid_name(name);
         // (Enter in the name is the name's, not the window's OK.)
@@ -1060,7 +1061,7 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
             let mut done = false;
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Rename '{name}' to"));
-                let r = ui.add(egui::TextEdit::singleline(to).desired_width(160.0));
+                let r = ui.add(mg_uikit::text_field(to).desired_width(160.0));
                 autofocus(ui, &r);
                 let taken = names.iter().any(|n| n != name && n.eq_ignore_ascii_case(to.trim()));
                 let ok = crate::saved::valid_name(to) && !taken;
@@ -1165,9 +1166,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 ui.label("String Ref");
                 ui.add(
-                    egui::TextEdit::singleline(&mut edit.strref)
-                        .desired_width(120.0)
-                        .hint_text("none"),
+                    mg_uikit::text_field(&mut edit.strref).desired_width(120.0).hint_text("none"),
                 );
             });
             // (A text on its way to the talk table: added with OK.)
@@ -1245,6 +1244,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
                     let language = *language;
                     ui.menu_button("Token…", |ui| {
+                        mg_uikit::menu_rows(ui);
                         if !edit_tokens.iter().any(|(l, _)| *l == language) {
                             edit_tokens.push((language, language_tokens(app, language)));
                         }
@@ -1407,7 +1407,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let shown = p.shown();
             ui.weak(format!("{} of {all}", shown.len()));
             egui::Frame::group(ui.style()).show(ui, |ui| {
-                let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+                let row = ui.spacing().interact_size.y; // (a row of controls: as high as one)
                 egui::ScrollArea::vertical().max_height(300.0).show_rows(
                     ui,
                     row,
@@ -1476,7 +1476,7 @@ impl egui::TextBuffer for ResRefText<'_> {
 /// A one-line field for typing a resref in `text` ([`ResRefText`]: at
 /// most 16 characters).
 pub(crate) fn resref_edit<'t>(text: &'t mut ResRefText<'_>) -> egui::TextEdit<'t> {
-    egui::TextEdit::singleline(text)
+    mg_uikit::text_field(text)
 }
 
 /// A resref field with a picker button. Returns the new value when the user
@@ -1560,9 +1560,7 @@ fn var_body(
                 // (A minimum: a new window offers the fields no width yet,
                 // and they would keep to it.)
                 fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
-                    egui::TextEdit::singleline(text)
-                        .desired_width(width)
-                        .min_size(egui::vec2(width, 0.0))
+                    mg_uikit::text_field(text).desired_width(width).min_size(egui::vec2(width, 0.0))
                 }
                 // The offer's keys, before the field takes them.
                 let offering = described && help.completing == Some(i);
@@ -1699,6 +1697,7 @@ fn var_body(
         // files anywhere.
         let dir = app.var_set_dir.clone();
         ui.menu_button("Add Set", |ui| {
+            mg_uikit::menu_rows(ui);
             match sets_menu(ui, &mut app.log, &VARIABLE_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(rows)) => crate::var_sets::merge(&mut edit.rows, rows),
                 Some(SetChoice::FromFile) => add_file = true,
@@ -2181,9 +2180,9 @@ fn commit_field(
     let buf = buffers.entry(id).or_insert_with(|| shown.to_owned());
     let mut name = ResRefText(&mut *buf);
     let edit = match rows {
-        _ if resref => egui::TextEdit::singleline(&mut name),
+        _ if resref => mg_uikit::text_field(&mut name),
         Some(rows) => egui::TextEdit::multiline(name.0).desired_rows(rows),
-        None => egui::TextEdit::singleline(name.0),
+        None => mg_uikit::text_field(name.0),
     };
     let edit = if hint.is_empty() { edit } else { edit.hint_text(hint) };
     let edit = match limit {
@@ -2661,10 +2660,7 @@ impl<'a> SearchField<'a> {
                     false => format!("{SEARCH_GLASS} {hint}").trim_end().to_string(),
                 };
                 let r = ui.add(
-                    egui::TextEdit::singleline(&mut *text)
-                        .id(id)
-                        .hint_text(hint)
-                        .desired_width(room),
+                    mg_uikit::text_field(&mut *text).id(id).hint_text(hint).desired_width(room),
                 );
                 if clear {
                     let b = ui.small_button("×").on_hover_text(clear_tip);
@@ -3130,6 +3126,14 @@ impl NameWindow<'_> {
 /// grows about it), and moved by its title. Every dialog is one, as
 /// [`modal`] or [`dialog`] make it.
 fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
+    // (Its title in the body's size and face, the mock's title row: egui
+    // gives titles the heading's.)
+    let title = match title.into() {
+        egui::WidgetText::Text(text) => {
+            egui::RichText::new(text).text_style(egui::TextStyle::Body).into()
+        }
+        other => other,
+    };
     egui::Window::new(title)
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
@@ -3271,7 +3275,7 @@ pub(crate) fn always_box(ui: &mut Ui, id: egui::Id, label: &str, options_at: &st
     let (asked_id, now) = (id.with("asked"), ui.ctx().cumulative_pass_nr());
     let anew = ui.data(|d| d.get_temp::<u64>(asked_id)).is_none_or(|at| now > at + 1);
     let mut on = !anew && ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    ui.checkbox(&mut on, label).on_hover_text(format!(
+    ui.check_box(&mut on, label).on_hover_text(format!(
         "Your answer is kept, and this isn't asked again: {options_at} changes it"
     ));
     ui.data_mut(|d| {
@@ -3542,6 +3546,7 @@ impl<'a> RowChoice<'a> {
         // (Open until a choice is made or a click lands outside: a click in
         // its Filter field must not close it.)
         let mut combo = egui::ComboBox::from_id_salt(id)
+            .icon(mg_uikit::combo_icon)
             .selected_text(shown)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
         if let Some(width) = width {
@@ -3557,6 +3562,7 @@ impl<'a> RowChoice<'a> {
         // at its top (a long list was searched for it every time).
         let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         let list = combo.show_ui(ui, |ui| {
+            mg_uikit::list_rows(ui);
             let width_id = open_id.with("width");
             if opened {
                 ui.data_mut(|d| {
@@ -3921,7 +3927,7 @@ pub(crate) struct Dropdown {
 pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
     let salt = egui::Id::new(&id_salt);
     Dropdown {
-        combo: egui::ComboBox::from_id_salt(id_salt),
+        combo: egui::ComboBox::from_id_salt(id_salt).icon(mg_uikit::combo_icon),
         salt,
         stays_open: false,
         filtered: false,
@@ -3935,7 +3941,7 @@ pub(crate) fn dropdown_labelled(
 ) -> Dropdown {
     let salt = egui::Id::new(&id_salt);
     Dropdown {
-        combo: egui::ComboBox::new(id_salt, label),
+        combo: egui::ComboBox::new(id_salt, label).icon(mg_uikit::combo_icon),
         salt,
         stays_open: false,
         filtered: false,
@@ -4030,7 +4036,12 @@ impl Dropdown {
         options: impl FnOnce() -> Vec<T>,
         rows: impl FnOnce(&mut Ui, &mut T),
     ) -> egui::Response {
-        let r = self.combo.show_ui(ui, |ui| rows(ui, current)).response;
+        let r = (self.combo)
+            .show_ui(ui, |ui| {
+                mg_uikit::list_rows(ui);
+                rows(ui, current)
+            })
+            .response;
         // (The options read only when an arrow key is pressed: not each
         // frame the box has the keys.)
         let keyed = ui.input(|i| {
@@ -4143,6 +4154,7 @@ impl Dropdown {
         }
         let r = combo
             .show_ui(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 if !filtered {
                     return contents(ui, &mut keys);
                 }
@@ -4401,7 +4413,12 @@ pub(crate) fn picture_tile(
     // (The name in the text's own size, on up to two lines: in small type
     // on one, long names were hard to read and cut short.)
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let text = ui.visuals().text_color();
+    // (Chosen, on the selection's fill: the fill's own text color, the
+    // weak mark at 85% of it, as the mock's selected row's count.)
+    let (text, weak) = match chosen {
+        true => (visuals.text_color(), visuals.text_color().gamma_multiply(0.85)),
+        false => (ui.visuals().text_color(), ui.visuals().weak_text_color()),
+    };
     match made {
         Some(Some(id)) => {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
@@ -4415,7 +4432,7 @@ pub(crate) fn picture_tile(
                 egui::Align2::CENTER_CENTER,
                 mark,
                 font.clone(),
-                ui.visuals().weak_text_color(),
+                weak,
             );
         }
     }
@@ -4514,7 +4531,7 @@ pub(crate) fn picture_size_slider(
     if let Some(text) = text {
         slider = slider.text(text);
     }
-    let moved = ui.add(slider).on_hover_text("How large the pictures are").changed();
+    let moved = mg_uikit::slider(ui, slider).on_hover_text("How large the pictures are").changed();
     moved.then(|| side.round() as u16)
 }
 

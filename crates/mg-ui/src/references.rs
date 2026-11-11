@@ -8,6 +8,7 @@ use mg_edit::{Command, Edit};
 use mg_module::dialog::{Kind, Parent, is_link, link_index, links};
 use mg_module::rename::{self, Mention, Usage};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::dialog_view::Row;
 use crate::widgets::{autofocus, enter};
@@ -889,7 +890,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Find references to");
         let r = ui.add(
-            egui::TextEdit::singleline(&mut app.references.input)
+            mg_uikit::text_field(&mut app.references.input)
                 .hint_text("a script, area, conversation, blueprint, tag or StrRef")
                 .desired_width(260.0),
         );
@@ -1058,6 +1059,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     let on = [crate::plugins::selected_at(u.from, path)];
                     if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
                         r.context_menu(|ui| {
+                            mg_uikit::menu_rows(ui);
                             crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
                         });
                     }
@@ -1423,7 +1425,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             }
             if mentions > 0 {
-                ui.checkbox(
+                ui.check_box(
                     &mut draft.literals,
                     format!(
                         "Also change the {} spelling “{}” in scripts",

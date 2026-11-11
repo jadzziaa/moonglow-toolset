@@ -968,6 +968,9 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
         h.run();
         h.get_all_by_label(kind).next().unwrap().click();
         h.run();
+        // (Under the list, below the window's edge until scrolled to.)
+        h.get_by_label("Add").scroll_to_me();
+        settle(h);
         h.get_by_label("Add").click();
         h.run();
     };
@@ -987,18 +990,47 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
     // Tried: Keen removed, the Enhancement +1 made +3, Attack Bonus added.
     h.get_by_label("Properties").click();
     h.run();
-    h.get_all_by_label("Keen").last().unwrap().click();
-    h.run();
+    // (The item's properties are under the ones to add, below the
+    // window's edge until it is scrolled: a click there is on Cancel. The
+    // wheel over their heading scrolls the window.)
+    let assigned = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let bottom = |h: &Harness<'_, Moonglow>| {
+            h.get_all_by_label_contains(name).last().unwrap().rect().bottom()
+        };
+        let deadline = std::time::Instant::now() + SETTLE_TIME;
+        while bottom(h) > h.get_by_label("Cancel").rect().top() - 8.0 {
+            assert!(std::time::Instant::now() < deadline, "{name} comes into sight");
+            h.hover_at(h.get_by_label("Assigned Properties").rect().center());
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -40.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        }
+        h.get_all_by_label_contains(name).last().unwrap().click();
+        h.run();
+    };
+    assigned(&mut h, "Keen");
     h.get_by_label("Remove").click();
     h.run();
-    h.get_all_by_label_contains("Enhancement Bonus").last().unwrap().click();
-    h.run();
+    assigned(&mut h, "Enhancement Bonus");
     h.get_by_value("+1").scroll_to_me();
     h.run();
     h.get_by_value("+1").click();
     h.run();
     h.get_by_label("+3").click();
     h.run();
+    // (The window scrolled back to its top, the properties to add.)
+    h.hover_at(h.get_by_label("Assigned Properties").rect().center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 10_000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
     add(&mut h, "Attack Bonus");
     let tried = props(&mut h);
     assert_eq!(tried.len(), 2);
@@ -2528,6 +2560,10 @@ fn filters_find_names_case_and_accents_aside() {
     h.run();
     h.get_all_by_role(field).next().unwrap().type_text("arbol");
     h.run_steps(2);
+    // (The waypoints' group is below the pane's edge: scrolled to, as far
+    // as the tree goes.)
+    let tree = h.get_by_label("Module Properties").rect().center();
+    wheel_to(&mut h, tree, "Árbol viejo");
     assert!(h.query_by_label_contains("Árbol viejo").is_some(), "the tree finds Árbol");
     assert!(h.query_by_label_contains("Roble").is_none());
 

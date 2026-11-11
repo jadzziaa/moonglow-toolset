@@ -1,6 +1,7 @@
 //! Item lists as inventories (a store's pages, a placeable's contents):
 //! where a new item goes, and the list with its Remove buttons.
 
+use mg_uikit::Controls as _;
 use std::collections::HashMap;
 
 use egui::Ui;
@@ -401,7 +402,7 @@ pub(super) fn dropped_on(ui: &Ui, rect: egui::Rect) -> Option<Dragged> {
     if !over {
         return None;
     }
-    let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
+    let stroke = egui::Stroke::new(1.5, mg_uikit::tokens(ui.ctx()).accent);
     ui.painter().rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Inside);
     if ui.input(|i| i.pointer.any_released()) {
         egui::DragAndDrop::clear_payload(ui.ctx());
@@ -565,7 +566,7 @@ pub(super) fn item_list(
                         && *owner == whose
                         && *index != i
                     {
-                        let line = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                        let line = egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent);
                         ui.painter().hline(rect.x_range(), rect.top(), line);
                         if ui.input(|i| i.pointer.any_released()) {
                             reorder = Some((*index, i));
@@ -591,7 +592,7 @@ pub(super) fn item_list(
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
                         ui.allocate_ui_with_layout(cell, centered, |ui| {
                             let mut on = it.integer("Infinite").unwrap_or(0) != 0;
-                            if ui.checkbox(&mut on, "").on_hover_text("Infinite").changed() {
+                            if ui.check_box(&mut on, "").on_hover_text("Infinite").changed() {
                                 edits.push((
                                     "Infinite store item",
                                     Edit::SetField {
@@ -628,6 +629,7 @@ pub(super) fn item_list(
                         });
                     }
                     r.context_menu(|ui| {
+                        mg_uikit::menu_rows(ui);
                         if equip && ui.button("Equip").clicked() {
                             asked = Some((i, Ask::Equip));
                             ui.close();

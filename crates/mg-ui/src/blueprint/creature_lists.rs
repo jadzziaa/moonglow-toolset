@@ -2,6 +2,7 @@
 //! prepared by level), Special Abilities, and the inventory (Aurora's
 //! Inventory… dialog: equipment slots and the backpack).
 
+use mg_uikit::Controls as _;
 use std::sync::Arc;
 
 use egui::Ui;
@@ -209,7 +210,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         .horizontal_wrapped(|ui| {
             let t = filter(ui, id);
             let c = category_filter(ui, id.with("category"), &categories);
-            ui.checkbox(&mut assigned_only, "Assigned only");
+            ui.check_box(&mut assigned_only, "Assigned only");
             if total > 1 {
                 ui.label(format!("{} feats among them", merged.len()));
             } else {
@@ -267,7 +268,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                     // to the others.)
                     let mut v = n == total;
                     let some = n > 0 && n < total;
-                    let r = ui.add(egui::Checkbox::new(&mut v, &c.text).indeterminate(some));
+                    let r = ui.add(mg_uikit::Checkbox::new(&mut v, &c.text).indeterminate(some));
                     if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed()
                     {
                         toggle = Some((c.row, v || some));
@@ -538,7 +539,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal_wrapped(|ui| {
         crate::widgets::field_label(ui, "Class");
         for (n, (_, _, name, _)) in casters.iter().enumerate() {
-            ui.radio_value(&mut which, n, name);
+            ui.radio_choice(&mut which, n, name);
         }
     });
     level_row(ui, &mut level);
@@ -656,7 +657,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                                 r
                             } else {
                                 let mut known = !present.is_empty();
-                                let r = ui.checkbox(&mut known, name);
+                                let r = ui.check_box(&mut known, name);
                                 if r.changed() {
                                     let list = slots.list(*l);
                                     change = Some(if known {
@@ -935,7 +936,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal_wrapped(|ui| {
         crate::widgets::field_label(ui, "Class");
         for (n, (row, having)) in caster_classes.iter().enumerate() {
-            ui.radio_value(&mut which, n, class_name(*row));
+            ui.radio_choice(&mut which, n, class_name(*row));
             super::entry_mark(ui, *having, total);
         }
     });
@@ -1074,8 +1075,9 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             } else {
                                 let mut known = having == n;
                                 let some = having > 0 && having < n;
-                                let r = ui
-                                    .add(egui::Checkbox::new(&mut known, name).indeterminate(some));
+                                let r = ui.add(
+                                    mg_uikit::Checkbox::new(&mut known, name).indeterminate(some),
+                                );
                                 if r.changed() {
                                     let list = list_of(*l);
                                     let is = move |e: &Struct| spell_key(e).0 == k.0;
@@ -1421,7 +1423,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                     // (Flags a file has besides stay as they are until
                     // the switch is turned.)
                     let mut on = k.2;
-                    if ui.checkbox(&mut on, "").changed() {
+                    if ui.check_box(&mut on, "").changed() {
                         let flags = if on { ABILITY_READY } else { 0 };
                         let out =
                             lists::set(&having, "SpecAbilityList", is, &["SpellFlags"], |e, l| {
@@ -1679,7 +1681,7 @@ fn item_options(
         ui.horizontal_wrapped(|ui| {
             for (flag, tip) in ITEM_FLAGS {
                 let (mut on, mixed) = inventory::flag_state(picked.iter().map(|p| p.2), flag);
-                let boxed = egui::Checkbox::new(&mut on, flag).indeterminate(mixed);
+                let boxed = mg_uikit::Checkbox::new(&mut on, flag).indeterminate(mixed);
                 let r = ui.add_enabled(!picked.is_empty(), boxed).on_hover_text(tip);
                 if r.changed() {
                     let edits: Vec<Edit> = picked
@@ -1990,6 +1992,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                 });
                             }
                             r.context_menu(|ui| {
+                                mg_uikit::menu_rows(ui);
                                 if ui.button("To Backpack").clicked() {
                                     stow = Some((i, resref));
                                     ui.close();

@@ -1733,6 +1733,10 @@ fn grass_thinned_with_distance_looks() {
 #[test]
 fn grass_covers_the_whole_view() {
     let Some((mut h, area)) = area_harness_sized("grass-far", "ttr01", None, 32) else { return };
+    // (A view as large as the test's points want, whatever the toolbars
+    // above it take: the grass far off is what is looked at.)
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    h.run_steps(3);
     let dir = mg_testkit::output_dir("ui-area-grass-far");
     // (The views: the target, pitch, yaw and distance; and the points
     // far off in each where the grass must show.)

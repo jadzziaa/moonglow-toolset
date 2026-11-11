@@ -650,7 +650,7 @@ fn part_grid(
                     learned = true;
                 }
                 if i64::from(n) == current {
-                    let stroke = ui.visuals().selection.stroke;
+                    let stroke = egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).accent);
                     // (Within the icon's own room: outside it, the grid's
                     // edge cut the top of the first row's off.)
                     ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
@@ -1037,6 +1037,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                             }
                         } else {
                             egui::CollapsingHeader::new(&t.name)
+                                .icon(mg_uikit::collapsing_icon)
                                 .id_salt(("uti-type", key, t.row))
                                 .open((!needle.is_empty()).then_some(true))
                                 .show(ui, |ui| {

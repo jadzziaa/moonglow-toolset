@@ -8,6 +8,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
+use mg_uikit::Controls as _;
 
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
@@ -330,9 +331,20 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let mut remove = false;
 
     ui.horizontal(|ui| {
-        crate::widgets::section_heading(ui, format!("Hak Files ({n})"));
+        // (The heading's rule stops short of the note at its right.)
+        let note = "Top overrides lower";
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let room = ui
+            .fonts_mut(|f| f.layout_no_wrap(note.into(), font, egui::Color32::PLACEHOLDER))
+            .size()
+            .x
+            + 2.0 * ui.spacing().item_spacing.x;
+        ui.scope(|ui| {
+            ui.set_max_width((ui.available_width() - room).max(0.0));
+            crate::widgets::section_heading(ui, format!("Hak Files ({n})"));
+        });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.weak("Top overrides lower").on_hover_text(
+            ui.weak(note).on_hover_text(
                 "Where two haks have the same resource, the game takes the higher one's",
             );
         });
@@ -706,9 +718,9 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Typed text");
         ui.label("lines");
-        ui.add(egui::TextEdit::singleline(&mut draft.0).desired_width(80.0).hint_text("from"));
+        ui.add(mg_uikit::text_field(&mut draft.0).desired_width(80.0).hint_text("from"));
         ui.label("to");
-        ui.add(egui::TextEdit::singleline(&mut draft.1).desired_width(80.0).hint_text("to"));
+        ui.add(mg_uikit::text_field(&mut draft.1).desired_width(80.0).hint_text("to"));
         let typed = format!("{}-{}", draft.0.trim(), draft.1.trim());
         let parsed = match (draft.0.trim(), draft.1.trim()) {
             ("", "") => Ok(None),
@@ -919,7 +931,7 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
             draft.placements.swap(a, b);
         }
         if draft.placements.iter().any(|p| p.there == There::Different) {
-            ui.checkbox(&mut draft.replace, "Replace the files of the same names that are there");
+            ui.check_box(&mut draft.replace, "Replace the files of the same names that are there");
         }
         ui.horizontal(|ui| {
             if ui.button("OK").clicked() {

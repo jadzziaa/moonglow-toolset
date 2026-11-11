@@ -1281,10 +1281,10 @@ fn module_name_in_every_language_and_variables() {
     assert_eq!(name.get(Language::GERMAN, Gender::Male), Some(&b"Beispiel"[..]));
     assert_eq!(name.strref.0, 12);
 
-    // Variables on the Advanced tab.
+    // Variables on the Advanced tab (scrolled to: below the edge).
     h.get_by_label("Advanced").click();
     h.run();
-    h.get_by_label("Variables (0)…").click();
+    click_in_sight(&mut h, "Variables (0)…");
     h.run();
     h.get_by_label("Add").click();
     h.run();
@@ -1544,9 +1544,10 @@ fn journal_editor_builds_what_aurora_builds() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Journal));
     h.run();
     // As Aurora was driven: two categories, two entries in the first, one
-    // in the second.
+    // in the second. (The tree's last rows are below its edge until
+    // scrolled to.)
     let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
-        h.get_by_label(label).click();
+        click_in_sight(h, label);
         h.run();
     };
     click(&mut h, "Add");

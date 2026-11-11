@@ -7,6 +7,7 @@ use mg_edit::{Command, Edit};
 use mg_resman::ResKey;
 use mg_script::Compiler;
 use mg_script::lex::{TokenKind, tokenize};
+use mg_uikit::Controls as _;
 
 use crate::script_tools::{
     self as tools, Completion, InfoTab, Message, SideTab, Symbol, SymbolKind,
@@ -238,6 +239,16 @@ impl ScriptBuffer {
     }
 }
 
+/// Whether a ground of the builder's own is dark (its relative luminance
+/// under a fifth: white text reads better on it than black).
+fn ground_is_dark([r, g, b]: [u8; 3]) -> bool {
+    let c = |v: u8| {
+        let v = f32::from(v) / 255.0;
+        if v <= 0.040_45 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b) < 0.18
+}
+
 /// The script editor's colours (one per [`SCRIPT_ELEMENTS`](crate::settings::SCRIPT_ELEMENTS))
 /// and font size.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -289,9 +300,19 @@ impl Palette {
         Palette { colors, size: f32::from(style.font_size.clamp(6, 48)), background }
     }
 
-    /// For a `Ui`: the app's style and the `Ui`'s theme.
+    /// For a `Ui`: the app's style and the `Ui`'s theme; on a ground of
+    /// the builder's own (Options › Script Editor), the colors of the
+    /// theme of its lightness, so that a dark ground in the light theme
+    /// (or a light one in the dark) keeps its words readable.
     pub(crate) fn for_ui(style: &ScriptStyle, ui: &Ui) -> Palette {
-        Palette::new(style, ui.visuals().dark_mode, ui.visuals().text_color())
+        match style.background {
+            Some(ground) => {
+                let dark = ground_is_dark(ground);
+                let t = if dark { mg_uikit::Tokens::DARK } else { mg_uikit::Tokens::LIGHT };
+                Palette::new(style, dark, t.syn_text)
+            }
+            None => Palette::new(style, ui.visuals().dark_mode, ui.visuals().text_color()),
+        }
     }
 
     pub(crate) fn font(&self) -> FontId {
@@ -841,9 +862,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         {
             app.actions.push(Action::FindReferences(key));
         }
-        if dirty {
-            ui.weak("modified");
-        }
+        // (Its room kept while the script is unchanged too: the toolbar's
+        // rows, and the text under them, stay where they are as the first
+        // change is typed.)
+        let modified = egui::Label::new(egui::RichText::new("modified").weak());
+        ui.add_visible(dirty, modified);
         // The codepage the script is read and saved in.
         let codepage = crate::text::codepage_name(app.scripts[&key].codepage);
         ui.weak(codepage).on_hover_text(
@@ -997,7 +1020,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .hint(what)
             .show(ui);
             let filter = mg_core::text::Needle::new(&t.filter);
-            let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+            let row = ui.spacing().interact_size.y; // (a row of controls: as high as one)
             // Long names end in "…" in a narrow panel (Help gives them whole).
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             if t.side == SideTab::Templates {
@@ -1035,17 +1058,17 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     // width doesn't change with the names in view.)
                     ui.set_min_width(ui.available_width());
                     for s in &list[range] {
-                        let text = if s.custom {
-                            egui::RichText::new(&s.name).strong()
-                        } else {
-                            egui::RichText::new(&s.name)
+                        // (The module's own in the theme's text, the game's
+                        // in its secondary text: the theme's strong text is
+                        // its text, which told them apart no more. Chosen,
+                        // the selection's own color.)
+                        let chosen = t.help.as_ref().is_some_and(|h| h.name == s.name);
+                        let text = match (s.custom, chosen) {
+                            (false, false) => egui::RichText::new(&s.name)
+                                .color(mg_uikit::tokens(ui.ctx()).text_2),
+                            _ => egui::RichText::new(&s.name),
                         };
-                        let r = ui
-                            .selectable_label(
-                                t.help.as_ref().is_some_and(|h| h.name == s.name),
-                                text,
-                            )
-                            .on_hover_text(&s.signature);
+                        let r = ui.selectable_label(chosen, text).on_hover_text(&s.signature);
                         if r.clicked() {
                             t.help = Some((*s).clone());
                             t.info = InfoTab::Help;
@@ -1416,6 +1439,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             cursor_now = out.state.cursor.char_range();
             ui.visuals_mut().selection.bg_fill = selected;
             out.response.response.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 for (tabs, label) in INDENT_CONVERSIONS {
                     if ui.button(label).clicked() {
                         convert = Some(tabs);
@@ -2222,6 +2246,27 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> Option<bool> {
 mod tests {
     use super::*;
 
+    /// A ground of the builder's own takes the colors of its lightness,
+    /// whichever theme the window wears; with none, the theme's.
+    #[test]
+    fn the_script_s_colors_follow_a_ground_of_one_s_own() {
+        assert!(ground_is_dark([24, 32, 48]) && !ground_is_dark([250, 250, 240]));
+        for theme in mg_uikit::Theme::ALL {
+            let ctx = egui::Context::default();
+            mg_uikit::apply(&ctx, theme);
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let dark = ScriptStyle { background: Some([24, 32, 48]), ..Default::default() };
+                let p = Palette::for_ui(&dark, ui);
+                assert_eq!(p.colors[0], mg_uikit::Tokens::DARK.syn_text, "{theme:?}");
+                let light = ScriptStyle { background: Some([250, 250, 240]), ..Default::default() };
+                assert_eq!(Palette::for_ui(&light, ui).colors[0], mg_uikit::Tokens::LIGHT.syn_text);
+                let own = Palette::for_ui(&ScriptStyle::default(), ui);
+                assert_eq!(own.colors[0], ui.visuals().text_color());
+            });
+            out.textures_delta.clear();
+        }
+    }
+
     /// A script's text as every view reads it: its editor's (typing not
     /// yet saved too), else the module's in the scripts' codepage (Polish:
     /// Windows-1250, where 0xB9 is ą), not the game's text codepage, which
@@ -2510,7 +2555,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     (ScriptsShown::Module, "Module Resources Only"),
                     (ScriptsShown::Haks, "Hak Pak Resources Only"),
                 ] {
-                    ui.radio_value(&mut w.shown, shown, label);
+                    ui.radio_choice(&mut w.shown, shown, label);
                 }
             });
             // The scripts listed, made again when the name typed or what
@@ -2631,6 +2676,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                             w.cursor = at;
                         }
                         r.context_menu(|ui| {
+                            mg_uikit::menu_rows(ui);
                             let several = w.selected.len() > 1;
                             let label = match several {
                                 true => format!("Open {} Selected", w.selected.len()),
@@ -2724,7 +2770,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 layer = Some(ui.layer_id());
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Find What");
-                    let field = ui.text_edit_singleline(&mut s.find);
+                    let field = ui.add(mg_uikit::text_field(&mut s.find));
                     crate::widgets::autofocus(ui, &field);
                     // Find Next (F3) from the field too, as in Aurora
                     // (Sacha's report): it types nothing.
@@ -2742,16 +2788,16 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     ui.end_row();
                     if s.replace_mode {
                         ui.label("Replace With");
-                        ui.text_edit_singleline(&mut s.replace);
+                        ui.add(mg_uikit::text_field(&mut s.replace));
                         ui.end_row();
                     }
                 });
-                ui.checkbox(&mut s.options.match_case, "Match Case");
-                ui.checkbox(&mut s.options.whole_word, "Match Whole Word Only");
-                ui.checkbox(&mut s.options.backwards, "Search Backward");
+                ui.check_box(&mut s.options.match_case, "Match Case");
+                ui.check_box(&mut s.options.whole_word, "Match Whole Word Only");
+                ui.check_box(&mut s.options.backwards, "Search Backward");
                 if !s.replace_mode {
                     if ui
-                        .checkbox(&mut s.in_open, "Find In Currently Open Scripts")
+                        .check_box(&mut s.in_open, "Find In Currently Open Scripts")
                         .on_hover_text("Every match in the scripts open now, in Search Results")
                         .changed()
                         && s.in_open
@@ -2759,7 +2805,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                         s.in_files = false;
                     }
                     if ui
-                        .checkbox(&mut s.in_files, "Find In Files (all scripts in the module)")
+                        .check_box(&mut s.in_files, "Find In Files (all scripts in the module)")
                         .changed()
                         && s.in_files
                     {

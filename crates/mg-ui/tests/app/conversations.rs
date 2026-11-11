@@ -35,7 +35,9 @@ fn conversation_editor_builds_and_links() {
     app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
     app.new_dialog = Some("capdlg".into());
-    let mut h = window_harness(app);
+    // (The window at the size it opens at: on a screen of 800 by 600,
+    // its tree has room for three lines.)
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.get_by_label("Create").click();
     h.run();
@@ -710,7 +712,9 @@ fn conversation_options_popup_link_directions_drag_and_backup() {
     app.open_module(&path);
     app.conversation_backups = Some(dir.join("backups"));
     app.new_dialog = Some("optdlg".into());
-    let mut h = window_harness(app);
+    // (The window at the size it opens at: on a screen of 800 by 600,
+    // its tree has room for three lines.)
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.get_by_label("Create").click();
     h.run();

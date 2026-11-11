@@ -93,6 +93,11 @@ pub enum Tab {
     PluginPanel { plugin: String, panel: String },
 }
 
+/// How much taller a list of rows is in the suite's theme than in egui's
+/// own, which the windows' sizes were first found in: rows of 22 points
+/// with 4 between them, where they were 18 with 3.
+pub(crate) const ROWS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
+
 impl Tab {
     /// Whether it opens in the main dock: areas (and the start page), which
     /// the rest open over in windows of their own, so a window never takes
@@ -198,7 +203,9 @@ impl Tab {
             | Tab::Instances { .. } => (820.0, 672.0),
             _ => (820.0, 640.0),
         };
-        egui::vec2(w, h)
+        // (The heights were found for rows of 18 points with 3 between;
+        // the theme's are 22 with 4 between: as much taller.)
+        egui::vec2(w, (h * ROWS_TALLER / 4.0).round() * 4.0)
     }
 
     /// The tab that edits a resource.
@@ -628,6 +635,7 @@ impl TabViewer for Viewer<'_> {
     /// The tab's menu (beside egui_dock's Eject and Close): Rename… for a
     /// resource of the module, which renames it everywhere it is named.
     fn context_menu(&mut self, ui: &mut Ui, tab: &mut Tab, _path: egui_dock::NodePath) {
+        mg_uikit::menu_rows(ui);
         let ours = tab
             .renamable()
             .filter(|k| self.app.ws.as_ref().is_some_and(|ws| ws.module.contains(k)));

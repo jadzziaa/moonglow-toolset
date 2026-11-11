@@ -7,6 +7,7 @@
 //! variable set or removed, an event's script, a field: `mg_edit::found`),
 //! edited together, or its areas chosen in Edit Areas Together.
 
+use mg_uikit::Controls as _;
 use std::collections::BTreeMap;
 
 use egui::Ui;
@@ -769,7 +770,7 @@ fn row_picker_in(
     if choices.is_empty() {
         let mut on = row.is_some() || any.is_none();
         if any.is_some() {
-            ui.checkbox(&mut on, "");
+            ui.check_box(&mut on, "");
         }
         let mut n = row.unwrap_or(0);
         ui.add_enabled(on, egui::DragValue::new(&mut n).range(0..=65535))
@@ -818,7 +819,7 @@ fn listed(
 fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &str) -> bool {
     let mut find = false;
     let text = |ui: &mut Ui, value: &mut String, hint: &str| -> bool {
-        let r = ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(260.0));
+        let r = ui.add(mg_uikit::text_field(value).hint_text(hint).desired_width(260.0));
         r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
     };
     let id = |name: &str| format!("advanced-search-{name}{salt}");
@@ -947,7 +948,7 @@ fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &
             ui.horizontal(|ui| {
                 let hint = if c.number { "e.g. 103, 1.5 or 5..10" } else { "text it contains" };
                 find |= text(ui, &mut c.value, hint);
-                ui.checkbox(&mut c.number, "Number").on_hover_text(
+                ui.check_box(&mut c.number, "Number").on_hover_text(
                     "Number fields holding this number (103, 1.5) or in a range (5..10)",
                 );
             });
@@ -996,7 +997,7 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
             crate::widgets::field_label(ui, label).on_hover_text(hover);
             ui.horizontal(|ui| {
                 kind_choice(ui, c, &format!("advanced-search-kind-{i}"));
-                ui.checkbox(&mut c.not, "Not")
+                ui.check_box(&mut c.not, "Not")
                     .on_hover_text("Leave out the objects that meet this condition");
                 if ui.small_button("Remove").clicked() {
                     remove = Some(i);
@@ -1055,12 +1056,12 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
         });
         ui.end_row();
         ui.label("");
-        ui.checkbox(&mut d.regex, "Regular expressions").on_hover_text(
+        ui.check_box(&mut d.regex, "Regular expressions").on_hover_text(
             "Names and texts are regular expressions, found anywhere unless anchored (^kz_)",
         );
         ui.end_row();
         ui.label("");
-        ui.checkbox(&mut d.haks_and_game, "The haks' and the game's blueprints too")
+        ui.check_box(&mut d.haks_and_game, "The haks' and the game's blueprints too")
             .on_hover_text("Also the haks' and the game's blueprints, read-only");
         ui.end_row();
     });
@@ -1156,7 +1157,7 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
         }
         ui.end_row();
         let edit = |ui: &mut Ui, v: &mut String, hint: &str| {
-            ui.add(egui::TextEdit::singleline(v).hint_text(hint).desired_width(260.0));
+            ui.add(mg_uikit::text_field(v).hint_text(hint).desired_width(260.0));
         };
         match a.act {
             Act::SetVariable | Act::RemoveVariable => {
@@ -1342,9 +1343,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
             egui::CollapsingHeader::new(format!("Change the {n} ticked"))
+                .icon(mg_uikit::collapsing_icon)
                 .id_salt("advanced-search-change")
                 .show(ui, |ui| change = act_ui(ui, &mut draft, n, app.game.as_deref()));
             egui::CollapsingHeader::new(format!("Edit the {n} ticked together"))
+                .icon(mg_uikit::collapsing_icon)
                 .id_salt("advanced-search-together")
                 .show(ui, |ui| {
                     if groups.is_empty() && areas.is_empty() {
@@ -1393,10 +1396,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     continue;
                 }
                 let place = place_shown(app, &draft.hits[i]);
-                ui.horizontal(|ui| {
+                // (Each row exactly a row's room, as the rows out of sight
+                // are given: rows of another height made the list's height
+                // change with what is in sight, and its scroll bar came and
+                // went with each frame.)
+                let size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                ui.allocate_ui_with_layout(size, layout, |ui| {
+                    ui.set_min_height(size.y);
+                    ui.set_max_height(size.y);
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                     let h = &draft.hits[i];
                     let mine = h.layer.is_none();
-                    let tick = egui::Checkbox::without_text(&mut draft.ticked[i]);
+                    let tick = mg_uikit::Checkbox::without_text(&mut draft.ticked[i]);
                     let tick = ui.add_enabled(mine, tick);
                     let r = ui.link(place).on_hover_ui(|ui| {
                         ui.label(match &h.layer {
@@ -1441,6 +1453,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         };
                         if fits {
                             r.context_menu(|ui| {
+                                mg_uikit::menu_rows(ui);
                                 crate::plugins::menu_on(ui, &commands, on, &mut app.actions);
                             });
                         }

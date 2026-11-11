@@ -2,6 +2,7 @@
 //! module) with the layer it comes from, and a read-only view of any of
 //! them that can be copied into the module or saved to a file.
 
+use mg_uikit::Controls as _;
 use std::path::PathBuf;
 
 use egui::Ui;
@@ -201,7 +202,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if ui.button("Refresh").clicked() {
             browser.stale = true;
         }
-        ui.checkbox(&mut browser.show_copies, "Overridden copies").on_hover_text(
+        ui.check_box(&mut browser.show_copies, "Overridden copies").on_hover_text(
             "Also list each resource's copies lower in the load order, which it overrides",
         );
     });
@@ -263,13 +264,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             actions.push(Action::SaveResources(keys));
         }
         if browser.shown.iter().any(|&i| browser.entries[i].key.restype == ResType::MDL) {
-            ui.checkbox(&mut browser.models_as_text, "Models as text").on_hover_text(
+            ui.check_box(&mut browser.models_as_text, "Models as text").on_hover_text(
                 "Export as Files writes compiled models as the text they compile from",
             );
         }
     });
     ui.separator();
-    let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
     let in_module = |k: &ResKey| ws.as_ref().is_some_and(|w| w.module.contains(k));
     let shown = &browser.shown;
     let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]);
@@ -313,6 +314,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     actions.push(Action::OpenTab(tab()));
                 }
                 r.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
                     if ui.button("Open").clicked() {
                         actions.push(Action::OpenTab(tab()));
                     }
@@ -382,7 +384,12 @@ fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
 /// one the game reads, in the module, in a hak open in the hak editor,
 /// or in a file. (The game's own tables are never changed.)
 fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
-    ui.menu_button("Edit…", |ui| table_homes(app, ui, key)).inner.flatten()
+    ui.menu_button("Edit…", |ui| {
+        mg_uikit::menu_rows(ui);
+        table_homes(app, ui, key)
+    })
+    .inner
+    .flatten()
 }
 
 /// The places a table can be edited in, as buttons ([`table_menu`]'s):
@@ -1035,11 +1042,13 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
         match &f.value {
             Value::Struct(child) => {
                 egui::CollapsingHeader::new(format!("{label} (struct {})", child.id))
+                    .icon(mg_uikit::collapsing_icon)
                     .id_salt(&child_id)
                     .show(ui, |ui| gff_tree(ui, child, &child_id));
             }
             Value::List(items) => {
                 egui::CollapsingHeader::new(format!("{label} (list, {} items)", items.len()))
+                    .icon(mg_uikit::collapsing_icon)
                     .id_salt(&child_id)
                     .show(ui, |ui| {
                         for (j, item) in items.iter().enumerate() {
@@ -1049,6 +1058,7 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
                                 continue;
                             }
                             egui::CollapsingHeader::new(format!("[{j}] struct {}", item.id))
+                                .icon(mg_uikit::collapsing_icon)
                                 .id_salt(&item_id)
                                 .show(ui, |ui| gff_tree(ui, item, &item_id));
                         }
@@ -1088,7 +1098,7 @@ pub(crate) fn two_da(
     let t = l.table();
     let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
-        ui.checkbox(&mut browser.raw_strrefs, "StrRefs as numbers")
+        ui.check_box(&mut browser.raw_strrefs, "StrRefs as numbers")
             .on_hover_text("Show StrRef columns as numbers, not their text");
         if layered {
             let label = |i: Option<usize>| match i {

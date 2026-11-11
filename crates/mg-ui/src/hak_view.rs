@@ -749,7 +749,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             changed = true;
         }
     });
-    ui.horizontal(|ui| {
+    // (A second row where the editor is too narrow for one: Save As… was
+    // cut off at its edge.)
+    ui.horizontal_wrapped(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         if ui.button("Add Files…").clicked() {
             todo = Some(Do::AddFiles);
         }
@@ -843,7 +846,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         changed = false;
     }
     let rows = doc.rows();
-    let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
     let mut rename_done = None;
     let mut remove = None;
     // The resource being viewed takes the lower part of the tab.
@@ -857,7 +860,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             let item = doc.hak.items()[r].clone();
             ui.horizontal(|ui| {
                 if let Some((key, name)) = doc.rename.as_mut().filter(|(k, _)| *k == item.key) {
-                    let edit = ui.add(egui::TextEdit::singleline(name).desired_width(160.0));
+                    let edit = ui.add(mg_uikit::text_field(name).desired_width(160.0));
                     edit.request_focus();
                     ui.label(format!(".{}", key.restype));
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -893,6 +896,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     todo = Some(Do::View(item.key));
                 }
                 r.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
                     if ui.button("View").clicked() {
                         todo = Some(Do::View(item.key));
                     }

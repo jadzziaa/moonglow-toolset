@@ -10,6 +10,7 @@
 //! and the tests never reach the network (the tests give a server of
 //! their own on this computer, or answers made up).
 
+use mg_uikit::Controls as _;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -825,7 +826,7 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
             });
             ui.weak(format!("Installs it in place of {}.", app.updates.kind.what()));
             let always = ui
-                .checkbox(&mut app.settings.update_auto_install, "Always install updates")
+                .check_box(&mut app.settings.update_auto_install, "Always install updates")
                 .on_hover_text(
                     "Install this and later releases when Moonglow closes, without asking",
                 );
@@ -941,7 +942,10 @@ pub(crate) fn options_page(ui: &mut egui::Ui, o: UpdateOptions, here: &UpdatesHe
     let managed = installer.is_some();
     let mut shown = *o.check && !managed;
     let response = ui
-        .add_enabled(!managed, egui::Checkbox::new(&mut shown, "Check for updates automatically"))
+        .add_enabled(
+            !managed,
+            mg_uikit::Checkbox::new(&mut shown, "Check for updates automatically"),
+        )
         .on_hover_text("Ask GitHub at each start and daily whether a newer Moonglow is out");
     if response.changed() {
         *o.check = shown;
@@ -950,7 +954,7 @@ pub(crate) fn options_page(ui: &mut egui::Ui, o: UpdateOptions, here: &UpdatesHe
     let response = ui
         .add_enabled(
             cannot.is_none(),
-            egui::Checkbox::new(&mut auto, "Install updates automatically"),
+            mg_uikit::Checkbox::new(&mut auto, "Install updates automatically"),
         )
         .on_hover_text(
             "Download newer releases in the background and install them when Moonglow closes",
@@ -958,7 +962,7 @@ pub(crate) fn options_page(ui: &mut egui::Ui, o: UpdateOptions, here: &UpdatesHe
     if response.changed() {
         *o.auto_install = auto;
     }
-    ui.checkbox(o.prereleases, "Include pre-releases").on_hover_text(
+    ui.check_box(o.prereleases, "Include pre-releases").on_hover_text(
         "Offer newer pre-releases too, to try before they are out. Off: releases only.",
     );
     ui.weak(

@@ -32,6 +32,7 @@
 //! which a repository could carry (a `[allowed_commands]` found there is
 //! said and not read).
 
+use mg_uikit::Controls as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -790,7 +791,7 @@ pub(crate) fn job_ui(app: &mut Moonglow, ui: &mut Ui) {
     let mut sent = None;
     let mut close = false;
     ui.horizontal(|ui| {
-        let field = egui::TextEdit::singleline(&mut input.text)
+        let field = mg_uikit::text_field(&mut input.text)
             .password(input.hidden)
             .desired_width(300.0)
             .hint_text("what the command asks for");
@@ -807,7 +808,7 @@ pub(crate) fn job_ui(app: &mut Moonglow, ui: &mut Ui) {
             r.request_focus();
         }
         let hide = ui
-            .checkbox(&mut input.hidden, "Hide")
+            .check_box(&mut input.hidden, "Hide")
             .on_hover_text("Show dots for what is typed and keep it out of the output");
         // (The keys back in the line, to type in it.)
         if hide.changed() {
@@ -849,10 +850,20 @@ fn output_window(app: &mut Moonglow, ctx: &egui::Context) {
     let partial = output.lock().unwrap_or_else(|e| e.into_inner()).begun();
     crate::widgets::dialog(ctx, title, &mut open).default_size([640.0, 420.0]).show(ctx, |ui| {
         ui.horizontal(|ui| {
-            crate::widgets::section_heading(ui, &last.label);
-            match &last.ended {
-                Some(said) => ui.label(said),
-                None => ui.weak("Running…"),
+            let said = last.ended.clone().unwrap_or_else(|| "Running…".into());
+            // (The heading's rule stops short of what is said beside it.)
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let words = ui.fonts_mut(|f| {
+                f.layout_no_wrap(said.clone(), font, egui::Color32::PLACEHOLDER).size().x
+            });
+            let room = words + 2.0 * ui.spacing().item_spacing.x;
+            ui.scope(|ui| {
+                ui.set_max_width((ui.available_width() - room).max(0.0));
+                crate::widgets::section_heading(ui, &last.label);
+            });
+            match last.ended {
+                Some(_) => ui.label(said),
+                None => ui.weak(said),
             };
         });
         if last.dropped > 0 {

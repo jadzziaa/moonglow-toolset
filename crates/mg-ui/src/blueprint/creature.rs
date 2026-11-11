@@ -14,6 +14,7 @@ use mg_resman::ResKey;
 use mg_rules::creatures::{ABILITIES, modifier};
 use mg_rules::items::part_number;
 use mg_rules::{Challenge, Choice, CreatureSheet, GameData};
+use mg_uikit::Controls as _;
 
 use super::{Form, creature_lists, situated};
 use crate::widgets::{commit_number, spin_number};
@@ -236,7 +237,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "");
         f.mark_mixed(ui, "Interruptable");
         let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
-        if ui.checkbox(&mut no_interrupt, "No Interrupt").changed() {
+        if ui.check_box(&mut no_interrupt, "No Interrupt").changed() {
             f.set_int("No interrupt", "Interruptable", i64::from(!no_interrupt), FieldType::Byte);
         }
         ui.end_row();

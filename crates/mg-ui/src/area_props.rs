@@ -9,6 +9,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Value};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
@@ -436,7 +437,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal(|ui| {
         f.mark_mixed_inline(ui, &["DayNightCycle", "IsNight"]);
         for (m, text) in [(0, "Cycle Day and Night"), (1, "Always Bright"), (2, "Always Dark")] {
-            if ui.radio(mode == m, text).clicked() && mode != m {
+            if ui.radio_button(mode == m, text).clicked() && mode != m {
                 let (c, n) = match m {
                     0 => (1, i64::from(night)),
                     1 => (0, 0),
@@ -474,7 +475,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         f.mark_mixed(ui, "WindPower");
         ui.horizontal(|ui| {
             for (i, w) in winds.iter().enumerate() {
-                if ui.radio(wind == i as i64, *w).clicked() && wind != i as i64 {
+                if ui.radio_button(wind == i as i64, *w).clicked() && wind != i as i64 {
                     f.set_int("Wind power", "WindPower", i as i64, FieldType::Int);
                 }
             }
@@ -522,6 +523,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let mut scheme_of = None;
     ui.horizontal(|ui| {
         ui.menu_button("Copy From Area", |ui| {
+            mg_uikit::menu_rows(ui);
             // (The module's other areas, made while the menu is open.)
             let mut areas: Vec<(ResRef, String)> = match &f.app.ws {
                 Some(ws) => (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
@@ -545,6 +547,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             "Takes the lighting, fog, sky and weather from another area. Tiles' lights stay.",
         );
         ui.menu_button("Saved Lighting", |ui| {
+            mg_uikit::menu_rows(ui);
             is_open = true;
             if !was_open {
                 saved = std::sync::Arc::new(crate::lighting::list(dir.as_deref()));
@@ -572,7 +575,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             }
             if !saved.is_empty() {
-                ui.checkbox(&mut relight, "Tiles' Lights Too").on_hover_text(
+                ui.check_box(&mut relight, "Tiles' Lights Too").on_hover_text(
                     "Also picks each tile's lights anew from the colors saved with the lighting",
                 );
             }
@@ -650,7 +653,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let mut done = false;
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, if from.is_some() { "Rename to" } else { "Name" });
-        let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(200.0));
+        let r = ui.add(mg_uikit::text_field(&mut name).desired_width(200.0));
         crate::widgets::autofocus(ui, &r);
         let other = |s: &&String| from.as_ref() != Some(*s) && s.eq_ignore_ascii_case(name.trim());
         let taken = saved.iter().any(|s| other(&s));
@@ -972,7 +975,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 let set = flags & bit != 0;
                 for (want, text) in [(false, off), (true, on)] {
-                    if ui.radio(set == want, text).clicked() && set != want {
+                    if ui.radio_button(set == want, text).clicked() && set != want {
                         set_flag(f, text, bit, want);
                     }
                 }
@@ -992,7 +995,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 for (k, bit) in (3..16).map(|b| 1u32 << b).enumerate() {
                     let mut on = flags & bit != 0;
                     f.mark_mixed_bit(ui, "Flags", bit);
-                    if ui.checkbox(&mut on, bit.to_string()).changed() {
+                    if ui.check_box(&mut on, bit.to_string()).changed() {
                         set_flag(f, "Shader flags", bit, on);
                     }
                     if k % 7 == 6 {
@@ -1379,13 +1382,13 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                             crate::widgets::field_label(ui, name);
                             ui.horizontal(|ui| {
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut c.hold_name)
+                                    mg_uikit::text_field(&mut c.hold_name)
                                         .hint_text(hint)
                                         .desired_width(150.0),
                                 );
                                 ui.label("=");
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut c.hold_value)
+                                    mg_uikit::text_field(&mut c.hold_value)
                                         .hint_text("any")
                                         .desired_width(90.0),
                                 )
@@ -1417,7 +1420,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 }
                 ui.add(
-                    egui::TextEdit::singleline(&mut c.set_name)
+                    mg_uikit::text_field(&mut c.set_name)
                         .hint_text("set name")
                         .desired_width(140.0),
                 );
@@ -1480,7 +1483,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 for (a, _, label) in &shown[range] {
                     let mut on = c.chosen.contains(a);
-                    if ui.checkbox(&mut on, label.as_str()).changed() {
+                    if ui.check_box(&mut on, label.as_str()).changed() {
                         if on {
                             c.chosen.insert(*a);
                         } else {

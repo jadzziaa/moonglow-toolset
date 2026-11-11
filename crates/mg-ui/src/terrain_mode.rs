@@ -1909,6 +1909,7 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             // (Its own while a search is typed: the search cleared, the
             // heading is open or closed as it was before.)
             egui::CollapsingHeader::new(label.as_str())
+                .icon(mg_uikit::collapsing_icon)
                 .id_salt((tileset, depth, label.as_str(), searching))
                 .default_open(
                     searching

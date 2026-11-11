@@ -211,12 +211,15 @@ pub(super) fn editor(
     if compact {
         ui.horizontal(|ui| {
             ui.menu_button("Add element", |ui| {
+                mg_uikit::menu_rows(ui);
                 palette(ui, v, s, state);
             });
             ui.menu_button("Layers", |ui| {
+                mg_uikit::menu_rows(ui);
                 layers(ui, v, s, state);
             });
             ui.menu_button("Properties", |ui| {
+                mg_uikit::menu_rows(ui);
                 ui.set_width(260.0);
                 let height = ui.ctx().content_rect().height() * 0.8;
                 egui::ScrollArea::vertical().max_height(height).show(ui, |ui| {
@@ -274,6 +277,7 @@ pub(super) fn editor(
                 widgets::table_heading(ui, "Layers");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("…", |ui| {
+                        mg_uikit::menu_rows(ui);
                         edit_actions(ui, v, s, state, keymap);
                     });
                 });
@@ -774,6 +778,7 @@ fn inspector(
         ui.separator();
         ui.add_enabled_ui(state.resize.is_none(), |ui| {
             ui.menu_button("Element actions", |ui| {
+                mg_uikit::menu_rows(ui);
                 edit_actions(ui, v, s, state, keymap);
             })
         });
@@ -830,6 +835,7 @@ pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, sta
                     in_a_variant: in_variants.contains(&name),
                 };
                 egui::CollapsingHeader::new(&name)
+                    .icon(mg_uikit::collapsing_icon)
                     .id_salt(("bind", &name))
                     .default_open(true)
                     .show(ui, |ui| {
@@ -842,36 +848,42 @@ pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, sta
         if let (Some(names), Some(doc)) = (renamed, v) {
             shortcuts::rename_binds(doc, &names);
         }
-        egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
-            ui.checkbox(&mut s.from_resref, "Load JUI from the client by resource name");
-            ui.weak(
-                "The players' clients must have the JUI then (from a hak or NWSync). Off, the \
+        egui::CollapsingHeader::new("Client delivery").icon(mg_uikit::collapsing_icon).show(
+            ui,
+            |ui| {
+                ui.check_box(&mut s.from_resref, "Load JUI from the client by resource name");
+                ui.weak(
+                    "The players' clients must have the JUI then (from a hak or NWSync). Off, the \
                  opener script sends the layout.",
-            );
-            ui.checkbox(
-                &mut s.event_function,
-                "Events go to the module's event script (a function to call)",
-            );
-            ui.weak(
-                "Build writes the event script as an include with a function that handles the \
+                );
+                ui.check_box(
+                    &mut s.event_function,
+                    "Events go to the module's event script (a function to call)",
+                );
+                ui.weak(
+                    "Build writes the event script as an include with a function that handles the \
                  window's events: include it in the module's OnNuiEvent script and call it there \
                  (it says whether the event was this window's). Off, the window has an event \
                  script of its own.",
-            );
-        });
-        egui::CollapsingHeader::new("Window identity").show(ui, |ui| {
-            let mut custom = s.window_id.is_some();
-            if ui.checkbox(&mut custom, "Custom window ID").changed() {
-                s.window_id = custom.then(|| "my_window".into());
-            }
-            if let Some(id) = &mut s.window_id {
-                fields::text(ui, id, ui.spacing().text_edit_width);
-            }
-            ui.weak(
-                "The ID NuiCreate gives the window and NuiFindWindow finds it by. The resource \
+                );
+            },
+        );
+        egui::CollapsingHeader::new("Window identity").icon(mg_uikit::collapsing_icon).show(
+            ui,
+            |ui| {
+                let mut custom = s.window_id.is_some();
+                if ui.check_box(&mut custom, "Custom window ID").changed() {
+                    s.window_id = custom.then(|| "my_window".into());
+                }
+                if let Some(id) = &mut s.window_id {
+                    fields::text(ui, id, ui.spacing().text_edit_width);
+                }
+                ui.weak(
+                    "The ID NuiCreate gives the window and NuiFindWindow finds it by. The resource \
                  keeps its name.",
-            );
-        });
+                );
+            },
+        );
     });
 }
 
@@ -910,7 +922,7 @@ fn bind(
         let mut to: String =
             ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.to_owned());
         let label = widgets::field_label(ui, "Name");
-        ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
+        ui.add(mg_uikit::text_field(&mut to).desired_width(160.0))
             .labelled_by(label.id)
             .on_hover_text("A new name for this bind");
         let taken = to != name && s.bindings.contains_key(&to);

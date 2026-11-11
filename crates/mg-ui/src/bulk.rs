@@ -3,6 +3,7 @@
 //! Aurora's palette does it for one: every area or the one shown, with the
 //! objects it would change listed to untick.
 
+use mg_uikit::Controls as _;
 use std::collections::HashSet;
 
 use egui::Context;
@@ -279,9 +280,9 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
                  where it stands: its tag, name, scripts and variables become the blueprint's."
         ));
         ui.horizontal(|ui| {
-            ui.radio_value(&mut draft.only, None, "Every area");
+            ui.radio_choice(&mut draft.only, None, "Every area");
             if let Some(area) = draft.shown {
-                ui.radio_value(&mut draft.only, Some(area), format!("Only {area}"));
+                ui.radio_choice(&mut draft.only, Some(area), format!("Only {area}"));
             }
         });
         let in_scope = |o: &Affected, only: Option<ResRef>| only.is_none_or(|a| a == o.area);
@@ -304,7 +305,7 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             for &i in &shown[range] {
                 let o = &mut draft.objects[i];
-                ui.checkbox(&mut o.on, &o.label);
+                ui.check_box(&mut o.on, &o.label);
             }
         });
         let n = draft.objects.iter().filter(|o| o.on && in_scope(o, only)).count();
@@ -473,25 +474,25 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
             );
             egui::Grid::new("text-replace").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Find what");
-                let r = ui.add(egui::TextEdit::singleline(&mut draft.find).desired_width(320.0));
+                let r = ui.add(mg_uikit::text_field(&mut draft.find).desired_width(320.0));
                 crate::widgets::autofocus(ui, &r);
                 find = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.end_row();
                 crate::widgets::field_label(ui, "Replace with");
-                ui.add(egui::TextEdit::singleline(&mut draft.with).desired_width(320.0));
+                ui.add(mg_uikit::text_field(&mut draft.with).desired_width(320.0));
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut draft.options.match_case, "Match case");
-                ui.checkbox(&mut draft.options.whole_word, "Whole words");
-                ui.checkbox(&mut draft.options.regex, "Regular expression").on_hover_text(
+                ui.check_box(&mut draft.options.match_case, "Match case");
+                ui.check_box(&mut draft.options.whole_word, "Whole words");
+                ui.check_box(&mut draft.options.regex, "Regular expression").on_hover_text(
                     "Find what is a regular expression. Replace with may use its groups ($1, \
                      ${name}).",
                 );
             });
             let mut tick = |ui: &mut egui::Ui, k: TextKind, hover: Option<&str>| {
                 let mut on = draft.kinds.contains(&k);
-                let r = ui.checkbox(&mut on, k.label());
+                let r = ui.check_box(&mut on, k.label());
                 let r = match hover {
                     Some(h) => r.on_hover_text(h),
                     None => r,
@@ -568,7 +569,7 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                         ui.allocate_ui_with_layout(size, down, |ui| {
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             ui.horizontal(|ui| {
-                                ui.checkbox(on, "");
+                                ui.check_box(on, "");
                                 if ui.link(&hit.place).on_hover_text("Open it").clicked() {
                                     go = Some(i);
                                 }

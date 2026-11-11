@@ -537,6 +537,7 @@ fn contents_ui(
             }
             let at_kind = keys.cursor == Some(TreeAt::Kind(area, *kind));
             let mut header = egui::CollapsingHeader::new(title)
+                .icon(mg_uikit::collapsing_icon)
                 .id_salt(("area-kind", area, *kind))
                 // (The keys' cursor on a kind shows as its row marked.)
                 .show_background(at_kind);
@@ -650,6 +651,7 @@ fn contents_ui(
                         *hovered = Some(TreeAt::Object(area, *kind, index));
                     }
                     r.context_menu(|ui| {
+                        mg_uikit::menu_rows(ui);
                         // Several chosen, this one among them: what is
                         // done to them together.
                         if several {
@@ -1312,7 +1314,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         let new = new_command(types);
         let new_label = new.map(|id| new_label(&id.name()));
         let at_group = cursor == Some(TreeAt::Group(name));
-        let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
+        let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len())).icon(mg_uikit::collapsing_icon)
             .id_salt(name)
             .default_open(*name == "Areas")
             // (The keys' cursor on a group shows as its row marked.)
@@ -1535,6 +1537,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         app.actions.push(delete_asked(&app.tree_selected, k));
                     }
                     r.context_menu(|ui| {
+ mg_uikit::menu_rows(ui);
                         if chosen {
                             let keys: Vec<ResKey> = app.tree_selected.iter().copied().collect();
                             let asked = several_menu(ui, &keys, &menu_commands, &mut app.actions);
@@ -1723,6 +1726,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             group_kinds.len() == 1 && menu_commands.iter().any(|c| c.fits(&group_kinds));
         if new.is_none() && group_has {
             header.header_response.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 if let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds) {
                     plugin_group = Some((i, listed_keys.to_vec()));
                 }
@@ -1731,6 +1735,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         shown.push((*name, !header.fully_closed(), listed_keys.clone()));
         if let (Some(id), Some(label)) = (new, &new_label) {
             header.header_response.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 if group_has
                     && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds)
                 {
@@ -2259,6 +2264,7 @@ fn several_menu(
     }
     // The ways of writing them out, together (as one's menu has them).
     ui.menu_button("Export", |ui| {
+        mg_uikit::menu_rows(ui);
         if ui.button("Export…").clicked() {
             actions.push(Action::ExportDialog(keys.to_vec()));
             ui.close();
@@ -2297,6 +2303,7 @@ fn several_menu(
 /// ends the second's tip ("of the area").
 fn placeables_menu(ui: &mut Ui, areas: &[ResRef], whose: &str, actions: &mut Vec<Action>) {
     ui.menu_button("Placeables", |ui| {
+        mg_uikit::menu_rows(ui);
         if ui.button("Make Placeables Static").on_hover_text(STATIC_TIP).clicked() {
             actions.push(Action::StaticPlaceables(areas.to_vec()));
             ui.close();

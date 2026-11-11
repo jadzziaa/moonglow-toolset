@@ -305,6 +305,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             for (i, item) in values.iter_mut().enumerate().take(MOST_ITEMS) {
                 ui.push_id(i, |ui| {
                     egui::CollapsingHeader::new(format!("Item {}", i + 1))
+                        .icon(mg_uikit::collapsing_icon)
                         .default_open(values_simple(item))
                         .show(ui, |ui| {
                             value(ui, item, depth + 1);
@@ -332,7 +333,9 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             for (key, item) in o.iter_mut() {
                 ui.push_id(key, |ui| {
                     if item.is_array() || item.is_object() {
-                        egui::CollapsingHeader::new(key).show(ui, |ui| value(ui, item, depth + 1));
+                        egui::CollapsingHeader::new(key)
+                            .icon(mg_uikit::collapsing_icon)
+                            .show(ui, |ui| value(ui, item, depth + 1));
                     } else {
                         widgets::field_label(ui, key);
                         value(ui, item, depth + 1);
@@ -342,6 +345,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
         }
         Value::Null => {
             ui.menu_button("Set Value…", |ui| {
+                mg_uikit::menu_rows(ui);
                 for (label, next) in [
                     ("Text", json!("")),
                     ("Number", json!(0.0)),
@@ -432,106 +436,113 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
     if let Some((parent, i, true)) = array_position(selected)
         && let Some(cell) = doc.pointer_mut(&parent).and_then(|v| v.get_mut(i))
     {
-        egui::CollapsingHeader::new("List cell").default_open(true).show(ui, |ui| {
-            if let Some(width) = cell.get_mut(1) {
-                widgets::field_label(ui, "Cell width");
-                scalar(ui, width);
+        egui::CollapsingHeader::new("List cell")
+            .icon(mg_uikit::collapsing_icon)
+            .default_open(true)
+            .show(ui, |ui| {
+                if let Some(width) = cell.get_mut(1) {
+                    widgets::field_label(ui, "Cell width");
+                    scalar(ui, width);
+                }
+                if let Some(variable) = cell.get(2).and_then(Value::as_bool) {
+                    let mut variable = variable;
+                    if ui.check_box(&mut variable, "Variable width").changed() {
+                        cell[2] = variable.into();
+                    }
+                }
+            });
+    }
+    let Some(node) = doc.pointer_mut(selected).filter(|n| n["type"] == "list") else { return };
+    egui::CollapsingHeader::new("Row data")
+        .icon(mg_uikit::collapsing_icon)
+        .default_open(true)
+        .show(ui, |ui| {
+            let names = row_binds(&node["row_template"]);
+            if names.is_empty() {
+                ui.weak("Bind a cell's value to edit its rows here.");
+                return;
             }
-            if let Some(variable) = cell.get(2).and_then(Value::as_bool) {
-                let mut variable = variable;
-                if ui.checkbox(&mut variable, "Variable width").changed() {
-                    cell[2] = variable.into();
+            // Never reinterpret a scalar shared bind as a row array without an explicit choice.
+            let mut arrays = Vec::new();
+            for name in &names {
+                if s.bindings.get(name).is_some_and(|b| b.value.is_array()) {
+                    arrays.push(name.clone());
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(egui::Label::new(name).wrap());
+                        if ui.small_button("Use Row Array").clicked() {
+                            let b = s.bindings.entry(name.clone()).or_default();
+                            b.value = json!([b.value.clone()]);
+                        }
+                    });
+                }
+            }
+            let count = arrays
+                .iter()
+                .filter_map(|n| s.bindings.get(n)?.value.as_array().map(Vec::len))
+                .max()
+                .unwrap_or(0);
+            let mut remove = None;
+            let mut duplicate = None;
+            for row in 0..count.min(MOST_ITEMS) {
+                egui::CollapsingHeader::new(format!("Row {}", row + 1))
+                    .icon(mg_uikit::collapsing_icon)
+                    .id_salt((selected, row))
+                    .show(ui, |ui| {
+                        for name in &arrays {
+                            ui.push_id(name, |ui| {
+                                widgets::field_label(ui, name);
+                                let Some(a) =
+                                    s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
+                                else {
+                                    return;
+                                };
+                                if let Some(v) = a.get_mut(row) {
+                                    value(ui, v, 0);
+                                } else if ui.small_button("Fill Missing Cell").clicked() {
+                                    a.resize(row + 1, Value::Null);
+                                }
+                            });
+                        }
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.small_button("Duplicate Row").clicked() {
+                                duplicate = Some(row);
+                            }
+                            if ui.small_button("Delete Row").clicked() {
+                                remove = Some(row);
+                            }
+                        });
+                    });
+            }
+            more(ui, count, "rows");
+            let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add Row")).clicked();
+            if add || remove.is_some() || duplicate.is_some() {
+                for name in arrays {
+                    let Some(a) = s.bindings.get_mut(&name).and_then(|b| b.value.as_array_mut())
+                    else {
+                        continue;
+                    };
+                    a.resize(count, Value::Null);
+                    if let Some(row) = remove {
+                        a.remove(row);
+                    } else if let Some(row) = duplicate {
+                        a.insert(row + 1, a[row].clone());
+                    } else {
+                        a.push(a.last().cloned().unwrap_or(Value::Null));
+                    }
+                }
+                let rows =
+                    count + usize::from(add || duplicate.is_some()) - usize::from(remove.is_some());
+                if node["row_count"].is_number() {
+                    node["row_count"] = json!(rows);
+                } else if let Some(bind) = node["row_count"]["bind"].as_str()
+                    && let Some(b) = s.bindings.get_mut(bind).filter(|b| b.value.is_u64())
+                {
+                    // A row count bound to a number follows the rows too.
+                    b.value = json!(rows);
                 }
             }
         });
-    }
-    let Some(node) = doc.pointer_mut(selected).filter(|n| n["type"] == "list") else { return };
-    egui::CollapsingHeader::new("Row data").default_open(true).show(ui, |ui| {
-        let names = row_binds(&node["row_template"]);
-        if names.is_empty() {
-            ui.weak("Bind a cell's value to edit its rows here.");
-            return;
-        }
-        // Never reinterpret a scalar shared bind as a row array without an explicit choice.
-        let mut arrays = Vec::new();
-        for name in &names {
-            if s.bindings.get(name).is_some_and(|b| b.value.is_array()) {
-                arrays.push(name.clone());
-            } else {
-                ui.horizontal_wrapped(|ui| {
-                    ui.add(egui::Label::new(name).wrap());
-                    if ui.small_button("Use Row Array").clicked() {
-                        let b = s.bindings.entry(name.clone()).or_default();
-                        b.value = json!([b.value.clone()]);
-                    }
-                });
-            }
-        }
-        let count = arrays
-            .iter()
-            .filter_map(|n| s.bindings.get(n)?.value.as_array().map(Vec::len))
-            .max()
-            .unwrap_or(0);
-        let mut remove = None;
-        let mut duplicate = None;
-        for row in 0..count.min(MOST_ITEMS) {
-            egui::CollapsingHeader::new(format!("Row {}", row + 1)).id_salt((selected, row)).show(
-                ui,
-                |ui| {
-                    for name in &arrays {
-                        ui.push_id(name, |ui| {
-                            widgets::field_label(ui, name);
-                            let Some(a) =
-                                s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
-                            else {
-                                return;
-                            };
-                            if let Some(v) = a.get_mut(row) {
-                                value(ui, v, 0);
-                            } else if ui.small_button("Fill Missing Cell").clicked() {
-                                a.resize(row + 1, Value::Null);
-                            }
-                        });
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.small_button("Duplicate Row").clicked() {
-                            duplicate = Some(row);
-                        }
-                        if ui.small_button("Delete Row").clicked() {
-                            remove = Some(row);
-                        }
-                    });
-                },
-            );
-        }
-        more(ui, count, "rows");
-        let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add Row")).clicked();
-        if add || remove.is_some() || duplicate.is_some() {
-            for name in arrays {
-                let Some(a) = s.bindings.get_mut(&name).and_then(|b| b.value.as_array_mut()) else {
-                    continue;
-                };
-                a.resize(count, Value::Null);
-                if let Some(row) = remove {
-                    a.remove(row);
-                } else if let Some(row) = duplicate {
-                    a.insert(row + 1, a[row].clone());
-                } else {
-                    a.push(a.last().cloned().unwrap_or(Value::Null));
-                }
-            }
-            let rows =
-                count + usize::from(add || duplicate.is_some()) - usize::from(remove.is_some());
-            if node["row_count"].is_number() {
-                node["row_count"] = json!(rows);
-            } else if let Some(bind) = node["row_count"]["bind"].as_str()
-                && let Some(b) = s.bindings.get_mut(bind).filter(|b| b.value.is_u64())
-            {
-                // A row count bound to a number follows the rows too.
-                b.value = json!(rows);
-            }
-        }
-    });
 }
 
 /// The binds a list's rows give values to: those of its cells, and of draw
@@ -569,7 +580,7 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
     if v.get("bind").is_none() {
         return;
     }
-    egui::CollapsingHeader::new("Bind formatting").show(ui, |ui| {
+    egui::CollapsingHeader::new("Bind formatting").icon(mg_uikit::collapsing_icon).show(ui, |ui| {
         // The NUI_NUMBER_FLAG_* and NUI_TEXT_FLAG_* bits of nw_inc_nui.
         for (key, bit, label) in [
             ("number_flags", 1, "Numbers in hexadecimal"),
@@ -578,7 +589,7 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
         ] {
             let flags = v[key].as_i64().unwrap_or(0);
             let mut on = flags & bit != 0;
-            if ui.checkbox(&mut on, label).changed() {
+            if ui.check_box(&mut on, label).changed() {
                 v[key] = json!(if on { flags | bit } else { flags & !bit });
             }
         }

@@ -11,6 +11,7 @@ use mg_module::blueprints::{self, CreatureSpec};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::{Choice, GameData};
+use mg_uikit::Controls as _;
 
 use crate::images::Loader;
 use crate::widgets::ResRefText;
@@ -508,7 +509,7 @@ fn page(
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Portrait");
                 if ui
-                    .checkbox(&mut w.all_portraits, "All portraits")
+                    .check_box(&mut w.all_portraits, "All portraits")
                     .on_hover_text("Every creature's portrait, not this race's and gender's alone")
                     .changed()
                 {
@@ -566,7 +567,10 @@ fn page(
                                                     ui.painter().rect_stroke(
                                                         r.rect.expand(1.0),
                                                         2.0,
-                                                        ui.visuals().selection.stroke,
+                                                        egui::Stroke::new(
+                                                            1.0,
+                                                            mg_uikit::tokens(ui.ctx()).accent,
+                                                        ),
                                                         egui::StrokeKind::Outside,
                                                     );
                                                 }
@@ -623,7 +627,7 @@ fn page(
             egui::Grid::new("cw-name").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Name");
                 ui.end_row();
-                let field = ui.text_edit_singleline(&mut w.first_name);
+                let field = ui.add(mg_uikit::text_field(&mut w.first_name));
                 crate::widgets::autofocus(ui, &field);
                 if ui.button("Random").clicked()
                     && let Some(n) = game.random_name(race, w.gender, false, &mut rng)
@@ -633,7 +637,7 @@ fn page(
                 ui.end_row();
                 crate::widgets::field_label(ui, "Last Name:");
                 ui.end_row();
-                ui.text_edit_singleline(&mut w.last_name);
+                ui.add(mg_uikit::text_field(&mut w.last_name));
                 if ui.button("Random").clicked()
                     && let Some(n) = game.random_name(race, w.gender, true, &mut rng)
                 {
@@ -661,7 +665,7 @@ fn page(
                 ui.end_row();
                 crate::widgets::field_label(ui, "Tag");
                 ui.add(
-                    egui::TextEdit::singleline(&mut w.tag)
+                    mg_uikit::text_field(&mut w.tag)
                         .hint_text(blueprints::tag(&name))
                         .char_limit(mg_module::tags::MAX_TAG)
                         .desired_width(180.0),
@@ -696,7 +700,7 @@ fn page(
         _ => {
             ui.label("This creature is now complete.");
             ui.label("If you wish, you can fine-tune it using the Creature Properties.");
-            ui.checkbox(&mut w.launch, "Launch Creature Properties");
+            ui.check_box(&mut w.launch, "Launch Creature Properties");
         }
     }
 }

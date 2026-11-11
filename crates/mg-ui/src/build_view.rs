@@ -4,6 +4,7 @@
 //! and the list can be exported as text. Aurora's defaults: Compile and
 //! Missing Resources on, Unused and Spell Check off.
 
+use mg_uikit::Controls as _;
 use std::collections::BTreeMap;
 
 use mg_core::{ResRef, ResType};
@@ -113,22 +114,22 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             // The four checks, always; Advanced Controls shows what each
             // covers.
             ui.horizontal(|ui| {
-                ui.checkbox(&mut w.unused, "Unused").on_hover_text("Check for use");
-                ui.checkbox(&mut w.missing, "Missing Resources")
+                ui.check_box(&mut w.unused, "Unused").on_hover_text("Check for use");
+                ui.check_box(&mut w.missing, "Missing Resources")
                     .on_hover_text("Check that resources are available");
-                ui.checkbox(&mut w.compile, "Compile");
-                ui.add_enabled(false, egui::Checkbox::new(&mut false, "Spell Check"))
+                ui.check_box(&mut w.compile, "Compile");
+                ui.add_enabled(false, mg_uikit::Checkbox::new(&mut false, "Spell Check"))
                     .on_disabled_hover_text("Not yet: Moonglow has no dictionary");
             });
-            ui.checkbox(&mut w.advanced, "Advanced Controls");
+            ui.check_box(&mut w.advanced, "Advanced Controls");
             if w.advanced {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.unused, |ui| {
                             crate::widgets::field_label(ui, "Unused");
-                            ui.checkbox(&mut w.unused_scripts, "Scripts");
-                            ui.checkbox(&mut w.unused_conversations, "Conversations");
-                            ui.checkbox(&mut w.unused_blueprints, "Blueprints");
+                            ui.check_box(&mut w.unused_scripts, "Scripts");
+                            ui.check_box(&mut w.unused_conversations, "Conversations");
+                            ui.check_box(&mut w.unused_blueprints, "Blueprints");
                         });
                     });
                     // (A gap, not a divider: a divider in a row takes all
@@ -139,7 +140,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.add_enabled_ui(w.missing, |ui| {
                             crate::widgets::field_label(ui, "Missing Resources");
                             for (c, on) in &mut w.missing_of {
-                                ui.checkbox(on, format!("{c:?}"));
+                                ui.check_box(on, format!("{c:?}"));
                             }
                         });
                     });
@@ -147,11 +148,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.compile, |ui| {
                             crate::widgets::field_label(ui, "Compile");
-                            ui.checkbox(&mut w.compile_scripts, "Scripts");
-                            ui.checkbox(&mut w.compile_cr, "Creature CR")
+                            ui.check_box(&mut w.compile_scripts, "Scripts");
+                            ui.check_box(&mut w.compile_cr, "Creature CR")
                                 .on_hover_text("Recalculate creature challenge ratings");
-                            ui.checkbox(&mut w.compile_encounters, "Encounters");
-                            ui.checkbox(&mut w.compile_palettes, "Palettes");
+                            ui.check_box(&mut w.compile_encounters, "Encounters");
+                            ui.check_box(&mut w.compile_palettes, "Palettes");
                         });
                     });
                 });
@@ -179,6 +180,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         }
                         let Some(u) = f.unused else { continue };
                         r.context_menu(|ui| {
+                            mg_uikit::menu_rows(ui);
                             let r =
                                 ui.add_enabled(place.is_some(), egui::Button::new("Mark as Used"));
                             if r.on_disabled_hover_text(NO_PLACE)
@@ -214,14 +216,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 done = ui.button("Done").clicked();
             });
             if w.unused {
-                egui::CollapsingHeader::new("Counted as Used").id_salt("build-used").show(
-                    ui,
-                    |ui| {
+                egui::CollapsingHeader::new("Counted as Used")
+                    .icon(mg_uikit::collapsing_icon)
+                    .id_salt("build-used")
+                    .show(ui, |ui| {
                         if let Some(change) = marks(ui, &mut w, &used, place.as_ref()) {
                             mark = Some(change);
                         }
-                    },
-                );
+                    });
             }
         });
     if let Some((kind, pattern, add)) = mark
@@ -340,7 +342,7 @@ fn marks(
             label,
         );
         let r = ui.add(
-            egui::TextEdit::singleline(&mut w.mark_draft)
+            mg_uikit::text_field(&mut w.mark_draft)
                 .hint_text("name or glob (ai_*)")
                 .desired_width(160.0),
         );

@@ -1314,12 +1314,17 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
         level.clear();
     }
 
-    egui::MenuBar::new().ui(ui, |ui| {
+    // (The suite's menus: titles hovered `raised`, open and rows hovered
+    // `accent-fill`.)
+    let config = egui::containers::menu::MenuConfig::new().style(mg_uikit::menu_style);
+    egui::MenuBar::new().style(mg_uikit::menu_bar_style).config(config).ui(ui, |ui| {
         for (name, items) in MENUS {
             // (Its first letter underlined: Alt and the letter opens it.)
             let mut job = egui::text::LayoutJob::default();
             let font = egui::TextStyle::Button.resolve(ui.style());
-            let color = ui.visuals().widgets.inactive.text_color();
+            // (The button's own text color, which its state gives: on the
+            // open menu's `accent-fill`, `on-fill`.)
+            let color = egui::Color32::PLACEHOLDER;
             let plain = egui::TextFormat { font_id: font, color, ..Default::default() };
             let under =
                 egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() };
@@ -1412,6 +1417,21 @@ fn initial(name: &str) -> char {
 /// A row of a menu, for the keys: counted, marked where the keys are at
 /// it, and chosen by Enter. Returns the button to draw, and whether the
 /// keys chose it.
+/// A menu row's keys (beside its name), for the row [`row`] makes next at
+/// `level`: in the weak text's color, or the fill's (`on-fill`) where the
+/// row is lit, under the pointer or the keys' cursor: the weak text did
+/// not read on the menu's `accent-fill`.
+fn keys_beside(app: &Moonglow, ui: &Ui, level: usize, key: String) -> egui::RichText {
+    let index = app.menu_row.get(level).copied().unwrap_or(0);
+    let next = egui::Rect::from_min_size(
+        ui.cursor().min,
+        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+    );
+    let lit = app.menu_keys.at(level, index) || ui.rect_contains_pointer(next);
+    let keys = egui::RichText::new(key);
+    if lit { keys.color(mg_uikit::tokens(ui.ctx()).on_fill) } else { keys }
+}
+
 fn row<'a>(
     app: &mut Moonglow,
     level: usize,
@@ -1563,7 +1583,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                         let id = crate::project_commands::key_id(&c.name);
                         let key = app.keymap.label_of(&id, ui.ctx());
                         if !key.is_empty() {
-                            entry = entry.shortcut_text(key);
+                            entry = entry.shortcut_text(keys_beside(app, ui, level + 1, key));
                         }
                         let (entry, chosen) = row(app, level + 1, &name, entry, can);
                         let tip = crate::project_commands::tip(&c);
@@ -1633,7 +1653,7 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     let mut entry = egui::Button::new(&name);
     let key = app.keymap.label_of(&id.id(), ui.ctx());
     if !key.is_empty() {
-        entry = entry.shortcut_text(key);
+        entry = entry.shortcut_text(keys_beside(app, ui, level, key));
     }
     let enabled = id.enabled(app);
     let (entry, chosen) = row(app, level, &name, entry, enabled);
@@ -1677,7 +1697,7 @@ fn plugin_command_rows(
             let mut entry = egui::Button::new(&c.title);
             let key = app.keymap.label_of(&c.key_id, ui.ctx());
             if !key.is_empty() {
-                entry = entry.shortcut_text(key);
+                entry = entry.shortcut_text(keys_beside(app, ui, level, key));
             }
             let (entry, chosen) = row(app, level, &c.title, entry, enabled);
             let mut r = ui.add_enabled(enabled, entry);
@@ -1913,6 +1933,12 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
                         (false, false) => format!("{}   {key}", row.menu),
                         (true, _) => key,
                     };
+                    // (Beside the row chosen, on the selection's fill: in the
+                    // fill's color, `on-fill`, not the weak text's.)
+                    let mut beside = egui::RichText::new(beside);
+                    if i == finder.selected {
+                        beside = beside.color(mg_uikit::tokens(ui.ctx()).on_fill);
+                    }
                     let entry = egui::Button::selectable(i == finder.selected, &row.label)
                         .shortcut_text(beside);
                     let entry = ui.add_enabled(row.enabled, entry);
@@ -1955,7 +1981,11 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
 /// tip (with Icons only, its glyph alone: [`crate::icons::Tools`]).
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
     let tools = crate::icons::Tools::of(&app.settings);
-    ui.horizontal(|ui| {
+    // (A second row where the window is too narrow for one: the theme's
+    // buttons are wider than egui's were, and the last were cut off.)
+    ui.horizontal_wrapped(|ui| {
+        // (A button whole on the next row, never its word broken up.)
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         for tool in TOOLBAR {
             let Some((id, glyph, name, tip)) = tool else {
                 ui.separator();
@@ -1976,7 +2006,9 @@ pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
             } else {
                 let button = egui::Button::new(tools.label(glyph, name)).small();
                 let enabled = id.enabled(app);
-                ui.add_enabled_ui(enabled, |ui| tools.add(ui, button, name, &tip)).inner.clicked()
+                // (Added as itself, not in a scope of its own: the row
+                // wraps before a button it has no room for.)
+                tools.named(ui.add_enabled(enabled, button), name, &tip, None).clicked()
             };
             if clicked {
                 id.run(app, ui.ctx());

@@ -5,6 +5,7 @@
 //! When…, Actions Taken, Other Actions, Comments and Current File. Each
 //! change is one undoable command.
 
+use mg_uikit::Controls as _;
 use std::collections::HashSet;
 
 use egui::{Color32, RichText, Ui};
@@ -1259,6 +1260,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // Export and import (dialog_io): the lines back by CSV.
         let mut export = None;
         let menu = ui.menu_button(tools.word(glyph::EXPORT, "Export"), |ui| {
+            mg_uikit::menu_rows(ui);
             for f in mg_module::dialog_io::Format::ALL {
                 if ui.button(format!("{}…", f.name())).clicked() {
                     export = Some(f);
@@ -1494,7 +1496,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // The tree, in the Options' colours.
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
-    let look = Look::new(&app.settings, ui.visuals().dark_mode);
+    let look = Look::new(&app.settings, ui.visuals().dark_mode, mg_uikit::tokens(ui.ctx()).text_3);
     let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
     let shown = lines.show(ui, |ui| {
         // Ctrl+Up and Ctrl+Down: a row up or down, the selection staying.
@@ -1712,7 +1714,8 @@ pub(crate) fn default_colors(dark: bool) -> ([u8; 3], [u8; 3]) {
 }
 
 impl Look {
-    fn new(s: &crate::Settings, dark: bool) -> Look {
+    /// `link`: a link's lines' color (the theme's weak text).
+    fn new(s: &crate::Settings, dark: bool, link: Color32) -> Look {
         let rgb = |c: Option<[u8; 3]>, [r, g, b]: [u8; 3]| {
             let [r, g, b] = c.unwrap_or([r, g, b]);
             Color32::from_rgb(r, g, b)
@@ -1723,7 +1726,7 @@ impl Look {
             scripts: !s.dialog_hide_scripts,
             npc: rgb(s.dialog_npc_color, npc),
             pc: rgb(s.dialog_pc_color, pc),
-            link: if dark { Color32::GRAY } else { Color32::from_gray(110) },
+            link,
         }
     }
 }
@@ -1759,7 +1762,11 @@ fn tree(
         let open = !view.collapsed.contains(&(kind, index));
         let label = row_label(game, g, kind, l, look.names);
         let cond = l.resref("Active").filter(|r| !r.is_empty());
-        let color = if linked {
+        // (The row chosen: its words in the theme's `on-fill` on the
+        // selection's fill, where a speaker's color would not read.)
+        let color = if view.selected == Some(row) {
+            mg_uikit::tokens(ui.ctx()).on_fill
+        } else if linked {
             look.link
         } else if kind == Kind::Entry {
             look.npc
@@ -1771,7 +1778,9 @@ fn tree(
             rich = rich.italics();
         }
         if highlighted(n, hl) {
-            rich = rich.background_color(Color32::from_rgba_unmultiplied(230, 200, 60, 70));
+            // (Found: the theme's `select`, faint behind the words.)
+            let found = mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3);
+            rich = rich.background_color(found);
         }
         ui.horizontal(|ui| {
             ui.add_space(depth as f32 * 16.0);
@@ -1808,7 +1817,7 @@ fn tree(
             if let Some(from) = r.dnd_hover_payload::<(ResKey, Row)>().and_then(ours)
                 && from != row
             {
-                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                let stroke = egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent);
                 if !link_key(ui) && from.parent.child_kind() == kind {
                     ui.painter().hline(r.rect.x_range(), r.rect.top(), stroke);
                 } else {
@@ -1816,6 +1825,7 @@ fn tree(
                 }
             }
             r.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 view.selected = Some(row);
                 if linked
                     && ui
@@ -2152,6 +2162,7 @@ fn script_with_params(
         ui.label("Parameters");
         ui.separator();
         ui.menu_button("Add Set", |ui| {
+            mg_uikit::menu_rows(ui);
             match crate::widgets::sets_menu(ui, &mut app.log, &PARAMETER_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(set)) => chosen.push(set),
                 Some(SetChoice::FromFile) => from_file = true,
@@ -2228,9 +2239,9 @@ fn script_with_params(
                 if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
                     remove_at = Some(i);
                 }
-                let name = egui::TextEdit::singleline(k).desired_width(name_width);
+                let name = mg_uikit::text_field(k).desired_width(name_width);
                 let rk = ui.add(name.hint_text("name"));
-                let value = egui::TextEdit::singleline(v).desired_width(value_width);
+                let value = mg_uikit::text_field(v).desired_width(value_width);
                 let rv = ui.add(value.hint_text("value"));
                 crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
                 crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
@@ -2476,7 +2487,7 @@ fn file_tab(app: &mut Moonglow, ui: &mut Ui, key: ResKey, g: &Gff, actions: &mut
         }
         let mut zoom = g.root.byte("PreventZoomIn").unwrap_or(0) != 0;
         ui.label("");
-        if ui.checkbox(&mut zoom, "Stop camera zoom in").changed() {
+        if ui.check_box(&mut zoom, "Stop camera zoom in").changed() {
             actions.push(set(
                 key,
                 "Camera zoom",
@@ -2539,7 +2550,7 @@ fn search_pane(
     let s = &mut view.search;
     egui::Grid::new(("dlg-search", key)).num_columns(2).show(ui, |ui| {
         crate::widgets::field_label(ui, "Find What");
-        let field = ui.text_edit_singleline(&mut s.find);
+        let field = ui.add(mg_uikit::text_field(&mut s.find));
         crate::widgets::autofocus(ui, &field);
         if std::mem::take(&mut s.focus) {
             field.request_focus();
@@ -2553,13 +2564,13 @@ fn search_pane(
         }
         ui.end_row();
         crate::widgets::field_label(ui, "Replace With");
-        ui.text_edit_singleline(&mut s.replace);
+        ui.add(mg_uikit::text_field(&mut s.replace));
         ui.end_row();
     });
     ui.horizontal(|ui| {
-        ui.checkbox(&mut s.options.match_case, "Match Case");
-        ui.checkbox(&mut s.options.whole_word, "Match Whole Word Only");
-        ui.checkbox(&mut s.all_files, "All Files in Module");
+        ui.check_box(&mut s.options.match_case, "Match Case");
+        ui.check_box(&mut s.options.whole_word, "Match Whole Word Only");
+        ui.check_box(&mut s.all_files, "All Files in Module");
     });
     let mut find = false;
     let mut replace_all = false;

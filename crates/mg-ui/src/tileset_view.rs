@@ -4,6 +4,7 @@
 //! groups. It also makes the tileset's
 //! palette beside it and checks it with the content doctor.
 
+use mg_uikit::Controls as _;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -458,7 +459,7 @@ fn text_key(
 
 fn flag_key(ui: &mut Ui, d: &mut TilesetDoc, section: &str, key: &str, label: &str) {
     let mut on = d.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0) != 0;
-    if ui.checkbox(&mut on, label).changed() {
+    if ui.check_box(&mut on, label).changed() {
         d.change(|f| f.set(section, key, if on { "1" } else { "0" }));
     }
 }
@@ -632,7 +633,7 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
                     ui.monospace(format!("{i:>3}"));
                     match &mut d.renaming {
                         Some((c, k, typed)) if *c == crosser && *k == i => {
-                            let r = ui.add(egui::TextEdit::singleline(typed).desired_width(120.0));
+                            let r = ui.add(mg_uikit::text_field(typed).desired_width(120.0));
                             let why = rename_refused(&t, crosser, i, typed);
                             let ok = why.is_none();
                             let enter =
@@ -677,7 +678,7 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
     ui.separator();
     ui.horizontal(|ui| {
         ui.label("Name");
-        ui.add(egui::TextEdit::singleline(&mut d.new_type).desired_width(160.0));
+        ui.add(mg_uikit::text_field(&mut d.new_type).desired_width(160.0));
         let name = d.new_type.trim().to_string();
         let taken =
             t.terrains.iter().chain(&t.crossers).any(|x| x.name.eq_ignore_ascii_case(&name));
@@ -905,7 +906,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             filter.finds_in(&fields.iter().map(String::as_str).collect::<Vec<_>>())
         })
         .collect();
-    let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
     let mut list = egui::ScrollArea::vertical().id_salt(("set-tiles", d.id)).max_height(260.0);
     if d.tile != d.scrolled_to {
         d.scrolled_to = d.tile;
@@ -920,7 +921,10 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             let corners: Vec<&str> = tile.corners.iter().map(|(c, _)| c.as_str()).collect();
             let edges: Vec<&str> =
                 tile.edges.iter().map(|e| if e.is_empty() { "-" } else { e }).collect();
+            let chosen = d.tile == Some(i);
             let text = match tile_hole(&t, i) {
+                // (On the selection's fill, chosen: the words the fill's.)
+                Some(why) if chosen => egui::RichText::new(format!("{i:>4}  a hole: {why}")),
                 Some(why) => egui::RichText::new(format!("{i:>4}  a hole: {why}"))
                     .color(ui.visuals().warn_fg_color),
                 None => egui::RichText::new(format!(
@@ -930,7 +934,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
                     edges.join("/")
                 )),
             };
-            if ui.selectable_label(d.tile == Some(i), text.monospace()).clicked() {
+            if ui.selectable_label(chosen, text.monospace()).clicked() {
                 d.tile = Some(i);
                 d.scrolled_to = Some(i);
             }

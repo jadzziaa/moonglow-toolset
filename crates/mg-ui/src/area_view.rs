@@ -21,6 +21,7 @@
 //! closing the outline. Ctrl + click adds to the selection and Delete
 //! deletes it.
 
+use mg_uikit::Controls as _;
 use std::f32::consts::FRAC_PI_2;
 
 use egui::{Color32, Pos2, Rect, Stroke};
@@ -160,7 +161,15 @@ impl Held {
             Held {
                 on,
                 down: [Primary, Secondary, Middle].map(|b| on && i.pointer.button_down(b)),
-                delta: if on { i.pointer.delta() } else { egui::Vec2::ZERO },
+                // (The first frame of a drag: all the way from the press,
+                // not the frame's step alone. egui counts a drag only once
+                // the pointer has gone a few points, and those were lost:
+                // the view lagged behind the ground held.)
+                delta: match (on, was.on, i.pointer.press_origin(), i.pointer.latest_pos()) {
+                    (true, false, Some(from), Some(to)) => to - from,
+                    (true, ..) => i.pointer.delta(),
+                    _ => egui::Vec2::ZERO,
+                },
                 pos: i.pointer.latest_pos(),
                 cancelled: was.on && escape,
             }
@@ -2966,6 +2975,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(row_id)) {
         let behind = ui.interact(rect, row_id.with("menu"), egui::Sense::click());
         behind.context_menu(|ui| {
+            mg_uikit::menu_rows(ui);
             egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
                 toolbar_menu(ui, &mut app.settings.hidden_area_tools, false);
             });
@@ -4342,7 +4352,7 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
     }));
     let mut tick = |ui: &mut egui::Ui, (id, label): &(String, String)| {
         let mut shown = !hidden.contains(id);
-        if ui.checkbox(&mut shown, label).changed() {
+        if ui.check_box(&mut shown, label).changed() {
             hidden.retain(|h| h != id);
             if !shown {
                 hidden.push(id.clone());
@@ -4394,10 +4404,10 @@ fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::
         (view.walkmesh, view.object_walkmesh) = (!on, false);
     }
     menu.show(|ui| {
-        ui.checkbox(&mut view.walkmesh, "Ground Walkmesh").on_hover_text(
+        ui.check_box(&mut view.walkmesh, "Ground Walkmesh").on_hover_text(
             "The ground's walkmesh, walkable faces green (Aurora's Render AABB Nodes)",
         );
-        ui.checkbox(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
+        ui.check_box(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
             "Where placeables and doors keep creatures out: placeables orange, doors blue",
         );
     });
@@ -4469,16 +4479,16 @@ fn shadows_button(
             if on { [false; 3] } else { again };
     }
     menu.show(|ui| {
-        ui.checkbox(&mut view.shadows, "Sun and Moon Shadows").on_hover_text(
+        ui.check_box(&mut view.shadows, "Sun and Moon Shadows").on_hover_text(
             "The sun's by day and the moon's at night, cast by tiles and static placeables",
         );
-        ui.checkbox(&mut view.creature_shadows, "Creature Shadows").on_hover_text(
+        ui.check_box(&mut view.creature_shadows, "Creature Shadows").on_hover_text(
             "Creatures, doors and dynamic placeables cast shadows too, as at the game's best detail",
         );
         // (Grayed out without Creature Shadows, its tick kept: the lights'
         // shadows are the creatures', as in the game.)
         let creatures = view.creature_shadows;
-        ui.add_enabled(creatures, egui::Checkbox::new(&mut view.light_shadows, "Light Shadows"))
+        ui.add_enabled(creatures, mg_uikit::Checkbox::new(&mut view.light_shadows, "Light Shadows"))
             .on_hover_text(
                 "Creatures cast shadows from the nearest light that casts them, without sun or moon",
             )
@@ -5222,7 +5232,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.tile_menu_at = response.interact_pointer_pos();
             }
             let at = view.tile_menu_at;
-            response.context_menu(|ui| crate::tile_select::context_menu(app, view, ui, at));
+            response.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
+                crate::tile_select::context_menu(app, view, ui, at)
+            });
         }
         return;
     }
@@ -5238,7 +5251,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         if !shift {
             let at = view.tile_menu_at;
-            response.context_menu(|ui| crate::tile_select::context_menu(app, view, ui, at));
+            response.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
+                crate::tile_select::context_menu(app, view, ui, at)
+            });
         }
         return;
     }
@@ -5528,7 +5544,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             .and_then(|p| crate::tile_select::tile_at(view, p))
             .filter(|_| view.terrain.is_some());
     }
-    response.context_menu(|ui| context_menu(app, view, ui));
+    response.context_menu(|ui| {
+        mg_uikit::menu_rows(ui);
+        context_menu(app, view, ui)
+    });
 
     // Moving, turning, raising; selecting by a box. A drag starts once the
     // pointer has moved: pick where it was pressed. It goes on until its
@@ -7360,6 +7379,7 @@ fn editing_items(
     // it faces, together.
     ui.add_enabled_ui(any, |ui| {
         ui.menu_button("Position", |ui| {
+ mg_uikit::menu_rows(ui);
             if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
                 drop_to_ground(app, view);
                 ui.close();
@@ -7466,6 +7486,7 @@ fn editing_items(
     }
     ui.add_enabled_ui(view.selection.len() > 1, |ui| {
         ui.menu_button("Arrange", |ui| {
+            mg_uikit::menu_rows(ui);
             use mg_area::arrange::Arrange;
             let items = [
                 (
@@ -7531,6 +7552,7 @@ fn editing_items(
             ui.close();
         }
         ui.menu_button("Initial State", |ui| {
+            mg_uikit::menu_rows(ui);
             for (state, text) in [(1, "Opened Forward"), (2, "Opened Backward"), (0, "Closed")] {
                 if ui.button(text).clicked() {
                     set_on_selection(
@@ -7547,6 +7569,7 @@ fn editing_items(
     }
     if all(ObjectKind::Placeable) {
         ui.menu_button("Initial State", |ui| {
+            mg_uikit::menu_rows(ui);
             for (state, text) in [
                 (0, "Default"),
                 (1, "Opened"),
@@ -7596,6 +7619,7 @@ fn editing_items(
         let custom = crate::light_maker::generated_lights(app);
         if let Some(at) = view.menu_at {
             ui.menu_button("Add Light Here", |ui| {
+                mg_uikit::menu_rows(ui);
                 for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         add_light(app, view, light, at);
@@ -7665,6 +7689,7 @@ fn editing_items(
         }
         if !chosen.is_empty() && chosen.len() == view.selection.len() {
             ui.menu_button("Light Color", |ui| {
+                mg_uikit::menu_rows(ui);
                 for light in lights.iter() {
                     if light_button(ui, light).clicked() {
                         let row = Value::Dword(light.row as u32);
@@ -7716,6 +7741,7 @@ fn editing_items(
     // palette, or in an archive for another module), a prefab of them.
     ui.add_enabled_ui(any, |ui| {
         ui.menu_button("Reuse", |ui| {
+            mg_uikit::menu_rows(ui);
             if let Some((kind, index)) = single
                 && ui.button("Add to Palette").clicked()
             {
@@ -7805,6 +7831,7 @@ fn editing_items(
             ),
         ];
         ui.menu_button("Test", |ui| {
+            mg_uikit::menu_rows(ui);
             for (label, tip, choose) in tests {
                 if ui.button(label).on_hover_text(tip).clicked() {
                     let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
@@ -7841,6 +7868,7 @@ fn editing_items(
         let area_kinds = [Target::Area];
         if !view.selection.is_empty() && commands.iter().any(|c| c.fits(&area_kinds)) {
             ui.menu_button("The Area", |ui| {
+                mg_uikit::menu_rows(ui);
                 if let Some(i) = crate::plugins::menu_commands(ui, &commands, &area_kinds) {
                     app.actions
                         .push(crate::plugins::run_on(&commands[i], vec![Selected::Area(area)]));
@@ -8281,7 +8309,7 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         .show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("What is the name of the set?");
-                let field = ui.add(egui::TextEdit::singleline(&mut name).hint_text("set name"));
+                let field = ui.add(mg_uikit::text_field(&mut name).hint_text("set name"));
                 crate::widgets::autofocus(ui, &field);
             });
             ui.horizontal(|ui| {

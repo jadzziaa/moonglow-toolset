@@ -19,6 +19,7 @@ use mg_module::instances::{git_list, instance};
 use mg_module::project_file::StoreRules;
 use mg_module::store_setup::{self, GREETING, NO, YES};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::widgets::{ResRefText, resref_edit};
 use crate::{Action, Moonglow};
@@ -203,12 +204,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 let field = crate::widgets::text_area(ui, id, field).response.response;
                 crate::widgets::autofocus(ui, &field);
                 ui.label("What does the player say when the player wishes to see the store?");
-                ui.text_edit_singleline(&mut w.yes);
+                ui.add(mg_uikit::text_field(&mut w.yes));
                 ui.label("What does the player say when the player is not interested?");
-                ui.text_edit_singleline(&mut w.no);
+                ui.add(mg_uikit::text_field(&mut w.no));
                 let opens = w.rules.as_ref().and_then(|r| r.open_script);
                 if opens.is_none() {
-                    ui.checkbox(&mut w.appraise, "Use appraise checks");
+                    ui.check_box(&mut w.appraise, "Use appraise checks");
                 }
                 ui.label("(optional) Enter the filename for the shopkeeper's conversation");
                 ui.add(resref_edit(&mut ResRefText(&mut w.dialog)));
@@ -286,7 +287,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         "Note: the shopkeeper's faction is hostile to player characters. It is \
                          strongly recommended that you change it to the Merchant faction.",
                     );
-                    ui.checkbox(&mut w.use_faction, "Use selected faction instead:");
+                    ui.check_box(&mut w.use_faction, "Use selected faction instead:");
                     let current =
                         faction_names.get(w.faction as usize).cloned().unwrap_or_default();
                     // (Not the PC faction: the players' alone.)

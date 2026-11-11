@@ -192,6 +192,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                         ui.weak(format!("struct {}", child.id));
                         let child_path = path.field(&label);
                         egui::CollapsingHeader::new(format!("{} fields", child.fields.len()))
+                            .icon(mg_uikit::collapsing_icon)
                             .id_salt(id)
                             .show(ui, |ui| struct_ui(ctx, ui, child, &child_path));
                     }
@@ -199,6 +200,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                         ui.label(&label);
                         ui.weak("list");
                         egui::CollapsingHeader::new(format!("{} items", items.len()))
+                            .icon(mg_uikit::collapsing_icon)
                             .id_salt(id)
                             .show(ui, |ui| {
                                 // An item that stands for a row of a table
@@ -228,6 +230,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                                         "[{i}] struct {}{name}",
                                         item.id
                                     ))
+                                    .icon(mg_uikit::collapsing_icon)
                                     .id_salt((id, i))
                                     .show(ui, |ui| struct_ui(ctx, ui, item, &item_path));
                                 }

@@ -13,6 +13,7 @@ use mg_module::palette::{BlueprintKind, Palette, PaletteNode};
 use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_rules::item_wizard::{self, Magical};
+use mg_uikit::Controls as _;
 
 use crate::widgets::ResRefText;
 use crate::{Action, Moonglow, Tab};
@@ -344,6 +345,7 @@ pub(crate) fn category_tree(
             }
             _ => {
                 egui::CollapsingHeader::new(&name)
+                    .icon(mg_uikit::collapsing_icon)
                     .id_salt(("wizard-category", &name))
                     .show(ui, |ui| category_tree(ui, &n.children, game, chosen));
             }
@@ -372,7 +374,7 @@ fn magic_ui(ui: &mut Ui, w: &mut BlueprintWizard, game: &GameData) {
     let offered = w.base_item.is_some_and(|b| item_wizard::offered(game, b));
     w.magical &= offered;
     ui.add_space(6.0);
-    ui.add_enabled(offered, egui::Checkbox::new(&mut w.magical, "Magical"))
+    ui.add_enabled(offered, mg_uikit::Checkbox::new(&mut w.magical, "Magical"))
         .on_hover_text("Give the item random magic properties for its level and quality");
     ui.add_enabled_ui(w.magical, |ui| {
         egui::Grid::new("item-wizard-magic").num_columns(2).spacing([40.0, 2.0]).show(ui, |ui| {
@@ -385,10 +387,10 @@ fn magic_ui(ui: &mut Ui, w: &mut BlueprintWizard, game: &GameData) {
                 item_wizard::LEVELS.iter().zip(item_wizard::QUALITIES).enumerate()
             {
                 let i = i as u8;
-                if ui.radio(w.item_level == Some(i), *level).clicked() {
+                if ui.radio_button(w.item_level == Some(i), *level).clicked() {
                     w.item_level = Some(i);
                 }
-                if ui.radio(w.item_quality == Some(i), quality).clicked() {
+                if ui.radio_button(w.item_quality == Some(i), quality).clicked() {
                     w.item_quality = Some(i);
                 }
                 ui.end_row();
@@ -430,7 +432,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.heading("Waypoint Wizard");
                 egui::Grid::new("wizard-waypoint").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Tag");
-                    ui.text_edit_singleline(&mut w.name);
+                    ui.add(mg_uikit::text_field(&mut w.name));
                     ui.end_row();
                     crate::widgets::field_label(ui, "Appearance");
                     let looks = crate::widgets::table_choices(
@@ -450,12 +452,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Step::Timing => {
                 ui.heading("Timing");
                 ui.label("Choose how you want the Sound Object to play.");
-                if ui.radio(w.looping == Some(true), "Seamlessly looping").clicked() {
+                if ui.radio_button(w.looping == Some(true), "Seamlessly looping").clicked() {
                     w.looping = Some(true);
                     w.sounds.clear();
                 }
                 ui.weak("One wave that seamlessly repeats over and over again with no breaks");
-                if ui.radio(w.looping == Some(false), "Single-shot(s)").clicked() {
+                if ui.radio_button(w.looping == Some(false), "Single-shot(s)").clicked() {
                     w.looping = Some(false);
                     w.sounds.clear();
                 }
@@ -478,7 +480,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     if ui
                         .add_enabled(
                             enabled,
-                            egui::RadioButton::new(w.positioning == Some(p), text),
+                            mg_uikit::RadioButton::new(w.positioning == Some(p), text),
                         )
                         .clicked()
                     {
@@ -576,7 +578,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Step::Name => {
                 ui.heading("Name");
                 ui.label("Please enter a name for the new blueprint");
-                let edit = egui::TextEdit::singleline(&mut w.name).hint_text("Name");
+                let edit = mg_uikit::text_field(&mut w.name).hint_text("Name");
                 let field = ui.add(edit);
                 crate::widgets::autofocus(ui, &field);
                 if field.changed() {
@@ -599,7 +601,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.end_row();
                     crate::widgets::field_label(ui, "Tag");
                     ui.add(
-                        egui::TextEdit::singleline(&mut w.tag)
+                        mg_uikit::text_field(&mut w.tag)
                             .hint_text(blueprints::tag(w.name.trim()))
                             .char_limit(mg_module::tags::MAX_TAG)
                             .desired_width(180.0),
@@ -628,7 +630,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
         if w.last() {
-            ui.checkbox(&mut w.launch, "Launch Properties Dialog");
+            ui.check_box(&mut w.launch, "Launch Properties Dialog");
         }
         ui.separator();
         ui.horizontal(|ui| {

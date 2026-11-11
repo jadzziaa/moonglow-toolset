@@ -404,6 +404,7 @@ impl Tree<'_> {
         // branch on the way to the blueprint that Find in Palette is showing.
         let revealing = self.reveal.is_some_and(|(at, _)| at.starts_with(path));
         egui::CollapsingHeader::new(node.name.text(self.game))
+            .icon(mg_uikit::collapsing_icon)
             .id_salt((salt, path))
             .open((self.found.is_some() || revealing).then_some(true))
             .show(ui, |ui| {
@@ -465,6 +466,7 @@ impl Tree<'_> {
             r.dnd_set_drag_payload(super::inventory::Dragged::Palette(b.resref));
         }
         r.context_menu(|ui| {
+            mg_uikit::menu_rows(ui);
             if ui.button(add).clicked() {
                 *self.taken = Some(b.resref);
                 ui.close();

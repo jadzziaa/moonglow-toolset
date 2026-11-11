@@ -4,6 +4,7 @@
 //! debug information, the code templates folder, font size and colours),
 //! and Moonglow's own (Updates: the daily check for a new release).
 
+use mg_uikit::Controls as _;
 use std::path::{Path, PathBuf};
 
 use egui::Ui;
@@ -658,7 +659,7 @@ enum Browse {
 /// choose it (`which`, noted in `browse` for after the page is drawn).
 fn path_row(ui: &mut Ui, text: &mut String, browse: &mut Option<Browse>, which: Browse) {
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(text).desired_width(300.0));
+        ui.add(mg_uikit::text_field(text).desired_width(300.0));
         if ui.button("Browse…").clicked() {
             *browse = Some(which);
         }
@@ -809,7 +810,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     ),
                                 );
                             }
-                            ui.checkbox(&mut draft.aliases, "Follow nwn.ini's folder aliases")
+                            ui.check_box(&mut draft.aliases, "Follow nwn.ini's folder aliases")
                                 .on_hover_text(
                                     "Find haks, talk tables and override where nwn.ini's [Alias] \
                                      says, as the game does",
@@ -824,17 +825,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Game Content");
-                            ui.checkbox(&mut draft.workshop, "Read Steam Workshop content")
+                            ui.check_box(&mut draft.workshop, "Read Steam Workshop content")
                                 .on_hover_text(
                                     "Read the Steam Workshop items you subscribe to, as the game \
                                      through Steam does",
                                 );
-                            ui.checkbox(&mut draft.userpatch, "Read userpatch.ini's haks")
+                            ui.check_box(&mut draft.userpatch, "Read userpatch.ini's haks")
                                 .on_hover_text(
                                     "Read the haks userpatch.ini names, such as the HD Pack, as \
                                      the game does",
                                 );
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.auto_reload,
                                 "Reload haks, override and development when they change",
                             )
@@ -853,12 +854,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.add_space(6.0);
                             crate::widgets::field_label(ui, "NWSync upload command");
                             ui.add(
-                                egui::TextEdit::singleline(&mut draft.nwsync_upload)
+                                mg_uikit::text_field(&mut draft.nwsync_upload)
                                     .desired_width(420.0)
                                     .font(egui::TextStyle::Monospace)
                                     .hint_text("rsync -a {part} you@host:/srv/nwsync/"),
                             );
-                            ui.checkbox(&mut draft.nwsync_upload_input, "It reads what I type")
+                            ui.check_box(&mut draft.nwsync_upload_input, "It reads what I type")
                                 .on_hover_text(
                                     "Give the command a line under its output to type into",
                                 );
@@ -879,7 +880,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.horizontal(|ui| {
                                 crate::widgets::field_label(ui, "Background Color");
                                 let mut custom = draft.area_background.is_some();
-                                if ui.checkbox(&mut custom, "Custom").changed() {
+                                if ui.check_box(&mut custom, "Custom").changed() {
                                     draft.area_background = custom.then_some([192, 192, 192]);
                                 }
                                 if let Some(rgb) = &mut draft.area_background {
@@ -888,7 +889,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     ui.weak("the area's fog");
                                 }
                             });
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.spawn_markers,
                                 "Show Encounter Spawnpoint Markers",
                             );
@@ -915,12 +916,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     ui.weak("(tenths of a meter)");
                                 });
                             });
-                            ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
-                            ui.checkbox(&mut draft.merchant_signs, "Show stores as $ signs")
+                            ui.check_box(&mut draft.door_arrows, "Show Door Orientation Arrows");
+                            ui.check_box(&mut draft.merchant_signs, "Show stores as $ signs")
                                 .on_hover_text(
                                     "Show the game's store marker, not an arrow along its facing",
                                 );
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.turn_ring,
                                 "Show the turning and tilt rings around selected objects",
                             )
@@ -928,11 +929,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "A ring to turn the selection. With Shift, rings to tilt it and \
                                  arrows to move it.",
                             );
-                            ui.checkbox(&mut draft.middle_drag_moves, "Middle drag moves the view")
-                                .on_hover_text(
-                                    "Move the camera with a middle drag, as with Ctrl + drag, \
+                            ui.check_box(
+                                &mut draft.middle_drag_moves,
+                                "Middle drag moves the view",
+                            )
+                            .on_hover_text(
+                                "Move the camera with a middle drag, as with Ctrl + drag, \
                                      and turn it with Alt + middle drag.",
-                                );
+                            );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Graphics");
                             ui.horizontal(|ui| {
@@ -941,7 +945,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             });
                             texture_limit_choice(ui, &mut draft.texture_limit);
                             area_resolution_choice(ui, &mut draft.area_resolution);
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.animate_unfocused,
                                 "Keep animating behind other windows",
                             )
@@ -951,7 +955,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Editing");
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.generated_lights,
                                 "Lights of any color and reach, written into a hak",
                             )
@@ -959,7 +963,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Offer Custom Light…, which writes a light model and a 2DA row \
                                  into a hak",
                             );
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.edit_group_tiles,
                                 "Allow editing tiles of groups and features",
                             )
@@ -999,12 +1003,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.label("The language text is shown and edited in:");
                             let mut default = draft.edit_language.is_none();
                             if ui
-                                .radio_value(&mut default, true, "Use Default Language: English")
+                                .radio_choice(&mut default, true, "Use Default Language: English")
                                 .clicked()
                             {
                                 draft.edit_language = None;
                             }
-                            if ui.radio_value(&mut default, false, "Specified Language:").clicked()
+                            if ui.radio_choice(&mut default, false, "Specified Language:").clicked()
                                 && draft.edit_language.is_none()
                             {
                                 draft.edit_language = Some(0);
@@ -1024,12 +1028,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                         OptionsPage::ConversationEditor => {
                             crate::widgets::section_heading(ui, "Editing");
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.dialog_text_popup,
                                 "Show popup when creating a new text entry",
                             );
-                            ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
-                            ui.checkbox(
+                            ui.check_box(&mut draft.dialog_names, "Show speaker name before text");
+                            ui.check_box(
                                 &mut draft.dialogs_together,
                                 "Open conversations as tabs of one window",
                             )
@@ -1038,7 +1042,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  own.",
                             );
                             ui.horizontal(|ui| {
-                                ui.checkbox(
+                                ui.check_box(
                                     &mut draft.dialog_backup,
                                     "Automatically backup the conversation files",
                                 )
@@ -1102,12 +1106,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     ui.group(|ui| {
                                         ui.vertical(|ui| {
                                             crate::widgets::table_heading(ui, title);
-                                            ui.radio_value(
+                                            ui.radio_choice(
                                                 source_to_dest,
                                                 true,
                                                 "Link Source To Destination",
                                             );
-                                            ui.radio_value(
+                                            ui.radio_choice(
                                                 source_to_dest,
                                                 false,
                                                 "Link Destination To Source",
@@ -1118,15 +1122,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             });
                         }
                         OptionsPage::Sounds => {
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.placed_sounds,
                                 "Play placed sound objects in area",
                             );
-                            ui.checkbox(&mut draft.ambient_sound, "Play ambient sound in area");
-                            ui.checkbox(&mut draft.ambient_music, "Play ambient music in area");
+                            ui.check_box(&mut draft.ambient_sound, "Play ambient sound in area");
+                            ui.check_box(&mut draft.ambient_music, "Play ambient music in area");
                             ui.horizontal(|ui| {
                                 crate::widgets::field_label(ui, "Ambient music volume");
-                                ui.add(egui::Slider::new(&mut draft.music_volume, 0..=127));
+                                mg_uikit::slider(
+                                    ui,
+                                    egui::Slider::new(&mut draft.music_volume, 0..=127),
+                                );
                             });
                             ui.weak(
                                 "Placed sounds are heard from where the area view looks, at full \
@@ -1136,16 +1143,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                         OptionsPage::ScriptEditor => {
                             crate::widgets::section_heading(ui, "Compiling");
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.auto_compile,
                                 "Automatically Compile Scripts on Save",
                             );
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.debug_info,
                                 "Generate Debug Information When Compiling Scripts",
                             )
                             .on_hover_text("Store a .ndb with each compiled script, for debuggers");
-                            ui.checkbox(&mut draft.live_check, "Check for errors as you type")
+                            ui.check_box(&mut draft.live_check, "Check for errors as you type")
                                 .on_hover_text(
                                     "Compile the script as you type and show its first error under \
                                      the toolbar",
@@ -1153,7 +1160,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             crate::widgets::field_label(ui, "External Script Compiler");
                             ui.horizontal(|ui| {
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut draft.external_compiler)
+                                    mg_uikit::text_field(&mut draft.external_compiler)
                                         .hint_text("the built-in compiler")
                                         .desired_width(300.0),
                                 )
@@ -1174,7 +1181,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 );
                                 crate::widgets::field_label(ui, "Its arguments");
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut draft.external_compiler_args)
+                                    mg_uikit::text_field(&mut draft.external_compiler_args)
                                         .hint_text(usual.clone())
                                         .desired_width(460.0),
                                 )
@@ -1201,8 +1208,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.horizontal(|ui| {
                                 crate::widgets::field_label(ui, "Indent with");
                                 let style = &mut draft.script_style;
-                                ui.radio_value(&mut style.indent_tabs, false, "Spaces");
-                                ui.radio_value(&mut style.indent_tabs, true, "Tabs");
+                                ui.radio_choice(&mut style.indent_tabs, false, "Spaces");
+                                ui.radio_choice(&mut style.indent_tabs, true, "Tabs");
                                 ui.add_space(12.0);
                                 crate::widgets::field_label(ui, "Indent width");
                                 ui.add(egui::DragValue::new(&mut style.indent_width).range(1..=16))
@@ -1210,7 +1217,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                         "The spaces Tab puts in and Shift+Tab takes off",
                                     );
                             });
-                            ui.checkbox(
+                            ui.check_box(
                                 &mut draft.scripts_together,
                                 "Open scripts as tabs of one window",
                             )
@@ -1223,7 +1230,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             path_row(ui, &mut draft.external_editor, &mut browse, Browse::Editor);
                             ui.add_enabled(
                                 !draft.external_editor.trim().is_empty(),
-                                egui::Checkbox::new(
+                                mg_uikit::Checkbox::new(
                                     &mut draft.scripts_external,
                                     "Open scripts in the external editor",
                                 ),
@@ -1235,7 +1242,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .on_disabled_hover_text("Choose an external script editor first");
                             ui.add_enabled(
                                 draft.scripts_external && !draft.external_editor.trim().is_empty(),
-                                egui::Checkbox::new(
+                                mg_uikit::Checkbox::new(
                                     &mut draft.scripts_external_only,
                                     "…and not in Moonglow's editor",
                                 ),
@@ -1316,9 +1323,9 @@ pub(crate) fn shadow_quality_choice(
 ) -> bool {
     use crate::settings::ShadowQuality;
     let fast = ui
-        .radio_value(quality, ShadowQuality::Fast, "Fast")
+        .radio_choice(quality, ShadowQuality::Fast, "Fast")
         .on_hover_text("A shadow map: cheap in every area, its edges stepped up close");
-    let high = ui.radio_value(quality, ShadowQuality::High, "High").on_hover_text(
+    let high = ui.radio_choice(quality, ShadowQuality::High, "High").on_hover_text(
         "Stencil shadow volumes, as sharp as the game's. Slower in the largest areas.",
     );
     fast.changed() || high.changed()
@@ -1505,7 +1512,7 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
         for (i, name) in SCRIPT_ELEMENTS.iter().enumerate() {
             crate::widgets::field_label(ui, *name);
             let mut custom = style.colors[i].is_some();
-            if ui.checkbox(&mut custom, "Custom").changed() {
+            if ui.check_box(&mut custom, "Custom").changed() {
                 style.colors[i] = custom.then(|| {
                     let c = defaults[i];
                     [c.r(), c.g(), c.b()]
@@ -1522,7 +1529,7 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
         let ground = ui.visuals().text_edit_bg_color();
         crate::widgets::field_label(ui, "Background");
         let mut custom = style.background.is_some();
-        if ui.checkbox(&mut custom, "Custom").changed() {
+        if ui.check_box(&mut custom, "Custom").changed() {
             style.background = custom.then(|| [ground.r(), ground.g(), ground.b()]);
         }
         if let Some(rgb) = &mut style.background {
@@ -1560,7 +1567,7 @@ fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft, project: Option<&(String, b
     let target = if project.is_some() { &mut shown } else { &mut draft.talk_typed };
     ui.add_enabled(
         project.is_none(),
-        egui::Checkbox::new(target, "Put text typed into the talk table"),
+        mg_uikit::Checkbox::new(target, "Put text typed into the talk table"),
     )
     .on_hover_text("Put names, descriptions and lines you type into the module's talk table")
     .on_disabled_hover_text("The project's moonglow.toml sets this for everyone ([talk] typed)");
@@ -1585,7 +1592,7 @@ fn talk_typed(ui: &mut Ui, draft: &mut OptionsDraft, project: Option<&(String, b
                     "The text is the field's own, as Aurora writes it",
                 ),
             ] {
-                ui.radio_value(&mut draft.talk_reuse, value, label).on_hover_text(tip);
+                ui.radio_choice(&mut draft.talk_reuse, value, label).on_hover_text(tip);
             }
         });
     });
@@ -1607,7 +1614,7 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
     // A word's checkbox: on while it isn't left out.
     fn word(ui: &mut Ui, skip: &mut Vec<String>, id: &str, label: &str, tip: &str) {
         let mut on = !skip.iter().any(|w| w == id);
-        let response = ui.checkbox(&mut on, label);
+        let response = ui.check_box(&mut on, label);
         let response = if tip.is_empty() { response } else { response.on_hover_text(tip) };
         if response.changed() {
             skip.retain(|w| w != id);
@@ -1670,7 +1677,7 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
     ui.add_space(6.0);
     crate::widgets::field_label(ui, "Also leave out");
     ui.add(
-        egui::TextEdit::singleline(&mut draft.verify_more)
+        mg_uikit::text_field(&mut draft.verify_more)
             .hint_text("tdod_tiles01.hak, ttr01.set, override")
             .desired_width(f32::INFINITY),
     )
@@ -1854,14 +1861,14 @@ fn general(
     passes_over: &[wgpu::Backend],
 ) {
     crate::widgets::section_heading(ui, "Saving and Exporting");
-    ui.checkbox(&mut draft.backups, "Create backups of modules")
+    ui.check_box(&mut draft.backups, "Create backups of modules")
         .on_hover_text("Keep the module as it was as <name>.BackupMod at each save");
-    ui.checkbox(&mut draft.build_on_save, "Build module on save")
+    ui.check_box(&mut draft.build_on_save, "Build module on save")
         .on_hover_text("Run Build Module (with its defaults) before saving");
-    ui.checkbox(&mut draft.mod_beside_folder, "Write a .mod beside a module folder on save")
+    ui.check_box(&mut draft.mod_beside_folder, "Write a .mod beside a module folder on save")
         .on_hover_text("Also save a module folder as <folder>.mod beside it, which the game loads");
     ui.horizontal(|ui| {
-        ui.checkbox(&mut draft.autosave, "Keep a recovery copy of unsaved work every")
+        ui.check_box(&mut draft.autosave, "Keep a recovery copy of unsaved work every")
             .on_hover_text("Kept in Moonglow's data folder and offered back after a crash");
         ui.add_enabled_ui(draft.autosave, |ui| {
             let minutes = &mut draft.autosave_minutes;
@@ -1871,14 +1878,14 @@ fn general(
     });
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Opening Modules");
-    ui.checkbox(&mut draft.last_area, "Open a module on the area opened last")
+    ui.check_box(&mut draft.last_area, "Open a module on the area opened last")
         .on_hover_text("The first time, on the first area the module tree lists");
-    ui.checkbox(&mut draft.reopen_tabs, "Open a module with the tabs it had when it was closed")
+    ui.check_box(&mut draft.reopen_tabs, "Open a module with the tabs it had when it was closed")
         .on_hover_text("Reopen its areas, scripts, blueprints and other tabs where they were");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Testing");
-    ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
-    ui.checkbox(
+    ui.check_box(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+    ui.check_box(
         &mut draft.test_with_steam,
         "Start a Steam copy of the game through Steam for a test",
     )
@@ -1894,46 +1901,46 @@ fn general(
             .show(ui, &mut draft.ui_scale, &UI_SCALES, |s| format!("{s}%"))
             .on_hover_text("Make the whole interface larger or smaller (set when you choose OK)");
     });
-    ui.checkbox(&mut draft.light_theme, "Light theme");
+    ui.check_box(&mut draft.light_theme, "Light theme");
     toolbar_buttons(ui, draft);
     graphics_backend(ui, draft, drawing_with, passes_over);
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Windows and Tabs");
-    ui.checkbox(&mut draft.properties_together, "Open Properties as tabs of one window")
+    ui.check_box(&mut draft.properties_together, "Open Properties as tabs of one window")
         .on_hover_text("Open each Properties as a tab of one window. Off, each in its own.");
-    ui.checkbox(&mut draft.close_cancels, "Closing a window cancels its changes (as Aurora)")
+    ui.check_box(&mut draft.close_cancels, "Closing a window cancels its changes (as Aurora)")
         .on_hover_text(CLOSE_CANCELS_TIP);
-    ui.checkbox(&mut draft.drag_windows_anywhere, "Move windows by dragging anywhere in them")
+    ui.check_box(&mut draft.drag_windows_anywhere, "Move windows by dragging anywhere in them")
         .on_hover_text(
             "Move a window by dragging any part that isn't a control. Off, by its tab bar.",
         );
-    ui.checkbox(&mut draft.tabs_by_recent, "Ctrl+Tab goes to the tab used last")
+    ui.check_box(&mut draft.tabs_by_recent, "Ctrl+Tab goes to the tab used last")
         .on_hover_text("Next Tab and Previous Tab follow the order tabs were last used");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Module Tree and Palettes");
-    ui.checkbox(
+    ui.check_box(
         &mut draft.tree_opens_area,
         "Show the object selected in an area in the module tree",
     )
     .on_hover_text(
         "Open the selected object's area in the module tree and go to it, as Aurora does",
     );
-    ui.checkbox(&mut draft.tree_follows_tabs, "Show the tab chosen in the module tree")
+    ui.check_box(&mut draft.tree_follows_tabs, "Show the tab chosen in the module tree")
         .on_hover_text("Mark the tab in front's resource in the module tree");
-    ui.checkbox(&mut draft.area_names, "List areas and blueprints by name")
+    ui.check_box(&mut draft.area_names, "List areas and blueprints by name")
         .on_hover_text("List them in the module tree by name rather than ResRef");
-    ui.checkbox(&mut draft.name_resrefs, "Show ResRefs beside names")
+    ui.check_box(&mut draft.name_resrefs, "Show ResRefs beside names")
         .on_hover_text("Show Name (resref) in the module tree and the palettes");
-    ui.checkbox(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
+    ui.check_box(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
         .on_hover_text("Leave groups with nothing in them out of the module tree");
-    ui.checkbox(&mut draft.palette_hides_empty, "Hide empty categories in the palettes")
+    ui.check_box(&mut draft.palette_hides_empty, "Hide empty categories in the palettes")
         .on_hover_text("Leave categories with no blueprints out of the palettes");
-    ui.checkbox(&mut draft.categories_by_name, "List a blueprint's categories alphabetically")
+    ui.check_box(&mut draft.categories_by_name, "List a blueprint's categories alphabetically")
         .on_hover_text(
             "Sort a blueprint's Category list alphabetically. Off, in the palette's order.",
         );
-    ui.checkbox(&mut draft.palette_cr, "Show challenge ratings in the creature palette");
-    ui.checkbox(&mut draft.armor_on_woman, "Show armor and cloaks on a woman")
+    ui.check_box(&mut draft.palette_cr, "Show challenge ratings in the creature palette");
+    ui.check_box(&mut draft.armor_on_woman, "Show armor and cloaks on a woman")
         .on_hover_text("Show armor and cloak models and icons on a woman's body. Off, a man's.");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Questions");
@@ -1990,31 +1997,31 @@ fn general(
             .show(ui, &mut draft.missing_feats, &all, name)
             .on_hover_text("Equipping a creature with an item it lacks the feats for");
     });
-    ui.checkbox(&mut draft.ask_before_delete, "Ask before deleting from the module")
+    ui.check_box(&mut draft.ask_before_delete, "Ask before deleting from the module")
         .on_hover_text("Delete… in the module tree asks first. Off, only when something names it.");
-    ui.checkbox(&mut draft.ask_before_closing, "Ask before the window is closed")
+    ui.check_box(&mut draft.ask_before_closing, "Ask before the window is closed")
         .on_hover_text("Ask before closing Moonglow, even with nothing unsaved");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Warnings");
-    ui.checkbox(&mut draft.namespace_warning, "Show reserved Blueprint ResRef namespace warning")
+    ui.check_box(&mut draft.namespace_warning, "Show reserved Blueprint ResRef namespace warning")
         .on_hover_text("Warn about a blueprint named like the game's (nw_, x0_ to x3_)");
-    ui.checkbox(&mut draft.standard_warning, "Show standard resource overwrite warning")
+    ui.check_box(&mut draft.standard_warning, "Show standard resource overwrite warning")
         .on_hover_text("Warn when the module adds a resource the game has");
-    ui.checkbox(&mut draft.hak_warning, "Show resource in Hak Pak warning")
+    ui.check_box(&mut draft.hak_warning, "Show resource in Hak Pak warning")
         .on_hover_text("Warn when a hak has a resource the module adds (the hak's wins)");
-    ui.checkbox(
+    ui.check_box(
         &mut draft.duplicate_tags_warning,
         "Show duplicate tags warning after a paste or a copy",
     )
     .on_hover_text(DUPLICATE_TAGS_TIP);
-    ui.checkbox(&mut draft.spell_warning, "Show invalid creature spell assignment warning")
+    ui.check_box(&mut draft.spell_warning, "Show invalid creature spell assignment warning")
         .on_hover_text("Spells on a creature's Spells page too high for its level, or too many");
-    ui.checkbox(&mut draft.inventory_warning, "Show creature inventory warning")
+    ui.check_box(&mut draft.inventory_warning, "Show creature inventory warning")
         .on_hover_text("Items on a creature's Inventory page that its feats or level don't allow");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Troubleshooting");
     let log = crate::trace::path().map(|p| p.display().to_string()).unwrap_or_default();
-    ui.checkbox(&mut draft.debug_log, "Write a debug log")
+    ui.check_box(&mut draft.debug_log, "Write a debug log")
         .on_hover_text(format!("What Moonglow does, step by step, for a bug report: {log}"));
 }
 

@@ -753,7 +753,7 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, format!("Hand {area} to"));
                     let field = ui.add(
-                        egui::TextEdit::singleline(to)
+                        mg_uikit::text_field(to)
                             .char_limit(MAX_CODE + 4)
                             .desired_width(100.0)
                             .hint_text("their code"),

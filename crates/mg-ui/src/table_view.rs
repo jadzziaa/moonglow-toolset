@@ -8,6 +8,8 @@
 //! hak editor (whose Save writes it), or in a file anywhere. The game's
 //! own tables are never changed: Edit on one makes a copy somewhere.
 
+use mg_uikit::Controls as _;
+use mg_uikit::TokensExt as _;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1598,12 +1600,12 @@ fn header(
             doc.taking = Some(Taking::default());
         }
         let was = doc.compact;
-        ui.checkbox(&mut doc.compact, "Compact")
+        ui.check_box(&mut doc.compact, "Compact")
             .on_hover_text("Save with one space between cells. Off, with the columns aligned.");
         if doc.compact != was {
             doc.edit.mark_unsaved();
         }
-        ui.checkbox(&mut doc.strref_text, "Strings as text")
+        ui.check_box(&mut doc.strref_text, "Strings as text")
             .on_hover_text("Show the string in talk-table columns. The number is what is edited.");
         if !doc.hidden.is_empty() {
             let names: Vec<String> = (doc.edit.table().columns().iter())
@@ -1619,7 +1621,7 @@ fn header(
             }
         }
         if doc.description().is_some() {
-            ui.checkbox(&mut doc.value_names, "Values as names").on_hover_text(
+            ui.check_box(&mut doc.value_names, "Values as names").on_hover_text(
                 "Show the names of list and flag values. The value is what is saved.",
             );
         }
@@ -1679,8 +1681,7 @@ fn header(
             .find_over()
             .show(ui);
         ui.label("Go to");
-        let go =
-            ui.add(egui::TextEdit::singleline(&mut doc.go_to).desired_width(70.0).hint_text("row"));
+        let go = ui.add(mg_uikit::text_field(&mut doc.go_to).desired_width(70.0).hint_text("row"));
         if go.lost_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
             && let Ok(row) = doc.go_to.trim().parse::<usize>()
@@ -1957,8 +1958,7 @@ pub(crate) fn view_header(ui: &mut Ui, doc: &mut TableDoc) {
             .find_over()
             .show(ui);
         ui.label("Go to");
-        let go =
-            ui.add(egui::TextEdit::singleline(&mut doc.go_to).desired_width(70.0).hint_text("row"));
+        let go = ui.add(mg_uikit::text_field(&mut doc.go_to).desired_width(70.0).hint_text("row"));
         if go.lost_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
             && let Ok(row) = doc.go_to.trim().parse::<usize>()
@@ -2185,6 +2185,7 @@ pub(crate) fn grid_in(
                             }
                         }
                         r.context_menu(|ui| {
+ mg_uikit::menu_rows(ui);
                             if read_only {
                                 if ui.button("Hide Column").clicked() {
                                     column_view = Some(ColumnView::Hide(index));
@@ -2460,7 +2461,7 @@ pub(crate) fn grid_in(
                                 }
                                 let here = selected == Some((r, c));
                                 if here && let Some(text) = doc.typing.as_mut() {
-                                    let edit = egui::TextEdit::singleline(text)
+                                    let edit = mg_uikit::text_field(text)
                                         .id(egui::Id::new(("table-cell", id)))
                                         .font(egui::TextStyle::Monospace)
                                         .margin(egui::Margin::symmetric(4, 0))
@@ -2543,22 +2544,22 @@ pub(crate) fn grid_in(
                                 let within = area.is_some_and(|(r0, r1, c0, c1)| {
                                     (r0..=r1).contains(&r) && (c0..=c1).contains(&c)
                                 });
+                                // (The theme's table: cells chosen `cell-select`,
+                                // the current one outlined in `accent` while the
+                                // table has the keys; a hovered cell `hover-row`.)
+                                let t = ui.tokens();
                                 if within && !here {
-                                    let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.45);
-                                    ui.painter().rect_filled(rect, 0.0, fill);
+                                    ui.painter().rect_filled(rect, 0.0, t.cell_select);
                                 }
                                 if here {
-                                    let fill = match has_keys {
-                                        true => ui.visuals().selection.bg_fill,
-                                        false => ui.visuals().widgets.inactive.weak_bg_fill,
+                                    let line = match has_keys {
+                                        true => egui::Stroke::new(1.0, t.accent),
+                                        false => egui::Stroke::new(1.0, t.line_soft),
                                     };
-                                    ui.painter().rect_filled(rect, 2.0, fill);
+                                    let inside = egui::StrokeKind::Inside;
+                                    ui.painter().rect(rect, 2.0, t.cell_select, line, inside);
                                 } else if cell.hovered() {
-                                    ui.painter().rect_filled(
-                                        rect,
-                                        2.0,
-                                        ui.visuals().widgets.hovered.weak_bg_fill,
-                                    );
+                                    ui.painter().rect_filled(rect, 2.0, t.hover_row);
                                 }
                                 if fault.is_some() {
                                     let stroke = egui::Stroke::new(1.0, wrong);
@@ -2840,7 +2841,7 @@ fn inspector(
                             };
                             let mut ticked = bits & v == v;
                             let label = format!("{}  ({})", e.name, e.value);
-                            let r = ui.checkbox(&mut ticked, label);
+                            let r = ui.check_box(&mut ticked, label);
                             let keyed = keys.row(&r);
                             if keyed {
                                 ticked = !ticked;
@@ -3372,7 +3373,7 @@ fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
         ctx,
         |ui| {
             ui.label("The column's name (no spaces)");
-            let field = ui.add(egui::TextEdit::singleline(&mut name).desired_width(220.0));
+            let field = ui.add(mg_uikit::text_field(&mut name).desired_width(220.0));
             crate::widgets::autofocus(ui, &field);
             let fits = !name.trim().is_empty() && !name.contains([' ', '\t', '"']);
             // (Its own name in other letters is no other column's.)
@@ -3517,7 +3518,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                     let mut all =
                         !rows.is_empty() && rows.iter().all(|r| taking.chosen.contains(r));
                     let tick =
-                        ui.add_enabled(!rows.is_empty(), egui::Checkbox::new(&mut all, label));
+                        ui.add_enabled(!rows.is_empty(), mg_uikit::Checkbox::new(&mut all, label));
                     if tick.on_hover_text(hint).changed() {
                         match all {
                             true => taking.chosen.extend(rows),
@@ -3555,7 +3556,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                                 Offered::Changed => "differs",
                                 Offered::Conflict => "changed in both",
                             };
-                            if ui.checkbox(&mut on, format!("Row {}", c.row)).changed() {
+                            if ui.check_box(&mut on, format!("Row {}", c.row)).changed() {
                                 match on {
                                     true => _ = taking.chosen.insert(c.row),
                                     false => _ = taking.chosen.remove(&c.row),
@@ -3629,7 +3630,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                             let line = format!("{}: {mine} \u{2192} {theirs}", columns[*col]);
                             ui.horizontal(|ui| {
                                 let text = egui::RichText::new(line).monospace();
-                                let r = ui.checkbox(&mut on, text);
+                                let r = ui.check_box(&mut on, text);
                                 let whose = match c.whose.get(i) {
                                     Some(Whose::Theirs) => "changed there",
                                     Some(Whose::Ours) => "changed here",

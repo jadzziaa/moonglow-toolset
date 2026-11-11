@@ -20,9 +20,10 @@
 //! | `widgets.inactive` | fill `raised`, border `raised`, text `text` | `.btn`, `.combo`, `.toggle` at rest, no border; the border is also a text field's (`.field`'s is `line-soft`, a shade lighter) |
 //! | `widgets.hovered` | fill `raised-hover` | `.btn:hover` |
 //! | `widgets.active` (pressed, or focused) | fill `raised-hover`, border `accent` | `.btn.open`: an accent ring |
-//! | `widgets.open` (an open combo box or menu) | fill `raised-hover`, border `accent` | `.combo.open` |
+//! | `widgets.open` (an open combo box or menu; the top window's title bar) | fill `bar`, border `accent` | `.combo.open`'s ring; the dialogs' title row, `bar` |
 //! | `bg_fill` of those (check box, slider rail and thumb, scroll thumb) | `scroll-thumb`, `scroll-thumb-hover` | `.vbar .thumb` |
 //! | corner radius of every state | 3 | radius 3 |
+//! | `expansion` of every interactive state | 1, the border's width | (none: a row at rest as wide as hovered) |
 //! | `selection` | fill `accent-fill`, text `on-fill` | `.toggle.on`, `.tree-row.sel`, selected text |
 //! | `extreme_bg_color`, `text_edit_bg_color` | `inset` | `.field`, `.memo`, list wells |
 //! | `code_bg_color` | `inset` | `.code` |
@@ -32,6 +33,7 @@
 //! | `weak_text_color` | `text-3` | `.t3`, `.note`: counts, hints, placeholders |
 //! | `disabled_alpha` | 0.35 dark, 0.47 light | `--text-off`: text at that opacity on `panel` comes out as `text-off` |
 //! | `text_cursor` | 2 px `text` | `.code .caret` |
+//! | (the pass after each frame, [`crate::controls`]) | the focused field's border `accent`; a tooltip's fill `tooltip-bg` | `.field.focus`, `.tooltip` |
 //! | `slider_trailing_fill`, `handle_shape` | on, 10 by 14 | `.slider .fill`, `.slider .thumb` |
 //! | `indent_has_left_vline` | off | `.tree-row`: no guide lines |
 //! | `spacing.interact_size.y` | 22 | controls and rows 22 |
@@ -44,7 +46,7 @@
 //! | `spacing.slider_rail_height` | 4 | `.slider .track` 4 |
 //! | `spacing.tooltip_width` | 300 | `.tooltip` max 300 |
 //! | `spacing.scroll` | solid, a 4 px thumb in 8 | `.vbar`: 8 wide, 2 padding, a 4 px thumb |
-//! | text styles | Body, Button 13; Small 11; Heading 15 bold; Monospace 13 | the spec's type |
+//! | text styles | Body, Button 13; Small 11; Heading 15, not bold; Monospace 13 | the spec's type (bold only in section headings, which set it) |
 
 use egui::{Color32, CornerRadius, Margin, Shadow, Stroke, Style, TextStyle, Visuals, vec2};
 
@@ -101,12 +103,10 @@ impl Theme {
     }
 }
 
-/// What [`apply`] last did to a context: the theme chosen and whether the
-/// headings were in the bold family.
+/// What [`apply`] last did to a context: the theme chosen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Applied {
     theme: Theme,
-    bold: bool,
 }
 
 fn applied_id() -> egui::Id {
@@ -119,27 +119,40 @@ fn applied_id() -> egui::Id {
 /// what the style had that is not the look's: the font texture's size,
 /// debug options), and selects `theme`.
 ///
-/// Cheap once done (it returns at once while nothing changed), so it can
-/// be called every frame; it has to be called again after a frame or two
-/// for the headings to be bold (the bold family is in the fonts from the
-/// frame after it was installed; until then they are in the body face).
-/// What it changes shows from the next frame, which it asks for.
+/// Cheap once done (it returns at once while nothing changed), so it is
+/// called every frame. What it changes shows from the next frame, which
+/// it asks for. The first time, it also installs the pass that paints
+/// what the style cannot say ([`crate::controls`]: the focused text
+/// field's border, the tooltip's fill).
 pub fn apply(ctx: &egui::Context, theme: Theme) {
     fonts::install_fonts(ctx);
-    let now = Applied { theme, bold: fonts::has_bold(ctx) };
+    if before_any(ctx) {
+        ctx.on_end_pass("mg-uikit", std::sync::Arc::new(crate::controls::end_pass));
+    }
+    let now = Applied { theme };
     let before = ctx.data(|d| d.get_temp::<Applied>(applied_id()));
     if before == Some(now) && ctx.theme() == theme.egui() {
         return;
     }
-    if before.is_none_or(|b| b.bold != now.bold) {
+    if before.is_none() {
         for t in Theme::ALL {
             let old = ctx.style_of(t.egui());
-            ctx.set_style_of(t.egui(), style(t, now.bold, &old));
+            ctx.set_style_of(t.egui(), style(t, &old));
         }
     }
     ctx.set_theme(theme.egui());
     ctx.data_mut(|d| d.insert_temp(applied_id(), now));
     ctx.request_repaint();
+}
+
+/// Whether `apply` is called on `ctx` for the first time (and marks it).
+fn before_any(ctx: &egui::Context) -> bool {
+    let id = applied_id().with("passes");
+    let first = ctx.data(|d| d.get_temp::<bool>(id)).is_none();
+    if first {
+        ctx.data_mut(|d| d.insert_temp(id, true));
+    }
+    first
 }
 
 /// The theme [`apply`] gave `ctx`, as egui's theme now selects it (egui
@@ -181,9 +194,8 @@ const fn disabled_alpha(theme: Theme) -> f32 {
     }
 }
 
-/// The style of `theme`: `old` with the look replaced. `bold`: the bold
-/// family is in the fonts, for the headings.
-pub fn style(theme: Theme, bold: bool, old: &Style) -> Style {
+/// The style of `theme`: `old` with the look replaced.
+pub fn style(theme: Theme, old: &Style) -> Style {
     let mut style = old.clone();
     style.visuals = visuals(theme, &old.visuals);
     let s = &mut style.spacing;
@@ -205,12 +217,14 @@ pub fn style(theme: Theme, bold: bool, old: &Style) -> Style {
         handle_min_length: 16.0,
         ..egui::style::ScrollStyle::solid()
     };
-    let heading = if bold { fonts::bold() } else { egui::FontFamily::Proportional };
     style.text_styles = [
         (TextStyle::Small, egui::FontId::proportional(metrics::SMALL_SIZE)),
         (TextStyle::Body, egui::FontId::proportional(metrics::BODY_SIZE)),
         (TextStyle::Button, egui::FontId::proportional(metrics::BODY_SIZE)),
-        (TextStyle::Heading, egui::FontId::new(metrics::HEADING_SIZE, heading)),
+        // (Not bold: section headings, the one bold, set their own face,
+        // `form::section_heading`; a window's title is in the body's size,
+        // set where it is made.)
+        (TextStyle::Heading, egui::FontId::proportional(metrics::HEADING_SIZE)),
         (TextStyle::Monospace, egui::FontId::monospace(metrics::MONO_SIZE)),
     ]
     .into();
@@ -228,6 +242,8 @@ pub fn visuals(theme: Theme, old: &Visuals) -> Visuals {
     };
     v.text_options.max_texture_side = old.text_options.max_texture_side;
     v.text_options.font_hinting = old.text_options.font_hinting;
+    // (Whether the caret blinks is the application's, or a test's: kept.)
+    v.text_cursor.blink = old.text_cursor.blink;
     let radius = CornerRadius::same(metrics::RADIUS);
     let line = |c: Color32| Stroke::new(1.0, c);
     let state =
@@ -237,15 +253,22 @@ pub fn visuals(theme: Theme, old: &Visuals) -> Visuals {
             bg_stroke: line(border),
             corner_radius: radius,
             fg_stroke: Stroke::new(1.5, text),
-            expansion: 0.0,
+            // (As wide as the border, in every state: egui takes the
+            // border from a button's padding and gives the expansion
+            // back, also where it draws no frame (a selectable row at
+            // rest), so that a row keeps its width as it is hovered.)
+            expansion: 1.0,
         };
     let w = &mut v.widgets;
     w.noninteractive = state(t.panel, t.panel, t.line_soft, t.text);
     w.noninteractive.fg_stroke.width = 1.0;
+    w.noninteractive.expansion = 0.0;
     w.inactive = state(t.scroll_thumb, t.raised, t.raised, t.text);
     w.hovered = state(t.scroll_thumb_hover, t.raised_hover, t.raised_hover, t.text);
     w.active = state(t.scroll_thumb_hover, t.raised_hover, t.accent, t.text);
-    w.open = state(t.scroll_thumb_hover, t.raised_hover, t.accent, t.text);
+    // (An open combo box, an open menu's title; and egui fills the title
+    // bar of the window on top with it: `bar`, the mock's title row.)
+    w.open = state(t.scroll_thumb_hover, t.bar, t.accent, t.text);
     v.selection.bg_fill = t.accent_fill;
     v.selection.stroke = line(t.on_fill);
     v.ime_composition.active_underline_stroke = Stroke::new(2.0, t.accent);

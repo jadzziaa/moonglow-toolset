@@ -206,7 +206,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                         let (on, mixed) = inventory::flag_state(of_it.iter().copied(), flag);
                         let mut v = on;
                         let r_box = ui
-                            .add(egui::Checkbox::new(&mut v, "").indeterminate(mixed))
+                            .add(mg_uikit::Checkbox::new(&mut v, "").indeterminate(mixed))
                             .on_hover_text(*tip);
                         if r_box.changed() {
                             let v = v || mixed;

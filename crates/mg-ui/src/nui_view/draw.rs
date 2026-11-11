@@ -486,246 +486,259 @@ pub(super) fn editor(
     let mut moved = None;
     let revealing =
         ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("nui-reveal-draw")).is_some());
-    egui::CollapsingHeader::new("Draw layers").open(revealing.then_some(true)).show(ui, |ui| {
-        ui.menu_button("+ Draw primitive", |ui| {
-            for (kind, name) in KINDS.iter().enumerate() {
-                if ui.button(*name).clicked() {
-                    if !node["draw_list"].is_array() {
-                        node["draw_list"] = json!([]);
-                        // Clip to control clips nothing in the 8193.37 client and
-                        // blanks a window whose last draw list has it on: written
-                        // off and not offered. One authored on is flagged.
-                        if node.get("draw_list_scissor").is_none() {
-                            node["draw_list_scissor"] = false.into();
+    egui::CollapsingHeader::new("Draw layers")
+        .icon(mg_uikit::collapsing_icon)
+        .open(revealing.then_some(true))
+        .show(ui, |ui| {
+            ui.menu_button("+ Draw primitive", |ui| {
+                mg_uikit::menu_rows(ui);
+                for (kind, name) in KINDS.iter().enumerate() {
+                    if ui.button(*name).clicked() {
+                        if !node["draw_list"].is_array() {
+                            node["draw_list"] = json!([]);
+                            // Clip to control clips nothing in the 8193.37 client and
+                            // blanks a window whose last draw list has it on: written
+                            // off and not offered. One authored on is flagged.
+                            if node.get("draw_list_scissor").is_none() {
+                                node["draw_list_scissor"] = false.into();
+                            }
                         }
-                    }
-                    if let Some(items) = node["draw_list"].as_array_mut() {
-                        items.push(template(kind));
-                    }
-                    ui.close();
-                }
-            }
-        });
-        let Some(items) = node.get_mut("draw_list").and_then(Value::as_array_mut) else { return };
-        let mut remove = None;
-        let mut move_item = None;
-        let total = items.len();
-        // Each layer's header (whether it is open) and its thumbnail's
-        // gesture are kept by a key of the layer's own, which Up, Down and
-        // Remove Drawing take along: by its number, the open header stayed
-        // at the place, on the layer that came there.
-        let keys_id = ui.id().with("draw-layer-keys");
-        let mut keys: Vec<u64> = ui.data(|d| d.get_temp(keys_id)).unwrap_or_default();
-        keys.truncate(total);
-        while keys.len() < total {
-            keys.push(keys.iter().max().map_or(0, |k| k + 1));
-        }
-        for (i, item) in items.iter_mut().enumerate() {
-            let name =
-                KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
-            // Chosen in Layers: shown open.
-            let reveal =
-                ui.ctx().data_mut(|d| d.remove_temp::<usize>(egui::Id::new("nui-reveal-draw")));
-            let header = egui::CollapsingHeader::new(format!("{} · {name}", i + 1))
-                .id_salt(("draw-layer", keys[i]))
-                .open((reveal == Some(i)).then_some(true));
-            if let Some(other) = reveal.filter(|r| *r != i) {
-                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), other));
-            }
-            header.show(ui, |ui| {
-                let id = ui.id().with("draw-gesture");
-                let mut drag = ui.ctx().data_mut(|d| d.get_temp::<Gesture>(id));
-                if drag.as_ref().is_some_and(|g| g.source != *item)
-                    || ui.input(|i| i.key_pressed(egui::Key::Escape))
-                {
-                    drag = None;
-                }
-                let width = ui.available_width().max(100.0);
-                let scale = width / 300.0;
-                let (area, _) = ui.allocate_exact_size(vec2(width, 160.0), egui::Sense::hover());
-                ui.painter().rect_filled(area, 0, ui.visuals().extreme_bg_color);
-                if let Some(g) = &mut drag
-                    && let Some(p) = ui.input(|i| i.pointer.latest_pos())
-                {
-                    g.drag_to(p, scale);
-                }
-                let shown = drag.as_ref().map_or(&*item, |g| &g.draft);
-                let host = json!({"draw_list":[shown]});
-                // The editor's own thumbnail stays inside its area.
-                let painter = ui.painter().with_clip_rect(area.intersect(ui.clip_rect()));
-                for before in [false, true] {
-                    paint(
-                        &painter,
-                        &host,
-                        area,
-                        scale,
-                        s,
-                        assets,
-                        None,
-                        before,
-                        [true, true, true, true],
-                    );
-                }
-                let started = handles(ui, id, shown, area.min, scale, s, false);
-                if let Some((field, size, pressed)) = started {
-                    drag = Some(Gesture::begin(item, field, size, pressed));
-                }
-                if ui.input(|i| i.pointer.any_released())
-                    && let Some(g) = drag.take()
-                {
-                    *item = g.draft;
-                }
-                ui.ctx().data_mut(|d| {
-                    if let Some(g) = drag {
-                        d.insert_temp(id, g);
-                    } else {
-                        d.remove::<Gesture>(id);
-                    }
-                });
-                let mut remove_field = None;
-                if let Some(obj) = item.as_object_mut() {
-                    const ORDER: [&str; 23] = [
-                        "rect",
-                        "points",
-                        "a",
-                        "b",
-                        "ctrl0",
-                        "ctrl1",
-                        "c",
-                        "radius",
-                        "amin",
-                        "amax",
-                        "text",
-                        "font",
-                        "image",
-                        "image_aspect",
-                        "image_halign",
-                        "image_valign",
-                        "color",
-                        "fill",
-                        "line_thickness",
-                        "enabled",
-                        "order",
-                        "render",
-                        "arrayBinds",
-                    ];
-                    let rank = |k: &str| ORDER.iter().position(|o| *o == k).unwrap_or(ORDER.len());
-                    let mut fields: Vec<_> = obj.iter_mut().collect();
-                    fields.sort_by_key(|(k, _)| rank(k));
-                    for (key, value) in fields {
-                        if *name == "Image"
-                            && matches!(key.as_str(), "color" | "fill" | "line_thickness")
-                        {
-                            continue;
+                        if let Some(items) = node["draw_list"].as_array_mut() {
+                            items.push(template(kind));
                         }
-                        ui.push_id(key, |ui| match key.as_str() {
-                            "type" => {}
-                            "order" => {
-                                let was = value.as_i64().unwrap_or(1);
-                                let mut n = was;
-                                let label = widgets::field_label(ui, "Paint order");
-                                let name = |n: &i64| {
-                                    if *n < 0 { "Before control" } else { "After control" }
-                                };
-                                widgets::dropdown("order")
-                                    .selected_text(name(&n))
-                                    .show(ui, &mut n, &[-1, 1], name)
-                                    .labelled_by(label.id);
-                                // Only a choice writes: looking at a layer never edits it.
-                                if n != was {
-                                    *value = json!(n);
-                                }
-                            }
-                            "render" => {
-                                let was = value.as_u64().unwrap_or(0) as usize;
-                                let mut n = was;
-                                let choices = [
-                                    "Always",
-                                    "Mouse outside",
-                                    "Hover",
-                                    "Left held",
-                                    "Right held",
-                                    "Middle held",
-                                ];
-                                let label = widgets::field_label(ui, "Show when");
-                                let all: Vec<usize> = (0..choices.len()).collect();
-                                widgets::dropdown("render")
-                                    .selected_text(*choices.get(n).unwrap_or(&"Unknown"))
-                                    .show(ui, &mut n, &all, |i| choices[*i])
-                                    .labelled_by(label.id);
-                                if n != was {
-                                    *value = json!(n);
-                                }
-                            }
-                            "image" if value.is_string() => {
-                                widgets::field_label(ui, "Image");
-                                let Value::String(picture) = value else { return };
-                                ui.horizontal(|ui| {
-                                    fields::hinted(ui, picture, 140.0, "Picture name");
-                                    if let Some(name) = images::from_disk(ui) {
-                                        *picture = name;
-                                    }
-                                    // The pictures of the module and the game, by what is typed.
-                                    ui.menu_button("Choose…", |ui| {
-                                        egui::ScrollArea::vertical().max_height(240.0).show(
-                                            ui,
-                                            |ui| {
-                                                let typed = picture.to_lowercase();
-                                                for name in assets
-                                                    .catalog
-                                                    .iter()
-                                                    .filter(|n| n.contains(&typed))
-                                                    .take(40)
-                                                {
-                                                    if ui.button(name).clicked() {
-                                                        *picture = name.clone();
-                                                        ui.close();
-                                                    }
-                                                }
-                                            },
-                                        );
-                                    });
-                                });
-                            }
-                            "arrayBinds" => {
-                                // A bound array gives each list row its own value.
-                                if let Value::Bool(b) = value {
-                                    ui.checkbox(b, "Per-row values (in a list)");
-                                }
-                            }
-                            _ => property(ui, key, "draw", value, s, &mut remove_field),
-                        });
-                    }
-                    if let Some(key) = remove_field {
-                        obj.remove(&key);
+                        ui.close();
                     }
                 }
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(i > 0, egui::Button::new("Up").small()).clicked() {
-                        move_item = Some((i, i - 1));
-                    }
-                    if ui.add_enabled(i + 1 < total, egui::Button::new("Down").small()).clicked() {
-                        move_item = Some((i, i + 1));
-                    }
-                    if ui.small_button("Remove Drawing").clicked() {
-                        remove = Some(i);
-                    }
-                });
             });
-        }
-        if let Some(i) = remove {
-            items.remove(i);
-            keys.remove(i);
-            moved = Some(Moved::Removed(i));
-        } else if let Some((a, b)) = move_item
-            && b < items.len()
-        {
-            items.swap(a, b);
-            keys.swap(a, b);
-            moved = Some(Moved::Swapped(a, b));
-        }
-        ui.data_mut(|d| d.insert_temp(keys_id, keys));
-    });
+            let Some(items) = node.get_mut("draw_list").and_then(Value::as_array_mut) else {
+                return;
+            };
+            let mut remove = None;
+            let mut move_item = None;
+            let total = items.len();
+            // Each layer's header (whether it is open) and its thumbnail's
+            // gesture are kept by a key of the layer's own, which Up, Down and
+            // Remove Drawing take along: by its number, the open header stayed
+            // at the place, on the layer that came there.
+            let keys_id = ui.id().with("draw-layer-keys");
+            let mut keys: Vec<u64> = ui.data(|d| d.get_temp(keys_id)).unwrap_or_default();
+            keys.truncate(total);
+            while keys.len() < total {
+                keys.push(keys.iter().max().map_or(0, |k| k + 1));
+            }
+            for (i, item) in items.iter_mut().enumerate() {
+                let name =
+                    KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
+                // Chosen in Layers: shown open.
+                let reveal =
+                    ui.ctx().data_mut(|d| d.remove_temp::<usize>(egui::Id::new("nui-reveal-draw")));
+                let header = egui::CollapsingHeader::new(format!("{} · {name}", i + 1))
+                    .icon(mg_uikit::collapsing_icon)
+                    .id_salt(("draw-layer", keys[i]))
+                    .open((reveal == Some(i)).then_some(true));
+                if let Some(other) = reveal.filter(|r| *r != i) {
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), other));
+                }
+                header.show(ui, |ui| {
+                    let id = ui.id().with("draw-gesture");
+                    let mut drag = ui.ctx().data_mut(|d| d.get_temp::<Gesture>(id));
+                    if drag.as_ref().is_some_and(|g| g.source != *item)
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                    {
+                        drag = None;
+                    }
+                    let width = ui.available_width().max(100.0);
+                    let scale = width / 300.0;
+                    let (area, _) =
+                        ui.allocate_exact_size(vec2(width, 160.0), egui::Sense::hover());
+                    ui.painter().rect_filled(area, 0, ui.visuals().extreme_bg_color);
+                    if let Some(g) = &mut drag
+                        && let Some(p) = ui.input(|i| i.pointer.latest_pos())
+                    {
+                        g.drag_to(p, scale);
+                    }
+                    let shown = drag.as_ref().map_or(&*item, |g| &g.draft);
+                    let host = json!({"draw_list":[shown]});
+                    // The editor's own thumbnail stays inside its area.
+                    let painter = ui.painter().with_clip_rect(area.intersect(ui.clip_rect()));
+                    for before in [false, true] {
+                        paint(
+                            &painter,
+                            &host,
+                            area,
+                            scale,
+                            s,
+                            assets,
+                            None,
+                            before,
+                            [true, true, true, true],
+                        );
+                    }
+                    let started = handles(ui, id, shown, area.min, scale, s, false);
+                    if let Some((field, size, pressed)) = started {
+                        drag = Some(Gesture::begin(item, field, size, pressed));
+                    }
+                    if ui.input(|i| i.pointer.any_released())
+                        && let Some(g) = drag.take()
+                    {
+                        *item = g.draft;
+                    }
+                    ui.ctx().data_mut(|d| {
+                        if let Some(g) = drag {
+                            d.insert_temp(id, g);
+                        } else {
+                            d.remove::<Gesture>(id);
+                        }
+                    });
+                    let mut remove_field = None;
+                    if let Some(obj) = item.as_object_mut() {
+                        const ORDER: [&str; 23] = [
+                            "rect",
+                            "points",
+                            "a",
+                            "b",
+                            "ctrl0",
+                            "ctrl1",
+                            "c",
+                            "radius",
+                            "amin",
+                            "amax",
+                            "text",
+                            "font",
+                            "image",
+                            "image_aspect",
+                            "image_halign",
+                            "image_valign",
+                            "color",
+                            "fill",
+                            "line_thickness",
+                            "enabled",
+                            "order",
+                            "render",
+                            "arrayBinds",
+                        ];
+                        let rank =
+                            |k: &str| ORDER.iter().position(|o| *o == k).unwrap_or(ORDER.len());
+                        let mut fields: Vec<_> = obj.iter_mut().collect();
+                        fields.sort_by_key(|(k, _)| rank(k));
+                        for (key, value) in fields {
+                            if *name == "Image"
+                                && matches!(key.as_str(), "color" | "fill" | "line_thickness")
+                            {
+                                continue;
+                            }
+                            ui.push_id(key, |ui| match key.as_str() {
+                                "type" => {}
+                                "order" => {
+                                    let was = value.as_i64().unwrap_or(1);
+                                    let mut n = was;
+                                    let label = widgets::field_label(ui, "Paint order");
+                                    let name = |n: &i64| {
+                                        if *n < 0 { "Before control" } else { "After control" }
+                                    };
+                                    widgets::dropdown("order")
+                                        .selected_text(name(&n))
+                                        .show(ui, &mut n, &[-1, 1], name)
+                                        .labelled_by(label.id);
+                                    // Only a choice writes: looking at a layer never edits it.
+                                    if n != was {
+                                        *value = json!(n);
+                                    }
+                                }
+                                "render" => {
+                                    let was = value.as_u64().unwrap_or(0) as usize;
+                                    let mut n = was;
+                                    let choices = [
+                                        "Always",
+                                        "Mouse outside",
+                                        "Hover",
+                                        "Left held",
+                                        "Right held",
+                                        "Middle held",
+                                    ];
+                                    let label = widgets::field_label(ui, "Show when");
+                                    let all: Vec<usize> = (0..choices.len()).collect();
+                                    widgets::dropdown("render")
+                                        .selected_text(*choices.get(n).unwrap_or(&"Unknown"))
+                                        .show(ui, &mut n, &all, |i| choices[*i])
+                                        .labelled_by(label.id);
+                                    if n != was {
+                                        *value = json!(n);
+                                    }
+                                }
+                                "image" if value.is_string() => {
+                                    widgets::field_label(ui, "Image");
+                                    let Value::String(picture) = value else { return };
+                                    ui.horizontal(|ui| {
+                                        fields::hinted(ui, picture, 140.0, "Picture name");
+                                        if let Some(name) = images::from_disk(ui) {
+                                            *picture = name;
+                                        }
+                                        // The pictures of the module and the game, by what is typed.
+                                        ui.menu_button("Choose…", |ui| {
+                                            mg_uikit::menu_rows(ui);
+                                            egui::ScrollArea::vertical().max_height(240.0).show(
+                                                ui,
+                                                |ui| {
+                                                    let typed = picture.to_lowercase();
+                                                    for name in assets
+                                                        .catalog
+                                                        .iter()
+                                                        .filter(|n| n.contains(&typed))
+                                                        .take(40)
+                                                    {
+                                                        if ui.button(name).clicked() {
+                                                            *picture = name.clone();
+                                                            ui.close();
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        });
+                                    });
+                                }
+                                "arrayBinds" => {
+                                    // A bound array gives each list row its own value.
+                                    if let Value::Bool(b) = value {
+                                        ui.check_box(b, "Per-row values (in a list)");
+                                    }
+                                }
+                                _ => property(ui, key, "draw", value, s, &mut remove_field),
+                            });
+                        }
+                        if let Some(key) = remove_field {
+                            obj.remove(&key);
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(i > 0, egui::Button::new("Up").small()).clicked() {
+                            move_item = Some((i, i - 1));
+                        }
+                        if ui
+                            .add_enabled(i + 1 < total, egui::Button::new("Down").small())
+                            .clicked()
+                        {
+                            move_item = Some((i, i + 1));
+                        }
+                        if ui.small_button("Remove Drawing").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                });
+            }
+            if let Some(i) = remove {
+                items.remove(i);
+                keys.remove(i);
+                moved = Some(Moved::Removed(i));
+            } else if let Some((a, b)) = move_item
+                && b < items.len()
+            {
+                items.swap(a, b);
+                keys.swap(a, b);
+                moved = Some(Moved::Swapped(a, b));
+            }
+            ui.data_mut(|d| d.insert_temp(keys_id, keys));
+        });
     moved
 }
 

@@ -281,7 +281,7 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
             widgets::dialog(ui.ctx(), "New Variant", &mut open).collapsible(false).resizable(false);
         window.show(ui.ctx(), |ui| {
             let name = widgets::field_label(ui, "Variant name");
-            let field = ui.add(egui::TextEdit::singleline(&mut draft.name)).labelled_by(name.id);
+            let field = ui.add(mg_uikit::text_field(&mut draft.name)).labelled_by(name.id);
             widgets::autofocus(ui, &field);
             if matches!(draft.root["type"].as_str(), Some("col" | "row")) {
                 let mut horizontal = draft.root["type"] == "row";
@@ -402,42 +402,45 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     if ty == "group" {
         let contents = node["children"].get(0).cloned();
         let mut group = node["id"].as_str().unwrap_or_default().to_owned();
-        egui::CollapsingHeader::new("Variants").default_open(true).show(ui, |ui| {
-            ui.weak("One area with several contents. Its position and size stay the same.");
-            if group.is_empty() {
-                ui.weak("It gets an ID when its first variant is made.");
-            } else {
-                ui.label(format!("Target: {group}"));
-            }
-            if ui.button("Edit Initial Contents").clicked() {
-                state.selected = format!("{path}/children/0");
-            }
-            for name in variants(s, &group) {
-                if ui.button(format!("Edit variant · {name}")).clicked() {
+        egui::CollapsingHeader::new("Variants")
+            .icon(mg_uikit::collapsing_icon)
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.weak("One area with several contents. Its position and size stay the same.");
+                if group.is_empty() {
+                    ui.weak("It gets an ID when its first variant is made.");
+                } else {
+                    ui.label(format!("Target: {group}"));
+                }
+                if ui.button("Edit Initial Contents").clicked() {
+                    state.selected = format!("{path}/children/0");
+                }
+                for name in variants(s, &group) {
+                    if ui.button(format!("Edit variant · {name}")).clicked() {
+                        state.layout_target = group.clone();
+                        edit(state, Some(name));
+                    }
+                }
+                if let Some(name) = create(ui, s, contents.as_ref()) {
+                    if group.is_empty() {
+                        let mut ids = mg_nui::element_ids(doc);
+                        for v in s.variants.values() {
+                            ids.extend(mg_nui::element_ids(v));
+                        }
+                        group = unique("swap_group", |n| ids.contains(n));
+                        if let Some(node) = doc.pointer_mut(&path) {
+                            node["id"] = json!(group);
+                        }
+                    }
+                    // Registration is editor metadata only; generation still uses Action::Variant.
+                    remember_target(s, &name, &group);
                     state.layout_target = group.clone();
                     edit(state, Some(name));
                 }
-            }
-            if let Some(name) = create(ui, s, contents.as_ref()) {
-                if group.is_empty() {
-                    let mut ids = mg_nui::element_ids(doc);
-                    for v in s.variants.values() {
-                        ids.extend(mg_nui::element_ids(v));
-                    }
-                    group = unique("swap_group", |n| ids.contains(n));
-                    if let Some(node) = doc.pointer_mut(&path) {
-                        node["id"] = json!(group);
-                    }
-                }
-                // Registration is editor metadata only; generation still uses Action::Variant.
-                remember_target(s, &name, &group);
-                state.layout_target = group.clone();
-                edit(state, Some(name));
-            }
-            ui.weak(
+                ui.weak(
                 "To show a variant: add a handler (a button's Clicked) and Insert… › Show variant.",
             );
-        });
+            });
         ui.separator();
     }
 }

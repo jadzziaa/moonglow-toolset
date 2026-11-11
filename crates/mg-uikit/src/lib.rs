@@ -12,6 +12,7 @@
 //! assert_eq!(mg_uikit::tokens(&ctx), mg_uikit::Tokens::LIGHT);
 //! ```
 
+pub mod controls;
 pub mod fonts;
 pub mod form;
 pub mod icons;
@@ -23,6 +24,10 @@ pub mod tokens;
 #[allow(dead_code)]
 mod svg;
 
+pub use controls::{
+    Checkbox, Controls, RadioButton, collapsing_icon, combo_icon, list_rows, menu_bar_style,
+    menu_rows, menu_style, row_style, slider, text_field,
+};
 pub use fonts::install_fonts;
 pub use form::{field_label, palette_swatches, section_heading, swatch, table_heading};
 pub use icons::{Icon, icon, icon_button, icon_text_button, icon_text_toggle, icon_toggle};

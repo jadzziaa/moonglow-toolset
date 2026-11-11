@@ -4,6 +4,7 @@
 //! blueprint into the module as a new custom one; Delete removes a custom
 //! one; Preview shows it in the 3D viewer.
 
+use mg_uikit::Controls as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -382,7 +383,7 @@ pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
 /// where the arrow keys go.
 pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
     if keys_are(ui.ctx(), list) {
-        let stroke = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color);
+        let stroke = egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).accent);
         ui.painter().rect_stroke(rect.shrink(1.0), 2.0, stroke, egui::StrokeKind::Inside);
     }
 }
@@ -1340,6 +1341,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             crate::commands::Id::new_blueprint(view.kind).run(app, ui.ctx());
         }
         ui.menu_button("More", |ui| {
+            mg_uikit::menu_rows(ui);
             if ui
                 .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
                 .on_hover_text("Add, rename and remove this module's categories for this kind")
@@ -1435,7 +1437,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
             if by.is_some()
                 && ui
-                    .checkbox(&mut nested, "Then by Category")
+                    .check_box(&mut nested, "Then by Category")
                     .on_hover_text("Each group holds the palette's categories, as they are nested")
                     .changed()
             {
@@ -1588,6 +1590,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let (_, below) = ui.allocate_exact_size(rest, egui::Sense::click());
         if let Some(label) = tree.new {
             below.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 if ui.button(label).clicked() {
                     tree.picks.push(Pick::New);
                     ui.close();
@@ -1998,7 +2001,8 @@ impl Tree<'_> {
         behind: egui::layers::ShapeIdx,
     ) {
         if self.cursor_in(branch) == Some(None) {
-            let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.6);
+            // (The keys' cursor on a header: the theme's `cell-select`.)
+            let fill = mg_uikit::tokens(ui.ctx()).cell_select;
             let radius = ui.visuals().widgets.inactive.corner_radius;
             ui.painter().set(behind, egui::epaint::RectShape::filled(header.rect, radius, fill));
             if self.reveal {
@@ -2054,6 +2058,7 @@ impl Tree<'_> {
         let remembered = self.remembered_key(path);
         let searching = self.found.is_some();
         let shown = egui::CollapsingHeader::new(title)
+            .icon(mg_uikit::collapsing_icon)
             .id_salt(("palette", kind, custom, path, searching, &self.grouping))
             .default_open(searching || self.open.contains(&remembered))
             .open(self.asked(&branch).or_else(|| self.arrives_in(node).then_some(true)))
@@ -2078,6 +2083,7 @@ impl Tree<'_> {
         if !custom {
             if plugins {
                 shown.header_response.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
                     if let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
                         let mut keys = Vec::new();
                         all_under(node, kind, &mut keys);
@@ -2098,6 +2104,7 @@ impl Tree<'_> {
         let new = self.new;
         let mut made = false;
         shown.header_response.context_menu(|ui| {
+            mg_uikit::menu_rows(ui);
             if let Some(label) = new {
                 if ui.button(label).clicked() {
                     made = true;
@@ -2243,6 +2250,7 @@ impl Tree<'_> {
         let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
         let commands = self.commands;
         r.context_menu(|ui| {
+            mg_uikit::menu_rows(ui);
             if let Some(label) = new {
                 if ui.button(label).on_hover_text("A new blueprint (the type's wizard)").clicked() {
                     picks.push(Pick::New);
@@ -2431,6 +2439,7 @@ impl Tree<'_> {
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
         let shown = egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
+            .icon(mg_uikit::collapsing_icon)
             .id_salt(("palette-remembered", title, self.kind, self.custom))
             .default_open(true)
             .open(self.asked(&branch))
@@ -2674,7 +2683,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let mut done = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(format!("Rename '{name}' to"));
-            let r = ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0));
+            let r = ui.add(mg_uikit::text_field(&mut to).desired_width(160.0));
             crate::widgets::autofocus(ui, &r);
             let taken = names.iter().any(|n| n != &name && n.eq_ignore_ascii_case(to.trim()));
             let ok = crate::prefabs::valid_name(&to) && !taken;
@@ -2724,6 +2733,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.actions.push(Action::PlacePrefab(name.clone()));
                 }
                 r.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
                     if ui.button("Place").clicked() {
                         app.actions.push(Action::PlacePrefab(name.clone()));
                         ui.close();

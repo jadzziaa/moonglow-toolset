@@ -465,7 +465,7 @@ fn area_properties_edit_the_area() {
     assert_eq!(a.integer("SunAmbientColor"), Some(0x32_3A_3C), "ExteriorDark's 60, 58, 50");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting Scheme"));
     // Always dark.
-    h.get_by_label("Always Dark").click();
+    click_in_sight(&mut h, "Always Dark");
     h.run_steps(2);
     let a = are(&mut h);
     assert_eq!((a.integer("DayNightCycle"), a.integer("IsNight")), (Some(0), Some(1)));
@@ -1000,7 +1000,7 @@ fn several_areas_are_edited_together() {
     assert!(h.query_by_label("Edit Areas Together").is_none(), "the chooser closed");
 
     // Visual: always dark, on both caves and not on the inn.
-    h.get_by_label("Always Dark").click();
+    click_in_sight(&mut h, "Always Dark");
     h.run_steps(2);
     for (name, night) in [("cave1", 1), ("cave2", 1), ("inn", 0)] {
         let a = are(&mut h, name);

@@ -343,7 +343,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "Name");
             ui.add(
-                egui::TextEdit::singleline(&mut w.name)
+                mg_uikit::text_field(&mut w.name)
                     .desired_width(220.0)
                     .hint_text("a category's or group's name"),
             );
@@ -395,7 +395,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "StrRef");
             ui.add(
-                egui::TextEdit::singleline(&mut w.strref)
+                mg_uikit::text_field(&mut w.strref)
                     .desired_width(100.0)
                     .hint_text("a talk-table line"),
             );

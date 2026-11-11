@@ -556,6 +556,9 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     let expand = h.get_all_by_label("⏷").min_by(|a, b| below(a).total_cmp(&below(b)));
     expand.expect("Expand All").click();
     h.run();
+    // (Its category is below the pane's edge: scrolled to.)
+    let pane = h.get_by_label("Special").rect().center();
+    wheel_to(&mut h, pane, "Gate A");
     h.get_by_label("Gate A").click_secondary();
     h.run();
     h.get_by_label("Add to Favorites").click();
@@ -568,6 +571,8 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
         h.get_by_label("Special").click();
         h.run();
     }
+    // (The favorites are above the categories: scrolled back to.)
+    wheel_up_to(&mut h, pane, "★ Gate A");
     let from = h.get_all_by_label("★ Gate A").last().unwrap().rect().center();
     let to = h.get_by_label("Custom 1 (1)").rect().center();
     h.hover_at(from);

@@ -50,6 +50,7 @@ fn apply_sets_both_styles_and_the_tokens_follow() {
         assert_eq!(v.widgets.hovered.weak_bg_fill, t.raised_hover);
         assert_eq!(v.widgets.active.bg_stroke.color, t.accent);
         assert_eq!(v.widgets.open.bg_stroke.color, t.accent);
+        assert_eq!(v.widgets.open.weak_bg_fill, t.bar, "the top window's title bar");
         for w in [&v.widgets.noninteractive, &v.widgets.inactive, &v.widgets.hovered] {
             assert_eq!(w.corner_radius, egui::CornerRadius::same(metrics::RADIUS));
         }
@@ -91,11 +92,12 @@ fn apply_keeps_what_is_not_the_look() {
     }
 }
 
-/// Applied before the context's first frame, then every frame with a
-/// heading: no panic for a family not yet in the fonts, and the heading
-/// bold once it is.
+/// Applied before the context's first frame or in it: the heading text
+/// style (window titles, `ui.heading`) is the body's face, not bold; the
+/// bold family is in the fonts for the section headings, which are the
+/// one bold.
 #[test]
-fn the_heading_turns_bold_when_the_font_is_in() {
+fn the_heading_style_is_not_bold_and_the_bold_is_there_for_sections() {
     for before in [true, false] {
         let ctx_before = std::cell::Cell::new(before);
         let mut h = Harness::builder().with_size(egui::vec2(300.0, 100.0)).build_ui(|ui| {
@@ -103,15 +105,27 @@ fn the_heading_turns_bold_when_the_font_is_in() {
                 mg_uikit::apply(ui.ctx(), Theme::Dark);
             }
             ui.heading("Lighting Scheme");
+            mg_uikit::section_heading(ui, "Basic");
         });
         if before {
             mg_uikit::apply(&h.ctx, Theme::Dark);
             ctx_before.set(false);
         }
         h.run();
-        let style = h.ctx.style_of(egui::Theme::Dark);
-        assert_eq!(style.text_styles[&TextStyle::Heading].family, fonts::bold());
+        for theme in Theme::ALL {
+            let style = h.ctx.style_of(theme.egui());
+            let heading = &style.text_styles[&TextStyle::Heading];
+            assert_eq!(heading.family, egui::FontFamily::Proportional);
+            assert_eq!(heading.size, metrics::HEADING_SIZE);
+        }
         assert!(fonts::has_bold(&h.ctx));
+        let bold = h.output().shapes.iter().any(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Basic" => {
+                t.galley.job.sections[0].format.font_id.family == fonts::bold()
+            }
+            _ => false,
+        });
+        assert!(bold, "the section heading is bold");
     }
 }
 

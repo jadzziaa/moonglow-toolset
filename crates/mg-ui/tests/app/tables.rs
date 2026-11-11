@@ -206,16 +206,26 @@ fn the_talk_table_s_split_is_dragged() {
     drag(&mut h, -80.0);
     let after = strref(&h);
     assert!((before - 80.0 - after).abs() < 1.0, "dragged up: {before} to {after}");
-    // Up to seven tenths of the tab: the list keeps its room.
+    // Up to seven tenths of the tab: the list keeps its room (the share
+    // the editor is held at, kept in the settings).
     drag(&mut h, -2000.0);
     let highest = strref(&h);
     assert!(highest < after - 20.0 && highest > top + 150.0, "held: {highest}, {top}");
+    let held = h.state().settings.talk_splits.first().cloned();
+    assert_eq!(held, Some(("split".into(), 700)), "seven tenths of the tab");
     drag(&mut h, -300.0);
     assert!((strref(&h) - highest).abs() < 1.0, "no higher");
     // Down to the text box's three lines, the sound's row still in sight.
     drag(&mut h, 2000.0);
     let lowest = strref(&h);
-    assert!(lowest > before + 50.0, "dragged down: {lowest}");
+    assert!(lowest > before, "dragged down: {lowest}");
+    // (The box three rows of text high, and its margins' 8 points.)
+    let font = egui::TextStyle::Body.resolve(&h.ctx.global_style());
+    let text = h.ctx.fonts_mut(|f| f.row_height(&font));
+    let line = |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Text 5");
+    let shown = h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).find(line);
+    let tall = shown.expect("the line's text box").rect().height();
+    assert!((tall - (3.0 * text + 8.0)).abs() < 1.0, "three lines: {tall}");
     assert!(h.get_by_label("Sound").rect().bottom() < 800.0);
     drag(&mut h, 300.0);
     assert!((strref(&h) - lowest).abs() < 1.0, "no lower");

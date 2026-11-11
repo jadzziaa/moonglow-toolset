@@ -2,6 +2,7 @@
 //! with what they depend on; File > Import Files and Import Folder: loose
 //! files' resources, into the same window as an archive's.
 
+use mg_uikit::Controls as _;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -908,7 +909,7 @@ fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
         );
         ui.label("Overwrite replaces it with an archive of these resources alone.");
         ui.add_space(6.0);
-        ui.checkbox(&mut ask.always, "Always do this")
+        ui.check_box(&mut ask.always, "Always do this")
             .on_hover_text("Tools › Options › General › Exporting to an archive there changes it");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -1049,12 +1050,13 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drop-files")));
     let room = ctx.content_rect();
     let visuals = ctx.global_style().visuals.clone();
-    painter.rect_filled(room, 0.0, egui::Color32::from_black_alpha(150));
+    painter.rect_filled(room, 0.0, mg_uikit::tokens(ctx).overlay);
     let font = egui::FontId::proportional(20.0);
     let text = painter.layout_no_wrap(said, font, visuals.strong_text_color());
     let plate = egui::Rect::from_center_size(room.center(), text.size() + egui::vec2(48.0, 32.0));
     painter.rect_filled(plate, 8.0, visuals.window_fill);
-    painter.rect_stroke(plate, 8.0, visuals.selection.stroke, egui::StrokeKind::Inside);
+    let line = egui::Stroke::new(1.0, mg_uikit::tokens(ctx).accent);
+    painter.rect_stroke(plate, 8.0, line, egui::StrokeKind::Inside);
     painter.galley(plate.center() - text.size() / 2.0, text, visuals.strong_text_color());
 }
 
@@ -1174,7 +1176,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 }
                             };
                             let mut on = draft.selected.contains(k);
-                            if ui.checkbox(&mut on, k.to_string()).changed() {
+                            if ui.check_box(&mut on, k.to_string()).changed() {
                                 if on {
                                     draft.selected.insert(*k);
                                 } else {
@@ -1206,11 +1208,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 }
             });
-            ui.checkbox(&mut draft.dependencies, "Include the resources they use");
-            ui.checkbox(&mut draft.reset_factions, "Put creatures in the standard factions");
+            ui.check_box(&mut draft.dependencies, "Include the resources they use");
+            ui.check_box(&mut draft.reset_factions, "Put creatures in the standard factions");
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Description");
-                ui.text_edit_singleline(&mut draft.comments).on_hover_text(
+                ui.add(mg_uikit::text_field(&mut draft.comments)).on_hover_text(
                     "The module's git commit, Moonglow's version and name go with it (Import shows \
                      them)",
                 );
@@ -1288,7 +1290,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 true => format!("{k} (open, with unsaved changes)"),
                                 false => k.to_string(),
                             };
-                            let r = ui.checkbox(on, text);
+                            let r = ui.check_box(on, text);
                             if open {
                                 r.on_hover_text(format!("Open with unsaved changes: {UNSAVED}"));
                             }

@@ -8,6 +8,7 @@ use mg_edit::{Command, Edit, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::Choice;
+use mg_uikit::Controls as _;
 
 use super::inventory::{self, Added, Bin, NewPage};
 use super::{Form, situated};
@@ -52,7 +53,7 @@ fn optional_price(
     let mut enabled = current != -1;
     ui.horizontal(|ui| {
         f.mark_mixed_inline(ui, &[label]);
-        if ui.checkbox(&mut enabled, check).changed() {
+        if ui.check_box(&mut enabled, check).changed() {
             f.set_int(check, label, if enabled { on } else { -1 }, FieldType::Int);
         }
         ui.add_enabled_ui(current != -1, |ui| {
@@ -308,7 +309,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         ("Store will NOT buy the following items", false),
         ("Store will ONLY buy the following items", true),
     ] {
-        if ui.radio(only == mode, text).clicked() && only != mode {
+        if ui.radio_button(only == mode, text).clicked() && only != mode {
             only = mode;
             if !current.is_empty() {
                 // The items move to the other list.
@@ -464,7 +465,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                 ("Store will NOT buy the following items", false),
                 ("Store will ONLY buy the following items", true),
             ] {
-                if ui.radio(only == mode, text).clicked() {
+                if ui.radio_button(only == mode, text).clicked() {
                     only = mode;
                     // Each store whose items are in the other list: moved.
                     let (to, from) = if mode {

@@ -3837,7 +3837,8 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     h.run();
     let torso = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_Torso");
     let before = torso(&mut h).expect("a torso");
-    // The torso's list: beside its label, on its row.
+    // The torso's list: beside its label, on its row, the first after it
+    // (the area's tab under the window has lists on that row too).
     // (The field's label: the part's button under the lists is named so too.)
     let label = (h.get_all_by_label("Torso"))
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
@@ -3846,7 +3847,8 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
-        .find(|r| r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0)
+        .filter(|r| r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0)
+        .min_by(|a, b| a.min.x.total_cmp(&b.min.x))
         .expect("the torso's list");
     let wheel = |h: &mut Harness<'_, Moonglow>, y: f32| {
         h.hover_at(list.center());
@@ -3991,10 +3993,18 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
 
     // Another edit, and a save: both parts' colors are in the saved file.
     let cloth = field(&mut h, &key).integer("Cloth1Color").unwrap();
-    // (Its colors are in the right column; part numbers, some the same,
-    // in the left.)
+    // (Its colors' lists are beside their labels, the armor's Cloth 1
+    // above the part's; part numbers, some the same, are in the left
+    // column.)
+    let label = (h.get_all_by_label("Cloth 1"))
+        .filter(|n| n.accesskit_node().role() != combo)
+        .map(|n| n.rect())
+        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .expect("the armor's Cloth 1 label");
     h.get_all_by_value(&cloth.to_string())
-        .find(|n| n.accesskit_node().role() == combo && n.rect().min.x > 590.0)
+        .filter(|n| n.accesskit_node().role() == combo)
+        .filter(|n| n.rect().min.x > label.max.x)
+        .find(|n| (n.rect().center().y - label.center().y).abs() < 6.0)
         .expect("the armor's Cloth 1")
         .click();
     h.run();
@@ -4373,6 +4383,12 @@ fn pictures_shown(h: &Harness<'_, Moonglow>) -> usize {
 fn picture_on_hover(h: &mut Harness<'_, Moonglow>, value: &dyn Fn(&str) -> bool) -> (usize, usize) {
     h.hover_at(egui::pos2(1.0, 1.0));
     h.run_steps(10);
+    // (The pictures in sight made first, a few milliseconds' worth a frame.)
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while h.state().thumbnails.waiting() + h.state().thumbnails.reading() > 0 {
+        assert!(std::time::Instant::now() < deadline, "the pictures in sight are made");
+        h.run_steps(1);
+    }
     let (without, made) = (pictures_shown(h), h.state().thumbnails.drawn);
     let at = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
@@ -4430,6 +4446,17 @@ fn an_item_s_appearance_lists_show_the_item_with_each() {
         };
         h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
         h.run_steps(4);
+        if name == "nw_aarcl001" {
+            // (The parts' pictures under the lists open at the armor's
+            // torso, which makes the torso's alone once in sight: turned to
+            // the neck's, and the pictures made so far forgotten, it is the
+            // hover's to make.)
+            let toggle = |n: &egui_kittest::Node<'_>| n.accesskit_node().toggled().is_some();
+            h.get_all_by_label("Neck").find(toggle).expect("the parts' pictures' Neck").click();
+            h.run_steps(2);
+            h.state_mut().thumbnails = Default::default();
+            h.run_steps(2);
+        }
         // (Its icon too; an armor's part, that part alone as well.)
         let (shown, made) = picture_on_hover(&mut h, list);
         let pictures = if name == "nw_aarcl001" { 2 } else { 1 };

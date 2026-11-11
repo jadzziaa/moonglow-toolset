@@ -1,7 +1,13 @@
 //! Screenshots of windows for looking at their layout, rendered with wgpu
 //! into `target/test-output/screens/` (kept from run to run: each test adds
 //! its pictures). Not checks; run by hand:
-//! `cargo test -p mg-ui --test screens -- --ignored`.
+//! `cargo test -p mg-ui --test screens -- --ignored`. With `MG_LIGHT` set,
+//! in the light theme (Options › General › Light theme), into
+//! `target/test-output/screens-light/` (a folder of the same name for
+//! each: `screens-light/screens-area/`...); the tests' own files then
+//! belong in another folder, or the dark run's pictures beside them are
+//! emptied with them: `MG_LIGHT=1 MOONGLOW_TEST_OUTPUT=target/test-output-light
+//! cargo test -p mg-ui --test screens -- --ignored`.
 
 use std::sync::Arc;
 
@@ -26,11 +32,83 @@ fn described(h: &mut Harness<'_, Moonglow>) {
     }
 }
 
+/// The pictures are in the light theme (`MG_LIGHT` set).
+fn light() -> bool {
+    std::env::var_os("MG_LIGHT").is_some()
+}
+
+/// The theme of the pictures.
+fn theme() -> mg_uikit::Theme {
+    if light() { mg_uikit::Theme::Light } else { mg_uikit::Theme::Dark }
+}
+
+/// Where the pictures meant for `dir` go: `dir`, or in the light theme its
+/// namesake under `screens-light/`.
+fn picture_dir(dir: &std::path::Path) -> std::path::PathBuf {
+    if !light() {
+        return dir.to_path_buf();
+    }
+    let name = dir.file_name().expect("a folder");
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
+    let light = out.join("screens-light").join(name);
+    std::fs::create_dir_all(&light).unwrap();
+    light
+}
+
+/// The window in the theme of the pictures (Options › General › Light
+/// theme), from its next frame.
+fn themed(h: &mut Harness<'_, Moonglow>) {
+    h.state_mut().settings.light_theme = light();
+}
+
+/// Frames until the UI stops asking for more (a scroll's animation) and
+/// the window's own work is done, for at most 30 seconds (the app tests'
+/// `settle`).
+fn settle(h: &mut Harness<'_, Moonglow>) {
+    let started = std::time::Instant::now();
+    loop {
+        let ran = h.try_run();
+        if ran.is_ok() && h.state().under_way().is_none() {
+            return;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "never settled: {:?}, {:?}",
+            ran.err(),
+            h.state().under_way()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// Frames until the widget whose rect `rect` gives has stayed in one
+/// place for a few frames (a window that has just opened takes a few to
+/// find its size and place; a scroll is animated), where an area view
+/// keeps the window repainting.
+fn at_rest(h: &mut Harness<'_, Moonglow>, rect: impl Fn(&Harness<'_, Moonglow>) -> egui::Rect) {
+    let started = std::time::Instant::now();
+    let (mut last, mut still) = (None, 0);
+    while still < 4 {
+        h.run_steps(1);
+        let now = rect(h);
+        still = if last == Some(now) { still + 1 } else { 0 };
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "never at rest");
+        last = Some(now);
+    }
+}
+
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
+    shoot_in(h, dir, name, light());
+}
+
+/// [`shoot`] in the theme `light` says, whichever the pictures are in (a
+/// test that shows both).
+fn shoot_in(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str, light: bool) {
+    h.state_mut().settings.light_theme = light;
     // Steps rather than runs: animated views keep repainting.
     h.run_steps(3);
     let image = h.render().expect("render");
-    image.save(dir.join(format!("{name}.png"))).unwrap();
+    image.save(picture_dir(dir).join(format!("{name}.png"))).unwrap();
 }
 
 /// Build Module's Unused results, a script a line with its files, one
@@ -124,6 +202,7 @@ fn color_button_paste() {
     mg_testkit::gpu::hold();
     let mut h = Harness::builder().with_size(egui::vec2(420.0, 420.0)).wgpu().build_ui_state(
         |ui, rgb: &mut [u8; 3]| {
+            mg_uikit::apply(ui.ctx(), theme());
             mg_ui::color_button::edit_srgb(ui, rgb);
         },
         [158, 151, 211],
@@ -134,6 +213,7 @@ fn color_button_paste() {
     let image = h.render().expect("render");
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("../test-output/screens");
     std::fs::create_dir_all(&path).unwrap();
+    let path = picture_dir(&path);
     image.save(path.join("color-button-paste.png")).unwrap();
     // Its right-click menu, the picker closed.
     h.key_press(egui::Key::Escape);
@@ -1876,8 +1956,10 @@ fn area_creatures_game_shaders() {
             let shaders = if on { "game-shaders" } else { "own-shader" };
             let sel = if selected { "selected" } else { "unselected" };
             let name = format!("area-creatures-{shaders}-{sel}");
+            themed(&mut h);
             h.run_steps(3);
             let image = h.render().expect("render");
+            let dir = picture_dir(&dir);
             image.save(dir.join(format!("{name}.png"))).unwrap();
             let view = &h.state().area_views[&area];
             for (i, p) in spots.iter().enumerate() {
@@ -4712,21 +4794,21 @@ fn conversation_and_factions_in_both_themes() {
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(5);
         let theme = if light { "light" } else { "dark" };
-        shoot(&mut h, &dir, &format!("conversation-{theme}"));
+        shoot_in(&mut h, &dir, &format!("conversation-{theme}"), light);
         if !light {
             narrow(&mut h, &mg_ui::Tab::Dialog(dlg));
-            shoot(&mut h, &dir, "conversation-narrow");
+            shoot_in(&mut h, &dir, "conversation-narrow", light);
         }
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Factions));
         h.run_steps(5);
         h.get_by_label("Commoner").click();
         h.run_steps(3);
-        shoot(&mut h, &dir, &format!("factions-{theme}"));
+        shoot_in(&mut h, &dir, &format!("factions-{theme}"), light);
         // (Not one that fits its pane: it scrolls in Moonglow's own scroll
         // area, both ways, in a narrow window.)
         if !light {
             narrow(&mut h, &mg_ui::Tab::Factions);
-            shoot(&mut h, &dir, "factions-narrow");
+            shoot_in(&mut h, &dir, "factions-narrow", light);
         }
     }
 }
@@ -5125,7 +5207,7 @@ fn areas_by_name_and_area_properties() {
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     app.settings.area_names = true;
     app.settings.name_resrefs = true;
-    app.settings.light_theme = std::env::var_os("MG_LIGHT").is_some();
+    app.settings.light_theme = light();
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
     let mut h = Harness::builder()
@@ -5215,7 +5297,7 @@ fn areas_edited_together() {
     h.get_by_label("Edit").click();
     h.run_steps(2);
     h.get_by_label("Edit Areas Together…").click();
-    h.run_steps(2);
+    at_rest(&mut h, |h| h.get_by_label("Tick Shown").rect());
     h.get_by_label("Tick Shown").click();
     h.run_steps(2);
     shoot(&mut h, &dir, "areas-chooser");
@@ -7238,8 +7320,12 @@ fn nui_delete_and_rename() {
     let mut h = nui_harness(app, key, (1100.0, 700.0));
     h.get_by_label("Canvas Button · Close").click();
     h.run();
+    // (Under the properties pane's edge: brought in sight first.)
+    h.get_by_label("Edit Code").scroll_to_me();
+    h.run_steps(4);
     h.get_by_label("Edit Code").click();
     h.run();
+    assert!(h.query_by_label_contains("shop_e.nss").is_some(), "the event script opened");
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();
     h.event(egui::Event::Text("// typed\n".into()));
@@ -7412,9 +7498,9 @@ fn advanced_search() {
     };
     h.state_mut().advanced_search(&mut d);
     h.state_mut().advanced_search = d;
-    h.run();
+    settle(&mut h);
     h.query_by_label_contains("Change the ").expect("the change").click();
-    h.run();
+    h.run_steps(4);
     shoot(&mut h, &dir, "advanced-search-and");
     // Fighters of 4 to 10 levels or rogues (class 8), any of them,
     // without Alertness.
@@ -7430,7 +7516,7 @@ fn advanced_search() {
     };
     h.state_mut().advanced_search(&mut d);
     h.state_mut().advanced_search = d;
-    h.run();
+    settle(&mut h);
     shoot(&mut h, &dir, "advanced-search-or-not");
 }
 
@@ -7926,7 +8012,9 @@ fn described_variables_and_the_builder_code() {
             .wgpu()
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(3);
-        // The last row's name, being typed.
+        // The last row's name, being typed (scrolled to in the list).
+        h.get_all_by_value("tdod_").next().unwrap().scroll_to_me();
+        at_rest(&mut h, |h| h.get_all_by_value("tdod_").next().unwrap().rect());
         h.get_all_by_value("tdod_").next().unwrap().click();
         h.run_steps(3);
         shoot(&mut h, &dir, &format!("variables-{name}-typed"));
@@ -8797,6 +8885,7 @@ fn appearance_dropdown_frames() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
     h.run_steps(5);
     let at = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
@@ -8818,6 +8907,7 @@ fn appearance_dropdown_frames() {
     h.step();
     eprintln!("the first frame drawn: the Filter field {:?}", filter(&h));
     let image = h.render().expect("render");
+    let dir = picture_dir(&dir);
     image.save(dir.join("appearance-dropdown-first.png")).unwrap();
     h.run_steps(300);
     eprintln!("300 frames later: the Filter field {:?}", filter(&h));
@@ -9623,10 +9713,13 @@ fn properties_window_at_125_percent() {
     }
     place(&mut h, &tab, (60.0, 40.0), (400.0, 434.8));
     h.run_steps(6);
+    // (The theme from the frame after it is chosen.)
+    themed(&mut h);
+    h.step();
     for frame in ["a", "b"] {
         h.step();
         let image = h.render().expect("render");
-        image.save(dir.join(format!("properties-125-{frame}.png"))).unwrap();
+        image.save(picture_dir(&dir).join(format!("properties-125-{frame}.png"))).unwrap();
     }
 }
 

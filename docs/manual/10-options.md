@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-09T22:57:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T11:07:09Z }
 ---
 
 # Options
@@ -244,7 +244,14 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
 
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
-- **Light theme**: dark text on light, rather than the dark theme.
+- **Light theme**: the suite's light theme (light gray panels and bars,
+  dark text, the same blue for what is chosen) rather than its dark one,
+  which is the default. It changes as soon as it is ticked, in every
+  window. What a 3D view, a model preview or a NUI window shows (the
+  game's own look) is the same in both, and so are the script editor's
+  colors where a Background of your own is set: a dark Background takes
+  the dark theme's colors and a light one the light theme's, so its text
+  stays readable whichever theme the window wears.
 - **Toolbar buttons** (Icons and text): **Icons only** shows the
   buttons of the main toolbar, of the area view's toolbar and of the
   editors' toolbars (the script editor's, the conversation editor's, a
@@ -495,7 +502,8 @@ outside Moonglow) always ask.
 ### Font and Colors
 
 - The editor's **font size**, syntax **colors** and **Background**
-  (the theme's unless Custom is ticked), with a preview. **Reset to
+  (the theme's unless Custom is ticked; colors not chosen follow the
+  Background's lightness), with a preview. **Reset to
   defaults** sets these back; it leaves the indentation alone.
 
 ## Conversation Editor

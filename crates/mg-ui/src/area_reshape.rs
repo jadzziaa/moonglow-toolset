@@ -6,6 +6,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::Command;
 use mg_resman::ResKey;
 use mg_tiles::TileIndex;
+use mg_uikit::Controls as _;
 
 use crate::{Action, Moonglow};
 
@@ -115,8 +116,8 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
                 // as quarter turns counter-clockwise.
                 for (ccw, cw) in [(1, 3), (2, 2), (3, 1)] {
                     let degrees = 90 * u32::from(ccw);
-                    ui.radio_value(&mut d.turns, ccw, format!("CounterClockwise {degrees}"));
-                    ui.radio_value(&mut d.turns, cw + 4, format!("Clockwise {degrees}"));
+                    ui.radio_choice(&mut d.turns, ccw, format!("CounterClockwise {degrees}"));
+                    ui.radio_choice(&mut d.turns, cw + 4, format!("Clockwise {degrees}"));
                     ui.end_row();
                 }
             });
@@ -294,7 +295,7 @@ fn tileset_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
         if !d.hidden.is_empty() {
             let label = format!("Show hidden tilesets ({})", d.hidden.len());
-            ui.checkbox(&mut d.show_hidden, label).on_hover_text(
+            ui.check_box(&mut d.show_hidden, label).on_hover_text(
                 "Tilesets the project's moonglow.toml hides. Areas on them still open as usual.",
             );
         }

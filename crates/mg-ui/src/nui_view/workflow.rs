@@ -114,7 +114,7 @@ pub(super) fn create_bind(
             window.show(ui.ctx(), |ui| {
                 let name = widgets::field_label(ui, "Bind name");
                 let name_edit = ui
-                    .add(egui::TextEdit::singleline(&mut draft.name).hint_text("e.g. is_open"))
+                    .add(mg_uikit::text_field(&mut draft.name).hint_text("e.g. is_open"))
                     .labelled_by(name.id);
                 widgets::autofocus(ui, &name_edit);
                 let before = draft.kind;
@@ -128,7 +128,7 @@ pub(super) fn create_bind(
                 }
                 widgets::field_label(ui, "Initial value");
                 fields::value(ui, &mut draft.value, 0);
-                ui.checkbox(&mut draft.rows, "List row array")
+                ui.check_box(&mut draft.rows, "List row array")
                     .on_hover_text("A value for each row of a list, starting with one row");
                 if let Some(error) = draft.error(bindings) {
                     ui.weak(error);
@@ -196,11 +196,12 @@ pub(super) fn ui(
                 }
                 // The handlers showing it, and its function's calls, follow.
                 ui.menu_button("Rename…", |ui| {
+ mg_uikit::menu_rows(ui);
                     let id = ui.make_persistent_id(("rename-variant", name));
                     let mut to: String =
                         ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());
                     let label = widgets::field_label(ui, "Name");
-                    ui.text_edit_singleline(&mut to).labelled_by(label.id);
+                    ui.add(mg_uikit::text_field(&mut to)).labelled_by(label.id);
                     let taken = to != *name && s.variants.contains_key(&to);
                     let ok = to != *name && !to.is_empty() && mg_nui::plain_name(&to) && !taken;
                     if ui

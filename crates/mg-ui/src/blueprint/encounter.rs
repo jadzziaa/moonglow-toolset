@@ -7,6 +7,7 @@ use mg_edit::{Command, Edit, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::Choice;
+use mg_uikit::Controls as _;
 
 use super::{Form, situated};
 use crate::Action;
@@ -174,7 +175,7 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
                         ui.label(tags.get(i).cloned().unwrap_or_default());
                         ui.label(resref.to_string());
                         let mut single = c.integer("SingleSpawn").unwrap_or(0) != 0;
-                        if ui.checkbox(&mut single, "").changed() {
+                        if ui.check_box(&mut single, "").changed() {
                             unique = Some((i, single));
                         }
                         ui.end_row();
@@ -276,7 +277,7 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
                     let differs = lists::differs(&targets, "CreatureList", is, single);
                     f.mark_if(ui, &format!("SingleSpawn#{resref}"), differs);
                     let mut on = single(&m.entry);
-                    if ui.checkbox(&mut on, "").changed() {
+                    if ui.check_box(&mut on, "").changed() {
                         let out =
                             lists::set(&targets, "CreatureList", is, &["SingleSpawn"], |e, l| {
                                 Some(lists::like(e.get(l), i64::from(on), Value::Byte(0)))
@@ -358,7 +359,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(!infinite, |ui| f.spin(ui, "Respawns", "Respawns", 0..=32_000));
                 let mut inf = infinite;
-                if ui.checkbox(&mut inf, "Infinite Respawn").changed() {
+                if ui.check_box(&mut inf, "Infinite Respawn").changed() {
                     f.set_int(
                         "Infinite respawn",
                         "Respawns",

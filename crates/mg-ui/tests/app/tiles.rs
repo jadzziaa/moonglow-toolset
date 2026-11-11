@@ -185,7 +185,7 @@ fn tileset_made_edited_saved_with_its_palette() {
     h.run();
     h.get_by_label("Add Tile").click();
     h.run();
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run();
     h.get_by_label("Add Group").click();
     h.run();
@@ -369,7 +369,7 @@ fn a_tileset_group_s_name_is_typed() {
     h.run();
     h.get_by_label("Add Tile").click();
     h.run();
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run();
     h.get_by_label("Add Group").click();
     h.run();
@@ -437,7 +437,7 @@ fn a_tileset_s_rules_and_doors_are_edited() {
     assert_eq!(h.query_all(combo.clone()).filter(grass).count(), 3, "Placed, Adjacent, Changed");
     h.query_all(combo).filter(grass).nth(2).expect("the rule's Changed").click();
     h.run();
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run();
     assert_eq!(set(&h).primary_rules[0].changed, "Water");
     h.get_all_by_label("Add Rule").nth(1).expect("the secondary rules' Add Rule").click();
@@ -498,7 +498,7 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
             h.run_steps(3);
         }
     }
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     // Wherever the pointer rests on raised ground, the quarter drawn for it
     // lies on that ground.
@@ -561,7 +561,7 @@ fn area_viewer_paints_terrain() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     h.get_by_label_contains("Water: click a corner");
 
@@ -576,7 +576,7 @@ fn area_viewer_paints_terrain() {
 
     // Shift + click with Grass on a grass corner: the four tiles around it
     // step to their next variants; the terrain stays.
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     let tiles = |h: &mut Harness<'_, Moonglow>| {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -607,7 +607,7 @@ fn area_viewer_paints_terrain() {
 
     // A road dragged from tile (0, 0) to (2, 0), starting in the east
     // quarter of the first: on the two edges crossed.
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
     h.hover_at(from);
@@ -628,7 +628,7 @@ fn area_viewer_paints_terrain() {
     assert_eq!(edges[2], [None, None, None, Some(road)]);
 
     // Trees beside the straight road: no tile has that, nothing changes.
-    h.get_by_label("Trees").click();
+    click_in_sight(&mut h, "Trees");
     h.run_steps(2);
     let before = lattice(&mut h);
     click(&mut h, Vec3::new(20.0, 10.0, 0.0));
@@ -647,9 +647,9 @@ fn area_viewer_paints_terrain() {
 
     // A group (Barn 1: tiles 145, 147 / 144, 146 from the south-west),
     // turned a quarter by a right click, its first tile where clicked.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     button(&mut h, Vec3::new(25.0, 15.0, 0.0), egui::PointerButton::Secondary);
     click(&mut h, Vec3::new(25.0, 15.0, 0.0));
@@ -1082,9 +1082,9 @@ fn groups_and_features_change_only_whole() {
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // A barn, its first tile in (1, 1).
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     click(&mut h, Vec3::new(15.0, 15.0, 0.0), egui::Modifiers::NONE);
     let barn = vec![(1, 1), (2, 1), (1, 2), (2, 2)];
@@ -1102,7 +1102,7 @@ fn groups_and_features_change_only_whole() {
     // (The cursor over it is red, as Aurora's outline turns.)
     h.render().unwrap().save(mg_testkit::scratch_dir("ui-group-locked").join("over.png")).unwrap();
     // (The groups closed: the tools above in view.)
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
     // The tile tools on one of its tiles: refused, saying why.
     let east = Vec3::new(25.0, 15.0, 0.0);
@@ -1175,9 +1175,9 @@ fn groups_and_features_change_only_whole() {
     h.run_steps(3);
     assert_eq!(grid(&mut h), placed, "undone");
     // A barn over its east half: the first goes whole.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
 
     h.run_steps(2);
     click(&mut h, east, egui::Modifiers::NONE);
@@ -1364,7 +1364,7 @@ fn choose_tile_brush(h: &mut Harness<'_, Moonglow>, brush: &str) {
     h.run_steps(3);
     palette_type(h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label(brush).click();
+    click_in_sight(h, brush);
     h.run_steps(2);
 }
 
@@ -1643,7 +1643,7 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     let before = lattice(&mut h);
     // Dragged from corner (1, 2) to corner (3, 2), 10 m apart each, then
@@ -1711,7 +1711,7 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     };
     // A crosser over grass: a drag from there lays it, green.
     let green = egui::Color32::from_rgb(80, 220, 80);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(13.0, 15.0, 0.0));
     h.hover_at(at);
@@ -1747,7 +1747,7 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     // A terrain brush on a corner of its own terrain adds none, it chooses
     // the tiles again: blue; elsewhere it paints. (Corner (3, 3), clear of
     // the road.)
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     let corner = screen(&h, area, Vec3::new(30.0, 30.0, 0.0));
     h.hover_at(corner);
@@ -1793,7 +1793,7 @@ fn a_crosser_click_lays_it_on_the_edge_of_the_quarter_clicked() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Doorway").click();
+    click_in_sight(&mut h, "Doorway");
     h.run_steps(2);
     let doorway = index.crosser("Doorway").expect("tic01's Doorway");
     let (green, red) = (egui::Color32::from_rgb(80, 220, 80), egui::Color32::from_rgb(230, 60, 60));
@@ -1850,7 +1850,7 @@ fn a_crosser_drag_lays_what_fits_and_passes_over_the_rest() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Doorway").click();
+    click_in_sight(&mut h, "Doorway");
     h.run_steps(2);
     let doorway = index.crosser("Doorway").expect("tic01's Doorway");
     let red = egui::Color32::from_rgb(230, 60, 60);
@@ -1921,7 +1921,7 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     // Two roads, along the first row and the third.
     for y in [5.0, 25.0] {
@@ -1979,7 +1979,7 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     // A road along the first row.
     let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
@@ -2023,12 +2023,12 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
         h.run_steps(2);
     };
     right_click(&mut h, Vec3::new(18.0, 5.0, 0.0));
-    h.get_by_label("Stream").click();
+    click_in_sight(&mut h, "Stream");
     h.run_steps(2);
     let along: Vec<Vec3> =
         [3.0, 8.0, 14.0, 20.0, 26.0, 32.0, 37.0].iter().map(|&x| Vec3::new(x, 15.0, 0.0)).collect();
     drag(&mut h, &along);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let up: Vec<Vec3> =
         [3.0, 8.0, 14.0, 20.0, 26.0, 32.0, 37.0].iter().map(|&y| Vec3::new(15.0, y, 0.0)).collect();
@@ -2141,7 +2141,7 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     right_click(&mut h, ground);
     let items = menu_items(&h, "Tile Properties…");
@@ -2169,7 +2169,7 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     assert!(h.state().area_views[&area].tile_mode);
     assert!(h.state().palette.tile_brush.is_none());
     // A brush chosen: out of tile mode.
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     assert!(!h.state().area_views[&area].tile_mode);
 }
@@ -2460,12 +2460,12 @@ fn palette_tile_tools_step_the_selected_tiles() {
 
     // A group's tile: refused, saying why, the group in red; the
     // selection kept.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     click(&mut h, a, egui::Modifiers::NONE);
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
     let placed = grid(&mut h);
     assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
@@ -2606,12 +2606,12 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
 
     // A barn: the Eraser on one of its tiles takes it all, as Delete; X
     // the same.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     click(&mut h, a, egui::Modifiers::NONE);
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
     let placed = grid(&mut h);
     assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
@@ -2736,14 +2736,17 @@ fn tile_variant_pictures_take_the_size_set() {
         assert_eq!(a.top(), b.top(), "on one row");
         b.left() - a.left()
     };
-    assert!((apart(&h) - 214.0).abs() < 1.0, "200 points and the gaps: {}", apart(&h));
+    // (A column: the picture, its button's padding either side and the
+    // grid's gap of 6.)
+    let gaps = 2.0 * h.ctx.global_style().spacing.button_padding.x + 6.0;
+    assert!((apart(&h) - (200.0 + gaps)).abs() < 1.0, "200 points and the gaps: {}", apart(&h));
     h.get_by_label("Size");
     let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
     h.render().unwrap().save(dir.join("large.png")).unwrap();
     // The usual size, unless set.
     h.state_mut().settings.tile_variant_side = None;
     h.run_steps(3);
-    assert!((apart(&h) - 98.0).abs() < 1.0, "{}", apart(&h));
+    assert!((apart(&h) - (84.0 + gaps)).abs() < 1.0, "{}", apart(&h));
     // Small, a picture under the pointer shows at its largest beside it.
     let (p, model) = &variants[1];
     let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
@@ -3989,7 +3992,7 @@ fn a_terrain_drag_with_shift_fills_its_rectangle() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     let before = lattice(&mut h);
     // Corner (1, 1) diagonally to (3, 2), Shift held.
@@ -4041,7 +4044,7 @@ fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let before = lattice(&mut h);
     // Tile (0, 0) diagonally to tile (2, 2), Shift held.
@@ -4088,7 +4091,7 @@ fn painting_with_shift_held_the_camera_still_zooms_and_turns() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
     let at = screen(&h, area, glam::Vec3::new(20.0, 10.0, 0.0));
@@ -4172,12 +4175,12 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     };
     // Water on a corner (its four tiles, chosen at random among those that
     // fit), and a barn.
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     check(&mut h, Vec3::new(20.0, 20.0, 0.0));
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     check(&mut h, Vec3::new(5.0, 5.0, 0.0));
 }
@@ -4231,10 +4234,10 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
             );
         }
     };
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     check(&mut h, &[10.0, 15.0, 20.0, 25.0, 30.0].map(|x| Vec3::new(x, 20.0, 0.0)));
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     check(&mut h, &[7.0, 12.0, 18.0, 24.0, 25.0].map(|x| Vec3::new(x, 5.0, 0.0)));
 }
@@ -4286,7 +4289,7 @@ fn a_right_drag_back_to_where_it_began_is_not_a_right_click() {
     right(&mut h, false);
     assert!(area_are(&mut h, area) != before, "a right click lowers");
     // A terrain: its right click is the tile menu, a right drag back isn't.
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     right(&mut h, true);
     assert!(h.query_by_label("Tile Properties…").is_none(), "no tile menu");
@@ -4841,7 +4844,7 @@ fn a_brush_s_tiles_are_drawn_by_the_game_s_shaders() {
     h.run_steps(3);
     h.get_by_label("Tiles").click();
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
     h.run_steps(3);
@@ -4992,10 +4995,10 @@ fn the_tile_palette_s_headings_close_while_a_search_is_typed() {
     h.run_steps(3);
     assert!(h.query_by_label("Water").is_some(), "found, its folder opened out");
     // The folder closed by a click: closed, and kept so.
-    h.get_by_label("Terrain").click();
+    click_in_sight(&mut h, "Terrain");
     h.run_steps(5);
     assert!(h.query_by_label("Water").is_none(), "the folder closed");
-    h.get_by_label("Terrain").click();
+    click_in_sight(&mut h, "Terrain");
     h.run_steps(5);
     assert!(h.query_by_label("Water").is_some(), "opened again");
     // In the Gallery, the terrain's heading: its tiles, closed by its arrow.

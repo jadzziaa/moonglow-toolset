@@ -10,6 +10,7 @@ use glam::Vec3;
 use mg_area::ObjectKind;
 use mg_core::ResRef;
 use mg_module::lights::{HakChoice, LightSpec, Plan};
+use mg_uikit::Controls as _;
 
 use crate::Moonglow;
 
@@ -168,15 +169,15 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                 d.spec.priority = p.clamp(1, 5) as u8;
                 ui.end_row();
             });
-            ui.checkbox(&mut d.spec.shadows, "Creatures' shadows are cast from it");
-            ui.checkbox(&mut d.spec.lights_objects, "Lights creatures and placeables too")
+            ui.check_box(&mut d.spec.shadows, "Creatures' shadows are cast from it");
+            ui.check_box(&mut d.spec.lights_objects, "Lights creatures and placeables too")
                 .on_hover_text("The light node's affectdynamic: off, it lights the ground alone");
             ui.weak(format!("Its light ends {} m out.", (d.spec.reach() * 100.0).round() / 100.0));
             ui.add_space(crate::widgets::SECTION_GAP);
             crate::widgets::section_heading(ui, "Written Into");
             for name in &names {
                 let on = d.hak == HakPick::Listed(name.clone());
-                if ui.radio(on, format!("{name}.hak")).clicked() {
+                if ui.radio_button(on, format!("{name}.hak")).clicked() {
                     d.hak = HakPick::Listed(name.clone());
                 }
             }
@@ -185,14 +186,15 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                     HakPick::New(n) => Some(n.clone()),
                     _ => None,
                 };
-                let chosen = ui.radio(typed.is_some(), "A new hak:").clicked() && typed.is_none();
+                let chosen =
+                    ui.radio_button(typed.is_some(), "A new hak:").clicked() && typed.is_none();
                 if chosen {
                     d.hak = HakPick::New(String::new());
                 }
                 let mut name = typed.clone().unwrap_or_default();
                 let r = ui.add_enabled(
                     typed.is_some() || chosen,
-                    egui::TextEdit::singleline(&mut name).desired_width(160.0).hint_text("name"),
+                    mg_uikit::text_field(&mut name).desired_width(160.0).hint_text("name"),
                 );
                 if chosen {
                     r.request_focus();

@@ -63,6 +63,24 @@ fn creator(mut app: Moonglow, size: [u32; 2]) -> Harness<'static, Moonglow> {
     h
 }
 
+/// Scrolls the last widget labeled `label` into its scroll area's view,
+/// waits until it stays still there (the scroll is animated: still for a
+/// few frames in a row), and clicks it. Out of sight, kittest's click at
+/// its center is on whatever is drawn there.
+fn click_last_in_sight(h: &mut Harness<'_, Moonglow>, label: &str) {
+    h.get_all_by_label(label).last().unwrap().scroll_to_me();
+    let started = std::time::Instant::now();
+    let (mut last, mut still) = (None, 0);
+    while still < 4 {
+        h.run_steps(1);
+        let rect = h.get_all_by_label(label).last().unwrap().rect();
+        still = if last == Some(rect) { still + 1 } else { 0 };
+        assert!(started.elapsed().as_secs() < 30, "{label} never came to rest in sight");
+        last = Some(rect);
+    }
+    h.get_all_by_label(label).last().unwrap().click();
+}
+
 /// Closes the window Edit code opened the script in, over the Creator's.
 fn close_script(h: &mut Harness<'_, Moonglow>, script: ResKey) {
     let dock = &mut h.state_mut().dock;
@@ -130,8 +148,9 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.get_by_label("Create").click();
     h.run();
     assert_eq!(document(&h)["root"]["children"][0]["value"], json!({"bind":"label_value"}));
-    // A bound value offers its change first.
-    h.get_all_by_label("+ Add Handler").last().unwrap().click();
+    // A bound value offers its change first. (The button is at the foot
+    // of the properties' pane, below its edge until scrolled to.)
+    click_last_in_sight(&mut h, "+ Add Handler");
     h.run();
     assert_eq!(settings(&h).bindings["label_value"].value, json!("Label"));
     assert!(settings(&h).handlers.iter().any(|r| r.event == "watch"
@@ -1863,7 +1882,8 @@ fn a_selection_undo_takes_away_is_cleared() {
     // (Added last, and selected: Properties shows its ID.)
     assert_eq!(document(&h)["root"]["children"].as_array().unwrap().len(), 3);
     h.get_by_label("Element ID");
-    h.get_by_label("Draw layers").click();
+    // (Its heading is below the properties' pane's edge until scrolled to.)
+    click_last_in_sight(&mut h, "Draw layers");
     h.run();
     h.get_by_label("+ Draw primitive").scroll_to_me();
     h.run();
