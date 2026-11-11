@@ -326,7 +326,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         let off: Vec<&Choice> =
             free.iter().copied().filter(|c| !present.contains_key(&(c.row as u32))).collect();
         let mut pick: Option<u32> = None;
-        ui.menu_button("Add Grass to…", |ui| {
+        mg_uikit::menu_button(ui, "Add Grass to…", |ui| {
             mg_uikit::menu_rows(ui);
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 ui.weak("On this area's tiles");

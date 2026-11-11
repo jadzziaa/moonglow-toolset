@@ -384,7 +384,7 @@ fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
 /// one the game reads, in the module, in a hak open in the hak editor,
 /// or in a file. (The game's own tables are never changed.)
 fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
-    ui.menu_button("Edit…", |ui| {
+    mg_uikit::menu_button(ui, "Edit…", |ui| {
         mg_uikit::menu_rows(ui);
         table_homes(app, ui, key)
     })

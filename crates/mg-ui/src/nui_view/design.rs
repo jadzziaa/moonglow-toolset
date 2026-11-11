@@ -210,15 +210,15 @@ pub(super) fn editor(
     let compact = width < 760.0;
     if compact {
         ui.horizontal(|ui| {
-            ui.menu_button("Add element", |ui| {
+            mg_uikit::menu_button(ui, "Add element", |ui| {
                 mg_uikit::menu_rows(ui);
                 palette(ui, v, s, state);
             });
-            ui.menu_button("Layers", |ui| {
+            mg_uikit::menu_button(ui, "Layers", |ui| {
                 mg_uikit::menu_rows(ui);
                 layers(ui, v, s, state);
             });
-            ui.menu_button("Properties", |ui| {
+            mg_uikit::menu_button(ui, "Properties", |ui| {
                 mg_uikit::menu_rows(ui);
                 ui.set_width(260.0);
                 let height = ui.ctx().content_rect().height() * 0.8;
@@ -277,7 +277,7 @@ pub(super) fn editor(
             ui.horizontal(|ui| {
                 widgets::table_heading(ui, "Layers");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.menu_button("…", |ui| {
+                    widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "More").menu(ui, |ui| {
                         mg_uikit::menu_rows(ui);
                         edit_actions(ui, v, s, state, keymap);
                     });
@@ -512,17 +512,11 @@ fn layer_row(
                 path.is_empty() || node["children"].is_array() || node["row_template"].is_array();
             if branch {
                 let closed = state.collapsed.contains(path);
-                let arrow = ui.add_sized(
-                    egui::vec2(18.0, 18.0),
-                    egui::Button::new(if closed { "⏵" } else { "⏷" }).frame(false),
-                );
-                arrow.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        true,
-                        format!("{} {name}", if closed { "Expand" } else { "Collapse" }),
-                    )
-                });
+                let (icon, verb) = match closed {
+                    true => (mg_uikit::Icon::ChevronRight, "Expand"),
+                    false => (mg_uikit::Icon::ChevronDown, "Collapse"),
+                };
+                let arrow = ui.add(crate::widgets::icon_only(icon, &format!("{verb} {name}")));
                 if arrow.clicked() {
                     if closed {
                         state.collapsed.remove(path);
@@ -584,8 +578,9 @@ fn draw_rows(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: us
                 ui.add_space(
                     ((depth + 1) as f32 * 14.0 + 18.0).min((ui.available_width() - 90.0).max(0.0)),
                 );
+                let text = format!("{kind} {}", i + 1);
                 let row = ui.add(
-                    egui::Button::selectable(chosen, format!("◇ {kind} {}", i + 1)).truncate(),
+                    mg_uikit::IconButton::new(mg_uikit::Icon::Layers, text).selectable(chosen),
                 );
                 row.widget_info(|| {
                     egui::WidgetInfo::labeled(
@@ -781,7 +776,7 @@ fn inspector(
     if !state.selected.is_empty() {
         ui.separator();
         ui.add_enabled_ui(state.resize.is_none(), |ui| {
-            ui.menu_button("Element actions", |ui| {
+            mg_uikit::menu_button(ui, "Element actions", |ui| {
                 mg_uikit::menu_rows(ui);
                 edit_actions(ui, v, s, state, keymap);
             })

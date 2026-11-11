@@ -145,7 +145,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 .on_hover_text("Adjust the level of this class");
                             // Classes the creature has stay.
                             if *had == 0
-                                && ui.small_button("✖").on_hover_text("Remove this class").clicked()
+                                && crate::widgets::icon_button(
+                                    ui,
+                                    mg_uikit::Icon::Close,
+                                    "Remove",
+                                    "Remove this class",
+                                )
+                                .clicked()
                             {
                                 remove = Some(i);
                             }

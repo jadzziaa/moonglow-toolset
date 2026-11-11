@@ -232,9 +232,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
             let count = entries(cat).len();
             let open = view.open.contains(&c);
             ui.horizontal(|ui| {
-                let arrow = if open { "⏷" } else { "⏵" };
+                let (arrow, verb) = match open {
+                    true => (mg_uikit::Icon::ChevronDown, "Collapse"),
+                    false => (mg_uikit::Icon::ChevronRight, "Expand"),
+                };
                 let hint = if open { "Close the category" } else { "Show its entries" };
-                if ui.add(egui::Button::new(arrow).frame(false)).on_hover_text(hint).clicked() {
+                let named = format!("{verb} {name}");
+                if crate::widgets::icon_button(ui, arrow, &named, hint).clicked() {
                     if open {
                         view.open.remove(&c);
                         // (Its entry, now out of sight, isn't left selected.)

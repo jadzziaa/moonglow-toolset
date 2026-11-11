@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # The main window
@@ -20,9 +20,13 @@ Area, Start, Resources, Palettes, Preview, Compile, Verify) each show an
 icon and a word. To save room, **Tools › Options › General › Toolbar
 buttons: Icons only** shows the icons alone, as Aurora's toolbar does
 (the area view's and the editors' toolbars too): rest the pointer on one
-and its tip names it, with its key. Each icon is one command's: ℹ is
-Module Properties, the area view's Area Properties is 🔧, and 🏃 Start
-is the area view's Go to Start Location too (the same command).
+and its tip names it, with its key. The icons are Moonglow's own
+drawings, one to a command: Properties (Module Properties) shows a box,
+the area view's Area Properties three sliders, and Start a circled arrow
+pointing up, which the area view's Go to Start Location (the same
+command) and its Start filter (the start location's marker) show too.
+Each kind of object has one icon wherever it appears: on the area view's
+toolbar and in the palette's row of types.
 
 ## Menus
 
@@ -296,7 +300,7 @@ A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).
 
-**Expand All** and **Collapse All** (⏷ and ⏶, under the Filter, as
+**Expand All** and **Collapse All** (the two icons under the Filter, as
 in the Palettes pane) open and close every group at once; with the keys
 in the tree (or a palette), **Ctrl+Shift+Right** and **Ctrl+Shift+Left**
 do the same (Options › Keyboard, under Module Tree and Palettes). Collapse All
@@ -406,7 +410,7 @@ A pane folded away leaves a thin strip at that edge, with the same
 button in the same place, pointing the other way: a click brings the
 pane back, as wide as it was. Palettes you moved to the left of the
 middle have their button on their right edge and leave their strip on
-the left. Closing the palettes' pane by its ✕ folds it away the same.
+the left. Closing the palettes' pane by its × folds it away the same.
 What is folded stays so the next time Moonglow starts. **View › Reset
 Layout** shows all three at the sizes they have at first.
 
@@ -522,8 +526,8 @@ encounter's), and a size dragged at its edge or corner is kept so.
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too, and the button at the
-right of the window's bar, before its ✕, does it and shows which it is:
-🗖 Maximize, 🗗 Restore. **Ctrl+Shift+M** (Maximize Window in Options ›
+right of the window's bar, before its ×, does it and shows which it is:
+a maximize icon, or restore while the window is maximized. **Ctrl+Shift+M** (Maximize Window in Options ›
 Keyboard) does it for the window of the tab in front. Any window does
 this, one of a tab dragged out of a pane (the main pane's Module
 Properties too) as well. A maximized
@@ -597,7 +601,7 @@ Ctrl+Y, the keys set in Options › Keyboard, Edit › Undo and Redo and
 the toolbar's are all the script's (see [Scripts](07-scripts.md)).
 
 **Colors.** A color's swatch (an area's lighting, a light, a NUI color,
-the Options' colors) opens a picker. Its 📋 copies the color's values
+the Options' colors) opens a picker. Its copy button copies the color's values
 (`158, 151, 211`), and **Paste Color** under it, or **Ctrl+V** while it is
 open or the pointer is on the swatch, takes one from the clipboard:
 `158, 151, 211`, `#9e97d3`, `rgb(158, 151, 211)`, or values from 0 to 1.
@@ -613,7 +617,7 @@ row of icons at its top),
 blueprint from the categories. Click in an area to place the chosen
 blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the
 palette shows the tileset's brushes instead. The row's last three are
-**Prefabs**, **Lights** (☀: the game's invisible lights, one chosen and
+**Prefabs**, **Lights** (the game's invisible lights, one chosen and
 then put where an area is clicked) and **Start Location** (where a
 player's character enters the module: chosen, a click in an area puts
 it there). **Preview** (toolbar) shows

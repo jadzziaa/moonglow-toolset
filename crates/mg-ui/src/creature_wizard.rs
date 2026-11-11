@@ -413,10 +413,13 @@ fn page(
                                 ui.label(name(*k));
                                 crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
                                 if n > 1
-                                    && ui
-                                        .small_button("✖")
-                                        .on_hover_text("Remove this class")
-                                        .clicked()
+                                    && crate::widgets::icon_button(
+                                        ui,
+                                        mg_uikit::Icon::Close,
+                                        "Remove",
+                                        "Remove this class",
+                                    )
+                                    .clicked()
                                 {
                                     remove = Some(i);
                                 }

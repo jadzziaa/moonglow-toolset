@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-01T22:29:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # Scripts
@@ -83,7 +83,7 @@ what you type stays in the editor until **Save** (or File › Save)
 puts it into the module, and only that is a step of the module's
 history. While
 the editor has the keyboard (its cursor shows), Ctrl+Z and Ctrl+Y,
-**Edit › Undo** and **Redo** and the toolbar's ⟲ and ⟳ all take a step
+**Edit › Undo** and **Redo** and the toolbar's Undo and Redo all take a step
 of the script's history, never the module's: the menu says plain
 "Undo" and "Redo" rather than naming a module step, and the click on
 the menu or the toolbar that takes the keyboard from the editor still

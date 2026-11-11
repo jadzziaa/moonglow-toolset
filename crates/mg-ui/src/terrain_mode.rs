@@ -351,7 +351,7 @@ fn exactable(brush: Brush) -> bool {
 }
 
 /// The tiles palette's Exact tile switch's name.
-pub(crate) const EXACT_TILE: &str = "📌 Exact Tile";
+pub(crate) const EXACT_TILE: &str = "Exact Tile";
 
 /// The tiles palette's Select Tiles row's name.
 const SELECT_TILES: &str = "Select Tiles";
@@ -515,7 +515,7 @@ fn refused_cells(tools: &Tools, grid: &Grid, at: Option<(u32, u32)>) -> Vec<(u32
 fn broken_warning(label: &str, n: usize) -> String {
     let groups = if n == 1 { "a group or feature".to_string() } else { format!("{n} groups") };
     format!(
-        "⚠ {label}: {groups} left part changed (Allow editing tiles of groups and features is on; \
+        "{label}: {groups} left part changed (Allow editing tiles of groups and features is on; \
          Undo puts it back)"
     )
 }
@@ -1623,12 +1623,13 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             fold = fold.or(Some(true));
         }
         ui.separator();
-        if ui.selectable_label(!gallery, "☰").on_hover_text("Show the brushes by name").clicked()
-        {
+        let list = mg_uikit::IconButton::new(crate::icons::LIST, "List").icon_only(true);
+        if ui.add(list.selected(!gallery)).on_hover_text("Show the brushes by name").clicked() {
             app.settings.palette_gallery = false;
         }
+        let pictures = mg_uikit::IconButton::new(crate::icons::GALLERY, "Gallery").icon_only(true);
         if ui
-            .selectable_label(gallery, crate::icons::GALLERY)
+            .add(pictures.selected(gallery))
             .on_hover_text("Show each terrain's and crosser's tiles as pictures, to choose by eye")
             .clicked()
         {
@@ -1639,7 +1640,9 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // Shift, Ctrl and Alt already do things with a brush (#29).
         let tile_chosen = app.palette.tile_brush.as_ref().is_some_and(|b| exactable(b.brush));
         if gallery || tile_chosen {
-            ui.toggle_value(&mut app.settings.exact_tiles, EXACT_TILE).on_hover_text(
+            let exact = &mut app.settings.exact_tiles;
+            let button = mg_uikit::IconButton::new(crate::icons::EXACT_TILE, EXACT_TILE);
+            crate::icons::toggled(ui.add(button.selectable(*exact)), exact).on_hover_text(
                 "Put a tile or group chosen from the pictures in as it is. The tiles around aren't \
                  changed to fit.",
             );
@@ -1674,10 +1677,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         keys: tool_key_names(app, ui.ctx()),
         // (With its key, as the toolbar's tip has it; its name then is
         // the palette's own.)
-        select_tiles: crate::icons::labelled(
-            crate::icons::SELECT_TILES,
-            &app.keymap.titled(SELECT_TILES, crate::keys::Cmd::SelectTiles, ui.ctx()),
-        ),
+        select_tiles: app.keymap.titled(SELECT_TILES, crate::keys::Cmd::SelectTiles, ui.ctx()),
         fold: fold.or(app.palette.fold),
         filter: &filter,
         gallery: gallery.then_some(Pictures { side, ready }),
@@ -1735,8 +1735,9 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 /// The tiles palette's Select Tiles: the area view's tile mode (its
 /// toolbar's Select Tiles, F10), on or off, beside the tools.
 fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place) {
+    let button = mg_uikit::IconButton::new(crate::icons::SELECT_TILES, at.select_tiles.as_str());
     let r = ui
-        .selectable_label(*at.tile_mode, at.select_tiles.as_str())
+        .add(button.selectable(*at.tile_mode))
         .on_hover_text("Select tiles rather than objects. Right-click a tile for its menu.");
     if r.clicked() {
         *at.tile_mode = !*at.tile_mode;
@@ -2010,22 +2011,19 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         Brush::Refine => *at.choice,
         _ => None,
     };
-    let shown = match brush {
-        Brush::Eraser => crate::icons::labelled(crate::icons::ERASER, label),
-        Brush::RaiseLower => crate::icons::labelled(crate::icons::RAISE_LOWER, label),
+    use crate::icons::{ERASER, NEXT_APPEARANCE, PREVIOUS_APPEARANCE, RAISE_LOWER, REFINE, ROTATE};
+    let (icon, shown) = match brush {
+        Brush::Eraser => (Some(ERASER), label.to_string()),
+        Brush::RaiseLower => (Some(RAISE_LOWER), label.to_string()),
         Brush::Refine => {
             let model = target.and_then(|t| at.tools.set.tiles.get(t as usize));
-            let to = model.map(|t| format!(" → {}", t.model)).unwrap_or_default();
-            crate::icons::labelled(crate::icons::REFINE, &format!("{label}{to}"))
+            let to = model.map(|t| format!(" -> {}", t.model)).unwrap_or_default();
+            (Some(REFINE), format!("{label}{to}"))
         }
-        Brush::Appearance { back: false } => {
-            crate::icons::labelled(crate::icons::NEXT_APPEARANCE, label)
-        }
-        Brush::Appearance { back: true } => {
-            crate::icons::labelled(crate::icons::PREVIOUS_APPEARANCE, label)
-        }
-        Brush::Rotate => crate::icons::labelled(crate::icons::ROTATE, label),
-        _ => label.to_string(),
+        Brush::Appearance { back: false } => (Some(NEXT_APPEARANCE), label.to_string()),
+        Brush::Appearance { back: true } => (Some(PREVIOUS_APPEARANCE), label.to_string()),
+        Brush::Rotate => (Some(ROTATE), label.to_string()),
+        _ => (None, label.to_string()),
     };
     let tip = match brush {
         Brush::Refine => Some("Click a tile for the next tile that fits there, in Aurora's order"),
@@ -2059,7 +2057,10 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         (tip, _) => tip,
     };
     let selecting = *at.tile_mode && at.selected > 0;
-    let mut r = ui.selectable_label(on, shown);
+    let mut r = match icon {
+        Some(icon) => ui.add(mg_uikit::IconButton::new(icon, shown).selectable(on)),
+        None => ui.selectable_label(on, shown),
+    };
     if let Some(tip) = tip {
         r = r.on_hover_text(tip);
     }

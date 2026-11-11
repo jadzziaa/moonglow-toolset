@@ -332,3 +332,147 @@ fn a_tooltip_has_its_own_fill() {
         assert!(rects(&h).iter().any(|r| r.fill == t.tooltip_bg), "{theme:?}");
     }
 }
+
+/// The colors of the strokes painted in a frame (an icon's lines).
+fn stroke_colors(h: &Harness<'_>) -> Vec<Color32> {
+    fn add(shape: &egui::Shape, to: &mut Vec<Color32>) {
+        match shape {
+            egui::Shape::Path(p) => {
+                if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                    to.push(c);
+                }
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
+    all
+}
+
+/// `IconButton` is named by its words however it is labelled (the icon
+/// and the words, the icon alone, the words alone), draws its icon where
+/// asked (`icons_drawn`), and the icon alone is a 22 px square.
+#[test]
+fn an_icon_button_is_named_by_its_words_however_labelled() {
+    use mg_uikit::{IconButton, Label};
+    for label in [Label::Both, Label::IconOnly, Label::WordsOnly] {
+        let clicks = Cell::new(0);
+        let size = Cell::new(egui::Vec2::ZERO);
+        let mut h = Harness::new_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), Theme::Dark);
+            let r = ui.add(IconButton::new(Icon::Save, "Save").label(label));
+            size.set(r.rect.size());
+            if r.clicked() {
+                clicks.set(clicks.get() + 1);
+            }
+        });
+        mg_uikit::record_icons(&h.ctx);
+        h.run();
+        let rect = h.get_by_label("Save").rect();
+        let drawn = mg_uikit::icons_drawn(&h.ctx);
+        let saved = drawn.iter().any(|(i, r)| *i == Icon::Save && rect.contains_rect(*r));
+        assert_eq!(saved, label != Label::WordsOnly, "{label:?}: {drawn:?}");
+        if label == Label::IconOnly {
+            assert_eq!(size.get(), egui::Vec2::splat(mg_uikit::metrics::ICON_BUTTON));
+        }
+        h.get_by_label("Save").click();
+        h.run();
+        assert_eq!(clicks.get(), 1, "{label:?}");
+    }
+}
+
+/// A toggle's on state, in both themes: an icon alone on `accent-fill`
+/// with its icon in `on-fill`; off, no fill, its icon in `text-2`; the
+/// icon and words on egui's selected fill, the theme's `accent-fill`, the
+/// icon in the words' color.
+#[test]
+fn a_toggle_on_is_accent_filled_in_both_themes() {
+    use mg_uikit::IconButton;
+    for theme in Theme::ALL {
+        let t = theme.tokens();
+        for on in [true, false] {
+            let mut h = Harness::new_ui(|ui| {
+                mg_uikit::apply(ui.ctx(), theme);
+                ui.add(IconButton::new(Icon::Grid, "Grid").icon_only(true).selectable(on));
+            });
+            h.run();
+            let filled = rects(&h).iter().any(|r| r.fill == t.accent_fill);
+            assert_eq!(filled, on, "{theme:?} on {on}");
+            let colors = stroke_colors(&h);
+            let want = if on { t.on_fill } else { t.text_2 };
+            assert!(!colors.is_empty() && colors.iter().all(|c| *c == want), "{theme:?} {on}");
+        }
+        let mut h = Harness::new_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), theme);
+            ui.add(IconButton::new(Icon::Fog, "Fog").selectable(true));
+        });
+        h.run();
+        assert!(rects(&h).iter().any(|r| r.fill == t.accent_fill), "{theme:?} words on");
+        let colors = stroke_colors(&h);
+        let words = h.ctx.global_style().visuals.selection.stroke.color;
+        assert!(!colors.is_empty() && colors.iter().all(|c| *c == words), "{theme:?}");
+    }
+}
+
+/// A submenu's row: its words name it (no arrow among them), and a
+/// chevron is drawn at its right.
+#[test]
+fn a_submenu_row_has_a_drawn_chevron() {
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        mg_uikit::menu_button(ui, "Edit", |ui| {
+            mg_uikit::menu_button(ui, "Position", |ui| {
+                let _ = ui.button("Center");
+            });
+        });
+    });
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    let row = h.get_by_label("Position").rect();
+    assert!(h.query_by_label_contains("⏵").is_none(), "no glyph in its name");
+    // (A stroke of three points in the row's last 20 points: the chevron.)
+    let right = egui::Rect::from_x_y_ranges(row.right() - 20.0..=row.right(), row.y_range());
+    let mut chevrons = 0;
+    for s in &h.output().shapes {
+        if let egui::Shape::Path(p) = &s.shape
+            && p.points.len() == 3
+            && p.points.iter().all(|q| right.contains(*q))
+        {
+            chevrons += 1;
+        }
+    }
+    assert_eq!(chevrons, 1, "a chevron at the row's right");
+    h.get_by_label("Position").hover();
+    h.run();
+    h.get_by_label("Center");
+}
+
+/// In a read-only form an icon button is quiet, as the form's other
+/// controls: its icon in `text-3`, `text-2` and a `raised` ground on,
+/// never the accent, and nothing lit under the pointer; its words and icon
+/// in the form's quiet text.
+#[test]
+fn an_icon_button_is_quiet_in_a_read_only_form() {
+    use mg_uikit::IconButton;
+    for theme in Theme::ALL {
+        let t = theme.tokens();
+        for on in [false, true] {
+            let mut h = Harness::new_ui(|ui| {
+                mg_uikit::apply(ui.ctx(), theme);
+                mg_uikit::read_only(ui, |ui| {
+                    ui.add(IconButton::new(Icon::Grid, "Grid").icon_only(true).selectable(on))
+                });
+            });
+            h.run();
+            h.get_by_label("Grid").hover();
+            h.run();
+            assert!(rects(&h).iter().all(|r| r.fill != t.accent_fill), "{theme:?} {on}");
+            let want = if on { t.text_2 } else { t.text_3 };
+            let colors = stroke_colors(&h);
+            assert!(!colors.is_empty() && colors.iter().all(|c| *c == want), "{theme:?} {on}");
+        }
+    }
+}

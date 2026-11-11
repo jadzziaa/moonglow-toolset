@@ -423,7 +423,7 @@ fn a_class_is_set_on_those_that_have_it_within_the_rules() {
 /// Spells: of three creatures, two are sorcerers (the class ≠ 2 of 3),
 /// the second not knowing the first's first cantrip, half-ticked: ticked,
 /// it is added to the second only (the third has no Sorcerer class); its
-/// × takes it from both; Clear empties both lists; each one step.
+/// Remove takes it from both; Clear empties both lists; each one step.
 #[test]
 fn a_known_spell_is_added_to_each_creature_of_the_class() {
     let sorcerer = 9i64;
@@ -470,7 +470,7 @@ fn a_known_spell_is_added_to_each_creature_of_the_class() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add known spell"));
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, known), before);
-    // × beside the second cantrip, which both know: forgotten by both.
+    // Remove beside the second cantrip, which both know: forgotten by both.
     let other = before[0][1];
     let other_name = name_of(&h, "spells", "Name", other as usize);
     let shown = h
@@ -478,9 +478,9 @@ fn a_known_spell_is_added_to_each_creature_of_the_class() {
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::CheckBox)
         .unwrap()
         .rect();
-    h.get_all_by_label("×")
+    h.get_all_by_label("Remove")
         .find(|n| (n.rect().center().y - shown.center().y).abs() < 6.0)
-        .expect("its ×")
+        .expect("its Remove")
         .click();
     h.run();
     assert!(each(&mut h, &keys, known).iter().all(|k| !k.contains(&other)));
@@ -776,7 +776,7 @@ fn name_of(h: &Harness<'_, Moonglow>, table: &str, column: &str, row: usize) -> 
 
 /// Feats: one some of the creatures have is half-ticked and marked "≠ 1
 /// of 3"; ticked, it is given to those that lack it (one that has it gets
-/// no second); × takes a feat from all that have it; each one step.
+/// no second); Remove takes a feat from all that have it; each one step.
 #[test]
 fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
     let alertness = 0u16;
@@ -825,7 +825,7 @@ fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add feat"));
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, feat_rows), before);
-    // × beside the first feat, which two have: taken from both.
+    // Remove beside the first feat, which two have: taken from both.
     let first_name = name_of(&h, "feat", "FEAT", first as usize);
     let row = h
         .get_all_by_label(&first_name)
@@ -833,9 +833,9 @@ fn a_feat_is_given_to_those_that_lack_it_and_taken_from_all() {
         .unwrap()
         .rect();
     let cross = h
-        .get_all_by_label("×")
+        .get_all_by_label("Remove")
         .find(|n| (n.rect().center().y - row.center().y).abs() < 6.0)
-        .expect("its ×");
+        .expect("its Remove");
     cross.click();
     h.run();
     for feats in each(&mut h, &keys, feat_rows) {

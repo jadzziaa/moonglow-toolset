@@ -1384,7 +1384,7 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
 }
 
 /// The hint in All tiles' search field.
-pub const ALL_TILES_SEARCH: &str = "🔍 Search model, number";
+pub const ALL_TILES_SEARCH: &str = "Search model, number";
 
 /// Tile Properties' All tiles switch's name.
 pub const ALL_TILES: &str = "All Tiles (Ignore Fit)";
@@ -1408,8 +1408,8 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
         ui.add_enabled_ui(!locked, |ui| {
             let mut v = props.height.unwrap_or(props.first_height);
             let mut set = None;
-            let down = ui.button("-").on_hover_text("A height step down for these tiles alone");
-            named(&down, "Lower Height", !locked);
+            let tip = "A height step down for these tiles alone";
+            let down = crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, "Lower Height", tip);
             if down.clicked() {
                 set = Some(v - 1);
             }
@@ -1425,8 +1425,8 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
             if r.changed() {
                 set = Some(v);
             }
-            let up = ui.button("+").on_hover_text("A height step up for these tiles alone");
-            named(&up, "Raise Height", !locked);
+            let tip = "A height step up for these tiles alone";
+            let up = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Raise Height", tip);
             if up.clicked() {
                 set = Some(v + 1);
             }

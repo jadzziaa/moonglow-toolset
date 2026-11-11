@@ -975,13 +975,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  later.",
                             );
                             if draft.edit_group_tiles {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "⚠ Tiles of groups and features can be changed one by \
-                                         one: a group half changed stays so.",
-                                    )
-                                    .color(ui.visuals().warn_fg_color),
-                                );
+                                let warn = ui.visuals().warn_fg_color;
+                                let text = egui::RichText::new(
+                                    "Tiles of groups and features can be changed one by one: a \
+                                     group half changed stays so.",
+                                )
+                                .color(warn);
+                                mg_uikit::icon_label(ui, mg_uikit::Icon::Warning, Some(warn), text);
                             }
                             ui.add_space(crate::widgets::SECTION_GAP);
                             crate::widgets::section_heading(ui, "Toolbar");
@@ -1627,7 +1627,7 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
             }
         }
     }
-    ui.label("What Verify Module reports (a group's \u{25B8} shows its checks):");
+    ui.label("What Verify Module reports (a group's arrow shows its checks):");
     // (A tree of check boxes: rows 22 apart.)
     mg_uikit::with_rows(ui, |ui| {
         for group in Group::ALL {
@@ -1640,7 +1640,7 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
                 }
                 Group::Plugins => "The checks of the enabled plugins".to_string(),
                 _ => {
-                    format!("{} checks, listed under its \u{25B8}", checks.len())
+                    format!("{} checks, listed under its arrow", checks.len())
                 }
             };
             let id = ui.make_persistent_id(("verify-group", group.id()));
@@ -1745,7 +1745,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
             }
         }
     }
-    ui.label("Click + and press the keys to add them; × takes a key away.");
+    ui.label("Click the plus and press the keys to add them. A key's cross takes it away.");
     let conflicts = draft.keymap.conflicts();
     for (k, a, b) in &conflicts {
         ui.colored_label(
@@ -1799,8 +1799,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                     let mut keys = draft.keymap.keys_of(id);
                     let mut remove = None;
                     for (i, k) in keys.iter().enumerate() {
-                        if ui
-                            .small_button(format!("{} ×", shown(k, mac)))
+                        if crate::widgets::text_then_icon(ui, &shown(k, mac), mg_uikit::Icon::Close)
                             .on_hover_text("Take this key away")
                             .clicked()
                         {
@@ -1812,8 +1811,14 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                         draft.keymap.set_of(id, keys);
                     }
                     let recording = draft.recording.as_ref() == Some(id);
-                    let label = if recording { "press a key…" } else { "+" };
-                    let add = ui.small_button(label).on_hover_text("Add a key (Escape: none)");
+                    let add = match recording {
+                        true => ui.small_button("press a key…"),
+                        false => {
+                            let add = format!("Add a key for {name}");
+                            ui.add(crate::widgets::icon_only(mg_uikit::Icon::Plus, &add))
+                        }
+                    };
+                    let add = add.on_hover_text("Add a key (Escape: none)");
                     add.widget_info(|| {
                         egui::WidgetInfo::labeled(
                             egui::WidgetType::Button,

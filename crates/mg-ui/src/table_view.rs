@@ -3604,7 +3604,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                                     );
                                     match c.offered {
                                         Offered::New => format!("{}: {theirs}", columns[*col]),
-                                        _ => format!("{}: {mine} \u{2192} {theirs}", columns[*col]),
+                                        _ => format!("{}: {mine} -> {theirs}", columns[*col]),
                                     }
                                 })
                                 .collect();
@@ -3637,7 +3637,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                                 theirs.as_deref().unwrap_or("****"),
                             );
                             let mut on = whole || taking.cells.contains(&(c.row, *col));
-                            let line = format!("{}: {mine} \u{2192} {theirs}", columns[*col]);
+                            let line = format!("{}: {mine} -> {theirs}", columns[*col]);
                             ui.horizontal(|ui| {
                                 let text = egui::RichText::new(line).monospace();
                                 let r = ui.check_box(&mut on, text);

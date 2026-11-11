@@ -1132,15 +1132,15 @@ fn placed_objects_open_their_properties() {
     assert_eq!(tag_of(&mut h, 1), tag);
 }
 
-/// The arrow `glyph` (⏶ or ⏷) after the field on the row of the label
+/// The arrow `name` ("One More" or "One Less") after the field on the row of the label
 /// `label`: the nearest one right of it.
-fn arrow_beside(h: &Harness<'_, Moonglow>, label: &str, glyph: &str) -> egui::Pos2 {
+fn arrow_beside(h: &Harness<'_, Moonglow>, label: &str, name: &str) -> egui::Pos2 {
     let at = h.get_by_label(label).rect();
-    h.query_all_by_label(glyph)
+    h.query_all_by_label(name)
         .map(|n| n.rect().center())
         .filter(|c| (c.y - at.center().y).abs() < 12.0 && c.x > at.right())
         .min_by(|a, b| a.x.total_cmp(&b.x))
-        .unwrap_or_else(|| panic!("no {glyph} beside {label}"))
+        .unwrap_or_else(|| panic!("no {name} beside {label}"))
 }
 
 /// A click at `at`, pressed and let go in one frame.
@@ -1178,10 +1178,10 @@ fn adjust_location_and_resize_area_have_arrows() {
     h.get_by_label("Adjust Location…").click();
     h.run_steps(3);
     let x = h.state().adjust.as_ref().unwrap().position.x;
-    let up = arrow_beside(&h, "X", "⏶");
+    let up = arrow_beside(&h, "X", "One More");
     click_at(&mut h, up);
     click_at(&mut h, up);
-    let down = arrow_beside(&h, "Bearing (°)", "⏷");
+    let down = arrow_beside(&h, "Bearing (°)", "One Less");
     let bearing = h.state().adjust.as_ref().unwrap().bearing;
     click_at(&mut h, down);
     let a = h.state().adjust.as_ref().unwrap();
@@ -1197,7 +1197,8 @@ fn adjust_location_and_resize_area_have_arrows() {
     h.run_steps(6);
     let d = h.state().resize_area.as_ref().unwrap();
     let (rows, columns) = (d.rows, d.columns);
-    let (up, down) = (arrow_beside(&h, "Rows", "⏶"), arrow_beside(&h, "Columns", "⏷"));
+    let (up, down) =
+        (arrow_beside(&h, "Rows", "One More"), arrow_beside(&h, "Columns", "One Less"));
     click_at(&mut h, up);
     click_at(&mut h, down);
     let d = h.state().resize_area.as_ref().unwrap();
@@ -1690,7 +1691,7 @@ fn several_objects_edited_together() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(3);
     let paths = vec![
         mg_edit::GffPath::root().item("WaypointList", 0),
@@ -1713,7 +1714,7 @@ fn several_objects_edited_together() {
 #[test]
 fn walkmesh_overlay_and_area_statistics() {
     let Some((mut h, area)) = area_harness("stats") else { return };
-    h.get_by_label("👣 Walkmesh…").click();
+    area_tool(&h, "Walkmesh…").click();
     h.run_steps(3);
     assert!(h.state().area_views[&area].walkmesh);
     h.get_by_label("Build").click();
@@ -2506,7 +2507,7 @@ fn the_start_location_shows_on_raised_ground() {
     assert_eq!(stored(&mut h), (area, 0.0));
     // (The button is at the end of a toolbar's row, which ends at the
     // tab's edge in a window this narrow too.)
-    h.get_by_label("🏃 Go to Start Location").click();
+    area_tool(&h, "Go to Start Location").click();
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
@@ -2531,7 +2532,7 @@ fn go_to_start_location_opens_the_start_s_area() {
     close_tab(h.state_mut(), &Tab::Area(area));
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
-    h.get_by_label("🏃 Start").click();
+    tool(&h, "Start").click();
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is opened");
     let target = h.state().area_views[&area].orbit.unwrap().target;
@@ -2751,7 +2752,7 @@ fn a_right_drag_turns_the_camera_and_w_a_s_d_fly_while_held() {
     h.event(egui::Event::PointerButton { pos: end, button, pressed: false, modifiers });
     h.run_steps(2);
     assert!(selection(&h).is_empty(), "nothing selected or turned");
-    assert!(h.query_by_label("Properties").is_none(), "no context menu after a drag");
+    assert!(apart_all(&h, "Properties").next().is_none(), "no context menu after a drag");
 }
 
 /// An object held with the left button stays in hand while the middle
@@ -3113,7 +3114,7 @@ fn an_area_opens_again_with_its_camera_and_tile_tools() {
     let path = h.state().module_path().expect("saved");
     h.state_mut().open_tabs_dir = Some(mg_testkit::scratch_dir("ui-open-tabs-camera"));
     // Tile Properties of the tile at column 1, row 1.
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
@@ -3852,7 +3853,7 @@ fn rings_and_arrows_are_led_from_straight_above() {
 
     // Lighting, switched off, stays off for views opened later.
     assert!(!h.state().settings.unlit_areas);
-    h.get_by_label("💡 Lighting").click();
+    area_tool(&h, "Lighting").click();
     h.run_steps(2);
     assert!(h.state().settings.unlit_areas);
 }
@@ -4116,7 +4117,7 @@ fn the_palette_s_start_location_is_placed_with_a_click() {
         (r.resref("Mod_Entry_Area").unwrap(), f("Mod_Entry_X"), f("Mod_Entry_Y"))
     };
     let was = entry(&mut h);
-    h.get_by_label("🏁").click();
+    palette_type(&mut h, "Start Location");
     h.run_steps(3);
     assert!(h.state().palette.start && h.state().palette.placing_start);
     assert!(h.query_by_label("Place the Start Location").is_some());
@@ -4258,7 +4259,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
         h.state().area_views[&area].show[kind.index()]
     };
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
-    h.get_by_label("⚡ Triggers").click();
+    area_tool(&h, "Triggers").click();
     h.run_steps(2);
     assert!(!shown(&h, second, ObjectKind::Trigger), "hidden where it was clicked");
     assert!(!shown(&h, first, ObjectKind::Trigger), "and in the other open area");
@@ -4274,7 +4275,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     h.run_steps(3);
     assert!(!shown(&h, first, ObjectKind::Trigger));
     // Show All: everywhere, and nothing kept hidden.
-    h.get_by_label("☑ All").click();
+    area_tool(&h, "All").click();
     h.run_steps(2);
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
     assert!(h.state().settings.hidden_in_areas.is_empty());
@@ -5125,7 +5126,7 @@ fn a_light_is_placed_from_the_palette() {
         let git = ws.doc(&git_key).unwrap();
         git.root.list("Placeable List").map(<[_]>::to_vec).unwrap_or_default()
     };
-    h.get_by_label("☀").click();
+    palette_type(&mut h, "Lights");
     h.run_steps(3);
     assert!(h.state().palette.lights);
     h.get_by_label("Blue").click();
@@ -5473,11 +5474,8 @@ fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(1);
     // Paint and Select Tiles are off.
-    for tool in [" Paint", " Select Tiles"] {
-        let named = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-            n.label().is_some_and(|l| l.ends_with(tool))
-        };
-        let node = h.get(egui_kittest::kittest::by().predicate(named));
+    for tool in ["Paint", "Select Tiles"] {
+        let node = area_tool(&h, tool);
         assert!(node.accesskit_node().is_disabled(), "{tool} is off");
     }
     // Its menu: what looks at it, nothing that changes it.
@@ -5495,7 +5493,7 @@ fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
     for item in ["Delete", "Adjust Location…", "Make Static", "Variables…"] {
         assert!(h.query_by_label(item).is_none(), "no {item}");
     }
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(3);
     // The chest's Properties: gray, Close alone, what is typed dropped.
     // (And settled: a gray form keeps no frames coming.)
@@ -5537,10 +5535,7 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     h.run_steps(2);
     assert_eq!(h.state().area_views[&area].map_rect, None, "off at first");
-    let named = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.label().is_some_and(|l| l.ends_with(" Minimap"))
-    };
-    h.get(egui_kittest::kittest::by().predicate(named)).click();
+    area_tool(&h, "Minimap").click();
     h.run_steps(3);
     assert!(h.state().settings.area_minimap, "kept");
     let rect = h.state().area_views[&area].map_rect.expect("the map is shown");
@@ -5577,10 +5572,7 @@ fn the_area_toolbar_s_buttons_can_be_hidden() {
     let creatures = h.query_all_by_label_contains("Creatures").count();
     h.state_mut().settings.hidden_area_tools = vec!["Night".into(), "Show Creatures".into()];
     h.run_steps(3);
-    assert!(
-        h.query_all_by_label("🌙 Night").count() == 0 && h.query_all_by_label("Night").count() == 0,
-        "Night hidden"
-    );
+    assert_eq!(h.query_all_by_label("Night").count(), 0, "Night hidden");
     assert_eq!(
         h.query_all_by_label_contains("Creatures").count(),
         creatures - 1,
@@ -5699,7 +5691,8 @@ fn setup_area_transition_picks_on_the_target_area_s_map() {
     let west = h.get_by_label_contains("WP_WEST").accesskit_node().label().unwrap_or_default();
     assert!(west.len() > "WP_WEST".len(), "its name beside its tag: {west:?}");
     // Doors alone: no waypoint listed; then both again.
-    h.get_by_label("Doors").click();
+    // (The window's, drawn last: the area toolbar has a Doors filter too.)
+    h.get_all_by_label("Doors").last().unwrap().click();
     h.run_steps(2);
     assert!(h.query_by_label_contains("WP_WEST").is_none(), "doors alone");
     assert!(h.query_by_label("Available Waypoints:").is_none());
@@ -6163,7 +6156,7 @@ fn shift_g_drops_the_selection_onto_the_placeable_below() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Preview").click();
+    apart(&h, "Preview").click();
     h.run_steps(4);
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     assert!(h.state().dock.find_tab(&Tab::InstanceModel { area, path }).is_some());
@@ -6196,7 +6189,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     let items = menu_items(&h, "Properties");
     assert_eq!(tail(&items, 2), ["Variables…", "Properties"], "{items:?}");
     assert!(items.contains(&"Delete".to_string()), "{items:?}");
-    assert!(items.contains(&"Reuse ⏵".to_string()), "{items:?}");
+    assert!(items.contains(&"Reuse".to_string()), "{items:?}");
     let reuse = submenu_items(&mut h, "Reuse", "Export as Blueprint…");
     assert!(reuse.contains(&"Export as Blueprint…".to_string()), "{reuse:?}");
     h.key_press(egui::Key::Escape);
@@ -6234,7 +6227,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // A tile, in tile mode.
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     let tile = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     right_click(&mut h, tile);
@@ -6287,15 +6280,15 @@ fn the_area_menus_group_related_commands_in_submenus() {
         [
             "Preview",
             "Adjust Location…",
-            "Position ⏵",
-            "Arrange ⏵",
+            "Position",
+            "Arrange",
             "Lock",
-            "Add Light Here ⏵",
-            "Reuse ⏵",
+            "Add Light Here",
+            "Reuse",
             "Create Set…",
             "Delete",
             "Set Start Location Here",
-            "Test ⏵",
+            "Test",
             "Variables…",
             "Properties"
         ]
@@ -6352,13 +6345,13 @@ fn the_area_menus_group_related_commands_in_submenus() {
             "New Area…",
             "Edit Areas Together…",
             "View Area",
-            "Placeables ⏵",
-            "Fields ⏵",
+            "Placeables",
+            "Fields",
             "Find References",
             "Rename…",
             "Copy…",
             "Delete…",
-            "Export ⏵",
+            "Export",
             "Properties"
         ]
     );
@@ -6414,7 +6407,7 @@ fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     h.run_steps(3);
     let s = shadows(&h).expect("the sun's shadows");
     assert!((s.opacity - 0.4).abs() < 1e-6, "{s:?}");
-    h.get_by_label("◑ Shadows").click();
+    area_tool(&h, "Shadows").click();
     h.run_steps(2);
     assert_eq!(shadows(&h), None);
     assert!(h.state().settings.no_shadows);
@@ -6433,7 +6426,7 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     };
     assert_eq!(kinds(&h), [true; 3], "the defaults");
     // Held half a second.
-    let at = h.get_by_label("◑ Shadows").rect().center();
+    let at = area_tool(&h, "Shadows").rect().center();
     let button = |pressed| egui::Event::PointerButton {
         pos: at,
         button: egui::PointerButton::Primary,
@@ -6462,10 +6455,10 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     // A click: none; another: as they were.
     h.key_press(egui::Key::Escape);
     h.run();
-    h.get_by_label("◑ Shadows").click();
+    area_tool(&h, "Shadows").click();
     h.run();
     assert_eq!(kinds(&h), [false; 3]);
-    h.get_by_label("◑ Shadows").click();
+    area_tool(&h, "Shadows").click();
     h.run();
     assert_eq!(kinds(&h), [true, false, false]);
 }
@@ -6485,7 +6478,7 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
     let disabled =
         |h: &Harness<'_, Moonglow>| h.get_by_label("Light Shadows").accesskit_node().is_disabled();
     settle(&mut h);
-    h.get_by_label("◑ Shadows").click_secondary();
+    area_tool(&h, "Shadows").click_secondary();
     settle(&mut h);
     assert!(!disabled(&h), "with Creature Shadows");
     h.get_by_label("Creature Shadows").click();
@@ -6519,8 +6512,8 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
     assert_eq!(kinds(&h), [false, false, true]);
     h.key_press(egui::Key::Escape);
     settle(&mut h);
-    assert!(!h.get_by_label("◑ Shadows").accesskit_node().is_selected().unwrap_or(false));
-    h.get_by_label("◑ Shadows").click();
+    assert!(!area_tool(&h, "Shadows").accesskit_node().is_selected().unwrap_or(false));
+    area_tool(&h, "Shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [true; 3]);
 }
@@ -6539,7 +6532,7 @@ fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
     h.run_steps(2);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
     assert_eq!(volumes(&h), Some(false), "the map by default");
-    h.get_by_label("◑ Shadows").click_secondary();
+    area_tool(&h, "Shadows").click_secondary();
     h.run();
     h.get_by_label("High").click();
     h.run_steps(3);
@@ -6568,7 +6561,7 @@ fn what_follows_the_pointer_stops_under_a_window() {
     own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
     h.run();
     // A tile copied and about to be pasted.
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     click_pos(&h, at);
@@ -7804,7 +7797,7 @@ fn alt_and_a_drag_moves_the_view_in_every_mode() {
         app.palette.selected = None;
     }
     // Select Tiles.
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     assert!(h.state().area_views[&area].tile_mode);
     let moved = drag(&mut h);

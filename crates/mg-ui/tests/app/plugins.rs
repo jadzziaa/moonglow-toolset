@@ -477,14 +477,14 @@ fn a_plugin_s_commands_are_grouped_into_submenus() {
     // The right-click menu: Make once, then Clear Role.
     h.get_by_label("guard.utc").click_secondary();
     h.run();
-    let make = h.get_all_by_label("Make ⏵").count();
+    let make = h.get_all_by_label("Make").count();
     assert_eq!(make, 1, "one Make submenu");
     assert!(h.query_by_label("Workbench…").is_none(), "inside Make");
-    let (make, clear) = (h.get_by_label("Make ⏵").rect(), h.get_by_label("Clear Role").rect());
+    let (make, clear) = (h.get_by_label("Make").rect(), h.get_by_label("Clear Role").rect());
     assert!(make.bottom() <= clear.top(), "Make where its first command is: {make:?} {clear:?}");
     open_submenu(&mut h, "Make");
-    let items = menu_items(&h, "Services ⏵");
-    assert_eq!(items, ["Crafting ⏵", "Services ⏵"], "each once, in the manifest's order");
+    let items = menu_items(&h, "Services");
+    assert_eq!(items, ["Crafting", "Services"], "each once, in the manifest's order");
     open_submenu(&mut h, "Crafting");
     let items = menu_items(&h, "Workbench…");
     assert_eq!(items, ["Workbench…", "Harvest Node…"]);
@@ -947,7 +947,7 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
     assert_eq!(tag(&mut h), "GATE_GUARD");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Upper-case this tag"));
     assert!(h.state().log.fix_at(line).unwrap().made);
-    h.get_by_label("✔ Fixed");
+    h.get_by_label("Fixed");
     // Undone: its button is offered again, and makes it again; Redo
     // makes it "Fixed" again.
     h.state_mut().actions.push(mg_ui::Action::Undo);
@@ -962,7 +962,7 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
     h.state_mut().actions.push(mg_ui::Action::Redo);
     h.run();
     assert_eq!(tag(&mut h), "GATE_GUARD");
-    h.get_by_label("✔ Fixed");
+    h.get_by_label("Fixed");
     // Undone, and verified again: then changed by hand, its fix is
     // refused, and says why.
     h.state_mut().actions.push(mg_ui::Action::Undo);
@@ -1907,7 +1907,7 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
         form.values.insert("strict".into(), mg_plugin::SettingValue::Bool(true));
     }
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     assert!(h.state().plugins.settings_form.is_none());
     let team = std::fs::read_to_string(dir.join("moonglow.toml")).unwrap();
@@ -1927,7 +1927,7 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     h.run();
     h.get_by_label("Defaults").click();
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     // (The table stays, for the comment over it.)
     assert_eq!(
@@ -2085,7 +2085,7 @@ fn a_plugin_s_settings_of_every_kind_are_edited_and_tidied() {
         );
     }
     h.run();
-    h.get_by_label("Save").click_accesskit();
+    apart(&h, "Save").click_accesskit();
     h.run();
     // Kept in the file shared with mg, the list's empty lines left out.
     let kept: serde_json::Value =

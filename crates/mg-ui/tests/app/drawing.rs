@@ -676,13 +676,13 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     assert!(h.state().settings.game_shaders());
     let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
     until_the_game_draws(&mut h);
-    h.get_by_label("🎨 Shaders").click();
+    area_tool(&h, "Shaders").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.game_shaders, Some(false));
     let pictures = h.state().area_views[&area].pictures;
     assert!(pictures > 0);
     assert_eq!(drawn(&h).game, 0);
-    h.get_by_label("🎨 Shaders").click();
+    area_tool(&h, "Shaders").click();
     h.run_steps(1);
     // (Its programs made while the view goes on: Moonglow's shader first.)
     assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
@@ -697,7 +697,7 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     let saved = serde_json::to_string(&h.state().settings).unwrap();
     let read: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
     assert!(read.game_shaders());
-    h.get_by_label("🎨 Shaders").click();
+    area_tool(&h, "Shaders").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.game_shaders, Some(false));
     assert_eq!(drawn(&h).game, 0);
@@ -1037,7 +1037,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
         h.run_steps(30);
         shot(&mut h, "off_b")
     }];
-    h.get_by_label("🎨 Shaders").click();
+    area_tool(&h, "Shaders").click();
     until_the_game_draws(&mut h);
     let on_a = shot(&mut h, "on_a");
     h.run_steps(30);
@@ -1209,7 +1209,7 @@ fn preview_window_shows_the_chosen_blueprint() {
     let Some((mut h, _area)) = area_harness_with("preview", "ttr01", None, 4, None, &guard) else {
         return;
     };
-    h.get_by_label("👁 Preview").click();
+    tool(&h, "Preview").click();
     h.run_steps(2);
     h.get_by_label("Choose a blueprint in the palette.");
     // A waypoint: its fields.
@@ -1523,7 +1523,7 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     assert_eq!(grown(&h), [(GRASS_MATERIAL, "grass".to_string())]);
     // In the picture, and gone with the toolbar's switch.
     let with = h.render().expect("render");
-    h.get_by_label(&format!("{} Grass", "🌿")).click();
+    area_tool(&h, "Grass").click();
     h.run_steps(3);
     assert!(h.state().settings.no_grass);
     let without = h.render().expect("render");
@@ -1533,7 +1533,7 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
         .filter(|(a, b)| (0..3).any(|c| a[c].abs_diff(b[c]) > 24))
         .count();
     assert!(changed > 20_000, "the grass changed {changed} pixels");
-    h.get_by_label(&format!("{} Grass", "🌿")).click();
+    area_tool(&h, "Grass").click();
     h.run_steps(3);
     assert!(!h.state().settings.no_grass);
 

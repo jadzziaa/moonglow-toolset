@@ -344,7 +344,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             }
         }
         Value::Null => {
-            ui.menu_button("Set Value…", |ui| {
+            mg_uikit::menu_button(ui, "Set Value…", |ui| {
                 mg_uikit::menu_rows(ui);
                 for (label, next) in [
                     ("Text", json!("")),

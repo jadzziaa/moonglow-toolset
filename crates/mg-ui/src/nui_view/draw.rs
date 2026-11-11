@@ -490,7 +490,7 @@ pub(super) fn editor(
         .icon(mg_uikit::collapsing_icon)
         .open(revealing.then_some(true))
         .show(ui, |ui| {
-            ui.menu_button("+ Draw primitive", |ui| {
+            mg_uikit::menu_button(ui, "+ Draw primitive", |ui| {
                 mg_uikit::menu_rows(ui);
                 for (kind, name) in KINDS.iter().enumerate() {
                     if ui.button(*name).clicked() {
@@ -675,7 +675,7 @@ pub(super) fn editor(
                                             *picture = name;
                                         }
                                         // The pictures of the module and the game, by what is typed.
-                                        ui.menu_button("Choose…", |ui| {
+                                        mg_uikit::menu_button(ui, "Choose…", |ui| {
                                             mg_uikit::menu_rows(ui);
                                             egui::ScrollArea::vertical().max_height(240.0).show(
                                                 ui,

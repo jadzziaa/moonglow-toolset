@@ -29,7 +29,7 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     h.run();
     // (One button for the walkmeshes: a right click, or holding it,
     // opens the two to choose from.)
-    h.get_by_label("👣 Walkmesh…").click_secondary();
+    area_tool(&h, "Walkmesh…").click_secondary();
     h.run();
     h.get_by_label("Object Walkmeshes").click();
     h.run();
@@ -39,12 +39,12 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     h.get_by_label("Ground Walkmesh");
     h.key_press(egui::Key::Escape);
     h.run();
-    h.get_by_label("👣 Walkmesh…").click();
+    area_tool(&h, "Walkmesh…").click();
     h.run();
     assert!(!h.state().area_views[&area].object_walkmesh);
     // Held down a moment: the two open, and stay open when it is let go
     // (the release no click); one chosen there.
-    let at = h.get_by_label("👣 Walkmesh…").rect().center();
+    let at = area_tool(&h, "Walkmesh…").rect().center();
     h.hover_at(at);
     let button = |pressed| egui::Event::PointerButton {
         pos: at,
@@ -285,7 +285,7 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.run_steps(3);
     h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Dusk");
     h.run_steps(2);
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run_steps(2);
     assert_eq!(mg_ui::lighting::list(Some(&dir)), ["Dusk"]);
     // Given to the second: its colors are the first's.
@@ -375,20 +375,25 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
 }
 
 /// Options › General › Toolbar buttons, Icons only: the area view's
-/// toolbar too, at once: glyphs alone, named in their tips (a button with
-/// no tip of its own: its name) and by their names for a screen reader,
-/// not by their glyphs; the toggles still toggling. All, None, Together,
-/// To Scratch and Save as Prefab… have glyphs too.
+/// toolbar too, at once: icons alone, named in their tips (a button with
+/// no tip of its own: its name) and by their words for a screen reader;
+/// the toggles still toggling. All, None, Together, To Scratch and Save
+/// as Prefab… have icons too.
 #[test]
 fn the_area_toolbar_shows_icons_only_when_asked() {
     let Some((mut h, area)) = area_harness("area-icons-only") else { return };
-    h.get_by_label("🎥 Reorient Camera");
-    h.get_by_label("☑ All");
+    let names = ["Reorient Camera", "Grid", "All", "To Scratch"];
+    let wide: Vec<f32> = names.iter().map(|n| area_tool(&h, n).rect().width()).collect();
     h.state_mut().settings.toolbar_icons_only = true;
     h.run_steps(2);
-    for gone in ["🎥 Reorient Camera", "⊞ Grid", "🎥", "⊞", "☑ All", "📤 To Scratch"] {
-        assert!(h.query_by_label(gone).is_none(), "{gone}");
+    for (name, was) in names.iter().zip(wide) {
+        let now = area_tool(&h, name).rect().width();
+        assert!(now < was, "{name} is an icon alone now: {was} -> {now}");
+        // (An icon button, 22 square: the words are gone, its icon drawn.)
+        assert!(now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{name} {now} wide");
     }
+    let camera = area_tool(&h, "Reorient Camera").rect();
+    assert!(icon_drawn(&h, mg_uikit::Icon::Camera, camera), "Reorient Camera's icon");
     for name in ["All", "None", "Together", "To Scratch", "Area Properties"] {
         h.get_by_label(name);
     }
@@ -404,7 +409,7 @@ fn the_area_toolbar_shows_icons_only_when_asked() {
     let before = shown(&h);
     h.get_by_label("Grid").click();
     h.run_steps(2);
-    assert_ne!(shown(&h), before, "Grid toggled by its glyph");
+    assert_ne!(shown(&h), before, "Grid toggled by its icon");
     let on = match before {
         true => egui::accesskit::Toggled::False,
         false => egui::accesskit::Toggled::True,
@@ -423,7 +428,7 @@ fn area_properties_edit_the_area() {
         let ws = h.state_mut().ws.as_mut().unwrap();
         ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
     };
-    h.get_by_label("🔧 Area Properties").click();
+    area_tool(&h, "Area Properties").click();
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
 

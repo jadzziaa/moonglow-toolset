@@ -290,7 +290,10 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 for (name, row, n) in assigned {
                     ui.horizontal(|ui| {
-                        if ui.small_button("×").on_hover_text("Take this feat away").clicked() {
+                        let tip = "Take this feat away";
+                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Remove", tip)
+                            .clicked()
+                        {
                             toggle = Some((row, false));
                         }
                         let r = ui.label(name);
@@ -717,7 +720,9 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                     for (name, g) in rows {
                         ui.horizontal(|ui| {
                             let tip = if prepares { "Prepare none of it" } else { "Forget it" };
-                            if ui.small_button("×").on_hover_text(tip).clicked() {
+                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Remove", tip)
+                                .clicked()
+                            {
                                 let edits = g.entries.iter().rev();
                                 let edits = edits.map(|&i| remove(key, path.clone(), &list, i));
                                 change = Some(("Remove spell", edits.collect()));
@@ -1154,7 +1159,9 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             } else {
                                 "Forget it, on each"
                             };
-                            if ui.small_button("×").on_hover_text(tip).clicked() {
+                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Remove", tip)
+                                .clicked()
+                            {
                                 let out = lists::remove(&class_targets, &list, is, |_| None);
                                 change = Some(("Remove spell", out, "Taken from"));
                             }
@@ -1552,6 +1559,8 @@ struct SlotLook<'a> {
     slot: &'a str,
     icon: &'a [crate::images::Picture],
     shown: &'a str,
+    /// Marked with a warning (an item the game takes off).
+    warned: bool,
     tip: Option<String>,
     selected: bool,
     striped: bool,
@@ -1562,7 +1571,7 @@ struct SlotLook<'a> {
 /// A slot of the Equipment, laid out as `layout` says, across the whole
 /// width.
 fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
-    let SlotLook { slot, icon, shown, tip, selected, striped, can_equip, can_take } = look;
+    let SlotLook { slot, icon, shown, warned, tip, selected, striped, can_equip, can_take } = look;
     let gap = ui.spacing().item_spacing.y;
     let line = ui.spacing().interact_size.y;
     let (max, lines) = match layout.label {
@@ -1614,11 +1623,25 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
                         crate::widgets::field_label(ui, slot);
                     }
                     let width = ui.available_width();
-                    let name = egui::Button::selectable(selected, (shown, egui::Atom::grow()))
+                    // (An item worn off: a warning before its name.)
+                    let mark = ui.next_auto_id().with("worn-off");
+                    let mut atoms = egui::Atoms::default();
+                    if warned {
+                        let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+                        atoms.push_right(egui::Atom::custom(mark, side));
+                    }
+                    atoms.push_right(shown);
+                    atoms.push_right(egui::Atom::grow());
+                    let name = egui::Button::selectable(selected, atoms)
                         .min_size(egui::vec2(width, 0.0))
                         .truncate()
                         .sense(egui::Sense::click_and_drag());
-                    let r = ui.add(name);
+                    let drawn = name.atom_ui(ui);
+                    if let Some(rect) = drawn.rect(mark) {
+                        let warn = ui.visuals().warn_fg_color;
+                        mg_uikit::Icon::Warning.paint(ui.painter(), rect, warn);
+                    }
+                    let r = drawn.response;
                     match tip {
                         Some(tip) => r.on_hover_text(tip),
                         None => r,
@@ -1962,15 +1985,13 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                             }
                             tip
                         });
-                        let shown = match (name, at.and_then(|i| off[i].as_ref())) {
-                            (Some(name), Some(_)) => format!("⚠ {name}"),
-                            (Some(name), None) => name,
-                            (None, _) => "—".to_string(),
-                        };
+                        let warned = name.is_some() && at.and_then(|i| off[i].as_ref()).is_some();
+                        let shown = name.unwrap_or_else(|| "—".to_string());
                         let look = SlotLook {
                             slot,
                             icon: at.map_or(&[][..], |i| &icons[i][..]),
                             shown: &shown,
+                            warned,
                             tip,
                             selected: at
                                 .is_some_and(|i| selected.items.contains(&("Equip_ItemList", i))),

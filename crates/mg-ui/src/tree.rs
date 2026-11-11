@@ -800,7 +800,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let here = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
         && app.tree_cursor.is_some();
     let left = crate::widgets::SearchField::new(egui::Id::new("tree-filter-field"), &mut filter)
-        .hint("🔍 Filter name, resref")
+        .hint("Filter name, resref")
         .clear_tip("Clear the filter")
         .find_when(here)
         .down()
@@ -1414,10 +1414,13 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     }
                     let row = ui.horizontal(|ui| {
                         if is_area {
-                            let arrow = if out { "⏷" } else { "⏵" };
+                            let arrow = match out {
+                                true => mg_uikit::Icon::ChevronDown,
+                                false => mg_uikit::Icon::ChevronRight,
+                            };
                             // (Lit only under the pointer: a column of
                             // them, filled, read as a stack of tiles.)
-                            let button = egui::Button::new(arrow).small().frame_when_inactive(false);
+                            let button = crate::widgets::icon_only(arrow, "Placed Objects");
                             let toggle = ui
                                 .add(button)
                                 .on_hover_text("What is placed in the area, by kind");
@@ -1601,7 +1604,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             let areas = [k.resref];
                             placeables_menu(ui, &areas, "of the area", &mut app.actions);
                             // Its two files' fields, as the game reads them.
-                            ui.menu_button("Fields", |ui| {
+                            mg_uikit::menu_button(ui, "Fields", |ui| {
                                 for t in [ResType::ARE, ResType::GIT] {
                                     let g = ResKey::new(k.resref, t);
                                     if ui.button(format!("Fields of {g}")).clicked() {
@@ -1639,7 +1642,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             app.actions.push(Action::DeleteDialog(k));
                         }
                         // The ways of writing it out, together.
-                        ui.menu_button("Export", |ui| {
+                        mg_uikit::menu_button(ui, "Export", |ui| {
                             if ui.button("Export…").clicked() {
                                 app.actions.push(Action::ExportDialog(vec![k]));
                             }
@@ -2268,7 +2271,7 @@ fn several_menu(
         ui.close();
     }
     // The ways of writing them out, together (as one's menu has them).
-    ui.menu_button("Export", |ui| {
+    mg_uikit::menu_button(ui, "Export", |ui| {
         mg_uikit::menu_rows(ui);
         if ui.button("Export…").clicked() {
             actions.push(Action::ExportDialog(keys.to_vec()));
@@ -2307,7 +2310,7 @@ fn several_menu(
 /// submenu of their own (an area's menu, and several areas'): `whose`
 /// ends the second's tip ("of the area").
 fn placeables_menu(ui: &mut Ui, areas: &[ResRef], whose: &str, actions: &mut Vec<Action>) {
-    ui.menu_button("Placeables", |ui| {
+    mg_uikit::menu_button(ui, "Placeables", |ui| {
         mg_uikit::menu_rows(ui);
         if ui.button("Make Placeables Static").on_hover_text(STATIC_TIP).clicked() {
             actions.push(Action::StaticPlaceables(areas.to_vec()));

@@ -177,7 +177,14 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 f.locstring(ui, what, label);
                 // A random name from the race's letter tables.
-                if ui.small_button("🎲").on_hover_text("Random name").clicked() {
+                if crate::widgets::icon_button(
+                    ui,
+                    mg_uikit::Icon::Dice,
+                    "Random Name",
+                    "Random name",
+                )
+                .clicked()
+                {
                     let race = f.root.integer("Race").unwrap_or(6).max(0) as u32;
                     let gender = f.root.integer("Gender").unwrap_or(0).clamp(0, 255) as u8;
                     let name =
@@ -1034,9 +1041,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                         f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
                         // Aurora's sound set list plays a sample when clicked.
                         let set = f.root.integer("SoundSetFile").unwrap_or(-1);
-                        if ui
-                            .small_button("▶")
-                            .on_hover_text("Play a sample of the sound set")
+                        let tip = "Play a sample of the sound set";
+                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Play, "Play Sample", tip)
                             .clicked()
                             && let Some(name) = sound_set_sample(f.app, set)
                         {

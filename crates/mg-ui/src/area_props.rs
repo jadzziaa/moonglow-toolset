@@ -537,7 +537,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let mut relight: bool = ui.data(|d| d.get_temp(relight_id)).unwrap_or(false);
     let mut scheme_of = None;
     ui.horizontal(|ui| {
-        ui.menu_button("Copy From Area", |ui| {
+        mg_uikit::menu_button(ui, "Copy From Area", |ui| {
             mg_uikit::menu_rows(ui);
             // (The module's other areas, made while the menu is open.)
             let mut areas: Vec<(ResRef, String)> = match &f.app.ws {
@@ -561,7 +561,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
         .on_hover_text(
             "Takes the lighting, fog, sky and weather from another area. Tiles' lights stay.",
         );
-        ui.menu_button("Saved Lighting", |ui| {
+        mg_uikit::menu_button(ui, "Saved Lighting", |ui| {
             mg_uikit::menu_rows(ui);
             is_open = true;
             if !was_open {
@@ -602,7 +602,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             if saved.is_empty() {
                 return;
             }
-            ui.menu_button("Rename", |ui| {
+            mg_uikit::menu_button(ui, "Rename", |ui| {
                 for name in saved {
                     if ui.button(name).clicked() {
                         ui.data_mut(|d| d.insert_temp(naming, (Some(name.clone()), name.clone())));
@@ -610,7 +610,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                     }
                 }
             });
-            ui.menu_button("Delete", |ui| {
+            mg_uikit::menu_button(ui, "Delete", |ui| {
                 for name in saved {
                     if ui
                         .button(name)
@@ -629,12 +629,12 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                     }
                 }
             });
-            ui.menu_button("Make a Lighting Scheme", |ui| {
+            mg_uikit::menu_button(ui, "Make a Lighting Scheme", |ui| {
                 ui.weak("A row of environment.2da: the table to add it to");
                 let key =
                     ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
                 for name in saved {
-                    ui.menu_button(name, |ui| {
+                    mg_uikit::menu_button(ui, name, |ui| {
                         if let Some(home) = crate::browser::table_homes(f.app, ui, key) {
                             scheme_of = Some((name.clone(), home));
                             ui.close();

@@ -1048,7 +1048,7 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
                     }
                     keep = false;
                 }
-                if ui.small_button("✖").on_hover_text("Forget it").clicked() {
+                if ui.add(clear_button()).on_hover_text("Forget it").clicked() {
                     keep = false;
                 }
             });
@@ -1245,7 +1245,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // English), put where the caret was in its text.
 
                     let language = *language;
-                    ui.menu_button("Token…", |ui| {
+                    mg_uikit::menu_button(ui, "Token…", |ui| {
                         mg_uikit::menu_rows(ui);
                         if !edit_tokens.iter().any(|(l, _)| *l == language) {
                             edit_tokens.push((language, language_tokens(app, language)));
@@ -1696,7 +1696,7 @@ fn var_body(
         // Variable sets, kept in Moonglow's data folder, and in
         // files anywhere.
         let dir = app.var_set_dir.clone();
-        ui.menu_button("Add Set", |ui| {
+        mg_uikit::menu_button(ui, "Add Set", |ui| {
             mg_uikit::menu_rows(ui);
             match sets_menu(ui, &mut app.log, &VARIABLE_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(rows)) => crate::var_sets::merge(&mut edit.rows, rows),
@@ -2417,13 +2417,16 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
             run = None;
         }
         let mut held = focused && ui.input(|i| keys.iter().any(|k| i.key_down(*k)));
-        for (glyph, arrow, tip) in [("⏶", 1i8, "One more"), ("⏷", -1i8, "One less")] {
+        use mg_uikit::Icon;
+        for (icon, name, arrow, tip) in [
+            (Icon::ChevronUp, "One More", 1i8, "One more"),
+            (Icon::ChevronDown, "One Less", -1i8, "One less"),
+        ] {
             let by = f64::from(arrow) * step;
             let can = stepped(shown, by) != shown;
             // (A drag too: egui takes a press held past a click's time for
             // no click, and the arrow for no longer pressed.)
-            let arrow_button =
-                egui::Button::new(glyph).small().sense(egui::Sense::click_and_drag());
+            let arrow_button = icon_only(icon, name).sense(egui::Sense::click_and_drag());
             let b = ui.add_enabled(can, arrow_button).on_hover_text(tip);
             if !b.is_pointer_button_down_on() {
                 continue;
@@ -2560,8 +2563,49 @@ fn find_here(ui: &egui::Ui, here: bool) -> bool {
     here && !ui.ctx().egui_wants_keyboard_input() && crate::keys::find_pressed(ui.ctx())
 }
 
-/// What a search field's hint begins with.
-pub(crate) const SEARCH_GLASS: &str = "🔍";
+/// A field's clear button: a `close` icon, named Clear.
+pub(crate) fn clear_button() -> mg_uikit::IconButton {
+    mg_uikit::IconButton::new(mg_uikit::Icon::Close, "Clear").icon_only(true)
+}
+
+/// A small button of `text` and a small `icon` after it (a key and the
+/// cross that takes it away), named by `text`.
+pub(crate) fn text_then_icon(
+    ui: &mut egui::Ui,
+    text: &str,
+    icon: mg_uikit::Icon,
+) -> egui::Response {
+    let id = ui.next_auto_id().with("after-icon");
+    let side = egui::Vec2::splat(mg_uikit::metrics::ICON_SMALL);
+    let mut atoms = egui::Atoms::default();
+    atoms.push_right(text.to_string());
+    atoms.push_right(egui::Atom::custom(id, side));
+    let drawn = egui::Button::new(atoms).small().atom_ui(ui);
+    if let Some(rect) = drawn.rect(id) {
+        let color = ui.style().interact(&drawn.response).text_color();
+        icon.paint(ui.painter(), rect, color);
+    }
+    drawn.response
+}
+
+/// An icon button (22 px, frameless until hovered) named `name`, to add
+/// (`ui.add_enabled`; its tip the caller's).
+pub(crate) fn icon_only(icon: mg_uikit::Icon, name: &str) -> mg_uikit::IconButton {
+    mg_uikit::IconButton::new(icon, name).icon_only(true)
+}
+
+/// An icon button (22 px, frameless until hovered) named `name`, with
+/// `tip` (or its name) under the pointer, disabled too.
+pub(crate) fn icon_button(
+    ui: &mut egui::Ui,
+    icon: mg_uikit::Icon,
+    name: &str,
+    tip: &str,
+) -> egui::Response {
+    let tip = if tip.is_empty() { name } else { tip };
+    let r = ui.add(icon_only(icon, name));
+    r.on_hover_text(tip).on_disabled_hover_text(tip)
+}
 
 /// A list's search field: what it looks in said in the field while it is
 /// empty (`hint`), a button to clear it, and its keys (GitHub issue 12):
@@ -2656,16 +2700,26 @@ impl<'a> SearchField<'a> {
                 let room = width.unwrap_or(ui.available_width() - button).max(60.0);
                 // (Every search field as the palette's and the module
                 // tree's: the glass before what it looks in, an owner's
-                // ask.)
-                let hint = match hint.starts_with(SEARCH_GLASS) {
-                    true => hint.to_string(),
-                    false => format!("{SEARCH_GLASS} {hint}").trim_end().to_string(),
-                };
+                // ask; drawn in the field, its words after it.)
+                let field = mg_uikit::controls::FIELD_MARGIN;
+                let glass = mg_uikit::metrics::ICON as i8 + 4;
+                let margin = egui::Margin { left: field.left + glass, ..field };
                 let r = ui.add(
-                    mg_uikit::text_field(&mut *text).id(id).hint_text(hint).desired_width(room),
+                    mg_uikit::text_field(&mut *text)
+                        .id(id)
+                        .margin(margin)
+                        .hint_text(hint)
+                        .desired_width(room),
                 );
+                if ui.is_rect_visible(r.rect) {
+                    let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+                    let at = egui::pos2(r.rect.left() + f32::from(field.left), r.rect.center().y);
+                    let rect = egui::Rect::from_min_size(at - egui::vec2(0.0, side.y / 2.0), side);
+                    let color = ui.visuals().weak_text_color();
+                    mg_uikit::Icon::Search.paint(ui.painter(), rect, color);
+                }
                 if clear {
-                    let b = ui.small_button("×").on_hover_text(clear_tip);
+                    let b = ui.add(clear_button()).on_hover_text(clear_tip);
                     let wide = b.rect.width() + ui.spacing().item_spacing.x;
                     if (wide - button).abs() > 0.1 {
                         ui.data_mut(|d| d.insert_temp(button_id, wide));

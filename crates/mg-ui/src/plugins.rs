@@ -459,7 +459,7 @@ fn nested_commands(
         made.push(name);
         let inside: Vec<(usize, &PluginCommand)> =
             commands.iter().filter(|(_, d)| d.menu.get(depth) == Some(name)).copied().collect();
-        ui.menu_button(name, |ui| {
+        mg_uikit::menu_button(ui, name, |ui| {
             mg_uikit::menu_rows(ui);
             nested_commands(ui, &inside, depth + 1, chosen)
         });

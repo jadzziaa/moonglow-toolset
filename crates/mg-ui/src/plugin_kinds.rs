@@ -594,7 +594,8 @@ pub(crate) fn panel_ui(app: &mut Moonglow, ui: &mut egui::Ui, plugin: &str, pane
     };
     ui.horizontal(|ui| {
         let state = app.plugins.panels.entry(key.clone()).or_default();
-        if ui.button("⟳ Refresh").on_hover_text("Draw the panel again").clicked() {
+        let refresh = mg_uikit::IconButton::new(mg_uikit::Icon::Sync, "Refresh");
+        if ui.add(refresh).on_hover_text("Draw the panel again").clicked() {
             state.stale = true;
         }
         if state.drawing() {

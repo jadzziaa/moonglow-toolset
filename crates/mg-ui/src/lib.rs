@@ -36,6 +36,8 @@ mod gff_view;
 pub mod hak_view;
 mod icons;
 mod images;
+#[cfg(test)]
+mod interface_glyphs;
 pub mod jobs;
 pub mod journal_view;
 pub mod keys;
@@ -2754,8 +2756,8 @@ impl Moonglow {
     /// The bar beside a window's tabs does what its tab does: a double
     /// click maximizes the window and restores it, and a right click
     /// offers that; a button at its right end before the close button
-    /// does it too, and shows which the window is (🗖 Maximize, 🗗
-    /// Restore). (egui_dock gives the bar nothing; a builder looked for
+    /// does it too, and shows which the window is (the `maximize` icon,
+    /// or `restore`). (egui_dock gives the bar nothing; a builder looked for
     /// them there, as on any window's title.) The window is still dragged
     /// by it.
     fn window_bars(&mut self, ui: &mut egui::Ui) {
@@ -2788,20 +2790,20 @@ impl Moonglow {
             let maximized = self.windows_maximized(&leaf.tabs);
             let label = if maximized { "Restore" } else { "Maximize" };
             // (Registered after the bar: it takes its clicks.)
-            let glyph = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
-            let side = (bar.height() - 4.0).clamp(12.0, 20.0);
+            let icon = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
+            let side = mg_uikit::metrics::ICON_BUTTON.min(bar.height());
             let at = egui::Rect::from_center_size(
                 egui::pos2(bar.right() - side / 2.0 - 2.0, bar.center().y),
                 egui::vec2(side, side),
             );
-            let button = egui::Button::new(glyph).frame(false).small();
+            let button = mg_uikit::IconButton::new(icon, label).icon_only(true);
             let pressed = ui
                 .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
-                    let r = ui.put(at, button);
-                    r.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
-                    });
-                    r.on_hover_text(label).clicked()
+                    // (Its window's own layer, over the main window: not
+                    // cut to the main window's panels, which hid it where
+                    // a window's bar lay over the toolbar.)
+                    ui.set_clip_rect(at.expand(1.0));
+                    ui.put(at, button).on_hover_text(label).clicked()
                 })
                 .inner;
             if pressed {
@@ -3151,7 +3153,8 @@ impl Moonglow {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(text);
                         if offer.made {
-                            ui.add_enabled(false, egui::Button::new("✔ Fixed").small())
+                            let fixed = mg_uikit::IconButton::new(mg_uikit::Icon::Check, "Fixed");
+                            ui.add_enabled(false, fixed.small())
                                 .on_disabled_hover_text(&offer.fix.label);
                             return;
                         }
@@ -6208,7 +6211,7 @@ pub fn verify_report_fixes(
     let reference = |m: &mg_module::verify::Missing| {
         let what = format!("is {}", m.what());
         format!(
-            "{:?}: {}{} → {} {} {what}",
+            "{:?}: {}{} -> {} {} {what}",
             m.category,
             m.reference.from,
             m.reference.path,

@@ -523,11 +523,18 @@ fn what_the_game_takes_off_is_marked() {
     };
     h.get_by_label("Inventory").click();
     h.run();
-    assert!(h.query_all_by_label("⚠ Longsword").next().is_none(), "a bandit wears its sword");
+    // (Marked off with a warning icon before its name.)
+    let marked = |h: &Harness<'_, Moonglow>| {
+        let beside = |n: &egui_kittest::Node<'_>| {
+            icon_drawn(h, mg_uikit::Icon::Warning, n.rect().expand2(egui::vec2(24.0, 4.0)))
+        };
+        h.query_all_by_label("Longsword").any(|n| beside(&n))
+    };
+    assert!(!marked(&h), "a bandit wears its sword");
     apply(&mut h, feats(Vec::new()));
-    assert!(h.query_all_by_label("⚠ Longsword").next().is_some(), "without its feats, not");
+    assert!(marked(&h), "without its feats, not");
     apply(&mut h, feats(vec![45]));
-    assert!(h.query_all_by_label("⚠ Longsword").next().is_none());
+    assert!(!marked(&h));
 }
 
 #[test]
@@ -713,7 +720,7 @@ fn a_held_item_s_properties_open_from_the_inventory() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(6);
     let held = path.item("ItemList", 0);
     let tab = Tab::Instance { area, path: held.clone() };
@@ -864,7 +871,7 @@ fn a_held_item_s_properties_follow_the_item() {
     assert_eq!(open_items.count(), 0, "closed with its item");
 }
 
-/// A placed object's Properties closed by the tab's ×, with Options'
+/// A placed object's Properties closed by the tab's close button, with Options'
 /// "Closing a window cancels its changes" on: what was changed is set
 /// back as by Cancel, which Undo takes back; off, it is kept.
 #[test]
@@ -965,7 +972,7 @@ fn a_placed_store_s_items_open_their_properties_and_follow_them() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(6);
     let page = path.item("StoreList", page);
     assert_eq!(

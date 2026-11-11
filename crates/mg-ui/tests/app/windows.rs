@@ -391,7 +391,8 @@ fn panels_fold_away_and_come_back() {
     // The View menu has them, ticked.
     h.get_by_label("View").click();
     h.run();
-    h.get_by_label_contains("✔ Module Tree");
+    let ticked = h.get_by_label("Module Tree").accesskit_node().toggled();
+    assert_eq!(ticked, Some(egui::accesskit::Toggled::True), "Module Tree ticked");
     h.get_by_label("Reset Layout").click();
     h.run();
     h.run();
@@ -540,7 +541,7 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     h.run_steps(2);
     assert!(!h.state().settings.hide_log);
     // (The others are gone: the tree's «, the palettes' » after their
-    // types, the log's ⏷ in its corner and the ⏶ Log of its strip.)
+    // types, and the log's old arrow buttons.)
     for old in ["«", "»", "⏷ Log", "⏶ Log", "⏴"] {
         assert!(h.query_by_label(old).is_none(), "{old}");
     }
@@ -2251,6 +2252,7 @@ fn a_tab_dragged_out_into_its_own_window_is_maximized() {
         let bar = pane(h, tab);
         (h.get_all_by_label(label))
             .filter(|n| (n.rect().center().x - bar.right()).abs() < 60.0)
+            .filter(|n| n.rect().center().y >= bar.top())
             .min_by(|a, b| {
                 let d = |n: &egui_kittest::Node<'_>| (n.rect().center().y - bar.top()).abs();
                 d(a).total_cmp(&d(b))

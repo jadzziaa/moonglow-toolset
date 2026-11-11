@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T00:59:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # Blueprints
@@ -300,7 +300,7 @@ The palette's buttons:
   creature's Alignment, the Mouse Cursor and Text Bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
   editors, the wizards, the resource browser and Advanced Search, and a
-  described variable's ▾ of its values. Open, or with its box clicked,
+  described variable's dropdown of its values. Open, or with its box clicked,
   a list of choices takes letters too, as lists do on every desktop
   (a long list types into its Filter field instead): a letter goes to
   the first choice that begins with it, the same letter again to the
@@ -879,7 +879,7 @@ A domain or school left **Not set** is the game's to choose.
   blueprint. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. An item equipped that the creature
-  may not wear is marked ⚠ in its slot, its tip saying why: the game
+  may not wear is marked with a warning icon in its slot, its tip saying why: the game
   takes it off, into the backpack, as it loads the creature (placed in
   an area or made from its blueprint), and `ActionEquipItem` doesn't
   put it on, so the area view and the creature's preview leave it off

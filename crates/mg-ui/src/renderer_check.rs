@@ -380,8 +380,8 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let (mut close, mut hide) = (false, false);
     egui::Panel::top("renderer-notice").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new("⚠").color(ui.visuals().warn_fg_color));
-            ui.label(&trouble.said);
+            let warn = ui.visuals().warn_fg_color;
+            mg_uikit::icon_label(ui, mg_uikit::Icon::Warning, Some(warn), &trouble.said);
             match trouble.offer {
                 Some(b) => {
                     let name = mg_render::backend::backend_name(b);
@@ -426,7 +426,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
             {
                 hide = true;
             }
-            if ui.small_button("×").on_hover_text("Close").clicked() {
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Close", "").clicked() {
                 close = true;
             }
         });

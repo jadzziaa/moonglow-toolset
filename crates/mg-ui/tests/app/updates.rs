@@ -162,7 +162,7 @@ fn a_newer_release_found_at_start_opens_the_window_asking() {
 
 /// The automatic check, due, tells of a newer release under the toolbar
 /// at start; Don't remind me about this version keeps it from telling of
-/// that one again (a later one is told), and × closes it for now.
+/// that one again (a later one is told), and Close closes it for now.
 #[test]
 fn the_update_notice_appears_and_is_dismissed() {
     use std::sync::atomic::Ordering;
@@ -203,7 +203,7 @@ fn the_update_notice_appears_and_is_dismissed() {
     h.run();
     close_window(&mut h);
     h.get_by_label(&format!("Moonglow 99.1.0 is out (you have {current})."));
-    h.get_by_label("×").click();
+    h.get_by_label("Close").click();
     h.run();
     assert!(h.state().updates.notice.is_none());
     assert_eq!(h.state().settings.update_skipped.as_deref(), Some("99.0.0"));

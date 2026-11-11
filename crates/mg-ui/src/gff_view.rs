@@ -261,9 +261,13 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                                     meaning_ui(ctx, ui, id, (path, &label), v, m, *n);
                                 }
                                 if warned {
-                                    ui.colored_label(
-                                        ui.visuals().warn_fg_color,
-                                        PC_FACTION_WARNING,
+                                    let warn = ui.visuals().warn_fg_color;
+                                    let text = egui::RichText::new(PC_FACTION_WARNING).color(warn);
+                                    mg_uikit::icon_label(
+                                        ui,
+                                        mg_uikit::Icon::Warning,
+                                        Some(warn),
+                                        text,
                                     )
                                     .on_hover_text(PC_FACTION_HOVER);
                                 }
@@ -279,7 +283,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
 
 /// Beside an object's faction field of 0 (what Verify's `pc-faction`
 /// warns of).
-const PC_FACTION_WARNING: &str = "⚠ The PC faction: the players' alone";
+const PC_FACTION_WARNING: &str = "The PC faction: the players' alone";
 const PC_FACTION_HOVER: &str = "Faction 0 is the players' own: the game puts a creature of it in \
                                 Hostile. Pick another.";
 

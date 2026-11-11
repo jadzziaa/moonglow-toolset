@@ -420,14 +420,16 @@ fn move_lists(
         });
         ui.vertical(|ui| {
             ui.add_space(40.0);
-            if ui.button("->").on_hover_text(format!("Move to {}", titles[1])).clicked()
+            let to = format!("Move to {}", titles[1]);
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronRight, &to, "").clicked()
                 && let Some((l, row)) = *selected
                 && l == lists[0]
                 && !chosen.contains(&row)
             {
                 chosen.push(row);
             }
-            if ui.button("<-").on_hover_text(format!("Move to {}", titles[0])).clicked()
+            let to = format!("Move to {}", titles[0]);
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronLeft, &to, "").clicked()
                 && let Some((l, row)) = *selected
                 && l == lists[1]
             {

@@ -323,7 +323,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.query_by_label("Build Module").is_none());
     // User Manual: F1 taken away, Ctrl+M added by pressing it.
-    h.get_by_label("F1 ×").click();
+    h.get_by_label("F1").click();
     h.run();
     h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
@@ -336,7 +336,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.query_by_label_contains("is the key of both Save and User Manual").is_some());
     // The User Manual's Ctrl+S is taken away again (the only row shown).
-    h.get_by_label("Ctrl+S ×").click();
+    h.get_by_label("Ctrl+S").click();
     h.run();
     // A menu command that never had a key takes one.
     h.state_mut().options.as_mut().unwrap().recording = Some("build-module".to_string());
@@ -718,7 +718,7 @@ fn the_graphics_backend_is_chosen_in_options() {
 }
 
 /// Options › General › Toolbar buttons, Icons only: the toolbar's buttons
-/// show their glyphs alone at once, each named in its tip (with its key),
+/// show their icons alone at once, each named in its tip (with its key),
 /// and the toolbar takes less room; kept in the settings, and back to
 /// icons and text.
 #[test]
@@ -726,9 +726,9 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
     let width = |h: &Harness<'_, Moonglow>, first: &str, last: &str| {
-        h.get_by_label(last).rect().right() - h.get_by_label(first).rect().left()
+        tool(h, last).rect().right() - tool(h, first).rect().left()
     };
-    let wide = width(&h, "🗋 New", "✔ Verify");
+    let wide = width(&h, "New", "Verify");
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
     h.get_by_label("General").click();
@@ -750,20 +750,21 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
     assert!(!old.toolbar_icons_only, "icons and text in settings from before");
     h.run();
-    // The glyphs alone.
-    assert!(h.query_by_label("💾 Save").is_none() && h.query_by_label("📦 Palettes").is_none());
-    // (Named by their names for a screen reader, not by their glyphs.)
-    assert!(h.query_by_label("💾").is_none() && h.query_by_label("📦").is_none());
+    // The icons alone (named by their words for a screen reader, the words
+    // in their tips).
+    let (save, palettes) = (tool(&h, "Save").rect(), tool(&h, "Palettes").rect());
+    assert!(icon_drawn(&h, mg_uikit::Icon::Save, save), "Save's icon");
+    assert!(icon_drawn(&h, mg_uikit::Icon::Palette, palettes), "Palettes' icon");
     let narrow = width(&h, "New", "Verify");
     assert!(narrow < wide * 0.6, "the toolbar narrower: {narrow} of {wide}");
     // A tip named for the button: first where it doesn't begin so.
-    let palettes = h.get_by_label("Palettes").rect().center();
+    let palettes = tool(&h, "Palettes").rect().center();
     h.hover_at(palettes);
     // (A tooltip waits a moment.)
     h.run_steps(60);
     h.get_by_label("Palettes\nBlueprint palettes");
     // Save (disabled without a module): its tip too, with its key.
-    let save = h.get_by_label("Save").rect().center();
+    let save = tool(&h, "Save").rect().center();
     h.hover_at(save);
     h.run_steps(60);
     let tip = h.get_by_label_contains("Save module").accesskit_node();
@@ -772,8 +773,7 @@ fn the_toolbar_shows_icons_only_when_asked() {
     // Back to icons and text.
     h.state_mut().settings.toolbar_icons_only = false;
     h.run();
-    h.get_by_label("💾 Save");
-    assert!(h.query_by_label("Save").is_none());
+    assert!((width(&h, "New", "Verify") - wide).abs() < 1.0, "the toolbar as wide as it was");
 }
 
 /// Options › General › Light theme: the window's theme follows the
@@ -845,7 +845,8 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.run();
     // (The buttons' widths together: a toolbar wraps.)
     let width = |h: &Harness<'_, Moonglow>, names: &[&str]| -> f32 {
-        names.iter().map(|n| h.get_by_label(n).rect().width()).sum()
+        // (The editor's, after the module tree's: both have an Expand All.)
+        names.iter().map(|n| h.get_all_by_label(n).last().unwrap().rect().width()).sum()
     };
     let scripts = ["Save As…", "Print…", "Open…", "Find…", "Replace…", "Definition", "Used By"];
     let lines = ["Add", "Copy", "Cut", "Paste", "Paste As Link", "Expand All", "Scripts"];
@@ -856,6 +857,10 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.run_steps(3);
     let glyphs = width(&h, &scripts);
     assert!(glyphs < words * 0.6, "the script's toolbar narrower: {glyphs} of {words}");
+    // (Each an icon button, named by its words, its icon drawn.)
+    let used_by = h.get_by_label("Used By").rect();
+    assert!(used_by.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{used_by:?}");
+    assert!(icon_drawn(&h, mg_uikit::Icon::UsedBy, used_by), "Used By's icon");
     h.get_by_label("Used By").hover();
     // (A tooltip waits a moment.)
     h.run_steps(60);

@@ -15,3 +15,6 @@ location, area, conversation, script, journal, faction, 2DA table, talk
 table, NUI window, model, texture, tile, and the like) are Moonglow's own.
 Where an icon's shape matches one of Lucide's, Lucide's ISC license
 applies to it: its text is in `LICENSE-lucide.txt` beside this file.
+
+Added after the boards (M2 of the redesign): `restore` and `extract-all`,
+Lucide's `minimize` and `folder-output` shapes.

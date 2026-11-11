@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T12:31:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # Options
@@ -125,7 +125,7 @@ the module is opened again from its file.
 ### Graphics
 
 - **Shadows quality**: how the area view draws the game's shadows (its
-  **◑ Shadows**; also chosen in that button's menu, see
+  **Shadows**; also chosen in that button's menu, see
   [Areas](04-areas.md)). **Fast** (the default): a shadow map stands in
   for the game's shadows, cheap in every area; in a large area seen out
   to its far side, its edges up close are a little soft and stepped.
@@ -168,7 +168,7 @@ the module is opened again from its file.
 
 - **Lights of any color and reach, written into a hak** (off by
   default): Moonglow's own. On, the area's **Add Light Here** and the
-  palette's **☀ Lights** offer **Custom Light…** (see
+  palette's **Lights** offer **Custom Light…** (see
   [Areas](04-areas.md#lights-of-any-color-and-reach)), which writes a
   light's model and a placeables.2da row into a hak you choose, one
   the module's players must have. Off, nothing is ever written into a
@@ -259,8 +259,9 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   toolbars are, to save room: the area view's toolbar takes about half
   the rows it took. Rest the pointer on an icon and its tip names it,
   with its key and what it does; a screen reader reads the button's
-  name, not its icon. The area view's dropdowns show an icon for what
-  they set (🏠 Fade Geometry, 📐 Snap, ↻ Turn) before their choice. The
+  name, not its icon. With Icons only, the area view's Fade Geometry,
+  Snap and Turn dropdowns show an icon for what they set before their
+  choice. The
   editors' buttons show their words alone with Icons and text, as they
   always have; the palette's tile tools (Select Tiles, Eraser, Refine
   Tile…) are rows of its list, named as in Aurora's palette, and keep

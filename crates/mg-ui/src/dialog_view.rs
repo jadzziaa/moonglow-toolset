@@ -1091,12 +1091,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let add_hint =
         keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, ui.ctx());
 
-    // Toolbar. (With Icons only, each glyph alone, its name in its tip.)
+    // Toolbar. (With Icons only, each icon alone, its name in its tip.)
     let tools = crate::icons::Tools::of(&app.settings);
-    use crate::icons::editor as glyph;
-    let button = |ui: &mut Ui, enabled: bool, g: &str, name: &str, tip: &str| {
-        let r = ui.add_enabled(enabled, egui::Button::new(tools.word(g, name)));
-        tools.named(r, name, tip, None)
+    use crate::icons::editor as icon;
+    let button = |ui: &mut Ui, enabled: bool, g: crate::icons::Icon, name: &str, tip: &str| {
+        let r = ui.add_enabled(enabled, tools.word_widget(g, name));
+        tools.named(r, name, tip)
     };
     ui.horizontal_wrapped(|ui| {
         let sel = view.selected;
@@ -1108,7 +1108,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             Some(_) => None,
         };
-        if (button(ui, add_parent.is_some(), glyph::ADD, "Add", &add_hint).clicked() || key_add)
+        if (button(ui, add_parent.is_some(), icon::ADD, "Add", &add_hint).clicked() || key_add)
             && let Some(p) = add_parent
         {
             if popup {
@@ -1131,7 +1131,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 target: Some(target_of(r)),
             })
         };
-        if button(ui, sel.is_some(), glyph::COPY, "Copy", "").clicked()
+        if button(ui, sel.is_some(), icon::COPY, "Copy", "").clicked()
             || (key_copy && sel.is_some())
         {
             app.dialog_clip = sel.and_then(copy);
@@ -1140,8 +1140,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         let mut delete = false;
-        if (button(ui, sel.is_some(), glyph::CUT, "Cut", "").clicked() || key_cut) && sel.is_some()
-        {
+        if (button(ui, sel.is_some(), icon::CUT, "Cut", "").clicked() || key_cut) && sel.is_some() {
             app.dialog_clip = sel.and_then(copy);
             if app.dialog_clip.is_some() {
                 crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
@@ -1152,7 +1151,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let clip = app.dialog_clip.as_ref();
         let fits = |p: Parent| clip.is_some_and(|c| c.branch.kind == p.child_kind());
         let can_paste = paste_parent.is_some_and(fits);
-        if (button(ui, can_paste, glyph::PASTE, "Paste", "").clicked() || key_paste)
+        if (button(ui, can_paste, icon::PASTE, "Paste", "").clicked() || key_paste)
             && can_paste
             && let (Some(p), Some(c)) = (paste_parent, clip)
         {
@@ -1179,7 +1178,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             _ => None,
         };
-        if (button(ui, pair.is_some(), glyph::PASTE_LINK, "Paste As Link", "").clicked()
+        if (button(ui, pair.is_some(), icon::PASTE_LINK, "Paste As Link", "").clicked()
             || asked == Some(Asked::PasteLink))
             && let Some((from, to)) = pair
         {
@@ -1188,7 +1187,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 actions.push(replace(key, "Paste as link", &ng));
             }
         }
-        if button(ui, sel.is_some(), glyph::DELETE, "Delete", "").clicked() || key_delete {
+        if button(ui, sel.is_some(), icon::DELETE, "Delete", "").clicked() || key_delete {
             delete = true;
         }
         if delete && let Some(r) = sel {
@@ -1211,14 +1210,29 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // Up and down among the lines of its parent: the order the game
         // tries them in (Alt + the arrow keys, too).
         let siblings = sel.map_or(0, |r| links(&g, r.parent).len());
-        for (label, up, arrow, hint) in [
-            ("⏶", true, egui::Key::ArrowUp, "Move the line up among its parent's (Alt+Up)"),
-            ("⏷", false, egui::Key::ArrowDown, "Move the line down among its parent's (Alt+Down)"),
+        use mg_uikit::Icon;
+        for (icon, label, up, arrow, hint) in [
+            (
+                Icon::ArrowUp,
+                "Move Up",
+                true,
+                egui::Key::ArrowUp,
+                "Move the line up among its parent's (Alt+Up)",
+            ),
+            (
+                Icon::ArrowDown,
+                "Move Down",
+                false,
+                egui::Key::ArrowDown,
+                "Move the line down among its parent's (Alt+Down)",
+            ),
         ] {
             let can = sel.is_some_and(|r| if up { r.pos > 0 } else { r.pos + 1 < siblings });
             let key_move = here && ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, arrow));
-            let clicked =
-                ui.add_enabled(can, egui::Button::new(label)).on_hover_text(hint).clicked();
+            let clicked = ui
+                .add_enabled(can, crate::widgets::icon_only(icon, label))
+                .on_hover_text(hint)
+                .clicked();
             if (clicked || key_move)
                 && can
                 && let Some(r) = sel
@@ -1232,10 +1246,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         ui.separator();
-        if button(ui, true, glyph::EXPAND_ALL, "Expand All", "").clicked() {
+        if button(ui, true, icon::EXPAND_ALL, "Expand All", "").clicked() {
             view.collapsed.clear();
         }
-        if button(ui, true, glyph::COLLAPSE_ALL, "Collapse All", "").clicked() {
+        if button(ui, true, icon::COLLAPSE_ALL, "Collapse All", "").clicked() {
             for k in [Kind::Entry, Kind::Reply] {
                 for i in 0..mg_module::dialog::nodes(&g, k).len() as u32 {
                     view.collapsed.insert((k, i));
@@ -1244,11 +1258,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
         ui.separator();
         for (i, (g, label)) in [
-            (glyph::COMMENTS, "Comments"),
-            (glyph::ACTIONS, "Actions"),
-            (glyph::QUESTS, "Quests"),
-            (glyph::ANIMATIONS, "Animations"),
-            (glyph::SOUNDS, "Sounds"),
+            (icon::COMMENTS, "Comments"),
+            (icon::ACTIONS, "Actions"),
+            (icon::QUESTS, "Quests"),
+            (icon::ANIMATIONS, "Animations"),
+            (icon::SOUNDS, "Sounds"),
         ]
         .into_iter()
         .enumerate()
@@ -1259,7 +1273,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.separator();
         // Export and import (dialog_io): the lines back by CSV.
         let mut export = None;
-        let menu = ui.menu_button(tools.word(glyph::EXPORT, "Export"), |ui| {
+        let menu = tools.word_widget(icon::EXPORT, "Export").menu(ui, |ui| {
             mg_uikit::menu_rows(ui);
             for f in mg_module::dialog_io::Format::ALL {
                 if ui.button(format!("{}…", f.name())).clicked() {
@@ -1268,7 +1282,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 }
             }
         });
-        tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink", None);
+        tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink");
         if let Some(f) = export {
             let suggested = std::path::PathBuf::from(crate::dialog_export::file_name(key, f));
             if let Some(path) =
@@ -1286,7 +1300,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         if button(
             ui,
             true,
-            glyph::IMPORT,
+            icon::IMPORT,
             "Import Lines…",
             "Read back the text, speakers and comments of a CSV export",
         )
@@ -1312,7 +1326,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.separator();
         let mut scripts = !app.settings.dialog_hide_scripts;
         let tip = "Show each line's condition, action, journal update and sound";
-        if tools.toggle_word(ui, &mut scripts, glyph::SCRIPTS, "Scripts", tip).changed() {
+        if tools.toggle_word(ui, &mut scripts, icon::SCRIPTS, "Scripts", tip).changed() {
             app.settings.dialog_hide_scripts = !scripts;
         }
     });
@@ -1787,7 +1801,11 @@ fn tree(
         ui.horizontal(|ui| {
             ui.add_space(depth as f32 * 16.0);
             if children {
-                if ui.small_button(if open { "−" } else { "+" }).clicked() {
+                let (icon, name) = match open {
+                    true => (mg_uikit::Icon::ChevronDown, "Collapse"),
+                    false => (mg_uikit::Icon::ChevronRight, "Expand"),
+                };
+                if ui.add(crate::widgets::icon_only(icon, name)).clicked() {
                     if open {
                         view.collapsed.insert((kind, index));
                     } else {
@@ -2165,7 +2183,7 @@ fn script_with_params(
     ui.horizontal_wrapped(|ui| {
         ui.label("Parameters");
         ui.separator();
-        ui.menu_button("Add Set", |ui| {
+        mg_uikit::menu_button(ui, "Add Set", |ui| {
             mg_uikit::menu_rows(ui);
             match crate::widgets::sets_menu(ui, &mut app.log, &PARAMETER_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(set)) => chosen.push(set),
@@ -2242,7 +2260,10 @@ fn script_with_params(
                 ui.horizontal(|ui| {
                     // (First in its row: at the row's end it was past the
                     // page's edge where the page is narrow.)
-                    if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
+                    let tip = "Remove the parameter";
+                    if crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, "Remove", tip)
+                        .clicked()
+                    {
                         remove_at = Some(i);
                     }
                     let name = mg_uikit::text_field(k).desired_width(name_width);
@@ -2256,10 +2277,8 @@ fn script_with_params(
                 });
             }
         });
-        add = ui
-            .small_button("+")
-            .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
-            .clicked();
+        let tip = "Add a parameter (EE: read with GetScriptParam)";
+        add = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Add Parameter", tip).clicked();
     });
     if let Some(i) = remove_at {
         pairs.remove(i);

@@ -60,8 +60,9 @@ struct MadeWith {
     fonts: u64,
 }
 
-/// What a line number has before it: nothing, a bookmark's ◆ or a numbered
-/// bookmark's number.
+/// What a line number has before it: nothing, a bookmark's room (its
+/// icon is painted there: [`paint_bookmarks`]) or a numbered bookmark's
+/// number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mark {
     None,
@@ -210,8 +211,8 @@ impl LaidOut {
     }
 
     /// The line numbers of `lines` lines, each after its mark: a numbered
-    /// bookmark's number, else a bookmark's ◆ (as `{n:>6}` with the mark in
-    /// its first place), with an empty row after the last.
+    /// bookmark's number, else room for a bookmark's icon (as `{n:>6}` with
+    /// the mark in its first place), with an empty row after the last.
     pub(crate) fn numbers(
         &mut self,
         ui: &Ui,
@@ -222,7 +223,7 @@ impl LaidOut {
     ) -> Arc<Galley> {
         let mut marked: Vec<(usize, Mark)> =
             bookmarks.iter().filter(|l| **l < lines).map(|l| (*l, Mark::Bookmark)).collect();
-        // (A numbered bookmark's number before a bookmark's ◆: the first
+        // (A numbered bookmark's number before a bookmark's icon: the first
         // number of the line's.)
         for (n, line) in numbered.iter().enumerate().rev() {
             if let Some(line) = line.filter(|l| *l < lines) {
@@ -242,7 +243,7 @@ impl LaidOut {
         let number = |f: &mut egui::epaint::text::FontsView<'_>, n: usize, mark: Mark| {
             let text = match mark {
                 Mark::None => format!("{n:>6}"),
-                Mark::Bookmark => format!("◆{n:>5}"),
+                Mark::Bookmark => format!(" {n:>5}"),
                 Mark::Numbered(b) => format!("{b}{n:>5}"),
             };
             f.layout_job(LayoutJob::simple(text, font.clone(), color, f32::INFINITY))
@@ -444,6 +445,38 @@ fn line_job(
     job
 }
 
+/// A bookmark's icon (`bookmark`, as high as a line, in the numbers'
+/// color) in the first place of each bookmarked line's number, of the
+/// line numbers `numbers` drawn at `at` (those with a numbered bookmark's
+/// number show that).
+pub(crate) fn paint_bookmarks(
+    ui: &Ui,
+    numbers: &Galley,
+    at: egui::Pos2,
+    bookmarks: &std::collections::BTreeSet<usize>,
+    numbered: &[Option<usize>; 10],
+) {
+    let weak = ui.visuals().weak_text_color();
+    let color = numbers.job.sections.first().map_or(weak, |s| s.format.color);
+    let clip = ui.clip_rect();
+    for line in bookmarks {
+        if numbered.contains(&Some(*line)) {
+            continue;
+        }
+        let Some(row) = numbers.rows.get(*line) else { continue };
+        let first = row.glyphs.first().map_or(row.rect().height(), |g| g.advance_width);
+        let rect = row.rect().translate(at.to_vec2());
+        let side = rect.height().min(mg_uikit::metrics::ICON);
+        let square = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + first / 2.0, rect.center().y),
+            egui::Vec2::splat(side),
+        );
+        if clip.intersects(square) {
+            mg_uikit::Icon::Bookmark.paint(ui.painter(), square, color);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,7 +674,7 @@ mod tests {
                         if let Some(b) = numbered.iter().position(|l| *l == Some(n - 1)) {
                             format!("{b}{n:>5}\n")
                         } else if bookmarks.contains(&(n - 1)) {
-                            format!("◆{n:>5}\n")
+                            format!(" {n:>5}\n")
                         } else {
                             format!("{n:>6}\n")
                         }

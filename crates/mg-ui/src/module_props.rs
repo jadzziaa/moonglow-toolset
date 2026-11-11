@@ -589,7 +589,10 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             }
             let can_down = high.is_some_and(|h| h + 1 < n);
             if ui
-                .add_enabled(can_down, egui::Button::new("⏷"))
+                .add_enabled(
+                    can_down,
+                    crate::widgets::icon_only(mg_uikit::Icon::ArrowDown, "Move Down"),
+                )
                 .on_hover_text("Move the haks chosen down (Alt+Down)")
                 .clicked()
             {
@@ -597,7 +600,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             }
             let can_up = low.is_some_and(|l| l > 0);
             if ui
-                .add_enabled(can_up, egui::Button::new("⏶"))
+                .add_enabled(can_up, crate::widgets::icon_only(mg_uikit::Icon::ArrowUp, "Move Up"))
                 .on_hover_text("Move the haks chosen up (Alt+Up)")
                 .clicked()
             {
@@ -905,7 +908,7 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
                 };
                 ui.weak(what).on_hover_text(format!(
                     "{from}
-→ {}",
+-> {}",
                     p.to.display()
                 ));
                 if !p.is_tlk {

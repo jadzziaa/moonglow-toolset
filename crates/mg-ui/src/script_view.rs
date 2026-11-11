@@ -751,25 +751,25 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let dirty = app.scripts[&key].is_dirty();
     // Wrapping: a narrow pane keeps its width (the row would widen the
     // editor past the pane, side lists and all).
-    // (With Icons only, each glyph alone, its name in its tip.)
+    // (With Icons only, each icon alone, its name in its tip.)
     let tools = crate::icons::Tools::of(&app.settings);
-    use crate::icons::editor as glyph;
-    let button = |ui: &mut Ui, enabled: bool, g: &str, name: &str, tip: &str| {
-        let r = ui.add_enabled(enabled, egui::Button::new(tools.word(g, name)));
-        tools.named(r, name, tip, None)
+    use crate::icons::editor as icon;
+    let button = |ui: &mut Ui, enabled: bool, g: crate::icons::Icon, name: &str, tip: &str| {
+        let r = ui.add_enabled(enabled, tools.word_widget(g, name));
+        tools.named(r, name, tip)
     };
     ui.horizontal_wrapped(|ui| {
-        save = button(ui, dirty, glyph::SAVE, "Save", "Save the script into the module").clicked();
+        save = button(ui, dirty, icon::SAVE, "Save", "Save the script into the module").clicked();
         compile = button(
             ui,
             true,
-            glyph::COMPILE,
+            icon::COMPILE,
             "Compile",
             "Save and compile (F7 compiles all scripts)",
         )
         .clicked();
-        save_as = button(ui, true, glyph::SAVE_AS, "Save As…", "").clicked();
-        if button(ui, true, glyph::PRINT, "Print…", "Print the script (through the web browser)")
+        save_as = button(ui, true, icon::SAVE_AS, "Save As…", "").clicked();
+        if button(ui, true, icon::PRINT, "Print…", "Print the script (through the web browser)")
             .clicked()
         {
             let text = app.scripts[&key].text.clone();
@@ -794,7 +794,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         if button(
             ui,
             true,
-            glyph::OPEN,
+            icon::OPEN,
             "Open…",
             "Open another script by name: the module's, its haks' or the game's",
         )
@@ -807,7 +807,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             Some(_) => "Edit in the external script editor (Options › Script Editor)",
             None => "Choose an external script editor in Options › Script Editor",
         };
-        if button(ui, editor.is_some(), glyph::EXTERNAL, "External Editor", tip).clicked()
+        if button(ui, editor.is_some(), icon::EXTERNAL, "External Editor", tip).clicked()
             && let Some(editor) = editor
         {
             open_external(app, key, &editor);
@@ -823,27 +823,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let ctx = ui.ctx().clone();
         let tip = |text: &str, cmd: Cmd| keymap.titled(text, cmd, &ctx);
         let find_tip = format!("{}\n{}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));
-        open_find |= button(ui, true, glyph::FIND, "Find…", &find_tip).clicked();
+        open_find |= button(ui, true, icon::FIND, "Find…", &find_tip).clicked();
         let replace_tip = tip("Replace", Cmd::Replace);
-        open_replace |= button(ui, true, glyph::REPLACE, "Replace…", &replace_tip).clicked();
+        open_replace |= button(ui, true, icon::REPLACE, "Replace…", &replace_tip).clicked();
         let bookmark_tip = tip("Toggle a bookmark on the cursor's line", Cmd::Bookmark);
-        toggle_bookmark |= button(ui, true, glyph::BOOKMARK, "Bookmark", &bookmark_tip).clicked();
+        toggle_bookmark |= button(ui, true, icon::BOOKMARK, "Bookmark", &bookmark_tip).clicked();
         ui.separator();
         let definition_tip = format!(
             "{}, or Ctrl+click",
             tip("Go to the definition of the name at the cursor", Cmd::Definition)
         );
-        definition |= button(ui, true, glyph::DEFINITION, "Definition", &definition_tip).clicked();
+        definition |= button(ui, true, icon::DEFINITION, "Definition", &definition_tip).clicked();
         let references_tip =
             tip("Where the name at the cursor is used in the module's scripts", Cmd::References);
-        references |= button(ui, true, glyph::REFERENCES, "References", &references_tip).clicked();
+        references |= button(ui, true, icon::REFERENCES, "References", &references_tip).clicked();
         let rename_tip =
             tip("Rename the name at the cursor everywhere it's used", Cmd::RenameSymbol);
-        rename |= button(ui, true, glyph::RENAME, "Rename Symbol…", &rename_tip).clicked();
+        rename |= button(ui, true, icon::RENAME, "Rename Symbol…", &rename_tip).clicked();
         if button(
             ui,
             true,
-            glyph::USED_BY,
+            icon::USED_BY,
             "Used By",
             "Where the module runs or includes this script",
         )
@@ -868,18 +868,23 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // message: the whole of it on hover.
     if !app.settings.no_live_check {
         app.live_check(key, h, &ctx);
-        let size = egui::vec2(ui.available_width(), ui.text_style_height(&egui::TextStyle::Body));
+        // (As high as a line or the error's icon, whichever is higher.)
+        let line = ui.text_style_height(&egui::TextStyle::Body).max(mg_uikit::metrics::ICON);
+        let size = egui::vec2(ui.available_width(), line);
         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
         if let Some((line, text)) = app.live_error(key) {
             let at = line.map_or_else(|| "in an include".into(), |l| format!("line {}", l + 1));
-            let said = format!("⚠ {at}: {}", text.replace(['\r', '\n'], " "));
-            let label =
-                egui::Label::new(egui::RichText::new(&said).color(ui.visuals().error_fg_color))
-                    .truncate();
+            let said = format!("{at}: {}", text.replace(['\r', '\n'], " "));
+            let error = ui.visuals().error_fg_color;
+            let label = egui::Label::new(egui::RichText::new(&said).color(error)).truncate();
             let row = egui::UiBuilder::new()
                 .max_rect(rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center));
             ui.scope_builder(row, |ui| {
+                ui.spacing_mut().item_spacing.x = ui.spacing().icon_spacing;
+                let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+                let (mark, _) = ui.allocate_exact_size(side, egui::Sense::hover());
+                mg_uikit::Icon::Error.paint(ui.painter(), mark, error);
                 ui.add(label)
                     .on_hover_text(format!("{said}\n\nFound as you type (Options › Script Editor)"))
             });
@@ -1390,7 +1395,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             ui.scroll_with_delta(egui::vec2(0.0, -d));
         }
         ui.horizontal_top(|ui| {
-            ui.add(egui::Label::new(numbers).selectable(false));
+            let drawn = ui.add(egui::Label::new(numbers.clone()).selectable(false));
+            crate::script_layout::paint_bookmarks(
+                ui,
+                &numbers,
+                drawn.rect.min,
+                &buf.bookmarks,
+                &buf.numbered,
+            );
             // The selection is drawn here, not by the field: to each
             // line's last character, where the field draws a line end
             // that is selected as half a character more (which reads

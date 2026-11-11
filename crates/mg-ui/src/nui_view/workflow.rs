@@ -195,7 +195,7 @@ pub(super) fn ui(
                     layouts::edit(state, Some(name.clone()));
                 }
                 // The handlers showing it, and its function's calls, follow.
-                ui.menu_button("Rename…", |ui| {
+                mg_uikit::menu_button(ui, "Rename…", |ui| {
                     mg_uikit::menu_rows(ui);
                     let id = ui.make_persistent_id(("rename-variant", name));
                     let mut to: String =

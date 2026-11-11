@@ -12,6 +12,7 @@ const KEPT: &[(&str, usize, &str)] = &[
     ("area_grass.rs", 1, "the light ground behind a grass texture's tufts (a picture)"),
     ("area_view.rs", 67, "handles, outlines, kind colors and labels drawn over the 3D view"),
     ("bake_view.rs", 2, "the walkmeshes before and after, drawn over the 3D view"),
+    ("icons.rs", 1, "its tests"),
     ("color_button.rs", 11, "colors typed, parsed and picked (data), and its tests"),
     ("dialog_view.rs", 1, "the speakers' colors of Options › Conversation (data)"),
     ("faction_view.rs", 3, "Aurora's hostile, neutral and friendly colors (the game's look)"),

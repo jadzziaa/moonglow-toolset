@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T13:00:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # Modules
@@ -1269,9 +1269,9 @@ log by line, as the project file's are.
 
 **In the window**, with your code set (**Edit › Builder Code…**):
 
-- the module tree marks each claimed area: ✔ and your code for yours,
-  🔒 and the other's code for another's (in the warning color), 📌 for a
-  merged one; on hover, who claimed it and since when;
+- the module tree marks each claimed area: a check and your code for
+  yours, a lock and the other's code for another's (in the warning
+  color), a pin for a merged one; on hover, who claimed it and since when;
 - an area another builder claimed says so above its view and its
   Properties, as does an unclaimed one in a project that warns of those
   (`unclaimed = "warn"`), with **Claim This Area** beside it;

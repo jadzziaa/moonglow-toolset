@@ -992,7 +992,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             let search_id = f.id("uti-search");
             let mut search: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
             crate::widgets::SearchField::new(search_id.with("field"), &mut search)
-                .hint("🔍 Search properties")
+                .hint("Search properties")
                 .clear_tip("Clear")
                 .find_over()
                 .show(ui);

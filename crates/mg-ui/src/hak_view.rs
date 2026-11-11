@@ -11,6 +11,7 @@ use mg_module::hak_edit::{Added, Hak, Source};
 use mg_resman::ResKey;
 
 use crate::dialogs::FileKind;
+use crate::icons::Icon;
 use crate::{Moonglow, Tab};
 
 /// A hak open in a tab.
@@ -695,6 +696,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let mut todo = None;
     // The game's own haks are never written: Save As makes a copy.
     let game_root = app.install.as_ref().map(|gi| gi.root.clone());
+    // (The editor's buttons: their words, or their icons alone with Icons
+    // only, and where the words have no room in the editor's width.)
+    let tools = crate::icons::Tools::of(&app.settings);
     let doc = &mut app.haks[i];
     let in_game = doc.is_in_game(game_root.as_deref());
     let mut changed = false;
@@ -704,13 +708,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             "This hak is part of the game: Save As… keeps your changes in a copy.",
         );
     }
-    ui.horizontal(|ui| {
+    let first_row = [
+        tools.word_widget(Icon::Update, "Update from Folder"),
+        tools.word_widget(Icon::Compile, "Compile Models"),
+    ];
+    let first = tools.fitted(ui, &first_row);
+    ui.horizontal_wrapped(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let where_ =
             doc.hak.path.as_ref().map_or("not saved yet".into(), |p| p.display().to_string());
         ui.strong(format!("{} resources, {}", doc.hak.items().len(), size(doc.hak.size())));
         let folder = doc.folder.as_ref().map(|f| f.display().to_string());
+        let update = first.word_widget(Icon::Update, "Update from Folder");
         if ui
-            .add_enabled(folder.is_some(), egui::Button::new("Update from Folder"))
+            .add_enabled(folder.is_some(), update)
             .on_hover_text(match &folder {
                 Some(f) => format!("The hak's files again from {f}: what the folder has now"),
                 None => "For a hak built with Build Hak from Folder".into(),
@@ -720,8 +731,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             todo = Some(Do::UpdateFromFolder);
         }
         // (Here, not among the buttons under: that row is full.)
+        let compile = first.word_widget(Icon::Compile, "Compile Models");
         if ui
-            .button("Compile Models")
+            .add(compile)
             .on_hover_text(
                 "Compile the hak's ASCII models against their supermodels. One that fails stays \
                  text.",
@@ -730,7 +742,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         {
             todo = Some(Do::CompileModels);
         }
-        ui.weak(where_);
+        // (Cut short where the editor is narrow, whole in its tip: a long
+        // path widened the editor past its window, and the rows under it
+        // with it.)
+        let path = egui::Label::new(egui::RichText::new(&where_).weak());
+        ui.add(path.wrap_mode(egui::TextWrapMode::Truncate)).on_hover_text(&where_);
     });
     ui.horizontal(|ui| {
         ui.label("Description");
@@ -738,7 +754,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         let text = doc.description.get_or_insert_with(|| crate::text::to_editor(stored).0);
         let field = egui::TextEdit::multiline(text)
             .desired_rows(2)
-            .desired_width(480.0)
+            .desired_width(ui.available_width().min(480.0))
             .hint_text("for people: the game doesn't show it");
         let r =
             crate::widgets::text_area(ui, ui.id().with("hak-description"), field).response.response;
@@ -749,60 +765,62 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             changed = true;
         }
     });
-    // (A second row where the editor is too narrow for one: Save As… was
-    // cut off at its edge.)
+    // The toolbar: its words, else (narrow, or Icons only) its icons
+    // alone; a second row where even they have no room (Save As… was cut
+    // off at the editor's edge).
+    let selected: Vec<ResKey> = doc.selected.iter().copied().collect();
+    let remove = format!("Remove ({})", selected.len());
+    let row = [
+        tools.word_widget(Icon::Import, "Add Files…"),
+        tools.word_widget(Icon::Folder, "Add Folder…"),
+        tools.word_widget(Icon::Delete, &remove),
+        tools.word_widget(Icon::Export, "Extract…"),
+        tools.word_widget(Icon::ExtractAll, "Extract All…"),
+        tools.word_widget(Icon::Undo, "Undo"),
+        tools.word_widget(Icon::Redo, "Redo"),
+        tools.word_widget(Icon::Save, "Save"),
+        tools.word_widget(Icon::SaveAs, "Save As…"),
+    ];
+    let tools = tools.fitted(ui, &row);
     ui.horizontal_wrapped(|ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        if ui.button("Add Files…").clicked() {
+        let button = |ui: &mut Ui, enabled: bool, icon, name: &str, tip: &str| {
+            let r = ui.add_enabled(enabled, tools.word_widget(icon, name));
+            tools.named(r, name, tip).clicked()
+        };
+        if button(ui, true, Icon::Import, "Add Files…", "") {
             todo = Some(Do::AddFiles);
         }
-        if ui
-            .button("Add Folder…")
-            .on_hover_text("Its files and those of the folders in it")
-            .clicked()
+        if button(ui, true, Icon::Folder, "Add Folder…", "Its files and those of the folders in it")
         {
             todo = Some(Do::AddFolder);
         }
-        let selected: Vec<ResKey> = doc.selected.iter().copied().collect();
-        if ui
-            .add_enabled(
-                !selected.is_empty(),
-                egui::Button::new(format!("Remove ({})", selected.len())),
-            )
-            .clicked()
-        {
+        let any = !selected.is_empty();
+        if button(ui, any, Icon::Delete, &remove, "Take the selected resources out of the hak") {
             doc.hak.remove(&selected);
             changed = true;
         }
-        if ui.add_enabled(!selected.is_empty(), egui::Button::new("Extract…")).clicked() {
+        if button(ui, any, Icon::Export, "Extract…", "Write the selected resources to a folder") {
             todo = Some(Do::Extract(selected));
         }
-        if ui.add_enabled(!doc.hak.items().is_empty(), egui::Button::new("Extract All…")).clicked()
-        {
+        let all = !doc.hak.items().is_empty();
+        if button(ui, all, Icon::ExtractAll, "Extract All…", "Write every resource to a folder") {
             todo = Some(Do::Extract(doc.hak.items().iter().map(|i| i.key).collect()));
         }
         let undo = doc.hak.undo_label().map(|l| format!("Undo {l}"));
         let redo = doc.hak.redo_label().map(|l| format!("Redo {l}"));
-        if ui
-            .add_enabled(undo.is_some(), egui::Button::new("Undo"))
-            .on_hover_text(undo.unwrap_or_default())
-            .clicked()
-        {
+        if button(ui, undo.is_some(), Icon::Undo, "Undo", &undo.unwrap_or_default()) {
             doc.hak.undo();
             changed = true;
         }
-        if ui
-            .add_enabled(redo.is_some(), egui::Button::new("Redo"))
-            .on_hover_text(redo.unwrap_or_default())
-            .clicked()
-        {
+        if button(ui, redo.is_some(), Icon::Redo, "Redo", &redo.unwrap_or_default()) {
             doc.hak.redo();
             changed = true;
         }
-        if ui.add_enabled(doc.hak.is_dirty() && !in_game, egui::Button::new("Save")).clicked() {
+        if button(ui, doc.hak.is_dirty() && !in_game, Icon::Save, "Save", "") {
             todo = Some(Do::Save(false));
         }
-        if ui.button("Save As…").clicked() {
+        if button(ui, true, Icon::SaveAs, "Save As…", "") {
             todo = Some(Do::Save(true));
         }
     });
@@ -839,7 +857,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                         .on_hover_text("The largest first");
                 },
             );
-        ui.weak("Click to select, Ctrl+click to add; double-click to view; right-click for more");
+        let hint = "Click to select, Ctrl+click to add; double-click to view; right-click for more";
+        ui.add(egui::Label::new(egui::RichText::new(hint).weak()).truncate()).on_hover_text(hint);
     });
     if changed {
         doc.changed();

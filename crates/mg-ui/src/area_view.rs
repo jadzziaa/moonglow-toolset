@@ -2972,7 +2972,7 @@ fn share_shown(app: &mut Moonglow, view: &AreaView) {
 
 fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     let was = (view.show, view.show_start);
-    // (Icons only: each glyph alone, its name in its tip.)
+    // (Icons only: each icon alone, its name in its tip.)
     // (Those Options › Area › Toolbar hides left out.)
     let tools = crate::icons::Tools::of_area(&app.settings);
     let hidden = app.settings.hidden_area_tools.clone();
@@ -2989,6 +2989,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         });
     }
     let row = ui.horizontal_wrapped(|ui| {
+        // (Its buttons found within it: the palette names its types too.)
+        mg_uikit::name_group(ui, "Area toolbar");
         use crate::icons;
         for kind in ObjectKind::ALL {
             let (on, name) = (&mut view.show[kind.index()], kind.label());
@@ -3045,12 +3047,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
         if !tools.hides("Fade Geometry") {
             let before = view.fade;
-            // (With Icons only, a glyph for what the list is: its tip says.)
+            // (With Icons only, an icon for what the list is: its tip says.)
             let fade = match tools.icons_only {
-                true => format!("{} {}", icons::FADE, view.fade.name()),
+                true => view.fade.name().to_string(),
                 false => format!("Fade Geometry: {}", view.fade.name()),
             };
             let fits = Fits::before(ui, "fade-geometry", &fade);
+            lead_icon(ui, tools, icons::FADE, "Fade Geometry");
             // (The arrow keys step through it once it is clicked, as through
             // every list of choices.)
             let r = crate::widgets::dropdown("fade-geometry")
@@ -3150,11 +3153,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         tools.toggle(ui, music, icons::MUSIC, "Music", "Play ambient music in area");
         ui.separator();
         if !tools.hides("Snap") {
-            let snap = if tools.icons_only { icons::SNAP } else { "Snap:" };
+            let snap = if tools.icons_only { "" } else { "Snap: " };
             let grid = |v: Option<u16>| {
-                v.map_or(format!("{snap} off"), |cm| format!("{snap} {} m", f32::from(cm) / 100.0))
+                v.map_or(format!("{snap}off"), |cm| format!("{snap}{} m", f32::from(cm) / 100.0))
             };
             let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
+            lead_icon(ui, tools, icons::SNAP, "Snap");
             let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
             let r = crate::widgets::dropdown("snap-grid")
                 .selected_text(grid(app.settings.snap_grid))
@@ -3163,10 +3167,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             fits.after(ui, &r);
         }
         if !tools.hides("Turn") {
-            let turn = if tools.icons_only { icons::TURN } else { "Turn:" };
-            let angle =
-                |v: Option<u16>| v.map_or(format!("{turn} free"), |a| format!("{turn} {a}°"));
+            let turn = if tools.icons_only { "" } else { "Turn: " };
+            let angle = |v: Option<u16>| v.map_or(format!("{turn}free"), |a| format!("{turn}{a}°"));
             let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
+            lead_icon(ui, tools, icons::TURN, "Turn");
             let angles = [None, Some(5), Some(15), Some(45), Some(90)];
             let r = crate::widgets::dropdown("snap-angle")
                 .selected_text(angle(app.settings.snap_angle))
@@ -3256,7 +3260,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             o.yaw = -FRAC_PI_2;
         }
-        if tools.button(ui, icons::GO_TO_START, "Go to Start Location", "").clicked() {
+        if tools.button(ui, icons::START, "Go to Start Location", "").clicked() {
             // In another area: that area's view is opened at it, as Aurora does.
             if !look_at_start(app, view) {
                 go_to_start(app);
@@ -4344,6 +4348,19 @@ impl Fits {
     }
 }
 
+/// With Icons only, the icon that says what the dropdown after it is
+/// (`name`, its tip).
+fn lead_icon(ui: &mut egui::Ui, tools: crate::icons::Tools, icon: crate::icons::Icon, name: &str) {
+    if tools.icons_only {
+        // (In `text-2`, as an icon button's at rest: the mock's combo's
+        // lead icon.)
+        let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+        let (rect, r) = ui.allocate_exact_size(side, egui::Sense::hover());
+        icon.paint(ui.painter(), rect, mg_uikit::tokens(ui.ctx()).text_2);
+        r.on_hover_text(name);
+    }
+}
+
 /// The area toolbar's buttons to show, ticked (its right-click menu, one
 /// to a line, and Options › Area › Toolbar, `wrapped` in rows): `hidden`,
 /// those left out, by name.
@@ -4399,10 +4416,9 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
 /// it opens the two to choose from, the ground's and the objects'.
 fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
     let on = view.walkmesh || view.object_walkmesh;
-    let label = tools.label(crate::icons::WALKMESH, "Walkmesh…");
     let r = tools.add(
         ui,
-        egui::Button::selectable(on, label),
+        tools.widget(crate::icons::WALKMESH, "Walkmesh…").selectable(on),
         "Walkmesh…",
         "Show the ground's walkmesh. Hold or right-click to choose which walkmeshes.",
     );
@@ -4472,7 +4488,7 @@ fn shadows_button(
     let on = view.shadows || view.creature_shadows || lights;
     let r = tools.add(
         ui,
-        egui::Button::selectable(on, tools.label(crate::icons::SHADOWS, "Shadows")),
+        tools.widget(crate::icons::SHADOWS, "Shadows").selectable(on),
         "Shadows",
         "Show the game's shadows. Hold or right-click to choose which.",
     );
@@ -7385,7 +7401,7 @@ fn editing_items(
     // The quick ways of setting where the selection stands and which way
     // it faces, together.
     ui.add_enabled_ui(any, |ui| {
-        ui.menu_button("Position", |ui| {
+        mg_uikit::menu_button(ui, "Position", |ui| {
             mg_uikit::menu_rows(ui);
             if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
                 drop_to_ground(app, view);
@@ -7492,7 +7508,7 @@ fn editing_items(
         ui.close();
     }
     ui.add_enabled_ui(view.selection.len() > 1, |ui| {
-        ui.menu_button("Arrange", |ui| {
+        mg_uikit::menu_button(ui, "Arrange", |ui| {
             mg_uikit::menu_rows(ui);
             use mg_area::arrange::Arrange;
             let items = [
@@ -7558,7 +7574,7 @@ fn editing_items(
             reverse_doors(app, view);
             ui.close();
         }
-        ui.menu_button("Initial State", |ui| {
+        mg_uikit::menu_button(ui, "Initial State", |ui| {
             mg_uikit::menu_rows(ui);
             for (state, text) in [(1, "Opened Forward"), (2, "Opened Backward"), (0, "Closed")] {
                 if ui.button(text).clicked() {
@@ -7575,7 +7591,7 @@ fn editing_items(
         });
     }
     if all(ObjectKind::Placeable) {
-        ui.menu_button("Initial State", |ui| {
+        mg_uikit::menu_button(ui, "Initial State", |ui| {
             mg_uikit::menu_rows(ui);
             for (state, text) in [
                 (0, "Default"),
@@ -7625,7 +7641,7 @@ fn editing_items(
             .collect();
         let custom = crate::light_maker::generated_lights(app);
         if let Some(at) = view.menu_at {
-            ui.menu_button("Add Light Here", |ui| {
+            mg_uikit::menu_button(ui, "Add Light Here", |ui| {
                 mg_uikit::menu_rows(ui);
                 for light in lights.iter() {
                     if light_button(ui, light).clicked() {
@@ -7695,7 +7711,7 @@ fn editing_items(
             ui.close();
         }
         if !chosen.is_empty() && chosen.len() == view.selection.len() {
-            ui.menu_button("Light Color", |ui| {
+            mg_uikit::menu_button(ui, "Light Color", |ui| {
                 mg_uikit::menu_rows(ui);
                 for light in lights.iter() {
                     if light_button(ui, light).clicked() {
@@ -7747,7 +7763,7 @@ fn editing_items(
     // What is selected kept to place again: a blueprint of one (in the
     // palette, or in an archive for another module), a prefab of them.
     ui.add_enabled_ui(any, |ui| {
-        ui.menu_button("Reuse", |ui| {
+        mg_uikit::menu_button(ui, "Reuse", |ui| {
             mg_uikit::menu_rows(ui);
             if let Some((kind, index)) = single
                 && ui.button("Add to Palette").clicked()
@@ -7837,7 +7853,7 @@ fn editing_items(
                 true,
             ),
         ];
-        ui.menu_button("Test", |ui| {
+        mg_uikit::menu_button(ui, "Test", |ui| {
             mg_uikit::menu_rows(ui);
             for (label, tip, choose) in tests {
                 if ui.button(label).on_hover_text(tip).clicked() {
@@ -7874,7 +7890,7 @@ fn editing_items(
         // (With objects selected, the area's own, run on the area.)
         let area_kinds = [Target::Area];
         if !view.selection.is_empty() && commands.iter().any(|c| c.fits(&area_kinds)) {
-            ui.menu_button("The Area", |ui| {
+            mg_uikit::menu_button(ui, "The Area", |ui| {
                 mg_uikit::menu_rows(ui);
                 if let Some(i) = crate::plugins::menu_commands(ui, &commands, &area_kinds) {
                     app.actions

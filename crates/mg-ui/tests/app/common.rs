@@ -57,9 +57,12 @@ pub(crate) fn game_app(
 /// `render`, `snapshot`) on a GPU device of kittest's own: a test that
 /// draws takes the GPU first (`mg_testkit::gpu::hold`).
 pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
-    Harness::builder()
+    let h = Harness::builder()
         .with_size(egui::vec2(width, height))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (Which icons are drawn where, for a test to ask: [`icon_drawn`].)
+    mg_uikit::record_icons(&h.ctx);
+    h
 }
 
 /// The game's data at `root`, in English, with no user folder: read
@@ -133,10 +136,12 @@ pub(crate) fn gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
-    Harness::builder()
+    let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    mg_uikit::record_icons(&h.ctx);
+    h
 }
 
 /// [`gpu_harness`] for an area view: frames a 60th of a second apart, so
@@ -148,11 +153,13 @@ pub(crate) fn area_gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
-    Harness::builder()
+    let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .with_step_dt(1.0 / 60.0)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    mg_uikit::record_icons(&h.ctx);
+    h
 }
 
 /// What a key pressed with `modifiers` came to in its frame (pressed in
@@ -268,52 +275,124 @@ pub(crate) fn filter_type(h: &mut Harness<'_, Moonglow>, text: &str) {
     h.run_steps(2);
 }
 
-/// The palette's types' icons, as its dropdown shows the one chosen.
-pub(crate) const PALETTE_TYPES: [&str; 11] =
-    ["🗻", "👤", "🚪", "⚔", "🗡", "⛲", "🔉", "💰", "⚡", "📍", "🗐"];
+/// The palette's types, by the names its row of icons and its dropdown
+/// give them.
+pub(crate) const PALETTE_TYPES: [&str; 13] = [
+    "Tiles",
+    "Creatures",
+    "Doors",
+    "Encounters",
+    "Items",
+    "Placeables",
+    "Sounds",
+    "Stores",
+    "Triggers",
+    "Waypoints",
+    "Prefabs",
+    "Lights",
+    "Start Location",
+];
 
-/// Chooses a type in the palette's header: its icon in the row of them,
-/// or, in a pane too narrow for the row, its name in the dropdown.
-pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, glyph: &str, name: &str) {
-    if h.query_by_label(glyph).is_some() {
-        h.get_by_label(glyph).click();
+/// Chooses a type in the palette's header by its name: its icon in the
+/// row of them (a group of its own, "Palette types": the area toolbar
+/// names the kinds too), or, in a pane too narrow for the row, its name in
+/// the dropdown.
+pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, name: &str) {
+    if let Some(row) = h.query_by_label("Palette types") {
+        row.get_by_label(name).click();
         return;
     }
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let is_type = |n: &egui_kittest::Node<'_>| {
         let value = n.accesskit_node().value().unwrap_or_default();
-        PALETTE_TYPES.iter().any(|glyph| value.starts_with(glyph))
+        PALETTE_TYPES.contains(&value.as_str())
     };
     h.query_all(combo).find(is_type).expect("the palette's type dropdown").click();
     settle(h);
-    // (The last of them are below the dropdown's edge until scrolled to.)
-    h.get_by_label(&format!("{glyph} {name}")).scroll_to_me();
+    // (The list's, drawn last: the area toolbar names the kinds too. The
+    // last of them are below the dropdown's edge until scrolled to.)
+    h.get_all_by_label(name).last().unwrap().scroll_to_me();
     settle(h);
-    h.get_by_label(&format!("{glyph} {name}")).click();
+    h.get_all_by_label(name).last().unwrap().click();
     settle(h);
+}
+
+/// The main toolbar's button `name` (found within it: the editors have a
+/// Save, an Undo, a Compile of their own).
+#[track_caller]
+pub(crate) fn tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.get_by_label("Toolbar").get_by_label(name)
+}
+
+/// The buttons `name` that are not the main toolbar's or the area
+/// view's (an editor's own Save, Undo or Compile, a dialog's Open, a
+/// page's Properties, the palette's Grass): the nodes of that name that
+/// have no "Toolbar" or "Area toolbar" group above them.
+pub(crate) fn apart_all<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> impl Iterator<Item = egui_kittest::Node<'t>> {
+    h.query_all_by_label(name).filter(|n| !in_toolbar(n))
+}
+
+/// Whether `n` is in the main toolbar or the area view's.
+pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
+    let mut up = n.accesskit_node().parent();
+    while let Some(p) = up {
+        if matches!(p.label().as_deref(), Some("Toolbar" | "Area toolbar")) {
+            return true;
+        }
+        up = p.parent();
+    }
+    false
+}
+
+/// The first of them ([`apart_all`]).
+#[track_caller]
+pub(crate) fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    apart_all(h, name).next().unwrap_or_else(|| panic!("no {name} apart from the toolbar"))
+}
+
+/// The area view's toolbar's button `name` (found within it: the palette
+/// names the kinds of objects too, and the toolbar has two Sounds, the
+/// objects' filter first and the switch that plays them second: `nth`).
+#[track_caller]
+pub(crate) fn area_tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.get_by_label("Area toolbar").get_by_label(name)
+}
+
+/// The area toolbar's switch that plays the placed sounds (its second
+/// "Sounds": the first is the sound objects' filter).
+#[track_caller]
+#[allow(dead_code)] // (No test plays the sounds yet.)
+pub(crate) fn play_sounds<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
+    h.get_by_label("Area toolbar").get_all_by_label("Sounds").nth(1).unwrap()
+}
+
+/// Whether the icon `icon` is drawn inside `rect` in the last frame (the
+/// harness records them: `mg_uikit::record_icons`, set up by [`harness`]).
+pub(crate) fn icon_drawn(
+    h: &Harness<'_, Moonglow>,
+    icon: mg_uikit::Icon,
+    rect: egui::Rect,
+) -> bool {
+    mg_uikit::icons_drawn(&h.ctx)
+        .iter()
+        .any(|(i, r)| *i == icon && rect.expand(1.0).contains_rect(*r))
 }
 
 /// Types into the text field with placeholder `hint` (a live filter), and
 /// waits for what it shows ([`settle`]: a gallery's pictures, made a few
 /// milliseconds' worth a frame).
 pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
-    // ("Find" is a list's search: the palette's says what it looks in.)
-    let palette = "🔍 Search name, tag, resref";
-    // (A search field's hint begins with the glass: given with or without.)
-    let glassed = format!("🔍 {}", hint.trim_start_matches("🔍 "));
+    // ("Find" is a list's search: the palette's says what it looks in.
+    // A search field's glass is drawn, not in its hint.)
+    let palette = "Search name, tag, resref";
     let has = |h: &Harness<'_, Moonglow>, hint: &str| {
         let by = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
         h.query_all(egui_kittest::kittest::by().predicate(by)).next().is_some()
     };
-    let hint = if has(h, hint) {
-        hint
-    } else if has(h, &glassed) {
-        glassed.as_str()
-    } else if hint == "Find" {
-        palette
-    } else {
-        hint
-    };
+    let hint = if !has(h, hint) && hint == "Find" { palette } else { hint };
     let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(h);
@@ -637,7 +716,7 @@ pub(crate) fn close_tab(app: &mut Moonglow, tab: &Tab) {
     }
 }
 
-/// Clicks a tab's × as the pointer does (pressed, then let go a frame
+/// Clicks a tab's close button as the pointer does (pressed, then let go a frame
 /// on). (egui_dock's close button has no name: it is the square at the
 /// right end of its tab, the tabs being what can be clicked and dragged
 /// in their pane's tab bar, in their order.)
@@ -786,8 +865,8 @@ pub(crate) fn own_window(
 /// node's rect is where it is laid out, in sight or not, and kittest
 /// clicks at its center: out of sight, that is whatever is drawn there.
 pub(crate) fn bring_in_sight(h: &mut Harness<'_, Moonglow>, label: &str) {
-    h.get_by_label(label).scroll_to_me();
-    at_rest(h, label, &|h| h.get_by_label(label).rect());
+    apart(h, label).scroll_to_me();
+    at_rest(h, label, &|h| apart(h, label).rect());
 }
 
 /// Frames until the widget whose place `rect` gives (`what` names it)
@@ -836,7 +915,7 @@ fn wheel_until(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, label: &s
 /// ([`bring_in_sight`]).
 pub(crate) fn click_in_sight(h: &mut Harness<'_, Moonglow>, label: &str) {
     bring_in_sight(h, label);
-    h.get_by_label(label).click();
+    apart(h, label).click();
 }
 
 /// A click of the pointer's first button at `pos`.
@@ -867,15 +946,30 @@ pub(crate) fn drag(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Po
     h.run_steps(3);
 }
 
+/// The item `name` of the open right-click menu: a popup is a layer of its
+/// own, with the fewest containers above it (the toolbars, an editor and
+/// the palette name some of the same words); of those as shallow, the last.
+#[track_caller]
+pub(crate) fn popup_item<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    let depth = |n: &egui_kittest::Node<'_>| {
+        std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
+    };
+    let all: Vec<_> = h.get_all_by_label(name).collect();
+    all.into_iter().rev().min_by_key(depth).unwrap_or_else(|| panic!("no menu item {name}"))
+}
+
 /// Opens the submenu `name` of the right-click menu that is open (the
 /// palette's Copy, the area view's Position…): the pointer brought to it
-/// and a frame run, as a builder's would be, then a click. (egui names a
-/// submenu's button with its arrow: "Copy ⏵".)
+/// and a frame run, as a builder's would be, then a click. (A submenu's
+/// button is named by its words; its arrow is drawn.)
 pub(crate) fn open_submenu(h: &mut Harness<'_, Moonglow>, name: &str) {
-    let label = format!("{name} ⏵");
-    h.get_by_label(&label).hover();
+    let item = |h: &Harness<'_, Moonglow>| popup_item(h, name).rect();
+    h.hover_at(item(h).center());
     h.run_steps(1);
-    h.get_by_label(&label).click();
+    click_pos(h, item(h).center());
     h.run_steps(2);
 }
 

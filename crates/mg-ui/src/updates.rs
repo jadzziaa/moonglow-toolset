@@ -680,7 +680,9 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let installable = app.updates.why_not(&release).is_none();
     egui::Panel::top("update-notice").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new("ℹ").color(ui.visuals().hyperlink_color));
+            let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+            let (mark, _) = ui.allocate_exact_size(side, egui::Sense::hover());
+            mg_uikit::Icon::Info.paint(ui.painter(), mark, ui.visuals().hyperlink_color);
             let getting =
                 app.updates.getting.as_ref().filter(|g| g.release.version == release.version);
             if let Some(g) = getting {
@@ -728,7 +730,8 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
                     close = true;
                 }
             }
-            if ui.small_button("×").on_hover_text("Close (a later check tells again)").clicked() {
+            let tip = "Close (a later check tells again)";
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, "Close", tip).clicked() {
                 close = true;
             }
         });

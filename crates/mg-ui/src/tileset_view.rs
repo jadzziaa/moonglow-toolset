@@ -264,7 +264,7 @@ impl TilesetDoc {
             .map_err(|e| e.to_string())
             .and_then(|b| mg_module::write_replacing(&palette, &b).map_err(|e| e.to_string()))
             .map_err(|e| format!("{}: {e}", palette.display()))?;
-        let names: Vec<String> = renamed.iter().map(|(a, b)| format!("{a} → {b}")).collect();
+        let names: Vec<String> = renamed.iter().map(|(a, b)| format!("{a} -> {b}")).collect();
         Ok(Some(format!("{}: renamed {}", palette.display(), names.join(", "))))
     }
 
