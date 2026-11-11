@@ -669,6 +669,7 @@ fn completion(
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(field.rect.width());
+                mg_uikit::list_rows(ui);
                 for (i, o) in offered.iter().enumerate() {
                     let d = o.described;
                     let item = ui
@@ -1101,7 +1102,8 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
             ui.weak(kind.none_yet);
         }
         egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-            egui::Grid::new(shelf.folder).num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+            mg_uikit::list_rows(ui);
+            egui::Grid::new(shelf.folder).num_columns(3).spacing([8.0, 0.0]).show(ui, |ui| {
                 for (name, set) in &read {
                     // (What it holds in its tip; one that isn't a set, why.)
                     match set {
@@ -1407,21 +1409,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let shown = p.shown();
             ui.weak(format!("{} of {all}", shown.len()));
             egui::Frame::group(ui.style()).show(ui, |ui| {
-                let row = ui.spacing().interact_size.y; // (a row of controls: as high as one)
-                egui::ScrollArea::vertical().max_height(300.0).show_rows(
-                    ui,
-                    row,
-                    shown.len(),
-                    |ui, range| {
-                        ui.set_width(260.0);
-                        for r in &shown[range] {
-                            if ui.selectable_label(false, r.to_string()).clicked() {
-                                app.picked.insert(id, *r);
-                                close = true;
-                            }
+                let area = egui::ScrollArea::vertical().max_height(300.0);
+                mg_uikit::show_rows(area, ui, shown.len(), |ui, range| {
+                    ui.set_width(260.0);
+                    for r in &shown[range] {
+                        if ui.selectable_label(false, r.to_string()).clicked() {
+                            app.picked.insert(id, *r);
+                            close = true;
                         }
-                    },
-                );
+                    }
+                });
             });
             ui.horizontal(|ui| {
                 if ui.button("None").on_hover_text("Clear the field").clicked() {
@@ -1548,7 +1545,10 @@ fn var_body(
         (VAR_NAME_WIDTH * part, VAR_VALUE_WIDTH * part)
     };
     egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+        // (A table of fields: rows 22 apart, a line between.)
+        mg_uikit::table_rows(ui);
+        let rule = mg_uikit::metrics::TABLE_RULE;
+        egui::Grid::new("vars").num_columns(4).spacing([8.0, rule]).show(ui, |ui| {
             ui.strong("Name");
             ui.strong("Type");
             ui.strong("Value");
@@ -2384,7 +2384,9 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
 ) -> Option<T> {
     let stepped = |v: f64, by: f64| spin_step(v, by, range.start().to_f64(), range.end().to_f64());
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
+        // (A field with its buttons glued on, the mock's `.field-group`:
+        // 1 point between their frames, each a point past its widget.)
+        ui.spacing_mut().item_spacing.x = 3.0;
         // (The field's own id: the next widget is the field.)
         let field = ui.next_auto_id();
         let run_id = field.with("spin-run");

@@ -4,6 +4,11 @@
 
 /// A tree, list or table row.
 pub const ROW_HEIGHT: f32 = 22.0;
+/// The line between a table's rows of fields (the mock's `.table td`
+/// `border-bottom`): a table whose rows are text fields, combo boxes and
+/// number fields leaves this much of the panel between them, which
+/// their wells, borderless in rows, would otherwise run together across.
+pub const TABLE_RULE: f32 = 1.0;
 /// A control: button, toggle, combo box, text field, slider.
 pub const CONTROL_HEIGHT: f32 = 22.0;
 /// A control's padding at each side (`padding: 0 8px`).

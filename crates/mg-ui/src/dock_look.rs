@@ -91,31 +91,43 @@ pub(crate) fn style(ui: &egui::Ui) -> Style {
 }
 
 /// What egui_dock's style cannot say, painted over the tabs once the dock
-/// is drawn (`tabs`: each tab's rectangle and layer, as its button was
-/// drawn this frame): a 1 px `line` at each tab's right (the mock's
-/// `border-right`), and along the top of each pane's tab in front a 2 px
-/// line, `accent` in the pane that has the focus and `line-soft` in the
-/// others (the mock's `.group.focus .doctab.active`).
+/// is drawn (`tabs`: each tab's rectangle, layer and the part of it in
+/// sight, as its button was drawn this frame): a 1 px `line` at each
+/// tab's right (the mock's `border-right`), and along the top of each
+/// pane's tab in front a 2 px line, `accent` in the pane that has the
+/// focus and `line-soft` in the others (the mock's
+/// `.group.focus .doctab.active`). Each only where its tab is in sight:
+/// egui_dock scrolls a bar of more tabs than it holds and still gives
+/// those out of sight their buttons, whose marks were drawn over what
+/// lies beside the bar.
 pub(crate) fn marks(
     ctx: &egui::Context,
     dock: &DockState<Tab>,
-    tabs: &[(Tab, egui::Rect, egui::LayerId)],
+    tabs: &[(Tab, egui::Rect, egui::LayerId, egui::Rect)],
 ) {
     let t = ctx.tokens();
     let focused = dock.focused_leaf();
-    for (_, rect, layer) in tabs {
-        let painter = ctx.layer_painter(*layer);
+    for (_, rect, layer, shown) in tabs {
+        if !shown.is_positive() {
+            continue;
+        }
+        let painter = ctx.layer_painter(*layer).with_clip_rect(*shown);
         painter.vline(rect.right() - 0.5, rect.y_range(), egui::Stroke::new(1.0, t.line));
     }
     for (path, leaf) in dock.iter_leaves() {
         let Some(front) = leaf.tabs.get(leaf.active.0) else { continue };
-        let Some((_, rect, layer)) = tabs.iter().find(|(t, ..)| t == front) else { continue };
+        let Some((_, rect, layer, shown)) = tabs.iter().find(|(t, ..)| t == front) else {
+            continue;
+        };
+        if !shown.is_positive() {
+            continue;
+        }
         let color = front_line(&t, focused == Some(path));
         let line = egui::Rect::from_min_size(
             rect.min,
             egui::vec2(rect.width() - 1.0, metrics::ACTIVE_TAB_LINE),
         );
-        ctx.layer_painter(*layer).rect_filled(line, 0.0, color);
+        ctx.layer_painter(*layer).with_clip_rect(*shown).rect_filled(line, 0.0, color);
     }
 }
 
@@ -152,5 +164,34 @@ mod tests {
         }
         assert_eq!(front_line(&Tokens::DARK, true), Tokens::DARK.accent);
         assert_eq!(front_line(&Tokens::LIGHT, false), Tokens::LIGHT.line_soft);
+    }
+
+    /// The marks of a tab scrolled partly or wholly out of its bar are
+    /// drawn only in the part in sight, and none for a tab out of sight
+    /// (they were drawn over what lies beside the bar).
+    #[test]
+    fn marks_stay_in_the_part_of_a_tab_in_sight() {
+        let ctx = egui::Context::default();
+        mg_uikit::apply(&ctx, mg_uikit::Theme::Dark);
+        let dock = DockState::new(vec![Tab::Welcome, Tab::Manual, Tab::Options]);
+        let layer = egui::LayerId::background();
+        let rect = |l: f32| egui::Rect::from_min_size(egui::pos2(l, 0.0), egui::vec2(100.0, 28.0));
+        let bar = egui::Rect::from_min_max(egui::pos2(150.0, 0.0), egui::pos2(400.0, 28.0));
+        let tabs = [
+            // In front, half out of sight at the bar's left; out of sight;
+            // whole.
+            (Tab::Welcome, rect(100.0), layer, rect(100.0).intersect(bar)),
+            (Tab::Manual, rect(-50.0), layer, rect(-50.0).intersect(bar)),
+            (Tab::Options, rect(200.0), layer, rect(200.0)),
+        ];
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| marks(ui.ctx(), &dock, &tabs));
+        out.textures_delta.clear();
+        let clips: Vec<egui::Rect> = out.shapes.iter().map(|c| c.clip_rect).collect();
+        // Two lines between tabs and the front tab's line, nothing for the
+        // tab out of sight.
+        assert_eq!(clips.len(), 3, "{clips:?}");
+        for clip in &clips {
+            assert!(bar.contains_rect(*clip), "{clip:?} outside the bar {bar:?}");
+        }
     }
 }

@@ -1925,6 +1925,7 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                mg_uikit::list_rows(ui);
                 for (i, row) in matches.iter().enumerate() {
                     // Its menu and its key, at the right.
                     let key = app.keymap.label_of(&row.key_id, ui.ctx());

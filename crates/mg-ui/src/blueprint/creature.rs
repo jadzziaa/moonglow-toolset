@@ -934,27 +934,29 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let targets = f.list_targets();
     let mut edit = None;
     egui::ScrollArea::vertical().id_salt(("utc-skills", key)).show(ui, |ui| {
-        egui::Grid::new(("utc-skill-grid", key))
-            .num_columns(2)
-            .striped(true)
-            .spacing([24.0, 4.0])
-            .show(ui, |ui| {
-                ui.strong("Skill");
-                ui.strong("Rank");
-                ui.end_row();
-                for s in skills.iter() {
-                    let r = ui.label(&s.text);
-                    let game = described_by.as_deref();
-                    super::creature_lists::described(r, game, "skills", "Description", s.row);
-                    let rank = lists::skill_rank(&targets[0], s.row);
-                    let differs = targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
-                    f.mark_if(ui, &format!("Skill#{}", s.row), differs);
-                    if let Some(v) = commit_number(ui, rank, 0..=127) {
-                        edit = Some((s.row, v));
-                    }
+        mg_uikit::with_table_rows(ui, |ui| {
+            egui::Grid::new(("utc-skill-grid", key))
+                .num_columns(2)
+                .striped(true)
+                .spacing([24.0, mg_uikit::metrics::TABLE_RULE])
+                .show(ui, |ui| {
+                    ui.strong("Skill");
+                    ui.strong("Rank");
                     ui.end_row();
-                }
-            });
+                    for s in skills.iter() {
+                        let r = ui.label(&s.text);
+                        let game = described_by.as_deref();
+                        super::creature_lists::described(r, game, "skills", "Description", s.row);
+                        let rank = lists::skill_rank(&targets[0], s.row);
+                        let differs = targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
+                        f.mark_if(ui, &format!("Skill#{}", s.row), differs);
+                        if let Some(v) = commit_number(ui, rank, 0..=127) {
+                            edit = Some((s.row, v));
+                        }
+                        ui.end_row();
+                    }
+                })
+        });
     });
     if let Some((row, v)) = edit {
         // (The list is indexed by skill: missing entries up to it are

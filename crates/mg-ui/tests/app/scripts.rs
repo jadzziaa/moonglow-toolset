@@ -2675,3 +2675,48 @@ fn a_long_script_s_lines_out_of_sight_are_edited_where_they_are() {
     assert_eq!(line(&h, 1010), "かint nLine10 = 10; // line 10");
     assert!(script_row_in_sight(&h, "かint nLine10 "));
 }
+
+/// The script editor has no frame around its code, with the keys or not
+/// (the mock's `.code`): egui framed it white while it had them (the
+/// selection's stroke), the theme's fields' accent pass leaving it.
+#[test]
+fn the_script_editor_has_no_frame_with_the_keys() {
+    let dir = mg_testkit::scratch_dir("ui-script-no-frame");
+    let path = sample_module(&dir);
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(script, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1300.0, 900.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
+    settle(&mut h);
+    let code = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    for light in [false, true] {
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        h.get(code.clone()).click();
+        settle(&mut h);
+        assert!(h.ctx.memory(|m| m.focused()).is_some(), "the editor has the keys");
+        let field = h.get(code.clone()).rect();
+        // A rectangle stroked round the code (within a few points of the
+        // field's edges), in any color.
+        let framed: Vec<egui::epaint::RectShape> = drawn(&h)
+            .into_iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r)
+                    if r.stroke.width > 0.0
+                        && r.stroke.color != egui::Color32::TRANSPARENT
+                        && (r.rect.min - field.min).length() < 4.0
+                        && (r.rect.max - field.max).length() < 4.0 =>
+                {
+                    Some(r)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(framed.is_empty(), "no frame round the code ({light}): {framed:?}");
+    }
+}

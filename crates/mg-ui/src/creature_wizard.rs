@@ -352,6 +352,7 @@ fn page(
                  Creature.",
             );
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for c in races(game).iter() {
                     if ui.selectable_label(w.race == Some(c.row as u32), &c.text).clicked() {
                         w.choose_race(game, c.row as u32);
@@ -374,6 +375,7 @@ fn page(
                     ui.set_width(160.0);
                     egui::ScrollArea::vertical().id_salt("cw-classes").show(ui, |ui| {
                         ui.set_width(160.0);
+                        mg_uikit::list_rows(ui);
                         for c in names.iter() {
                             let k = c.row as u32;
                             if w.classes.iter().any(|(x, _)| *x == k) {
@@ -401,21 +403,26 @@ fn page(
                         w.classes.push((k, 1));
                     }
                     let mut remove = None;
-                    egui::Grid::new("cw-slots").num_columns(3).show(ui, |ui| {
-                        ui.strong("Class");
-                        ui.strong("Level");
-                        ui.end_row();
-                        let n = w.classes.len();
-                        for (i, (k, level)) in w.classes.iter_mut().enumerate() {
-                            ui.label(name(*k));
-                            crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
-                            if n > 1
-                                && ui.small_button("✖").on_hover_text("Remove this class").clicked()
-                            {
-                                remove = Some(i);
-                            }
+                    mg_uikit::with_table_rows(ui, |ui| {
+                        egui::Grid::new("cw-slots").num_columns(3).show(ui, |ui| {
+                            ui.strong("Class");
+                            ui.strong("Level");
                             ui.end_row();
-                        }
+                            let n = w.classes.len();
+                            for (i, (k, level)) in w.classes.iter_mut().enumerate() {
+                                ui.label(name(*k));
+                                crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
+                                if n > 1
+                                    && ui
+                                        .small_button("✖")
+                                        .on_hover_text("Remove this class")
+                                        .clicked()
+                                {
+                                    remove = Some(i);
+                                }
+                                ui.end_row();
+                            }
+                        })
                     });
                     if let Some(i) = remove {
                         w.classes.remove(i);
@@ -607,11 +614,13 @@ fn page(
             ui.label(
                 "The Faction determines how this creature reacts to players and other creatures.",
             );
-            for (i, name) in mg_module::factions::STANDARD.iter().enumerate().skip(1) {
-                if ui.selectable_label(usize::from(w.faction) == i, *name).clicked() {
-                    w.faction = i as u16;
+            mg_uikit::with_rows(ui, |ui| {
+                for (i, name) in mg_module::factions::STANDARD.iter().enumerate().skip(1) {
+                    if ui.selectable_label(usize::from(w.faction) == i, *name).clicked() {
+                        w.faction = i as u16;
+                    }
                 }
-            }
+            });
         }
         5 => {
             // A random name to begin with, as Aurora gives (from the race's
@@ -686,6 +695,7 @@ fn page(
             let module = loader.ws.map(|ws| &ws.module);
             let nodes = crate::blueprint_wizard::categories(game, module, BlueprintKind::Creature);
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 crate::blueprint_wizard::category_tree(ui, &nodes, game, &mut w.category);
             });
         }

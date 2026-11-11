@@ -816,11 +816,6 @@ pub(crate) fn wheel_to(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, label: &st
     wheel_until(h, at, -20.0, label);
 }
 
-/// [`wheel_to`] turning the wheel up.
-pub(crate) fn wheel_up_to(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, label: &str) {
-    wheel_until(h, at, 20.0, label);
-}
-
 fn wheel_until(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, label: &str) {
     let started = std::time::Instant::now();
     h.hover_at(at);
@@ -1082,4 +1077,17 @@ pub(crate) fn click_away(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
         });
     }
     h.run_steps(4);
+}
+
+/// Every shape of the frame just drawn, groups opened.
+pub(crate) fn drawn(h: &Harness<'_, Moonglow>) -> Vec<egui::Shape> {
+    fn add(shape: &egui::Shape, out: &mut Vec<egui::Shape>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, out)),
+            s => out.push(s.clone()),
+        }
+    }
+    let mut out = Vec::new();
+    h.output().shapes.iter().for_each(|c| add(&c.shape, &mut out));
+    out
 }

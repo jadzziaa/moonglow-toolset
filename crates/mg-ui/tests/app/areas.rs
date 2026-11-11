@@ -892,6 +892,9 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     h.run();
     h.get_by_label("Edit Areas Together…").click();
     h.run();
+    // (The window, taller than the test's screen, is placed a frame after
+    // it is drawn: the box is clicked where it comes to rest.)
+    at_rest(&mut h, "the Holding box", &|h| h.get_by_value("Anything").rect());
     h.get_by_value("Anything").click();
     h.run();
     h.get_all_by_label("A variable").last().unwrap().click();
@@ -985,6 +988,8 @@ fn several_areas_are_edited_together() {
     h.get_by_label("Edit Areas Together…").click();
     h.run();
     h.get_by_label_contains("Apple Inn");
+    // (Where the window comes to rest, a frame after it is drawn.)
+    at_rest(&mut h, "the ground box", &|h| h.get_by_value("Above or under ground").rect());
     h.get_by_value("Above or under ground").click();
     h.run();
     h.get_all_by_label("Underground").last().unwrap().click();

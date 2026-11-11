@@ -640,7 +640,7 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
             // whole on hover.)
             let height = ui.spacing().interact_size.y;
             let rows = egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]);
-            rows.show_rows(ui, height, listed.len(), |ui, range| {
+            mg_uikit::show_rows(rows, ui, listed.len(), |ui, range| {
                 ui.set_min_width(600.0);
                 let cell = |ui: &mut egui::Ui, width: f32, text: egui::RichText| {
                     let layout = egui::Layout::left_to_right(egui::Align::Center);

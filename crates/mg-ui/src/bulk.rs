@@ -299,9 +299,8 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
         // lists tens of thousands in a large module.)
         let shown: Vec<usize> =
             (0..draft.objects.len()).filter(|&i| in_scope(&draft.objects[i], only)).collect();
-        let height = ui.spacing().interact_size.y;
         let rows = egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
-        rows.show_rows(ui, height, shown.len(), |ui, range| {
+        mg_uikit::show_rows(rows, ui, shown.len(), |ui, range| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             for &i in &shown[range] {
                 let o = &mut draft.objects[i];
@@ -561,23 +560,26 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                     + ui.text_style_height(&egui::TextStyle::Body);
                 let rows =
                     egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
-                rows.show_rows(ui, tall, draft.hits.len(), |ui, range| {
-                    for i in range {
-                        let (hit, on) = &mut draft.hits[i];
-                        let size = egui::vec2(ui.available_width(), tall);
-                        let down = egui::Layout::top_down(egui::Align::Min);
-                        ui.allocate_ui_with_layout(size, down, |ui| {
-                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                            ui.horizontal(|ui| {
-                                ui.check_box(on, "");
-                                if ui.link(&hit.place).on_hover_text("Open it").clicked() {
-                                    go = Some(i);
-                                }
+                // (Each hit exactly `tall`, the hits meeting: no gap between.)
+                mg_uikit::with_rows(ui, |ui| {
+                    rows.show_rows(ui, tall, draft.hits.len(), |ui, range| {
+                        for i in range {
+                            let (hit, on) = &mut draft.hits[i];
+                            let size = egui::vec2(ui.available_width(), tall);
+                            let down = egui::Layout::top_down(egui::Align::Min);
+                            ui.allocate_ui_with_layout(size, down, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.horizontal(|ui| {
+                                    ui.check_box(on, "");
+                                    if ui.link(&hit.place).on_hover_text("Open it").clicked() {
+                                        go = Some(i);
+                                    }
+                                });
+                                let text: String = hit.text.chars().take(120).collect();
+                                ui.indent(("hit", i), |ui| ui.weak(text));
                             });
-                            let text: String = hit.text.chars().take(120).collect();
-                            ui.indent(("hit", i), |ui| ui.weak(text));
-                        });
-                    }
+                        }
+                    })
                 });
                 let n = draft.hits.iter().filter(|h| h.1).count();
                 replace =

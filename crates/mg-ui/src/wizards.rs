@@ -133,6 +133,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     list.show(ui, |ui| {
                         ui.set_width(280.0);
+                        mg_uikit::list_rows(ui);
                         for (i, t) in w.tilesets.iter().enumerate() {
                             if !w.shows(t) {
                                 continue;

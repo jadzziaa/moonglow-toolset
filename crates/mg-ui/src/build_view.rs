@@ -164,7 +164,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 |ui| {
                     // (The results in sight are laid out, the others take a
                     // row's room: a world's first Unused check is 20,000.)
-                    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+                    mg_uikit::list_rows(ui);
+                    let row = mg_uikit::row_pitch(ui);
                     for (i, f) in w.results.iter().enumerate() {
                         let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
                         if !ui.is_rect_visible(room) && !f.text.contains('\n') {
@@ -316,18 +317,21 @@ fn marks(
     ))
     .on_hover_text(place.team().display().to_string());
     let mut any = false;
-    for (key, label) in USED_KINDS {
-        let Some(p) = used.of(key) else { continue };
-        for glob in &p.globs {
-            any = true;
-            ui.horizontal(|ui| {
-                ui.label(format!("{label}: {glob}"));
-                if ui.small_button("Remove").on_hover_text("No longer count it as used").clicked() {
-                    change = Some((key, glob.clone(), false));
-                }
-            });
+    mg_uikit::with_rows(ui, |ui| {
+        for (key, label) in USED_KINDS {
+            let Some(p) = used.of(key) else { continue };
+            for glob in &p.globs {
+                any = true;
+                ui.horizontal(|ui| {
+                    ui.label(format!("{label}: {glob}"));
+                    let tip = "No longer count it as used";
+                    if ui.small_button("Remove").on_hover_text(tip).clicked() {
+                        change = Some((key, glob.clone(), false));
+                    }
+                });
+            }
         }
-    }
+    });
     if !any {
         ui.weak("Nothing is named yet.");
     }

@@ -196,7 +196,7 @@ pub(super) fn ui(
                 }
                 // The handlers showing it, and its function's calls, follow.
                 ui.menu_button("Rename…", |ui| {
- mg_uikit::menu_rows(ui);
+                    mg_uikit::menu_rows(ui);
                     let id = ui.make_persistent_id(("rename-variant", name));
                     let mut to: String =
                         ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());

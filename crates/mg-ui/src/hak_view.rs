@@ -846,7 +846,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         changed = false;
     }
     let rows = doc.rows();
-    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
+    let row_height = mg_uikit::row_metrics(ui).0; // (rows of controls, none between)
     let mut rename_done = None;
     let mut remove = None;
     // The resource being viewed takes the lower part of the tab.
@@ -855,7 +855,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         None => ui.available_height(),
     };
     let list = egui::ScrollArea::vertical().id_salt(("hak-rows", id)).max_height(list_height);
-    list.auto_shrink([false, false]).show_rows(ui, row_height, rows.len(), |ui, range| {
+    mg_uikit::show_rows(list.auto_shrink([false, false]), ui, rows.len(), |ui, range| {
         for &r in &rows[range] {
             let item = doc.hak.items()[r].clone();
             ui.horizontal(|ui| {

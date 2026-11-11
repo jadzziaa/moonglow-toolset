@@ -1006,6 +1006,67 @@ fn a_drag_past_the_grid_s_edge_scrolls_it() {
     assert_eq!(h.state().tables.iter().find(|d| d.id == id).unwrap().scrolled().y, at);
 }
 
+/// The 2DA editor's row numbers stay beside their rows: the number of
+/// each row in sight, the last ones too, is centered on its row's cells,
+/// at the top of the table and scrolled down it (the numbers were the
+/// text's height and a gap apart and the rows a control's, and the
+/// fifteenth number sat half a row above its row).
+#[test]
+fn a_table_s_row_numbers_stay_beside_their_rows() {
+    let dir = mg_testkit::scratch_dir("ui-table-numbers");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("numbered", ResType::TWODA).unwrap();
+    let mut text = String::from("2DA V2.0\r\n\r\n   Label   Cost\r\n");
+    for r in 0..300 {
+        text.push_str(&format!("{r}  Row{r}  {}\r\n", r * 7));
+    }
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(text.into_bytes()) }],
+    )));
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run_steps(3);
+    mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    settle(&mut h);
+    let check = |h: &Harness<'_, Moonglow>| {
+        // The rows in sight: those whose Label cell is laid out.
+        let rows: Vec<usize> =
+            (0..300).filter(|r| h.query_by_label(&format!("Row{r}")).is_some()).collect();
+        assert!(rows.len() > 15, "rows in sight: {rows:?}");
+        for r in rows {
+            let cell = h.get_by_label(&format!("Row{r}")).rect();
+            // (The number is the leftmost node of its words: a Cost cell
+            // may read the same.)
+            let number = h
+                .get_all_by_label(&r.to_string())
+                .map(|n| n.rect())
+                .min_by(|a, b| a.left().total_cmp(&b.left()))
+                .expect("its number");
+            assert!(number.right() < cell.left(), "row {r}'s number is left of its cells");
+            let off = (number.center().y - cell.center().y).abs();
+            assert!(off < 1.0, "row {r}'s number is {off} from its row: {number:?} {cell:?}");
+        }
+    };
+    check(&h);
+    // Scrolled down the table, a page and a half.
+    let over = h.get_by_label("Row3").rect().center();
+    h.hover_at(over);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -700.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
+    // (The numbers follow the rows' scroll a frame behind: at rest.)
+    at_rest(&mut h, "the rows", &|h| h.get_by_label("Row40").rect());
+    assert!(h.query_by_label("Row0").is_none(), "scrolled");
+    check(&h);
+}
+
 /// The 2DA editor's cells are selected several at a time (Shift and the
 /// arrows, Shift and a click, a drag), copied as a spreadsheet's and
 /// emptied in one step; a paste begins at the selection's first cell. A

@@ -172,27 +172,32 @@ fn pages(
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     let shown = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-        if viewed {
-            crate::blueprint::read_only_look(ui);
-        }
-        if page == "Audio" {
-            audio(app, ui, area, others);
-            return;
-        }
-        if page == "Grass" {
-            crate::area_grass::page(app, ui, area, others);
-            return;
-        }
-        let mut f =
-            Form { app, key: are, path: GffPath::root(), also, root, together: Default::default() };
-        match page {
-            "Basic" => basic(&mut f, ui),
-            "Visual" => visual(&mut f, ui),
-            "Events" => events(&mut f, ui),
-            "Advanced" => advanced(&mut f, ui),
-            "Variables" => variables_page(&mut f, ui),
-            _ => f.memo(ui, "Comments", "Comments"),
-        }
+        crate::blueprint::read_only_if(ui, viewed, |ui| {
+            if page == "Audio" {
+                audio(app, ui, area, others);
+                return;
+            }
+            if page == "Grass" {
+                crate::area_grass::page(app, ui, area, others);
+                return;
+            }
+            let mut f = Form {
+                app,
+                key: are,
+                path: GffPath::root(),
+                also,
+                root,
+                together: Default::default(),
+            };
+            match page {
+                "Basic" => basic(&mut f, ui),
+                "Visual" => visual(&mut f, ui),
+                "Events" => events(&mut f, ui),
+                "Advanced" => advanced(&mut f, ui),
+                "Variables" => variables_page(&mut f, ui),
+                _ => f.memo(ui, "Comments", "Comments"),
+            }
+        })
     });
     Some(shown.inner_rect)
 }
@@ -364,23 +369,33 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     let focus_id = egui::Id::new(("schemes-focus", f.key));
     let refocus: Option<usize> = ui.data_mut(|d| d.remove_temp(focus_id));
     let mut stepped = None;
-    egui::Grid::new(("schemes", f.key)).spacing([16.0, 2.0]).min_col_width(widest).show(ui, |ui| {
-        for row in 0..rows {
-            for col in 0..columns {
-                let at = col * rows + row;
-                let Some(c) = schemes.get(at) else { continue };
-                let r = ui.selectable_label(c.row as i64 == current, &c.text);
-                if refocus == Some(at) {
-                    r.request_focus();
+    mg_uikit::with_rows(ui, |ui| {
+        egui::Grid::new(("schemes", f.key)).spacing([16.0, 0.0]).min_col_width(widest).show(
+            ui,
+            |ui| {
+                for row in 0..rows {
+                    for col in 0..columns {
+                        let at = col * rows + row;
+                        let Some(c) = schemes.get(at) else { continue };
+                        let r = ui.selectable_label(c.row as i64 == current, &c.text);
+                        if refocus == Some(at) {
+                            r.request_focus();
+                        }
+                        if r.clicked() {
+                            picked = Some(c.row);
+                        }
+                        stepped = stepped.or(crate::widgets::grid_arrow_pick(
+                            ui,
+                            &r,
+                            at,
+                            schemes.len(),
+                            rows,
+                        ));
+                    }
+                    ui.end_row();
                 }
-                if r.clicked() {
-                    picked = Some(c.row);
-                }
-                stepped =
-                    stepped.or(crate::widgets::grid_arrow_pick(ui, &r, at, schemes.len(), rows));
-            }
-            ui.end_row();
-        }
+            },
+        )
     });
     if let Some(at) = stepped {
         picked = Some(schemes[at].row);
@@ -1477,9 +1492,8 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.separator();
             // (The rows in sight alone are laid out: a world has
             // thousands of areas.)
-            let height = ui.spacing().interact_size.y;
             let rows = egui::ScrollArea::vertical().max_height(250.0).auto_shrink([false, false]);
-            rows.show_rows(ui, height, shown.len(), |ui, range| {
+            mg_uikit::show_rows(rows, ui, shown.len(), |ui, range| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 for (a, _, label) in &shown[range] {
                     let mut on = c.chosen.contains(a);

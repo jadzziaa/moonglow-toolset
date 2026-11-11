@@ -71,6 +71,7 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.separator();
                 ui.vertical(|ui| {
                     ui.label("Defaults");
+                    mg_uikit::list_rows(ui);
                     for (name, size) in PRESETS {
                         if ui.selectable_label(d.rows == size && d.columns == size, name).clicked()
                         {

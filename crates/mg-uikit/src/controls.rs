@@ -14,7 +14,11 @@
 //!   stroke, which is also the color of selected text): [`apply`](crate::apply)
 //!   installs a pass that turns the focused field's frame `accent`.
 //! - Rows: [`menu_style`] (a menu's rows, hovered `accent-fill`) and
-//!   [`row_style`] (a list's or tree's rows, hovered `hover-row`).
+//!   [`row_style`] (a list's, tree's or table's rows: 22 px apart with no
+//!   gap, square fills that meet, hovered `hover-row`), which a container
+//!   opts into with [`list_rows`] or [`with_rows`].
+//! - A form shown only to be looked at: [`read_only`], which the check
+//!   box, radio button and slider honor too.
 //!
 //! Where no theme was applied to the context, the check box and radio are
 //! egui's own and the chevrons egui's triangles, so that a context without
@@ -49,15 +53,33 @@ struct Look {
     hovered: bool,
     focused: bool,
     enabled: bool,
+    /// In a form shown only to be looked at ([`read_only`]).
+    read_only: bool,
 }
 
 impl Look {
-    fn of(response: &Response, on: bool, enabled: bool) -> Self {
-        Look { on, hovered: response.hovered(), focused: response.has_focus(), enabled }
+    fn of(ui: &Ui, response: &Response, on: bool, enabled: bool) -> Self {
+        let read_only = is_read_only(ui);
+        Look {
+            on,
+            // (Read only: quiet, the same under the pointer.)
+            hovered: response.hovered() && !read_only,
+            focused: response.has_focus(),
+            enabled,
+            read_only,
+        }
     }
 
     /// Fill, border and mark.
     fn colors(self, t: &Tokens) -> (Color32, Color32, Color32) {
+        if self.read_only && self.enabled {
+            // (Quiet: on, a `text-3` box with a mark in the panel's
+            // color; off, a `text-3` outline with nothing in it.)
+            return match self.on {
+                true => (t.text_3, t.text_3, t.panel),
+                false => (Color32::TRANSPARENT, t.text_3, t.panel),
+            };
+        }
         match (self.on, self.enabled) {
             (true, true) => {
                 let fill = if self.hovered { t.accent_fill_hover } else { t.accent_fill };
@@ -70,13 +92,19 @@ impl Look {
     }
 }
 
-/// The painter a control's box is drawn with: at full opacity where the
-/// control is disabled (the disabled colors are the tokens' own, not a
-/// fade of the enabled ones).
+/// The painter a control's box is drawn with: where the control is
+/// disabled, without the fade egui gives a disabled widget (the disabled
+/// colors are the tokens' own, not a fade of the enabled ones), but still
+/// with any opacity a parent gave (a fading window's).
 fn box_painter(ui: &Ui, enabled: bool) -> egui::Painter {
     let mut painter = ui.painter().clone();
     if !enabled {
-        painter.set_opacity(1.0);
+        // (egui multiplies the disabled fade into the parent's opacity:
+        // taken out again, the parent's is left.)
+        let fade = ui.visuals().disabled_alpha();
+        if fade > 0.0 {
+            painter.set_opacity((painter.opacity() / fade).min(1.0));
+        }
     }
     painter
 }
@@ -168,7 +196,7 @@ impl Widget for Checkbox<'_> {
             return prepared.response;
         }
         prepared.fallback_text_color = ui.style().interact(&prepared.response).text_color();
-        let look = Look::of(&prepared.response, *checked || indeterminate, enabled);
+        let look = Look::of(ui, &prepared.response, *checked || indeterminate, enabled);
         let response = prepared.paint(ui);
         if let Some(rect) = response.rect(rect_id) {
             let square = Rect::from_center_size(
@@ -253,7 +281,7 @@ impl Widget for RadioButton<'_> {
             return prepared.response;
         }
         prepared.fallback_text_color = ui.style().interact(&prepared.response).text_color();
-        let look = Look::of(&prepared.response, checked, enabled);
+        let look = Look::of(ui, &prepared.response, checked, enabled);
         let response = prepared.paint(ui);
         if let Some(rect) = response.rect(rect_id) {
             let center = pos2(rect.left() + BOX / 2.0, rect.center().y);
@@ -334,20 +362,44 @@ pub fn text_field(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
     egui::TextEdit::singleline(text).margin(FIELD_MARGIN)
 }
 
+/// A code editor's frame (the mock's `.code`: no border, focused or not,
+/// on the ground drawn under it): `TextEdit::frame(code_frame())`, with
+/// egui's own margins for a text field (4 by 2). A `TextEdit` given a
+/// frame has egui draw neither fill nor border; one given only
+/// `background_color` is framed in the selection's stroke (white) while
+/// it has the keys.
+pub fn code_frame() -> egui::Frame {
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(4, 2))
+}
+
 /// A slider in the theme (the mock's `.slider`): egui's [`egui::Slider`]
 /// (its drag, keys, value field and accessible value are egui's), drawn in
 /// a scope where its rail is an `inset` well, the part up to its thumb
 /// `accent-fill`, and its thumb ringed in `text-2`: at rest filled as the
 /// rail (egui fills the rail and the resting thumb alike), under the
-/// pointer or held `slider-thumb`. `slider(ui, Slider::new(&mut v, 0..=100))`
+/// pointer or held `slider-thumb`; [read only](read_only), quiet in
+/// `text-3` and the same under the pointer. `slider(ui, Slider::new(&mut v, 0..=100))`
 /// for `ui.add(..)`; egui's own where no theme was applied.
 pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
     let Some(theme) = theme::applied(ui.ctx()) else { return ui.add(slider) };
     let t = theme.tokens();
+    let read_only = is_read_only(ui);
     ui.scope(|ui| {
         let v = ui.visuals_mut();
-        v.selection.bg_fill = t.accent_fill;
         let w = &mut v.widgets;
+        if read_only {
+            // Quiet, and the same under the pointer: the part up to the
+            // thumb and the thumb `text-3` on a well of the panel's color.
+            v.selection.bg_fill = t.text_3;
+            let w = &mut v.widgets;
+            w.inactive.bg_fill = t.panel;
+            w.hovered = w.inactive;
+            w.active = w.inactive;
+            for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
+                state.fg_stroke = Stroke::new(1.0, t.text_3);
+            }
+            return ui.add(slider);
+        }
         // (The rail is the resting state's fill; the thumb each state's
         // fill, ringed in its text stroke, which is the value's text too.)
         w.inactive.bg_fill = t.inset;
@@ -356,6 +408,7 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
         for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
             state.fg_stroke = Stroke::new(1.0, t.text_2);
         }
+        v.selection.bg_fill = t.accent_fill;
         ui.add(slider)
     })
     .inner
@@ -399,20 +452,34 @@ pub fn combo_icon(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _op
         let rect =
             Rect::from_center_size(rect.center(), vec2(rect.width() * 0.7, rect.height() * 0.45));
         let points = vec![rect.left_top(), rect.right_top(), rect.center_bottom()];
-        ui.painter().add(Shape::convex_polygon(points, visuals.fg_stroke.color, visuals.fg_stroke));
+        ui.painter().add(Shape::convex_polygon(points, visuals.fg_stroke.color, Stroke::NONE));
         return;
     };
     let t = theme.tokens();
     paint_chevron(ui.painter(), rect.center(), 1.0, t.text_2);
 }
 
+/// Whether `style` is one the theme made ([`crate::theme::style`], or
+/// one changed from it): its window and selection fills are the
+/// tokens'. The style functions below change only such a style, as the
+/// `ui` ones change only a context the theme was applied to, so that a
+/// context without the suite's look keeps egui's.
+fn themed(style: &Style) -> bool {
+    let t = tokens_of(style);
+    style.visuals.window_fill == t.panel && style.visuals.selection.bg_fill == t.accent_fill
+}
+
 /// A menu's style (egui's [`egui::containers::menu::menu_style`], with
 /// the mock's `.menu-row`): rows hovered or open in `accent-fill` with
 /// their words in `on-fill`, 8 px at each end. For `MenuConfig::style`,
 /// and inside a context menu, where egui's own is fixed, through
-/// [`menu_rows`].
+/// [`menu_rows`]. Egui's own menu style where the style is not the
+/// theme's.
 pub fn menu_style(style: &mut Style) {
     egui::containers::menu::menu_style(style);
+    if !themed(style) {
+        return;
+    }
     let t = tokens_of(style);
     style.spacing.button_padding = vec2(metrics::CONTROL_PADDING_X, 0.0);
     let w = &mut style.visuals.widgets;
@@ -425,15 +492,22 @@ pub fn menu_style(style: &mut Style) {
 }
 
 /// The menu's style ([`menu_style`]) given to the rows that follow in
-/// `ui` (a context menu's, whose style egui fixes).
+/// `ui` (a context menu's, whose style egui fixes), where the theme was
+/// applied.
 pub fn menu_rows(ui: &mut Ui) {
-    menu_style(ui.style_mut());
+    if theme::applied(ui.ctx()).is_some() {
+        menu_style(ui.style_mut());
+    }
 }
 
 /// A menu bar's style: its titles hovered in `raised`, open in
-/// `accent-fill` (the mock's `.menu`).
+/// `accent-fill` (the mock's `.menu`). Egui's own menu style where the
+/// style is not the theme's.
 pub fn menu_bar_style(style: &mut Style) {
     egui::containers::menu::menu_style(style);
+    if !themed(style) {
+        return;
+    }
     let t = tokens_of(style);
     style.spacing.button_padding = vec2(metrics::CONTROL_PADDING_X, 0.0);
     let w = &mut style.visuals.widgets;
@@ -457,24 +531,171 @@ fn no_borders(w: &mut egui::style::Widgets) {
     }
 }
 
-/// A list's or tree's rows (selectable labels, a combo box's list): hovered
-/// in `hover-row` rather than a button's `raised-hover`, no border (the
-/// mock's `.tree-row:hover`, `.list-row:hover`). Selected rows keep
-/// `accent-fill`.
+/// The rows of a list, a tree or a table (the mock's `.tree-row`,
+/// `.list-row`, `.table td`): each [`metrics::ROW_HEIGHT`] high with no
+/// gap between them (`item_spacing.y` 0, a control as high as a row), and
+/// their fills meeting edge to edge: square, drawn on the row's own
+/// rectangle (no expansion: egui's 1 px past it made a hovered row
+/// overlap the selected one beside it), hovered in `hover-row` rather
+/// than a button's `raised-hover`, no border. Selected rows keep
+/// `accent-fill`. A control in a row (a check box, a table's text field)
+/// is as high as the row; a style whose controls are taller (made so
+/// with its text) keeps them. Unchanged where the style is not the
+/// theme's.
 pub fn row_style(style: &mut Style) {
+    if !themed(style) {
+        return;
+    }
     let t = tokens_of(style);
+    style.spacing.item_spacing.y = 0.0;
+    // (Taller where a window made its controls taller with its text: the
+    // conversation editor's own text size.)
+    style.spacing.interact_size.y = style.spacing.interact_size.y.max(metrics::ROW_HEIGHT);
     let w = &mut style.visuals.widgets;
     w.hovered.weak_bg_fill = t.hover_row;
-    w.hovered.bg_stroke.color = Color32::TRANSPARENT;
     w.active.weak_bg_fill = t.hover_row;
-    w.active.bg_stroke.color = Color32::TRANSPARENT;
+    // No expansion, and so no border either: egui gives a button the
+    // expansion less the border's width back in its padding where it
+    // draws no frame (a row at rest), which kept a row as wide as hovered
+    // only while the two were the same. A text field in a table is its
+    // well (the mock's `.table td` has no border of its own); with the
+    // keys, the pass `apply` installs rings it in `accent` (the
+    // selection's stroke, which egui frames it in, is as thin: its text
+    // stays where it was).
+    for state in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        state.expansion = 0.0;
+        state.bg_stroke = Stroke::new(0.0, Color32::TRANSPARENT);
+        state.corner_radius = egui::CornerRadius::ZERO;
+    }
+    style.visuals.selection.stroke.width = 0.0;
 }
 
-/// [`row_style`] given to the rows that follow in `ui`.
+/// [`row_style`] given to the rows that follow in `ui`, where the theme
+/// was applied: from here on in `ui` (a scroll area's contents, a
+/// popup's), rows are [`metrics::ROW_HEIGHT`] apart.
 pub fn list_rows(ui: &mut Ui) {
     if theme::applied(ui.ctx()).is_some() {
         row_style(ui.style_mut());
     }
+}
+
+/// `add` in a scope of `ui` given [`list_rows`]: rows in a part of a
+/// window that has more than rows (a form above them, buttons under),
+/// and rows whose pitch egui takes from the `ui` they are put in
+/// (`ScrollArea::show_rows` reads the gap between rows there). The scope
+/// itself is followed by `ui`'s own gap, as any widget is (the style
+/// changed and changed back in `ui` itself left none under the rows).
+/// `row_height(ui)` inside is the rows' height and pitch.
+pub fn with_rows<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.scope(|ui| {
+        list_rows(ui);
+        add(ui)
+    })
+    .inner
+}
+
+/// [`list_rows`] for a table whose rows hold fields (text fields, combo
+/// boxes, number fields): the rows [`metrics::TABLE_RULE`] apart, the
+/// panel's line between their wells.
+pub fn table_rows(ui: &mut Ui) {
+    if theme::applied(ui.ctx()).is_some() {
+        row_style(ui.style_mut());
+        ui.spacing_mut().item_spacing.y = metrics::TABLE_RULE;
+    }
+}
+
+/// [`with_rows`] for a table whose rows hold fields ([`table_rows`]).
+pub fn with_table_rows<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.scope(|ui| {
+        table_rows(ui);
+        add(ui)
+    })
+    .inner
+}
+
+/// The height of a row in `ui` (a control's, `interact_size.y`): in
+/// [`list_rows`]'s rows, [`metrics::ROW_HEIGHT`], which is also their
+/// pitch.
+pub fn row_height(ui: &Ui) -> f32 {
+    ui.spacing().interact_size.y
+}
+
+/// The rows' pitch in `ui`: a row's height and the gap under it.
+pub fn row_pitch(ui: &Ui) -> f32 {
+    row_height(ui) + ui.spacing().item_spacing.y
+}
+
+/// The height and pitch rows will have in `ui` once [`list_rows`] is
+/// given them (where the theme was applied, its control height, at least
+/// [`metrics::ROW_HEIGHT`], both; else egui's control height, and that
+/// and its gap), for a scroll offset worked out before they are drawn.
+pub fn row_metrics(ui: &Ui) -> (f32, f32) {
+    match theme::applied(ui.ctx()) {
+        Some(_) => {
+            let height = row_height(ui).max(metrics::ROW_HEIGHT);
+            (height, height)
+        }
+        None => (row_height(ui), row_pitch(ui)),
+    }
+}
+
+/// `area.show_rows` for rows of [`list_rows`]: each [`row_height`] high
+/// and that far apart, the rows' style given to `ui` for it (egui's
+/// `show_rows` reads the gap between rows in the `ui` it is given, not in
+/// the rows'). Every row `add` draws must be as high as one: a row of
+/// controls, a selectable label, a check box.
+pub fn show_rows<R>(
+    area: egui::ScrollArea,
+    ui: &mut Ui,
+    total: usize,
+    add: impl FnOnce(&mut Ui, std::ops::Range<usize>) -> R,
+) -> egui::scroll_area::ScrollAreaOutput<R> {
+    with_rows(ui, |ui| {
+        let height = row_height(ui);
+        area.show_rows(ui, height, total, add)
+    })
+}
+
+/// The tag a [`read_only`] form's `Ui` carries.
+const READ_ONLY: &str = "mg-uikit-read-only";
+
+/// `add` drawn as a form shown only to be looked at (the mock's
+/// `.field.ro`, `.ro-val`): quiet, in a child `Ui` whose controls have no
+/// fill (the panel's), a quiet border (`line-soft`), their words in
+/// `text-2`, and look the same under the pointer; the crate's check box,
+/// radio button and slider are quiet too ([`is_read_only`]). The controls
+/// still take clicks and keys: what they change is for the caller to keep
+/// out. Without the theme, egui's look.
+pub fn read_only<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let info = egui::UiStackInfo::default().with_tag(READ_ONLY);
+    ui.scope_builder(egui::UiBuilder::new().ui_stack_info(info), |ui| {
+        if let Some(theme) = theme::applied(ui.ctx()) {
+            read_only_visuals(ui.visuals_mut(), &theme.tokens());
+        }
+        add(ui)
+    })
+    .inner
+}
+
+/// The visuals [`read_only`] gives its controls.
+fn read_only_visuals(v: &mut egui::Visuals, t: &Tokens) {
+    let mut quiet = v.widgets.inactive;
+    quiet.bg_fill = Color32::TRANSPARENT;
+    quiet.weak_bg_fill = Color32::TRANSPARENT;
+    quiet.bg_stroke = v.widgets.noninteractive.bg_stroke;
+    quiet.fg_stroke = Stroke::new(1.0, t.text_2);
+    quiet.expansion = 0.0;
+    // (No hover: every state looks as the resting one.)
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+        *w = quiet;
+    }
+    v.extreme_bg_color = v.panel_fill;
+    v.text_edit_bg_color = Some(v.panel_fill);
+}
+
+/// Whether `ui` is in a [`read_only`] form.
+pub fn is_read_only(ui: &Ui) -> bool {
+    ui.stack().iter().any(|frame| frame.tags().contains(READ_ONLY))
 }
 
 /// The pass [`apply`](crate::apply) installs at the end of each of a
@@ -482,9 +703,11 @@ pub fn list_rows(ui: &mut Ui) {
 ///
 /// - the focused text field's frame turned `accent` (egui draws it in
 ///   the selection's stroke, which is the color of selected text too).
-///   Only a frame egui drew itself, with the fields' fill and in that
-///   stroke, is changed: a field without a frame (a code editor's) keeps
-///   none;
+///   Only a frame egui drew itself, with the fields' fill (or a read-only
+///   form's, the panel's) and in that stroke, is changed. A field with a
+///   fill of its own (`TextEdit::background_color`) would keep egui's
+///   white: such a field takes a frame of its own instead, as a code
+///   editor does ([`code_frame`]: no border at all, the mock's `.code`);
 /// - a tooltip's fill, `tooltip-bg` (egui's is every popup's,
 ///   `window_fill`): the frame of each tooltip's layer.
 pub(crate) fn end_pass(ui: &mut Ui) {
@@ -546,19 +769,23 @@ fn focused_field_border(ctx: &egui::Context, t: &Tokens, style: &Style) {
         return;
     }
     // A frame drawn as egui draws a focused field's: its fill the fields'
-    // and its border the selection's stroke (a field with no frame, a
-    // code editor's, has none).
-    let selection = style.visuals.selection.stroke;
-    let fill = style.visuals.text_edit_bg_color();
+    // and its border the selection's stroke. (A field with a frame of its
+    // own, `TextEdit::frame`, has egui draw neither: a code editor's,
+    // [`code_frame`].)
+    // (A field's own fill, or a read-only form's: the panel's. In a
+    // table's rows, [`row_style`], the selection's stroke is no wider than
+    // their fields' borders, none: given the field's 1 px.)
+    let selection = style.visuals.selection.stroke.color;
+    let fills = [style.visuals.text_edit_bg_color(), style.visuals.panel_fill];
     let mut layers: Vec<egui::LayerId> = ctx.memory(|m| m.layer_ids().collect());
     layers.push(egui::LayerId::background());
     for layer in layers {
         shapes_where(
             ctx,
             layer,
-            |r| r.stroke == selection && r.fill == fill,
+            |r| r.stroke.color == selection && fills.contains(&r.fill),
             |r| {
-                r.stroke.color = t.accent;
+                r.stroke = Stroke::new(1.0, t.accent);
             },
         );
     }
@@ -586,12 +813,172 @@ mod tests {
     #[test]
     fn a_box_s_colors_follow_its_state() {
         let t = Tokens::DARK;
-        let look = |on, hovered, enabled| Look { on, hovered, focused: false, enabled };
+        let look =
+            |on, hovered, enabled| Look { on, hovered, focused: false, enabled, read_only: false };
         assert_eq!(look(true, false, true).colors(&t), (t.accent_fill, t.accent_fill, t.on_fill));
         assert_eq!(look(true, true, true).colors(&t).0, t.accent_fill_hover);
         assert_eq!(look(false, false, true).colors(&t), (t.inset, t.text_3, t.on_fill));
         assert_eq!(look(false, true, true).colors(&t).1, t.text_2);
         assert_eq!(look(true, false, false).colors(&t).0, t.accent_fill_off);
         assert_eq!(look(false, false, false).colors(&t).1, t.text_off);
+        // Read only: quiet, on or off, never the accent.
+        let quiet = |on| Look { read_only: true, ..look(on, false, true) };
+        assert_eq!(quiet(true).colors(&t), (t.text_3, t.text_3, t.panel));
+        assert_eq!(quiet(false).colors(&t).1, t.text_3);
+    }
+
+    /// One frame of `add` in a context with the theme (or none).
+    fn frame(theme: Option<crate::Theme>, add: impl FnMut(&mut Ui)) -> egui::FullOutput {
+        let ctx = egui::Context::default();
+        if let Some(theme) = theme {
+            crate::apply(&ctx, theme);
+            // (The style is the theme's from the next pass.)
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        }
+        let mut out = ctx.run_ui(egui::RawInput::default(), add);
+        // (Its textures are not taken by a renderer: let go of them.)
+        out.textures_delta.clear();
+        out
+    }
+
+    /// Rows after `list_rows` are 22 apart with no gap, whatever is in
+    /// them, and their fills drawn on their own rectangles, square.
+    #[test]
+    fn rows_are_22_apart_and_their_fills_meet() {
+        for theme in crate::Theme::ALL {
+            let mut tops = Vec::new();
+            let out = frame(Some(theme), |ui| {
+                list_rows(ui);
+                for i in 0..4 {
+                    let r = match i {
+                        0 => ui.selectable_label(true, "Selected"),
+                        1 => ui.selectable_label(false, "Plain"),
+                        2 => ui.horizontal(|ui| ui.checkbox(&mut true, "Check")).response,
+                        _ => egui::CollapsingHeader::new("Header").show(ui, |_| {}).header_response,
+                    };
+                    tops.push(r.rect);
+                }
+            });
+            for w in tops.windows(2) {
+                assert_eq!(w[1].top() - w[0].top(), metrics::ROW_HEIGHT, "{theme:?} {tops:?}");
+                assert_eq!(w[0].height(), metrics::ROW_HEIGHT, "{theme:?} {tops:?}");
+            }
+            // The selected row's fill: its own rectangle, square.
+            let t = theme.tokens();
+            let fill = out
+                .shapes
+                .iter()
+                .find_map(|c| match &c.shape {
+                    Shape::Rect(r) if r.fill == t.accent_fill => Some(r.clone()),
+                    _ => None,
+                })
+                .expect("the selected row's fill");
+            assert_eq!(fill.rect.y_range(), tops[0].y_range(), "{theme:?}");
+            assert_eq!(fill.corner_radius, egui::CornerRadius::ZERO);
+        }
+    }
+
+    /// A table of fields: its rows 22 high, a 1 px line of the panel
+    /// between them.
+    #[test]
+    fn a_table_s_rows_of_fields_have_a_line_between() {
+        let _ = frame(Some(crate::Theme::Dark), |ui| {
+            let tops = with_table_rows(ui, |ui| {
+                let a = ui.add(text_field(&mut String::from("a"))).rect;
+                let b = ui.add(text_field(&mut String::from("b"))).rect;
+                (a, b)
+            });
+            assert_eq!(tops.0.height(), metrics::ROW_HEIGHT);
+            assert_eq!(tops.1.top() - tops.0.bottom(), metrics::TABLE_RULE);
+        });
+    }
+
+    /// A row is as wide selected (framed) as at rest (not): egui gives an
+    /// unframed button its expansion less its border back, so the two
+    /// must be equal (they are both nothing in rows).
+    #[test]
+    fn a_row_keeps_its_width_selected() {
+        let mut widths = Vec::new();
+        let _ = frame(Some(crate::Theme::Dark), |ui| {
+            list_rows(ui);
+            widths.push(ui.selectable_label(false, "WP_03").rect.width());
+            widths.push(ui.selectable_label(true, "WP_03").rect.width());
+        });
+        assert_eq!(widths[0], widths[1]);
+    }
+
+    /// Without the theme, rows and menus keep egui's own style.
+    #[test]
+    fn without_the_theme_rows_and_menus_are_egui_s() {
+        let _ = frame(None, |ui| {
+            let before = ui.style().clone();
+            list_rows(ui);
+            menu_rows(ui);
+            assert_eq!(*ui.style(), before);
+            let mut style = (*before).clone();
+            row_style(&mut style);
+            assert_eq!(style, *before);
+        });
+        let mut themed = crate::theme::style(crate::Theme::Light, &Style::default());
+        row_style(&mut themed);
+        assert_eq!(themed.spacing.item_spacing.y, 0.0);
+        assert_eq!(themed.visuals.widgets.hovered.expansion, 0.0);
+    }
+
+    /// `with_rows` gives the rows their style and leaves the rest its own,
+    /// the gap under the rows included.
+    #[test]
+    fn with_rows_is_scoped() {
+        let _ = frame(Some(crate::Theme::Dark), |ui| {
+            let gap = ui.spacing().item_spacing.y;
+            let (pitch, bottom) = with_rows(ui, |ui| {
+                let r = ui.selectable_label(false, "a");
+                let _ = ui.selectable_label(false, "b");
+                (row_pitch(ui), r.rect.bottom() + metrics::ROW_HEIGHT)
+            });
+            assert_eq!(pitch, metrics::ROW_HEIGHT);
+            assert_eq!(ui.spacing().item_spacing.y, gap);
+            assert_eq!(row_pitch(ui), metrics::CONTROL_HEIGHT + gap);
+            let next = ui.label("after").rect.top();
+            assert_eq!(next, bottom + gap, "the gap under the rows");
+        });
+    }
+
+    /// A read-only form's `Ui`, and those in it, know it; its controls
+    /// are quiet and the same under the pointer; outside it, nothing
+    /// changes.
+    #[test]
+    fn read_only_is_known_inside_and_quiet() {
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let _ = frame(Some(theme), |ui| {
+                assert!(!is_read_only(ui));
+                read_only(ui, |ui| {
+                    assert!(is_read_only(ui));
+                    ui.horizontal(|ui| assert!(is_read_only(ui)));
+                    let w = &ui.visuals().widgets;
+                    assert_eq!(w.hovered, w.inactive);
+                    assert_eq!(w.inactive.weak_bg_fill, Color32::TRANSPARENT);
+                    assert_eq!(w.inactive.fg_stroke.color, t.text_2);
+                    assert_eq!(ui.visuals().text_edit_bg_color(), t.panel);
+                });
+                assert!(!is_read_only(ui));
+                assert_ne!(ui.visuals().widgets.inactive.weak_bg_fill, Color32::TRANSPARENT);
+            });
+        }
+    }
+
+    /// A disabled box is drawn without egui's fade but keeps a parent's
+    /// opacity.
+    #[test]
+    fn a_disabled_box_keeps_a_parent_s_opacity() {
+        let _ = frame(Some(crate::Theme::Dark), |ui| {
+            ui.multiply_opacity(0.5);
+            ui.add_enabled_ui(false, |ui| {
+                let painter = box_painter(ui, false);
+                assert!((painter.opacity() - 0.5).abs() < 1e-4, "{}", painter.opacity());
+            });
+            assert!((box_painter(ui, true).opacity() - 0.5).abs() < 1e-4);
+        });
     }
 }

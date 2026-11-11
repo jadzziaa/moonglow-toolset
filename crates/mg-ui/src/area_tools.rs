@@ -733,7 +733,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
             let rows = egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]);
-            rows.show_rows(ui, height, f.results.len(), |ui, range| {
+            mg_uikit::show_rows(rows, ui, f.results.len(), |ui, range| {
                 for at in range {
                     let r = &f.results[at];
                     ui.horizontal(|ui| {

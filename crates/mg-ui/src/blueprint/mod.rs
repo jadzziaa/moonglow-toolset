@@ -2125,10 +2125,7 @@ pub(crate) fn edit_many(
     let mut form = Form { app, key, path, also, root, together: Default::default() };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-        if viewed {
-            read_only_look(ui);
-        }
-        match restype {
+        read_only_if(ui, viewed, |ui| match restype {
             // (Every kind's, drawn alike.)
             _ if page == "Variables" => form.variables_page(ui),
             ResType::UTW => waypoint::page(&mut form, ui, page),
@@ -2141,7 +2138,7 @@ pub(crate) fn edit_many(
             ResType::UTI => item::page(&mut form, ui, page),
             ResType::UTC => creature::page(&mut form, ui, page),
             _ => {}
-        }
+        })
     });
     // The game's blueprint (or a read-only area's object) takes no
     // change, the note above saying so when one is tried.
@@ -2192,7 +2189,7 @@ pub(crate) fn edit_many(
 
 /// A form only looked at (the game's blueprint, opened by View; what an
 /// area another builder holds has, in a project that keeps those
-/// read-only), drawn with [`read_only_look`]: the changes to
+/// read-only), drawn with [`read_only_if`]: the changes to
 /// what `changes` says that were asked for since `pending` are dropped.
 /// Its fields still take the keyboard, for their text to be chosen and
 /// copied, but nothing typed reaches them ([`typing_kept_out`], before the
@@ -2274,22 +2271,12 @@ pub(crate) fn typing_kept_out(ui: &Ui, within: egui::Rect) {
     });
 }
 
-/// The controls that follow drawn as read only (the mock's `.field.ro`):
-/// no fill (the panel's), a quiet border, their words in `text-2`.
-pub(crate) fn read_only_look(ui: &mut Ui) {
-    let read_only = mg_uikit::tokens(ui.ctx()).text_2;
-    let v = ui.visuals_mut();
-    let quiet = v.widgets.noninteractive;
-    let text = egui::Stroke::new(1.0, read_only);
-    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-        w.bg_fill = egui::Color32::TRANSPARENT;
-        w.weak_bg_fill = egui::Color32::TRANSPARENT;
-        w.bg_stroke = quiet.bg_stroke;
-        w.fg_stroke = text;
-        w.expansion = 0.0;
-    }
-    v.extreme_bg_color = v.panel_fill;
-    v.text_edit_bg_color = Some(v.panel_fill);
+/// `add`, drawn as read only where `viewed` (the mock's `.field.ro`,
+/// [`mg_uikit::read_only`]): no fill (the panel's), a quiet border, words
+/// in `text-2`, nothing lit under the pointer, check boxes, radio buttons
+/// and sliders quiet too.
+pub(crate) fn read_only_if<R>(ui: &mut Ui, viewed: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if viewed { mg_uikit::read_only(ui, add) } else { add(ui) }
 }
 
 #[cfg(test)]

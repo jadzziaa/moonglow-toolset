@@ -297,7 +297,8 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         ui.toggle_value(&mut state.preview_info, "Resources");
         ui.toggle_value(&mut state.preview_clean, "Clean view");
         ui.menu_button("Screen", |ui| {
-            ui.checkbox(&mut state.screen_preview, "Preview on screen");
+            mg_uikit::menu_rows(ui);
+            ui.check_box(&mut state.screen_preview, "Preview on screen");
             for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
                 if ui
                     .selectable_value(&mut state.screen_size, vec2(w, h), format!("{w} × {h}"))

@@ -160,6 +160,8 @@ fn fields(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let file_type = doc.file_type_str();
     let mut ctx = Ctx { key, file_type, game: game.as_deref(), factions, actions, buffers };
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        // (A table of fields: rows 22 apart, a line between.)
+        mg_uikit::table_rows(ui);
         struct_ui(&mut ctx, ui, &doc.root, &GffPath::root());
     });
 }

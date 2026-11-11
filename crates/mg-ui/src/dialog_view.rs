@@ -1364,6 +1364,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let body = egui::ScrollArea::both().id_salt(("dlg-data-body", key)).auto_shrink(false);
         body.show(ui, |ui| {
             if view.bottom == Bottom::Bookmarks {
+                mg_uikit::list_rows(ui);
                 for (kind, index) in view.bookmarks.clone() {
                     let Some(n) = node(&g, kind, index) else { continue };
                     if ui
@@ -1499,9 +1500,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let look = Look::new(&app.settings, ui.visuals().dark_mode, mg_uikit::tokens(ui.ctx()).text_3);
     let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
     let shown = lines.show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         // Ctrl+Up and Ctrl+Down: a row up or down, the selection staying.
         if view.scroll != 0 {
-            let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            let pitch = mg_uikit::row_pitch(ui);
             ui.scroll_with_delta(egui::vec2(0.0, -(view.scroll as f32) * pitch));
             view.scroll = 0;
         }
@@ -1531,7 +1533,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             &mut dropped,
         );
     });
-    let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    let pitch = mg_uikit::row_metrics(ui).1;
     view.page = ((shown.inner_rect.height() / pitch) as usize).saturating_sub(1).max(1);
     // A line folded over the selection (its − button, the keypad's −,
     // Collapse All) is selected in its place, as in Windows' tree control:
@@ -1945,6 +1947,7 @@ fn text_panel(
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     for t in creature_tags(app, ui.ctx()).iter() {
                         if ui.selectable_label(*t == speaker, t).clicked() {
                             chosen = Some(t.clone());
@@ -2044,6 +2047,7 @@ fn text_panel(
             let height = (ui.available_height() - cancel).max(60.0);
             let list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             list.show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for t in &tokens {
                     if ui.selectable_label(false, t).clicked() {
                         with_token = Some(crate::widgets::with_token(ui.ctx(), id, &shown, t));
@@ -2232,23 +2236,26 @@ fn script_with_params(
     let value_width = (room - name_width).clamp(140.0, 520.0);
     let mut add = false;
     ui.with_layout(own_width, |ui| {
-        for (i, (k, v)) in pairs.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                // (First in its row: at the row's end it was past the
-                // page's edge where the page is narrow.)
-                if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
-                    remove_at = Some(i);
-                }
-                let name = mg_uikit::text_field(k).desired_width(name_width);
-                let rk = ui.add(name.hint_text("name"));
-                let value = mg_uikit::text_field(v).desired_width(value_width);
-                let rv = ui.add(value.hint_text("value"));
-                crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
-                crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
-                commit |= rk.lost_focus() || rv.lost_focus();
-                focused |= crate::widgets::has_keys(&rk) || crate::widgets::has_keys(&rv);
-            });
-        }
+        // (A table of names and values: rows 22 apart, a line between.)
+        mg_uikit::with_table_rows(ui, |ui| {
+            for (i, (k, v)) in pairs.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    // (First in its row: at the row's end it was past the
+                    // page's edge where the page is narrow.)
+                    if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
+                        remove_at = Some(i);
+                    }
+                    let name = mg_uikit::text_field(k).desired_width(name_width);
+                    let rk = ui.add(name.hint_text("name"));
+                    let value = mg_uikit::text_field(v).desired_width(value_width);
+                    let rv = ui.add(value.hint_text("value"));
+                    crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
+                    crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
+                    commit |= rk.lost_focus() || rv.lost_focus();
+                    focused |= crate::widgets::has_keys(&rk) || crate::widgets::has_keys(&rv);
+                });
+            }
+        });
         add = ui
             .small_button("+")
             .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
@@ -2653,7 +2660,8 @@ fn search_pane(
     // its whole text on hover), the others taking a row's room: a search
     // for "the" over a world's conversations is tens of thousands, and
     // each was copied and drawn with its whole text every frame.
-    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    mg_uikit::list_rows(ui);
+    let row = mg_uikit::row_pitch(ui);
     let mut clicked = None;
     for (at, (k, kind, index, t)) in s.results.iter().enumerate() {
         let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));

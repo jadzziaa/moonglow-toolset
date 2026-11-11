@@ -388,6 +388,13 @@ pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
     }
 }
 
+/// Whether the arrow keys are the log's (it took them with a click on
+/// it). For the window's tests.
+#[doc(hidden)]
+pub fn keys_are_the_logs(ctx: &egui::Context) -> bool {
+    keys_are(ctx, Keys::Log)
+}
+
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
     has_arrows(ctx)
         && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)
@@ -985,12 +992,14 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
         return;
     }
     let tip = "Chosen, a click in an area's view puts this light there (Shift+click: more)";
-    for light in lights.iter() {
-        let on = view.placing_light == Some(light.row);
-        if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
-            view.placing_light = if on { None } else { Some(light.row) };
+    mg_uikit::with_rows(ui, |ui| {
+        for light in lights.iter() {
+            let on = view.placing_light == Some(light.row);
+            if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
+                view.placing_light = if on { None } else { Some(light.row) };
+            }
         }
-    }
+    });
     // Lights of any color and reach, as content: only with the option on
     // (Options › Areas, or the project's `[lights] generated`).
     if crate::light_maker::generated_lights(app) {
@@ -999,12 +1008,14 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
             ui.separator();
             ui.weak("Made by Custom Light, in the module's haks:");
         }
-        for light in made.iter() {
-            let on = view.placing_light == Some(light.row);
-            if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
-                view.placing_light = if on { None } else { Some(light.row) };
+        mg_uikit::with_rows(ui, |ui| {
+            for light in made.iter() {
+                let on = view.placing_light == Some(light.row);
+                if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
+                    view.placing_light = if on { None } else { Some(light.row) };
+                }
             }
-        }
+        });
         ui.add_space(4.0);
         let area = view.area.filter(|a| app.area_views.contains_key(a));
         let r = ui
@@ -1575,6 +1586,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // more.
         if !tree.gallery {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            // (Rows 22 apart; a gallery's pictures keep their gaps.)
+            mg_uikit::list_rows(ui);
         }
         if find.is_empty() {
             tree.remembered(ui, "Favorites", &favorites, &palette);
@@ -2719,6 +2732,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
         ui,
         |ui| {
+            mg_uikit::list_rows(ui);
             for name in crate::prefabs::list(dir.as_deref()) {
                 let being = renamed.as_ref().is_some_and(|(n, _)| n == &name);
                 let r = ui.selectable_label(being, &name).on_hover_ui(|ui| {

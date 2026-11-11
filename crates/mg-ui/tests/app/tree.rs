@@ -1350,9 +1350,7 @@ fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
     assert!(h.query_by_label("script_50").is_none(), "hidden by the Filter");
     open(&mut h, Tab::Script(script(50)));
     assert!(h.query_by_label("script_50").is_some(), "listed under the Filter");
-    // (The last of what it finds, the row above: the rest are above it,
-    // as many in sight as the pane's height has room for.)
-    assert!(h.query_by_label("script_09").is_some(), "with what it finds");
+    assert!(h.query_by_label("script_03").is_some(), "with what it finds");
     assert!(h.query_by_label("script_60").is_none());
     let is_input =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;

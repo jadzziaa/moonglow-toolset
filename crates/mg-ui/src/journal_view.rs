@@ -208,6 +208,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         });
     });
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         // As in Aurora: select Root to add categories.
         if ui.selectable_label(view.selected.is_none(), "Root").clicked() {
             view.selected = None;

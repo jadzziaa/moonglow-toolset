@@ -776,7 +776,9 @@ fn the_toolbar_shows_icons_only_when_asked() {
     assert!(h.query_by_label("Save").is_none());
 }
 
-/// Options › General › Light theme.
+/// Options › General › Light theme: the window's theme follows the
+/// setting, both ways; in the Options window it changes on OK, and
+/// Cancel leaves it as it was.
 #[test]
 fn the_theme_is_set_in_options() {
     use mg_uikit::{Theme, Tokens};
@@ -795,6 +797,30 @@ fn the_theme_is_set_in_options() {
         assert_eq!(h.ctx.global_style().visuals.panel_fill, t.panel);
         assert_eq!(h.ctx.global_style().spacing.interact_size.y, mg_uikit::metrics::CONTROL_HEIGHT);
     }
+    // In the Options window, as Interface size beside it: ticked, the
+    // theme changes on OK, not before; unticked and cancelled, it stays.
+    let options = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(h);
+        h.get_by_label("General").click();
+        settle(h);
+        click_in_sight(h, "Light theme");
+        settle(h);
+    };
+    h.state_mut().settings.light_theme = false;
+    h.run();
+    options(&mut h);
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Dark), "not as it is ticked");
+    assert!(!h.state().settings.light_theme);
+    h.get_all_by_label("OK").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().settings.light_theme, "on OK");
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
+    options(&mut h);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().settings.light_theme, "Cancel keeps it");
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
 }
 
 /// Options › General › Toolbar buttons, Icons only, in the editors'
@@ -852,4 +878,118 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.run_steps(2);
     let toggled = h.get_by_label("Comments").accesskit_node().toggled();
     assert_eq!(toggled, Some(egui::accesskit::Toggled::True));
+}
+
+/// The log takes the arrow keys only from a click of its own: a click on
+/// a window lying over it is the window's (the log took the keys from
+/// any click inside its pane, a window's over it too).
+#[test]
+fn the_log_takes_the_keys_only_from_its_own_clicks() {
+    let dir = mg_testkit::scratch_dir("ui-log-keys-under-a-window");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1000.0, 700.0);
+    settle(&mut h);
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::keys_are_the_logs(&h.ctx);
+    // The log's line saying the module opened: where the log is.
+    let line = h.get_all_by_label_contains("Opened").last().expect("the log's line").rect();
+    // A window over it: the manual's, as tall as the screen has room for.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
+    settle(&mut h);
+    let over = egui::pos2(500.0, line.center().y);
+    let window = h.ctx.layer_id_at(over).expect("a layer");
+    assert_ne!(window, egui::LayerId::background(), "the window lies over the log there");
+    click_pos(&h, over);
+    settle(&mut h);
+    assert!(!keys(&h), "a click on the window is the window's");
+    // On the log itself, beside the window: the log's.
+    let beside = egui::pos2(line.left() + 4.0, line.center().y);
+    assert_eq!(h.ctx.layer_id_at(beside), Some(egui::LayerId::background()), "the log there");
+    click_pos(&h, beside);
+    settle(&mut h);
+    assert!(keys(&h), "a click on the log gives it the keys");
+}
+
+/// The theme's chevrons and rows in the running window, in the dark
+/// theme and the light: a combo box's chevron (`text-2`, a stroke, not
+/// egui's filled triangle), a tree header's (`text-3`), and a list's row
+/// under the pointer filled `hover-row` on its own 22 points.
+#[test]
+fn the_theme_s_chevrons_and_row_hover_are_drawn() {
+    let dir = mg_testkit::scratch_dir("ui-theme-chevrons");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 800.0);
+    settle(&mut h);
+    // A chevron: three points, open, stroked in `color`, inside `rect`.
+    let chevrons = |h: &Harness<'_, Moonglow>, rect: egui::Rect, color: egui::Color32| {
+        drawn(h)
+            .iter()
+            .filter(|s| match s {
+                egui::Shape::Path(p) => {
+                    p.points.len() == 3
+                        && !p.closed
+                        && p.stroke.color == egui::epaint::ColorMode::Solid(color)
+                        && p.points.iter().all(|q| rect.contains(*q))
+                }
+                _ => false,
+            })
+            .count()
+    };
+    // egui's triangle: three points, closed and filled.
+    let triangles = |h: &Harness<'_, Moonglow>, rect: egui::Rect| {
+        drawn(h)
+            .iter()
+            .filter(|s| match s {
+                egui::Shape::Path(p) => {
+                    p.points.len() == 3 && p.closed && p.points.iter().all(|q| rect.contains(*q))
+                }
+                _ => false,
+            })
+            .count()
+    };
+    for light in [false, true] {
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        let t = mg_uikit::tokens(&h.ctx);
+        assert_eq!(t, if light { mg_uikit::Tokens::LIGHT } else { mg_uikit::Tokens::DARK });
+        // The module tree's group headers.
+        let header = h.get_by_label_contains("Scripts (").rect();
+        let arrow = header.expand2(egui::vec2(24.0, 0.0));
+        h.hover_at(egui::pos2(header.right() + 200.0, header.top() - 200.0));
+        settle(&mut h);
+        assert!(chevrons(&h, arrow, t.text_3) >= 1, "a tree header's chevron ({light})");
+        assert_eq!(triangles(&h, arrow), 0, "no triangle by a header ({light})");
+        // A combo box's: Options › General's Interface size.
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+        h.get_by_label("General").click();
+        settle(&mut h);
+        let combo = h.get_by_value("100%").rect();
+        assert!(chevrons(&h, combo, t.text_2) >= 1, "a combo box's chevron ({light})");
+        assert_eq!(triangles(&h, combo), 0, "no triangle in a combo box ({light})");
+        // A list's row under the pointer: the Options' pages.
+        let row = h.get_by_label("Area").rect();
+        h.hover_at(row.center());
+        settle(&mut h);
+        let row = h.get_by_label("Area").rect();
+        assert_eq!(row.height(), mg_uikit::metrics::ROW_HEIGHT);
+        let fills: Vec<egui::Rect> = drawn(&h)
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) if r.fill == t.hover_row => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            fills.iter().any(|f| f.y_range() == row.y_range() && f.contains(row.center())),
+            "the row lit on its own 22 points ({light}): {fills:?} for {row:?}"
+        );
+        h.get_all_by_label("Cancel").last().unwrap().click();
+        settle(&mut h);
+    }
 }

@@ -252,35 +252,25 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         .collect();
     ui.columns(2, |columns| {
         let ui = &mut columns[0];
-        let row_height = ui
-            .spacing()
-            .interact_size
-            .y
-            .max(ui.spacing().icon_width)
-            .max(ui.text_style_height(&egui::TextStyle::Button));
-        egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false).show_rows(
-            ui,
-            row_height,
-            shown.len(),
-            |ui, rows| {
-                for &(c, n) in &shown[rows] {
-                    // (Half-ticked where some have it: ticked, it is given
-                    // to the others.)
-                    let mut v = n == total;
-                    let some = n > 0 && n < total;
-                    let r = ui.add(mg_uikit::Checkbox::new(&mut v, &c.text).indeterminate(some));
-                    if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed()
-                    {
-                        toggle = Some((c.row, v || some));
-                    }
+        let area = egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false);
+        mg_uikit::show_rows(area, ui, shown.len(), |ui, rows| {
+            for &(c, n) in &shown[rows] {
+                // (Half-ticked where some have it: ticked, it is given
+                // to the others.)
+                let mut v = n == total;
+                let some = n > 0 && n < total;
+                let r = ui.add(mg_uikit::Checkbox::new(&mut v, &c.text).indeterminate(some));
+                if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed() {
+                    toggle = Some((c.row, v || some));
                 }
-            },
-        );
+            }
+        });
         let ui = &mut columns[1];
         ui.strong("Assigned");
         egui::ScrollArea::vertical().id_salt(("utc-feat-assigned", key)).auto_shrink(false).show(
             ui,
             |ui| {
+                mg_uikit::list_rows(ui);
                 // By name, as the list beside it; one the table has no
                 // name for by its row.
                 let mut assigned: Vec<(String, usize, usize)> = merged
@@ -620,6 +610,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-list", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 // (The casting level, with a metamagic chosen: the spell level else.)
                 let columns = if raised > 0 { 3 } else { 2 };
                 egui::Grid::new(("utc-spell-grid", key, which))
@@ -694,6 +685,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-assigned", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 let warn = ui.visuals().warn_fg_color;
                 for l in 0..=9 {
                     let n = lists[l].len();
@@ -1028,6 +1020,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-list", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 let cols = if raised > 0 { 3 } else { 2 };
                 egui::Grid::new(("utc-spell-grid", key, which))
                     .num_columns(cols)
@@ -1109,6 +1102,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-assigned", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 let warn = ui.visuals().warn_fg_color;
                 for l in 0..=9 {
                     let list = list_of(l);
@@ -1343,6 +1337,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     let offer = |row: usize| {
                         u16::try_from(row).is_ok()
                             && spell_table.as_ref().is_none_or(|t| special_ability(t, row))
@@ -1377,87 +1372,95 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             // As the game has them: so many uses of a spell at a caster
             // level (the file keeps an entry for each use).
             ui.strong("Special Abilities");
-            egui::Grid::new(("utc-special", key)).num_columns(6).striped(true).show(ui, |ui| {
-                ui.strong("Ability");
-                ui.strong("Uses");
-                ui.strong("Caster Level");
-                ui.strong("Ready").on_hover_text(
-                    "Whether the creature has these uses, or starts with them spent",
-                );
-                ui.label("");
-                ui.label("");
-                ui.end_row();
-                for m in &merged {
-                    let k = m.key;
-                    let is = move |e: &Struct| ability_key(e) == k;
-                    let having: Vec<lists::Target> =
-                        m.having.iter().map(|&i| targets[i].clone()).collect();
-                    let first = &targets[m.having[0]];
-                    ui.horizontal(|ui| {
-                        let r = ui.label(name_of(k.0));
-                        let row = usize::try_from(k.0).unwrap_or(usize::MAX);
-                        described(r, described_by.as_deref(), "spells", "SpellDesc", row);
-                        super::entry_mark(ui, m.having.len(), total);
-                    });
-                    let uses = uses_of(first, k) as i64;
-                    let differs = having.iter().any(|t| uses_of(t, k) as i64 != uses);
-                    f.mark_if(ui, &format!("Uses#{k:?}"), differs);
-                    if let Some(v) = commit_number(ui, uses, 1..=99) {
-                        let entry = m.entry.clone();
-                        let out =
-                            lists::set_count(&having, "SpecAbilityList", is, v as usize, |_| {
-                                entry.clone()
-                            });
-                        change = Some(("Uses", out, "Set on"));
-                    }
-                    if let Some(v) = commit_number(ui, k.1, 1..=60) {
-                        let out = lists::set(
-                            &having,
-                            "SpecAbilityList",
-                            is,
-                            &["SpellCasterLevel"],
-                            |e, l| Some(lists::like(e.get(l), v, Value::Byte(0))),
-                        );
-                        change = Some(("Caster level", out, "Set on"));
-                    }
-                    // (Flags a file has besides stay as they are until
-                    // the switch is turned.)
-                    let mut on = k.2;
-                    if ui.check_box(&mut on, "").changed() {
-                        let flags = if on { ABILITY_READY } else { 0 };
-                        let out =
-                            lists::set(&having, "SpecAbilityList", is, &["SpellFlags"], |e, l| {
-                                Some(lists::like(e.get(l), flags, Value::Byte(0)))
-                            });
-                        change = Some(("Ready", out, "Set on"));
-                    }
-                    if ui.small_button("Remove").clicked() {
-                        let out = lists::remove(&targets, "SpecAbilityList", is, |_| None);
-                        change = Some(("Remove special ability", out, "Taken from"));
-                    }
-                    // Given to those that lack it, with as many uses as
-                    // the first that has it.
-                    if m.having.len() < total {
-                        if ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked() {
-                            let lacking: Vec<lists::Target> = (0..total)
-                                .filter(|i| !m.having.contains(i))
-                                .map(|i| targets[i].clone())
-                                .collect();
+            mg_uikit::with_table_rows(ui, |ui| {
+                egui::Grid::new(("utc-special", key)).num_columns(6).striped(true).show(ui, |ui| {
+                    ui.strong("Ability");
+                    ui.strong("Uses");
+                    ui.strong("Caster Level");
+                    ui.strong("Ready").on_hover_text(
+                        "Whether the creature has these uses, or starts with them spent",
+                    );
+                    ui.label("");
+                    ui.label("");
+                    ui.end_row();
+                    for m in &merged {
+                        let k = m.key;
+                        let is = move |e: &Struct| ability_key(e) == k;
+                        let having: Vec<lists::Target> =
+                            m.having.iter().map(|&i| targets[i].clone()).collect();
+                        let first = &targets[m.having[0]];
+                        ui.horizontal(|ui| {
+                            let r = ui.label(name_of(k.0));
+                            let row = usize::try_from(k.0).unwrap_or(usize::MAX);
+                            described(r, described_by.as_deref(), "spells", "SpellDesc", row);
+                            super::entry_mark(ui, m.having.len(), total);
+                        });
+                        let uses = uses_of(first, k) as i64;
+                        let differs = having.iter().any(|t| uses_of(t, k) as i64 != uses);
+                        f.mark_if(ui, &format!("Uses#{k:?}"), differs);
+                        if let Some(v) = commit_number(ui, uses, 1..=99) {
                             let entry = m.entry.clone();
                             let out = lists::set_count(
-                                &lacking,
+                                &having,
                                 "SpecAbilityList",
                                 is,
-                                uses as usize,
+                                v as usize,
                                 |_| entry.clone(),
                             );
-                            change = Some(("Add special ability", out, "Added to"));
+                            change = Some(("Uses", out, "Set on"));
                         }
-                    } else {
-                        ui.label("");
+                        if let Some(v) = commit_number(ui, k.1, 1..=60) {
+                            let out = lists::set(
+                                &having,
+                                "SpecAbilityList",
+                                is,
+                                &["SpellCasterLevel"],
+                                |e, l| Some(lists::like(e.get(l), v, Value::Byte(0))),
+                            );
+                            change = Some(("Caster level", out, "Set on"));
+                        }
+                        // (Flags a file has besides stay as they are until
+                        // the switch is turned.)
+                        let mut on = k.2;
+                        if ui.check_box(&mut on, "").changed() {
+                            let flags = if on { ABILITY_READY } else { 0 };
+                            let out = lists::set(
+                                &having,
+                                "SpecAbilityList",
+                                is,
+                                &["SpellFlags"],
+                                |e, l| Some(lists::like(e.get(l), flags, Value::Byte(0))),
+                            );
+                            change = Some(("Ready", out, "Set on"));
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            let out = lists::remove(&targets, "SpecAbilityList", is, |_| None);
+                            change = Some(("Remove special ability", out, "Taken from"));
+                        }
+                        // Given to those that lack it, with as many uses as
+                        // the first that has it.
+                        if m.having.len() < total {
+                            if ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked() {
+                                let lacking: Vec<lists::Target> = (0..total)
+                                    .filter(|i| !m.having.contains(i))
+                                    .map(|i| targets[i].clone())
+                                    .collect();
+                                let entry = m.entry.clone();
+                                let out = lists::set_count(
+                                    &lacking,
+                                    "SpecAbilityList",
+                                    is,
+                                    uses as usize,
+                                    |_| entry.clone(),
+                                );
+                                change = Some(("Add special ability", out, "Added to"));
+                            }
+                        } else {
+                            ui.label("");
+                        }
+                        ui.end_row();
                     }
-                    ui.end_row();
-                }
+                })
             });
         }
     });
@@ -1591,6 +1594,10 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
                 let size = egui::vec2(layout.button, lines);
                 let stacked = egui::Layout::top_down_justified(egui::Align::Center);
                 ui.allocate_ui_with_layout(size, stacked, |ui| {
+                    // (The theme's gap between the two: the slots' rows
+                    // have none, and the buttons' frames, a point past
+                    // each, overlapped.)
+                    ui.spacing_mut().item_spacing.y = mg_uikit::metrics::GAP_S;
                     let equip = ui.add_enabled(can_equip, equip());
                     (equip, ui.add_enabled(can_take, remove()))
                 })

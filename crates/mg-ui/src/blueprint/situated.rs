@@ -624,6 +624,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                     .max_height(ui.available_height().max(TRANSITION_MAP) - 60.0)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        mg_uikit::list_rows(ui);
                         for (flags, title) in [(1, "Available Doors:"), (2, "Available Waypoints:")]
                         {
                             if showing != 0 && showing != flags {

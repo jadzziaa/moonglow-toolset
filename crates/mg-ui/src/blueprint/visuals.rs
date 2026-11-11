@@ -204,69 +204,75 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
     let items = f.nested_list("Material", "ShaderParams");
     let mut changed: Option<Vec<Struct>> = None;
     let text = |s: &Struct, l: &str| decode(s.string(l).unwrap_or_default());
-    egui::Grid::new(f.id("ShaderParams")).num_columns(5).spacing([12.0, 4.0]).show(ui, |ui| {
-        if !items.is_empty() {
-            for l in ["Material", "Parameter", "Type", "Value"] {
-                ui.strong(l);
-            }
-            ui.end_row();
-        }
-        for (i, e) in items.iter().enumerate() {
-            for label in ["Material", "Param"] {
-                let id = f.id(&format!("ShaderParams#{i}#{label}"));
-                if let Some(v) = commit_text(f.app, ui, id, &text(e, label), false, 120.0) {
-                    let mut all = items.clone();
-                    all[i].set(label, Value::String(encode(v.trim())));
-                    changed = Some(all);
-                }
-            }
-            let kind = e.integer("Type").unwrap_or(0);
-            let mut pick = kind;
-            let name = |k: &i64| match k {
-                1 => "Integer".to_string(),
-                2 => "Vector".to_string(),
-                k => format!("({k})"),
-            };
-            crate::widgets::dropdown(f.id(&format!("ShaderParams#{i}#Type")))
-                .selected_text(name(&kind))
-                .show(ui, &mut pick, &[1, 2], name);
-            if pick != kind {
-                let mut all = items.clone();
-                all[i].set("Type", Value::Byte(pick as u8));
-                changed = Some(all);
-            }
-            ui.horizontal(|ui| match kind {
-                1 => {
-                    let v = e.integer("Int").unwrap_or(0);
-                    if let Some(n) = commit_number(ui, v, i64::from(i32::MIN)..=i64::from(i32::MAX))
-                    {
-                        let mut all = items.clone();
-                        all[i].set("Int", Value::Int(n as i32));
-                        changed = Some(all);
+    mg_uikit::with_table_rows(ui, |ui| {
+        egui::Grid::new(f.id("ShaderParams"))
+            .num_columns(5)
+            .spacing([12.0, mg_uikit::metrics::TABLE_RULE])
+            .show(ui, |ui| {
+                if !items.is_empty() {
+                    for l in ["Material", "Parameter", "Type", "Value"] {
+                        ui.strong(l);
                     }
+                    ui.end_row();
                 }
-                2 => {
-                    for k in 1..=4 {
-                        let label = format!("Float{k}");
-                        let v = e.float(&label).unwrap_or(0.0);
-                        if let Some(n) =
-                            crate::widgets::drag_number(ui, v, |d| d.speed(0.01).max_decimals(3))
-                        {
+                for (i, e) in items.iter().enumerate() {
+                    for label in ["Material", "Param"] {
+                        let id = f.id(&format!("ShaderParams#{i}#{label}"));
+                        if let Some(v) = commit_text(f.app, ui, id, &text(e, label), false, 120.0) {
                             let mut all = items.clone();
-                            all[i].set(&label, Value::Float(n));
+                            all[i].set(label, Value::String(encode(v.trim())));
                             changed = Some(all);
                         }
                     }
+                    let kind = e.integer("Type").unwrap_or(0);
+                    let mut pick = kind;
+                    let name = |k: &i64| match k {
+                        1 => "Integer".to_string(),
+                        2 => "Vector".to_string(),
+                        k => format!("({k})"),
+                    };
+                    crate::widgets::dropdown(f.id(&format!("ShaderParams#{i}#Type")))
+                        .selected_text(name(&kind))
+                        .show(ui, &mut pick, &[1, 2], name);
+                    if pick != kind {
+                        let mut all = items.clone();
+                        all[i].set("Type", Value::Byte(pick as u8));
+                        changed = Some(all);
+                    }
+                    ui.horizontal(|ui| match kind {
+                        1 => {
+                            let v = e.integer("Int").unwrap_or(0);
+                            if let Some(n) =
+                                commit_number(ui, v, i64::from(i32::MIN)..=i64::from(i32::MAX))
+                            {
+                                let mut all = items.clone();
+                                all[i].set("Int", Value::Int(n as i32));
+                                changed = Some(all);
+                            }
+                        }
+                        2 => {
+                            for k in 1..=4 {
+                                let label = format!("Float{k}");
+                                let v = e.float(&label).unwrap_or(0.0);
+                                if let Some(n) = crate::widgets::drag_number(ui, v, |d| {
+                                    d.speed(0.01).max_decimals(3)
+                                }) {
+                                    let mut all = items.clone();
+                                    all[i].set(&label, Value::Float(n));
+                                    changed = Some(all);
+                                }
+                            }
+                        }
+                        _ => {}
+                    });
+                    if ui.small_button("Remove").clicked() {
+                        let mut all = items.clone();
+                        all.remove(i);
+                        changed = Some(all);
+                    }
+                    ui.end_row();
                 }
-                _ => {}
-            });
-            if ui.small_button("Remove").clicked() {
-                let mut all = items.clone();
-                all.remove(i);
-                changed = Some(all);
-            }
-            ui.end_row();
-        }
+            })
     });
     // (The Domains of Dread's tint is its locals', which its script sets
     // over a stored one: `mg_rules::tint`, Verify's `tint-stored`.)

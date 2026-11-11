@@ -253,6 +253,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 let needle = mg_core::text::Needle::new(&w.filter);
                 let scroll = egui::ScrollArea::vertical().id_salt("store-wizard-stores");
                 scroll.max_height(260.0).show(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     for (r, name) in &choices {
                         let label = format!("{name} ({r})");
                         if !needle.finds(&label) {

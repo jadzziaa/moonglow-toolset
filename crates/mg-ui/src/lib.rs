@@ -1074,7 +1074,7 @@ pub struct Moonglow {
     pub(crate) maximized: HashMap<Tab, (egui::Rect, egui::Pos2)>,
     /// The tabs of windows drawn this frame: each one's button and the
     /// layer its window is on ([`Moonglow::window_bars`]).
-    pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId)>,
+    pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId, egui::Rect)>,
     /// The menus by the keyboard: where the keys are, the rows counted as
     /// they are drawn (a menu's, its submenu's), the menu open, and
     /// whether Alt was used with something else since it went down.

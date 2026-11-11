@@ -1028,7 +1028,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         rows
     });
     v.selected = v.selected.filter(|&s| s < t.len());
-    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
+    let (row_height, pitch) = mg_uikit::row_metrics(ui); // (rows of controls, none between)
     let feminine = t.feminine.is_some();
     // The list and the chosen line's editor share the tab's height, and
     // the editor's text boxes what is left of its part: a long text
@@ -1098,10 +1098,9 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     if std::mem::take(&mut v.reveal)
         && let Some(at) = v.selected.and_then(|s| rows.iter().position(|r| *r == s))
     {
-        let pitch = row_height + ui.spacing().item_spacing.y;
         list = list.vertical_scroll_offset((at as f32 * pitch - list_height / 2.0).max(0.0));
     }
-    let shown = list.show_rows(ui, row_height, rows.len(), |ui, range| {
+    let shown = mg_uikit::show_rows(list, ui, rows.len(), |ui, range| {
         ui.data_mut(|d| d.insert_temp(seen_id, (range.start, range.end)));
         for &row in &rows[range] {
             let line = t.line(row);

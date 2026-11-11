@@ -1156,36 +1156,32 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 rows.push(Ok(*k));
             }
             egui::Frame::group(ui.style()).show(ui, |ui| {
-                let height = ui.spacing().interact_size.y;
-                egui::ScrollArea::vertical().max_height(260.0).show_rows(
-                    ui,
-                    height,
-                    rows.len(),
-                    |ui, range| {
-                        ui.set_width(320.0);
-                        for row in &rows[range] {
-                            let k = match row {
-                                Ok(k) => k,
-                                Err(t) => {
-                                    let size = egui::vec2(ui.available_width(), height);
-                                    let across = egui::Layout::left_to_right(egui::Align::Center);
-                                    ui.allocate_ui_with_layout(size, across, |ui| {
-                                        ui.strong(kind_name(*t));
-                                    });
-                                    continue;
-                                }
-                            };
-                            let mut on = draft.selected.contains(k);
-                            if ui.check_box(&mut on, k.to_string()).changed() {
-                                if on {
-                                    draft.selected.insert(*k);
-                                } else {
-                                    draft.selected.remove(k);
-                                }
+                let area = egui::ScrollArea::vertical().max_height(260.0);
+                mg_uikit::show_rows(area, ui, rows.len(), |ui, range| {
+                    ui.set_width(320.0);
+                    for row in &rows[range] {
+                        let k = match row {
+                            Ok(k) => k,
+                            Err(t) => {
+                                let size =
+                                    egui::vec2(ui.available_width(), mg_uikit::row_height(ui));
+                                let across = egui::Layout::left_to_right(egui::Align::Center);
+                                ui.allocate_ui_with_layout(size, across, |ui| {
+                                    ui.strong(kind_name(*t));
+                                });
+                                continue;
+                            }
+                        };
+                        let mut on = draft.selected.contains(k);
+                        if ui.check_box(&mut on, k.to_string()).changed() {
+                            if on {
+                                draft.selected.insert(*k);
+                            } else {
+                                draft.selected.remove(k);
                             }
                         }
-                    },
-                );
+                    }
+                });
             });
             ui.horizontal(|ui| {
                 // (How many of those listed are ticked, counted once for
@@ -1279,23 +1275,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let row = ui.spacing().interact_size.y;
                 let under = under_was.unwrap_or(4.0 * row);
                 let height = (ui.available_height() - under).max(4.0 * row);
-                egui::ScrollArea::vertical()
+                let area = egui::ScrollArea::vertical()
                     .id_salt("overwrites")
                     .auto_shrink([false, true])
-                    .max_height(height)
-                    .show_rows(ui, row, draft.overwrites.len(), |ui, range| {
-                        for (k, on) in &mut draft.overwrites[range] {
-                            let open = draft.unsaved.contains(k);
-                            let text = match open {
-                                true => format!("{k} (open, with unsaved changes)"),
-                                false => k.to_string(),
-                            };
-                            let r = ui.check_box(on, text);
-                            if open {
-                                r.on_hover_text(format!("Open with unsaved changes: {UNSAVED}"));
-                            }
+                    .max_height(height);
+                mg_uikit::show_rows(area, ui, draft.overwrites.len(), |ui, range| {
+                    for (k, on) in &mut draft.overwrites[range] {
+                        let open = draft.unsaved.contains(k);
+                        let text = match open {
+                            true => format!("{k} (open, with unsaved changes)"),
+                            false => k.to_string(),
+                        };
+                        let r = ui.check_box(on, text);
+                        if open {
+                            r.on_hover_text(format!("Open with unsaved changes: {UNSAVED}"));
                         }
-                    });
+                    }
+                });
                 under_from = Some(ui.min_rect().bottom());
                 // Every one at once, as Aurora's Overwrite page has them.
                 ui.horizontal(|ui| {

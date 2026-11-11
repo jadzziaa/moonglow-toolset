@@ -1029,7 +1029,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         // (Only the rows in sight are named and laid out: a script that
         // thousands of creatures use is thousands of rows. The others
         // take a row's room.)
-        let row = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+        // (A row each, 22 apart: a link or a label in a row as high as one.)
+        mg_uikit::list_rows(ui);
+        let row = mg_uikit::row_pitch(ui);
         let out_of_sight = |ui: &mut Ui| {
             let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
             let hidden = !ui.is_rect_visible(room);
@@ -1050,7 +1052,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     continue;
                 }
                 let label = shown(app, u);
-                let r = ui.link(label).on_hover_text(format!("{} {}", u.from, u.path));
+                let r = ui.horizontal(|ui| ui.link(label)).inner;
+                let r = r.on_hover_text(format!("{} {}", u.from, u.path));
                 if r.clicked() {
                     go = Some(i);
                 }
@@ -1079,13 +1082,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     continue;
                 }
                 let text = format!("{} › {}", r.from, r.path);
-                if *own {
-                    if ui.link(text).on_hover_text("Open the module's table").clicked() {
-                        go_table = Some(r.from);
+                ui.horizontal(|ui| {
+                    if *own {
+                        if ui.link(text).on_hover_text("Open the module's table").clicked() {
+                            go_table = Some(r.from);
+                        }
+                    } else {
+                        ui.label(text);
                     }
-                } else {
-                    ui.label(text);
-                }
+                });
             }
         }
         if !refs.hak_cells.is_empty() {
@@ -1096,7 +1101,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if out_of_sight(ui) {
                     continue;
                 }
-                ui.label(c.place());
+                ui.horizontal(|ui| ui.label(c.place()));
             }
         }
         if let Some(glob) = &refs.marked {
@@ -1112,7 +1117,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if out_of_sight(ui) {
                     continue;
                 }
-                if ui.link(format!("{} line {}: {}", m.script, m.line, m.text)).clicked() {
+                let text = format!("{} line {}: {}", m.script, m.line, m.text);
+                if ui.horizontal(|ui| ui.link(text)).inner.clicked() {
                     go_line = Some((m.script, m.line));
                 }
             }

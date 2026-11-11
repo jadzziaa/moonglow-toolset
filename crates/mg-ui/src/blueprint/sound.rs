@@ -54,6 +54,7 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_min_height(120.0);
         ui.set_min_width(260.0);
+        mg_uikit::list_rows(ui);
         for (i, s) in sounds.iter().enumerate() {
             if ui.selectable_label(selected == Some(i), s.to_string()).clicked() {
                 selected = Some(i);

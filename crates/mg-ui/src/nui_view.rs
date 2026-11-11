@@ -1035,7 +1035,7 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
         .id_salt("nui-diagnostics")
         .max_height(160.0)
         .auto_shrink([false, true]);
-    area.show_rows(ui, line, rows.rows.len(), |ui, shown| {
+    mg_uikit::show_rows(area, ui, rows.rows.len(), |ui, shown| {
         for (i, (target, place)) in &rows.rows[shown] {
             let d = &findings[*i];
             ui.push_id(i, |ui| {

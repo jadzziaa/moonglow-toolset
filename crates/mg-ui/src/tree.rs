@@ -531,7 +531,8 @@ fn contents_ui(
             };
             if shown.is_empty() {
                 if !filtered && !hide_empty {
-                    ui.weak(title);
+                    // (A row's height, as the kinds' headers have.)
+                    ui.horizontal(|ui| ui.weak(title));
                 }
                 continue;
             }
@@ -859,6 +860,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     }
     let fold = fold.or(typed.then_some(true));
     let mut rows = egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         // A name too long for the pane goes on past it, and the tree
         // scrolls sideways to it, as Aurora's does (a builder's report:
         // only widening the pane showed long names whole).
@@ -1413,8 +1415,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     let row = ui.horizontal(|ui| {
                         if is_area {
                             let arrow = if out { "⏷" } else { "⏵" };
+                            // (Lit only under the pointer: a column of
+                            // them, filled, read as a stack of tiles.)
+                            let button = egui::Button::new(arrow).small().frame_when_inactive(false);
                             let toggle = ui
-                                .small_button(arrow)
+                                .add(button)
                                 .on_hover_text("What is placed in the area, by kind");
                             if toggle.clicked() {
                                 out = !out;
@@ -1537,7 +1542,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         app.actions.push(delete_asked(&app.tree_selected, k));
                     }
                     r.context_menu(|ui| {
- mg_uikit::menu_rows(ui);
+                        mg_uikit::menu_rows(ui);
                         if chosen {
                             let keys: Vec<ResKey> = app.tree_selected.iter().copied().collect();
                             let asked = several_menu(ui, &keys, &menu_commands, &mut app.actions);

@@ -93,10 +93,22 @@ pub enum Tab {
     PluginPanel { plugin: String, panel: String },
 }
 
-/// How much taller a list of rows is in the suite's theme than in egui's
-/// own, which the windows' sizes were first found in: rows of 22 points
-/// with 4 between them, where they were 18 with 3.
-pub(crate) const ROWS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
+/// How much taller a window that is mostly a form is in the suite's
+/// theme than in egui's own, which the windows' sizes were first found
+/// in: a form's lines are controls of 22 points with 4 between them,
+/// where they were 18 with 3.
+pub(crate) const FORMS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
+
+/// How much taller a window that is mostly rows (a tree, a list, a
+/// table, code) is: its rows are 22 points with none between, where they
+/// were 18 with 3 (a point more each), and only its toolbars and the
+/// few lines of form under its rows grew as a form's do (5 points each).
+/// Worked out for the conversation window (its toolbars and Data page
+/// about 35 points more, its tree a point a row: some 7 hundredths), and
+/// looked at in the pictures of the conversation, script, journal, raw
+/// fields, resources and manual windows at the sizes they open at
+/// (`screens.rs`, `windows_at_their_sizes`): 8.
+pub(crate) const ROWS_TALLER: f32 = 1.08;
 
 impl Tab {
     /// Whether it opens in the main dock: areas (and the start page), which
@@ -203,9 +215,30 @@ impl Tab {
             | Tab::Instances { .. } => (820.0, 672.0),
             _ => (820.0, 640.0),
         };
-        // (The heights were found for rows of 18 points with 3 between;
-        // the theme's are 22 with 4 between: as much taller.)
-        egui::vec2(w, (h * ROWS_TALLER / 4.0).round() * 4.0)
+        // (The heights were found for controls of 18 points with 3
+        // between: as much taller as the window's lines are now.)
+        egui::vec2(w, (h * self.taller() / 4.0).round() * 4.0)
+    }
+
+    /// How much taller its window is than the size found for egui's own
+    /// style: [`FORMS_TALLER`] for a window that is mostly a form,
+    /// [`ROWS_TALLER`] for one that is mostly rows.
+    pub(crate) fn taller(&self) -> f32 {
+        match self {
+            Tab::ModuleProperties
+            | Tab::AreaProperties(_)
+            | Tab::AreasProperties(_)
+            | Tab::Options
+            | Tab::TileProperties
+            | Tab::Blueprint(_)
+            | Tab::Blueprints(_)
+            | Tab::Instance { .. }
+            | Tab::Instances { .. }
+            | Tab::Factions
+            | Tab::AdvancedSearch
+            | Tab::PluginPanel { .. } => FORMS_TALLER,
+            _ => ROWS_TALLER,
+        }
     }
 
     /// The tab that edits a resource.
@@ -722,7 +755,10 @@ impl TabViewer for Viewer<'_> {
 
     /// A double click on a window's tab maximizes it, and restores it.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
-        self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id));
+        // (With the part of it in sight: egui_dock scrolls a full bar and
+        // still gives each tab out of sight its button.)
+        let shown = response.rect.intersect(response.interact_rect);
+        self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id, shown));
         // A tab chosen (the one in front too): the module tree goes to
         // what it shows.
         if response.clicked() {

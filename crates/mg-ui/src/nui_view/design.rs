@@ -270,6 +270,7 @@ pub(super) fn editor(
                 .max_height((ui.available_height() * 0.48).max(120.0))
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     palette(ui, v, s, state);
                 });
             ui.separator();
@@ -285,6 +286,7 @@ pub(super) fn editor(
             egui::ScrollArea::vertical().id_salt("nui-layers").auto_shrink([false, false]).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     layers(ui, v, s, state);
                 },
             );
@@ -312,7 +314,9 @@ fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
             let response = ui
                 .add_enabled(
                     can_add,
+                    // (A list's row: lit under the pointer, no fill at rest.)
                     egui::Button::new(*name)
+                        .frame_when_inactive(false)
                         .min_size(vec2(ui.available_width(), ui.spacing().interact_size.y))
                         .sense(Sense::click_and_drag()),
                 )

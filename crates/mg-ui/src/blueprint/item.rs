@@ -1002,6 +1002,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             egui::ScrollArea::vertical().id_salt(("uti-available", key)).max_height(380.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     let mut found = 0;
                     for t in &available {
                         // A kind's choices by name, as Aurora's tree has
@@ -1065,6 +1066,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             egui::ScrollArea::vertical().id_salt(("uti-assigned", key)).max_height(200.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for (i, a) in assigned.iter().enumerate() {
                         ui.horizontal(|ui| {
                             let text = game.property_text(&a.p);

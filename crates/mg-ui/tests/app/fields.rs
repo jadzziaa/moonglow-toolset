@@ -2560,12 +2560,28 @@ fn filters_find_names_case_and_accents_aside() {
     h.run();
     h.get_all_by_role(field).next().unwrap().type_text("arbol");
     h.run_steps(2);
-    // (The waypoints' group is below the pane's edge: scrolled to, as far
-    // as the tree goes.)
+    // Every row the filter leaves, from the tree's top to its foot (it
+    // lays out only the rows in sight, so a row out of sight is not there
+    // to be found or missed): Árbol among them, Roble not.
     let tree = h.get_by_label("Module Properties").rect().center();
-    wheel_to(&mut h, tree, "Árbol viejo");
-    assert!(h.query_by_label_contains("Árbol viejo").is_some(), "the tree finds Árbol");
-    assert!(h.query_by_label_contains("Roble").is_none());
+    let top = |h: &Harness<'_, Moonglow>| h.get_by_label("Module Properties").rect().top();
+    let (mut found, mut was) = (false, f32::NAN);
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while top(&h) != was {
+        assert!(std::time::Instant::now() < deadline, "the tree's foot is reached");
+        assert!(h.query_by_label_contains("Roble").is_none(), "the filter leaves Roble out");
+        found |= h.query_by_label_contains("Árbol viejo").is_some();
+        was = top(&h);
+        h.hover_at(tree);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -40.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        settle(&mut h);
+    }
+    assert!(found, "the tree finds Árbol");
 
     // The palette's search.
     let mut h = app("ui-filter-accents-palette");

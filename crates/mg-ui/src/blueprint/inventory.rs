@@ -540,6 +540,8 @@ pub(super) fn item_list(
         .show(ui, |ui| {
             // (Room to drop on, in an empty list too.)
             ui.set_min_height(48.0);
+            // (Rows that meet: each as tall as its icon, at least a row.)
+            mg_uikit::list_rows(ui);
             for (i, it) in items.iter().enumerate() {
                 let width = ui.available_width() - gutter;
                 let known = if heights[i] > 0.0 { heights[i] } else { guess };

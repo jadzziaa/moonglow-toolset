@@ -4675,3 +4675,58 @@ fn a_creature_s_class_is_not_made_one_it_has_already() {
     let s = field(&mut h, &key);
     assert_eq!(s.list("ClassList").unwrap()[1].get("Class"), Some(&mg_gff::Value::Int(wizard)));
 }
+
+/// A game blueprint opened to look at draws its controls quiet, the
+/// mock's read-only fields: a ticked check box is `text-3`, not the
+/// accent an editable one has, and looks the same under the pointer.
+#[test]
+fn a_viewed_blueprint_s_check_boxes_are_quiet() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    // The fills of the box of the check box labeled `label`.
+    let box_fills = |h: &Harness<'_, Moonglow>, label: &str| -> Vec<egui::Color32> {
+        let r = h.get_all_by_label(label).last().unwrap().rect();
+        let square = egui::Rect::from_min_size(r.left_top(), egui::vec2(16.0, r.height()));
+        drawn(h)
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(b) if square.contains_rect(b.rect) && b.rect.width() < 16.0 => {
+                    Some(b.fill)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    for light in [false, true] {
+        // Editable: the accent.
+        let Some((mut h, _)) = blueprint_harness("plc_chest1", "quiet_edit", ResType::UTP) else {
+            return;
+        };
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        let t = mg_uikit::tokens(&h.ctx);
+        assert!(box_fills(&h, "Useable").contains(&t.accent_fill), "editable ({light})");
+        // Viewed: quiet, under the pointer too.
+        let dir = mg_testkit::scratch_dir("ui-viewed-quiet");
+        let mut app = game_app(&root, None);
+        app.open_module(&sample_module(&dir));
+        app.settings.light_theme = light;
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(key, Gff::read(&data).unwrap());
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        close_tab(&mut app, &Tab::ModuleProperties);
+        let mut h = harness(app, 1000.0, 800.0);
+        settle(&mut h);
+        assert!(h.query_by_label_contains("shown to look at").is_some(), "viewed");
+        let fills = box_fills(&h, "Useable");
+        assert!(fills.contains(&t.text_3), "quiet ({light}): {fills:?}");
+        assert!(!fills.contains(&t.accent_fill), "not the accent ({light})");
+        h.hover_at(h.get_all_by_label("Useable").last().unwrap().rect().center());
+        settle(&mut h);
+        assert_eq!(box_fills(&h, "Useable"), fills, "the same under the pointer ({light})");
+        assert!(!box_fills(&h, "Useable").contains(&t.accent_fill_hover));
+    }
+}

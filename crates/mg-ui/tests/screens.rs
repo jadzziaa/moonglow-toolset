@@ -10092,3 +10092,156 @@ names = ["bed", "beds", "cot", "bedroll"]
     shoot(&mut h, &dir, "palette-grouped-flat");
     eprintln!("{} (TDoD's: {})", dir.display(), tdod.is_some());
 }
+
+/// The theme's second round (`target/test-output/screens-theme-rows/`): a
+/// game blueprint viewed (its check boxes read only, one under the
+/// pointer), a script's editor with the keys (no frame around the code)
+/// and a window with more scripts' tabs than its tab bar holds.
+#[test]
+#[ignore]
+fn theme_read_only_focus_and_tabs() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-theme-rows");
+    let scratch = mg_testkit::scratch_dir("screens-theme-rows");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let scripts: Vec<ResKey> = (0..14)
+        .map(|i| ResKey::parse(&format!("script_number_{i:02}"), ResType::NSS).unwrap())
+        .collect();
+    for s in &scripts {
+        m.set(*s, b"void main()\n{\n    int n = 1;\n}\n".to_vec());
+    }
+    let path = scratch.join("t.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    // A game placeable viewed: its Basic page's check boxes.
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&chest).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(chest, mg_gff::Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((chest, GffPath::root()), "Basic");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(chest)));
+    }
+    settle(&mut h);
+    let plot = h.query_all_by_label("Plot").last().map(|n| n.rect().center());
+    if let Some(at) = plot {
+        h.hover_at(at);
+    }
+    shoot(&mut h, &dir, "readonly");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::Blueprint(chest)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    settle(&mut h);
+    // A game sound viewed: its Volume slider, quiet, under the pointer.
+    let sound = {
+        let game = h.state().game.as_ref().unwrap();
+        let name = game.resman.list(ResType::UTS).into_iter().next().expect("a game sound");
+        ResKey::new(name, ResType::UTS)
+    };
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&sound).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(sound, mg_gff::Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((sound, GffPath::root()), "Basic");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(sound)));
+    }
+    settle(&mut h);
+    if let Some(at) = h.query_all_by_role(egui::accesskit::Role::Slider).next().map(|n| n.rect()) {
+        h.hover_at(at.center());
+    }
+    shoot(&mut h, &dir, "readonly-slider");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::Blueprint(sound)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    settle(&mut h);
+    // A script with the keys.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(scripts[0])));
+    settle(&mut h);
+    let code = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    h.get(code).click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "script-focus");
+    // The rest of the scripts, gathered in its window.
+    for s in &scripts[1..] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(*s)));
+        h.run_steps(2);
+    }
+    settle(&mut h);
+    shoot(&mut h, &dir, "many-tabs");
+    // The tab bar scrolled along: the first tabs out of sight at its left.
+    // (A tab's words are not its accessible name: the bar by its place,
+    // the scripts' window's, over the main window's.)
+    h.hover_at(egui::pos2(590.0, 110.0));
+    for _ in 0..6 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -120.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(1);
+    }
+    settle(&mut h);
+    shoot(&mut h, &dir, "many-tabs-scrolled");
+}
+
+/// Windows at the sizes they open at, on a screen with room for them
+/// (`target/test-output/screens-theme-rows/`): a conversation, a script,
+/// the Factions, a creature's blueprint and its raw fields, the Journal,
+/// the Resources and the manual, each alone, to see what each shows at
+/// its height (`Tab::window_size`).
+#[test]
+#[ignore]
+fn windows_at_their_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-theme-rows");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Prelude.nwm"));
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1700.0, 1300.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    let script = h.state().ws.as_ref().unwrap().module.keys_of(ResType::NSS).next().unwrap();
+    let creature = h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTC).next().unwrap();
+    for (tab, name) in [
+        (mg_ui::Tab::Dialog(ResKey::parse("m0q01a02olge", ResType::DLG).unwrap()), "conversation"),
+        (mg_ui::Tab::Script(*script), "script"),
+        (mg_ui::Tab::Factions, "factions"),
+        (mg_ui::Tab::Blueprint(*creature), "creature"),
+        (mg_ui::Tab::Journal, "journal"),
+        (mg_ui::Tab::Gff(*creature), "gff"),
+        (mg_ui::Tab::Resources, "resources"),
+        (mg_ui::Tab::Manual, "manual"),
+    ] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        settle(&mut h);
+        shoot(&mut h, &dir, &format!("opened-{name}"));
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        h.state_mut().dock.remove_tab(at);
+        settle(&mut h);
+    }
+}

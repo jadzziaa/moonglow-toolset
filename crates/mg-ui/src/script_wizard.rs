@@ -366,26 +366,21 @@ fn pick_list(
         ui.set_min_size(size.into());
         ui.set_max_width(size[0]);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt(id)
-                .max_height(size[1])
-                .auto_shrink(false)
-                .show_rows(
-                    ui,
-                    ui.text_style_height(&egui::TextStyle::Body),
-                    rows.len(),
-                    |ui, range| {
-                        for &(row, text) in &rows[range] {
-                            let r = ui.selectable_label(*selected == Some((list, row)), text);
-                            if r.clicked() {
-                                *selected = Some((list, row));
-                            }
-                            if r.double_clicked() {
-                                chosen = Some(row);
-                            }
-                        }
-                    },
-                );
+            let area =
+                egui::ScrollArea::vertical().id_salt(id).max_height(size[1]).auto_shrink(false);
+            // (Each row a selectable label, 22 high: the rows were given
+            // the text's height, and drifted from where the list put them.)
+            mg_uikit::show_rows(area, ui, rows.len(), |ui, range| {
+                for &(row, text) in &rows[range] {
+                    let r = ui.selectable_label(*selected == Some((list, row)), text);
+                    if r.clicked() {
+                        *selected = Some((list, row));
+                    }
+                    if r.double_clicked() {
+                        chosen = Some(row);
+                    }
+                }
+            });
         });
     });
     chosen
@@ -594,6 +589,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     ui.set_min_size([280.0, 100.0].into());
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                        mg_uikit::list_rows(ui);
                         egui::Grid::new("wiz-classes").num_columns(2).striped(true).show(
                             ui,
                             |ui| {
@@ -638,6 +634,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
         2 => {
             ui.label("Select required genders");
             egui::Frame::group(ui.style()).show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for e in &lists.genders {
                     let on = w.genders.contains(&e.row);
                     if ui.selectable_label(on, &e.name).clicked() {

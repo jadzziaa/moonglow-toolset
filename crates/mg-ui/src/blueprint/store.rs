@@ -339,6 +339,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for c in &items {
                         let row = c.row as i64;
                         if current.contains(&row) || !needle.finds(&c.text) {
@@ -374,6 +375,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for row in &current {
                         let r = ui.selectable_label(right == Some(*row), name(*row));
                         if r.clicked() {
@@ -509,6 +511,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for c in &items {
                         let row = c.row as i64;
                         let all = merged.iter().any(|m| m.key == row && m.all(total));
@@ -553,6 +556,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for m in &merged {
                         ui.horizontal(|ui| {
                             let r = ui.selectable_label(right == Some(m.key), name(m.key));

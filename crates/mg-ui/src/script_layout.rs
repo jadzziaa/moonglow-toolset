@@ -126,7 +126,7 @@ impl LaidOut {
             return g.clone();
         }
         let old = before.as_ref().map_or("", |g| g.text());
-        let error = self.made_with.map_or(Color32::RED, |m| m.error);
+        let error = self.made_with.map_or(mg_uikit::Tokens::DARK.syn_error, |m| m.error);
         // The change: from the first byte that differs to the last (as
         // the old text has them, and as the new one does).
         let p = common_prefix(old.as_bytes(), text.as_bytes());
@@ -238,7 +238,7 @@ impl LaidOut {
             return g.clone();
         }
         let font = palette.font();
-        let color = self.made_with.map_or(Color32::GRAY, |m| m.weak);
+        let color = self.made_with.map_or(mg_uikit::Tokens::DARK.text_3, |m| m.weak);
         let number = |f: &mut egui::epaint::text::FontsView<'_>, n: usize, mark: Mark| {
             let text = match mark {
                 Mark::None => format!("{n:>6}"),

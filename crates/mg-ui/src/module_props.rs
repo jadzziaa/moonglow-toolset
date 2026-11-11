@@ -352,10 +352,11 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let row_height = ui.spacing().interact_size.y;
     let frame = egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let tall = (row_height + ui.spacing().item_spacing.y) * 14.0;
+        let tall = mg_uikit::row_metrics(ui).1 * 14.0;
         let mut rects = Vec::with_capacity(n);
         egui::ScrollArea::vertical().id_salt("ifo-haks").max_height(tall).show(ui, |ui| {
             ui.set_width(ui.available_width());
+            mg_uikit::list_rows(ui);
             // (An older module's single hak, `Mod_Hak`, read where it has
             // no list: the haks layered, `mg_module::haks_of`.)
             match mg_module::haks_of(root).first().filter(|_| n == 0) {

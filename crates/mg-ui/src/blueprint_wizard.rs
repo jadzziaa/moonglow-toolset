@@ -421,6 +421,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.label("Please choose the type of item you wish to create");
                 let types = item_types(app.game.as_deref().expect("checked"));
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     for (row, name) in types {
                         if ui.selectable_label(w.base_item == Some(row), name).clicked() {
                             w.base_item = Some(row);
@@ -563,6 +564,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 let before = w.category;
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     category_tree(ui, &nodes, game, &mut w.category);
                 });
                 // The suggested name follows the category.

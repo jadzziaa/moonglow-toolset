@@ -51,6 +51,173 @@ fn alt_and_a_drag_moves_the_camera_or_raises_the_selection() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Raise"));
 }
 
+/// A drag counts from where the button was pressed, not from where egui
+/// first calls it a drag (some points on): the ground held follows the
+/// pointer all the way, and Alt and a drag raise the selection as far for
+/// a drag begun in small steps as for one made at once. A plain click
+/// and a press held still past the time a click may take (egui then
+/// calls it a drag) move nothing and leave no step to undo.
+#[test]
+fn a_drag_counts_from_the_press_and_a_still_press_changes_nothing() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("drag-from-press") else { return };
+    let revision = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().revision();
+    let undo =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(String::from);
+    let alt = egui::Modifiers::ALT;
+    // Alt and the left button pressed at `a`, the pointer led through
+    // `steps` (from `a`), a frame each, and let go at the last.
+    let drag = |h: &mut Harness<'_, Moonglow>, a: egui::Pos2, steps: &[egui::Vec2]| {
+        h.event(egui::Event::ModifiersChanged(alt));
+        h.hover_at(a);
+        h.step();
+        let button = egui::PointerButton::Primary;
+        h.event(egui::Event::PointerButton { pos: a, button, pressed: true, modifiers: alt });
+        h.step();
+        for step in steps {
+            h.hover_at(a + *step);
+            h.step();
+        }
+        let end = a + steps.last().copied().unwrap_or_default();
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        press(h, end, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    // (Steps under egui's drag threshold first: they were lost.)
+    let small = |to: egui::Vec2| [to * 0.05, to * 0.1, to * 0.5, to];
+
+    // Nothing selected: the ground held stays under the pointer.
+    let ground = Vec3::new(10.0, 10.0, 0.0);
+    let a = screen(&h, area, ground);
+    let changed = revision(&h);
+    drag(&mut h, a, &small(egui::vec2(60.0, 0.0)));
+    let now = screen(&h, area, ground);
+    let off = (now - (a + egui::vec2(60.0, 0.0))).length();
+    assert!(off < 1.5, "the ground held is {off} points from the pointer");
+    assert_eq!(revision(&h), changed, "nothing in the area moved");
+
+    // A waypoint selected: raised as far either way.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    let git = ResKey::new(area, ResType::GIT);
+    let z = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let doc = ws.doc(&git).unwrap();
+        doc.root.list("WaypointList").unwrap()[0].float("ZPosition").unwrap()
+    };
+    let (z0, a) = (z(&mut h), screen(&h, area, Vec3::new(5.0, 30.0, 0.0)));
+    let up = egui::vec2(0.0, -40.0);
+    drag(&mut h, a, &[up]);
+    let at_once = z(&mut h) - z0;
+    assert!(at_once > 0.1, "raised: {at_once}");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(z(&mut h), z0, "undone");
+    drag(&mut h, a, &small(up));
+    let in_steps = z(&mut h) - z0;
+    assert!((in_steps - at_once).abs() < 0.01, "raised {in_steps} in steps, {at_once} at once");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+
+    // A plain click, and a press held still past a click's time: nothing.
+    let (changed, last) = (revision(&h), undo(&h));
+    let ground = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(ground);
+    press(&h, ground, true, egui::Modifiers::NONE);
+    press(&h, ground, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    // (Alt held at `a` a second by the window's clock: egui then calls it
+    // a drag, the raise begun.)
+    h.event(egui::Event::ModifiersChanged(alt));
+    h.hover_at(a);
+    h.step();
+    let button = egui::PointerButton::Primary;
+    h.event(egui::Event::PointerButton { pos: a, button, pressed: true, modifiers: alt });
+    h.step();
+    let from = h.ctx.input(|i| i.time);
+    while h.ctx.input(|i| i.time) - from < 1.0 {
+        h.hover_at(a);
+        h.step();
+    }
+    assert!(h.state().area_views[&area].is_dragging(), "the still press is a drag");
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    press(&h, a, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert_eq!(z(&mut h), z0, "a still press raises nothing");
+    assert_eq!((revision(&h), undo(&h)), (changed, last), "and leaves no step to undo");
+}
+
+/// A press held still on a selected placeable's handles, the up arrow
+/// and the turning ring, past the time a click may take (egui then calls
+/// it a drag, and the handle is held): let go where it was taken, the
+/// placeable is neither raised nor turned and no step is left to undo (a
+/// placeable keeps a bearing, which is written whenever it is placed).
+#[test]
+fn a_handle_held_still_changes_nothing() {
+    use glam::Vec3;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("handle-held-still") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        // (Turned a little: its bearing read back is not quite its own.)
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.3 };
+        let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        item.set("Static", mg_gff::Value::Byte(0));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
+    settle(&mut h);
+    let chest = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[0].clone()
+    };
+    let pivot = Vec3::new(12.0, 30.0, 0.0);
+    let radius = h.state().area_views[&area].handle_radius_at(pivot).unwrap();
+    let was = (chest(&mut h), h.state().ws.as_ref().unwrap().revision());
+    for (name, at) in [
+        ("the up arrow", pivot + Vec3::Z * radius * 1.45),
+        ("the turning ring", pivot + Vec3::new(0.3_f32.cos(), 0.3_f32.sin(), 0.0) * radius),
+    ] {
+        let at = screen(&h, area, at);
+        h.hover_at(at);
+        h.step();
+        press(&h, at, true, egui::Modifiers::NONE);
+        h.step();
+        // (Held still a second by the window's clock: past egui's 0.8 s.)
+        let from = h.ctx.input(|i| i.time);
+        while h.ctx.input(|i| i.time) - from < 1.0 {
+            h.hover_at(at);
+            h.step();
+        }
+        assert!(h.state().area_views[&area].is_dragging(), "{name} held: a drag begun");
+        press(&h, at, false, egui::Modifiers::NONE);
+        settle(&mut h);
+        assert!(!h.state().area_views[&area].is_dragging());
+        let now = (chest(&mut h), h.state().ws.as_ref().unwrap().revision());
+        assert_eq!(now, was, "{name} held still and let go changes nothing");
+        assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Setup"), "{name}: no step");
+    }
+}
+
 /// GitHub issue 26: a sideways scroll pans the area's view left and right
 /// as the screen has it, without zooming; Shift and the wheel (which egui
 /// reports sideways) still zoom, finer.

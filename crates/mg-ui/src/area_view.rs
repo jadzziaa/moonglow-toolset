@@ -1688,6 +1688,13 @@ impl AreaView {
         ((camera.eye - at).length() * HANDLE_SHARE * narrow).max(HANDLE_LEAST)
     }
 
+    /// Whether a drag in the view is under way (a handle held, a box
+    /// drawn, the camera led). For the window's tests.
+    #[doc(hidden)]
+    pub fn is_dragging(&self) -> bool {
+        self.drag.is_some()
+    }
+
     /// The radius of the handles of a selected object at `at`, as the
     /// view draws them now: for the tests.
     pub fn handle_radius_at(&self, at: Vec3) -> Option<f32> {
@@ -7379,7 +7386,7 @@ fn editing_items(
     // it faces, together.
     ui.add_enabled_ui(any, |ui| {
         ui.menu_button("Position", |ui| {
- mg_uikit::menu_rows(ui);
+            mg_uikit::menu_rows(ui);
             if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
                 drop_to_ground(app, view);
                 ui.close();

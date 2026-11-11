@@ -23,7 +23,7 @@
 //! | `widgets.open` (an open combo box or menu; the top window's title bar) | fill `bar`, border `accent` | `.combo.open`'s ring; the dialogs' title row, `bar` |
 //! | `bg_fill` of those (check box, slider rail and thumb, scroll thumb) | `scroll-thumb`, `scroll-thumb-hover` | `.vbar .thumb` |
 //! | corner radius of every state | 3 | radius 3 |
-//! | `expansion` of every interactive state | 1, the border's width | (none: a row at rest as wide as hovered) |
+//! | `expansion` of every interactive state | 1, the border's width | (none: a row at rest as wide as hovered; a list's, tree's or table's rows have neither, [`crate::controls::row_style`], so that their fills meet) |
 //! | `selection` | fill `accent-fill`, text `on-fill` | `.toggle.on`, `.tree-row.sel`, selected text |
 //! | `extreme_bg_color`, `text_edit_bg_color` | `inset` | `.field`, `.memo`, list wells |
 //! | `code_bg_color` | `inset` | `.code` |

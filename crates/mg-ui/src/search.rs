@@ -1386,9 +1386,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         // for every ticked row, 8,785 times 8,785 for a world's variables.
         let mut ticked: Option<(Vec<mg_plugin::Selected>, bool)> = None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            mg_uikit::list_rows(ui);
             // (Only the rows in sight are named and laid out; the others
             // take a row's room, as Find References' do.)
-            let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            let row = mg_uikit::row_pitch(ui);
             for i in 0..draft.hits.len() {
                 let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
                 if !ui.is_rect_visible(room) {

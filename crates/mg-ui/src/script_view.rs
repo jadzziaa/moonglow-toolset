@@ -260,32 +260,20 @@ pub(crate) struct Palette {
 }
 
 impl Palette {
-    /// The theme's colours for each element.
+    /// The theme's colours for each element (its `syn-*` tokens, but the
+    /// text's, `text`).
     pub(crate) fn defaults(dark: bool, text: Color32) -> [Color32; 8] {
-        let rgb = Color32::from_rgb;
-        if dark {
-            [
-                text,
-                rgb(106, 153, 85),
-                rgb(197, 134, 192),
-                rgb(86, 156, 214),
-                rgb(206, 145, 120),
-                rgb(206, 145, 120),
-                rgb(79, 193, 255),
-                Color32::RED,
-            ]
-        } else {
-            [
-                text,
-                rgb(0, 128, 0),
-                rgb(128, 0, 128),
-                rgb(0, 0, 200),
-                rgb(163, 21, 21),
-                rgb(163, 21, 21),
-                rgb(0, 112, 193),
-                Color32::RED,
-            ]
-        }
+        let t = if dark { mg_uikit::Tokens::DARK } else { mg_uikit::Tokens::LIGHT };
+        [
+            text,
+            t.syn_comment,
+            t.syn_directive,
+            t.syn_keyword,
+            t.syn_number,
+            t.syn_string,
+            t.syn_constant,
+            t.syn_error,
+        ]
     }
 
     /// The colours of a style: its own where set, else the theme's.
@@ -358,7 +346,8 @@ fn escape(s: &str) -> String {
 /// dialog), highlighted in the editor's colours on white paper.
 pub(crate) fn print_html(name: &str, text: &str, style: &crate::settings::ScriptStyle) -> String {
     use std::fmt::Write;
-    let job = highlight(text, &Palette::new(style, false, Color32::BLACK));
+    // (The light theme's colors: dark text on white paper.)
+    let job = highlight(text, &Palette::new(style, false, mg_uikit::Tokens::LIGHT.syn_text));
     let mut body = String::new();
     for s in &job.sections {
         let c = s.format.color;
@@ -1020,7 +1009,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .hint(what)
             .show(ui);
             let filter = mg_core::text::Needle::new(&t.filter);
-            let row = ui.spacing().interact_size.y; // (a row of controls: as high as one)
+            // (Rows of controls, none between.)
             // Long names end in "…" in a narrow panel (Help gives them whole).
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             if t.side == SideTab::Templates {
@@ -1031,6 +1020,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 // (As wide as the panel: the scroll bar stays at its edge.)
                 let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
                 area.id_salt("templates").show(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     for (name, path) in templates.iter().filter(|(n, _)| filter.finds(n)) {
                         if ui
                             .selectable_label(false, name)
@@ -1053,7 +1043,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 let list: Vec<&Symbol> =
                     symbols.iter().filter(|s| s.kind == kind && filter.finds(&s.name)).collect();
                 let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
-                area.id_salt(("symbols", kind)).show_rows(ui, row, list.len(), |ui, range| {
+                let area = area.id_salt(("symbols", kind));
+                mg_uikit::show_rows(area, ui, list.len(), |ui, range| {
                     // (Each row as wide as the list, so that its
                     // width doesn't change with the names in view.)
                     ui.set_min_width(ui.available_width());
@@ -1117,8 +1108,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // wrapped): Find In Files for a common word keeps thousands,
             // which were all laid out every frame.
             if t.info == InfoTab::SearchResults {
-                let height = ui.spacing().interact_size.y;
-                area.show_rows(ui, height, t.search.results.len(), |ui, range| {
+                mg_uikit::show_rows(area, ui, t.search.results.len(), |ui, range| {
                     for (k, line, text) in &t.search.results[range] {
                         let row = format!("{}({}): {text}", k.resref, line + 1);
                         // (A long line cut at the pane's edge, on one row.)
@@ -1184,6 +1174,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                         }
                     },
                     InfoTab::Bookmarks => {
+                        mg_uikit::list_rows(ui);
                         let buf = &app.scripts[&key];
                         // (The marked lines' texts in one pass over the
                         // script, not one from its top for each.)
@@ -1425,7 +1416,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .desired_rows(1)
                 .min_size(egui::vec2(0.0, room))
                 .id(editor_id(key))
-                .background_color(egui::Color32::TRANSPARENT)
+                // (No frame: the mock's code has no border, with the
+                // keys or not; the ground is drawn under it.)
+                .frame(mg_uikit::code_frame())
                 .layouter(&mut layouter)
                 .show(ui);
             if let Some(range) = selection
@@ -1516,6 +1509,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .show(&ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                        mg_uikit::list_rows(ui);
                         for (i, s) in c.items.iter().enumerate() {
                             let r = ui
                                 .selectable_label(i == c.selected, &s.name)
@@ -2623,17 +2617,16 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     picked(&w.selected)
                 };
             }
-            let row = ui.spacing().interact_size.y;
+            let (row, pitch) = mg_uikit::row_metrics(ui);
             // (Room kept under the list for its button.)
             let footer = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y + 6.0;
             let height = (ui.available_height() - footer).max(3.0 * row);
             let mut list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             if moved != 0 {
-                let pitch = row + ui.spacing().item_spacing.y;
                 let above = (height / 2.0 - pitch).max(0.0);
                 list = list.vertical_scroll_offset((cursor as f32 * pitch - above).max(0.0));
             }
-            list.show_rows(ui, row, listed.len(), |ui, range| {
+            mg_uikit::show_rows(list, ui, listed.len(), |ui, range| {
                 for (at, (key, from)) in range.clone().zip(listed[range].iter().copied()) {
                     ui.horizontal(|ui| {
                         let r = ui

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T11:07:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T12:31:55Z }
 ---
 
 # Options
@@ -246,8 +246,8 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   of its usual size.
 - **Light theme**: the suite's light theme (light gray panels and bars,
   dark text, the same blue for what is chosen) rather than its dark one,
-  which is the default. It changes as soon as it is ticked, in every
-  window. What a 3D view, a model preview or a NUI window shows (the
+  which is the default. It changes when OK closes the Options window,
+  in every window, as Interface size does (Cancel leaves it as it was). What a 3D view, a model preview or a NUI window shows (the
   game's own look) is the same in both, and so are the script editor's
   colors where a Background of your own is set: a dark Background takes
   the dark theme's colors and a light one the light theme's, so its text

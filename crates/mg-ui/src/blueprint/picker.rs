@@ -199,6 +199,7 @@ pub(crate) fn palette_picker(
     let list = egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(height);
     let mut shown = false;
     list.auto_shrink([false, true]).show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         if let (Some(p), Some(game)) = (palette, game) {
             let mut at = Tree {
                 game,

@@ -270,20 +270,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
     });
     ui.separator();
-    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
+    // (A row of controls: as high as one, and no gap between rows.)
+    let pitch = mg_uikit::row_metrics(ui).1;
     let in_module = |k: &ResKey| ws.as_ref().is_some_and(|w| w.module.contains(k));
     let shown = &browser.shown;
     let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]);
     if std::mem::take(&mut browser.reveal)
         && let Some(at) = browser.cursor
     {
-        let pitch = row_height + ui.spacing().item_spacing.y;
         let above = (ui.available_height() / 2.0 - pitch).max(0.0);
         list = list.vertical_scroll_offset((at as f32 * pitch - above).max(0.0));
     }
     let cursor = browser.cursor;
     let mut clicked = None;
-    let out = list.show_rows(ui, row_height, count, |ui, range| {
+    let out = mg_uikit::show_rows(list, ui, count, |ui, range| {
         for (at, &i) in range.clone().zip(&shown[range]) {
             let Row { key: k, layer, over } = &browser.entries[i];
             ui.horizontal(|ui| {
@@ -1036,6 +1036,7 @@ fn value_text(v: &Value) -> String {
 
 /// A GFF struct as a read-only tree.
 fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
+    mg_uikit::list_rows(ui); // (Rows 22 apart, as the trees' are.)
     for (i, f) in s.fields.iter().enumerate() {
         let label = f.label.to_string_lossy();
         let child_id = format!("{id}/{i}");

@@ -100,6 +100,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui,
                     |ui| {
                         ui.set_width(160.0);
+                        mg_uikit::list_rows(ui);
                         for c in names.iter() {
                             let class = c.row as u32;
                             if w.slots.iter().any(|(k, _, _)| *k == class) {
@@ -131,24 +132,26 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     w.slots.push((class, 1, 0));
                 }
                 let mut remove = None;
-                egui::Grid::new("levelup-slots").num_columns(3).show(ui, |ui| {
-                    ui.strong("Class");
-                    ui.strong("Level");
-                    ui.end_row();
-                    for (i, (class, level, had)) in w.slots.iter_mut().enumerate() {
-                        ui.label(name(*class));
-                        // (A class a file has past level 60 stays as it is.)
-                        let least = (*had).clamp(1, MAX_LEVEL);
-                        crate::widgets::spin_draft(ui, level, least..=MAX_LEVEL, 1.0, |d| d)
-                            .on_hover_text("Adjust the level of this class");
-                        // Classes the creature has stay.
-                        if *had == 0
-                            && ui.small_button("✖").on_hover_text("Remove this class").clicked()
-                        {
-                            remove = Some(i);
-                        }
+                mg_uikit::with_table_rows(ui, |ui| {
+                    egui::Grid::new("levelup-slots").num_columns(3).show(ui, |ui| {
+                        ui.strong("Class");
+                        ui.strong("Level");
                         ui.end_row();
-                    }
+                        for (i, (class, level, had)) in w.slots.iter_mut().enumerate() {
+                            ui.label(name(*class));
+                            // (A class a file has past level 60 stays as it is.)
+                            let least = (*had).clamp(1, MAX_LEVEL);
+                            crate::widgets::spin_draft(ui, level, least..=MAX_LEVEL, 1.0, |d| d)
+                                .on_hover_text("Adjust the level of this class");
+                            // Classes the creature has stay.
+                            if *had == 0
+                                && ui.small_button("✖").on_hover_text("Remove this class").clicked()
+                            {
+                                remove = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    })
                 });
                 if let Some(i) = remove {
                     w.slots.remove(i);

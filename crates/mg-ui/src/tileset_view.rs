@@ -623,6 +623,7 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
             let ui = &mut cols[col];
             crate::widgets::section_heading(ui, if crosser { "Crossers" } else { "Terrains" });
             let list = if crosser { &t.crossers } else { &t.terrains };
+            mg_uikit::list_rows(ui);
             for (i, x) in list.iter().enumerate() {
                 let label = if x.strref.is_none() {
                     x.unlocalized_name.clone().unwrap_or_default()
@@ -750,24 +751,27 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
             ui,
             if secondary { "Secondary rules" } else { "Primary rules" },
         );
-        egui::Grid::new(("set-rules", d.id, secondary)).num_columns(7).spacing([10.0, 4.0]).show(
-            ui,
-            |ui| {
-                for head in ["", "Placed", "height", "Adjacent", "height", "Changed", "height"] {
-                    crate::widgets::field_label(ui, head);
-                }
-                ui.end_row();
-                for i in 0..list.len() {
-                    let section = format!("{each}{i}");
-                    ui.monospace(format!("{i:>3}"));
-                    for key in ["Placed", "Adjacent", "Changed"] {
-                        name_key(ui, d, &section, key, &terrains, false);
-                        int_key(ui, d, &section, &format!("{key}Height"), -1..=4);
+        mg_uikit::with_table_rows(ui, |ui| {
+            egui::Grid::new(("set-rules", d.id, secondary))
+                .num_columns(7)
+                .spacing([10.0, mg_uikit::metrics::TABLE_RULE])
+                .show(ui, |ui| {
+                    for head in ["", "Placed", "height", "Adjacent", "height", "Changed", "height"]
+                    {
+                        crate::widgets::field_label(ui, head);
                     }
                     ui.end_row();
-                }
-            },
-        );
+                    for i in 0..list.len() {
+                        let section = format!("{each}{i}");
+                        ui.monospace(format!("{i:>3}"));
+                        for key in ["Placed", "Adjacent", "Changed"] {
+                            name_key(ui, d, &section, key, &terrains, false);
+                            int_key(ui, d, &section, &format!("{key}Height"), -1..=4);
+                        }
+                        ui.end_row();
+                    }
+                })
+        });
         if list.is_empty() {
             ui.weak("None.");
         }
@@ -798,23 +802,28 @@ fn door_hooks(app: &Moonglow, ui: &mut Ui, d: &mut TilesetDoc, i: usize) {
     crate::widgets::section_heading(ui, "Doors");
     let doors = d.doors(i);
     let types = app.game.as_deref().and_then(|g| g.table("doortypes").ok());
-    egui::Grid::new(("set-doors", d.id, i)).num_columns(7).spacing([10.0, 4.0]).show(ui, |ui| {
-        for head in ["", "Type", "", "X", "Y", "Z", "Orientation (°)"] {
-            crate::widgets::field_label(ui, head);
-        }
-        ui.end_row();
-        for (n, section) in doors.iter() {
-            ui.monospace(format!("{n:>3}"));
-            int_key(ui, d, section, "Type", 0..=i32::MAX);
-            // (Its row's label, where the game data has the table.)
-            let row = d.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
-            let label = row.zip(types.as_ref()).and_then(|(r, t)| t.get(r, "Label"));
-            ui.weak(label.unwrap_or_default());
-            for key in ["X", "Y", "Z", "Orientation"] {
-                float_key(ui, d, section, key);
-            }
-            ui.end_row();
-        }
+    mg_uikit::with_table_rows(ui, |ui| {
+        egui::Grid::new(("set-doors", d.id, i))
+            .num_columns(7)
+            .spacing([10.0, mg_uikit::metrics::TABLE_RULE])
+            .show(ui, |ui| {
+                for head in ["", "Type", "", "X", "Y", "Z", "Orientation (°)"] {
+                    crate::widgets::field_label(ui, head);
+                }
+                ui.end_row();
+                for (n, section) in doors.iter() {
+                    ui.monospace(format!("{n:>3}"));
+                    int_key(ui, d, section, "Type", 0..=i32::MAX);
+                    // (Its row's label, where the game data has the table.)
+                    let row = d.get(section, "Type").and_then(|v| v.trim().parse::<usize>().ok());
+                    let label = row.zip(types.as_ref()).and_then(|(r, t)| t.get(r, "Label"));
+                    ui.weak(label.unwrap_or_default());
+                    for key in ["X", "Y", "Z", "Orientation"] {
+                        float_key(ui, d, section, key);
+                    }
+                    ui.end_row();
+                }
+            })
     });
     if doors.is_empty() {
         ui.weak("None: a door can't be placed on this tile.");
@@ -906,16 +915,16 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             filter.finds_in(&fields.iter().map(String::as_str).collect::<Vec<_>>())
         })
         .collect();
-    let row_height = ui.spacing().interact_size.y; // (a row of controls: as high as one)
+    let pitch = mg_uikit::row_metrics(ui).1; // (rows of controls, none between)
     let mut list = egui::ScrollArea::vertical().id_salt(("set-tiles", d.id)).max_height(260.0);
     if d.tile != d.scrolled_to {
         d.scrolled_to = d.tile;
         if let Some(at) = d.tile.and_then(|t| rows.iter().position(|&r| r == t)) {
-            let each = row_height + ui.spacing().item_spacing.y;
+            let each = pitch;
             list = list.vertical_scroll_offset((at as f32 * each - 100.0).max(0.0));
         }
     }
-    list.show_rows(ui, row_height, rows.len(), |ui, range| {
+    mg_uikit::show_rows(list, ui, rows.len(), |ui, range| {
         for &i in &rows[range] {
             let tile = &t.tiles[i];
             let corners: Vec<&str> = tile.corners.iter().map(|(c, _)| c.as_str()).collect();
@@ -1075,6 +1084,7 @@ fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         egui::ScrollArea::vertical().id_salt(("set-groups", d.id)).max_height(360.0).show(
             &mut cols[0],
             |ui| {
+                mg_uikit::list_rows(ui);
                 for (i, g) in t.groups.iter().enumerate() {
                     let text = format!("{i:>3}  {} ({}×{})", g.name, g.columns, g.rows);
                     if ui.selectable_label(d.group == Some(i), text).clicked() {

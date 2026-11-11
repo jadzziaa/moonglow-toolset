@@ -1686,6 +1686,10 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         open: None,
     };
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // (Rows 22 apart; a gallery's pictures keep their gaps.)
+        if at.gallery.is_none() {
+            mg_uikit::list_rows(ui);
+        }
         for item in &palette.branches {
             show_item(ui, item, &mut at, 0);
         }

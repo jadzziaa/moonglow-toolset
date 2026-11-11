@@ -533,11 +533,10 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
             if entered && let Some(first) = listed.first() {
                 chosen = Some((*first).clone());
             }
-            let row = ui.spacing().interact_size.y;
             let root = w.root.as_deref();
-            egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+            mg_uikit::show_rows(
+                egui::ScrollArea::vertical().auto_shrink(false),
                 ui,
-                row,
                 listed.len(),
                 |ui, range| {
                     for t in &listed[range] {
@@ -2101,8 +2100,14 @@ pub(crate) fn grid_in(
                 .filter(|k| value_names && matches!(k, Kind::List { .. } | Kind::Flags { .. }))
         })
         .collect();
-    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
-    let pitch = row_height + ui.spacing().item_spacing.y;
+    // A row of the grid: a table's row (22, none between), or its text
+    // and a margin where that is taller. The row numbers beside the rows
+    // are as high, in the same rows' style: they were the text's height
+    // and its gap apart, the cells a control's and its gap, and drifted
+    // half a row from their rows by the fifteenth.
+    let (control, step) = mg_uikit::row_metrics(ui);
+    let row_height = control.max(ui.text_style_height(&egui::TextStyle::Monospace) + 6.0);
+    let pitch = row_height + (step - control);
     let reveal = std::mem::take(&mut doc.reveal);
     let selected = doc.selected;
     let area = doc.area().filter(|a| (a.0, a.2) != (a.1, a.3));
@@ -2185,7 +2190,7 @@ pub(crate) fn grid_in(
                             }
                         }
                         r.context_menu(|ui| {
- mg_uikit::menu_rows(ui);
+                            mg_uikit::menu_rows(ui);
                             if read_only {
                                 if ui.button("Hide Column").clicked() {
                                     column_view = Some(ColumnView::Hide(index));
@@ -2413,8 +2418,8 @@ pub(crate) fn grid_in(
     }
     let room = ui.available_height();
     let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
-    let shown = ui
-        .horizontal_top(|ui| {
+    let shown = mg_uikit::with_rows(ui, |ui| {
+        ui.horizontal_top(|ui| {
             let gutter = egui::vec2(NUMBER, (room - bar).max(row_height));
             let down = egui::Layout::top_down(egui::Align::Min);
             ui.allocate_ui_with_layout(gutter, down, |ui| {
@@ -2606,7 +2611,8 @@ pub(crate) fn grid_in(
             })
             .inner
         })
-        .inner;
+        .inner
+    });
     doc.scroll = shown.state.offset;
     // A drag selecting cells past the grid's edge scrolls it that way,
     // the faster the further, and the selection reaches the row and
@@ -3155,6 +3161,7 @@ fn string_choice(
                 .max_height(240.0)
                 .min_scrolled_height(200.0);
             list.show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for (n, text) in names {
                     let now = value.and_then(|v| v.trim().parse::<u32>().ok()) == Some(*n);
                     let line = text.lines().next().unwrap_or_default();
@@ -3308,6 +3315,7 @@ fn model_choice(
             .max_height(240.0)
             .min_scrolled_height(200.0);
         list.show(ui, |ui| {
+            mg_uikit::list_rows(ui);
             for n in names {
                 let now = value.is_some_and(|v| v.eq_ignore_ascii_case(n));
                 if ui.selectable_label(now, n).clicked() {
@@ -3537,14 +3545,15 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
             if found.is_empty() {
                 ui.weak("This table has every row of that copy as it has them.");
             }
-            let height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
             // (Room under the list for the buttons, and for a row's cells
             // being chosen.)
             let under = if taking.open_row.is_some() { 150.0 } else { 40.0 };
             let room = (ui.available_height() - under).max(120.0);
-            egui::ScrollArea::vertical().max_height(room).auto_shrink([false, false]).show_rows(
+            // (Rows of a check box and words, 22 apart: they were given the
+            // text's height and a margin, and their check boxes were taller.)
+            mg_uikit::show_rows(
+                egui::ScrollArea::vertical().max_height(room).auto_shrink([false, false]),
                 ui,
-                height,
                 found.len(),
                 |ui, range| {
                     for c in &found[range] {
@@ -3621,6 +3630,7 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                 let cells = egui::ScrollArea::vertical().id_salt("take-cells").max_height(100.0);
                 ui.add_enabled_ui(!whole, |ui| {
                     cells.auto_shrink([false, true]).show(ui, |ui| {
+                        mg_uikit::list_rows(ui);
                         for (i, (col, mine, theirs)) in c.cells.iter().enumerate() {
                             let (mine, theirs) = (
                                 mine.as_deref().unwrap_or("****"),

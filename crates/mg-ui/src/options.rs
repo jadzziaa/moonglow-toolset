@@ -726,7 +726,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .exact_size(160.0)
                 .frame(egui::Frame::NONE.inner_margin(6.0))
                 .show(ui, |ui| {
-                    ui.vertical(|ui| {
+                    // (Each row as wide as the list, as the mock's are.)
+                    let rows = egui::Layout::top_down_justified(egui::Align::Min);
+                    ui.with_layout(rows, |ui| {
+                        mg_uikit::list_rows(ui);
                         for (page, name) in PAGES {
                             ui.selectable_value(&mut draft.page, page, name);
                         }
@@ -1014,6 +1017,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 draft.edit_language = Some(0);
                             }
                             ui.add_enabled_ui(!default, |ui| {
+                                mg_uikit::list_rows(ui);
                                 for l in mg_core::Language::EE {
                                     let name = l.name().unwrap_or("?");
                                     if ui
@@ -1624,56 +1628,62 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
         }
     }
     ui.label("What Verify Module reports (a group's \u{25B8} shows its checks):");
-    for group in Group::ALL {
-        let checks: Vec<Check> = Check::ALL.into_iter().filter(|c| c.group() == group).collect();
-        let tip = match group {
-            Group::References => {
-                "Resources the module names that neither it, its haks nor the game has".to_string()
-            }
-            Group::Plugins => "The checks of the enabled plugins".to_string(),
-            _ => {
-                format!("{} checks, listed under its \u{25B8}", checks.len())
-            }
-        };
-        let id = ui.make_persistent_id(("verify-group", group.id()));
-        let whole = draft.verify_skip.iter().any(|w| w == group.id());
-        // (Open at first where some of its checks are left out.)
-        let some = match group {
-            Group::References => draft.verify_skip.iter().any(|w| w.starts_with("references:")),
-            Group::Plugins => draft.verify_skip.iter().any(|w| w.contains('/')),
-            _ => checks.iter().any(|c| draft.verify_skip.iter().any(|w| w == c.id())),
-        };
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, some)
-            .show_header(ui, |ui| {
-                word(ui, &mut draft.verify_skip, group.id(), group.title(), &tip);
-            })
-            .body(|ui| {
-                ui.add_enabled_ui(!whole, |ui| match group {
-                    Group::References => {
-                        for c in Category::ALL {
-                            let id = format!("references:{}", c.id());
-                            let label = format!("Of {}", c.id());
-                            let tip =
-                                format!("Missing references made by the module's {}", { c.id() });
-                            word(ui, &mut draft.verify_skip, &id, &label, &tip);
+    // (A tree of check boxes: rows 22 apart.)
+    mg_uikit::with_rows(ui, |ui| {
+        for group in Group::ALL {
+            let checks: Vec<Check> =
+                Check::ALL.into_iter().filter(|c| c.group() == group).collect();
+            let tip = match group {
+                Group::References => {
+                    "Resources the module names that neither it, its haks nor the game has"
+                        .to_string()
+                }
+                Group::Plugins => "The checks of the enabled plugins".to_string(),
+                _ => {
+                    format!("{} checks, listed under its \u{25B8}", checks.len())
+                }
+            };
+            let id = ui.make_persistent_id(("verify-group", group.id()));
+            let whole = draft.verify_skip.iter().any(|w| w == group.id());
+            // (Open at first where some of its checks are left out.)
+            let some = match group {
+                Group::References => draft.verify_skip.iter().any(|w| w.starts_with("references:")),
+                Group::Plugins => draft.verify_skip.iter().any(|w| w.contains('/')),
+                _ => checks.iter().any(|c| draft.verify_skip.iter().any(|w| w == c.id())),
+            };
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, some)
+                .show_header(ui, |ui| {
+                    word(ui, &mut draft.verify_skip, group.id(), group.title(), &tip);
+                })
+                .body(|ui| {
+                    ui.add_enabled_ui(!whole, |ui| match group {
+                        Group::References => {
+                            for c in Category::ALL {
+                                let id = format!("references:{}", c.id());
+                                let label = format!("Of {}", c.id());
+                                let tip = format!("Missing references made by the module's {}", {
+                                    c.id()
+                                });
+                                word(ui, &mut draft.verify_skip, &id, &label, &tip);
+                            }
                         }
-                    }
-                    Group::Plugins if draft.plugin_checks.is_empty() => {
-                        ui.weak("No enabled plugin has checks.");
-                    }
-                    Group::Plugins => {
-                        for (id, name) in draft.plugin_checks.clone() {
-                            word(ui, &mut draft.verify_skip, &id, &name, &id);
+                        Group::Plugins if draft.plugin_checks.is_empty() => {
+                            ui.weak("No enabled plugin has checks.");
                         }
-                    }
-                    _ => {
-                        for c in &checks {
-                            word(ui, &mut draft.verify_skip, c.id(), c.id(), c.about());
+                        Group::Plugins => {
+                            for (id, name) in draft.plugin_checks.clone() {
+                                word(ui, &mut draft.verify_skip, &id, &name, &id);
+                            }
                         }
-                    }
+                        _ => {
+                            for c in &checks {
+                                word(ui, &mut draft.verify_skip, c.id(), c.id(), c.about());
+                            }
+                        }
+                    });
                 });
-            });
-    }
+        }
+    });
     ui.add_space(6.0);
     crate::widgets::field_label(ui, "Also leave out");
     ui.add(
@@ -1775,6 +1785,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
         needle.finds_in(&[&mg_core::text::fold(name), &mg_core::text::fold(group.name())])
     });
     egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         let mut group = None;
         egui::Grid::new("keys").num_columns(3).striped(true).show(ui, |ui| {
             for (in_group, id, name) in &rows {
