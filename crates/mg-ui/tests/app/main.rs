@@ -16,6 +16,7 @@ mod conversations;
 mod drawing;
 mod fields;
 mod gpu_memory;
+mod hak_closing;
 mod inventories;
 mod lists_together;
 mod looks;

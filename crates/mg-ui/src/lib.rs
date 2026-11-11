@@ -769,6 +769,16 @@ pub struct Moonglow {
     /// unsaved changes, waiting in turn for the question to be answered
     /// (`side_doc::closing_window`).
     pub(crate) side_closing: std::collections::VecDeque<Tab>,
+    /// What closing the window, Exit, File › Close or another module asked
+    /// for, waiting for the side editors' questions to be answered
+    /// ([`Moonglow::ask_side_docs`]): carried on with once none is left,
+    /// dropped by Cancel.
+    pub side_then: Option<Action>,
+    /// Why a side editor's document could not be saved, the last time it
+    /// was tried: said in its closing question and under its editor.
+    pub(crate) side_failed: Option<(Tab, String)>,
+    /// The actions of the batch `run_actions` runs that have not run yet.
+    pub(crate) batch_rest: Vec<Action>,
     /// The side editor (or the talk table's) under the pointer, as drawn
     /// this frame: Undo and Redo are its (`Moonglow::local_undo`).
     pub(crate) undo_under_pointer: Option<Tab>,
@@ -1046,6 +1056,9 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// Why the module could not be saved when that question's Save was
+    /// answered: said under it, asked again; let go when it is answered.
+    pub(crate) module_failed: Option<String>,
     /// The unsaved work ([`Moonglow::unsaved_mark`]) as it was when New
     /// Module… or Open Module… was let through: their second step asks
     /// again where it is other work by then.
@@ -1278,6 +1291,9 @@ impl Moonglow {
             tilesets: Vec::new(),
             next_tileset: 0,
             side_closing: Default::default(),
+            side_then: None,
+            side_failed: None,
+            batch_rest: Vec::new(),
             undo_under_pointer: None,
             undo_keys: None,
             undo_before_bars: None,
@@ -1387,6 +1403,7 @@ impl Moonglow {
             tree_to_match: false,
             import: None,
             confirm_discard: None,
+            module_failed: None,
             discard_asked: None,
             module_folder: None,
             claims: Default::default(),
@@ -3314,7 +3331,14 @@ impl Moonglow {
     /// Makes a module the open one, with its haks and itself layered into
     /// the game data.
     fn use_module(&mut self, m: Module) {
-        self.close();
+        // (The side editors open now stay open with their documents: a
+        // hak is no module's, and one opened with the module, in the same
+        // frame, was let go with the last one's tabs.)
+        let side: Vec<Tab> = (self.dock.iter_all_tabs())
+            .map(|(_, t)| t.clone())
+            .filter(|t| side_doc::is_side(t) && self.side_doc(t).is_some())
+            .collect();
+        self.close_keeping(&side);
         trace::note(format!(
             "use module: {} resources, haks {:?}; game data {}, shared by {} other(s); install {}",
             m.len(),
@@ -3355,6 +3379,13 @@ impl Moonglow {
         self.area_names = Default::default();
         self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
+        // (The side editors kept by `close_keeping`: their tabs.)
+        for tab in side {
+            if self.side_doc(&tab).is_some() {
+                self.dock.main_surface_mut().push_to_first_leaf(tab);
+            }
+        }
+        self.side_docs_follow_tabs();
         self.open_palette = true;
         // On the area's tiles, what a new module needs first; or on the
         // palette shown last, where one was chosen.
@@ -3507,18 +3538,22 @@ impl Moonglow {
     }
 
     /// Asks of each editor beside the module with unsaved changes whether
-    /// to save it (its own question, as when its tab is closed), and says
-    /// that what was asked for waits for the answers.
-    fn ask_side_docs(&mut self) {
+    /// to save it (its own question, by its name, as when its tab is
+    /// closed), and carries on with `then` once every one is answered
+    /// (`side_doc::closing_window`; Cancel drops it). With none to ask
+    /// of, `then` now.
+    fn ask_side_docs(&mut self, then: Action) {
         let tabs: Vec<Tab> =
             self.side_docs().filter(|d| d.has_unsaved()).map(|d| d.tab()).collect();
         for tab in &tabs {
             self.may_close_side(tab);
         }
-        self.log.warn(
-            "An editor beside the module has unsaved changes: answer its question, then do that \
-             again",
-        );
+        if self.side_closing.is_empty() {
+            self.side_then = None;
+            self.actions.push(then);
+        } else {
+            self.side_then = Some(then);
+        }
     }
 
     fn new_module(&mut self, name: &str) {
@@ -3582,6 +3617,12 @@ impl Moonglow {
 
     /// Closes the module (discarding unsaved changes; the caller asks first).
     pub fn close(&mut self) {
+        self.close_keeping(&[]);
+    }
+
+    /// [`Moonglow::close`], the side editors' tabs `side` kept open with
+    /// their documents (another module is being opened).
+    fn close_keeping(&mut self, side: &[Tab]) {
         // Its tabs, for the next time it is opened.
         self.keep_open_tabs();
         self.open_tabs = Default::default();
@@ -3682,6 +3723,15 @@ impl Moonglow {
         self.forget_drawn_textures();
         self.area_names = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);
+        // (The side editors' documents with their tabs: those let go of
+        // whose tabs went, a changed one's tab back, those kept for the
+        // next module with theirs. What waited for their questions was for
+        // this module.)
+        for tab in side {
+            self.dock.main_surface_mut().push_to_first_leaf(tab.clone());
+        }
+        self.side_docs_follow_tabs();
+        self.side_then = None;
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
@@ -3758,10 +3808,16 @@ impl Moonglow {
     }
 
     fn run_actions(&mut self) {
-        let actions = std::mem::take(&mut self.actions);
-        for a in actions {
+        // (What is left of the batch is kept where what runs before it
+        // can see it: a hak opened and then a module in one frame, its tab
+        // still to come when the module's resets the dock,
+        // `side_docs_follow_tabs`.)
+        let outer = std::mem::replace(&mut self.batch_rest, std::mem::take(&mut self.actions));
+        while !self.batch_rest.is_empty() {
+            let a = self.batch_rest.remove(0);
             self.run(a);
         }
+        self.batch_rest = outer;
         // (Windows closed as their Cancel, once what they asked for is
         // done.)
         blueprint::cancel_closed(self);
@@ -3822,22 +3878,22 @@ impl Moonglow {
         // The window's X: with unsaved work, the question Exit asks; with
         // none, one of its own, so that a slip of the pointer does not end
         // a session of open areas and scripts.
-        let action = match action {
-            Action::CloseWindow if self.has_unsaved_work() => {
-                self.confirm_discard = Some(Action::Quit);
-                return;
-            }
-            Action::CloseWindow if self.settings.close_without_asking => Action::Quit,
-            other => other,
+        let (action, discards) = match action {
+            Action::CloseWindow if self.has_unsaved_work() => (Action::Quit, true),
+            Action::CloseWindow if self.settings.close_without_asking => (Action::Quit, discards),
+            other => (other, discards),
         };
         if discards && self.has_unsaved_work() {
-            // (Only an editor beside the module, a new hak say: its own
-            // question, where the module's named the module and its Save
-            // saved nothing of the hak.)
+            // (Only an editor beside the module, a hak a file was added to
+            // say: its own question, by its name, then what was asked for.
+            // The module's named the module, "the new module" with none
+            // open, and its Save saved nothing of a new hak.)
             if self.only_side_unsaved() {
-                self.ask_side_docs();
+                self.ask_side_docs(action);
                 return;
             }
+            // (Asked anew: no reason from an earlier save.)
+            self.module_failed = None;
             self.confirm_discard = Some(action);
             return;
         }
@@ -3901,14 +3957,35 @@ impl Moonglow {
                 if bake_view::hold_save(self, Action::SaveThen(next.clone())) {
                     return;
                 }
+                self.module_failed = None;
+                let logged = self.log.entries.len();
                 self.save(None);
-                if !self.has_unsaved_work() {
+                let module_unsaved = self.has_unsaved_work() && !self.only_side_unsaved();
+                // (The module's save failed, said in the log: its question
+                // again, saying why, rather than nothing and the Exit
+                // dropped. Not where nothing failed: Save As's dialog
+                // canceled.)
+                let failed = (self.log.entries[logged.min(self.log.entries.len())..].iter())
+                    .rev()
+                    .find(|(level, _)| *level == Level::Error)
+                    .map(|(_, m)| m.clone());
+                if module_unsaved && let Some(why) = failed {
+                    self.module_failed = Some(why);
+                    self.confirm_discard = Some(*next);
+                } else if !self.has_unsaved_work() {
                     self.run_now(*next);
                 } else if self.only_side_unsaved() {
                     // (Saved, but for an editor beside it that the module's
-                    // Save does not save: nothing happened, with no word.)
-                    self.ask_side_docs();
+                    // Save does not save, a new hak say: its question, then
+                    // what was asked for.)
+                    self.ask_side_docs(*next);
                 }
+            }
+            // (The module's Don't Save: an editor beside it with unsaved
+            // changes is asked of by its name first, not dropped with the
+            // module's.)
+            Action::Proceed(next) if self.side_unsaved() => {
+                self.ask_side_docs(Action::Proceed(next));
             }
             Action::Proceed(next) => self.run_now(*next),
             Action::OpenModuleDialog => {

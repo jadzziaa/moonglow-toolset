@@ -494,7 +494,18 @@ gone from the module is passed over). A middle click on a tab closes it.
 A hak, a 2DA or a tileset with unsaved changes asks first, as its close
 button does, and as the module asks: **Save**, **Don't Save** or
 **Cancel**. Closing several at once (Close All) asks of each in turn;
-Cancel keeps that one and the rest open.
+Cancel keeps that one and the rest open. Closing Moonglow's window, File
+› Exit, File › Close and opening another module ask the same way: of
+each hak, 2DA or tileset with unsaved changes by its name, in turn, after
+the module's own question if the module has unsaved changes too (its
+**Don't Save** drops only the module's), and then go on. **Cancel** at
+any of them closes nothing. A save that fails says why, in the question
+and under its editor (the talk table's too), which stays open: put the
+cause right (a file added to a hak that has gone from disk since, say)
+and **Save** again, or **Don't Save**, or take the change back with Undo.
+The module's own question does the same: when its **Save** fails (a
+place that can't be written), it is asked again, saying why. A hak,
+2DA or tileset open when another module is opened stays open.
 
 **A window opens where one of its kind was last dragged to.** Drag a
 window by its tab into the main pane (beside the areas' tabs) or into

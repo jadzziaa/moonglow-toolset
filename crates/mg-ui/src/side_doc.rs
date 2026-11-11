@@ -167,10 +167,12 @@ pub(crate) fn ok_cancel(
         "Close the window without saving, asking about unsaved changes first",
     ];
     let id = egui::Id::new(("side-ok-cancel", tab));
-    let Some(pressed) = crate::blueprint::ok_cancel_saying(ui, id, read_only, tips) else {
-        return false;
-    };
+    let pressed = crate::blueprint::ok_cancel_saying(ui, id, read_only, tips);
+    failed_foot(app, ui, tab);
+    let Some(pressed) = pressed else { return false };
     before(app);
+    // (A save that fails here asks the tab's question: why, and the ways
+    // out, are on screen rather than nothing.)
     let close = match pressed {
         // (Close: as its ×.)
         Pressed::Ok if read_only => app.may_close(tab),
@@ -187,6 +189,8 @@ pub(crate) fn ok_cancel(
             let saved = !unsaved || app.save_side(tab);
             if saved {
                 app.forget_side(tab);
+            } else if app.failed_saving(tab).is_some() && !app.side_closing.contains(tab) {
+                app.side_closing.push_back(tab.clone());
             }
             saved
         }
@@ -196,6 +200,34 @@ pub(crate) fn ok_cancel(
         app.actions.push(crate::Action::CloseTab(tab.clone()));
     }
     close
+}
+
+/// Why `tab`'s document could not be saved the last time, under its
+/// editor (above its OK and Cancel): the editor's own Save, its OK and
+/// the module's Save say it there, not only in the log.
+fn failed_foot(app: &Moonglow, ui: &mut egui::Ui, tab: &Tab) {
+    let Some(why) = app.failed_saving(tab) else { return };
+    // (A 2DA's editor says it already, above its grid: "Not saved: …".)
+    if let Tab::Table(id) = *tab
+        && app.tables.iter().any(|d| d.id == id && d.problem.is_some())
+    {
+        return;
+    }
+    let text = failed_text(why);
+    egui::Panel::bottom(egui::Id::new(("side-failed", tab)))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
+        .show_separator_line(false)
+        .show(ui, |ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).color(ui.visuals().error_fg_color))
+                    .wrap(),
+            );
+        });
+}
+
+/// The sentence that says why a side editor's document was not saved.
+fn failed_text(why: &str) -> String {
+    format!("It could not be saved: {why}")
 }
 
 /// Whether a tab is a side editor's (whether or not its document is still
@@ -242,8 +274,73 @@ impl Moonglow {
     }
 
     /// Saves a side editor's document (or the talk table, a script):
-    /// whether it was.
+    /// whether it was. Why not, where it failed (not where the user called
+    /// it off, the Save dialog canceled), is kept for its question and its
+    /// editor ([`Moonglow::failed_saving`]): the reason its own save gave,
+    /// else a 2DA's problem, else the newest error logged meanwhile.
     fn save_side(&mut self, tab: &Tab) -> bool {
+        // (The talk table's too: its question and its foot are these.)
+        let side = is_side(tab) || *tab == Tab::TalkTable;
+        if side {
+            self.clear_failed(tab);
+        }
+        let logged = self.log.entries.len();
+        let saved = self.save_side_now(tab);
+        if saved || !side || self.failed_saving(tab).is_some() {
+            return saved;
+        }
+        let problem = match *tab {
+            Tab::Table(id) => {
+                self.tables.iter().find(|d| d.id == id).and_then(|d| d.problem.clone())
+            }
+            _ => None,
+        };
+        let why = problem.map(|p| p.trim_start_matches("Not saved: ").to_string()).or_else(|| {
+            (self.log.entries[logged.min(self.log.entries.len())..].iter())
+                .rev()
+                .find(|(level, _)| *level == crate::Level::Error)
+                .map(|(_, m)| m.clone())
+        });
+        if let Some(why) = why {
+            self.side_failed = Some((tab.clone(), why));
+        }
+        saved
+    }
+
+    /// Why `tab`'s document could not be saved the last time it was
+    /// tried, if it could not and it still has unsaved changes: one made
+    /// clean another way (Undo, Remove) has nothing left to save
+    /// ([`Moonglow::let_go_of_failed`] forgets the reason then).
+    pub(crate) fn failed_saving(&self, tab: &Tab) -> Option<&str> {
+        let (t, why) = self.side_failed.as_ref().filter(|(t, _)| t == tab)?;
+        self.asked_about(t).is_some_and(|(_, unsaved)| unsaved).then_some(why.as_str())
+    }
+
+    /// Forgets why a save failed once its document is seen with nothing
+    /// unsaved (or gone), so that it does not come back with the next,
+    /// unrelated change. Each frame, before the question is drawn.
+    pub(crate) fn let_go_of_failed(&mut self) {
+        if let Some((tab, _)) = &self.side_failed
+            && self.failed_saving(&tab.clone()).is_none()
+        {
+            self.side_failed = None;
+        }
+    }
+
+    /// Notes why `tab`'s document could not be saved.
+    pub(crate) fn note_failed(&mut self, tab: &Tab, why: impl Into<String>) {
+        self.side_failed = Some((tab.clone(), why.into()));
+    }
+
+    /// Forgets why `tab`'s document could not be saved: tried again,
+    /// saved, or let go.
+    pub(crate) fn clear_failed(&mut self, tab: &Tab) {
+        if self.side_failed.as_ref().is_some_and(|(t, _)| t == tab) {
+            self.side_failed = None;
+        }
+    }
+
+    fn save_side_now(&mut self, tab: &Tab) -> bool {
         match *tab {
             Tab::Hak(id) => <hak_view::HakDoc as SideDoc>::save(self, id),
             Tab::Table(id) => <table_view::TableDoc as SideDoc>::save(self, id),
@@ -262,6 +359,7 @@ impl Moonglow {
     /// Save: the table is read again from its file, the script from the
     /// module, when next shown).
     pub(crate) fn forget_side(&mut self, tab: &Tab) {
+        self.clear_failed(tab);
         match *tab {
             Tab::Hak(id) => self.haks.retain(|d| d.id != id),
             Tab::Table(id) => self.tables.retain(|d| d.id != id),
@@ -325,6 +423,50 @@ impl Moonglow {
                 true
             }
             None => true,
+        }
+    }
+
+    /// The side editors' documents follow their tabs where the dock was
+    /// made anew (the module closed, another opened, its kept tabs put
+    /// back; those open when another module is opened keep theirs,
+    /// `Moonglow::close_keeping`): one left without a tab, and none on
+    /// its way (in the actions still to run, this batch's too), is let go
+    /// if nothing of it is unsaved, else its tab is opened again. A changed
+    /// hak that outlived its tab counted as unsaved work for ever, with no
+    /// editor to save it from, and the window would not quit. (Closing,
+    /// Exit and opening another module ask of each changed one first,
+    /// through [`Moonglow::run`]; the second step of New Module and of a
+    /// `.mod` with a folder beside it is not asked again for a side
+    /// editor changed between the steps, and keeps it so.) A hak is kept
+    /// with a changed 2DA of its own that is kept.
+    pub(crate) fn side_docs_follow_tabs(&mut self) {
+        let opening = |app: &Moonglow, tab: &Tab| {
+            (app.actions.iter().chain(&app.batch_rest))
+                .any(|a| matches!(a, crate::Action::OpenTab(t) if t == tab))
+        };
+        let tabless =
+            |app: &Moonglow, tab: &Tab| app.dock.find_tab(tab).is_none() && !opening(app, tab);
+        let holding: Vec<u32> = (self.tables.iter())
+            .filter(|d| d.has_unsaved())
+            .filter_map(|d| match d.home {
+                table_view::Home::Hak(hak) => Some(hak),
+                _ => None,
+            })
+            .collect();
+        let lost: Vec<(Tab, bool)> = (self.side_docs())
+            .map(|d| {
+                let tab = d.tab();
+                let keep = d.has_unsaved() || matches!(tab, Tab::Hak(id) if holding.contains(&id));
+                (tab, keep)
+            })
+            .filter(|(tab, _)| tabless(self, tab))
+            .collect();
+        for (tab, keep) in lost {
+            if keep {
+                self.dock.main_surface_mut().push_to_first_leaf(tab);
+            } else {
+                self.forget_side(&tab);
+            }
         }
     }
 
@@ -426,6 +568,7 @@ pub(crate) fn note_pointer(app: &mut Moonglow, ui: &egui::Ui, tab: &Tab) {
 /// tabs waiting are asked of in turn; Cancel keeps them all open and asks
 /// no more.
 pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
+    app.let_go_of_failed();
     // (A document let go meanwhile is not asked about; one saved meanwhile
     // closes, as was asked.)
     while let Some(tab) = app.side_closing.front().cloned() {
@@ -436,7 +579,10 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
         app.side_closing.pop_front();
     }
-    let Some(tab) = app.side_closing.front().cloned() else { return };
+    let Some(tab) = app.side_closing.front().cloned() else {
+        carry_on(app, ctx);
+        return;
+    };
     // (A hak being saved for this question's Save: it closes once it is
     // written, and is asked about again if it could not be.)
     let saving = app.job.as_ref().is_some_and(|j| j.title == hak_view::SAVE_JOB);
@@ -444,6 +590,7 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     let Some((title, _)) = app.asked_about(&tab) else { return };
+    let failed = app.failed_saving(&tab).map(failed_text);
     let more = app.side_closing.len() - 1;
     enum Answer {
         Save,
@@ -453,6 +600,14 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut answer = None;
     widgets::modal(ctx, "Unsaved Changes").id(egui::Id::new("side-doc-closing")).show(ctx, |ui| {
         ui.label(format!("Save changes to {title}?"));
+        if let Some(failed) = &failed {
+            // (A path is long: wide enough to read in a few lines.)
+            ui.set_min_width(440.0);
+            ui.add(
+                egui::Label::new(egui::RichText::new(failed).color(ui.visuals().error_fg_color))
+                    .wrap(),
+            );
+        }
         if more > 0 {
             ui.weak(format!(
                 "{more} more {} unsaved changes after this.",
@@ -473,20 +628,50 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     });
     match answer {
         None => {}
-        Some(Answer::Cancel) => app.side_closing.clear(),
+        // (Nothing more is asked, and what waited for the answers is not
+        // done. Why a save failed stays under its editor, which stays
+        // open: until it is saved, tried again or let go.)
+        Some(Answer::Cancel) => {
+            app.side_closing.clear();
+            app.side_then = None;
+        }
         // (A hak is written as a job, which closes its tab once it is
-        // saved; not saved, it stays, and is asked about again.)
+        // saved; not saved, it stays, and is asked about again, saying
+        // why.)
         Some(Answer::Save) if matches!(tab, Tab::Hak(_)) => {
             if let Tab::Hak(id) = tab {
                 hak_view::save_then(app, id, false, hak_view::Then::Close);
             }
         }
-        // (Not saved: it stays, and is asked about again.)
+        // (Not saved: it stays, and is asked about again, saying why.)
         Some(Answer::Save) if !app.save_side(&tab) => {}
         Some(Answer::Save | Answer::DontSave) => {
             close(app, &tab);
             app.side_closing.pop_front();
         }
+    }
+    if answer.is_some() {
+        // (The next question, or what waited for the answers, at once:
+        // not at the next input.)
+        ctx.request_repaint();
+        if app.side_closing.is_empty() {
+            carry_on(app, ctx);
+        }
+    }
+}
+
+/// Every question answered: what waited for the answers (closing the
+/// window, Exit, File › Close, another module) goes on, through
+/// [`Moonglow::run`], which looks again at what is unsaved: a document
+/// changed meanwhile is asked of again. Not under a job (a hak being
+/// written for its question's Save), which `run` would refuse.
+fn carry_on(app: &mut Moonglow, ctx: &egui::Context) {
+    if app.job.is_some() {
+        return;
+    }
+    if let Some(then) = app.side_then.take() {
+        app.actions.push(then);
+        ctx.request_repaint();
     }
 }
 

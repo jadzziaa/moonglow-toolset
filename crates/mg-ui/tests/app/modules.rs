@@ -2462,7 +2462,9 @@ fn a_field_typed_in_sets_its_text_before_files_changed_outside_are_read() {
 
 /// The window's own close button asks before Moonglow closes where there
 /// is nothing unsaved to ask about; with the option off it closes, and
-/// with unsaved work (a table's here) the question is about that.
+/// with unsaved work (a table's here) the question is about that: the
+/// table's own, by its name, not the module's ("the new module", with
+/// none open).
 #[test]
 fn closing_the_window_asks_first() {
     let dir = mg_testkit::scratch_dir("ui-close-asks");
@@ -2482,8 +2484,12 @@ fn closing_the_window_asks_first() {
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().edit.add_rows(1);
     h.state_mut().actions.push(mg_ui::Action::CloseWindow);
     h.run_steps(3);
-    assert!(!h.state().closing && h.state().confirm_discard.is_some());
-    h.state_mut().confirm_discard = None;
+    assert!(!h.state().closing && h.state().confirm_discard.is_none());
+    assert!(h.query_by_label("Save changes to loose.2da?").is_some(), "the table's question");
+    assert!(h.state().side_then.is_some(), "closing waits for the answer");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    assert!(h.state().side_then.is_none() && !h.state().quit_requested, "Cancel: nothing");
     assert!(mg_ui::table_view::save(h.state_mut(), id));
     // Nothing unsaved again: asked, and closed on the answer; Don't ask
     // again switches the question off (Options › General › Questions).

@@ -1938,7 +1938,13 @@ folder's files, subfolders included, to look over and save.
   editor's Save and Save As… show how far the save is, with **Cancel**,
   which leaves the old one as it was; so do its **OK** and the **Save**
   of the question a closed tab asks, which close the tab once the hak is
-  written (one that could not be written stays open). It warns when
+  written. One that could not be written (a file added that has gone
+  from disk since, a folder that can't be written to) stays open and
+  says why, under the editor and in the question, which its **OK** then
+  asks: **Save** again once the cause is put right, **Don't Save**, or
+  **Cancel** (Undo or **Remove** of what was added says no more of it
+  either). Closing Moonglow's window, File › Exit and File › Close
+  ask of each changed hak by its name, and then go on. It warns when
   resources would start past 2 GiB, which the game can't read. The hak
   editor itself reads all of such a hak: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.

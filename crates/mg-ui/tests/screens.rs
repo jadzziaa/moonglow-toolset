@@ -563,6 +563,89 @@ fn side_editor_undo_in_the_edit_menu() {
     eprintln!("{}", dir.join("edit-menu-over-a-hak.png").display());
 }
 
+/// Closing a hak with a file added (a builder's report against 4.0: the
+/// editor would not close), into `target/test-output/hak-closing/` as
+/// `<HAK_SHOTS>-*.png` (`before`, `after`; `shot` unset), each with a
+/// crop of its question: (a) no module, a hak opened from its file, a
+/// file added, the window's X; (b) the same hak with the added file gone
+/// from disk, its tab closed (`Action::CloseTabs`, which the tab's × runs
+/// too) and Save answered.
+#[test]
+#[ignore]
+fn hak_closing_questions() {
+    mg_testkit::gpu::hold();
+    let prefix = std::env::var("HAK_SHOTS").ok().filter(|s| !s.is_empty());
+    let prefix = prefix.as_deref().unwrap_or("shot");
+    let out = mg_testkit::output_dir("hak-closing");
+    let dir = mg_testkit::scratch_dir("screens-hak-closing");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let a = src.join("mg_a.2da");
+    std::fs::write(&a, "2DA V2.0\n\n   Label\n0  a\n").unwrap();
+    let mut hak = mg_module::hak_edit::Hak::new();
+    hak.add_files(std::slice::from_ref(&a));
+    let hak_path = dir.join("mine.hak");
+    hak.save(Some(&hak_path)).unwrap();
+    let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.run_steps(3);
+        let image = h.render().expect("render");
+        image.save(out.join(format!("{prefix}-{name}.png"))).unwrap();
+        // The question, cropped for a phone.
+        let label = h.query_all_by_label_contains("Save changes to").next().map(|n| n.rect());
+        if let Some(r) = label {
+            let r = egui::Rect::from_min_max(
+                r.min - egui::vec2(40.0, 70.0),
+                egui::pos2(r.max.x.max(r.min.x + 460.0) + 40.0, r.max.y + 150.0),
+            )
+            .intersect(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(image.width() as f32, image.height() as f32),
+            ));
+            let (x, y, w, hh) =
+                (r.min.x as u32, r.min.y as u32, r.width() as u32, r.height() as u32);
+            let crop = image::imageops::crop_imm(&image, x, y, w, hh).to_image();
+            crop.save(out.join(format!("{prefix}-{name}-question.png"))).unwrap();
+        }
+        eprintln!("{}", out.join(format!("{prefix}-{name}.png")).display());
+    };
+    let open = |added: &std::path::Path| {
+        let dialogs =
+            NoDialogs { open_many: vec![vec![added.to_path_buf()]], ..Default::default() };
+        let mut app = Moonglow::new(None, Box::new(dialogs));
+        app.settings.no_last_area = true;
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 700.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        let id = mg_ui::hak_view::open_at(h.state_mut(), &hak_path).unwrap();
+        h.run_steps(2);
+        // (Add Files…, as the builder did.)
+        h.get_by_label("Add Files…").click();
+        h.run_steps(3);
+        assert!(h.state().haks.iter().any(|d| d.id == id && d.hak.is_dirty()));
+        (h, id)
+    };
+    // (a) The window's X.
+    let added = src.join("mg_new.2da");
+    std::fs::write(&added, "2DA V2.0\n\n   Label\n0  added\n").unwrap();
+    let (mut h, _) = open(&added);
+    h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+    h.run_steps(3);
+    shot(&mut h, "window-x");
+    drop(h);
+    // (b) The added file gone, the tab closed, Save answered.
+    let (mut h, id) = open(&added);
+    std::fs::remove_file(&added).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![mg_ui::Tab::Hak(id)]));
+    h.run_steps(3);
+    if let Some(save) = h.query_all_by_label("Save").last() {
+        save.click();
+    }
+    h.run_steps(4);
+    shot(&mut h, "file-gone-save");
+}
+
 /// Add hak… over a long hak folder (`target/test-output/screens-add-hak/`):
 /// opened by a click, its Filter field above the rows; then narrowed by
 /// letters typed; then with nothing found.
