@@ -5772,6 +5772,8 @@ fn verify(
             "uncompiled": x.uncompiled,
             "only_userpatch": x.only_local == Some(mg_module::verify::Local::Userpatch),
             "only_in": x.only_local.map(mg_module::verify::Local::id),
+            // (A sound there only as a .bmu, which the game doesn't look for.)
+            "found_as": x.found_as.and_then(ResType::extension),
         })).collect::<Vec<_>>(),
         "findings": found.iter().map(|x| { let f = &x.finding; serde_json::json!({
             "severity": severity(f.severity),

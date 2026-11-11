@@ -98,115 +98,23 @@ impl Speaker for std::rc::Rc<std::cell::RefCell<Silence>> {
     }
 }
 
-/// What a sound is for, as far as the game's lookup and playing go.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Role {
-    /// An `ambientmusic.2da` row.
-    Music,
-    /// An `ambientsound.2da` row.
-    Ambient,
-    /// Any other sound: a Play button's, a placed sound's.
-    Other,
-    /// A file shown in the hak editor's View, which has no role.
-    Viewed,
-}
+/// What a sound is for, and why the game would be silent on it: the rules
+/// are `mg_audio`'s ([`mg_audio::role`]), which Verify's `sound-silent`
+/// asks too.
+pub use mg_audio::{Role, Silent, silent_in_game};
+// (A positional placed sound's stereo WAVE, `mg_audio::silent_positional`,
+// is Verify's to say: the log doesn't know whether a sound is positional.)
 
-impl Role {
-    pub fn of(channel: Channel) -> Role {
-        match channel {
+impl Channel {
+    /// The role a sound played on the channel has: a Play button's is
+    /// `PlaySound`'s, a placed sound's is a placed sound's.
+    pub fn role(self) -> Role {
+        match self {
             Channel::Music => Role::Music,
             Channel::Ambient => Role::Ambient,
-            Channel::Preview | Channel::Placed(_) => Role::Other,
+            Channel::Preview => Role::Other,
+            Channel::Placed(_) => Role::Placed,
         }
-    }
-
-    /// The types the game looks for, in order (Moonglow also plays what the
-    /// game never finds: music as `.wav`, a sound as `.bmu`).
-    fn lookup(self) -> [ResType; 2] {
-        match self {
-            Role::Music => [ResType::BMU, ResType::WAV],
-            _ => [ResType::WAV, ResType::BMU],
-        }
-    }
-}
-
-/// Why the game would stay silent on a file that Moonglow plays.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Silent {
-    /// Music that is a WAVE under `.bmu`.
-    MusicWave,
-    /// Music that exists only as `.wav`.
-    MusicOnlyWav,
-    /// An ambient sound that is MP3 under `.wav`.
-    AmbientMp3,
-    /// An ambient sound that is a WAVE under `.bmu`.
-    AmbientWave,
-    /// A sound that exists only as `.bmu`.
-    OnlyBmu,
-    /// A WAVE under `.bmu`, seen without a role: played in none.
-    ViewedWave,
-}
-
-impl Silent {
-    /// The log's line about `name`.
-    pub fn message(self, name: ResRef) -> String {
-        match self {
-            Silent::MusicWave => format!(
-                "Music {name} is a WAVE under .bmu, which the game does not play: music must be MP3"
-            ),
-            Silent::MusicOnlyWav => format!(
-                "Music {name} exists only as a .wav, which the game does not look for: music must be a .bmu"
-            ),
-            Silent::AmbientMp3 => format!(
-                "Ambient sound {name} is MP3 under .wav, which the game does not play: it plays a WAVE there"
-            ),
-            Silent::AmbientWave => format!(
-                "Ambient sound {name} is a WAVE under .bmu, which the game does not play: it plays MP3 there"
-            ),
-            Silent::OnlyBmu => format!(
-                "Sound {name} exists only as a .bmu, which the game does not look for: sounds must be a .wav"
-            ),
-            Silent::ViewedWave => format!(
-                "{name}.bmu is a WAVE, which the game does not play under .bmu: music must be MP3"
-            ),
-        }
-    }
-}
-
-/// Whether the game stays silent on a file it would not play in a role,
-/// and why: `found` is the type the file was found as (by the lookup in
-/// [`Role::lookup`] order, so for music a `.wav` means there is no `.bmu`,
-/// and for the others a `.bmu` means there is no `.wav`).
-///
-/// The client findings (`docs/findings.md`, "What the game plays as music
-/// and as sounds"):
-/// - music looks only for `NAME.bmu` and plays it if it holds MP3;
-/// - an ambient sound looks for `.wav`, else `.bmu`; a `.wav` plays if it
-///   holds a WAVE, a `.bmu` if it holds MP3;
-/// - other sounds look only for `NAME.wav`.
-pub fn silent_in_game(
-    role: Role,
-    found: ResType,
-    container: mg_audio::Container,
-) -> Option<Silent> {
-    use mg_audio::Container::{Mp3, Wave};
-    match (role, found, container) {
-        // The client never finds a music track named .wav.
-        (Role::Music, ResType::WAV, _) => Some(Silent::MusicOnlyWav),
-        // It finds the .bmu and plays it only as MP3.
-        (Role::Music, ResType::BMU, Wave) => Some(Silent::MusicWave),
-        (Role::Music, ..) => None,
-        // MP3 under .wav is silent, a WAVE plays.
-        (Role::Ambient, ResType::WAV, Mp3) => Some(Silent::AmbientMp3),
-        // Only a .bmu with MP3 plays as an ambient sound.
-        (Role::Ambient, ResType::BMU, Wave) => Some(Silent::AmbientWave),
-        (Role::Ambient, ..) => None,
-        // Only NAME.wav is looked for (measured for PlaySound).
-        (Role::Other, ResType::BMU, _) => Some(Silent::OnlyBmu),
-        (Role::Other, ..) => None,
-        // A WAVE under .bmu is played in no role.
-        (Role::Viewed, ResType::BMU, Wave) => Some(Silent::ViewedWave),
-        (Role::Viewed, ..) => None,
     }
 }
 
@@ -234,8 +142,8 @@ impl Moonglow {
         found: ResType,
         data: &[u8],
     ) -> bool {
-        let Some((container, _)) = mg_audio::container(data) else { return false };
-        let Some(reason) = silent_in_game(role, found, container) else { return false };
+        let Some(form) = mg_audio::form(data) else { return false };
+        let Some(reason) = silent_in_game(role, found, form) else { return false };
         if self.sound_said.insert((role, name, found, data.len())) {
             self.log.warn(reason.message(name));
             return true;
@@ -256,7 +164,7 @@ impl Moonglow {
         if name.is_empty() {
             return false;
         }
-        let role = Role::of(channel);
+        let role = channel.role();
         let Some((found, data)) = self.sound_file(role, name) else {
             self.log.warn(format!("Sound {name} not found"));
             return false;
@@ -278,66 +186,12 @@ impl Moonglow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const BMU: ResType = ResType::BMU;
-    const WAV: ResType = ResType::WAV;
-    use Role::*;
-    use mg_audio::Container::{Mp3, Wave};
-
-    /// The whole matrix: three roles (and the viewer) by two types by two
-    /// containers.
-    #[test]
-    fn the_game_is_silent_where_the_client_was() {
-        let cases = [
-            // Music: only NAME.bmu is looked for, and plays as MP3.
-            (Music, BMU, Mp3, None),
-            (Music, BMU, Wave, Some(Silent::MusicWave)),
-            (Music, WAV, Mp3, Some(Silent::MusicOnlyWav)),
-            (Music, WAV, Wave, Some(Silent::MusicOnlyWav)),
-            // Ambient: .wav (else .bmu); a .wav plays as a WAVE, a .bmu as MP3.
-            (Ambient, WAV, Wave, None),
-            (Ambient, WAV, Mp3, Some(Silent::AmbientMp3)),
-            (Ambient, BMU, Mp3, None),
-            (Ambient, BMU, Wave, Some(Silent::AmbientWave)),
-            // Other sounds: only NAME.wav is looked for.
-            (Other, WAV, Wave, None),
-            (Other, WAV, Mp3, None),
-            (Other, BMU, Mp3, Some(Silent::OnlyBmu)),
-            (Other, BMU, Wave, Some(Silent::OnlyBmu)),
-            // Viewed: a WAVE under .bmu plays in no role.
-            (Viewed, BMU, Wave, Some(Silent::ViewedWave)),
-            (Viewed, BMU, Mp3, None),
-            (Viewed, WAV, Wave, None),
-            (Viewed, WAV, Mp3, None),
-        ];
-        for (role, found, container, want) in cases {
-            assert_eq!(
-                silent_in_game(role, found, container),
-                want,
-                "{role:?} {found:?} {container:?}"
-            );
-        }
-    }
 
     #[test]
-    fn music_looks_for_the_bmu_first() {
-        assert_eq!(Music.lookup(), [BMU, WAV]);
-        assert_eq!(Ambient.lookup(), [WAV, BMU]);
-        assert_eq!(Other.lookup(), [WAV, BMU]);
-    }
-
-    #[test]
-    fn the_messages_are_one_sentence_each() {
-        let name = ResRef::from_str("mg_track").unwrap();
-        for r in [
-            Silent::MusicWave,
-            Silent::MusicOnlyWav,
-            Silent::AmbientMp3,
-            Silent::AmbientWave,
-            Silent::OnlyBmu,
-            Silent::ViewedWave,
-        ] {
-            let m = r.message(name);
-            assert!(m.contains("mg_track") && !m.contains(';') && !m.ends_with('.'), "{m}");
-        }
+    fn a_channel_plays_in_its_role() {
+        assert_eq!(Channel::Music.role(), Role::Music);
+        assert_eq!(Channel::Ambient.role(), Role::Ambient);
+        assert_eq!(Channel::Preview.role(), Role::Other);
+        assert_eq!(Channel::Placed(3).role(), Role::Placed);
     }
 }

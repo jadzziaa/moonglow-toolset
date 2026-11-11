@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T10:38:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:07:59Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -138,7 +138,7 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-tlk` | TLK V3.0, custom TLK StrRefs |
 | `mg-set` | tilesets (SET/INI) with data warnings |
 | `mg-ssf` | soundsets |
-| `mg-audio` | sounds and music decoded for playback: MP3 (its first frame found behind `BMU V1.0`, ID3v2 tags or junk, bare or inside a WAVE), IMA ADPCM and PCM WAVE; what is refused is named |
+| `mg-audio` | what a sound file holds, told from its bytes or its first bytes, and where the game plays it (`role`: the names music, ambient sounds and other sounds are looked for under and the forms played there, for the window's log and Verify); decoded for playback (the default feature `decode`, Symphonia, which mg-module leaves off): MP3 (its first frame found behind `BMU V1.0`, ID3v2 tags or junk, bare or inside a WAVE), IMA ADPCM and PCM WAVE; what is refused is named |
 | `mg-resman` | layered resolution in the engine's order, DDS/TGA rule, install detection |
 | `mg-image` | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
 | `mg-shader` | the game's own shaders (`.shd`): a program assembled as the engine does it (preamble, `#include` splicing through the load order), compiled by glslang (built in), its combined samplers split and locations given on the SPIR-V, read into a validated naga module with its uniforms, textures and varyings by name; errors at their file and line ([the shaders proposal](shaders-proposal.md), M0) |

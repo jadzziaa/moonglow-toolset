@@ -2061,6 +2061,7 @@ fn verify_says_errors_first_and_gone_blueprints_once_each() {
         category: Category::Placeables,
         uncompiled: false,
         only_local: None,
+        found_as: None,
     };
     let utp = RefKind::Blueprint(ResType::UTP);
     let list = [

@@ -12,8 +12,11 @@
 //! game's tables each with a row added for every form). The module's
 //! OnClientEnter script steps through the forms: for each it sets the
 //! area's day and night music (`MusicBackgroundChangeDay`, `...Night`,
-//! `MusicBackgroundPlay`) or ambient sound (`AmbientSoundChangeDay`...) to
-//! the form's row, logs `MG_BEGIN i`, and after [`PLAY`] seconds stops it
+//! `MusicBackgroundPlay`), battle music (`MusicBattleChange`,
+//! `MusicBattlePlay`) or ambient sound (`AmbientSoundChangeDay`...) to the
+//! form's row, has the PC play it (`PlaySound`), or switches on the sound
+//! object placed for it at the start (`SoundObjectPlay`; looping, full
+//! volume, heard 50 m about it), logs `MG_BEGIN i`, and after [`PLAY`] seconds stops it
 //! and logs `MG_END i`, a silent [`GAP`] between forms. The harness reads
 //! the capture's length at the moment each marker appears in the log, so
 //! that each form's stretch of the capture is known without clocks.
@@ -27,8 +30,16 @@
 //! track the loud one. A form during which the client ends is reported as
 //! such, and the forms after it are played in a new launch.
 //!
-//! `MG_AUDIO_FORMS` (names, separated by commas) plays only those forms
-//! (the controls are always played). `MG_AUDIO_BY_AREA=1` plays the first
+//! The controls (and the checks, a known-good form again after each group
+//! of doubtful ones) must do as they are known to, or the launch is played
+//! again; those and the settled forms are asserted, the rest printed.
+//!
+//! `MG_AUDIO_FORMS` (names, or the kinds `music`, `ambient`, `sound`,
+//! `placed`, `battle`, separated by commas) plays only those forms (the
+//! controls are always played). Placed sound objects and battle music are
+//! played only when named, to keep the default run (about 15 minutes)
+//! short. `MG_AUDIO_AREAWIDE=1` places the sound objects area-wide instead
+//! of positional. `MG_AUDIO_BY_AREA=1` plays the first
 //! music form by the area's own `MusicDay` and `MusicNight` instead of by
 //! script. `MG_AUDIO_FOLDER` (`override`, `music`, `ambient`) puts the
 //! forms' files loose in that folder of the user directory instead of the
@@ -73,6 +84,12 @@ enum Kind {
     Ambient,
     /// A sound the PC plays (`PlaySound`), once.
     Sound,
+    /// A sound object placed at the start (the GIT's `SoundList`),
+    /// looping, switched on and off by tag (`SoundObjectPlay`).
+    Placed,
+    /// The area's battle music (`MusicBattleChange`, `MusicBattlePlay`),
+    /// an `ambientmusic.2da` row.
+    Battle,
 }
 
 /// A form of file the client is given.
@@ -95,6 +112,36 @@ struct Form {
     /// Played in every launch (the controls and checks); a launch in which
     /// one with an `expect` does otherwise is played again.
     control: bool,
+    /// Played only when named (or with `MG_AUDIO_FORMS=stock`): the
+    /// readings of the game's own rows and names.
+    optional: bool,
+    /// A row of the game's own table, played as it is (no row added).
+    stock_row: Option<usize>,
+    /// A placed sound object's fields over the harness's own (a stock
+    /// blueprint's, or the distances).
+    object: Vec<(String, Value)>,
+}
+
+/// The kinds played only when named (`MG_AUDIO_FORMS`: a form, or the
+/// kind, `placed` or `battle`), to keep the default run short.
+fn extra(kind: Kind) -> bool {
+    matches!(kind, Kind::Placed | Kind::Battle)
+}
+
+/// A kind's name in `MG_AUDIO_FORMS`.
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Music => "music",
+        Kind::Ambient => "ambient",
+        Kind::Sound => "sound",
+        Kind::Placed => "placed",
+        Kind::Battle => "battle",
+    }
+}
+
+/// A placed sound object's tag.
+fn object_tag(name: &str) -> String {
+    name.to_uppercase()
 }
 
 impl Form {
@@ -109,6 +156,9 @@ impl Form {
 struct Measure {
     /// The level of the whole stretch, dBFS (RMS).
     rms: f64,
+    /// The left and right channels' levels, dBFS (RMS).
+    left: f64,
+    right: f64,
     /// The peak, dBFS.
     peak: f64,
     /// The level of the form's tone in it, dBFS (RMS of a sine).
@@ -416,6 +466,9 @@ fn forms(mp3: &[u8], game_track: &[u8], shipped: &str, shipped_data: &[u8]) -> V
             tone,
             expect,
             control,
+            optional: false,
+            stock_row: None,
+            object: Vec::new(),
         });
     };
     let b = ResType::BMU;
@@ -865,6 +918,148 @@ fn forms(mp3: &[u8], game_track: &[u8], shipped: &str, shipped_data: &[u8]) -> V
         None,
         true,
     );
+    // Placed sound objects, looping, at the start (played only when named:
+    // `MG_AUDIO_FORMS=placed`).
+    let mono = |f: f32| wav(Pcm::S16, 44100, 1, f, no);
+    let ship_mp3 = &shipped_data[mg_audio::BMU_HEADER.len()..];
+    let p = Kind::Placed;
+    add(
+        "mg_p_none",
+        p,
+        "names a sound that does not exist (silent control)",
+        vec![],
+        None,
+        Some(false),
+        true,
+    );
+    let f = next();
+    add(
+        "mg_p_s16m",
+        p,
+        "PCM s16 mono 44100 WAV as .wav (control)",
+        vec![(w, mono(f))],
+        Some(f),
+        Some(true),
+        true,
+    );
+    let f = next();
+    add(
+        "mg_p_s16s",
+        p,
+        "PCM s16 stereo 44100 WAV as .wav",
+        vec![(w, pcm(f, no))],
+        Some(f),
+        None,
+        false,
+    );
+    let what = format!("shipped {shipped}.wav (BMU V1.0 + mono MP3), copied as .wav");
+    add("mg_p_shipcopy", p, &what, vec![(w, shipped_data.to_vec())], None, None, false);
+    let what = format!("shipped {shipped}.wav (BMU V1.0 + mono MP3), by its own name");
+    add("mg_p_shipped", p, &what, vec![], None, None, false);
+    let f = next();
+    add(
+        "mg_p_chk1",
+        p,
+        "PCM s16 mono WAV as .wav (check)",
+        vec![(w, mono(f))],
+        Some(f),
+        Some(true),
+        true,
+    );
+    add(
+        "mg_p_bare",
+        p,
+        "shipped sound's mono MP3, no header, as .wav",
+        vec![(w, ship_mp3.to_vec())],
+        None,
+        None,
+        false,
+    );
+    add(
+        "mg_p_mp3riff",
+        p,
+        "shipped sound's mono MP3 in RIFF WAVE (0x55) as .wav",
+        vec![(w, mp3_in_riff(ship_mp3))],
+        None,
+        None,
+        false,
+    );
+    let f = next();
+    add(
+        "mg_p_bmuonly",
+        p,
+        "PCM s16 mono WAV as .bmu only",
+        vec![(b, mono(f))],
+        Some(f),
+        None,
+        false,
+    );
+    add(
+        "mg_p_shipbmu",
+        p,
+        "shipped sound (BMU V1.0 + mono MP3) as .bmu only",
+        vec![(b, shipped_data.to_vec())],
+        None,
+        None,
+        false,
+    );
+    let f = next();
+    add(
+        "mg_p_adpcm",
+        p,
+        "IMA ADPCM mono 44100 WAV as .wav",
+        vec![(w, ima_adpcm(44100, 1, f))],
+        Some(f),
+        None,
+        false,
+    );
+    let f = next();
+    add(
+        "mg_p_chk2",
+        p,
+        "PCM s16 mono WAV as .wav (closing check)",
+        vec![(w, mono(f))],
+        Some(f),
+        Some(true),
+        true,
+    );
+
+    // Battle music (played only when named: `MG_AUDIO_FORMS=battle`).
+    let k = Kind::Battle;
+    add("mg_b_none", k, "row with no file (silent control)", vec![], None, Some(false), true);
+    add("mg_b_game", k, "game track as shipped (control)", game(), None, Some(true), true);
+    add(
+        "mg_b_mp3riff",
+        k,
+        "MP3 in RIFF WAVE (tag 0x55) as .bmu",
+        vec![(b, mp3_in_riff(mp3))],
+        None,
+        None,
+        false,
+    );
+    let f = next();
+    add(
+        "mg_b_s16",
+        k,
+        "PCM s16 stereo 44100 WAV as .bmu",
+        vec![(b, pcm(f, no))],
+        Some(f),
+        None,
+        false,
+    );
+    let f = next();
+    add(
+        "mg_b_wavonly",
+        k,
+        "PCM s16 stereo 44100 WAV as .wav only",
+        vec![(w, pcm(f, no))],
+        Some(f),
+        None,
+        false,
+    );
+    add("mg_b_wbmu", k, "BMU V1.0 + MP3 as .wav only", vec![(w, bmu(mp3))], None, None, false);
+    add("mg_b_chk", k, "game track (closing check)", game(), None, Some(true), true);
+
     for f in &mut out {
         if f.name.ends_with("_shipped") {
             f.res = shipped.to_string();
@@ -873,11 +1068,281 @@ fn forms(mp3: &[u8], game_track: &[u8], shipped: &str, shipped_data: &[u8]) -> V
     out
 }
 
+/// The readings of the game's own content, put among `all` before each
+/// kind's closing check: `ambientsound.2da` row 200 (`al_mus_throne2`,
+/// `BMU V1.0` + stereo MP3 under `.wav`) as it stands, a new row naming
+/// it, and its bytes copied; music rows naming the 18-character
+/// `mus_wc_ruralguitar` (in `data/mus`, not copied) and the 13-character
+/// `mus_wc_ruralg` beside it (the same bytes). Prints which stock
+/// ambient rows name a `.wav` holding MP3.
+fn stock_forms(base: &GameData, all: &mut Vec<Form>, throne: &[u8]) {
+    let t = mg_2da::TwoDa::parse(
+        &base.resman.get(&ResKey::parse("ambientsound", ResType::TWODA).unwrap()).unwrap(),
+        Codepage::default(),
+    )
+    .unwrap();
+    let mut mp3_rows = Vec::new();
+    for r in 0..t.len() {
+        let Some(res) = t.get(r, "Resource") else { continue };
+        let Some(key) = ResKey::parse(res, ResType::WAV) else { continue };
+        let Ok(d) = base.resman.get(&key) else { continue };
+        if mg_audio::container(&d).is_some_and(|c| c.0 == mg_audio::Container::Mp3) {
+            mp3_rows.push(format!("{r} {res}.wav ({} bytes)", d.len()));
+        }
+    }
+    eprintln!("stock ambientsound.2da rows naming a .wav that holds MP3: {mp3_rows:?}");
+    assert_eq!(t.get(200, "Resource"), Some("al_mus_throne2"), "row 200 of ambientsound.2da");
+    let form = |name, kind, what: &str, res: &str, files, stock_row| Form {
+        name,
+        res: res.to_string(),
+        kind,
+        what: what.into(),
+        files,
+        tone: None,
+        expect: None,
+        control: false,
+        optional: true,
+        stock_row,
+        object: Vec::new(),
+    };
+    let ambient = [
+        form(
+            "mg_a_row200",
+            Kind::Ambient,
+            "stock row 200 (al_mus_throne2.wav, BMU V1.0 + stereo MP3), as it stands",
+            "al_mus_throne2",
+            vec![],
+            Some(200),
+        ),
+        form(
+            "mg_a_throne",
+            Kind::Ambient,
+            "new row naming al_mus_throne2 (the game's file)",
+            "al_mus_throne2",
+            vec![],
+            None,
+        ),
+        form(
+            "mg_a_thronecp",
+            Kind::Ambient,
+            "al_mus_throne2.wav's bytes copied as .wav",
+            "mg_a_thronecp",
+            vec![(ResType::WAV, throne.to_vec())],
+            None,
+        ),
+    ];
+    let music = [
+        form(
+            "mg_m_wcguitar",
+            Kind::Music,
+            "row naming mus_wc_ruralguitar (18 characters, data/mus)",
+            "mus_wc_ruralguitar",
+            vec![],
+            None,
+        ),
+        form(
+            "mg_m_wcruralg",
+            Kind::Music,
+            "row naming mus_wc_ruralg (data/mus, the same bytes)",
+            "mus_wc_ruralg",
+            vec![],
+            None,
+        ),
+    ];
+    let at = |all: &Vec<Form>, n: &str| all.iter().position(|f| f.name == n).unwrap();
+    let i = at(all, "mg_a_chk2");
+    all.splice(i..i, ambient);
+    let i = at(all, "mg_m_game2");
+    all.splice(i..i, music);
+}
+
+/// A placed sound form of the stereo readings (played only when named).
+fn placed(
+    name: &'static str,
+    what: String,
+    res: &str,
+    files: Vec<(ResType, Vec<u8>)>,
+    tone: Option<f32>,
+    object: Vec<(String, Value)>,
+) -> Form {
+    Form {
+        name,
+        res: if res.is_empty() { name.to_string() } else { res.to_string() },
+        kind: Kind::Placed,
+        what,
+        files,
+        tone,
+        expect: None,
+        control: false,
+        optional: true,
+        stock_row: None,
+        object,
+    }
+}
+
+/// The readings of stereo in placed sounds (`MG_AUDIO_FORMS=stereo`), put
+/// before the placed sounds' closing check: the stock blueprints
+/// `lavalakeloop` and `sludgelake` (positional, naming stereo IMA ADPCM
+/// files in the install) with every field as shipped, and made area-wide;
+/// stereo IMA ADPCM and stereo PCM tones positional at the blueprint's
+/// distances and at 50/100 m, and area-wide; a mono PCM tone at the
+/// blueprint's distances; a mono PCM tone (positional, 50/100 m) after
+/// each doubtful group.
+fn stereo_forms(base: &GameData, all: &mut Vec<Form>) {
+    let skip = ["Tag", "LocName", "TemplateResRef", "Comment", "PaletteID", "Active", "VarTable"];
+    let blueprint = |name: &str| -> (String, Vec<(String, Value)>) {
+        let d = base.resman.get(&ResKey::parse(name, ResType::UTS).unwrap()).unwrap();
+        let g = mg_gff::Gff::read(&d).unwrap();
+        let mut fields = Vec::new();
+        let mut sound = String::new();
+        for f in &g.root.fields {
+            let label = String::from_utf8_lossy(f.label.as_bytes()).to_string();
+            eprintln!("{name}.uts {label} = {:?}", f.value);
+            if label == "Sounds"
+                && let Value::List(l) = &f.value
+                && let Some(Value::ResRef(r)) = l.first().and_then(|s| s.get("Sound"))
+            {
+                sound = String::from_utf8_lossy(r).to_string();
+            }
+            if !skip.contains(&label.as_str()) {
+                fields.push((label, f.value.clone()));
+            }
+        }
+        (sound, fields)
+    };
+    let (lava, lava_fields) = blueprint("lavalakeloop");
+    let (sludge, sludge_fields) = blueprint("sludgelake");
+    let distances = |fields: &[(String, Value)]| -> Vec<(String, Value)> {
+        fields.iter().filter(|(k, _)| k == "MinDistance" || k == "MaxDistance").cloned().collect()
+    };
+    let area_wide = |fields: &[(String, Value)]| -> Vec<(String, Value)> {
+        let mut fields: Vec<_> =
+            fields.iter().filter(|(k, _)| k != "Positional").cloned().collect();
+        fields.push(("Positional".to_string(), Value::Byte(0)));
+        fields
+    };
+    let mut tones = (0..).map(|i| 4000.0 + 90.0 * i as f32);
+    let w = ResType::WAV;
+    let mono = |f: f32| wav(Pcm::S16, 44100, 1, f, Sizes::default());
+    let stereo = |f: f32| wav(Pcm::S16, 44100, 2, f, Sizes::default());
+    let mut checks =
+        ["mg_q_c1", "mg_q_c2", "mg_q_c3", "mg_q_c4", "mg_q_c5", "mg_q_c6", "mg_q_c7", "mg_q_c8"]
+            .into_iter();
+    let mut check = |f: f32| {
+        let what = "PCM s16 mono WAV, positional 50/100 m (check)".to_string();
+        placed(checks.next().unwrap(), what, "", vec![(w, mono(f))], Some(f), Vec::new())
+    };
+    let mut out = vec![
+        placed(
+            "mg_q_lava",
+            format!(
+                "stock lavalakeloop.uts ({lava}.wav, stereo IMA ADPCM), every field as shipped"
+            ),
+            &lava,
+            vec![],
+            None,
+            lava_fields.clone(),
+        ),
+        check(tones.next().unwrap()),
+        placed(
+            "mg_q_lavaaw",
+            format!("stock lavalakeloop.uts ({lava}.wav), made area-wide"),
+            &lava,
+            vec![],
+            None,
+            area_wide(&lava_fields),
+        ),
+        check(tones.next().unwrap()),
+        placed(
+            "mg_q_sludge",
+            format!(
+                "stock sludgelake.uts ({sludge}.wav, stereo IMA ADPCM), every field as shipped"
+            ),
+            &sludge,
+            vec![],
+            None,
+            sludge_fields.clone(),
+        ),
+        check(tones.next().unwrap()),
+        placed(
+            "mg_q_sludgeaw",
+            format!("stock sludgelake.uts ({sludge}.wav), made area-wide"),
+            &sludge,
+            vec![],
+            None,
+            area_wide(&sludge_fields),
+        ),
+        check(tones.next().unwrap()),
+    ];
+    let f = tones.next().unwrap();
+    out.push(placed(
+        "mg_q_monobp",
+        "PCM s16 mono WAV, positional at the blueprint's distances".into(),
+        "",
+        vec![(w, mono(f))],
+        Some(f),
+        distances(&lava_fields),
+    ));
+    let f = tones.next().unwrap();
+    out.push(placed(
+        "mg_q_ad2bp",
+        "IMA ADPCM stereo WAV, positional at the blueprint's distances".into(),
+        "",
+        vec![(w, ima_adpcm(44100, 2, f))],
+        Some(f),
+        distances(&lava_fields),
+    ));
+    out.push(check(tones.next().unwrap()));
+    let f = tones.next().unwrap();
+    out.push(placed(
+        "mg_q_ad2p",
+        "IMA ADPCM stereo WAV, positional 50/100 m".into(),
+        "",
+        vec![(w, ima_adpcm(44100, 2, f))],
+        Some(f),
+        Vec::new(),
+    ));
+    out.push(check(tones.next().unwrap()));
+    let f = tones.next().unwrap();
+    out.push(placed(
+        "mg_q_ad2aw",
+        "IMA ADPCM stereo WAV, area-wide".into(),
+        "",
+        vec![(w, ima_adpcm(44100, 2, f))],
+        Some(f),
+        vec![("Positional".into(), Value::Byte(0))],
+    ));
+    out.push(check(tones.next().unwrap()));
+    let f = tones.next().unwrap();
+    out.push(placed(
+        "mg_q_pcm2bp",
+        "PCM s16 stereo WAV, positional at the blueprint's distances".into(),
+        "",
+        vec![(w, stereo(f))],
+        Some(f),
+        distances(&lava_fields),
+    ));
+    out.push(check(tones.next().unwrap()));
+    let f = tones.next().unwrap();
+    out.push(placed(
+        "mg_q_pcm2p",
+        "PCM s16 stereo WAV, positional 50/100 m".into(),
+        "",
+        vec![(w, stereo(f))],
+        Some(f),
+        Vec::new(),
+    ));
+    let i = all.iter().position(|f| f.name == "mg_p_chk2").unwrap();
+    all.splice(i..i, out);
+}
+
 // ---------------------------------------------------------------- analysis
 
-/// The capture's samples (mono: the channels' mean), read past the header
-/// whatever its sizes say (a killed client leaves them unset).
-fn capture(path: &Path) -> Option<(usize, Vec<f32>)> {
+/// The capture's samples: mono (the channels' mean) and the side (half
+/// their difference, so that left is mono + side and right mono - side),
+/// read past the header whatever its sizes say (a killed client leaves
+/// them unset).
+fn capture(path: &Path) -> Option<(usize, Vec<f32>, Vec<f32>)> {
     let d = std::fs::read(path).ok()?;
     if d.get(..4)? != b"RIFF" || d.get(8..12)? != b"WAVE" {
         return None;
@@ -901,20 +1366,17 @@ fn capture(path: &Path) -> Option<(usize, Vec<f32>)> {
                 (tag == 1 || tag == 0xFFFE) && bits == 16 && rate == RATE,
                 "the capture is {tag:#x}, {channels} channels, {rate} Hz, {bits} bits"
             );
-            let ch = usize::from(channels);
+            assert_eq!(channels, 2, "a stereo capture");
             let body = &d[at + 8..];
-            let samples = body
-                .chunks_exact(2 * ch)
-                .map(|fr| {
-                    fr.as_chunks::<2>()
-                        .0
-                        .iter()
-                        .map(|s| f32::from(i16::from_le_bytes(*s)))
-                        .sum::<f32>()
-                        / (32768.0 * ch as f32)
-                })
-                .collect();
-            return Some((at + 8, samples));
+            let frames = body.as_chunks::<4>().0;
+            let lr = |fr: &[u8; 4]| {
+                let l = f32::from(i16::from_le_bytes([fr[0], fr[1]])) / 32768.0;
+                let r = f32::from(i16::from_le_bytes([fr[2], fr[3]])) / 32768.0;
+                (l, r)
+            };
+            let mono = frames.iter().map(lr).map(|(l, r)| (l + r) / 2.0).collect();
+            let side = frames.iter().map(lr).map(|(l, r)| (l - r) / 2.0).collect();
+            return Some((at + 8, mono, side));
         }
         at += 8 + len + (len & 1);
     }
@@ -948,6 +1410,7 @@ fn goertzel(s: &[f32], freq: f64) -> f64 {
 /// it appeared).
 fn measure(
     samples: &[f32],
+    side: &[f32],
     data_at: usize,
     marks: &[(String, u64)],
     forms: &[&Form],
@@ -971,7 +1434,13 @@ fn measure(
             // From a second in to the end (a sound played once: all of
             // it), the onset over all of it.
             let all = &samples[b.min(e)..e];
-            let body = if f.kind == Kind::Sound { all } else { &samples[(b + sec).min(e)..e] };
+            let from = if f.kind == Kind::Sound { b.min(e) } else { (b + sec).min(e) };
+            let body = &samples[from..e];
+            let body_side = &side[from.min(side.len())..e.min(side.len())];
+            let channel = |sign: f32| {
+                let c: Vec<f32> = body.iter().zip(body_side).map(|(m, s)| m + sign * s).collect();
+                db(rms(&c))
+            };
             let onset =
                 all.chunks(sec / 50).position(|c| db(rms(c)) > -60.0).map(|k| k as f64 / 50.0);
             let gap_end = find(&format!("MG_BEGIN {}", i + 1))
@@ -982,6 +1451,8 @@ fn measure(
             let gap = &samples[gap_end.saturating_sub(2 * sec).max(e).min(gap_end)..gap_end];
             Outcome::Measured(Measure {
                 rms: db(rms(body)),
+                left: channel(1.0),
+                right: channel(-1.0),
                 peak: db(body.iter().fold(0f64, |m, &v| m.max(f64::from(v.abs())))),
                 tone: f.tone.map(|t| db(goertzel(body, f64::from(t)))),
                 onset,
@@ -1052,14 +1523,20 @@ fn launch(
     let mut rows = Vec::new();
     let mut hak = ErfWriter::new(*b"HAK ");
     let mut data: Vec<(ResRef, ResType, Vec<u8>)> = Vec::new();
-    for (table, kind) in [("ambientmusic", Kind::Music), ("ambientsound", Kind::Ambient)] {
+    for (table, kinds) in
+        [("ambientmusic", [Kind::Music, Kind::Battle]), ("ambientsound", [Kind::Ambient; 2])]
+    {
         let key = ResKey::parse(table, ResType::TWODA).unwrap();
         let mut t =
             mg_2da::TwoDa::parse(&base.resman.get(&key).unwrap(), Codepage::default()).unwrap();
         let res = t.column("Resource").unwrap();
         let desc = t.column("Description").unwrap();
         let strref = t.cell(1, desc).map(str::to_string);
-        for f in forms.iter().filter(|f| f.kind == kind) {
+        for f in forms.iter().filter(|f| kinds.contains(&f.kind)) {
+            if let Some(r) = f.stock_row {
+                rows.push((f.name, r));
+                continue;
+            }
             let r = t.add_row();
             t.set(r, res, Some(f.res.clone())).unwrap();
             t.set(r, desc, strref.clone()).unwrap();
@@ -1115,14 +1592,18 @@ fn launch(
             Kind::Music => 1,
             Kind::Ambient => 0,
             Kind::Sound => 2,
+            Kind::Placed => 3,
+            Kind::Battle => 4,
         };
         let script = i32::from(!(by_area && i == 0));
-        let r = if f.kind == Kind::Sound { 0 } else { row(f.name) };
+        let r = if matches!(f.kind, Kind::Sound | Kind::Placed) { 0 } else { row(f.name) };
+        let res = if f.kind == Kind::Placed { object_tag(f.name) } else { f.res.clone() };
         steps.push_str(&format!(
             "    DelayCommand({t:.1}, Begin({i}, {kind}, {r}, {script}, \"{}\"));\n    \
-             DelayCommand({:.1}, End({i}));\n",
-            f.res,
-            t + PLAY
+             DelayCommand({:.1}, End({i}, \"{}\"));\n",
+            res,
+            t + PLAY,
+            res,
         ));
         t += PLAY + GAP;
     }
@@ -1135,6 +1616,14 @@ void Begin(int i, int kind, int row, int script, string res)
     object a = GetArea(GetFirstPC());
     if (kind == 2) {{
         AssignCommand(GetFirstPC(), PlaySound(res));
+    }} else if (kind == 3) {{
+        object o = GetObjectByTag(res);
+        if (!GetIsObjectValid(o)) Log("MG_NO_OBJECT " + res);
+        SoundObjectSetVolume(o, 127);
+        SoundObjectPlay(o);
+    }} else if (kind == 4) {{
+        MusicBattleChange(a, row);
+        MusicBattlePlay(a);
     }} else if (script && kind == 1) {{
         MusicBackgroundChangeDay(a, row);
         MusicBackgroundChangeNight(a, row);
@@ -1148,9 +1637,13 @@ void Begin(int i, int kind, int row, int script, string res)
     }}
     Log("MG_BEGIN " + IntToString(i));
 }}
-void End(int i)
+void End(int i, string res)
 {{
     object a = GetArea(GetFirstPC());
+    object o = GetObjectByTag(res);
+    if (GetIsObjectValid(o)) SoundObjectStop(o);
+    MusicBattleStop(a);
+    MusicBattleChange(a, 0);
     // (Stopped alone, the music starts again a second later: the track
     // emptied first.)
     MusicBackgroundChangeDay(a, 0);
@@ -1195,6 +1688,55 @@ void main()
     ] {
         props.set(label, Value::Int(v as i32));
     }
+    // The placed sounds: at the start, inactive until switched on.
+    let start = m.info().unwrap();
+    let at = |l: &str| Value::Float(start.root.float(l).unwrap_or(0.0));
+    let positional = std::env::var_os("MG_AUDIO_AREAWIDE").is_none();
+    let sounds: Vec<mg_gff::Struct> = forms
+        .iter()
+        .filter(|f| f.kind == Kind::Placed)
+        .map(|f| {
+            let mut s = mg_gff::Struct::new(6);
+            let mut item = mg_gff::Struct::new(0);
+            item.set("Sound", Value::resref(ResRef::from_str(&f.res).unwrap()));
+            let fields = [
+                ("Tag", Value::String(object_tag(f.name).into_bytes())),
+                ("TemplateResRef", Value::resref(ResRef::from_str(f.name).unwrap())),
+                ("Active", Value::Byte(0)),
+                ("Continuous", Value::Byte(1)),
+                ("Looping", Value::Byte(1)),
+                ("Positional", Value::Byte(u8::from(positional))),
+                ("RandomPosition", Value::Byte(0)),
+                ("Random", Value::Byte(0)),
+                ("Elevation", Value::Float(1.5)),
+                ("MaxDistance", Value::Float(100.0)),
+                ("MinDistance", Value::Float(50.0)),
+                ("RandomRangeX", Value::Float(0.0)),
+                ("RandomRangeY", Value::Float(0.0)),
+                ("Interval", Value::Dword(0)),
+                ("IntervalVrtn", Value::Dword(0)),
+                ("PitchVariation", Value::Float(0.0)),
+                ("Priority", Value::Byte(if positional { 3 } else { 2 })),
+                ("Hours", Value::Dword(0)),
+                ("Times", Value::Byte(3)),
+                ("Volume", Value::Byte(127)),
+                ("VolumeVrtn", Value::Byte(0)),
+                ("Sounds", Value::List(vec![item])),
+                ("GeneratedType", Value::Dword(0)),
+                ("XPosition", at("Mod_Entry_X")),
+                ("YPosition", at("Mod_Entry_Y")),
+                ("ZPosition", at("Mod_Entry_Z")),
+            ];
+            for (label, v) in fields {
+                s.set(label, v);
+            }
+            for (label, v) in &f.object {
+                s.set(label, v.clone());
+            }
+            s
+        })
+        .collect();
+    git.root.set("SoundList", Value::List(sounds));
     m.set_gff(git_key, &git).unwrap();
     m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(dir, "mg_enter", &enter));
     let mut info = m.info().unwrap();
@@ -1335,14 +1877,22 @@ fn which_audio_files_the_client_plays() {
     let (shipped, shipped_data) = shipped_bmu_wav(&base.resman);
     eprintln!("shipped sound: {shipped}.wav, {} bytes", shipped_data.len());
 
-    let all = forms(&mp3, &game_track, &shipped, &shipped_data);
+    let mut all = forms(&mp3, &game_track, &shipped, &shipped_data);
+    // The game's own rows and names (played only when named: `stock`).
+    let throne = base
+        .resman
+        .get(&ResKey::parse("al_mus_throne2", ResType::WAV).unwrap())
+        .map(|d| d.to_vec())
+        .unwrap_or_default();
+    stock_forms(&base, &mut all, &throne);
+    stereo_forms(&base, &mut all);
     // What mg_audio makes of each form (and that the authored WAVs decode
     // to their tones: the fixtures are right).
     let mut ours = std::collections::HashMap::new();
     for f in &all {
         let data = match f.files.first() {
             Some((_, d)) => d.as_slice(),
-            None if !f.missing() => shipped_data.as_slice(),
+            None if f.res == shipped => shipped_data.as_slice(),
             None => continue,
         };
         let r = match mg_audio::decode(data) {
@@ -1373,8 +1923,26 @@ fn which_audio_files_the_client_plays() {
     let named = |f: &Form| only.as_ref().is_some_and(|o| o.iter().any(|n| n == f.name));
     let by_area = std::env::var_os("MG_AUDIO_BY_AREA").is_some();
     let folder = std::env::var_os("MG_AUDIO_FOLDER").is_some_and(|f| !f.is_empty());
-    let mut pending: Vec<&Form> =
-        all.iter().filter(|f| only.is_none() || f.control || named(f)).collect();
+    let named = |f: &Form| {
+        named(f)
+            || only.as_ref().is_some_and(|o| {
+                o.iter().any(|n| {
+                    (n == kind_name(f.kind) && !f.optional)
+                        || (f.optional && n == "stock" && !f.name.starts_with("mg_q_"))
+                        || (n == "stereo" && f.name.starts_with("mg_q_"))
+                })
+            })
+    };
+    // Each kind's controls, of the kinds played (the extra kinds only when
+    // a form of them is named).
+    let played_kind = |k: Kind| !extra(k) || all.iter().any(|f| f.kind == k && named(f));
+    let mut pending: Vec<&Form> = all
+        .iter()
+        .filter(|f| match &only {
+            None => !extra(f.kind) && !f.optional,
+            Some(_) => named(f) || (f.control && played_kind(f.kind)),
+        })
+        .collect();
     // The first music form named (or the report's own) by the area's
     // properties.
     let by_area_form = by_area
@@ -1402,11 +1970,11 @@ fn which_audio_files_the_client_plays() {
         if marks.iter().all(|(m, _)| m != "MG_READY") {
             panic!("the client did not reach the area: see {}", dir.display());
         }
-        let Some((data_at, samples)) = capture(&out) else {
+        let Some((data_at, samples, side)) = capture(&out) else {
             panic!("no capture written ({}): see {}", out.display(), dir.display());
         };
         eprintln!("  capture: {:.1} s", samples.len() as f64 / f64::from(RATE));
-        let outcomes = measure(&samples, data_at, &marks, &pending);
+        let outcomes = measure(&samples, &side, data_at, &marks, &pending);
         let these: Vec<(&Form, Outcome)> = pending
             .iter()
             .copied()
@@ -1449,14 +2017,17 @@ fn which_audio_files_the_client_plays() {
     };
     eprintln!(
         "\n{run} launches, {disturbed} of them again for failed controls\n\n\
-         | form | file | client | level dBFS | tone dBFS | peak | onset s | gap dBFS | mg_audio |"
+         | form | file | client | level dBFS | L / R dBFS | tone dBFS | peak | onset s | gap dBFS | mg_audio |"
     );
-    eprintln!("|---|---|---|---|---|---|---|---|---|");
+    eprintln!("|---|---|---|---|---|---|---|---|---|---|");
     let mut wrong = Vec::new();
     for (f, o) in &results {
         let file = match f.files.first() {
             Some((t, _)) => format!("{}.{}", f.name, t.extension().unwrap_or("?")),
-            None if !f.missing() => format!("{}.wav (game)", f.res),
+            None if !f.missing() => {
+                let ext = if matches!(f.kind, Kind::Music | Kind::Battle) { "bmu" } else { "wav" };
+                format!("{}.{ext} (game)", f.res)
+            }
             None => "(none)".to_string(),
         };
         let ours = ours.get(f.name).cloned().unwrap_or_default();
@@ -1465,7 +2036,7 @@ fn which_audio_files_the_client_plays() {
             Outcome::Measured(m) => {
                 let v = verdict(f, m, silent(f.kind));
                 eprintln!(
-                    "| {} ({:?}{area}) | {file} | {} | {:.1} | {} | {:.1} | {} | {:.1} | {ours} |",
+                    "| {} ({:?}{area}) | {file} | {} | {:.1} | {:.1} / {:.1} | {} | {:.1} | {} | {:.1} | {ours} |",
                     f.what,
                     f.kind,
                     if heard(f.kind) || f.missing() {
@@ -1474,6 +2045,8 @@ fn which_audio_files_the_client_plays() {
                         format!("undetermined (control failed: {v})")
                     },
                     m.rms,
+                    m.left,
+                    m.right,
                     m.tone.map_or("-".into(), |t| format!("{t:.1}")),
                     m.peak,
                     m.onset.map_or("-".into(), |t| format!("{t:.2}")),
@@ -1493,7 +2066,7 @@ fn which_audio_files_the_client_plays() {
             }
             o => {
                 eprintln!(
-                    "| {} ({:?}{area}) | {file} | {o:?} | | | | | | {ours} |",
+                    "| {} ({:?}{area}) | {file} | {o:?} | | | | | | | {ours} |",
                     f.what, f.kind
                 );
                 if f.expect.is_some() {

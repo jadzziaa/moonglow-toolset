@@ -21,16 +21,35 @@
 //! So an MP3's first frame is found (not assumed at a fixed offset), a WAVE
 //! holding MP3 is read from its `data` chunk, and a WAVE's RIFF size is not
 //! believed. RF64 and WAVEs of other codecs are refused by name.
+//!
+//! Which names the game looks for a sound under, and which forms it plays,
+//! differ by what the sound is for (music, an ambient sound, `PlaySound`):
+//! [`role`]. What a file holds is told from its bytes alone
+//! ([`container`], or from its first bytes, [`container_by_start`]), with
+//! no decoder; decoding ([`Stream`], [`decode`]) is the default feature
+//! `decode`, which Verify (`mg-module`) leaves off.
 
+#[cfg(feature = "decode")]
 use std::io::Cursor;
+#[cfg(feature = "decode")]
 use std::sync::Arc;
 
+pub mod role;
+pub use role::{Role, Silent, silent_in_game, silent_positional};
+
+#[cfg(feature = "decode")]
 use symphonia::core::codecs::CodecParameters;
+#[cfg(feature = "decode")]
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+#[cfg(feature = "decode")]
 use symphonia::core::errors::Error as SymphoniaError;
+#[cfg(feature = "decode")]
 use symphonia::core::formats::probe::Hint;
+#[cfg(feature = "decode")]
 use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
+#[cfg(feature = "decode")]
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+#[cfg(feature = "decode")]
 use symphonia::core::meta::MetadataOptions;
 
 /// The header of an MP3 stored as a game sound.
@@ -66,6 +85,55 @@ pub enum Container {
     Wave,
 }
 
+/// What a sound file holds, as the game's rules tell it apart: a WAVE,
+/// or MP3 with the `BMU V1.0` header in front or without it (bare, behind
+/// an ID3v2 tag or junk, or inside a RIFF WAVE). A sound `PlaySound` plays
+/// or a placed sound object as `.wav` needs the header; music and an
+/// ambient sound do not tell the two MP3s apart ([`role`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Form {
+    Wave,
+    /// MP3 behind the `BMU V1.0` header, as the game ships it.
+    BmuMp3,
+    /// MP3 without the header.
+    Mp3,
+}
+
+impl Form {
+    pub const ALL: [Form; 3] = [Form::Wave, Form::BmuMp3, Form::Mp3];
+
+    /// The form of what [`container`] says a file holds, `start` being its
+    /// first bytes (eight are enough).
+    pub fn of(container: Container, start: &[u8]) -> Form {
+        match container {
+            Container::Wave => Form::Wave,
+            Container::Mp3 if start.starts_with(BMU_HEADER) => Form::BmuMp3,
+            Container::Mp3 => Form::Mp3,
+        }
+    }
+
+    /// Its container: a WAVE, or MP3 of either kind.
+    pub fn container(self) -> Container {
+        match self {
+            Form::Wave => Container::Wave,
+            Form::BmuMp3 | Form::Mp3 => Container::Mp3,
+        }
+    }
+}
+
+/// What a file holds ([`Form`]); `None` for what is neither WAVE nor MP3.
+pub fn form(data: &[u8]) -> Option<Form> {
+    container(data).map(|(c, _)| Form::of(c, data))
+}
+
+/// How many channels a RIFF WAVE's `fmt ` chunk says it has: `None` where
+/// `data` is no RIFF WAVE, has no `fmt ` before its `data`, or the chunk
+/// is too short to say (`data` may be the file's first bytes alone).
+pub fn wave_channels(data: &[u8]) -> Option<u16> {
+    let is_wave = data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WAVE";
+    if is_wave { WaveInfo::read(data).channels } else { None }
+}
+
 /// Why a sound could not be decoded.
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {
@@ -81,6 +149,7 @@ pub enum AudioError {
     Decode(String),
 }
 
+#[cfg(feature = "decode")]
 impl From<SymphoniaError> for AudioError {
     fn from(e: SymphoniaError) -> AudioError {
         AudioError::Decode(e.to_string())
@@ -101,6 +170,7 @@ fn wave_format_name(tag: u16) -> String {
 
 /// The format tags Symphonia's WAVE reader knows (PCM, MS ADPCM, float,
 /// A-law, mu-law, IMA ADPCM, extensible); any other it refuses.
+#[cfg(feature = "decode")]
 const SYMPHONIA_WAVE_TAGS: [u16; 7] = [0x01, 0x02, 0x03, 0x06, 0x07, 0x11, 0xFFFE];
 
 /// The `fmt ` tag of an MP3 in a WAVE (MPEGLAYER3).
@@ -108,6 +178,10 @@ const WAVE_MPEGLAYER3: u16 = 0x55;
 
 /// How far past where its search starts an MP3's first frame is looked for.
 const MP3_SEARCH: usize = 1 << 20;
+
+/// The longest MP3 frame [`mp3_frame`] measures: MPEG 2.5 layer II at
+/// 160 kbit/s and 8 kHz, padded.
+const MP3_FRAME_MAX: usize = 2881;
 
 /// The length of the MP3 frame a header starts, and what it must share with
 /// the next frame's header (version, layer, sample rate). `None` when the
@@ -150,16 +224,22 @@ fn mp3_frame(h: &[u8]) -> Option<(usize, (u8, u8, u8))> {
     Some((len, (version, layer, rate as u8)))
 }
 
-/// Where the ID3v2 tag at `at` ends: `None` when there is none, or when it
-/// claims more than the data has.
-fn id3v2_end(data: &[u8], at: usize) -> Option<usize> {
-    let h = data.get(at..at.checked_add(10)?)?;
+/// Where the ID3v2 tag whose header is `h` (ten bytes at `at`) claims to
+/// end: `None` when it is no tag's header.
+fn id3v2_claims(h: &[u8], at: usize) -> Option<usize> {
+    let h = h.get(..10)?;
     if &h[..3] != b"ID3" || h[3] == 0xFF || h[4] == 0xFF || h[6..10].iter().any(|b| b & 0x80 != 0) {
         return None;
     }
     let size = h[6..10].iter().fold(0usize, |n, b| n << 7 | usize::from(*b));
     let footer = if h[5] & 0x10 != 0 { 10 } else { 0 };
-    let end = at.checked_add(10)?.checked_add(size)?.checked_add(footer)?;
+    at.checked_add(10)?.checked_add(size)?.checked_add(footer)
+}
+
+/// Where the ID3v2 tag at `at` ends: `None` when there is none, or when it
+/// claims more than the data has.
+fn id3v2_end(data: &[u8], at: usize) -> Option<usize> {
+    let end = id3v2_claims(data.get(at..at.checked_add(10)?)?, at)?;
     (end <= data.len()).then_some(end)
 }
 
@@ -194,6 +274,8 @@ pub fn find_mp3(data: &[u8], from: usize, end: usize) -> Option<usize> {
 struct WaveInfo {
     /// The `fmt ` chunk's format tag.
     format: Option<u16>,
+    /// Its channels, where the chunk is long enough to say.
+    channels: Option<u16>,
     /// Where the `fmt ` chunk ends, as it declares.
     fmt_end: u64,
     /// The `data` chunk: where its payload starts and the size it declares.
@@ -203,7 +285,7 @@ struct WaveInfo {
 impl WaveInfo {
     /// Walks the chunks of a RIFF WAVE to `fmt ` and `data`.
     fn read(data: &[u8]) -> WaveInfo {
-        let mut info = WaveInfo { format: None, fmt_end: 0, data: None };
+        let mut info = WaveInfo { format: None, channels: None, fmt_end: 0, data: None };
         let mut pos = 12usize;
         while let Some(head) = pos.checked_add(8).and_then(|e| data.get(pos..e)) {
             let size = u64::from(u32::from_le_bytes([head[4], head[5], head[6], head[7]]));
@@ -212,6 +294,10 @@ impl WaveInfo {
                 b"fmt " if info.format.is_none() => {
                     info.format =
                         data.get(body..body + 2).map(|t| u16::from_le_bytes([t[0], t[1]]));
+                    info.channels = (size >= 4)
+                        .then(|| data.get(body + 2..body + 4))
+                        .flatten()
+                        .map(|c| u16::from_le_bytes([c[0], c[1]]));
                     info.fmt_end = body as u64 + size;
                 }
                 b"data" => {
@@ -238,6 +324,7 @@ impl WaveInfo {
     }
 
     /// Whether the RIFF size field says less than the chunks need.
+    #[cfg(feature = "decode")]
     fn riff_size_is_wrong(&self, data: &[u8]) -> bool {
         let Some(riff) = data.get(4..8) else { return false };
         let riff = u64::from(u32::from_le_bytes([riff[0], riff[1], riff[2], riff[3]]));
@@ -247,6 +334,7 @@ impl WaveInfo {
 }
 
 /// Whether `data` is an RF64 or BW64 WAVE.
+#[cfg(feature = "decode")]
 fn is_rf64(data: &[u8]) -> bool {
     data.len() >= 12 && matches!(&data[..4], b"RF64" | b"BW64") && &data[8..12] == b"WAVE"
 }
@@ -272,6 +360,123 @@ pub fn container(data: &[u8]) -> Option<(Container, std::ops::Range<usize>)> {
     find_mp3(data, 0, len).map(|start| (Container::Mp3, start..len))
 }
 
+/// What a file holds, as [`container`] says of the whole file, told from
+/// its first bytes (`start`; `whole` where they are all of it): `Err(n)`
+/// where its first `n` bytes are needed to tell (more than `start` has).
+/// A `BMU V1.0` header is MP3; a RIFF WAVE is told by its first `fmt `
+/// chunk's tag, read as far as that; anything else by the MP3 frame
+/// [`find_mp3`] finds, which needs its ID3v2 tags and the mebibyte after
+/// them (and a frame more).
+pub fn container_of_start(start: &[u8], whole: bool) -> Result<Option<Container>, usize> {
+    if whole {
+        return Ok(container(start).map(|c| c.0));
+    }
+    let len = start.len();
+    let more = |n: usize| Err(n.max(len.saturating_add(1)));
+    if start.starts_with(BMU_HEADER) {
+        return Ok(Some(Container::Mp3));
+    }
+    let Some(head) = start.get(..12) else { return more(12) };
+    if &head[..4] == b"RIFF" && &head[8..12] == b"WAVE" {
+        // (The chunks walked as `WaveInfo::read` walks them, to the first
+        // `fmt `'s tag, or a `data` chunk before any.)
+        let mut pos = 12usize;
+        loop {
+            let Some(chunk) = start.get(pos..pos.saturating_add(8)) else {
+                return more(pos.saturating_add(8));
+            };
+            let size = u64::from(u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]));
+            let body = pos + 8;
+            match &chunk[..4] {
+                b"fmt " => {
+                    // (Its channels too, which follow the tag.)
+                    let Some(tag) = start.get(body..body + 4) else { return more(body + 4) };
+                    return Ok(Some(match u16::from_le_bytes([tag[0], tag[1]]) {
+                        WAVE_MPEGLAYER3 => Container::Mp3,
+                        _ => Container::Wave,
+                    }));
+                }
+                b"data" => return Ok(Some(Container::Wave)),
+                _ => {}
+            }
+            let next = body as u64 + size + (size & 1);
+            pos = usize::try_from(next).unwrap_or(usize::MAX);
+        }
+    }
+    // (Past its ID3v2 tags, as `find_mp3` skips them.)
+    let mut at = 0usize;
+    loop {
+        let Some(h) = start.get(at..at.saturating_add(10)) else {
+            return more(at.saturating_add(10));
+        };
+        match id3v2_claims(h, at) {
+            Some(end) if end > len => return more(end.saturating_add(10)),
+            Some(end) => at = end,
+            None => break,
+        }
+    }
+    // (Every frame header the search looks at, and the one after it.)
+    let needed = at.saturating_add(MP3_SEARCH + MP3_FRAME_MAX + 4);
+    if len < needed {
+        return more(needed);
+    }
+    Ok(find_mp3(start, 0, len).map(|_| Container::Mp3))
+}
+
+/// What a file holds and, a WAVE, its channels ([`Form`],
+/// [`wave_channels`]), told from as few of its first bytes as
+/// [`container_by_start`] reads: what [`form`] and [`wave_channels`] say
+/// of the whole file.
+pub fn form_by_start<B: AsRef<[u8]>, E>(
+    mut read: impl FnMut(usize) -> Result<B, E>,
+) -> Result<Option<(Form, Option<u16>)>, E> {
+    // (Of each start read, its header and channels: the last one's are
+    // the answer's.)
+    let (mut header, mut channels) = (false, None);
+    let told = container_by_start(|n| {
+        let got = read(n)?;
+        (header, channels) = (got.as_ref().starts_with(BMU_HEADER), wave_channels(got.as_ref()));
+        Ok(got)
+    })?;
+    Ok(told.map(|c| {
+        let form = match c {
+            Container::Wave => Form::Wave,
+            Container::Mp3 if header => Form::BmuMp3,
+            Container::Mp3 => Form::Mp3,
+        };
+        (form, channels.filter(|_| c == Container::Wave))
+    }))
+}
+
+/// What a file holds ([`container_of_start`]), reading no more of it than
+/// that needs: `read(n)` gives its first `n` bytes (all of it, where it is
+/// shorter), and is asked for more until it tells. The first ask is for
+/// 4 KiB, which tells a `BMU V1.0` header and a WAVE's format; a bare MP3
+/// needs a mebibyte more, a WAVE whose `fmt ` follows a long chunk, or an
+/// MP3 behind a long tag, as far as that.
+pub fn container_by_start<B: AsRef<[u8]>, E>(
+    read: impl FnMut(usize) -> Result<B, E>,
+) -> Result<Option<Container>, E> {
+    container_from(4096, read)
+}
+
+/// [`container_by_start`], its first ask `first` bytes.
+fn container_from<B: AsRef<[u8]>, E>(
+    first: usize,
+    mut read: impl FnMut(usize) -> Result<B, E>,
+) -> Result<Option<Container>, E> {
+    let mut n = first.max(1);
+    loop {
+        let got = read(n)?;
+        let start = got.as_ref();
+        match container_of_start(start, start.len() < n) {
+            Ok(c) => return Ok(c),
+            Err(more) => n = more.max(n.saturating_mul(2)),
+        }
+    }
+}
+
+#[cfg(feature = "decode")]
 /// A sound's bytes, from where its audio starts to where it ends.
 #[derive(Clone)]
 struct Bytes {
@@ -280,12 +485,14 @@ struct Bytes {
     end: usize,
 }
 
+#[cfg(feature = "decode")]
 impl AsRef<[u8]> for Bytes {
     fn as_ref(&self) -> &[u8] {
         &self.data[self.start..self.end]
     }
 }
 
+#[cfg(feature = "decode")]
 /// A sound decoded as it plays: interleaved samples in [-1, 1].
 pub struct Stream {
     reader: Box<dyn FormatReader>,
@@ -298,6 +505,7 @@ pub struct Stream {
     done: bool,
 }
 
+#[cfg(feature = "decode")]
 impl std::fmt::Debug for Stream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Stream")
@@ -307,6 +515,7 @@ impl std::fmt::Debug for Stream {
     }
 }
 
+#[cfg(feature = "decode")]
 impl Stream {
     /// Opens a game sound (`.wav` or `.bmu`) and decodes its first frames.
     pub fn open(data: Arc<[u8]>) -> Result<Stream, AudioError> {
@@ -409,6 +618,7 @@ impl Stream {
     }
 }
 
+#[cfg(feature = "decode")]
 impl Iterator for Stream {
     type Item = f32;
 
@@ -423,6 +633,7 @@ impl Iterator for Stream {
     }
 }
 
+#[cfg(feature = "decode")]
 /// Decodes a whole game sound (`.wav` or `.bmu`).
 pub fn decode(data: &[u8]) -> Result<Pcm, AudioError> {
     let mut stream = Stream::open(Arc::from(data))?;
@@ -431,7 +642,7 @@ pub fn decode(data: &[u8]) -> Result<Pcm, AudioError> {
     Ok(Pcm { rate, channels, samples })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "decode"))]
 mod tests {
     use super::*;
 
@@ -1082,5 +1293,151 @@ mod tests {
             assert!(decode(&bmu).is_err(), "BMU + {what}");
             assert!(t.elapsed() < std::time::Duration::from_secs(2), "{what}: {:?}", t.elapsed());
         }
+    }
+
+    // ---- What a file holds, told from its first bytes ----
+
+    /// [`container_by_start`] over `bytes`, its first ask `first` bytes:
+    /// what it says, and the most it read.
+    fn by_start(bytes: &[u8], first: usize) -> (Option<Container>, usize) {
+        let mut most = 0;
+        let told = container_from(first, |n| {
+            most = most.max(n.min(bytes.len()));
+            Ok::<_, ()>(&bytes[..n.min(bytes.len())])
+        });
+        (told.unwrap(), most)
+    }
+
+    /// The forms whose answer a start alone can get wrong: a `fmt ` behind
+    /// a long chunk, an ID3v2 tag longer than the start, an MP3 found far
+    /// on, a WAVE whose `data` comes before its `fmt `; and the rest.
+    fn forms() -> Vec<(&'static str, Vec<u8>)> {
+        let m = mp3(4, false);
+        let long_list = riff(&[
+            chunk(b"LIST", &vec![0x11; 200_000]),
+            chunk(b"fmt ", &mpeglayer3_fmt(1)),
+            chunk(b"data", &m),
+        ]);
+        let long_junk_pcm = riff(&[
+            chunk(b"JUNK", &[0xFF; 9001]),
+            chunk(b"fmt ", &fmt_body(1, 1, 22050, 16)),
+            chunk(b"data", &[0; 64]),
+        ]);
+        let data_first = riff(&[chunk(b"data", &m), chunk(b"fmt ", &mpeglayer3_fmt(1))]);
+        let mut cut_fmt = riff(&[chunk(b"fmt ", &mpeglayer3_fmt(1))]);
+        cut_fmt.truncate(21);
+        let two_tags = [id3(5), id3(3 << 20), m.clone()].concat();
+        vec![
+            ("pcm", wav(1, 2, 44100, 16, &tone(16, false, 2))),
+            ("ima", ima(1, 256, &[ima_block(&[0], 252)])),
+            ("bmu", [BMU_HEADER.as_slice(), &m].concat()),
+            ("bmu + pcm", [BMU_HEADER.as_slice(), &wav(1, 1, 22050, 16, &[0; 8])].concat()),
+            ("bare", m.clone()),
+            ("mp3 in a wave", mp3_in_wave(4)),
+            ("fmt behind a long list", long_list),
+            ("pcm behind long junk", long_junk_pcm),
+            ("data before fmt", data_first),
+            ("fmt cut short", cut_fmt),
+            ("small tag", [id3(300), m.clone()].concat()),
+            ("a tag of 2 MiB", [id3(2 << 20), m.clone()].concat()),
+            ("two tags, the second 3 MiB", two_tags),
+            (
+                "a tag claiming more than the file",
+                [id3(1 << 22)[..40].to_vec(), m.clone()].concat(),
+            ),
+            ("junk then mp3", [vec![0u8; 1024], m.clone()].concat()),
+            ("mp3 just within the search", [vec![0u8; (1 << 20) - 5], m.clone()].concat()),
+            ("mp3 past the search", [vec![0u8; (1 << 20) + 5], m.clone()].concat()),
+            (
+                "noise",
+                (0..3_000_000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect(),
+            ),
+            ("riff of another kind", [b"RIFF\0\0\0\0AVI ".as_slice(), &m].concat()),
+            ("empty", Vec::new()),
+            ("a byte", vec![0xFF]),
+        ]
+    }
+
+    #[test]
+    fn a_start_tells_what_the_whole_file_holds() {
+        for (what, bytes) in forms() {
+            let whole = container(&bytes).map(|c| c.0);
+            for first in [1, 7, 12, 100, 4096, usize::MAX] {
+                let (told, _) = by_start(&bytes, first);
+                assert_eq!(told, whole, "{what}, first {first}");
+            }
+            // Cut anywhere (a sample of the places), what is left is told
+            // as the whole of it.
+            let step = (bytes.len() / 97).max(1);
+            for cut in (0..bytes.len()).step_by(step) {
+                let part = &bytes[..cut];
+                assert_eq!(by_start(part, 12).0, container(part).map(|c| c.0), "{what} cut {cut}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_start_tells_the_form_and_channels_the_whole_file_has() {
+        for (what, bytes) in forms() {
+            let whole =
+                form(&bytes).map(|f| (f, wave_channels(&bytes).filter(|_| f == Form::Wave)));
+            let told = form_by_start(|n| Ok::<_, ()>(&bytes[..n.min(bytes.len())])).unwrap();
+            assert_eq!(told, whole, "{what}");
+        }
+    }
+
+    #[test]
+    fn a_wave_says_its_channels_and_a_cut_one_says_nothing_wrong() {
+        for channels in [1u16, 2, 6] {
+            let w = wav(1, channels, 22050, 16, &[0; 48]);
+            assert_eq!(wave_channels(&w), Some(channels));
+            // Cut anywhere: the channels, or nothing, never another number.
+            for cut in 0..w.len() {
+                let said = wave_channels(&w[..cut]);
+                assert!(said.is_none() || said == Some(channels), "{channels} cut {cut}");
+            }
+        }
+        // A `fmt ` too short to hold them; no RIFF; MP3.
+        let short = riff(&[chunk(b"fmt ", &[1, 0, 2])]);
+        assert_eq!(wave_channels(&short), None);
+        assert_eq!(wave_channels(b"BMU V1.0"), None);
+        assert_eq!(wave_channels(&mp3_in_wave(2)), Some(1));
+        // The forms by their header.
+        let m = mp3(3, false);
+        assert_eq!(form(&[BMU_HEADER.as_slice(), &m].concat()), Some(Form::BmuMp3));
+        assert_eq!(form(&m), Some(Form::Mp3));
+        assert_eq!(form(&mp3_in_wave(3)), Some(Form::Mp3));
+        assert_eq!(form(&[id3(20), m].concat()), Some(Form::Mp3));
+        assert_eq!(form(&wav(1, 1, 22050, 16, &[0; 8])), Some(Form::Wave));
+        assert_eq!(form(b"noise noise noise"), None);
+        for f in Form::ALL {
+            assert_eq!(f.container() == Container::Wave, f == Form::Wave);
+        }
+    }
+
+    #[test]
+    fn a_start_reads_no_more_than_it_needs() {
+        let big = |head: Vec<u8>| [head, vec![0u8; 50 << 20]].concat();
+        // A header or a WAVE's format: the first 4 KiB.
+        let bmu = big([BMU_HEADER.as_slice(), &mp3(4, false)].concat());
+        let pcm = big(wav(1, 2, 44100, 16, &tone(16, false, 2)));
+        let in_wave = big(mp3_in_wave(4));
+        for (what, bytes, want) in [
+            ("bmu", bmu, Container::Mp3),
+            ("pcm", pcm, Container::Wave),
+            ("wave", in_wave, Container::Mp3),
+        ] {
+            assert_eq!(by_start(&bytes, 4096), (Some(want), 4096), "{what}");
+        }
+        // A bare MP3: the mebibyte its first frame is looked for in.
+        let bare = big(mp3(4, false));
+        let (told, read) = by_start(&bare, 4096);
+        assert_eq!(told, Some(Container::Mp3));
+        assert!(read <= MP3_SEARCH + MP3_FRAME_MAX + 4 + 4096, "{read}");
+        // Noise: the same, and then it is no sound.
+        let noise = big(vec![0x55; 10]);
+        let (told, read) = by_start(&noise, 4096);
+        assert_eq!(told, None);
+        assert!(read < 2 << 20, "{read}");
     }
 }

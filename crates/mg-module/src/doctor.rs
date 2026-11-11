@@ -73,6 +73,7 @@ pub enum Check {
     AreaVariables,
     TileReplace,
     TileSeam,
+    SoundSilent,
     TagUnique,
     NuiSources,
     VarType,
@@ -94,7 +95,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 53] = [
+    pub const ALL: [Check; 54] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -130,6 +131,7 @@ impl Check {
         Check::AreaVariables,
         Check::TileReplace,
         Check::TileSeam,
+        Check::SoundSilent,
         Check::TagUnique,
         Check::NuiSources,
         Check::VarType,
@@ -187,6 +189,7 @@ impl Check {
             Check::AreaVariables => "area-variables",
             Check::TileReplace => "tile-replace",
             Check::TileSeam => "tile-seam",
+            Check::SoundSilent => "sound-silent",
             Check::TagUnique => "tag-unique",
             Check::NuiSources => "nui-sources",
             Check::VarType => "var-type",
@@ -298,6 +301,15 @@ impl Check {
                 "an area's neighboring tiles agree about the corners and edge they share: its \
                  terrain and height, and its crosser (a road, a stream), as Aurora's painting \
                  leaves them"
+            }
+            Check::SoundSilent => {
+                "an area's music and ambient sounds (its MusicDay, MusicNight and MusicBattle \
+                 rows of ambientmusic.2da, its AmbientSndDay and AmbientSndNight rows of \
+                 ambientsound.2da) and the sounds of its placed sound objects and of sound \
+                 blueprints are files the game finds and plays there: music a .bmu holding MP3, \
+                 an ambient sound a .wav holding a WAVE or a .bmu holding MP3, a placed sound a \
+                 .wav holding a WAVE (mono where the sound is positional) or MP3 behind the BMU \
+                 V1.0 header"
             }
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
@@ -414,6 +426,7 @@ impl Check {
             | Check::AreaVariables
             | Check::TileReplace
             | Check::TileSeam
+            | Check::SoundSilent
             | Check::TagUnique
             | Check::VarType
             | Check::VarValue
@@ -3126,6 +3139,7 @@ enum Once {
     AreaVariables,
     TileReplacements,
     TileSeams,
+    AreaSounds,
     /// The tags of the areas and their objects, for `tag-unique`.
     Tags,
     Described,
@@ -3133,7 +3147,7 @@ enum Once {
 }
 
 impl Once {
-    const ALL: [Once; 12] = [
+    const ALL: [Once; 13] = [
         Once::Objects,
         Once::PcFaction,
         Once::StaticTransforms,
@@ -3143,6 +3157,7 @@ impl Once {
         Once::AreaVariables,
         Once::TileReplacements,
         Once::TileSeams,
+        Once::AreaSounds,
         Once::Tags,
         Once::Described,
         Once::Read,
@@ -3160,6 +3175,7 @@ impl Once {
             Once::AreaVariables => "areas' variables",
             Once::TileReplacements => "tiles' replacement textures",
             Once::TileSeams => "tiles' seams",
+            Once::AreaSounds => "music, ambient and placed sounds",
             Once::Tags => "areas' and objects' tags",
             Once::Described => "described variables",
             Once::Read => "variables the scripts read",
@@ -3179,6 +3195,7 @@ impl Once {
             Once::AreaVariables => &[AreaVariables],
             Once::TileReplacements => &[TileReplace],
             Once::TileSeams => &[TileSeam],
+            Once::AreaSounds => &[SoundSilent],
             Once::Tags => &[TagUnique],
             Once::Described => &[VarType, VarValue, VarObject, VarName, VarRuntime, VarRequires],
             Once::Read => &[VarScript],
@@ -3194,6 +3211,7 @@ impl Once {
             }
             Once::PcFaction => matches!(t, T::UTC | T::UTP | T::UTD | T::UTE | T::GIT),
             Once::StaticTransforms => t == T::GIT,
+            Once::AreaSounds => matches!(t, T::GIT | T::UTS),
             Once::StaticTints | Once::TintsStored | Once::AppearanceRange => {
                 matches!(t, T::GIT | T::UTP)
             }
@@ -3306,6 +3324,8 @@ fn resources_once(
         .collect();
     keys.sort();
     let indexes = TileIndexes::default();
+    // (What each sound file holds, read once for every area that names it.)
+    let judged = crate::sounds::Judged::default();
     let (rm, beside) = (d.rm, &*d);
     let started = Instant::now();
     let found: Vec<Option<OfOne>> = keys
@@ -3337,6 +3357,7 @@ fn resources_once(
                 tile_replacements(&mut w, key, &gff, &mut kept.replaced)
             });
             run(Once::TileSeams, &mut || tile_seams(&mut w, key, &gff, &indexes));
+            run(Once::AreaSounds, &mut || area_sounds(&mut w, key, &gff, &judged));
             let mut tags = None;
             run(Once::Tags, &mut || {
                 let index = tags.insert(crate::tags::TagIndex::default());
@@ -3768,6 +3789,98 @@ fn tile_replacements(
                  Properties' Replacement Texture"
         );
         d.push(Severity::Error, Check::TileReplace, "module", key, place, message);
+    }
+}
+
+/// An area's music and ambient sounds, and placed sounds' and sound
+/// blueprints' sounds, that the game plays nothing of ([`crate::sounds`]).
+///
+/// Of an area (its GIT): each row its `AreaProperties` name (by day, by
+/// night, in battle) of `ambientmusic.2da` or `ambientsound.2da`, as the
+/// load order gives the table (the module's, its haks', the game's), whose
+/// `Resource` is found nowhere, or is a file the game does not look for in
+/// that role or does not play there (a WAVE as music, MP3 under `.wav` as
+/// an ambient sound), or no sound at all; and a row past the table's end.
+/// Row 0 (`****` in the game's tables) and a blank `Resource` are no music
+/// or no sound, and said nothing of.
+///
+/// Of a placed sound object (the GIT's `SoundList`) and a sound blueprint
+/// (a UTS), each sound its `Sounds` list names: MP3 under `.wav` without
+/// the `BMU V1.0` header, a file that is no sound, and, where the object is
+/// `Positional`, a stereo WAVE. A sound found nowhere, or only as `.bmu`,
+/// is a missing reference's to say ([`crate::verify::Missing`]), not this.
+///
+/// Warnings: the area loads and plays on, silent, as a missing sound
+/// leaves it. One finding a field or a sound; what a file holds is read
+/// once a run (`judged`), from its first bytes.
+fn area_sounds(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff, judged: &crate::sounds::Judged) {
+    let rm = d.rm;
+    let read = |k: &ResKey| judged.form(rm, k);
+    // A placed sound object's or a blueprint's sounds, at `place`.
+    let placed = |d: &mut Doctor, s: &Struct, place: &str| {
+        let positional = s.integer("Positional").unwrap_or(0) != 0;
+        for (j, entry) in s.list("Sounds").unwrap_or_default().iter().enumerate() {
+            let Some(name) = entry.resref("Sound").filter(|n| !n.is_empty()) else { continue };
+            let role = mg_audio::Role::Placed;
+            let unheard = crate::sounds::unheard_by(rm, role, name, positional, &read);
+            use crate::sounds::Unheard;
+            let Some(unheard) = unheard.filter(|u| {
+                !matches!(
+                    u,
+                    Unheard::Missing | Unheard::Silent { why: mg_audio::Silent::OnlyBmu, .. }
+                )
+            }) else {
+                continue;
+            };
+            let at = format!("{place}Sounds[{j}]");
+            let message = unheard.message(role, name);
+            d.push(Severity::Warning, Check::SoundSilent, "module", key, at, message);
+        }
+    };
+    if key.restype == ResType::UTS {
+        placed(d, &gff.root, "");
+        return;
+    }
+    for (i, s) in gff.root.list("SoundList").unwrap_or_default().iter().enumerate() {
+        let tag = match s.get("Tag") {
+            Some(Value::String(t)) if !t.is_empty() => format!(" ({})", String::from_utf8_lossy(t)),
+            _ => String::new(),
+        };
+        placed(d, s, &format!("SoundList[{i}]{tag}, "));
+    }
+    let Some(props) = gff.root.child("AreaProperties") else { return };
+    for (field, table, role) in crate::sounds::AREA_SOUNDS {
+        let Some(row) = props.integer(field).and_then(|r| usize::try_from(r).ok()) else {
+            continue;
+        };
+        let Some(t) = d.table_shared(table) else { continue };
+        let at = format!("AreaProperties/{field}, {table}.2da row {row}");
+        if row >= t.len() {
+            if row > 0 {
+                let message =
+                    format!("{field} is row {row}, past the end of {table}.2da ({} rows)", t.len());
+                d.push(Severity::Warning, Check::SoundSilent, "module", key, at, message);
+            }
+            continue;
+        }
+        let Some(cell) = t.get(row, "Resource").map(str::trim).filter(|c| !c.is_empty()) else {
+            continue;
+        };
+        // A name longer than a resource's, 16 characters, is found as no
+        // file: a music row's read in the client (Wyvern Crown of Cormyr's
+        // row 83, mus_wc_ruralguitar, silent though the game's own
+        // data/mus has a file of that name, while mus_wc_ruralg, the same
+        // bytes, plays), an ambient row's by the same limit on names.
+        let Ok(name) = ResRef::from_str(cell) else {
+            let message = crate::sounds::long_name_message(role, cell);
+            d.push(Severity::Warning, Check::SoundSilent, "module", key, at, message);
+            continue;
+        };
+        let Some(unheard) = crate::sounds::unheard_by(rm, role, name, false, &read) else {
+            continue;
+        };
+        let message = unheard.message(role, name);
+        d.push(Severity::Warning, Check::SoundSilent, "module", key, at, message);
     }
 }
 
@@ -4280,6 +4393,251 @@ mod tests {
 
     fn checks(f: &[Finding]) -> Vec<(&str, String)> {
         f.iter().map(|f| (f.check.as_ref(), f.at.clone())).collect()
+    }
+
+    /// An area's music and ambient sounds that the game plays nothing of
+    /// (`sound-silent`): each row an area's fields name, of the tables the
+    /// load order gives (the hak's over the game's), its `Resource` found
+    /// as the role looks for it and judged by what it holds. Row 0 and a
+    /// blank `Resource` are no music, and nothing is said of them.
+    #[test]
+    fn an_area_s_music_and_sounds_the_game_plays_nothing_of_are_said() {
+        use crate::sounds::tests::{mp3, wave};
+        let bmu = [mg_audio::BMU_HEADER.as_slice(), &mp3(3)].concat();
+        let pcm = wave(1, &[0; 64]);
+        let music = b"2DA V2.0\n\n   Resource Stinger1\n0 **** ****\n1 mus_ok mus_gone\n\
+            2 mus_pcm ****\n3 mus_wav ****\n4 mus_gone ****\n5 mus_in_wave ****\n6 **** ****\n\
+            7 mus_noise ****\n8 a_name_far_too_long_x ****\n";
+        let ambient = b"2DA V2.0\n\n   Resource\n0 ****\n1 as_ok\n2 as_mp3\n3 as_bmu_ok\n\
+            4 as_bmu_pcm\n";
+        let noise = vec![0x42u8; 3000];
+        let in_wave = wave(0x55, &mp3(3));
+        let rm = {
+            let mut rm = resman(&[
+                ("ambientmusic", ResType::TWODA, music),
+                ("ambientsound", ResType::TWODA, ambient),
+                ("mus_ok", ResType::BMU, &bmu),
+                ("mus_pcm", ResType::BMU, &pcm),
+                ("mus_wav", ResType::WAV, &pcm),
+                ("mus_in_wave", ResType::BMU, &in_wave),
+                ("mus_noise", ResType::BMU, &noise),
+                ("as_ok", ResType::WAV, &pcm),
+                ("as_mp3", ResType::WAV, &bmu),
+                ("as_bmu_ok", ResType::BMU, &bmu),
+                ("as_bmu_pcm", ResType::BMU, &pcm),
+            ]);
+            // (The game's own tables, under the hak's: not read.)
+            let mut game = MemContainer::new();
+            game.insert(key("ambientmusic", ResType::TWODA), b"2DA V2.0\n\n   Resource\n".to_vec());
+            rm.add(priority::KEY - 1, "game2", LayerClass::Key, game);
+            rm
+        };
+        let mut m = Module::new();
+        let area = |m: &mut Module, name: &str, fields: &[(&str, i32)]| {
+            let mut props = Struct::new(100);
+            for (f, v) in fields {
+                props.set(f, Value::Int(*v));
+            }
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("AreaProperties", Value::Struct(props));
+            m.set_gff(key(name, ResType::GIT), &git).unwrap();
+        };
+        let fields = ["MusicDay", "MusicNight", "MusicBattle", "AmbientSndDay", "AmbientSndNight"];
+        let named = |rows: [i32; 5]| -> Vec<(&str, i32)> { fields.into_iter().zip(rows).collect() };
+        area(&mut m, "area1", &named([1, 2, 3, 1, 2]));
+        // (Row 2 again, said again for this area; rows past the end.)
+        area(&mut m, "area2", &named([2, 4, 0, 4, 99]));
+        area(&mut m, "area3", &named([5, 6, 7, 3, 0]));
+        area(&mut m, "area4", &[("MusicDay", 8), ("MusicNight", -1), ("MusicBattle", 900)]);
+        // (A name longer than a resource's, row 8; no AreaProperties at all.)
+        m.set_gff(key("area5", ResType::GIT), &Gff::new(*b"GIT ")).unwrap();
+        // Placed sounds and a blueprint: each of their sounds, judged as
+        // PlaySound's, and stereo where the object is positional.
+        let sound_object = |positional: u8, tag: &str, names: &[&str]| {
+            let mut s = Struct::new(6);
+            s.set("Positional", Value::Byte(positional));
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            let list = names.iter().map(|n| {
+                let mut e = Struct::new(0);
+                e.set("Sound", Value::resref(ResRef::from_str(n).unwrap()));
+                e
+            });
+            s.set("Sounds", Value::List(list.collect()));
+            s
+        };
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(
+            "SoundList",
+            Value::List(vec![
+                sound_object(1, "WIND", &["snd_stereo", "snd_mono", "snd_bmu_mp3", "snd_bare"]),
+                sound_object(0, "WIDE", &["snd_stereo", "snd_only_bmu", "snd_gone"]),
+            ]),
+        );
+        m.set_gff(key("area6", ResType::GIT), &git).unwrap();
+        let mut uts = Gff::new(*b"UTS ");
+        uts.root = sound_object(1, "BP", &["snd_stereo", "snd_noise"]);
+        m.set_gff(key("snd_bp", ResType::UTS), &uts).unwrap();
+        let stereo = crate::sounds::tests::wave_of(1, 2, &[0; 64]);
+        let rm = {
+            let mut rm = rm;
+            let mut more = MemContainer::new();
+            for (n, t, data) in [
+                ("snd_stereo", ResType::WAV, stereo),
+                ("snd_mono", ResType::WAV, pcm.clone()),
+                ("snd_bmu_mp3", ResType::WAV, bmu.clone()),
+                ("snd_bare", ResType::WAV, mp3(3)),
+                ("snd_only_bmu", ResType::BMU, bmu.clone()),
+                ("snd_noise", ResType::WAV, vec![7; 900]),
+            ] {
+                more.insert(key(n, t), data);
+            }
+            rm.add(priority::HAK_USER + 1, "sounds.hak", LayerClass::Erf, more);
+            rm
+        };
+        let found: Vec<(String, String, String)> = examine(&m, &rm, TalkTables::default())
+            .into_iter()
+            .filter(|f| f.check == "sound-silent")
+            .inspect(|f| assert_eq!((f.severity, f.source.as_str()), (Severity::Warning, "module")))
+            .map(|f| (f.resource.to_string(), f.at, f.message))
+            .collect();
+        let row = |area: &str, field: &str, table: &str, row: u32, message: &str| {
+            let at = format!("AreaProperties/{field}, {table}.2da row {row}");
+            (format!("{area}.git"), at, message.to_string())
+        };
+        assert_eq!(
+            found,
+            [
+                row(
+                    "area1",
+                    "MusicNight",
+                    "ambientmusic",
+                    2,
+                    "Music mus_pcm.bmu is a WAVE, which \
+                     the game does not play as music (it must hold MP3)"
+                ),
+                row(
+                    "area1",
+                    "MusicBattle",
+                    "ambientmusic",
+                    3,
+                    "Battle music mus_wav exists only \
+                     as mus_wav.wav, which the game does not look for (music must be a .bmu \
+                     holding MP3)"
+                ),
+                row(
+                    "area1",
+                    "AmbientSndNight",
+                    "ambientsound",
+                    2,
+                    "Ambient sound as_mp3.wav \
+                     holds MP3, which the game does not play under .wav (it plays a WAVE there, \
+                     or MP3 as as_mp3.bmu)"
+                ),
+                row(
+                    "area2",
+                    "MusicDay",
+                    "ambientmusic",
+                    2,
+                    "Music mus_pcm.bmu is a WAVE, which \
+                     the game does not play as music (it must hold MP3)"
+                ),
+                row(
+                    "area2",
+                    "MusicNight",
+                    "ambientmusic",
+                    4,
+                    "Music mus_gone is found nowhere \
+                     (the game looks for mus_gone.bmu)"
+                ),
+                row(
+                    "area2",
+                    "AmbientSndDay",
+                    "ambientsound",
+                    4,
+                    "Ambient sound as_bmu_pcm.bmu \
+                     is a WAVE, which the game does not play under .bmu (it plays MP3 there, or \
+                     a WAVE as as_bmu_pcm.wav)"
+                ),
+                row(
+                    "area2",
+                    "AmbientSndNight",
+                    "ambientsound",
+                    99,
+                    "AmbientSndNight is row 99, \
+                     past the end of ambientsound.2da (5 rows)"
+                ),
+                row(
+                    "area3",
+                    "MusicBattle",
+                    "ambientmusic",
+                    7,
+                    "Battle music mus_noise.bmu is \
+                     not a sound the game plays (neither WAVE nor MP3)"
+                ),
+                row(
+                    "area4",
+                    "MusicDay",
+                    "ambientmusic",
+                    8,
+                    "Music a_name_far_too_long_x is a name longer than 16 characters, which the \
+                     game does not find"
+                ),
+                row(
+                    "area4",
+                    "MusicBattle",
+                    "ambientmusic",
+                    900,
+                    "MusicBattle is row 900, past \
+                     the end of ambientmusic.2da (9 rows)"
+                ),
+                (
+                    "area6.git".into(),
+                    "SoundList[0] (WIND), Sounds[0]".into(),
+                    "Sound snd_stereo.wav is stereo, which the game does not play from a \
+                     positional sound (make it mono, or the sound area-wide)"
+                        .into()
+                ),
+                (
+                    "area6.git".into(),
+                    "SoundList[0] (WIND), Sounds[3]".into(),
+                    "Sound snd_bare.wav is MP3 without the BMU V1.0 header, which the game does \
+                     not play (it plays a WAVE there, or MP3 behind the header)"
+                        .into()
+                ),
+                (
+                    "snd_bp.uts".into(),
+                    "Sounds[0]".into(),
+                    "Sound snd_stereo.wav is stereo, which the game does not play from a \
+                     positional sound (make it mono, or the sound area-wide)"
+                        .into()
+                ),
+                (
+                    "snd_bp.uts".into(),
+                    "Sounds[1]".into(),
+                    "Sound snd_noise.wav is not a sound the game plays (neither WAVE nor MP3)"
+                        .into()
+                ),
+            ]
+        );
+        // Run, it is timed; left out, it isn't run: nothing is said, and
+        // nothing timed of it.
+        let mut timings = Timings::default();
+        examine_groups(&m, &rm, TalkTables::default(), &Skip::NONE, &mut timings, None);
+        let part = "  music, ambient and placed sounds, added up";
+        assert!(timings.parts.iter().any(|(p, _)| p == part), "{:?}", timings.parts);
+        let skip = Skip::parse(&["sound-silent"]).unwrap();
+        let mut timings = Timings::default();
+        let left = examine_groups(&m, &rm, TalkTables::default(), &skip, &mut timings, None);
+        assert!(left.iter().all(|f| f.check != "sound-silent"), "{left:#?}");
+        assert!(
+            timings.parts.iter().all(|(p, _)| !p.contains("placed sounds")),
+            "{:?}",
+            timings.parts
+        );
+        let skip = Skip::parse(&["objects"]).unwrap();
+        let left = examine_groups(&m, &rm, TalkTables::default(), &skip, &mut timings, None);
+        assert!(left.iter().all(|f| f.check != "sound-silent"));
+        assert_eq!(Check::from_id("sound-silent").map(Check::group), Some(Group::Objects));
     }
 
     /// A 2DA is parsed once a run, for every doctor beside the first (the
@@ -4882,6 +5240,7 @@ endmodelgeom fx\ndonemodel fx\n";
                 reference,
                 uncompiled: false,
                 only_local: None,
+                found_as: None,
             }
         };
         let mut gone = vec![missing(ResType::UTC), missing(ResType::UTD)];

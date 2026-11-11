@@ -46,6 +46,137 @@ fn every_game_sound_decodes() {
     assert!(failed.is_empty(), "{} of {} failed:\n{}", failed.len(), all.len(), failed.join("\n"));
 }
 
+/// Every row of the game's own `ambientmusic.2da`, as music, and of its
+/// `ambientsound.2da`, as an ambient sound, names a file the game plays
+/// there by the role rules (`mg_audio::role`) that Verify's `sound-silent`
+/// holds a module's areas to (`mg_module::sounds`), but one: row 200 of
+/// `ambientsound.2da`, `al_mus_throne2.wav` (`BMU V1.0` + stereo MP3 under
+/// `.wav`), which the client plays nothing of (read on 2026-11-11,
+/// `client_audio` with `MG_AUDIO_FORMS=stock`: the stock row by its number,
+/// a new row naming the game's file and its bytes under a test name, all
+/// silent, a PCM control playing before and after): the shipped row is
+/// dead in the game. Another finding means a reading of the client is
+/// wrong or incomplete; row 200 no longer flagged, that the rules changed.
+/// (Every row, every day: 253 rows take some 30 ms, so the sweep takes
+/// them all rather than a sample.) The shipped modules' areas are held to
+/// the check in `doctor.rs`, `shipped_modules_have_only_known_findings`.
+#[test]
+fn the_game_s_own_music_and_ambient_rows_are_heard() {
+    use mg_audio::Role;
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rows = Vec::new();
+    for (table, role) in [("ambientmusic", Role::Music), ("ambientsound", Role::Ambient)] {
+        let data = rm.get(&ResKey::parse(table, ResType::TWODA).unwrap()).unwrap();
+        let t = mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap();
+        for row in 0..t.len() {
+            let Some(cell) = t.get(row, "Resource").map(str::trim).filter(|c| !c.is_empty()) else {
+                continue;
+            };
+            let name = mg_core::ResRef::from_str(cell).unwrap();
+            rows.push((table, row, role, name));
+        }
+    }
+    let all = rows.len();
+    assert!(all > 250, "{all} rows name a sound");
+    // (Every one of them: a sweep of one in one.)
+    let picked = sweep(rows, 1);
+    assert_eq!(picked.len(), all);
+    let judged = mg_module::sounds::Judged::default();
+    let unheard: Vec<String> = picked
+        .par_iter()
+        .filter_map(|&(table, row, role, name)| {
+            let read = |k: &ResKey| judged.form(&rm, k);
+            let u = mg_module::sounds::unheard_by(&rm, role, name, false, &read)?;
+            Some(format!("{table}.2da row {row}: {}", u.message(role, name)))
+        })
+        .collect();
+    eprintln!("{all} rows judged");
+    assert_eq!(
+        unheard,
+        ["ambientsound.2da row 200: Ambient sound al_mus_throne2.wav holds MP3, which the game \
+             does not play under .wav (it plays a WAVE there, or MP3 as al_mus_throne2.bmu)"],
+        "the game's rows the rules say are silent"
+    );
+}
+
+/// Every sound of the game's own sound blueprints (each `.uts` of the
+/// install: its `Sounds`, judged as a placed sound's, positional where the
+/// blueprint is), by the rules Verify's `sound-silent` holds a module's
+/// placed sounds and blueprints to (a `.wav` holding a WAVE or MP3 behind
+/// the `BMU V1.0` header, mono where the sound is positional), is a file the
+/// game plays there but two: `lavalakeloop.uts` and `sludgelake.uts`,
+/// positional, of the stereo IMA ADPCM `al_na_lavalake1.wav` and
+/// `al_na_sludglake1.wav`. Both are silent as shipped and play made
+/// area-wide (read in the client on 2026-11-11, `client_audio` with
+/// `MG_AUDIO_FORMS=stereo`: every field of each copied into a placed
+/// object). Another finding means a reading of the client is wrong or
+/// incomplete; these two no longer flagged, that the rules changed. (Every
+/// blueprint, every day: the 301 take some 10 ms alone, so the sweep takes them
+/// all. Sounds the game's blueprints name and the game hasn't are a missing
+/// reference's to say, and counted.)
+#[test]
+fn the_game_s_own_sound_blueprints_name_only_two_sounds_it_does_not_play() {
+    use mg_audio::Role;
+    use mg_module::sounds::{Unheard, unheard_by};
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let all: Vec<ResKey> =
+        rm.list(ResType::UTS).into_iter().map(|r| ResKey::new(r, ResType::UTS)).collect();
+    let blueprints = all.len();
+    assert!(blueprints > 250, "{blueprints} sound blueprints");
+    // (Every one of them: a sweep of one in one.)
+    let picked = sweep(all, 1);
+    assert_eq!(picked.len(), blueprints);
+    let started = std::time::Instant::now();
+    let judged = mg_module::sounds::Judged::default();
+    // (blueprint, positional, sound, what is wrong) of each sound.
+    let found: Vec<(ResKey, bool, mg_core::ResRef, Option<Unheard>)> = picked
+        .par_iter()
+        .flat_map_iter(|key| {
+            let gff = mg_gff::Gff::read(&rm.get(key).unwrap()).unwrap();
+            let positional = gff.root.integer("Positional").unwrap_or(0) != 0;
+            let names: Vec<mg_core::ResRef> = (gff.root.list("Sounds").unwrap_or_default().iter())
+                .filter_map(|e| e.resref("Sound").filter(|n| !n.is_empty()))
+                .collect();
+            let read = |k: &ResKey| judged.form(&rm, k);
+            let told: Vec<_> = names
+                .into_iter()
+                .map(|n| (*key, positional, n, unheard_by(&rm, Role::Placed, n, positional, &read)))
+                .collect();
+            told
+        })
+        .collect();
+    let sounds = found.len();
+    let positional = found.iter().filter(|f| f.1).count();
+    let missing = found.iter().filter(|f| matches!(f.3, Some(Unheard::Missing))).count();
+    let wrong: Vec<String> = (found.iter())
+        .filter(|f| f.3.is_some() && !matches!(f.3, Some(Unheard::Missing)))
+        .map(|(k, p, n, u)| {
+            let place = if *p { "positional" } else { "area-wide" };
+            format!("{k} ({place}): {}", u.as_ref().unwrap().message(Role::Placed, *n))
+        })
+        .collect();
+    eprintln!(
+        "{blueprints} blueprints, {sounds} sounds ({positional} positional), {missing} found \
+         nowhere, in {:?}",
+        started.elapsed()
+    );
+    let mut wrong = wrong;
+    wrong.sort();
+    let stereo = |bp: &str, wav: &str| {
+        format!(
+            "{bp}.uts (positional): Sound {wav}.wav is stereo, which the game does not play from \
+             a positional sound (make it mono, or the sound area-wide)"
+        )
+    };
+    assert_eq!(
+        wrong,
+        [stereo("lavalakeloop", "al_na_lavalake1"), stereo("sludgelake", "al_na_sludglake1")],
+        "the game's sounds the rules say are silent"
+    );
+}
+
 /// What ffmpeg decodes: rate, channels and frames.
 fn ffmpeg(data: &[u8], dir: &std::path::Path, name: &str) -> Option<(u32, u16, usize)> {
     let path = dir.join(name);

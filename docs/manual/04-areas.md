@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T00:59:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:32:33Z }
 ---
 
 # Areas
@@ -1700,6 +1700,12 @@ renamed to `.bmu` stays silent in the game). An ambient sound is a
 does not, and says so in the log, once for each: a WAVE as music, a
 music track that exists only as `.wav`, MP3 under `.wav` as an ambient
 sound (or a WAVE under `.bmu`), and a sound that exists only as `.bmu`.
+A placed sound and a Play button's sound is a `.wav` holding a WAVE or MP3
+behind the `BMU V1.0` header (MP3 without it is silent, and Moonglow says
+so too), and a positional sound in the game plays no stereo WAVE (make it
+mono, or the sound area-wide).
+[Verify Module](09-build-and-test.md#verify-module) says the same of every
+area's music and ambient sounds and every placed sound (`sound-silent`).
 
 ## Making tilesets
 
