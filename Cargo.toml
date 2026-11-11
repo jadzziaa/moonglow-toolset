@@ -49,6 +49,7 @@ mg-testkit = { path = "crates/mg-testkit" }
 mg-tiles = { path = "crates/mg-tiles" }
 mg-tlk = { path = "crates/mg-tlk" }
 mg-ui = { path = "crates/mg-ui" }
+mg-uikit = { path = "crates/mg-uikit" }
 mg-update = { path = "crates/mg-update" }
 
 # Third party

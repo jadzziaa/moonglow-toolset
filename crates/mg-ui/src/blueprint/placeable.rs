@@ -5,6 +5,7 @@
 use egui::Ui;
 use mg_gff::{FieldType, Struct};
 use mg_module::palette::BlueprintKind;
+use mg_uikit::Controls as _;
 
 use super::{Form, inventory, situated};
 
@@ -144,7 +145,7 @@ fn illumination(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::field_label(ui, "");
     f.mark_mixed(ui, LIGHT_STATE);
     let mut on = illuminated(&f.root);
-    let r = ui.checkbox(&mut on, "Illuminated");
+    let r = ui.check_box(&mut on, "Illuminated");
     let r = if lit {
         r.on_hover_text(
             "Whether the placeable's light (placeables.2da LightColor) is on when the game loads it",

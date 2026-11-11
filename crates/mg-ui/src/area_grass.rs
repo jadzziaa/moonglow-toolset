@@ -14,6 +14,7 @@ use mg_edit::{Command, Edit};
 use mg_gff::Struct;
 use mg_resman::ResKey;
 use mg_rules::Choice;
+use mg_uikit::Controls as _;
 
 use crate::{Action, Moonglow};
 
@@ -176,7 +177,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         Some(look) => {
             let mut grows = !current.default_disabled;
             if ui
-                .checkbox(&mut grows, "Grow the tileset's grass on Grass faces")
+                .check_box(&mut grows, "Grow the tileset's grass on Grass faces")
                 .on_hover_text("Off: SetAreaDefaultGrassDisabled(TRUE) from the start")
                 .changed()
             {
@@ -325,7 +326,8 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         let off: Vec<&Choice> =
             free.iter().copied().filter(|c| !present.contains_key(&(c.row as u32))).collect();
         let mut pick: Option<u32> = None;
-        ui.menu_button("Add Grass to…", |ui| {
+        mg_uikit::menu_button(ui, "Add Grass to…", |ui| {
+            mg_uikit::menu_rows(ui);
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 ui.weak("On this area's tiles");
                 if on.is_empty() {

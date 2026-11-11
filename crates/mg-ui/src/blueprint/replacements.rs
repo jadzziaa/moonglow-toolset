@@ -9,6 +9,7 @@
 //! The lists are written as the game writes them: an entry edited in
 //! place, a new one at the end (struct 0, the old name, then the new).
 
+use mg_uikit::Controls as _;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -260,89 +261,102 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
     let mut changed: Option<Vec<Struct>> = None;
     let mut pick: Option<(Option<usize>, String, String)> = None;
     let mut set_new: Option<(Option<usize>, String, ResRef)> = None;
-    egui::Grid::new(f.id(p.field)).num_columns(5).spacing([10.0, 4.0]).show(ui, |ui| {
-        if !rows.is_empty() {
-            ui.label("");
-            crate::widgets::field_label(ui, p.titles.0);
-            ui.label("");
-            crate::widgets::field_label(ui, p.titles.1);
-            ui.end_row();
-        }
-        for row in &rows {
-            let plt = row.of_model.filter(|t| t.plt).map(|t| t.colors.unwrap_or_default());
-            small_picture(f, ui, &row.name, plt, ROW_PICTURE);
-            // (A name the replacement's field can't hold: said, not offered.)
-            let long = row.name.len() > ResRef::MAX_LEN;
-            ui.horizontal(|ui| {
-                let name = ui.label(&row.name);
-                if let Some(t) = row.of_model {
-                    name.on_hover_text(format!("On {}", t.models.join(", ")));
+    mg_uikit::with_table_rows(ui, |ui| {
+        egui::Grid::new(f.id(p.field))
+            .num_columns(5)
+            .spacing([10.0, mg_uikit::metrics::TABLE_RULE])
+            .show(ui, |ui| {
+                if !rows.is_empty() {
+                    ui.label("");
+                    crate::widgets::field_label(ui, p.titles.0);
+                    ui.label("");
+                    crate::widgets::field_label(ui, p.titles.1);
+                    ui.end_row();
                 }
-                if row.of_model.is_none() {
-                    ui.weak(format!("({NOT_IN_THE_MODEL})")).on_hover_text(
-                        "Its models don't have this texture. The replacement is kept as it is.",
-                    );
-                } else if plt.is_some() {
-                    ui.weak("PLT").on_hover_text(PLT_WHY);
-                }
-                if let Some(t) = row.of_model {
-                    match &t.source {
-                        Source::Mesh => {}
-                        Source::Material(m) => {
-                            ui.weak(format!("(material {m})")).on_hover_text(format!(
-                                "A texture of the material {m}.mtr a mesh is drawn with"
-                            ));
+                for row in &rows {
+                    let plt = row.of_model.filter(|t| t.plt).map(|t| t.colors.unwrap_or_default());
+                    small_picture(f, ui, &row.name, plt, ROW_PICTURE);
+                    // (A name the replacement's field can't hold: said, not offered.)
+                    let long = row.name.len() > ResRef::MAX_LEN;
+                    ui.horizontal(|ui| {
+                        let name = ui.label(&row.name);
+                        if let Some(t) = row.of_model {
+                            name.on_hover_text(format!("On {}", t.models.join(", ")));
                         }
-                        Source::Emitter => {
-                            ui.weak("(emitter)").on_hover_text("A particle emitter's texture");
+                        if row.of_model.is_none() {
+                            ui.weak(format!("({NOT_IN_THE_MODEL})")).on_hover_text(
+                            "Its models don't have this texture. The replacement is kept as it is.",
+                        );
+                        } else if plt.is_some() {
+                            ui.weak("PLT").on_hover_text(PLT_WHY);
                         }
-                        Source::Flare => {
-                            ui.weak("(flare)").on_hover_text("A light's lens flare");
+                        if let Some(t) = row.of_model {
+                            match &t.source {
+                                Source::Mesh => {}
+                                Source::Material(m) => {
+                                    ui.weak(format!("(material {m})")).on_hover_text(format!(
+                                        "A texture of the material {m}.mtr a mesh is drawn with"
+                                    ));
+                                }
+                                Source::Emitter => {
+                                    ui.weak("(emitter)")
+                                        .on_hover_text("A particle emitter's texture");
+                                }
+                                Source::Flare => {
+                                    ui.weak("(flare)").on_hover_text("A light's lens flare");
+                                }
+                                // (Not offered: `named` leaves the TXIs' maps out.)
+                                Source::Txi { .. } => {}
+                            }
                         }
-                        // (Not offered: `named` leaves the TXIs' maps out.)
-                        Source::Txi { .. } => {}
+                        if long {
+                            ui.weak("(name too long)").on_hover_text(TOO_LONG);
+                        }
+                    });
+                    let new = row.entry.map(|i| resref_text(&items[i], p.new)).unwrap_or_default();
+                    if new.is_empty() {
+                        ui.allocate_exact_size(
+                            egui::vec2(ROW_PICTURE, ROW_PICTURE),
+                            egui::Sense::hover(),
+                        );
+                    } else {
+                        small_picture(f, ui, &new, None, ROW_PICTURE);
                     }
+                    ui.horizontal(|ui| {
+                        let id = f.id(&format!("{}#{}#{:?}#new", p.field, row.name, row.entry));
+                        if long {
+                            ui.add_enabled(false, egui::Button::new("Select Texture…"))
+                                .on_disabled_hover_text(TOO_LONG);
+                        } else {
+                            if let Some(v) = crate::widgets::commit_resref_in(
+                                &mut f.app.buffers,
+                                ui,
+                                id,
+                                &new,
+                                140.0,
+                            ) && let Ok(r) = ResRef::from_str(v.trim())
+                            {
+                                set_new = Some((row.entry, row.name.clone(), r));
+                            }
+                            let button = ui.button("Select Texture…");
+                            if button.on_hover_text("Pick the texture to draw it with").clicked() {
+                                pick = Some((row.entry, row.name.clone(), new.clone()));
+                            }
+                        }
+                        if let Some(i) = row.entry {
+                            let reset = ui
+                                .small_button("Reset")
+                                .on_hover_text("Remove the replacement: the model's own texture");
+                            if reset.clicked() {
+                                let mut all = items.clone();
+                                all.remove(i);
+                                changed = Some(all);
+                            }
+                        }
+                    });
+                    ui.end_row();
                 }
-                if long {
-                    ui.weak("(name too long)").on_hover_text(TOO_LONG);
-                }
-            });
-            let new = row.entry.map(|i| resref_text(&items[i], p.new)).unwrap_or_default();
-            if new.is_empty() {
-                ui.allocate_exact_size(egui::vec2(ROW_PICTURE, ROW_PICTURE), egui::Sense::hover());
-            } else {
-                small_picture(f, ui, &new, None, ROW_PICTURE);
-            }
-            ui.horizontal(|ui| {
-                let id = f.id(&format!("{}#{}#{:?}#new", p.field, row.name, row.entry));
-                if long {
-                    ui.add_enabled(false, egui::Button::new("Select Texture…"))
-                        .on_disabled_hover_text(TOO_LONG);
-                } else {
-                    if let Some(v) =
-                        crate::widgets::commit_resref_in(&mut f.app.buffers, ui, id, &new, 140.0)
-                        && let Ok(r) = ResRef::from_str(v.trim())
-                    {
-                        set_new = Some((row.entry, row.name.clone(), r));
-                    }
-                    let button = ui.button("Select Texture…");
-                    if button.on_hover_text("Pick the texture to draw it with").clicked() {
-                        pick = Some((row.entry, row.name.clone(), new.clone()));
-                    }
-                }
-                if let Some(i) = row.entry {
-                    let reset = ui
-                        .small_button("Reset")
-                        .on_hover_text("Remove the replacement: the model's own texture");
-                    if reset.clicked() {
-                        let mut all = items.clone();
-                        all.remove(i);
-                        changed = Some(all);
-                    }
-                }
-            });
-            ui.end_row();
-        }
+            })
     });
     if let Some((entry, old, new)) = pick {
         open_gallery(f, ui, entry, old, new);
@@ -576,7 +590,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
             ui.weak(format!("{} of {all} textures", shown.len())).on_hover_text(
                 "The game's, the haks' and the module's DDS and TGA textures, not PLTs",
             );
-            let interface = ui.checkbox(&mut state.interface, "Interface textures too");
+            let interface = ui.check_box(&mut state.interface, "Interface textures too");
             if interface
                 .on_hover_text(
                     "Also list icons, portraits, load screens and other interface pictures",
@@ -798,58 +812,67 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
     let pending_id = f.id("AnimationReplace#pending");
     let mut pending: (Option<i64>, Option<i64>) =
         ui.data(|d| d.get_temp(pending_id)).unwrap_or_default();
-    egui::Grid::new(f.id(p.field)).num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, p.titles.0);
-        crate::widgets::field_label(ui, p.titles.1);
-        ui.end_row();
-        for (i, e) in items.iter().enumerate() {
-            for label in [p.old, p.new] {
-                let now = resref_text(e, label);
-                let id = f.id(&format!("{}#{i}#{label}", p.field));
-                let list = crate::widgets::row_choice(id, &choices, row_of(&now)).width(180.0);
-                let list = if now.is_empty() { list.unset("(the original)") } else { list };
-                if let Some(r) = list.show(ui)
-                    && let Some(r) = names.get(r as usize).and_then(|n| ResRef::from_str(n).ok())
+    mg_uikit::with_table_rows(ui, |ui| {
+        egui::Grid::new(f.id(p.field))
+            .num_columns(3)
+            .spacing([12.0, mg_uikit::metrics::TABLE_RULE])
+            .show(ui, |ui| {
+                crate::widgets::field_label(ui, p.titles.0);
+                crate::widgets::field_label(ui, p.titles.1);
+                ui.end_row();
+                for (i, e) in items.iter().enumerate() {
+                    for label in [p.old, p.new] {
+                        let now = resref_text(e, label);
+                        let id = f.id(&format!("{}#{i}#{label}", p.field));
+                        let list =
+                            crate::widgets::row_choice(id, &choices, row_of(&now)).width(180.0);
+                        let list = if now.is_empty() { list.unset("(the original)") } else { list };
+                        if let Some(r) = list.show(ui)
+                            && let Some(r) =
+                                names.get(r as usize).and_then(|n| ResRef::from_str(n).ok())
+                        {
+                            let mut all = items.clone();
+                            all[i].set(label, Value::resref(r));
+                            changed = Some(all);
+                        }
+                    }
+                    let reset = ui
+                        .small_button("Reset")
+                        .on_hover_text("Remove the replacement: the model's own animation");
+                    if reset.clicked() {
+                        let mut all = items.clone();
+                        all.remove(i);
+                        changed = Some(all);
+                    }
+                    ui.end_row();
+                }
+                // A new one, picked.
+                for (k, slot) in [&mut pending.0, &mut pending.1].into_iter().enumerate() {
+                    let id = f.id(&format!("{}#pick#{k}", p.field));
+                    let unset =
+                        if k == 0 { "Choose an animation" } else { "Choose the one to play" };
+                    let list =
+                        crate::widgets::row_choice(id, &choices, *slot).width(180.0).unset(unset);
+                    if let Some(r) = list.show(ui) {
+                        *slot = Some(r);
+                    }
+                }
+                let name = |r: Option<i64>| {
+                    r.and_then(|r| names.get(r as usize)).and_then(|n| ResRef::from_str(n).ok())
+                };
+                let (old, new) = (name(pending.0), name(pending.1));
+                if ui
+                    .add_enabled(old.is_some() && new.is_some(), egui::Button::new("Add").small())
+                    .clicked()
+                    && let (Some(old), Some(new)) = (old, new)
                 {
                     let mut all = items.clone();
-                    all[i].set(label, Value::resref(r));
+                    all.push(p.entry(old, new));
                     changed = Some(all);
+                    pending = (None, None);
                 }
-            }
-            let reset = ui
-                .small_button("Reset")
-                .on_hover_text("Remove the replacement: the model's own animation");
-            if reset.clicked() {
-                let mut all = items.clone();
-                all.remove(i);
-                changed = Some(all);
-            }
-            ui.end_row();
-        }
-        // A new one, picked.
-        for (k, slot) in [&mut pending.0, &mut pending.1].into_iter().enumerate() {
-            let id = f.id(&format!("{}#pick#{k}", p.field));
-            let unset = if k == 0 { "Choose an animation" } else { "Choose the one to play" };
-            let list = crate::widgets::row_choice(id, &choices, *slot).width(180.0).unset(unset);
-            if let Some(r) = list.show(ui) {
-                *slot = Some(r);
-            }
-        }
-        let name = |r: Option<i64>| {
-            r.and_then(|r| names.get(r as usize)).and_then(|n| ResRef::from_str(n).ok())
-        };
-        let (old, new) = (name(pending.0), name(pending.1));
-        if ui
-            .add_enabled(old.is_some() && new.is_some(), egui::Button::new("Add").small())
-            .clicked()
-            && let (Some(old), Some(new)) = (old, new)
-        {
-            let mut all = items.clone();
-            all.push(p.entry(old, new));
-            changed = Some(all);
-            pending = (None, None);
-        }
-        ui.end_row();
+                ui.end_row();
+            })
     });
     ui.data_mut(|d| d.insert_temp(pending_id, pending));
     if let Some(all) = changed {

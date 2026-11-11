@@ -433,14 +433,15 @@ fn insert_menu(ui: &mut Ui, handler: &mg_nui::Handler, s: &Settings) -> Option<S
     let groups: std::collections::BTreeSet<_> =
         s.variants.keys().filter_map(|v| layouts::target_for(s, v)).collect();
     let mut code = None;
-    ui.menu_button("Insert…", |ui| {
+    mg_uikit::menu_button(ui, "Insert…", |ui| {
+        mg_uikit::menu_rows(ui);
         if ui.button("Close Window").clicked() {
             code = with(mg_nui::Action::Close);
         }
         let submenu =
             |ui: &mut Ui, label: &str, empty: bool, why: &str, add: &mut dyn FnMut(&mut Ui)| {
                 ui.add_enabled_ui(!empty, |ui| {
-                    ui.menu_button(label, |ui| add(ui));
+                    mg_uikit::menu_button(ui, label, |ui| add(ui));
                 })
                 .response
                 .on_disabled_hover_text(why);
@@ -503,6 +504,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
         Target::Control(state.selected.clone())
     };
     egui::CollapsingHeader::new("Events")
+        .icon(mg_uikit::collapsing_icon)
         .default_open(true)
         .show(ui, |ui| editor(ui, doc, s, state, Some(target)));
     ui.separator();

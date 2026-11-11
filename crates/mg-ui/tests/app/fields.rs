@@ -44,7 +44,7 @@ fn insert_and_delete_keys_copy_cut_and_paste_text() {
 }
 
 /// A color pasted into a color button (a builder's report: the picker's
-/// 📋 copies "158, 151, 211", and nothing pasted one back): with the
+/// copy button copies "158, 151, 211", and nothing pasted one back): with the
 /// picker open, the paste its Paste button asks for, or Ctrl+V; with the
 /// pointer on the swatch, Ctrl+V; text that isn't a color changes nothing.
 #[test]
@@ -364,10 +364,9 @@ fn a_creature_s_statistics_have_arrows_to_step_by_one() {
     h.run();
     let strength = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("Str").unwrap();
     let was = strength(&mut h);
-    // (The first pair on the page is Strength's.)
-    // (After the module tree's own two, Collapse All and Expand All.)
-    let up = h.query_all_by_label("⏶").nth(1).expect("an arrow up").rect().center();
-    let down = h.query_all_by_label("⏷").nth(1).expect("an arrow down").rect().center();
+    // (Strength's, named with its label.)
+    let up = h.get_by_label("Strength: One More").rect().center();
+    let down = h.get_by_label("Strength: One Less").rect().center();
     let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {
@@ -404,8 +403,7 @@ fn a_held_arrow_repeats_and_the_keys_step_in_the_field() {
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
     let was = int(&mut h, "Str");
-    // (After the module tree's own two, Collapse All and Expand All.)
-    let up = h.query_all_by_label("⏶").nth(1).expect("an arrow up").rect().center();
+    let up = h.get_by_label("Strength: One More").rect().center();
     let button = |pressed| egui::Event::PointerButton {
         pos: up,
         button: egui::PointerButton::Primary,
@@ -434,9 +432,8 @@ fn a_held_arrow_repeats_and_the_keys_step_in_the_field() {
     assert_eq!(int(&mut h, "Str"), was + 1);
     // Natural AC is 0 at the least: its arrow down is off.
     assert_eq!(int(&mut h, "NaturalAC"), 0, "the chicken has no natural armor");
-    // (The tree's, Strength to Charisma's, then Natural AC's.)
-    assert!(h.query_all_by_label("⏷").nth(7).is_some_and(|n| n.accesskit_node().is_disabled()));
-    assert!(!h.query_all_by_label("⏶").nth(7).is_some_and(|n| n.accesskit_node().is_disabled()));
+    assert!(h.get_by_label("Natural AC: One Less").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Natural AC: One More").accesskit_node().is_disabled());
 }
 
 /// Aurora's arrows are on the other editors' number fields too: a
@@ -449,8 +446,7 @@ fn a_placeable_s_numbers_have_arrows() {
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
     let hardness = int(&mut h, "Hardness");
-    // (Hit points' arrows first, then hardness's.)
-    let up = h.query_all_by_label("⏶").nth(2).expect("hardness's arrow up").rect().center();
+    let up = h.get_by_label("Hardness: One More").rect().center();
     h.hover_at(up);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
@@ -464,7 +460,14 @@ fn a_placeable_s_numbers_have_arrows() {
     assert_eq!(int(&mut h, "Hardness"), hardness + 1);
     h.get_by_label("Lock").click();
     h.run();
-    assert!(h.query_all_by_label("⏶").count() >= 3, "the lock's DCs have arrows");
+    // (Each of the lock's DCs, on its row: Open and Close.)
+    for dc in ["Open Lock DC", "Close Lock DC"] {
+        let row = h.get_by_label(dc).rect();
+        let on_row =
+            |n: &egui_kittest::Node<'_>| (n.rect().center().y - row.center().y).abs() < 4.0;
+        assert!(on_row(&h.get_by_label(&format!("{dc}: One More"))), "{dc} has its arrows");
+        assert!(on_row(&h.get_by_label(&format!("{dc}: One Less"))), "{dc} has its arrows");
+    }
 }
 
 /// A number typed past a field's end is kept at Aurora's limit (measured
@@ -788,12 +791,12 @@ fn a_properties_window_s_cancel_sets_back_what_it_changed() {
 }
 
 /// With Options › General's "Closing a window cancels its changes" on, a
-/// Properties window closed other than by OK (its tab's ×, Ctrl+W, the
+/// Properties window closed other than by OK (its tab's close button, Ctrl+W, the
 /// tab's Close or Close All) sets back what it changed as its Cancel does,
 /// as Aurora's close button does (a builder's report, captured,
 /// `edit-copy-cancel/`): one step, which Undo takes back; what was typed
 /// in a field not left yet goes too; a window with nothing changed just
-/// closes; OK still keeps. Off (the default), the × keeps the changes.
+/// closes; OK still keeps. Off (the default), the close button keeps the changes.
 #[test]
 fn closing_a_window_cancels_its_changes_when_asked() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_close", ResType::UTP) else {
@@ -827,7 +830,7 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     let before = field(&mut h, &key);
     let original = tag(&mut h);
 
-    // Off: the × keeps what was changed, as OK does.
+    // Off: the close button keeps what was changed, as OK does.
     assert!(!h.state().settings.close_cancels, "off by default");
     type_tag(&mut h, "_K");
     h.key_press(egui::Key::Enter);
@@ -838,7 +841,7 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     assert_eq!(tag(&mut h), format!("{original}_K"), "kept");
     let kept = tag(&mut h);
 
-    // On: the × is its Cancel. Two changes, the tag's field left.
+    // On: the close button is its Cancel. Two changes, the tag's field left.
     h.state_mut().settings.close_cancels = true;
     reopen(&mut h);
     type_tag(&mut h, "_X");
@@ -894,7 +897,7 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
     assert_eq!(undoable(&h), last, "nothing to set back");
 
-    // The tab's × with text typed and its field not left yet: the press
+    // The tab's close button with text typed and its field not left yet: the press
     // takes the keyboard from the field, which sets its text, and that is
     // set back too.
     reopen(&mut h);
@@ -968,12 +971,15 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
         h.run();
         h.get_all_by_label(kind).next().unwrap().click();
         h.run();
+        // (Under the list, below the window's edge until scrolled to.)
+        h.get_by_label("Add").scroll_to_me();
+        settle(h);
         h.get_by_label("Add").click();
         h.run();
     };
     h.run();
     // Keen added and kept (OK): the item has two properties.
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run();
     add(&mut h, "Keen");
     h.get_by_label("OK").click();
@@ -985,20 +991,49 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
     assert_eq!(before.list("PropertiesList").map_or(0, <[_]>::len), 2, "Enhancement and Keen");
     let was_shown = shown(&mut h);
     // Tried: Keen removed, the Enhancement +1 made +3, Attack Bonus added.
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run();
-    h.get_all_by_label("Keen").last().unwrap().click();
-    h.run();
+    // (The item's properties are under the ones to add, below the
+    // window's edge until it is scrolled: a click there is on Cancel. The
+    // wheel over their heading scrolls the window.)
+    let assigned = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let bottom = |h: &Harness<'_, Moonglow>| {
+            h.get_all_by_label_contains(name).last().unwrap().rect().bottom()
+        };
+        let deadline = std::time::Instant::now() + SETTLE_TIME;
+        while bottom(h) > h.get_by_label("Cancel").rect().top() - 8.0 {
+            assert!(std::time::Instant::now() < deadline, "{name} comes into sight");
+            h.hover_at(h.get_by_label("Assigned Properties").rect().center());
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -40.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        }
+        h.get_all_by_label_contains(name).last().unwrap().click();
+        h.run();
+    };
+    assigned(&mut h, "Keen");
     h.get_by_label("Remove").click();
     h.run();
-    h.get_all_by_label_contains("Enhancement Bonus").last().unwrap().click();
-    h.run();
+    assigned(&mut h, "Enhancement Bonus");
     h.get_by_value("+1").scroll_to_me();
     h.run();
     h.get_by_value("+1").click();
     h.run();
     h.get_by_label("+3").click();
     h.run();
+    // (The window scrolled back to its top, the properties to add.)
+    h.hover_at(h.get_by_label("Assigned Properties").rect().center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 10_000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
     add(&mut h, "Attack Bonus");
     let tried = props(&mut h);
     assert_eq!(tried.len(), 2);
@@ -1019,7 +1054,7 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
 }
 
 /// The same with "Closing a window cancels its changes" on and the tab's
-/// × (Aurora's close button drops them too, captured): a property added,
+/// The close button (Aurora's close button drops them too, captured): a property added,
 /// with its cost, set back; Undo brings it back.
 #[test]
 fn an_item_s_properties_tried_are_set_back_by_its_close_when_asked() {
@@ -1030,7 +1065,7 @@ fn an_item_s_properties_tried_are_set_back_by_its_close_when_asked() {
     let tab = Tab::Blueprint(key);
     h.run();
     let before = field(&mut h, &key);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run();
     h.get_all_by_label("Attack Bonus").next().unwrap().scroll_to_me();
     h.run();
@@ -1439,7 +1474,7 @@ fn the_raw_fields_view_s_cancel_sets_back_its_change() {
     h.run_steps(4);
     assert_eq!(tag(&mut h), original, "set back");
     assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_none(), "closed");
-    // Its tab's ×, with "Closing a window cancels its changes": the same.
+    // Its tab's close button, with "Closing a window cancels its changes": the same.
     h.state_mut().settings.close_cancels = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Gff(key)));
     h.run_steps(4);
@@ -1455,7 +1490,7 @@ fn the_raw_fields_view_s_cancel_sets_back_its_change() {
     assert_eq!(tag(&mut h), format!("{original}_S"), "set");
     click_tab_close(&mut h, &Tab::Gff(key));
     h.run_steps(4);
-    assert_eq!(tag(&mut h), original, "set back by its ×");
+    assert_eq!(tag(&mut h), original, "set back by its close button");
     assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_none(), "closed");
 }
 
@@ -1467,8 +1502,8 @@ fn the_editors_cancel_sets_back_what_they_changed() {
 }
 
 /// With Options' "Closing a window cancels its changes" on, each editor's
-/// tab × does as its Cancel (Aurora's close button does): the journal,
-/// a conversation, the factions, Area and Module Properties. A 2DA's ×
+/// tab's close button does as its Cancel (Aurora's close button does): the journal,
+/// a conversation, the factions, Area and Module Properties. A 2DA's close button
 /// asks about its unsaved changes, as without it.
 #[test]
 fn the_editors_closed_set_back_what_they_changed_when_asked() {
@@ -1476,7 +1511,7 @@ fn the_editors_closed_set_back_what_they_changed_when_asked() {
 }
 
 /// [`the_editors_cancel_sets_back_what_they_changed`], by Cancel or, with
-/// `close`, by the tab's × with "Closing a window cancels its changes".
+/// `close`, by the tab's close button with "Closing a window cancels its changes".
 fn editors_set_back(close: bool) {
     use mg_module::dialog::{Parent, add_node, new_dialog};
     let dir = mg_testkit::scratch_dir(if close { "ui-editors-close" } else { "ui-editors-cancel" });
@@ -1741,7 +1776,7 @@ fn a_dropdown_opens_at_what_is_chosen() {
     open(&mut h);
     // The chosen row is in the list's window, a little under its Filter
     // field (the list has hundreds of rows before "Chest").
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     let in_sight = |h: &Harness<'_, Moonglow>| {
         let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
         let row = h
@@ -1790,7 +1825,7 @@ fn an_open_dropdown_keeps_its_width() {
     // (Measured from the first frame that draws it: `run` would step past
     // a frame that grew.)
     h.step();
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     // The Filter field's width, and a row's (its highlight) under it.
     let widths = |h: &Harness<'_, Moonglow>, row: &str| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -1814,7 +1849,7 @@ fn an_open_dropdown_keeps_its_width() {
     };
     let filter = h.get(egui_kittest::kittest::by().predicate(input)).rect();
     // (The field and its clear button, now that something is typed.)
-    let clear = h.get_by_label("×").rect();
+    let clear = h.get_by_label("Clear").rect();
     let across = clear.right() - filter.left();
     assert!(
         (across - first.0).abs() <= 2.0,
@@ -1854,7 +1889,7 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query_by_label("Altar").is_none(), "what doesn't match is left out");
     // Escape clears what is typed, the list still open; Escape again
     // closes it, the appearance as it was.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_some(), "open");
@@ -1999,7 +2034,7 @@ fn text_is_edited_in_the_chosen_language() {
     };
     let before = english(&mut h);
     assert!(h.query_by_label_contains("(German)").is_some());
-    h.get_all_by_label("🎲").next().unwrap().click();
+    h.get_all_by_label("Random Name").next().unwrap().click();
     h.run();
     mg_ui::set_edit_language(Language::ENGLISH);
     let name = field(&mut h, &key).locstring("FirstName").cloned().unwrap();
@@ -2528,8 +2563,28 @@ fn filters_find_names_case_and_accents_aside() {
     h.run();
     h.get_all_by_role(field).next().unwrap().type_text("arbol");
     h.run_steps(2);
-    assert!(h.query_by_label_contains("Árbol viejo").is_some(), "the tree finds Árbol");
-    assert!(h.query_by_label_contains("Roble").is_none());
+    // Every row the filter leaves, from the tree's top to its foot (it
+    // lays out only the rows in sight, so a row out of sight is not there
+    // to be found or missed): Árbol among them, Roble not.
+    let tree = h.get_by_label("Module Properties").rect().center();
+    let top = |h: &Harness<'_, Moonglow>| h.get_by_label("Module Properties").rect().top();
+    let (mut found, mut was) = (false, f32::NAN);
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while top(&h) != was {
+        assert!(std::time::Instant::now() < deadline, "the tree's foot is reached");
+        assert!(h.query_by_label_contains("Roble").is_none(), "the filter leaves Roble out");
+        found |= h.query_by_label_contains("Árbol viejo").is_some();
+        was = top(&h);
+        h.hover_at(tree);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -40.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        settle(&mut h);
+    }
+    assert!(found, "the tree finds Árbol");
 
     // The palette's search.
     let mut h = app("ui-filter-accents-palette");

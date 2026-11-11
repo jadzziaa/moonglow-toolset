@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-04T20:25:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # Conversations
@@ -71,7 +71,7 @@ choose in it, and the tree's selection stays. The − above the letters
 folds too, as the keypad's does, and Shift+8 opens everything out as the
 keypad's * does (Moonglow can't tell them apart).
 
-Folding a branch with its **−** (or Collapse All) while a line in it is
+Folding a branch with the arrow before its line (or Collapse All) while a line in it is
 selected selects the line folded, as Windows' tree does, so the
 selection stays in sight.
 
@@ -81,7 +81,7 @@ selection stays in sight.
 | Copy, Cut | the selected line and everything under it |
 | Paste | the copied lines as new lines under the selected one, appearing when the copied line did (its **Text Appears When** script and parameters) |
 | Paste As Link | a link to the copied line under the selected one (the line copied, wherever deletes and Undo since have moved it; off once that line is gone, as after Cut) |
-| ⏶ and ⏷ (Alt+Up, Alt+Down) | move the selected line up or down among its parent's lines: the order the game tries a speaker's lines in and lists a player's replies in |
+| Move Up and Move Down (Alt+Up, Alt+Down) | move the selected line up or down among its parent's lines: the order the game tries a speaker's lines in and lists a player's replies in |
 | Delete | the selected line and everything under it (a link: just the link) |
 | Expand All, Collapse All | open or close the whole tree |
 | Export | the conversation as plain text, CSV, Twine or Ink (see below) |

@@ -20,6 +20,8 @@ mod browser;
 pub mod build_view;
 pub mod builder_code;
 pub mod bulk;
+#[cfg(test)]
+mod chrome_colors;
 mod claims;
 pub mod color_button;
 pub mod commands;
@@ -28,11 +30,14 @@ pub mod creature_wizard;
 pub mod dialog_export;
 pub mod dialog_view;
 pub mod dialogs;
+mod dock_look;
 pub mod faction_view;
 mod gff_view;
 pub mod hak_view;
 mod icons;
 mod images;
+#[cfg(test)]
+mod interface_glyphs;
 pub mod jobs;
 pub mod journal_view;
 pub mod keys;
@@ -1088,7 +1093,7 @@ pub struct Moonglow {
     pub(crate) maximized: HashMap<Tab, (egui::Rect, egui::Pos2)>,
     /// The tabs of windows drawn this frame: each one's button and the
     /// layer its window is on ([`Moonglow::window_bars`]).
-    pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId)>,
+    pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId, egui::Rect)>,
     /// The menus by the keyboard: where the keys are, the rows counted as
     /// they are drawn (a menu's, its submenu's), the menu open, and
     /// whether Alt was used with something else since it went down.
@@ -1462,6 +1467,15 @@ impl Moonglow {
         }
     }
 
+    /// The theme the window wears: Options › General › Light theme's
+    /// choice (dark unless chosen), applied each frame.
+    pub fn theme(&self) -> mg_uikit::Theme {
+        match self.settings.light_theme {
+            true => mg_uikit::Theme::Light,
+            false => mg_uikit::Theme::Dark,
+        }
+    }
+
     /// Whether the 3D views draw with the game's shaders: the Shaders
     /// switch, unless the lit check found that they draw nothing here
     /// ([`renderer_check::RendererCheck::game_shaders_off`]).
@@ -1651,18 +1665,12 @@ impl Moonglow {
         // (The open module's pipelines of the game's programs, made again
         // as it opens, and kept for the next session.)
         self.keep_pipelines();
-        // Options › General › Light theme (dark unless chosen).
-        let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
-        if ui.ctx().theme() != theme {
-            ui.ctx().set_theme(theme);
-        }
-        // Scroll bars that are always there, with room of their own (egui's
-        // float over the content and show only under the pointer, so a
-        // list gave no sign that there was more of it).
-        let bars = egui::style::ScrollStyle::solid();
-        if ui.ctx().global_style().spacing.scroll != bars {
-            ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
-        }
+        // The suite's look (mg-uikit), in Options › General › Light theme's
+        // choice (dark unless chosen). Cheap once applied; it also gives
+        // the scroll bars that are always there, with room of their own
+        // (egui's float over the content and show only under the pointer,
+        // so a list gave no sign that there was more of it).
+        mg_uikit::apply(ui.ctx(), self.theme());
         // Options › General › Interface size (when chosen; else the size is
         // egui's own, which Ctrl with + and - change).
         match self.settings.ui_scale {
@@ -1818,9 +1826,13 @@ impl Moonglow {
             self.pass_covered_arrow(ui.ctx());
             {
                 let mut viewer = tabs::Viewer { app: self };
-                DockArea::new(&mut dock).show_close_buttons(true).show_inside(ui, &mut viewer);
+                DockArea::new(&mut dock)
+                    .style(dock_look::style(ui))
+                    .show_close_buttons(true)
+                    .show_inside(ui, &mut viewer);
             }
             self.dock = dock;
+            dock_look::marks(ui.ctx(), &self.dock, &self.tab_buttons);
             self.window_bars(ui);
             self.palettes_edge(ui);
         });
@@ -2336,14 +2348,10 @@ impl Moonglow {
         let arrow = egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + 24.0, bar));
         if arrow.is_positive() {
             let px = ui.ctx().pixels_per_point().recip();
-            let visuals = ui.visuals();
-            let corner = egui::CornerRadius {
-                nw: visuals.widgets.inactive.corner_radius.nw.saturating_add(2),
-                ..Default::default()
-            };
-            let fill = visuals.extreme_bg_color;
+            // (In the tab bar's own fill, `dock_look::style`'s.)
+            let fill = mg_uikit::tokens(ui.ctx()).bar;
             let cover = arrow.with_max_y(arrow.bottom() - px).expand2(egui::vec2(px, 0.0));
-            ui.painter().rect_filled(cover, corner, fill);
+            ui.painter().rect_filled(cover, 0.0, fill);
             ui.interact(arrow, egui::Id::new("palettes-bar-arrow"), egui::Sense::CLICK);
             self.palette_arrow = Some(arrow);
         }
@@ -2770,8 +2778,8 @@ impl Moonglow {
     /// The bar beside a window's tabs does what its tab does: a double
     /// click maximizes the window and restores it, and a right click
     /// offers that; a button at its right end before the close button
-    /// does it too, and shows which the window is (🗖 Maximize, 🗗
-    /// Restore). (egui_dock gives the bar nothing; a builder looked for
+    /// does it too, and shows which the window is (the `maximize` icon,
+    /// or `restore`). (egui_dock gives the bar nothing; a builder looked for
     /// them there, as on any window's title.) The window is still dragged
     /// by it.
     fn window_bars(&mut self, ui: &mut egui::Ui) {
@@ -2804,26 +2812,27 @@ impl Moonglow {
             let maximized = self.windows_maximized(&leaf.tabs);
             let label = if maximized { "Restore" } else { "Maximize" };
             // (Registered after the bar: it takes its clicks.)
-            let glyph = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
-            let side = (bar.height() - 4.0).clamp(12.0, 20.0);
+            let icon = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
+            let side = mg_uikit::metrics::ICON_BUTTON.min(bar.height());
             let at = egui::Rect::from_center_size(
                 egui::pos2(bar.right() - side / 2.0 - 2.0, bar.center().y),
                 egui::vec2(side, side),
             );
-            let button = egui::Button::new(glyph).frame(false).small();
+            let button = mg_uikit::IconButton::new(icon, label).icon_only(true);
             let pressed = ui
                 .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
-                    let r = ui.put(at, button);
-                    r.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
-                    });
-                    r.on_hover_text(label).clicked()
+                    // (Its window's own layer, over the main window: not
+                    // cut to the main window's panels, which hid it where
+                    // a window's bar lay over the toolbar.)
+                    ui.set_clip_rect(at.expand(1.0));
+                    ui.put(at, button).on_hover_text(label).clicked()
                 })
                 .inner;
             if pressed {
                 toggle = Some(tab.clone());
             }
             response.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 if ui.button(label).clicked() {
                     toggle = Some(tab.clone());
                     ui.close();
@@ -3091,11 +3100,13 @@ impl Moonglow {
                 palette_view::give_keys(ui.ctx(), Keys::Area);
             }
         }
-        // (A click anywhere in it: on a line, between them, on a button.)
-        let clicked_in = ui.input(|i| {
-            i.pointer.primary_pressed()
-                && i.pointer.press_origin().is_some_and(|p| pane.contains(p))
-        });
+        // (A click anywhere in it: on a line, between them, on a button;
+        // not one on a window or a popup over it, which is theirs.)
+        let origin = ui.input(|i| i.pointer.primary_pressed().then(|| i.pointer.press_origin()));
+        let ours = ui.layer_id();
+        let clicked_in = origin
+            .flatten()
+            .is_some_and(|p| pane.contains(p) && ui.ctx().layer_id_at(p).is_none_or(|l| l == ours));
         // No minimum of its own (egui's is 64 points), so the panel decides.
         let shown = egui::ScrollArea::vertical()
             .stick_to_bottom(true)
@@ -3164,7 +3175,8 @@ impl Moonglow {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(text);
                         if offer.made {
-                            ui.add_enabled(false, egui::Button::new("✔ Fixed").small())
+                            let fixed = mg_uikit::IconButton::new(mg_uikit::Icon::Check, "Fixed");
+                            ui.add_enabled(false, fixed.small())
                                 .on_disabled_hover_text(&offer.fix.label);
                             return;
                         }
@@ -3215,16 +3227,26 @@ impl Moonglow {
         let mut right = ui.max_rect().right() - 4.0;
         let top = ui.max_rect().top() + 2.0;
         let buttons = [
-            ("Clear", "Clear Log", "Empty the log (View › Clear Log)", 44.0),
-            ("Save…", "Save Log", "The whole log into a text file (View › Save Log…)", 48.0),
-            ("Copy", "Copy Log", "The whole log to the clipboard (View › Copy Log)", 44.0),
+            ("Clear", "Clear Log", "Empty the log (View › Clear Log)"),
+            ("Save…", "Save Log", "The whole log into a text file (View › Save Log…)"),
+            ("Copy", "Copy Log", "The whole log to the clipboard (View › Copy Log)"),
         ];
-        for (text, name, tip, width) in buttons {
-            let at =
-                egui::Rect::from_min_size(egui::pos2(right - width, top), egui::vec2(width, 18.0));
+        // (Each as wide as its word and the theme's padding, and as high
+        // as the theme's controls.)
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let (pad, height) = (ui.spacing().button_padding.x, ui.spacing().interact_size.y);
+        for (text, name, tip) in buttons {
+            let words = ui.fonts_mut(|f| {
+                f.layout_no_wrap(text.into(), font.clone(), egui::Color32::PLACEHOLDER)
+            });
+            let width = (words.size().x + 2.0 * pad).ceil();
+            let at = egui::Rect::from_min_size(
+                egui::pos2(right - width, top),
+                egui::vec2(width, height),
+            );
             right -= width + 4.0;
             let enabled = !self.log.entries.is_empty();
-            let b = ui.put(at, egui::Button::new(text).small());
+            let b = ui.put(at, egui::Button::new(text));
             b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
             if b.on_hover_text(tip).clicked() && enabled {
                 match name {

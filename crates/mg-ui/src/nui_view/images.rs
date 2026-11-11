@@ -377,54 +377,56 @@ pub(super) fn page(
         let background_now = current_background(doc).map(str::to_owned);
         let module_names: BTreeSet<String> =
             module_images.iter().map(|k| k.resref.to_string().to_lowercase()).collect();
-        egui::Grid::new("nui-images").striped(true).num_columns(3).spacing([12.0, 6.0]).show(
-            ui,
-            |ui| {
-                if !names.is_empty() || !unused.is_empty() {
-                    widgets::table_heading(ui, "Picture");
-                    widgets::table_heading(ui, "Found in");
-                    ui.label("");
-                    ui.end_row();
-                }
-                for picture in names.iter().chain(&unused) {
-                    ui.label(picture);
-                    let origin = app
-                        .nui_assets
-                        .origins
-                        .iter()
-                        .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
-                        .map(|(_, o)| o.clone());
-                    let in_module = module_names.contains(picture);
-                    let missing = origin.is_none() && !in_module && !unused.contains(picture);
-                    match origin {
-                        Some(origin) => ui.label(origin_name(&origin)).on_hover_text(origin),
-                        None if unused.contains(picture) => ui.label("Module (not shown yet)"),
-                        None if in_module => ui.label("Module"),
-                        None => ui.colored_label(
-                            ui.visuals().error_fg_color,
-                            "Missing: the game shows its gui_error picture",
-                        ),
-                    };
-                    let is_background = background_now.as_deref() == Some(picture.as_str());
-                    if ui
-                        .add_enabled(
-                            !missing && !is_background,
-                            egui::Button::new("Use as Background").small(),
-                        )
-                        .on_hover_text("Stretched under the window's controls")
-                        .on_disabled_hover_text(if is_background {
-                            "It is the background"
-                        } else {
-                            "The picture is missing"
-                        })
-                        .clicked()
-                    {
-                        background(doc, s, picture);
+        mg_uikit::with_rows(ui, |ui| {
+            egui::Grid::new("nui-images").striped(true).num_columns(3).spacing([12.0, 0.0]).show(
+                ui,
+                |ui| {
+                    if !names.is_empty() || !unused.is_empty() {
+                        widgets::table_heading(ui, "Picture");
+                        widgets::table_heading(ui, "Found in");
+                        ui.label("");
+                        ui.end_row();
                     }
-                    ui.end_row();
-                }
-            },
-        );
+                    for picture in names.iter().chain(&unused) {
+                        ui.label(picture);
+                        let origin = app
+                            .nui_assets
+                            .origins
+                            .iter()
+                            .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
+                            .map(|(_, o)| o.clone());
+                        let in_module = module_names.contains(picture);
+                        let missing = origin.is_none() && !in_module && !unused.contains(picture);
+                        match origin {
+                            Some(origin) => ui.label(origin_name(&origin)).on_hover_text(origin),
+                            None if unused.contains(picture) => ui.label("Module (not shown yet)"),
+                            None if in_module => ui.label("Module"),
+                            None => ui.colored_label(
+                                ui.visuals().error_fg_color,
+                                "Missing: the game shows its gui_error picture",
+                            ),
+                        };
+                        let is_background = background_now.as_deref() == Some(picture.as_str());
+                        if ui
+                            .add_enabled(
+                                !missing && !is_background,
+                                egui::Button::new("Use as Background").small(),
+                            )
+                            .on_hover_text("Stretched under the window's controls")
+                            .on_disabled_hover_text(if is_background {
+                                "It is the background"
+                            } else {
+                                "The picture is missing"
+                            })
+                            .clicked()
+                        {
+                            background(doc, s, picture);
+                        }
+                        ui.end_row();
+                    }
+                },
+            )
+        });
         if ui
             .button("Add Images from Disk…")
             .on_hover_text("Into the module, named as their files")

@@ -11,6 +11,7 @@
 use egui::Ui;
 use mg_module::palette::BlueprintKind;
 
+use crate::icons::Icon;
 use crate::{Action, Moonglow, Tab, keys};
 
 /// A command of the window.
@@ -280,30 +281,35 @@ pub const MENUS: [(&str, &[Item]); 8] = [
     ),
 ];
 
-/// The toolbar: each command with its button's glyph, its name and its tip
+/// The toolbar: each command with its button's icon, its name and its tip
 /// (`None`: a gap).
-pub const TOOLBAR: [Option<(Id, &str, &str, &str)>; 16] = [
-    Some((Id::NewModule, "🗋", "New", "New module")),
-    Some((Id::OpenModule, "🗁", "Open", "Open module")),
-    Some((Id::Save, "💾", "Save", "Save module")),
+pub const TOOLBAR: [Option<(Id, crate::icons::Icon, &str, &str)>; 16] = [
+    Some((Id::NewModule, Icon::New, "New", "New module")),
+    Some((Id::OpenModule, Icon::Open, "Open", "Open module")),
+    Some((Id::Save, Icon::Save, "Save", "Save module")),
     None,
-    Some((Id::Undo, "⟲", "Undo", "Undo")),
-    Some((Id::Redo, "⟳", "Redo", "Redo")),
+    Some((Id::Undo, Icon::Undo, "Undo", "Undo")),
+    Some((Id::Redo, Icon::Redo, "Redo", "Redo")),
     None,
-    Some((Id::ModuleProperties, "ℹ", "Properties", "Module properties")),
-    Some((Id::AreaWizard, "🗺", "New Area", "Area Wizard")),
+    Some((Id::ModuleProperties, Icon::Module, "Properties", "Module properties")),
+    Some((Id::AreaWizard, Icon::Area, "New Area", "Area Wizard")),
     Some((
         Id::GoToStart,
-        "🏃",
+        crate::icons::START,
         "Start",
         "Open the area the module starts in, at the start location",
     )),
-    Some((Id::Resources, "🔍", "Resources", "Resource browser")),
-    Some((Id::Palettes, "📦", "Palettes", "Blueprint palettes")),
-    Some((Id::PreviewWindow, "👁", "Preview", "Show the blueprint chosen in the palette")),
+    Some((Id::Resources, Icon::Find, "Resources", "Resource browser")),
+    Some((Id::Palettes, Icon::Palette, "Palettes", "Blueprint palettes")),
+    Some((
+        Id::PreviewWindow,
+        Icon::PanelRight,
+        "Preview",
+        "Show the blueprint chosen in the palette",
+    )),
     None,
-    Some((Id::CompileAll, "⚙", "Compile", "Compile all scripts")),
-    Some((Id::Verify, "✔", "Verify", "Verify the module")),
+    Some((Id::CompileAll, Icon::Compile, "Compile", "Compile all scripts")),
+    Some((Id::Verify, Icon::Verify, "Verify", "Verify the module")),
 ];
 
 impl Id {
@@ -623,13 +629,17 @@ impl Id {
                 Some(p) => format!("Pack {}", p.target().file),
                 None => self.text().1.into_owned(),
             },
-            // (Shown: ticked.)
-            Id::ViewTree | Id::ViewPalettes | Id::ViewLog => {
-                let tick = if app.panel_shown(self) { "✔ " } else { "    " };
-                format!("{tick}{}", self.text().1)
-            }
             Id::HidePanels if app.panels_hidden() => "Show All Panels".into(),
             _ => self.text().1.into_owned(),
+        }
+    }
+
+    /// Whether its menu row is ticked (a panel shown), where it is one
+    /// that can be.
+    fn ticked(self, app: &Moonglow) -> Option<bool> {
+        match self {
+            Id::ViewTree | Id::ViewPalettes | Id::ViewLog => Some(app.panel_shown(self)),
+            _ => None,
         }
     }
 
@@ -1314,12 +1324,17 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
         level.clear();
     }
 
-    egui::MenuBar::new().ui(ui, |ui| {
+    // (The suite's menus: titles hovered `raised`, open and rows hovered
+    // `accent-fill`.)
+    let config = egui::containers::menu::MenuConfig::new().style(mg_uikit::menu_style);
+    egui::MenuBar::new().style(mg_uikit::menu_bar_style).config(config).ui(ui, |ui| {
         for (name, items) in MENUS {
             // (Its first letter underlined: Alt and the letter opens it.)
             let mut job = egui::text::LayoutJob::default();
             let font = egui::TextStyle::Button.resolve(ui.style());
-            let color = ui.visuals().widgets.inactive.text_color();
+            // (The button's own text color, which its state gives: on the
+            // open menu's `accent-fill`, `on-fill`.)
+            let color = egui::Color32::PLACEHOLDER;
             let plain = egui::TextFormat { font_id: font, color, ..Default::default() };
             let under =
                 egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() };
@@ -1412,6 +1427,21 @@ fn initial(name: &str) -> char {
 /// A row of a menu, for the keys: counted, marked where the keys are at
 /// it, and chosen by Enter. Returns the button to draw, and whether the
 /// keys chose it.
+/// A menu row's keys (beside its name), for the row [`row`] makes next at
+/// `level`: in the weak text's color, or the fill's (`on-fill`) where the
+/// row is lit, under the pointer or the keys' cursor: the weak text did
+/// not read on the menu's `accent-fill`.
+fn keys_beside(app: &Moonglow, ui: &Ui, level: usize, key: String) -> egui::RichText {
+    let index = app.menu_row.get(level).copied().unwrap_or(0);
+    let next = egui::Rect::from_min_size(
+        ui.cursor().min,
+        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+    );
+    let lit = app.menu_keys.at(level, index) || ui.rect_contains_pointer(next);
+    let keys = egui::RichText::new(key);
+    if lit { keys.color(mg_uikit::tokens(ui.ctx()).on_fill) } else { keys }
+}
+
 fn row<'a>(
     app: &mut Moonglow,
     level: usize,
@@ -1447,7 +1477,7 @@ fn submenu(
     enabled: bool,
     contents: impl FnOnce(&mut Moonglow, &mut Ui),
 ) -> egui::Response {
-    use egui::containers::menu::{MenuState, SubMenu, SubMenuButton};
+    use egui::containers::menu::{MenuState, SubMenu};
     let (button, chosen) = row(app, level, name, egui::Button::new(name), enabled);
     let index = app.menu_row[level] - 1;
     let at = app.menu_keys.at(level, index);
@@ -1471,13 +1501,19 @@ fn submenu(
         MenuState::from_ui(ui, |state, _| state.open_item = None);
         ui.ctx().request_repaint();
     }
-    let (response, _) = SubMenuButton::from_button(button).ui(ui, |ui| {
-        if app.menu_row.len() <= level + 1 {
-            app.menu_row.resize(level + 2, 0);
-        }
-        app.menu_row[level + 1] = 0;
-        contents(app, ui);
-    });
+    // (Its words and a chevron: `mg_uikit`'s submenu row.)
+    let entry = mg_uikit::IconButton::new(Icon::ChevronRight, name)
+        .label(mg_uikit::Label::WordsOnly)
+        .selected(at);
+    let response = entry
+        .menu(ui, |ui| {
+            if app.menu_row.len() <= level + 1 {
+                app.menu_row.resize(level + 2, 0);
+            }
+            app.menu_row[level + 1] = 0;
+            contents(app, ui);
+        })
+        .response;
     if inside && app.menu_keys.path.last() == Some(&usize::MAX) {
         let first = app.menu_keys.first(level + 1);
         *app.menu_keys.path.last_mut().expect("just seen") = first;
@@ -1563,7 +1599,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                         let id = crate::project_commands::key_id(&c.name);
                         let key = app.keymap.label_of(&id, ui.ctx());
                         if !key.is_empty() {
-                            entry = entry.shortcut_text(key);
+                            entry = entry.shortcut_text(keys_beside(app, ui, level + 1, key));
                         }
                         let (entry, chosen) = row(app, level + 1, &name, entry, can);
                         let tip = crate::project_commands::tip(&c);
@@ -1630,14 +1666,22 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
         return;
     }
     let name = id.label(app);
-    let mut entry = egui::Button::new(&name);
+    let ticked = id.ticked(app);
+    let mut entry = match ticked {
+        Some(_) => egui::Button::new(tick_atoms(&name)),
+        None => egui::Button::new(&name),
+    };
     let key = app.keymap.label_of(&id.id(), ui.ctx());
     if !key.is_empty() {
-        entry = entry.shortcut_text(key);
+        entry = entry.shortcut_text(keys_beside(app, ui, level, key));
     }
     let enabled = id.enabled(app);
     let (entry, chosen) = row(app, level, &name, entry, enabled);
-    let mut r = ui.add_enabled(enabled, entry);
+    let (mut r, tick) = add_entry(ui, enabled, entry);
+    if let Some(on) = ticked {
+        let at = app.menu_keys.at(level, app.menu_row[level] - 1);
+        paint_tick(ui, &r, tick, on, at, &name);
+    }
     let hint = id.text().2;
     if !hint.is_empty() {
         r = r.on_hover_text(hint);
@@ -1647,6 +1691,53 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
         if chosen {
             egui::Popup::close_all(ui.ctx());
         }
+    }
+}
+
+/// The id of a tick's room in a menu row ([`tick_atoms`]).
+fn tick_id() -> egui::Id {
+    egui::Id::new("menu-tick")
+}
+
+/// A menu row's words after a tick's room (an icon's, 16 px).
+fn tick_atoms(name: &str) -> egui::Atoms<'static> {
+    let mut atoms = egui::Atoms::default();
+    atoms.push_right(egui::Atom::custom(tick_id(), egui::Vec2::splat(16.0)));
+    atoms.push_right(name.to_string());
+    atoms
+}
+
+/// A menu row `entry` added, enabled or not, and the room it laid out for
+/// its tick, where it has one ([`tick_atoms`]).
+fn add_entry(
+    ui: &mut Ui,
+    enabled: bool,
+    entry: egui::Button<'_>,
+) -> (egui::Response, Option<egui::Rect>) {
+    ui.add_enabled_ui(enabled, |ui| {
+        let laid = entry.atom_ui(ui);
+        (laid.response.clone(), laid.rect(tick_id()))
+    })
+    .inner
+}
+
+/// A ticked menu row's tick (`check`, in its words' color) in `room`, the
+/// room [`tick_atoms`] left at its start (`lit`: the keys' cursor is at
+/// it), and its state for a screen reader: a check box named `name`,
+/// ticked or not.
+fn paint_tick(
+    ui: &Ui,
+    r: &egui::Response,
+    room: Option<egui::Rect>,
+    on: bool,
+    lit: bool,
+    name: &str,
+) {
+    let enabled = r.enabled();
+    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, name));
+    if let Some(room) = room.filter(|_| on && ui.is_rect_visible(r.rect)) {
+        let color = ui.style().interact_selectable(r, lit).text_color();
+        Icon::Check.paint(ui.painter(), room, color);
     }
 }
 
@@ -1677,7 +1768,7 @@ fn plugin_command_rows(
             let mut entry = egui::Button::new(&c.title);
             let key = app.keymap.label_of(&c.key_id, ui.ctx());
             if !key.is_empty() {
-                entry = entry.shortcut_text(key);
+                entry = entry.shortcut_text(keys_beside(app, ui, level, key));
             }
             let (entry, chosen) = row(app, level, &c.title, entry, enabled);
             let mut r = ui.add_enabled(enabled, entry);
@@ -1722,15 +1813,20 @@ fn plugin_entries(
         last = Some(&e.plugin);
         let enabled = app.plugin_entry_enabled(e);
         // (A panel ticked while shown, as View's panes are.)
-        let title = match e.kind {
-            crate::plugin_kinds::Added::Panel => {
-                let tick = if app.plugin_panel_open(&e.plugin, &e.id) { "✔ " } else { "    " };
-                format!("{tick}{}", e.title)
-            }
-            _ => e.title.clone(),
+        let ticked = match e.kind {
+            crate::plugin_kinds::Added::Panel => Some(app.plugin_panel_open(&e.plugin, &e.id)),
+            _ => None,
         };
-        let (entry, chosen) = row(app, level, &e.title, egui::Button::new(&title), enabled);
-        let mut r = ui.add_enabled(enabled, entry);
+        let entry = match ticked {
+            Some(_) => egui::Button::new(tick_atoms(&e.title)),
+            None => egui::Button::new(&e.title),
+        };
+        let (entry, chosen) = row(app, level, &e.title, entry, enabled);
+        let (mut r, tick) = add_entry(ui, enabled, entry);
+        if let Some(on) = ticked {
+            let at = app.menu_keys.at(level, app.menu_row[level] - 1);
+            paint_tick(ui, &r, tick, on, at, &e.title);
+        }
         let tip = match e.hint.as_str() {
             "" => format!("Of the plugin {}", e.plugin_name),
             hint => format!("{hint}\nOf the plugin {}", e.plugin_name),
@@ -1905,6 +2001,7 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                mg_uikit::list_rows(ui);
                 for (i, row) in matches.iter().enumerate() {
                     // Its menu and its key, at the right.
                     let key = app.keymap.label_of(&row.key_id, ui.ctx());
@@ -1913,6 +2010,12 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
                         (false, false) => format!("{}   {key}", row.menu),
                         (true, _) => key,
                     };
+                    // (Beside the row chosen, on the selection's fill: in the
+                    // fill's color, `on-fill`, not the weak text's.)
+                    let mut beside = egui::RichText::new(beside);
+                    if i == finder.selected {
+                        beside = beside.color(mg_uikit::tokens(ui.ctx()).on_fill);
+                    }
                     let entry = egui::Button::selectable(i == finder.selected, &row.label)
                         .shortcut_text(beside);
                     let entry = ui.add_enabled(row.enabled, entry);
@@ -1952,12 +2055,18 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// The toolbar, from [`TOOLBAR`]: each command's button, its key in its
-/// tip (with Icons only, its glyph alone: [`crate::icons::Tools`]).
+/// tip (with Icons only, its icon alone: [`crate::icons::Tools`]).
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
     let tools = crate::icons::Tools::of(&app.settings);
-    ui.horizontal(|ui| {
+    // (A second row where the window is too narrow for one: the theme's
+    // buttons are wider than egui's were, and the last were cut off.)
+    ui.horizontal_wrapped(|ui| {
+        // (Its buttons found within it: the editors have a Save, an Undo.)
+        mg_uikit::name_group(ui, "Toolbar");
+        // (A button whole on the next row, never its word broken up.)
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         for tool in TOOLBAR {
-            let Some((id, glyph, name, tip)) = tool else {
+            let Some((id, icon, name, tip)) = tool else {
                 ui.separator();
                 continue;
             };
@@ -1971,12 +2080,14 @@ pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
             let clicked = if id == Id::PreviewWindow {
                 // A window that is shown or not: its button stays down.
                 let mut on = app.preview_window;
-                tools.toggle(ui, &mut on, glyph, name, &tip);
+                tools.toggle(ui, &mut on, icon, name, &tip);
                 on != app.preview_window
             } else {
-                let button = egui::Button::new(tools.label(glyph, name)).small();
+                let button = tools.widget(icon, name).small();
                 let enabled = id.enabled(app);
-                ui.add_enabled_ui(enabled, |ui| tools.add(ui, button, name, &tip)).inner.clicked()
+                // (Added as itself, not in a scope of its own: the row
+                // wraps before a button it has no room for.)
+                tools.named(ui.add_enabled(enabled, button), name, &tip).clicked()
             };
             if clicked {
                 id.run(app, ui.ctx());

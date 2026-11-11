@@ -6,6 +6,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
+use mg_uikit::Controls as _;
 
 use super::Form;
 use crate::Action;
@@ -53,6 +54,7 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_min_height(120.0);
         ui.set_min_width(260.0);
+        mg_uikit::list_rows(ui);
         for (i, s) in sounds.iter().enumerate() {
             if ui.selectable_label(selected == Some(i), s.to_string()).clicked() {
                 selected = Some(i);
@@ -138,7 +140,7 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
     f.mark_mixed_inline(ui, &["Positional", "RandomPosition"]);
     for (text, p, r) in choices {
         let on = positional == p && (!p || random == r);
-        if ui.radio(on, text).clicked() && !on {
+        if ui.radio_button(on, text).clicked() && !on {
             // Aurora sets the priority group with it.
             let priority = i64::from(mg_module::blueprints::sound_priority(looping, p));
             f.set_many(
@@ -216,7 +218,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal(|ui| {
         f.mark_mixed_inline(ui, &["Times"]);
         for (text, v) in [("Always", 3), ("Day", 1), ("Night", 2), ("Specific Hours", 0)] {
-            if ui.radio(times == v, text).clicked() && times != v {
+            if ui.radio_button(times == v, text).clicked() && times != v {
                 f.set_int("When to play", "Times", v, FieldType::Byte);
             }
         }
@@ -227,7 +229,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         egui::Grid::new(("uts-hours", f.key)).num_columns(6).show(ui, |ui| {
             for (bit, text) in HOURS.iter().enumerate() {
                 let mut on = hours & (1 << bit) != 0;
-                if ui.checkbox(&mut on, *text).changed() {
+                if ui.check_box(&mut on, *text).changed() {
                     let v = if on { hours | (1 << bit) } else { hours & !(1 << bit) };
                     f.set_int("Hours", "Hours", v, FieldType::Dword);
                 }
@@ -252,7 +254,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             let on = if l { looping } else { !looping && continuous == c };
             let enabled = !l || single || looping;
             if ui
-                .add_enabled(enabled, egui::RadioButton::new(on, text))
+                .add_enabled(enabled, mg_uikit::RadioButton::new(on, text))
                 .on_disabled_hover_text("Seamless looping plays a single sound")
                 .clicked()
                 && !on
@@ -276,7 +278,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         ui.horizontal(|ui| {
             f.mark_mixed_inline(ui, &["Random"]);
             for (text, v) in [("Sequential", false), ("Random", true)] {
-                if ui.radio(random == v, text).clicked() && random != v {
+                if ui.radio_button(random == v, text).clicked() && random != v {
                     f.set_int("Play order", "Random", i64::from(v), FieldType::Byte);
                 }
             }

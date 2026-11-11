@@ -495,21 +495,18 @@ pub(crate) fn tree_mark(p: Option<&ProjectFile>, ui: &mut egui::Ui, area: ResRef
     let merged = p.protected(area);
     let (mark, tip) = match standing {
         Standing::Mine(c) => (
-            format!("{} {}", crate::icons::CLAIMED_MINE, c.builder.as_deref().unwrap_or("")),
+            Some((crate::icons::CLAIMED_MINE, c.builder.clone().unwrap_or_default())),
             format!("Yours: claimed by {}", c.holder().unwrap_or_default()),
         ),
         Standing::Others(c) => (
-            format!("{} {}", crate::icons::CLAIMED, c.builder.as_deref().unwrap_or("")),
+            Some((crate::icons::CLAIMED, c.builder.clone().unwrap_or_default())),
             format!("Claimed by {}", c.holder().unwrap_or_default()),
         ),
-        Standing::Free(_) if merged.is_some() => (String::new(), "Claimed by no one".into()),
+        Standing::Free(_) if merged.is_some() => (None, "Claimed by no one".into()),
         Standing::Free(_) => return,
     };
-    let mut text = mark;
     let mut tip = tip;
     if let Some(why) = &merged {
-        text.push(' ');
-        text.push_str(crate::icons::MERGED);
         tip.push_str(&format!(
             "\n{why}: its Tag and ResRef are kept (players' positions and first visits)"
         ));
@@ -518,7 +515,20 @@ pub(crate) fn tree_mark(p: Option<&ProjectFile>, ui: &mut egui::Ui, area: ResRef
         Standing::Others(_) => ui.visuals().warn_fg_color,
         _ => ui.visuals().weak_text_color(),
     };
-    ui.label(egui::RichText::new(text.trim()).color(color)).on_hover_text(tip);
+    // (The holder's icon and builder code, then a pin where it is merged:
+    // the code names it for a screen reader.)
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = ui.spacing().icon_spacing;
+        if let Some((icon, builder)) = mark {
+            let text = egui::RichText::new(builder).color(color);
+            mg_uikit::icon_label(ui, icon, Some(color), text).on_hover_text(&tip);
+        }
+        if merged.is_some() {
+            let (rect, r) = ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
+            crate::icons::MERGED.paint(ui.painter(), rect, color);
+            r.on_hover_text(&tip);
+        }
+    });
 }
 
 /// Above an area's view (and its Properties): whose it is, where it
@@ -530,16 +540,19 @@ pub(crate) fn banner(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let protected = p.protected(area);
     let coded = p.user.builder_code.is_some();
     let text = match (&access, standing) {
-        (Access::ReadOnly(why), _) => Some(format!(
-            "{} {why}: read-only here. Ask them to release it, then claim it.",
-            crate::icons::CLAIMED
+        (Access::ReadOnly(why), _) => Some((
+            Some(crate::icons::CLAIMED),
+            format!("{why}: read-only here. Ask them to release it, then claim it."),
         )),
-        (Access::Warn(why), Some(Standing::Others(_))) => Some(format!(
-            "{} {why}: a save asks before it writes your changes to it.",
-            crate::icons::CLAIMED
+        (Access::Warn(why), Some(Standing::Others(_))) => Some((
+            Some(crate::icons::CLAIMED),
+            format!("{why}: a save asks before it writes your changes to it."),
         )),
-        (Access::Warn(why), _) => Some(format!(
-            "{why}: a save asks before it writes your changes to it. Claim it to build it."
+        (Access::Warn(why), _) => Some((
+            None,
+            format!(
+                "{why}: a save asks before it writes your changes to it. Claim it to build it."
+            ),
         )),
         (Access::Edit, _) => None,
     };
@@ -549,8 +562,17 @@ pub(crate) fn banner(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let free = matches!(standing, Some(Standing::Free(_)));
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            if let Some(text) = &text {
-                ui.colored_label(ui.visuals().warn_fg_color, text);
+            if let Some((icon, text)) = &text {
+                let warn = ui.visuals().warn_fg_color;
+                match icon {
+                    Some(icon) => {
+                        let text = egui::RichText::new(text).color(warn);
+                        mg_uikit::icon_label(ui, *icon, Some(warn), text);
+                    }
+                    None => {
+                        ui.colored_label(warn, text);
+                    }
+                }
                 if free {
                     let r = ui.add_enabled(coded, egui::Button::new("Claim This Area"));
                     let r = r.on_disabled_hover_text(
@@ -565,11 +587,17 @@ pub(crate) fn banner(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
                 if text.is_some() {
                     ui.end_row();
                 }
-                ui.weak(format!(
-                    "{} {why}: its Tag and ResRef are kept (players' positions and first visits \
-                     go by them).",
-                    crate::icons::MERGED
-                ));
+                let weak = ui.visuals().weak_text_color();
+                let text = format!(
+                    "{why}: its Tag and ResRef are kept (players' positions and first visits go \
+                     by them)."
+                );
+                mg_uikit::icon_label(
+                    ui,
+                    crate::icons::MERGED,
+                    Some(weak),
+                    egui::RichText::new(text).color(weak),
+                );
             }
         });
     });
@@ -640,7 +668,7 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
             // whole on hover.)
             let height = ui.spacing().interact_size.y;
             let rows = egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]);
-            rows.show_rows(ui, height, listed.len(), |ui, range| {
+            mg_uikit::show_rows(rows, ui, listed.len(), |ui, range| {
                 ui.set_min_width(600.0);
                 let cell = |ui: &mut egui::Ui, width: f32, text: egui::RichText| {
                     let layout = egui::Layout::left_to_right(egui::Align::Center);
@@ -753,7 +781,7 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, format!("Hand {area} to"));
                     let field = ui.add(
-                        egui::TextEdit::singleline(to)
+                        mg_uikit::text_field(to)
                             .char_limit(MAX_CODE + 4)
                             .desired_width(100.0)
                             .hint_text("their code"),

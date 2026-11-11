@@ -173,83 +173,88 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
         if merged.is_empty() {
             ui.weak("None of them holds an item.");
         }
-        egui::Grid::new(("inventory-together", key))
-            .num_columns(3 + flags.len())
-            .striped(true)
-            .show(ui, |ui| {
-                ui.strong("Item");
-                ui.strong("Held");
-                for (flag, tip) in flags {
-                    ui.strong(*flag).on_hover_text(*tip);
-                }
-                ui.label("");
-                ui.end_row();
-                for m in &merged {
-                    let r = m.key;
-                    ui.horizontal(|ui| {
-                        ui.label(name_of(r)).on_hover_text(r.to_string());
-                        super::entry_mark(ui, m.having.len(), total);
-                    });
-                    let counts = holdings.held(r);
-                    let first = counts[m.having[0]];
-                    ui.horizontal(|ui| {
-                        if counts.iter().any(|c| *c != first && *c > 0) {
-                            ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
-                                .on_hover_text(
-                                    "They hold other numbers of it: this is the first's",
-                                );
-                        }
-                        ui.label(format!("×{first}"));
-                    });
+        mg_uikit::with_rows(ui, |ui| {
+            egui::Grid::new(("inventory-together", key))
+                .num_columns(3 + flags.len())
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Item");
+                    ui.strong("Held");
                     for (flag, tip) in flags {
-                        let of_it = holdings.items(r);
-                        let (on, mixed) = inventory::flag_state(of_it.iter().copied(), flag);
-                        let mut v = on;
-                        let r_box = ui
-                            .add(egui::Checkbox::new(&mut v, "").indeterminate(mixed))
-                            .on_hover_text(*tip);
-                        if r_box.changed() {
-                            let v = v || mixed;
-                            change = Some((
-                                "Item flag",
-                                set_flag(&targets, holder, r, flag, v),
-                                "Set on",
-                            ));
-                        }
+                        ui.strong(*flag).on_hover_text(*tip);
                     }
-                    ui.horizontal(|ui| {
-                        if ui
-                            .small_button("Remove")
-                            .on_hover_text("Take every one of it from each")
-                            .clicked()
-                        {
-                            change =
-                                Some(("Remove Item", removing(&targets, holder, r), "Taken from"));
-                        }
-                        if m.having.len() < total
-                            && ui
-                                .small_button("Give to All")
-                                .on_hover_text(super::creature_lists::GIVE_TIP)
-                                .clicked()
-                        {
-                            let mut out = lists::Outcome::default();
-                            for (t, c) in targets.iter().zip(&counts) {
-                                if *c > 0 {
-                                    continue;
-                                }
-                                if let Some(why) = takes_none(t, holder) {
-                                    out.left.push(format!("{}: {why}", t.name));
-                                    continue;
-                                }
-                                out.edits.extend(adding(f, t, holder, &Added::Blueprint(r)));
-                                out.changed += 1;
-                            }
-                            change = Some(("Add item", out, "Added to"));
-                        }
-                    });
+                    ui.label("");
                     ui.end_row();
-                }
-            });
+                    for m in &merged {
+                        let r = m.key;
+                        ui.horizontal(|ui| {
+                            ui.label(name_of(r)).on_hover_text(r.to_string());
+                            super::entry_mark(ui, m.having.len(), total);
+                        });
+                        let counts = holdings.held(r);
+                        let first = counts[m.having[0]];
+                        ui.horizontal(|ui| {
+                            if counts.iter().any(|c| *c != first && *c > 0) {
+                                ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
+                                    .on_hover_text(
+                                        "They hold other numbers of it: this is the first's",
+                                    );
+                            }
+                            ui.label(format!("×{first}"));
+                        });
+                        for (flag, tip) in flags {
+                            let of_it = holdings.items(r);
+                            let (on, mixed) = inventory::flag_state(of_it.iter().copied(), flag);
+                            let mut v = on;
+                            let r_box = ui
+                                .add(mg_uikit::Checkbox::new(&mut v, "").indeterminate(mixed))
+                                .on_hover_text(*tip);
+                            if r_box.changed() {
+                                let v = v || mixed;
+                                change = Some((
+                                    "Item flag",
+                                    set_flag(&targets, holder, r, flag, v),
+                                    "Set on",
+                                ));
+                            }
+                        }
+                        ui.horizontal(|ui| {
+                            if ui
+                                .small_button("Remove")
+                                .on_hover_text("Take every one of it from each")
+                                .clicked()
+                            {
+                                change = Some((
+                                    "Remove Item",
+                                    removing(&targets, holder, r),
+                                    "Taken from",
+                                ));
+                            }
+                            if m.having.len() < total
+                                && ui
+                                    .small_button("Give to All")
+                                    .on_hover_text(super::creature_lists::GIVE_TIP)
+                                    .clicked()
+                            {
+                                let mut out = lists::Outcome::default();
+                                for (t, c) in targets.iter().zip(&counts) {
+                                    if *c > 0 {
+                                        continue;
+                                    }
+                                    if let Some(why) = takes_none(t, holder) {
+                                        out.left.push(format!("{}: {why}", t.name));
+                                        continue;
+                                    }
+                                    out.edits.extend(adding(f, t, holder, &Added::Blueprint(r)));
+                                    out.changed += 1;
+                                }
+                                change = Some(("Add item", out, "Added to"));
+                            }
+                        });
+                        ui.end_row();
+                    }
+                })
+        });
         // Dropped from the palette on the page: added to each.
         let rect = ui.min_rect();
         if let Some(inventory::Dragged::Palette(r)) = inventory::dropped_on(ui, rect) {
@@ -405,48 +410,53 @@ fn equipment(
 ) {
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     let fits = chosen.map_or(0, |r| item_slots(f, r, None));
-    egui::Grid::new(("equipment-together", f.key)).num_columns(3).striped(true).show(ui, |ui| {
-        for (bit, slot) in SLOTS {
-            let worn: Vec<Option<ResRef>> = targets
-                .iter()
-                .map(|t| {
-                    let e = t.list("Equip_ItemList").iter().find(|s| s.id == bit)?;
-                    lists::item_of(e)
-                })
-                .collect();
-            ui.label(slot);
-            ui.horizontal(|ui| {
-                if worn.iter().any(|w| *w != worn[0]) {
-                    let n = worn.iter().filter(|w| w.is_some()).count();
-                    let tip =
-                        format!("{n} of the {} wear something here, not all the same", worn.len());
-                    ui.colored_label(ui.visuals().warn_fg_color, super::MIXED).on_hover_text(tip);
-                }
-                match worn[0] {
-                    Some(r) => ui.label(name_of(r)),
-                    None => ui.weak("(none)"),
-                };
-            });
-            ui.horizontal(|ui| {
-                let can = chosen.is_some() && fits & bit != 0;
-                if ui
-                    .add_enabled(can, egui::Button::new("Equip").small())
-                    .on_hover_text("Equip the item chosen in the palette here, on each")
-                    .clicked()
-                    && let Some(r) = chosen
-                {
-                    *equip = Some((bit, r));
-                }
-                let any = worn.iter().any(Option::is_some);
-                if ui.add_enabled(any, egui::Button::new("To Backpack").small()).clicked() {
-                    *slot_out = Some((bit, true));
-                }
-                if ui.add_enabled(any, egui::Button::new("Remove").small()).clicked() {
-                    *slot_out = Some((bit, false));
-                }
-            });
-            ui.end_row();
-        }
+    mg_uikit::with_rows(ui, |ui| {
+        egui::Grid::new(("equipment-together", f.key)).num_columns(3).striped(true).show(ui, |ui| {
+            for (bit, slot) in SLOTS {
+                let worn: Vec<Option<ResRef>> = targets
+                    .iter()
+                    .map(|t| {
+                        let e = t.list("Equip_ItemList").iter().find(|s| s.id == bit)?;
+                        lists::item_of(e)
+                    })
+                    .collect();
+                ui.label(slot);
+                ui.horizontal(|ui| {
+                    if worn.iter().any(|w| *w != worn[0]) {
+                        let n = worn.iter().filter(|w| w.is_some()).count();
+                        let tip = format!(
+                            "{n} of the {} wear something here, not all the same",
+                            worn.len()
+                        );
+                        ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
+                            .on_hover_text(tip);
+                    }
+                    match worn[0] {
+                        Some(r) => ui.label(name_of(r)),
+                        None => ui.weak("(none)"),
+                    };
+                });
+                ui.horizontal(|ui| {
+                    let can = chosen.is_some() && fits & bit != 0;
+                    if ui
+                        .add_enabled(can, egui::Button::new("Equip").small())
+                        .on_hover_text("Equip the item chosen in the palette here, on each")
+                        .clicked()
+                        && let Some(r) = chosen
+                    {
+                        *equip = Some((bit, r));
+                    }
+                    let any = worn.iter().any(Option::is_some);
+                    if ui.add_enabled(any, egui::Button::new("To Backpack").small()).clicked() {
+                        *slot_out = Some((bit, true));
+                    }
+                    if ui.add_enabled(any, egui::Button::new("Remove").small()).clicked() {
+                        *slot_out = Some((bit, false));
+                    }
+                });
+                ui.end_row();
+            }
+        })
     });
 }
 

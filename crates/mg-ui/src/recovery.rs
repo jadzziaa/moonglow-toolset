@@ -720,24 +720,33 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
         ui.ctx(),
         |ui| {
             ui.label("Moonglow closed without saving these modules. Their unsaved work was kept:");
-            egui::Grid::new("recoveries").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-                for (i, c) in app.recoveries.iter().enumerate() {
-                    let place = c
-                        .note
-                        .module
-                        .as_ref()
-                        .map_or_else(|| "never saved".to_string(), |p| p.display().to_string());
-                    ui.strong(&c.note.name).on_hover_text(place);
-                    ui.label(age(c.note.time));
-                    if ui.button("Recover").on_hover_text("Open it, and save to keep it").clicked()
-                    {
-                        recover = Some(i);
+            mg_uikit::with_rows(ui, |ui| {
+                egui::Grid::new("recoveries").num_columns(4).spacing([12.0, 0.0]).show(ui, |ui| {
+                    for (i, c) in app.recoveries.iter().enumerate() {
+                        let place = c
+                            .note
+                            .module
+                            .as_ref()
+                            .map_or_else(|| "never saved".to_string(), |p| p.display().to_string());
+                        ui.strong(&c.note.name).on_hover_text(place);
+                        ui.label(age(c.note.time));
+                        if ui
+                            .button("Recover")
+                            .on_hover_text("Open it, and save to keep it")
+                            .clicked()
+                        {
+                            recover = Some(i);
+                        }
+                        if ui
+                            .button("Discard")
+                            .on_hover_text("Throw the unsaved work away")
+                            .clicked()
+                        {
+                            discard = Some(i);
+                        }
+                        ui.end_row();
                     }
-                    if ui.button("Discard").on_hover_text("Throw the unsaved work away").clicked() {
-                        discard = Some(i);
-                    }
-                    ui.end_row();
-                }
+                })
             });
             later = ui.button("Later").on_hover_text("Ask again at the next start").clicked();
         },

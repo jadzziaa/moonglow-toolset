@@ -35,7 +35,9 @@ fn conversation_editor_builds_and_links() {
     app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
     app.new_dialog = Some("capdlg".into());
-    let mut h = window_harness(app);
+    // (The window at the size it opens at: on a screen of 800 by 600,
+    // its tree has room for three lines.)
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.get_by_label("Create").click();
     h.run();
@@ -180,7 +182,7 @@ fn conversation_script_parameters_are_saved_in_the_game_s_codepage() {
     h.run_steps(3);
     h.get_by_label("Actions Taken").click();
     h.run_steps(3);
-    h.get_by_label("+").click();
+    h.get_by_label("Add Parameter").click();
     h.run_steps(3);
     let fields = |h: &Harness<'_, Moonglow>| -> Vec<egui::Rect> {
         h.get_all_by_role(egui::accesskit::Role::TextInput).map(|n| n.rect()).collect()
@@ -237,7 +239,11 @@ fn the_conversation_editor_s_text_has_its_own_size() {
     h.run();
     let heights = |h: &Harness<'_, Moonglow>| {
         let line = h.get_by_label_contains("Hello there.").rect().height();
-        (line, h.get_by_label("Expand All").rect().height(), h.get_by_label("File").rect().height())
+        (
+            line,
+            h.get_by_label("Conversation toolbar").get_by_label("Expand All").rect().height(),
+            h.get_by_label("File").rect().height(),
+        )
     };
     let (line, button, menu) = heights(&h);
     h.state_mut().settings.dialog_font_size = Some(24);
@@ -1917,7 +1923,7 @@ fn bookmarks_and_folded_lines_follow_their_lines_across_a_change_made_elsewhere(
     assert_eq!(folds(&h), [(e, 2)].into());
 }
 
-/// Folding a branch with its − button while a line in it is selected
+/// Folding a branch with its Collapse button while a line in it is selected
 /// selects the line folded, as Windows' tree control does (the selection
 /// was left out of sight, and the keys went on from Root); Collapse All
 /// selects the first line it is under.
@@ -1931,8 +1937,10 @@ fn folding_over_the_selection_selects_the_line_folded() {
     let hello = Some(Row { parent: Parent::Root, pos: 0 });
     h.get_by_label("Farewell. [END DIALOGUE]").click();
     h.run();
-    // Who's − (the second: Hello's, Who's, the traveller's, Go's).
-    h.get_all_by_label("−").nth(1).unwrap().click();
+    // Who's Collapse, named with its line and said open.
+    let who_arrow = h.get_by_label("Collapse Who are you?");
+    assert_eq!(who_arrow.accesskit_node().data().is_expanded(), Some(true));
+    who_arrow.click();
     h.run();
     h.run();
     assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Reply, 0)));
@@ -1942,17 +1950,20 @@ fn folding_over_the_selection_selects_the_line_folded() {
     h.run();
     h.run();
     assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 1 }));
+    // Closed, said so, and named for what it does now.
+    let who_arrow = h.get_by_label("Expand Who are you?");
+    assert_eq!(who_arrow.accesskit_node().data().is_expanded(), Some(false));
     // A fold elsewhere leaves the selection.
-    h.get_all_by_label("−").last().unwrap().click();
+    h.get_by_label("Collapse [OWNER] - Go away.").click();
     h.run();
     h.run();
     assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Entry, 2)));
     assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 1 }));
-    h.get_by_label("Expand All").click();
+    h.get_by_label("Conversation toolbar").get_by_label("Expand All").click();
     h.run();
     h.get_by_label("[OWNER] - A traveller.").click();
     h.run();
-    h.get_by_label("Collapse All").click();
+    h.get_by_label("Conversation toolbar").get_by_label("Collapse All").click();
     h.run();
     h.run();
     assert_eq!(selected(&h), hello);
@@ -2649,7 +2660,7 @@ fn parameter_sets_are_managed() {
     // Broken deleted (it is a file all the same), and forgotten.
     beside(&mut h, "Broken (not a set)", "Delete");
     assert_eq!(param_sets::list(Some(&sets)), ["Check", "Gold"]);
-    h.get_by_label("✖").click();
+    h.get_by_label("Dismiss").click();
     settle(&mut h);
     // Gold renamed: not over Check's name, then to Treasure.
     beside(&mut h, "Gold", "Rename…");

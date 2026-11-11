@@ -2,6 +2,7 @@
 //! prepared by level), Special Abilities, and the inventory (Aurora's
 //! Inventory… dialog: equipment slots and the backpack).
 
+use mg_uikit::Controls as _;
 use std::sync::Arc;
 
 use egui::Ui;
@@ -209,7 +210,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         .horizontal_wrapped(|ui| {
             let t = filter(ui, id);
             let c = category_filter(ui, id.with("category"), &categories);
-            ui.checkbox(&mut assigned_only, "Assigned only");
+            ui.check_box(&mut assigned_only, "Assigned only");
             if total > 1 {
                 ui.label(format!("{} feats among them", merged.len()));
             } else {
@@ -251,35 +252,25 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         .collect();
     ui.columns(2, |columns| {
         let ui = &mut columns[0];
-        let row_height = ui
-            .spacing()
-            .interact_size
-            .y
-            .max(ui.spacing().icon_width)
-            .max(ui.text_style_height(&egui::TextStyle::Button));
-        egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false).show_rows(
-            ui,
-            row_height,
-            shown.len(),
-            |ui, rows| {
-                for &(c, n) in &shown[rows] {
-                    // (Half-ticked where some have it: ticked, it is given
-                    // to the others.)
-                    let mut v = n == total;
-                    let some = n > 0 && n < total;
-                    let r = ui.add(egui::Checkbox::new(&mut v, &c.text).indeterminate(some));
-                    if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed()
-                    {
-                        toggle = Some((c.row, v || some));
-                    }
+        let area = egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false);
+        mg_uikit::show_rows(area, ui, shown.len(), |ui, rows| {
+            for &(c, n) in &shown[rows] {
+                // (Half-ticked where some have it: ticked, it is given
+                // to the others.)
+                let mut v = n == total;
+                let some = n > 0 && n < total;
+                let r = ui.add(mg_uikit::Checkbox::new(&mut v, &c.text).indeterminate(some));
+                if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed() {
+                    toggle = Some((c.row, v || some));
                 }
-            },
-        );
+            }
+        });
         let ui = &mut columns[1];
         ui.strong("Assigned");
         egui::ScrollArea::vertical().id_salt(("utc-feat-assigned", key)).auto_shrink(false).show(
             ui,
             |ui| {
+                mg_uikit::list_rows(ui);
                 // By name, as the list beside it; one the table has no
                 // name for by its row.
                 let mut assigned: Vec<(String, usize, usize)> = merged
@@ -299,7 +290,11 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 for (name, row, n) in assigned {
                     ui.horizontal(|ui| {
-                        if ui.small_button("×").on_hover_text("Take this feat away").clicked() {
+                        let tip = "Take this feat away";
+                        let named = format!("Remove {name}");
+                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
+                            .clicked()
+                        {
                             toggle = Some((row, false));
                         }
                         let r = ui.label(name);
@@ -538,7 +533,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal_wrapped(|ui| {
         crate::widgets::field_label(ui, "Class");
         for (n, (_, _, name, _)) in casters.iter().enumerate() {
-            ui.radio_value(&mut which, n, name);
+            ui.radio_choice(&mut which, n, name);
         }
     });
     level_row(ui, &mut level);
@@ -619,6 +614,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-list", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 // (The casting level, with a metamagic chosen: the spell level else.)
                 let columns = if raised > 0 { 3 } else { 2 };
                 egui::Grid::new(("utc-spell-grid", key, which))
@@ -656,7 +652,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                                 r
                             } else {
                                 let mut known = !present.is_empty();
-                                let r = ui.checkbox(&mut known, name);
+                                let r = ui.check_box(&mut known, name);
                                 if r.changed() {
                                     let list = slots.list(*l);
                                     change = Some(if known {
@@ -693,6 +689,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-assigned", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 let warn = ui.visuals().warn_fg_color;
                 for l in 0..=9 {
                     let n = lists[l].len();
@@ -724,7 +721,10 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                     for (name, g) in rows {
                         ui.horizontal(|ui| {
                             let tip = if prepares { "Prepare none of it" } else { "Forget it" };
-                            if ui.small_button("×").on_hover_text(tip).clicked() {
+                            let named = format!("Remove {name}");
+                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
+                                .clicked()
+                            {
                                 let edits = g.entries.iter().rev();
                                 let edits = edits.map(|&i| remove(key, path.clone(), &list, i));
                                 change = Some(("Remove spell", edits.collect()));
@@ -935,7 +935,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal_wrapped(|ui| {
         crate::widgets::field_label(ui, "Class");
         for (n, (row, having)) in caster_classes.iter().enumerate() {
-            ui.radio_value(&mut which, n, class_name(*row));
+            ui.radio_choice(&mut which, n, class_name(*row));
             super::entry_mark(ui, *having, total);
         }
     });
@@ -1027,6 +1027,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-list", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 let cols = if raised > 0 { 3 } else { 2 };
                 egui::Grid::new(("utc-spell-grid", key, which))
                     .num_columns(cols)
@@ -1074,8 +1075,9 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             } else {
                                 let mut known = having == n;
                                 let some = having > 0 && having < n;
-                                let r = ui
-                                    .add(egui::Checkbox::new(&mut known, name).indeterminate(some));
+                                let r = ui.add(
+                                    mg_uikit::Checkbox::new(&mut known, name).indeterminate(some),
+                                );
                                 if r.changed() {
                                     let list = list_of(*l);
                                     let is = move |e: &Struct| spell_key(e).0 == k.0;
@@ -1107,6 +1109,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-assigned", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 let warn = ui.visuals().warn_fg_color;
                 for l in 0..=9 {
                     let list = list_of(l);
@@ -1158,7 +1161,10 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             } else {
                                 "Forget it, on each"
                             };
-                            if ui.small_button("×").on_hover_text(tip).clicked() {
+                            let named = format!("Remove {name}");
+                            if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
+                                .clicked()
+                            {
                                 let out = lists::remove(&class_targets, &list, is, |_| None);
                                 change = Some(("Remove spell", out, "Taken from"));
                             }
@@ -1341,6 +1347,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     let offer = |row: usize| {
                         u16::try_from(row).is_ok()
                             && spell_table.as_ref().is_none_or(|t| special_ability(t, row))
@@ -1375,87 +1382,95 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             // As the game has them: so many uses of a spell at a caster
             // level (the file keeps an entry for each use).
             ui.strong("Special Abilities");
-            egui::Grid::new(("utc-special", key)).num_columns(6).striped(true).show(ui, |ui| {
-                ui.strong("Ability");
-                ui.strong("Uses");
-                ui.strong("Caster Level");
-                ui.strong("Ready").on_hover_text(
-                    "Whether the creature has these uses, or starts with them spent",
-                );
-                ui.label("");
-                ui.label("");
-                ui.end_row();
-                for m in &merged {
-                    let k = m.key;
-                    let is = move |e: &Struct| ability_key(e) == k;
-                    let having: Vec<lists::Target> =
-                        m.having.iter().map(|&i| targets[i].clone()).collect();
-                    let first = &targets[m.having[0]];
-                    ui.horizontal(|ui| {
-                        let r = ui.label(name_of(k.0));
-                        let row = usize::try_from(k.0).unwrap_or(usize::MAX);
-                        described(r, described_by.as_deref(), "spells", "SpellDesc", row);
-                        super::entry_mark(ui, m.having.len(), total);
-                    });
-                    let uses = uses_of(first, k) as i64;
-                    let differs = having.iter().any(|t| uses_of(t, k) as i64 != uses);
-                    f.mark_if(ui, &format!("Uses#{k:?}"), differs);
-                    if let Some(v) = commit_number(ui, uses, 1..=99) {
-                        let entry = m.entry.clone();
-                        let out =
-                            lists::set_count(&having, "SpecAbilityList", is, v as usize, |_| {
-                                entry.clone()
-                            });
-                        change = Some(("Uses", out, "Set on"));
-                    }
-                    if let Some(v) = commit_number(ui, k.1, 1..=60) {
-                        let out = lists::set(
-                            &having,
-                            "SpecAbilityList",
-                            is,
-                            &["SpellCasterLevel"],
-                            |e, l| Some(lists::like(e.get(l), v, Value::Byte(0))),
-                        );
-                        change = Some(("Caster level", out, "Set on"));
-                    }
-                    // (Flags a file has besides stay as they are until
-                    // the switch is turned.)
-                    let mut on = k.2;
-                    if ui.checkbox(&mut on, "").changed() {
-                        let flags = if on { ABILITY_READY } else { 0 };
-                        let out =
-                            lists::set(&having, "SpecAbilityList", is, &["SpellFlags"], |e, l| {
-                                Some(lists::like(e.get(l), flags, Value::Byte(0)))
-                            });
-                        change = Some(("Ready", out, "Set on"));
-                    }
-                    if ui.small_button("Remove").clicked() {
-                        let out = lists::remove(&targets, "SpecAbilityList", is, |_| None);
-                        change = Some(("Remove special ability", out, "Taken from"));
-                    }
-                    // Given to those that lack it, with as many uses as
-                    // the first that has it.
-                    if m.having.len() < total {
-                        if ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked() {
-                            let lacking: Vec<lists::Target> = (0..total)
-                                .filter(|i| !m.having.contains(i))
-                                .map(|i| targets[i].clone())
-                                .collect();
+            mg_uikit::with_table_rows(ui, |ui| {
+                egui::Grid::new(("utc-special", key)).num_columns(6).striped(true).show(ui, |ui| {
+                    ui.strong("Ability");
+                    ui.strong("Uses");
+                    ui.strong("Caster Level");
+                    ui.strong("Ready").on_hover_text(
+                        "Whether the creature has these uses, or starts with them spent",
+                    );
+                    ui.label("");
+                    ui.label("");
+                    ui.end_row();
+                    for m in &merged {
+                        let k = m.key;
+                        let is = move |e: &Struct| ability_key(e) == k;
+                        let having: Vec<lists::Target> =
+                            m.having.iter().map(|&i| targets[i].clone()).collect();
+                        let first = &targets[m.having[0]];
+                        ui.horizontal(|ui| {
+                            let r = ui.label(name_of(k.0));
+                            let row = usize::try_from(k.0).unwrap_or(usize::MAX);
+                            described(r, described_by.as_deref(), "spells", "SpellDesc", row);
+                            super::entry_mark(ui, m.having.len(), total);
+                        });
+                        let uses = uses_of(first, k) as i64;
+                        let differs = having.iter().any(|t| uses_of(t, k) as i64 != uses);
+                        f.mark_if(ui, &format!("Uses#{k:?}"), differs);
+                        if let Some(v) = commit_number(ui, uses, 1..=99) {
                             let entry = m.entry.clone();
                             let out = lists::set_count(
-                                &lacking,
+                                &having,
                                 "SpecAbilityList",
                                 is,
-                                uses as usize,
+                                v as usize,
                                 |_| entry.clone(),
                             );
-                            change = Some(("Add special ability", out, "Added to"));
+                            change = Some(("Uses", out, "Set on"));
                         }
-                    } else {
-                        ui.label("");
+                        if let Some(v) = commit_number(ui, k.1, 1..=60) {
+                            let out = lists::set(
+                                &having,
+                                "SpecAbilityList",
+                                is,
+                                &["SpellCasterLevel"],
+                                |e, l| Some(lists::like(e.get(l), v, Value::Byte(0))),
+                            );
+                            change = Some(("Caster level", out, "Set on"));
+                        }
+                        // (Flags a file has besides stay as they are until
+                        // the switch is turned.)
+                        let mut on = k.2;
+                        if ui.check_box(&mut on, "").changed() {
+                            let flags = if on { ABILITY_READY } else { 0 };
+                            let out = lists::set(
+                                &having,
+                                "SpecAbilityList",
+                                is,
+                                &["SpellFlags"],
+                                |e, l| Some(lists::like(e.get(l), flags, Value::Byte(0))),
+                            );
+                            change = Some(("Ready", out, "Set on"));
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            let out = lists::remove(&targets, "SpecAbilityList", is, |_| None);
+                            change = Some(("Remove special ability", out, "Taken from"));
+                        }
+                        // Given to those that lack it, with as many uses as
+                        // the first that has it.
+                        if m.having.len() < total {
+                            if ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked() {
+                                let lacking: Vec<lists::Target> = (0..total)
+                                    .filter(|i| !m.having.contains(i))
+                                    .map(|i| targets[i].clone())
+                                    .collect();
+                                let entry = m.entry.clone();
+                                let out = lists::set_count(
+                                    &lacking,
+                                    "SpecAbilityList",
+                                    is,
+                                    uses as usize,
+                                    |_| entry.clone(),
+                                );
+                                change = Some(("Add special ability", out, "Added to"));
+                            }
+                        } else {
+                            ui.label("");
+                        }
+                        ui.end_row();
                     }
-                    ui.end_row();
-                }
+                })
             });
         }
     });
@@ -1547,6 +1562,8 @@ struct SlotLook<'a> {
     slot: &'a str,
     icon: &'a [crate::images::Picture],
     shown: &'a str,
+    /// Marked with a warning (an item the game takes off).
+    warned: bool,
     tip: Option<String>,
     selected: bool,
     striped: bool,
@@ -1557,7 +1574,7 @@ struct SlotLook<'a> {
 /// A slot of the Equipment, laid out as `layout` says, across the whole
 /// width.
 fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
-    let SlotLook { slot, icon, shown, tip, selected, striped, can_equip, can_take } = look;
+    let SlotLook { slot, icon, shown, warned, tip, selected, striped, can_equip, can_take } = look;
     let gap = ui.spacing().item_spacing.y;
     let line = ui.spacing().interact_size.y;
     let (max, lines) = match layout.label {
@@ -1589,6 +1606,10 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
                 let size = egui::vec2(layout.button, lines);
                 let stacked = egui::Layout::top_down_justified(egui::Align::Center);
                 ui.allocate_ui_with_layout(size, stacked, |ui| {
+                    // (The theme's gap between the two: the slots' rows
+                    // have none, and the buttons' frames, a point past
+                    // each, overlapped.)
+                    ui.spacing_mut().item_spacing.y = mg_uikit::metrics::GAP_S;
                     let equip = ui.add_enabled(can_equip, equip());
                     (equip, ui.add_enabled(can_take, remove()))
                 })
@@ -1605,11 +1626,25 @@ fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
                         crate::widgets::field_label(ui, slot);
                     }
                     let width = ui.available_width();
-                    let name = egui::Button::selectable(selected, (shown, egui::Atom::grow()))
+                    // (An item worn off: a warning before its name.)
+                    let mark = ui.next_auto_id().with("worn-off");
+                    let mut atoms = egui::Atoms::default();
+                    if warned {
+                        let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+                        atoms.push_right(egui::Atom::custom(mark, side));
+                    }
+                    atoms.push_right(shown);
+                    atoms.push_right(egui::Atom::grow());
+                    let name = egui::Button::selectable(selected, atoms)
                         .min_size(egui::vec2(width, 0.0))
                         .truncate()
                         .sense(egui::Sense::click_and_drag());
-                    let r = ui.add(name);
+                    let drawn = name.atom_ui(ui);
+                    if let Some(rect) = drawn.rect(mark) {
+                        let warn = ui.visuals().warn_fg_color;
+                        mg_uikit::Icon::Warning.paint(ui.painter(), rect, warn);
+                    }
+                    let r = drawn.response;
                     match tip {
                         Some(tip) => r.on_hover_text(tip),
                         None => r,
@@ -1679,7 +1714,7 @@ fn item_options(
         ui.horizontal_wrapped(|ui| {
             for (flag, tip) in ITEM_FLAGS {
                 let (mut on, mixed) = inventory::flag_state(picked.iter().map(|p| p.2), flag);
-                let boxed = egui::Checkbox::new(&mut on, flag).indeterminate(mixed);
+                let boxed = mg_uikit::Checkbox::new(&mut on, flag).indeterminate(mixed);
                 let r = ui.add_enabled(!picked.is_empty(), boxed).on_hover_text(tip);
                 if r.changed() {
                     let edits: Vec<Edit> = picked
@@ -1953,15 +1988,13 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                             }
                             tip
                         });
-                        let shown = match (name, at.and_then(|i| off[i].as_ref())) {
-                            (Some(name), Some(_)) => format!("⚠ {name}"),
-                            (Some(name), None) => name,
-                            (None, _) => "—".to_string(),
-                        };
+                        let warned = name.is_some() && at.and_then(|i| off[i].as_ref()).is_some();
+                        let shown = name.unwrap_or_else(|| "—".to_string());
                         let look = SlotLook {
                             slot,
                             icon: at.map_or(&[][..], |i| &icons[i][..]),
                             shown: &shown,
+                            warned,
                             tip,
                             selected: at
                                 .is_some_and(|i| selected.items.contains(&("Equip_ItemList", i))),
@@ -1990,6 +2023,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                 });
                             }
                             r.context_menu(|ui| {
+                                mg_uikit::menu_rows(ui);
                                 if ui.button("To Backpack").clicked() {
                                     stow = Some((i, resref));
                                     ui.close();

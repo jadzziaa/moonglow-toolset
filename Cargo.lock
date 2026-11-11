@@ -3035,6 +3035,7 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "mg-uikit",
  "mg-update",
  "notify",
  "png",
@@ -3047,6 +3048,17 @@ dependencies = [
  "toml",
  "wgpu",
  "zip",
+]
+
+[[package]]
+name = "mg-uikit"
+version = "0.0.0"
+dependencies = [
+ "egui",
+ "egui_kittest",
+ "mg-testkit",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

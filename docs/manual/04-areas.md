@@ -19,10 +19,10 @@ Each button shows an icon and its name. With **Tools › Options ›
 General › Toolbar buttons: Icons only** the buttons that have an icon
 show it alone, and the toolbar takes about half the rows it took: rest
 the pointer on an icon and its tip names it (and gives its key, as
-Select Tiles' and Paint's do). All (☑), None (☐), Together (🔗), Onto Objects
-(📥), To Scratch (📤) and Save as Prefab… (🗐) have icons too, and the dropdowns
-show 🏠 (Fade Geometry), 📐 (Snap) and ↻ (Turn) before their choice. A
-palette's Gallery is 🖼, the Grid ⊞.
+Select Tiles' and Paint's do). All, None, Together, Onto Objects,
+To Scratch and Save as Prefab… have icons too, and with Icons only the
+Fade Geometry, Snap and Turn dropdowns show an icon before their choice.
+A palette's List and Gallery switches are icons as well.
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**. What you
@@ -32,7 +32,7 @@ palette's Gallery is 🖼, the Grid ⊞.
 - **The start location** (where a player's character enters the module)
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it
-  should be and choose **Set Start Location Here**, or choose **🏁 Start
+  should be and choose **Set Start Location Here**, or choose **Start
   Location** among the palette's types (Aurora's Paint Start Location)
   and click where it should be (the marker follows the pointer until
   then; Shift + click keeps it for another try, a right click or Escape
@@ -65,13 +65,13 @@ palette's Gallery is 🖼, the Grid ⊞.
   at the area's foot as well. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
-- **🗾 Minimap**: the area's map in the view's top right corner, as the
+- **Minimap**: the area's map in the view's top right corner, as the
   game's map draws it ([Minimaps](#minimaps)), with where the camera
   looks (a white dot, and a wedge the way it faces) and the selected
   objects (yellow dots). Click or drag on it to look there: the
   camera's target goes to that place, the camera keeping its turn and
   distance. Areas opened later open as you left it.
-- **▶ Animations**: creatures and other placed objects play their
+- **Animations**: creatures and other placed objects play their
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
   nothing otherwise; a creature's wings or tail that is an effect, as
@@ -90,7 +90,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   lets go of what its picture took of the GPU's memory after a couple of
   seconds, and of its models too once closed (it is read again, where
   its camera was, when it is opened again).
-- **🌿 Grass**: the grass the area grows, as the game grows it on the
+- **Grass**: the grass the area grows, as the game grows it on the
   tiles' walkmesh faces: the tileset's, and the area's own (Area
   Properties › Grass). It is drawn wherever the view shows grass ground,
   out to the far edge of the view, as dense as the game's near the
@@ -105,7 +105,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   some 8 cm either way in a strong wind and half that in a weak one; in
   no wind it stands still. Switched off, in every area view; it stays as
   you leave it.
-- **🌄 Tile Border**: past the area's edge, what the game draws there
+- **Tile Border**: past the area's edge, what the game draws there
   (its Enable Tile Border option, on by default in the game; a module
   turns it off for an area with `SetAreaTileBorderDisabled`): the
   tileset's edge tiles (`<tileset>_edge.2da`), five deep beyond each
@@ -122,7 +122,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   They can't be selected or painted.
   Off by default, as Aurora shows the edge; in every area view, and it
   stays as you leave it.
-- **🎨 Shaders**: draws with the game's own shaders, compiled on your
+- **Shaders**: draws with the game's own shaders, compiled on your
   machine from the game and the module's haks, as the game draws: a
   material's custom shaders (its MTR's `customshaderVS` and
   `customshaderFS`: grass and leaves that sway in the wind, water that
@@ -167,7 +167,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   as you leave it: switched off, it stays off. The pictures already made
   (the galleries', a hovered row's preview, a tile's variants) are made
   anew with the shaders it switches to.
-- **💡 Lighting**: the area's lighting: the sun or moon colors of Area
+- **Lighting**: the area's lighting: the sun or moon colors of Area
   Properties, the tiles' main and source lights (Tile Properties), the
   light of each placeable whose appearance has one (placeables.2da's
   `LightColor`, unless its **Illuminated** is off) and the light nodes of
@@ -181,7 +181,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   Switched off, everything is evenly lit, whatever the area's colors and
   lights: for working in a dark area. Areas opened later open as you left
   it.
-- **◑ Shadows**: the shadows the game draws, where the area has them
+- **Shadows**: the shadows the game draws, where the area has them
   (Area Properties' **Shadows**, sun and moon, and its **Shadow
   Opacity**), so that you can set the opacity by eye. A click turns them
   all off, and on again as they were; hold the button a moment, or
@@ -225,9 +225,9 @@ palette's Gallery is 🖼, the Grid ⊞.
   still cast their shadows, as in the game. Switched off (or with
   **Lighting** off) there are none; areas opened later open as you left
   them. Changes to the shadow fields in Area Properties show at once.
-- **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
+- **Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
-- **◎ Sound Ranges**: two spheres of dots around each placed sound that
+- **Sound Ranges**: two spheres of dots around each placed sound that
   is heard from where it stands, as Aurora draws them: at full volume
   inside the inner one (its minimum distance), not at all outside the
   outer one (its maximum), with a circle at the sound's height where the
@@ -256,7 +256,7 @@ palette's Gallery is 🖼, the Grid ⊞.
   and Previous Tile Appearance and Rotate Tile with tiles selected,
   which step those tiles and leave Select Tiles on (see [Painting
   terrain](#painting-terrain)).
-- **✏ Paint** (B): paint the placeables chosen in the palette onto the
+- **Paint** (B): paint the placeables chosen in the palette onto the
   ground (see [Painting placeables](#painting-placeables)).
 - **Area Properties**, **Reorient Camera** (north up again), **Go to Start
   Location**.
@@ -295,7 +295,7 @@ there; the log says how many were written. `mg minimap MODULE AREA…
 --to FOLDER` (or `--all`) does the same from the command line.
 
 The same map shows in the area view's corner with the toolbar's
-**🗾 Minimap**, and in **Setup Area Transition**, where a door's or
+**Minimap**, and in **Setup Area Transition**, where a door's or
 trigger's destination is picked on it ([Blueprints](05-blueprints.md#placeables-and-doors)).
 
 ## The camera
@@ -443,7 +443,7 @@ A click on a ring or an arrow selects the object under it, if there is
 one; the selection stays otherwise.
 
 **Lights**: right-click the ground and choose **Add Light Here**, then
-a color, or choose a color in the palette's **☀ Lights** and click
+a color, or choose a color in the palette's **Lights** and click
 where it goes (Shift + click places more; a right click or Escape over
 the view stops). Moonglow puts one of the game's invisible light placeables
 there ("Light, White" and the six others of placeables.2da), a little
@@ -462,7 +462,7 @@ With **Options › Areas › Lights of any color and reach, written into a
 hak** on (off by default, so that nobody writes into a persistent
 world's haks without meaning to; a project's `moonglow.toml` can say it
 for the team: `[lights] generated`), **Add Light Here** and the
-palette's **☀ Lights** have **Custom Light…** too. Its window takes the
+palette's **Lights** have **Custom Light…** too. Its window takes the
 light's **Color**, **Radius** (its light ends at twice it), a
 **Multiplier** that lengthens its reach (the game lengthens a model
 light's reach by it, not its brightness), its **Priority** (1 to 5:
@@ -499,7 +499,7 @@ model.
 
 A light made so shows as the game's do: a small sun in its color, a
 ring where its light ends when it is selected, and the view lit by it.
-Lights made so are listed on the palette's ☀ Lights, under the game's,
+Lights made so are listed on the palette's Lights, under the game's,
 and on Add Light Here. **Change Light…** on a selected one gives it
 other settings: another row (and model), written as Custom Light writes
 them; Undo gives it its row back (what was written stays in the hak).
@@ -686,7 +686,7 @@ Aurora):
     its blueprint's without a reserved prefix (`nw_`, `plc_`, `x0_`…)
     where that name is free (`nw_waypoint001` gives `waypoint001`), else
     numbered (`mgp_utd001`). The new blueprint opens in its window: OK
-    keeps it, and its Cancel (or Escape; its tab's × too with
+    keeps it, and its Cancel (or Escape; its tab's close button too with
     Options' **Closing a window cancels its changes**) takes it back,
     the instance naming its blueprint as before, as in Aurora.
   - **Reuse › Export as Blueprint…**: the instance written into an
@@ -802,7 +802,7 @@ placeables around.
   toolbar (it shows when several are selected), **Reuse › Save as
   Prefab…** on the selection's right-click menu, or **Save Selection as
   Prefab…** in the palette's **Prefabs**.
-- **Placing one:** choose it in the palette's **🗐 Prefabs** (beside the
+- **Placing one:** choose it in the palette's **Prefabs** (beside the
   blueprint types), or under **Edit › Prefabs**. It follows the pointer
   like a paste. A click places it, with the objects in their places
   around each other and at their heights above the ground.
@@ -929,7 +929,7 @@ warns of one that is twice in one area.
 
 ## Painting placeables
 
-Trees, rocks, bushes, rubble: **✏ Paint** on the area's toolbar (or **B**
+Trees, rocks, bushes, rubble: **Paint** on the area's toolbar (or **B**
 with the pointer over the area) turns the placeable brush on, and the
 placeables chosen in the palette are painted onto the ground rather than
 placed one a click. Choose them in the **Placeables** palette, the
@@ -1057,7 +1057,7 @@ as Aurora's Terrain tab does:
   all of it away), and its tiles flash red. Painting beside it, where
   its tiles still meet the terrain, is as ever. With **Allow editing
   tiles of groups and features** on, each of its tiles can be changed
-  alone; the status line warns (⚠) when a change leaves a group part
+  alone; the status line warns when a change leaves a group part
   changed (Undo puts it back).
 - The **Eraser** takes the crossers off a tile, and on a tile of a group
   or a feature takes the whole of it away (its tiles become ground that
@@ -1081,7 +1081,7 @@ as Aurora's Terrain tab does:
   Gallery; what it finds shows opened out as it is typed, each heading
   can be closed again after, and cleared, each heading is open or closed
   again as it was before), **Expand All** and **Collapse All**,
-  how many there are, and **List** (☰) or **Gallery** (🖼), the same switch
+  how many there are, and **List** or **Gallery**, the same switch
   as the blueprint palettes', with the pictures' size beside it.
 - In the **Gallery**, each terrain and crosser is a heading that opens and
   closes, with every tile it can make under it as pictures: each variant,
@@ -1097,10 +1097,10 @@ as Aurora's Terrain tab does:
   and what the tileset says of it (each corner's terrain and height, each
   edge's crosser, its lights, loops, doors and sounds), with **Paint with
   it**, and its textures ([A tile's textures](#a-tiles-textures)). Chosen from its picture, **Refine Tile** chosen next (it then
-  reads **Refine Tile →** and the tile's model) makes the tiles you click
+  reads **Refine Tile ->** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
-- **📌 Exact Tile**, beside List and Gallery (shown with the Gallery, or
+- **Exact Tile**, beside List and Gallery (shown with the Gallery, or
   a tile or group chosen from it), puts a tile chosen from the pictures in
   **alone**: a click (or a drag, in every tile it passes, or a picture
   dropped) puts exactly that tile there, turned as the right click
@@ -1278,10 +1278,10 @@ height dragged), Defaults. While the window stays open, all of them are
 **one step to undo**, however many you make. **OK** keeps them and
 closes the window. **Cancel** takes them back, and the tiles and what
 stands on them are as they were when the window opened (nothing is left
-for Redo). Closed any other way with changes (its tab's or window's ✕,
+for Redo). Closed any other way with changes (its tab's or window's close button,
 Escape), it asks, as a side editor's tab does: **Save** keeps them,
 **Don't Save** takes them back, **Cancel** leaves the window open
-(Aurora's ✕ discards them without asking).
+(Aurora's close button discards them without asking).
 
 A tile put in from the window's pictures (a variant, a tile of All
 tiles, or the tiles turned by its Turn, below) is a step of its own,
@@ -1334,7 +1334,7 @@ or not (none of them changes); each Turn chosen is one step to undo.
 The pictures show the tiles turned so. Click one and it is put in the
 tiles chosen as it is, turned so, at the height they have (and the
 window's **Height**, if it is set), whether it fits its neighbors or
-not: none of them changes (as **📌 Exact Tile** puts one in). It is one
+not: none of them changes (as **Exact Tile** puts one in). It is one
 step to undo, the window stays open on it, and its lights are chosen
 afresh (but for those set in the window), its doors come and go, and
 what stands on it moves with a new height, as above. Off, the variants
@@ -1685,7 +1685,7 @@ placeable of the area or the module. From the command line, `mg areas
 
 ## Area sounds
 
-With **🔊 Sounds** on, the placed sound objects play as you move around:
+With **Sounds** on, the placed sound objects play as you move around:
 full volume within a sound's minimum distance, fading to nothing at its
 maximum, each repeating, looping or playing once as set. **Ambient** and
 **Music** play the area's ambient sound and music (by day or night, as the

@@ -8,6 +8,7 @@ use mg_edit::{Command, Edit, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::Choice;
+use mg_uikit::Controls as _;
 
 use super::inventory::{self, Added, Bin, NewPage};
 use super::{Form, situated};
@@ -52,7 +53,7 @@ fn optional_price(
     let mut enabled = current != -1;
     ui.horizontal(|ui| {
         f.mark_mixed_inline(ui, &[label]);
-        if ui.checkbox(&mut enabled, check).changed() {
+        if ui.check_box(&mut enabled, check).changed() {
             f.set_int(check, label, if enabled { on } else { -1 }, FieldType::Int);
         }
         ui.add_enabled_ui(current != -1, |ui| {
@@ -308,7 +309,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         ("Store will NOT buy the following items", false),
         ("Store will ONLY buy the following items", true),
     ] {
-        if ui.radio(only == mode, text).clicked() && only != mode {
+        if ui.radio_button(only == mode, text).clicked() && only != mode {
             only = mode;
             if !current.is_empty() {
                 // The items move to the other list.
@@ -338,6 +339,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for c in &items {
                         let row = c.row as i64;
                         if current.contains(&row) || !needle.finds(&c.text) {
@@ -373,6 +375,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for row in &current {
                         let r = ui.selectable_label(right == Some(*row), name(*row));
                         if r.clicked() {
@@ -464,7 +467,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                 ("Store will NOT buy the following items", false),
                 ("Store will ONLY buy the following items", true),
             ] {
-                if ui.radio(only == mode, text).clicked() {
+                if ui.radio_button(only == mode, text).clicked() {
                     only = mode;
                     // Each store whose items are in the other list: moved.
                     let (to, from) = if mode {
@@ -508,6 +511,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for c in &items {
                         let row = c.row as i64;
                         let all = merged.iter().any(|m| m.key == row && m.all(total));
@@ -552,6 +556,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for m in &merged {
                         ui.horizontal(|ui| {
                             let r = ui.selectable_label(right == Some(m.key), name(m.key));

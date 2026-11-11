@@ -1,7 +1,13 @@
 //! Screenshots of windows for looking at their layout, rendered with wgpu
 //! into `target/test-output/screens/` (kept from run to run: each test adds
 //! its pictures). Not checks; run by hand:
-//! `cargo test -p mg-ui --test screens -- --ignored`.
+//! `cargo test -p mg-ui --test screens -- --ignored`. With `MG_LIGHT` set,
+//! in the light theme (Options › General › Light theme), into
+//! `target/test-output/screens-light/` (a folder of the same name for
+//! each: `screens-light/screens-area/`...); the tests' own files then
+//! belong in another folder, or the dark run's pictures beside them are
+//! emptied with them: `MG_LIGHT=1 MOONGLOW_TEST_OUTPUT=target/test-output-light
+//! cargo test -p mg-ui --test screens -- --ignored`.
 
 use std::sync::Arc;
 
@@ -26,11 +32,105 @@ fn described(h: &mut Harness<'_, Moonglow>) {
     }
 }
 
+/// The pictures are in the light theme (`MG_LIGHT` set).
+fn light() -> bool {
+    std::env::var_os("MG_LIGHT").is_some()
+}
+
+/// The theme of the pictures.
+fn theme() -> mg_uikit::Theme {
+    if light() { mg_uikit::Theme::Light } else { mg_uikit::Theme::Dark }
+}
+
+/// Where the pictures meant for `dir` go: `dir`, or in the light theme its
+/// namesake under `screens-light/`.
+fn picture_dir(dir: &std::path::Path) -> std::path::PathBuf {
+    if !light() {
+        return dir.to_path_buf();
+    }
+    let name = dir.file_name().expect("a folder");
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
+    let light = out.join("screens-light").join(name);
+    std::fs::create_dir_all(&light).unwrap();
+    light
+}
+
+/// The window in the theme of the pictures (Options › General › Light
+/// theme), from its next frame.
+fn themed(h: &mut Harness<'_, Moonglow>) {
+    h.state_mut().settings.light_theme = light();
+}
+
+/// Frames until the UI stops asking for more (a scroll's animation) and
+/// the window's own work is done, for at most 30 seconds (the app tests'
+/// `settle`).
+fn settle(h: &mut Harness<'_, Moonglow>) {
+    let started = std::time::Instant::now();
+    loop {
+        let ran = h.try_run();
+        if ran.is_ok() && h.state().under_way().is_none() {
+            return;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "never settled: {:?}, {:?}",
+            ran.err(),
+            h.state().under_way()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// Frames until the widget whose rect `rect` gives has stayed in one
+/// place for a few frames (a window that has just opened takes a few to
+/// find its size and place; a scroll is animated), where an area view
+/// keeps the window repainting.
+fn at_rest(h: &mut Harness<'_, Moonglow>, rect: impl Fn(&Harness<'_, Moonglow>) -> egui::Rect) {
+    let started = std::time::Instant::now();
+    let (mut last, mut still) = (None, 0);
+    while still < 4 {
+        h.run_steps(1);
+        let now = rect(h);
+        still = if last == Some(now) { still + 1 } else { 0 };
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "never at rest");
+        last = Some(now);
+    }
+}
+
+/// Whether `n` is in the main toolbar or the area view's.
+fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
+    let mut up = n.accesskit_node().parent();
+    while let Some(p) = up {
+        if matches!(p.label().as_deref(), Some("Toolbar" | "Area toolbar")) {
+            return true;
+        }
+        up = p.parent();
+    }
+    false
+}
+
+/// The first node `name` that is not in a toolbar (the editors' own Save,
+/// Open, Compile; the palette's kinds and the area view's toolbar name
+/// some of the same words).
+#[track_caller]
+fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.query_all_by_label(name)
+        .find(|n| !in_toolbar(n))
+        .unwrap_or_else(|| panic!("no {name} apart from the toolbars"))
+}
+
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
+    shoot_in(h, dir, name, light());
+}
+
+/// [`shoot`] in the theme `light` says, whichever the pictures are in (a
+/// test that shows both).
+fn shoot_in(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str, light: bool) {
+    h.state_mut().settings.light_theme = light;
     // Steps rather than runs: animated views keep repainting.
     h.run_steps(3);
     let image = h.render().expect("render");
-    image.save(dir.join(format!("{name}.png"))).unwrap();
+    image.save(picture_dir(dir).join(format!("{name}.png"))).unwrap();
 }
 
 /// Build Module's Unused results, a script a line with its files, one
@@ -124,6 +224,7 @@ fn color_button_paste() {
     mg_testkit::gpu::hold();
     let mut h = Harness::builder().with_size(egui::vec2(420.0, 420.0)).wgpu().build_ui_state(
         |ui, rgb: &mut [u8; 3]| {
+            mg_uikit::apply(ui.ctx(), theme());
             mg_ui::color_button::edit_srgb(ui, rgb);
         },
         [158, 151, 211],
@@ -134,6 +235,7 @@ fn color_button_paste() {
     let image = h.render().expect("render");
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("../test-output/screens");
     std::fs::create_dir_all(&path).unwrap();
+    let path = picture_dir(&path);
     image.save(path.join("color-button-paste.png")).unwrap();
     // Its right-click menu, the picker closed.
     h.key_press(egui::Key::Escape);
@@ -238,8 +340,8 @@ fn module_properties_haks() {
 }
 
 /// The main window's fix package (`target/test-output/screens-window/`):
-/// Module Properties' window with its bar's Maximize button (🗖), the
-/// window maximized (🗗 Restore), and Custom Content of an older module
+/// Module Properties' window with its bar's Maximize button, the
+/// window maximized (Restore), and Custom Content of an older module
 /// that names its one hak in `Mod_Hak`. (Run on the code before the
 /// package, the same pictures show the bar without its button and the
 /// hak list saying the module has none.)
@@ -607,7 +709,7 @@ fn add_hak_filtered() {
 /// The widgets of the deferred sprint's first fix package, each where a
 /// builder meets it (`target/test-output/screens-widgets/`): Add hak…
 /// opened by the keys, its cursor on the second hak; the Command
-/// Palette and Open Script with a name typed (the search fields' ×);
+/// Palette and Open Script with a name typed (the search fields' Clear buttons);
 /// Resize Area's and Adjust Location's numbers with their arrows.
 #[test]
 #[ignore]
@@ -768,7 +870,7 @@ fn table_editor() {
         doc.taking = Some(Default::default());
     }
     h.run_steps(6);
-    h.get_by_label("New").click();
+    apart(&h, "New").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "table-editor-take-rows");
     // Several cells selected, and a column's menu.
@@ -1578,7 +1680,7 @@ fn options_window() {
     let draft = h.state_mut().options.as_mut().unwrap();
     draft.verify_skip = vec!["tilesets".into(), "mdl-text".into(), "references:creatures".into()];
     draft.verify_more = "tdod_tiles01.hak, ttr01.set, tilesetz".into();
-    h.get_by_label("Verify").click();
+    apart(&h, "Verify").click();
     shoot(&mut h, &dir, "options-verify");
     h.get_by_label("Keyboard").click();
     h.run();
@@ -1959,8 +2061,10 @@ fn area_creatures_game_shaders() {
             let shaders = if on { "game-shaders" } else { "own-shader" };
             let sel = if selected { "selected" } else { "unselected" };
             let name = format!("area-creatures-{shaders}-{sel}");
+            themed(&mut h);
             h.run_steps(3);
             let image = h.render().expect("render");
+            let dir = picture_dir(&dir);
             image.save(dir.join(format!("{name}.png"))).unwrap();
             let view = &h.state().area_views[&area];
             for (i, p) in spots.iter().enumerate() {
@@ -2728,7 +2832,7 @@ fn hover_list_row(
     // (A long list's: its Filter field, at once above or below the box.
     // A short list's rows are all in sight.)
     let filter = h
-        .query_all_by(|n| n.placeholder() == Some("🔍 Filter"))
+        .query_all_by(|n| n.placeholder() == Some("Filter"))
         .map(|n| n.rect())
         .find(|r| (r.left() - list.left()).abs() < 20.0);
     let in_sight = |r: egui::Rect| match filter {
@@ -3000,7 +3104,7 @@ fn cast_spell_subtypes_opened() {
         .with_size(egui::vec2(1000.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(4);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(3);
     // The assigned property, chosen: its parameters show under it.
     h.get_all_by_label_contains("Cure Light Wounds").last().unwrap().click();
@@ -3059,8 +3163,8 @@ fn model_beside_the_fields() {
     }
 }
 
-/// The symbols the interface uses, as the fonts draw them (a square is a
-/// glyph the fonts lack).
+/// The icons the interface uses (the toolbars', the area view's and the
+/// palettes'), as they are drawn.
 #[test]
 #[ignore]
 fn glyphs() {
@@ -3072,9 +3176,74 @@ fn glyphs() {
             // (The application's fonts.)
             app.ui(ui);
             egui::Window::new("glyphs").fixed_pos([20.0, 60.0]).show(ui.ctx(), |ui| {
-                ui.heading("▶ 💡 ◎ ⏵ ⏷ 🗐 📦 ⚙ 🗻 🗑 ↕ 🔁 ⏭ ⏮ ↺ 🏁 🌙 ☁ ⊞ 🍃 🎵 👣 ⛶ ℹ 🎥 🏃");
+                use mg_uikit::Icon as I;
+                // (The area view's and the palettes': the same commands' icons as
+                // the symbols they replaced.)
+                let row = |ui: &mut egui::Ui, icons: &[I]| {
+                    ui.horizontal(|ui| {
+                        for icon in icons {
+                            mg_uikit::icon(ui, *icon);
+                        }
+                    });
+                };
+                row(
+                    ui,
+                    &[
+                        I::Animations,
+                        I::Lightbulb,
+                        I::SoundRanges,
+                        I::ChevronRight,
+                        I::ChevronDown,
+                        I::Prefab,
+                        I::Palette,
+                        I::Compile,
+                        I::Tile,
+                        I::Eraser,
+                        I::Terrain,
+                        I::Sparkles,
+                        I::ChevronRight,
+                        I::ChevronLeft,
+                        I::Restart,
+                        I::Start,
+                        I::Moon,
+                        I::Fog,
+                        I::Grid,
+                        I::Ambient,
+                        I::Music,
+                        I::Walkmesh,
+                        I::SelectTiles,
+                        I::Module,
+                        I::Camera,
+                    ],
+                );
                 // (The main toolbar's and the rest of the area view's.)
-                ui.heading("🗋 🗁 💾 ⟲ ⟳ 🗺 🔍 👁 ✔ 🔊 🌿 🎨 ✏ 👤 🚪 ⚔ 🗡 ⛲ 🔉 💰 ⚡ 📍 ◻");
+                row(
+                    ui,
+                    &[
+                        I::New,
+                        I::Open,
+                        I::Save,
+                        I::Undo,
+                        I::Redo,
+                        I::Area,
+                        I::Find,
+                        I::PanelRight,
+                        I::Check,
+                        I::Speaker,
+                        I::Grass,
+                        I::Shaders,
+                        I::Paint,
+                        I::Creature,
+                        I::Door,
+                        I::Encounter,
+                        I::Item,
+                        I::Placeable,
+                        I::Sound,
+                        I::Store,
+                        I::Trigger,
+                        I::Waypoint,
+                    ],
+                );
             });
         },
         app,
@@ -3167,15 +3336,19 @@ fn creature_inventory_worn_off() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    mg_uikit::record_icons(&h.ctx);
     h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Inventory");
     h.run_steps(3);
     place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 720.0));
     h.run_steps(3);
     shoot(&mut h, &dir, "creature-inventory-worn-off");
-    // (The last marked: the cloak's slot comes after the weapons'.)
-    let cloak = h
-        .get_all_by_label_contains("⚠")
-        .rfind(|n| n.accesskit_node().role() == egui::accesskit::Role::Button);
+    // (The last marked with a warning: the cloak's slot comes after the weapons'.)
+    let drawn = mg_uikit::icons_drawn(&h.ctx);
+    let marked = |n: &egui_kittest::Node<'_>| {
+        let at = n.rect().expand(1.0);
+        drawn.iter().any(|(i, r)| *i == mg_uikit::Icon::Warning && at.contains_rect(*r))
+    };
+    let cloak = h.get_all_by_role(egui::accesskit::Role::Button).rfind(marked);
     if let Some(cloak) = cloak {
         cloak.hover();
         h.run_steps(30);
@@ -3376,7 +3549,7 @@ fn viewed_blueprint_typing() {
             h.get_all_by_value("NW_WAYPOINT001").next().unwrap().click();
         } else {
             let find =
-                |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
+                |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
             h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
         }
         h.run_steps(2);
@@ -3665,7 +3838,7 @@ fn store_chosen_item() {
     h.run_steps(3);
     place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 800.0));
     h.run_steps(3);
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("nw_maarcl002");
@@ -4103,7 +4276,7 @@ fn script_help() {
     h.get_by_label("GetFirstObjectInShape").click();
     shoot(&mut h, &dir, "script-help");
     // Compile twice: two lines, each with its time.
-    h.get_by_label("Compile").click();
+    apart(&h, "Compile").click();
     h.run();
     shoot(&mut h, &dir, "script-compiler");
 }
@@ -4795,21 +4968,21 @@ fn conversation_and_factions_in_both_themes() {
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(5);
         let theme = if light { "light" } else { "dark" };
-        shoot(&mut h, &dir, &format!("conversation-{theme}"));
+        shoot_in(&mut h, &dir, &format!("conversation-{theme}"), light);
         if !light {
             narrow(&mut h, &mg_ui::Tab::Dialog(dlg));
-            shoot(&mut h, &dir, "conversation-narrow");
+            shoot_in(&mut h, &dir, "conversation-narrow", light);
         }
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Factions));
         h.run_steps(5);
         h.get_by_label("Commoner").click();
         h.run_steps(3);
-        shoot(&mut h, &dir, &format!("factions-{theme}"));
+        shoot_in(&mut h, &dir, &format!("factions-{theme}"), light);
         // (Not one that fits its pane: it scrolls in Moonglow's own scroll
         // area, both ways, in a narrow window.)
         if !light {
             narrow(&mut h, &mg_ui::Tab::Factions);
-            shoot(&mut h, &dir, "factions-narrow");
+            shoot_in(&mut h, &dir, "factions-narrow", light);
         }
     }
 }
@@ -4956,8 +5129,8 @@ fn exact_tiles_and_tile_height() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
     h.run_steps(5);
-    if h.query_by_label("Tiles").is_none() {
-        h.get_by_label("🗻").click();
+    if let Some(row) = h.query_by_label("Palette types") {
+        row.get_by_label("Tiles").click();
     }
     h.run_steps(30);
     shoot(&mut h, &dir, "tiles-palette-exact");
@@ -5064,6 +5237,31 @@ fn area_toolbar_narrow() {
     h.run_steps(5);
     h.run_steps(10);
     shoot(&mut h, &dir, "area-toolbar-narrow");
+    // With Icons only, at a width where a dropdown with its lead icon once
+    // had room for the dropdown alone: it ran past the tab's edge.
+    h.state_mut().settings.toolbar_icons_only = true;
+    // (1068 wide: Turn's dropdown ran 4 px past the edge before.)
+    h.set_size(egui::vec2(1068.0, 700.0));
+    h.run_steps(6);
+    shoot(&mut h, &dir, "area-toolbar-narrow-icons-only");
+}
+
+/// The View menu: its panes ticked, the tick drawn in the room its row
+/// leaves for it, and its submenus' chevrons.
+#[test]
+#[ignore]
+fn view_menu() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(700.0, 520.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h.get_by_label("View").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "view-menu");
 }
 
 #[test]
@@ -5095,20 +5293,15 @@ fn toolbar_icons_only() {
     h.state_mut().settings.toolbar_icons_only = true;
     h.run_steps(5);
     shoot(&mut h, &dir, "toolbar-icons-only");
-    // A tip: the glyph's name, then what it does.
+    // A tip: the icon's name, then what it does.
     let center = |h: &Harness<'_, Moonglow>, label: &str| {
         let low = |n: &egui_kittest::Node<'_>| n.rect().top();
         h.get_all_by_label(label).max_by(|a, b| low(a).total_cmp(&low(b))).unwrap().rect().center()
     };
-    // (Named by their names, not their glyphs, with Icons only; before
-    // that, by their glyphs.)
-    let named = |h: &Harness<'_, Moonglow>, name: &str, glyph: &str| {
-        if h.query_all_by_label(name).next().is_some() { center(h, name) } else { center(h, glyph) }
-    };
-    h.hover_at(named(&h, "Shaders", "🎨"));
+    h.hover_at(center(&h, "Shaders"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-tip");
-    h.hover_at(named(&h, "Palettes", "📦"));
+    h.hover_at(center(&h, "Palettes"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-main-tip");
     h.set_size(egui::vec2(1000.0, 700.0));
@@ -5208,7 +5401,7 @@ fn areas_by_name_and_area_properties() {
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     app.settings.area_names = true;
     app.settings.name_resrefs = true;
-    app.settings.light_theme = std::env::var_os("MG_LIGHT").is_some();
+    app.settings.light_theme = light();
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
     let mut h = Harness::builder()
@@ -5298,7 +5491,7 @@ fn areas_edited_together() {
     h.get_by_label("Edit").click();
     h.run_steps(2);
     h.get_by_label("Edit Areas Together…").click();
-    h.run_steps(2);
+    at_rest(&mut h, |h| h.get_by_label("Tick Shown").rect());
     h.get_by_label("Tick Shown").click();
     h.run_steps(2);
     shoot(&mut h, &dir, "areas-chooser");
@@ -5636,7 +5829,7 @@ fn tiles_palette_group_search() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("🗻").click();
+    h.get_by_label("Palette types").get_by_label("Tiles").click();
     h.run_steps(2);
     h.state_mut().palette.filter = "tcm02_s01_05".into();
     h.run_steps(5);
@@ -5682,11 +5875,11 @@ fn crosser_cursor() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("🗻").click();
+    h.get_by_label("Palette types").get_by_label("Tiles").click();
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: tile (1, 1) slopes up to its
     // west.
-    h.get_by_label("↕ Raise/Lower").click();
+    h.get_by_label("Raise/Lower").click();
     h.run_steps(2);
     for corner in [(10.0, 10.0), (10.0, 20.0)] {
         for _ in 0..2 {
@@ -6378,9 +6571,10 @@ fn tile_gallery() {
     shoot(&mut h, &dir, "tile-gallery");
     // Every heading opened: the tiles as pictures, as the blueprint
     // palettes' Gallery draws theirs.
-    // (The palette's: the module tree's Expand All is another ⏷.)
-    let palette = h.get_by_label("Tiles").rect().right();
-    let fold = h.get_all_by_label("⏷").find(|n| n.rect().left() > palette - 300.0).unwrap();
+    // (The palette's: the module tree's Expand All is another.)
+    let palette = apart(&h, "Tiles").rect().right();
+    let fold =
+        h.get_all_by_label("Expand All").find(|n| n.rect().left() > palette - 300.0).unwrap();
     fold.click();
     // The features first: groups, as pictures of their tiles together.
     for _ in 0..60 {
@@ -6620,7 +6814,7 @@ fn readme_screenshots() {
     h.run_steps(3);
     place(&mut h, &script, (250.0, 70.0), (1320.0, 725.0));
     h.run_steps(5);
-    let _ = h.query_by_label("Compile");
+    let _ = h.query_all_by_label("Compile").next();
     shoot(&mut h, &dir, "script");
 }
 
@@ -7073,12 +7267,12 @@ fn nui_creator() {
     // not the editor's: Resources says where each came from, and what
     // was not found.
     assert!(h.query_by_label_contains("resource issue").is_none(), "the skin and fonts found");
-    h.get_by_label("Resources").click();
+    apart(&h, "Resources").click();
     h.run();
     for found in ["fnt_maintext.ttf —", "nui_button_a."] {
         assert!(h.query_all_by_label_contains(found).next().is_some(), "{found} found");
     }
-    h.get_by_label("Resources").click();
+    apart(&h, "Resources").click();
     h.run();
     shoot(&mut h, &dir, "nui-editor");
     h.get_by_label_contains("State: ").click();
@@ -7172,11 +7366,34 @@ fn nui_creator() {
     h.get_by_label("Events & variants").click();
     h.run();
     shoot(&mut h, &dir, "nui-events");
+    // Draw layers deep in the tree, in Layers' pane: their rows cut short
+    // at the pane's edge, not past it.
+    let mut deep = json!({"type":"spacer","id":"deep_drawing","height":40.0,"draw_list":[
+        {"type":7,"rect":{"x":8.0,"y":8.0,"w":60.0,"h":20.0},"color":{"r":173,"g":142,"b":96,"a":255},"line_thickness":2.0},
+        {"type":4,"rect":{"x":10.0,"y":10.0,"w":80.0,"h":20.0},"text":"Deep","font":""}
+    ]});
+    // (Nine lines first: the rectangle is the tenth, its row's name the
+    // longest a draw layer has.)
+    let line = json!({"type":6,"points":[0.0,0.0,10.0,10.0],"color":{"r":80,"g":180,"b":240,"a":255},"line_thickness":1.0});
+    let list = deep["draw_list"].as_array_mut().unwrap();
+    for _ in 0..9 {
+        list.insert(0, line.clone());
+    }
+    for _ in 0..16 {
+        deep = json!({"type":"col","children":[deep]});
+    }
+    window["root"]["children"] = json!([deep]);
+    set(h.state_mut(), &window, &mg_nui::Settings::default());
+    h.get_by_label("Design").click();
+    h.run_steps(3);
+    h.get_by_label("Draw layer 11 · Text").scroll_to_me();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "nui-draw-layers-narrow");
 
     // One GPU device at a time: this harness goes before the next is made.
     drop(h);
     let mut compact = nui_harness(new(None), key, (640.0, 720.0));
-    compact.get_by_label("Properties").click();
+    apart(&compact, "Properties").click();
     compact.run();
     shoot(&mut compact, &dir, "nui-compact");
 }
@@ -7321,8 +7538,12 @@ fn nui_delete_and_rename() {
     let mut h = nui_harness(app, key, (1100.0, 700.0));
     h.get_by_label("Canvas Button · Close").click();
     h.run();
+    // (Under the properties pane's edge: brought in sight first.)
+    h.get_by_label("Edit Code").scroll_to_me();
+    h.run_steps(4);
     h.get_by_label("Edit Code").click();
     h.run();
+    assert!(h.query_by_label_contains("shop_e.nss").is_some(), "the event script opened");
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();
     h.event(egui::Event::Text("// typed\n".into()));
@@ -7495,9 +7716,9 @@ fn advanced_search() {
     };
     h.state_mut().advanced_search(&mut d);
     h.state_mut().advanced_search = d;
-    h.run();
+    settle(&mut h);
     h.query_by_label_contains("Change the ").expect("the change").click();
-    h.run();
+    h.run_steps(4);
     shoot(&mut h, &dir, "advanced-search-and");
     // Fighters of 4 to 10 levels or rogues (class 8), any of them,
     // without Alertness.
@@ -7513,7 +7734,7 @@ fn advanced_search() {
     };
     h.state_mut().advanced_search(&mut d);
     h.state_mut().advanced_search = d;
-    h.run();
+    settle(&mut h);
     shoot(&mut h, &dir, "advanced-search-or-not");
 }
 
@@ -8009,7 +8230,9 @@ fn described_variables_and_the_builder_code() {
             .wgpu()
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(3);
-        // The last row's name, being typed.
+        // The last row's name, being typed (scrolled to in the list).
+        h.get_all_by_value("tdod_").next().unwrap().scroll_to_me();
+        at_rest(&mut h, |h| h.get_all_by_value("tdod_").next().unwrap().rect());
         h.get_all_by_value("tdod_").next().unwrap().click();
         h.run_steps(3);
         shoot(&mut h, &dir, &format!("variables-{name}-typed"));
@@ -8421,7 +8644,7 @@ fn browser_overridden_copies() {
         .expect("its name");
     h.get_all_by_label("portraits.2da").find(|n| n.rect() == at).unwrap().click_secondary();
     h.run_steps(2);
-    h.get_by_label("Open").click();
+    apart(&h, "Open").click();
     h.run_steps(4);
     shoot(&mut h, &out, &format!("{shot}-copy"));
 }
@@ -8579,9 +8802,9 @@ fn module_tree_several_conversations() {
         h.run_steps(3);
     };
     let submenu = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("Export ⏵").hover();
+        h.get_by_label("Export").hover();
         h.run_steps(1);
-        h.get_by_label("Export ⏵").click();
+        h.get_by_label("Export").click();
         h.run_steps(3);
     };
     h.get_by_label_contains("Conversations (").click();
@@ -8804,7 +9027,7 @@ fn area_properties_audio_dropdown() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     // The Filter field's width, and the widest row's under it.
     let widths = |h: &Harness<'_, Moonglow>| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -8880,6 +9103,7 @@ fn appearance_dropdown_frames() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
     h.run_steps(5);
     let at = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
@@ -8893,7 +9117,7 @@ fn appearance_dropdown_frames() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     let filter =
         |h: &Harness<'_, Moonglow>| h.get(egui_kittest::kittest::by().predicate(hint)).rect();
     // (The click opens it in a pass that measures it, unseen.)
@@ -8901,6 +9125,7 @@ fn appearance_dropdown_frames() {
     h.step();
     eprintln!("the first frame drawn: the Filter field {:?}", filter(&h));
     let image = h.render().expect("render");
+    let dir = picture_dir(&dir);
     image.save(dir.join("appearance-dropdown-first.png")).unwrap();
     h.run_steps(300);
     eprintln!("300 frames later: the Filter field {:?}", filter(&h));
@@ -8954,9 +9179,9 @@ fn area_shadows_menu() {
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(5);
-        // (With icons only the button shows its glyph and is named by its
+        // (With icons only the button shows its icon and is named by its
         // word, for a screen reader.)
-        let label = if icons_only { "Shadows" } else { "◑ Shadows" };
+        let label = "Shadows";
         h.get_by_label(label).click_secondary();
         let name = if icons_only { "shadows-menu-icons" } else { "shadows-menu" };
         shoot(&mut h, &dir, name);
@@ -9029,7 +9254,7 @@ fn main_window_log_and_tree() {
     open(&mut h, script("m1s1gillclg09"));
     shoot(&mut h, &dir, "w3-tree-filtered-tab");
     // Rows chosen with Shift and Ctrl, and their menu.
-    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.get_by_label("Clear Filter").click();
     h.run_steps(4);
     let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
         let at = h.get_by_label(label).rect().center();
@@ -9431,7 +9656,7 @@ fn module_tree_unlisted_area() {
 /// Add Faction, Levelup, Select Portrait, Setup Area Transition, the
 /// export's question, String Edit and Add Haks and Talk Table. Each is
 /// a `widgets::modal` (answered by its buttons) or a `widgets::dialog`
-/// (closed by its × too), placed in the middle of the window.
+/// (closed by its close button too), placed in the middle of the window.
 #[test]
 #[ignore]
 fn dialog_windows() {
@@ -9706,10 +9931,13 @@ fn properties_window_at_125_percent() {
     }
     place(&mut h, &tab, (60.0, 40.0), (400.0, 434.8));
     h.run_steps(6);
+    // (The theme from the frame after it is chosen.)
+    themed(&mut h);
+    h.step();
     for frame in ["a", "b"] {
         h.step();
         let image = h.render().expect("render");
-        image.save(dir.join(format!("properties-125-{frame}.png"))).unwrap();
+        image.save(picture_dir(&dir).join(format!("properties-125-{frame}.png"))).unwrap();
     }
 }
 
@@ -9782,7 +10010,13 @@ fn grouped_context_menus() {
     };
     // (A submenu opens with the pointer on it, as a builder's.)
     let open = |h: &mut Harness<'_, Moonglow>, name: &str| {
-        let at = h.get_by_label(&format!("{name} ⏵")).rect().center();
+        // (The menu's: a popup is a layer of its own, with the fewest containers
+        // above it; the toolbars name some of the same words.)
+        let depth = |n: &egui_kittest::Node<'_>| {
+            std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
+        };
+        let all: Vec<_> = h.get_all_by_label(name).collect();
+        let at = all.into_iter().rev().min_by_key(depth).expect(name).rect().center();
         h.hover_at(at);
         h.run_steps(4);
     };
@@ -10081,4 +10315,157 @@ names = ["bed", "beds", "cot", "bedroll"]
     h.run_steps(6);
     shoot(&mut h, &dir, "palette-grouped-flat");
     eprintln!("{} (TDoD's: {})", dir.display(), tdod.is_some());
+}
+
+/// The theme's second round (`target/test-output/screens-theme-rows/`): a
+/// game blueprint viewed (its check boxes read only, one under the
+/// pointer), a script's editor with the keys (no frame around the code)
+/// and a window with more scripts' tabs than its tab bar holds.
+#[test]
+#[ignore]
+fn theme_read_only_focus_and_tabs() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-theme-rows");
+    let scratch = mg_testkit::scratch_dir("screens-theme-rows");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let scripts: Vec<ResKey> = (0..14)
+        .map(|i| ResKey::parse(&format!("script_number_{i:02}"), ResType::NSS).unwrap())
+        .collect();
+    for s in &scripts {
+        m.set(*s, b"void main()\n{\n    int n = 1;\n}\n".to_vec());
+    }
+    let path = scratch.join("t.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    // A game placeable viewed: its Basic page's check boxes.
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&chest).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(chest, mg_gff::Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((chest, GffPath::root()), "Basic");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(chest)));
+    }
+    settle(&mut h);
+    let plot = h.query_all_by_label("Plot").last().map(|n| n.rect().center());
+    if let Some(at) = plot {
+        h.hover_at(at);
+    }
+    shoot(&mut h, &dir, "readonly");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::Blueprint(chest)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    settle(&mut h);
+    // A game sound viewed: its Volume slider, quiet, under the pointer.
+    let sound = {
+        let game = h.state().game.as_ref().unwrap();
+        let name = game.resman.list(ResType::UTS).into_iter().next().expect("a game sound");
+        ResKey::new(name, ResType::UTS)
+    };
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&sound).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(sound, mg_gff::Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((sound, GffPath::root()), "Basic");
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(sound)));
+    }
+    settle(&mut h);
+    if let Some(at) = h.query_all_by_role(egui::accesskit::Role::Slider).next().map(|n| n.rect()) {
+        h.hover_at(at.center());
+    }
+    shoot(&mut h, &dir, "readonly-slider");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::Blueprint(sound)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    settle(&mut h);
+    // A script with the keys.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(scripts[0])));
+    settle(&mut h);
+    let code = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    h.get(code).click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "script-focus");
+    // The rest of the scripts, gathered in its window.
+    for s in &scripts[1..] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(*s)));
+        h.run_steps(2);
+    }
+    settle(&mut h);
+    shoot(&mut h, &dir, "many-tabs");
+    // The tab bar scrolled along: the first tabs out of sight at its left.
+    // (A tab's words are not its accessible name: the bar by its place,
+    // the scripts' window's, over the main window's.)
+    h.hover_at(egui::pos2(590.0, 110.0));
+    for _ in 0..6 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -120.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(1);
+    }
+    settle(&mut h);
+    shoot(&mut h, &dir, "many-tabs-scrolled");
+}
+
+/// Windows at the sizes they open at, on a screen with room for them
+/// (`target/test-output/screens-theme-rows/`): a conversation, a script,
+/// the Factions, a creature's blueprint and its raw fields, the Journal,
+/// the Resources and the manual, each alone, to see what each shows at
+/// its height (`Tab::window_size`).
+#[test]
+#[ignore]
+fn windows_at_their_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-theme-rows");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Prelude.nwm"));
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1700.0, 1300.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    let script = h.state().ws.as_ref().unwrap().module.keys_of(ResType::NSS).next().unwrap();
+    let creature = h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTC).next().unwrap();
+    for (tab, name) in [
+        (mg_ui::Tab::Dialog(ResKey::parse("m0q01a02olge", ResType::DLG).unwrap()), "conversation"),
+        (mg_ui::Tab::Script(*script), "script"),
+        (mg_ui::Tab::Factions, "factions"),
+        (mg_ui::Tab::Blueprint(*creature), "creature"),
+        (mg_ui::Tab::Journal, "journal"),
+        (mg_ui::Tab::Gff(*creature), "gff"),
+        (mg_ui::Tab::Resources, "resources"),
+        (mg_ui::Tab::Manual, "manual"),
+    ] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        settle(&mut h);
+        shoot(&mut h, &dir, &format!("opened-{name}"));
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        h.state_mut().dock.remove_tab(at);
+        settle(&mut h);
+    }
 }

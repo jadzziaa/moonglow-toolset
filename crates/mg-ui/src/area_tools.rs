@@ -9,6 +9,7 @@ use mg_area::ObjectKind;
 use mg_core::{ResRef, ResType};
 use mg_edit::Command;
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::{Action, Moonglow, Tab};
 
@@ -679,7 +680,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal_wrapped(|ui| {
                 crate::widgets::field_label(ui, "Search For");
                 for kind in ObjectKind::ALL {
-                    ui.checkbox(&mut f.kinds[kind.index()], kind.label());
+                    ui.check_box(&mut f.kinds[kind.index()], kind.label());
                 }
             });
             egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -695,12 +696,12 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 );
                 ui.end_row();
                 crate::widgets::field_label(ui, "From Blueprint");
-                let field = ui
-                    .add(egui::TextEdit::singleline(&mut f.template).hint_text("blueprint resref"));
+                let field =
+                    ui.add(mg_uikit::text_field(&mut f.template).hint_text("blueprint resref"));
                 crate::widgets::autofocus(ui, &field);
                 ui.end_row();
                 crate::widgets::field_label(ui, "With Tag");
-                ui.add(egui::TextEdit::singleline(&mut f.tag).hint_text("tag"));
+                ui.add(mg_uikit::text_field(&mut f.tag).hint_text("tag"));
                 ui.end_row();
             });
             ui.horizontal(|ui| {
@@ -732,7 +733,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
             let rows = egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]);
-            rows.show_rows(ui, height, f.results.len(), |ui, range| {
+            mg_uikit::show_rows(rows, ui, f.results.len(), |ui, range| {
                 for at in range {
                     let r = &f.results[at];
                     ui.horizontal(|ui| {

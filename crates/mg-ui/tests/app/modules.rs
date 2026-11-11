@@ -113,7 +113,7 @@ fn closing_with_unsaved_changes_asks_first() {
     // Save saves, then closes.
     h.state_mut().actions.push(mg_ui::Action::Close);
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     assert!(h.state().ws.is_none());
     assert_eq!(
@@ -1281,10 +1281,10 @@ fn module_name_in_every_language_and_variables() {
     assert_eq!(name.get(Language::GERMAN, Gender::Male), Some(&b"Beispiel"[..]));
     assert_eq!(name.strref.0, 12);
 
-    // Variables on the Advanced tab.
+    // Variables on the Advanced tab (scrolled to: below the edge).
     h.get_by_label("Advanced").click();
     h.run();
-    h.get_by_label("Variables (0)…").click();
+    click_in_sight(&mut h, "Variables (0)…");
     h.run();
     h.get_by_label("Add").click();
     h.run();
@@ -1544,9 +1544,10 @@ fn journal_editor_builds_what_aurora_builds() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Journal));
     h.run();
     // As Aurora was driven: two categories, two entries in the first, one
-    // in the second.
+    // in the second. (The tree's last rows are below its edge until
+    // scrolled to.)
     let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
-        h.get_by_label(label).click();
+        click_in_sight(h, label);
         h.run();
     };
     click(&mut h, "Add");
@@ -2309,13 +2310,13 @@ fn an_area_goes_to_the_scratch_folder() {
         return;
     };
     // No scratch folder yet, and none chosen when asked: nothing is copied.
-    h.get_by_label("📤 To Scratch").click();
+    area_tool(&h, "To Scratch").click();
     h.run_steps(2);
     assert_eq!(h.state().settings.scratch_dir, None);
     let scratch = mg_testkit::scratch_dir("ui-area-scratch").join("scratch");
     h.state_mut().settings.scratch_dir = Some(scratch.clone());
     h.run_steps(2);
-    h.get_by_label("📤 To Scratch").click();
+    area_tool(&h, "To Scratch").click();
     h.run_steps(3);
     let mut names: Vec<String> = std::fs::read_dir(&scratch)
         .unwrap()

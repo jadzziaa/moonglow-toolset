@@ -5,6 +5,7 @@
 //! When…, Actions Taken, Other Actions, Comments and Current File. Each
 //! change is one undoable command.
 
+use mg_uikit::Controls as _;
 use std::collections::HashSet;
 
 use egui::{Color32, RichText, Ui};
@@ -1090,14 +1091,17 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let add_hint =
         keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, ui.ctx());
 
-    // Toolbar. (With Icons only, each glyph alone, its name in its tip.)
+    // Toolbar. (With Icons only, each icon alone, its name in its tip.)
     let tools = crate::icons::Tools::of(&app.settings);
-    use crate::icons::editor as glyph;
-    let button = |ui: &mut Ui, enabled: bool, g: &str, name: &str, tip: &str| {
-        let r = ui.add_enabled(enabled, egui::Button::new(tools.word(g, name)));
-        tools.named(r, name, tip, None)
+    use crate::icons::editor as icon;
+    let button = |ui: &mut Ui, enabled: bool, g: crate::icons::Icon, name: &str, tip: &str| {
+        let r = ui.add_enabled(enabled, tools.word_widget(g, name));
+        tools.named(r, name, tip)
     };
     ui.horizontal_wrapped(|ui| {
+        // (Its buttons found within it: the module tree and the palettes
+        // have an Expand All and a Collapse All too.)
+        mg_uikit::name_group(ui, "Conversation toolbar");
         let sel = view.selected;
         let add_parent = match sel {
             None => Some(Parent::Root),
@@ -1107,7 +1111,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             Some(_) => None,
         };
-        if (button(ui, add_parent.is_some(), glyph::ADD, "Add", &add_hint).clicked() || key_add)
+        if (button(ui, add_parent.is_some(), icon::ADD, "Add", &add_hint).clicked() || key_add)
             && let Some(p) = add_parent
         {
             if popup {
@@ -1130,7 +1134,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 target: Some(target_of(r)),
             })
         };
-        if button(ui, sel.is_some(), glyph::COPY, "Copy", "").clicked()
+        if button(ui, sel.is_some(), icon::COPY, "Copy", "").clicked()
             || (key_copy && sel.is_some())
         {
             app.dialog_clip = sel.and_then(copy);
@@ -1139,8 +1143,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         let mut delete = false;
-        if (button(ui, sel.is_some(), glyph::CUT, "Cut", "").clicked() || key_cut) && sel.is_some()
-        {
+        if (button(ui, sel.is_some(), icon::CUT, "Cut", "").clicked() || key_cut) && sel.is_some() {
             app.dialog_clip = sel.and_then(copy);
             if app.dialog_clip.is_some() {
                 crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
@@ -1151,7 +1154,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let clip = app.dialog_clip.as_ref();
         let fits = |p: Parent| clip.is_some_and(|c| c.branch.kind == p.child_kind());
         let can_paste = paste_parent.is_some_and(fits);
-        if (button(ui, can_paste, glyph::PASTE, "Paste", "").clicked() || key_paste)
+        if (button(ui, can_paste, icon::PASTE, "Paste", "").clicked() || key_paste)
             && can_paste
             && let (Some(p), Some(c)) = (paste_parent, clip)
         {
@@ -1178,7 +1181,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             _ => None,
         };
-        if (button(ui, pair.is_some(), glyph::PASTE_LINK, "Paste As Link", "").clicked()
+        if (button(ui, pair.is_some(), icon::PASTE_LINK, "Paste As Link", "").clicked()
             || asked == Some(Asked::PasteLink))
             && let Some((from, to)) = pair
         {
@@ -1187,7 +1190,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 actions.push(replace(key, "Paste as link", &ng));
             }
         }
-        if button(ui, sel.is_some(), glyph::DELETE, "Delete", "").clicked() || key_delete {
+        if button(ui, sel.is_some(), icon::DELETE, "Delete", "").clicked() || key_delete {
             delete = true;
         }
         if delete && let Some(r) = sel {
@@ -1210,14 +1213,30 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // Up and down among the lines of its parent: the order the game
         // tries them in (Alt + the arrow keys, too).
         let siblings = sel.map_or(0, |r| links(&g, r.parent).len());
-        for (label, up, arrow, hint) in [
-            ("⏶", true, egui::Key::ArrowUp, "Move the line up among its parent's (Alt+Up)"),
-            ("⏷", false, egui::Key::ArrowDown, "Move the line down among its parent's (Alt+Down)"),
+        use mg_uikit::Icon;
+        for (icon, label, up, arrow, hint) in [
+            (
+                Icon::ArrowUp,
+                "Move Up",
+                true,
+                egui::Key::ArrowUp,
+                "Move the line up among its parent's (Alt+Up)",
+            ),
+            (
+                Icon::ArrowDown,
+                "Move Down",
+                false,
+                egui::Key::ArrowDown,
+                "Move the line down among its parent's (Alt+Down)",
+            ),
         ] {
             let can = sel.is_some_and(|r| if up { r.pos > 0 } else { r.pos + 1 < siblings });
             let key_move = here && ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, arrow));
-            let clicked =
-                ui.add_enabled(can, egui::Button::new(label)).on_hover_text(hint).clicked();
+            let clicked = ui
+                .add_enabled(can, crate::widgets::icon_only(icon, label))
+                .on_hover_text(hint)
+                .on_disabled_hover_text(hint)
+                .clicked();
             if (clicked || key_move)
                 && can
                 && let Some(r) = sel
@@ -1231,10 +1250,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
         }
         ui.separator();
-        if button(ui, true, glyph::EXPAND_ALL, "Expand All", "").clicked() {
+        if button(ui, true, icon::EXPAND_ALL, "Expand All", "").clicked() {
             view.collapsed.clear();
         }
-        if button(ui, true, glyph::COLLAPSE_ALL, "Collapse All", "").clicked() {
+        if button(ui, true, icon::COLLAPSE_ALL, "Collapse All", "").clicked() {
             for k in [Kind::Entry, Kind::Reply] {
                 for i in 0..mg_module::dialog::nodes(&g, k).len() as u32 {
                     view.collapsed.insert((k, i));
@@ -1243,11 +1262,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
         ui.separator();
         for (i, (g, label)) in [
-            (glyph::COMMENTS, "Comments"),
-            (glyph::ACTIONS, "Actions"),
-            (glyph::QUESTS, "Quests"),
-            (glyph::ANIMATIONS, "Animations"),
-            (glyph::SOUNDS, "Sounds"),
+            (icon::COMMENTS, "Comments"),
+            (icon::ACTIONS, "Actions"),
+            (icon::QUESTS, "Quests"),
+            (icon::ANIMATIONS, "Animations"),
+            (icon::SOUNDS, "Sounds"),
         ]
         .into_iter()
         .enumerate()
@@ -1258,7 +1277,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.separator();
         // Export and import (dialog_io): the lines back by CSV.
         let mut export = None;
-        let menu = ui.menu_button(tools.word(glyph::EXPORT, "Export"), |ui| {
+        let menu = tools.word_widget(icon::EXPORT, "Export").menu(ui, |ui| {
+            mg_uikit::menu_rows(ui);
             for f in mg_module::dialog_io::Format::ALL {
                 if ui.button(format!("{}…", f.name())).clicked() {
                     export = Some(f);
@@ -1266,7 +1286,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 }
             }
         });
-        tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink", None);
+        tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink");
         if let Some(f) = export {
             let suggested = std::path::PathBuf::from(crate::dialog_export::file_name(key, f));
             if let Some(path) =
@@ -1284,7 +1304,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         if button(
             ui,
             true,
-            glyph::IMPORT,
+            icon::IMPORT,
             "Import Lines…",
             "Read back the text, speakers and comments of a CSV export",
         )
@@ -1310,7 +1330,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.separator();
         let mut scripts = !app.settings.dialog_hide_scripts;
         let tip = "Show each line's condition, action, journal update and sound";
-        if tools.toggle_word(ui, &mut scripts, glyph::SCRIPTS, "Scripts", tip).changed() {
+        if tools.toggle_word(ui, &mut scripts, icon::SCRIPTS, "Scripts", tip).changed() {
             app.settings.dialog_hide_scripts = !scripts;
         }
     });
@@ -1362,6 +1382,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let body = egui::ScrollArea::both().id_salt(("dlg-data-body", key)).auto_shrink(false);
         body.show(ui, |ui| {
             if view.bottom == Bottom::Bookmarks {
+                mg_uikit::list_rows(ui);
                 for (kind, index) in view.bookmarks.clone() {
                     let Some(n) = node(&g, kind, index) else { continue };
                     if ui
@@ -1494,12 +1515,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // The tree, in the Options' colours.
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
-    let look = Look::new(&app.settings, ui.visuals().dark_mode);
+    let look = Look::new(&app.settings, ui.visuals().dark_mode, mg_uikit::tokens(ui.ctx()).text_3);
     let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
     let shown = lines.show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         // Ctrl+Up and Ctrl+Down: a row up or down, the selection staying.
         if view.scroll != 0 {
-            let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            let pitch = mg_uikit::row_pitch(ui);
             ui.scroll_with_delta(egui::vec2(0.0, -(view.scroll as f32) * pitch));
             view.scroll = 0;
         }
@@ -1529,7 +1551,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             &mut dropped,
         );
     });
-    let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    let pitch = mg_uikit::row_metrics(ui).1;
     view.page = ((shown.inner_rect.height() / pitch) as usize).saturating_sub(1).max(1);
     // A line folded over the selection (its − button, the keypad's −,
     // Collapse All) is selected in its place, as in Windows' tree control:
@@ -1712,7 +1734,8 @@ pub(crate) fn default_colors(dark: bool) -> ([u8; 3], [u8; 3]) {
 }
 
 impl Look {
-    fn new(s: &crate::Settings, dark: bool) -> Look {
+    /// `link`: a link's lines' color (the theme's weak text).
+    fn new(s: &crate::Settings, dark: bool, link: Color32) -> Look {
         let rgb = |c: Option<[u8; 3]>, [r, g, b]: [u8; 3]| {
             let [r, g, b] = c.unwrap_or([r, g, b]);
             Color32::from_rgb(r, g, b)
@@ -1723,7 +1746,7 @@ impl Look {
             scripts: !s.dialog_hide_scripts,
             npc: rgb(s.dialog_npc_color, npc),
             pc: rgb(s.dialog_pc_color, pc),
-            link: if dark { Color32::GRAY } else { Color32::from_gray(110) },
+            link,
         }
     }
 }
@@ -1759,24 +1782,39 @@ fn tree(
         let open = !view.collapsed.contains(&(kind, index));
         let label = row_label(game, g, kind, l, look.names);
         let cond = l.resref("Active").filter(|r| !r.is_empty());
-        let color = if linked {
+        // (The row chosen: its words in the theme's `on-fill` on the
+        // selection's fill, where a speaker's color would not read.)
+        let color = if view.selected == Some(row) {
+            mg_uikit::tokens(ui.ctx()).on_fill
+        } else if linked {
             look.link
         } else if kind == Kind::Entry {
             look.npc
         } else {
             look.pc
         };
-        let mut rich = RichText::new(label).color(color);
+        let mut rich = RichText::new(label.as_str()).color(color);
         if linked {
             rich = rich.italics();
         }
         if highlighted(n, hl) {
-            rich = rich.background_color(Color32::from_rgba_unmultiplied(230, 200, 60, 70));
+            // (Found: the theme's `select`, faint behind the words.)
+            let found = mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3);
+            rich = rich.background_color(found);
         }
         ui.horizontal(|ui| {
             ui.add_space(depth as f32 * 16.0);
             if children {
-                if ui.small_button(if open { "−" } else { "+" }).clicked() {
+                // (Named with its line, said open or not: a screen reader's
+                // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
+                let (icon, verb, tip) = match open {
+                    true => (mg_uikit::Icon::ChevronDown, "Collapse", "Hide the lines under it"),
+                    false => (mg_uikit::Icon::ChevronRight, "Expand", "Show the lines under it"),
+                };
+                let arrow = crate::widgets::icon_only(icon, verb)
+                    .name(format!("{verb} {label}"))
+                    .expanded(open);
+                if ui.add(arrow).on_hover_text(tip).clicked() {
                     if open {
                         view.collapsed.insert((kind, index));
                     } else {
@@ -1808,7 +1846,7 @@ fn tree(
             if let Some(from) = r.dnd_hover_payload::<(ResKey, Row)>().and_then(ours)
                 && from != row
             {
-                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                let stroke = egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent);
                 if !link_key(ui) && from.parent.child_kind() == kind {
                     ui.painter().hline(r.rect.x_range(), r.rect.top(), stroke);
                 } else {
@@ -1816,6 +1854,7 @@ fn tree(
                 }
             }
             r.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 view.selected = Some(row);
                 if linked
                     && ui
@@ -1935,6 +1974,7 @@ fn text_panel(
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
+                    mg_uikit::list_rows(ui);
                     for t in creature_tags(app, ui.ctx()).iter() {
                         if ui.selectable_label(*t == speaker, t).clicked() {
                             chosen = Some(t.clone());
@@ -2034,6 +2074,7 @@ fn text_panel(
             let height = (ui.available_height() - cancel).max(60.0);
             let list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             list.show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for t in &tokens {
                     if ui.selectable_label(false, t).clicked() {
                         with_token = Some(crate::widgets::with_token(ui.ctx(), id, &shown, t));
@@ -2151,7 +2192,8 @@ fn script_with_params(
     ui.horizontal_wrapped(|ui| {
         ui.label("Parameters");
         ui.separator();
-        ui.menu_button("Add Set", |ui| {
+        mg_uikit::menu_button(ui, "Add Set", |ui| {
+            mg_uikit::menu_rows(ui);
             match crate::widgets::sets_menu(ui, &mut app.log, &PARAMETER_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(set)) => chosen.push(set),
                 Some(SetChoice::FromFile) => from_file = true,
@@ -2221,27 +2263,34 @@ fn script_with_params(
     let value_width = (room - name_width).clamp(140.0, 520.0);
     let mut add = false;
     ui.with_layout(own_width, |ui| {
-        for (i, (k, v)) in pairs.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                // (First in its row: at the row's end it was past the
-                // page's edge where the page is narrow.)
-                if ui.small_button("−").on_hover_text("Remove the parameter").clicked() {
-                    remove_at = Some(i);
-                }
-                let name = egui::TextEdit::singleline(k).desired_width(name_width);
-                let rk = ui.add(name.hint_text("name"));
-                let value = egui::TextEdit::singleline(v).desired_width(value_width);
-                let rv = ui.add(value.hint_text("value"));
-                crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
-                crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
-                commit |= rk.lost_focus() || rv.lost_focus();
-                focused |= crate::widgets::has_keys(&rk) || crate::widgets::has_keys(&rv);
-            });
-        }
-        add = ui
-            .small_button("+")
-            .on_hover_text("Add a parameter (EE: read with GetScriptParam)")
-            .clicked();
+        // (A table of names and values: rows 22 apart, a line between.)
+        mg_uikit::with_table_rows(ui, |ui| {
+            for (i, (k, v)) in pairs.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    // (First in its row: at the row's end it was past the
+                    // page's edge where the page is narrow.)
+                    let tip = "Remove the parameter";
+                    let named = match k.is_empty() {
+                        true => format!("Remove Parameter {}", i + 1),
+                        false => format!("Remove Parameter {k}"),
+                    };
+                    if crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, &named, tip).clicked()
+                    {
+                        remove_at = Some(i);
+                    }
+                    let name = mg_uikit::text_field(k).desired_width(name_width);
+                    let rk = ui.add(name.hint_text("name"));
+                    let value = mg_uikit::text_field(v).desired_width(value_width);
+                    let rv = ui.add(value.hint_text("value"));
+                    crate::widgets::leaves_at_a_press(ui.ctx(), &rk);
+                    crate::widgets::leaves_at_a_press(ui.ctx(), &rv);
+                    commit |= rk.lost_focus() || rv.lost_focus();
+                    focused |= crate::widgets::has_keys(&rk) || crate::widgets::has_keys(&rv);
+                });
+            }
+        });
+        let tip = "Add a parameter (EE: read with GetScriptParam)";
+        add = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Add Parameter", tip).clicked();
     });
     if let Some(i) = remove_at {
         pairs.remove(i);
@@ -2476,7 +2525,7 @@ fn file_tab(app: &mut Moonglow, ui: &mut Ui, key: ResKey, g: &Gff, actions: &mut
         }
         let mut zoom = g.root.byte("PreventZoomIn").unwrap_or(0) != 0;
         ui.label("");
-        if ui.checkbox(&mut zoom, "Stop camera zoom in").changed() {
+        if ui.check_box(&mut zoom, "Stop camera zoom in").changed() {
             actions.push(set(
                 key,
                 "Camera zoom",
@@ -2539,7 +2588,7 @@ fn search_pane(
     let s = &mut view.search;
     egui::Grid::new(("dlg-search", key)).num_columns(2).show(ui, |ui| {
         crate::widgets::field_label(ui, "Find What");
-        let field = ui.text_edit_singleline(&mut s.find);
+        let field = ui.add(mg_uikit::text_field(&mut s.find));
         crate::widgets::autofocus(ui, &field);
         if std::mem::take(&mut s.focus) {
             field.request_focus();
@@ -2553,13 +2602,13 @@ fn search_pane(
         }
         ui.end_row();
         crate::widgets::field_label(ui, "Replace With");
-        ui.text_edit_singleline(&mut s.replace);
+        ui.add(mg_uikit::text_field(&mut s.replace));
         ui.end_row();
     });
     ui.horizontal(|ui| {
-        ui.checkbox(&mut s.options.match_case, "Match Case");
-        ui.checkbox(&mut s.options.whole_word, "Match Whole Word Only");
-        ui.checkbox(&mut s.all_files, "All Files in Module");
+        ui.check_box(&mut s.options.match_case, "Match Case");
+        ui.check_box(&mut s.options.whole_word, "Match Whole Word Only");
+        ui.check_box(&mut s.all_files, "All Files in Module");
     });
     let mut find = false;
     let mut replace_all = false;
@@ -2642,7 +2691,8 @@ fn search_pane(
     // its whole text on hover), the others taking a row's room: a search
     // for "the" over a world's conversations is tens of thousands, and
     // each was copied and drawn with its whole text every frame.
-    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    mg_uikit::list_rows(ui);
+    let row = mg_uikit::row_pitch(ui);
     let mut clicked = None;
     for (at, (k, kind, index, t)) in s.results.iter().enumerate() {
         let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));

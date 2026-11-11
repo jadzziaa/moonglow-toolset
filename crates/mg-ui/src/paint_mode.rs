@@ -31,6 +31,7 @@
 //! Undo takes it away. What an eraser's stroke takes out is marked until
 //! then.
 
+use mg_uikit::Controls as _;
 use std::collections::HashMap;
 
 use egui::{Color32, Stroke};
@@ -1040,7 +1041,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             field_label(ui, "Density");
             ui.add(egui::DragValue::new(&mut s.density).range(1..=400).suffix(" a tile"))
                 .on_hover_text("How many placeables a 10 by 10 m tile holds once painted");
-            ui.checkbox(&mut s.count_all, "Count All").on_hover_text(
+            ui.check_box(&mut s.count_all, "Count All").on_hover_text(
                 "Density counts every placeable in the circle, not only these blueprints'",
             );
             field_label(ui, "Spacing");
@@ -1050,7 +1051,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
                  Size)",
             );
             s.spacing_cm = cm.clamp(0, 2000) as u16;
-            ui.checkbox(&mut s.by_size, "By Size").on_hover_text(
+            ui.check_box(&mut s.by_size, "By Size").on_hover_text(
                 "Keep spacing between the placeables' sides, so large ones stand further apart",
             );
             field_label(ui, "Flow");
@@ -1081,7 +1082,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
             meters(ui, &mut cm, (-10.0, 10.0))
                 .on_hover_text("How far above the ground they stand (below it, less than 0)");
             s.lift_cm = cm.clamp(-1000, 1000) as i16;
-            ui.checkbox(&mut s.lock, "Lock")
+            ui.check_box(&mut s.lock, "Lock")
                 .on_hover_text("Lock what is painted, so later clicks and boxes pass through it");
         }
         ui.separator();

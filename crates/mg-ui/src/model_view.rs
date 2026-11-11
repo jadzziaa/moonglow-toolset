@@ -1185,25 +1185,25 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         if view.animation != was {
             view.time = 0.0;
         }
-        // (With Icons only, each glyph alone, its name in its tip.)
+        // (With Icons only, each icon alone, its name in its tip.)
         let tools = crate::icons::Tools::of(&app.settings);
-        use crate::icons::editor as glyph;
-        let button = |ui: &mut egui::Ui, g: &str, name: &str, tip: &str| {
-            let r = ui.button(tools.word(g, name));
-            tools.named(r, name, tip, None)
+        use crate::icons::editor as icon;
+        let button = |ui: &mut egui::Ui, g: crate::icons::Icon, name: &str, tip: &str| {
+            let r = ui.add(tools.word_widget(g, name));
+            tools.named(r, name, tip)
         };
         let (g, name) = match view.playing {
-            true => (glyph::PAUSE, "Pause"),
-            false => (glyph::PLAY, "Play"),
+            true => (icon::PAUSE, "Pause"),
+            false => (icon::PLAY, "Play"),
         };
         if button(ui, g, name, "").clicked() {
             view.playing = !view.playing;
         }
-        if button(ui, glyph::FRAME, "Frame", "Fit the model in the view").clicked() {
+        if button(ui, icon::FRAME, "Frame", "Fit the model in the view").clicked() {
             view.frame();
         }
         let tip = "Light the model with its own light nodes";
-        tools.checkbox_word(ui, &mut view.model_lights, glyph::LIGHTS, "Lights", tip);
+        tools.checkbox_word(ui, &mut view.model_lights, icon::LIGHTS, "Lights", tip);
         let mut shadow = app.settings.model_shadows();
         let tip = "Cast the sun's shadow on an unseen ground under the model";
         if tools.checkbox_word(ui, &mut shadow, crate::icons::SHADOWS, "Shadow", tip).changed() {
@@ -1224,7 +1224,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         }
         if embedded && own.is_none() {
             let tip = "Show it in a window of its own";
-            pop_out = button(ui, glyph::POP_OUT, "Pop Out", tip).clicked();
+            pop_out = button(ui, icon::POP_OUT, "Pop Out", tip).clicked();
         }
         // (Not of an overridden copy: the files it would gather are those
         // the game reads, not the copy's layer's. Its Save As… is there.)
@@ -1232,7 +1232,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         export = !copy
             && button(
                 ui,
-                glyph::EXPORT,
+                icon::EXPORT,
                 "Export Files…",
                 "Write the models, textures and materials it is drawn with into a folder",
             )

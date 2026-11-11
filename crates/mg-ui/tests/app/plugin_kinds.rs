@@ -215,7 +215,7 @@ fn a_plugin_s_panel_shows_what_it_returns_and_follows_the_module() {
     h.run();
     h.get_by_label("Panels").click();
     h.run();
-    h.get_by_label("    Module Overview").click();
+    h.get_by_label("Module Overview").click();
     settle(&mut h);
     let tab =
         Tab::PluginPanel { plugin: "example.module-overview".into(), panel: "overview".into() };
@@ -274,7 +274,7 @@ fn a_plugin_s_panel_draws_beside_the_window() {
     settle(&mut h);
     h.run_steps(2);
     h.get_by_label("Nothing is selected.");
-    h.get_by_label("⟳ Refresh").click();
+    h.get_by_label("Refresh").click();
     settle(&mut h);
     h.get_by_label("Nothing is selected.");
 }

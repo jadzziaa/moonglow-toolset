@@ -281,6 +281,7 @@ fn frames(
         let t2 = Instant::now();
         wait(&device);
         let t3 = Instant::now();
+        upload(full.textures_delta);
         out.ui.push(t1 - t0);
         out.tessellate.push(t2 - t1);
         out.gpu.push(t3 - t1);
@@ -583,11 +584,13 @@ fn open(h: &mut App<'_>, tab: Tab) {
     h.run_steps(3);
 }
 
-/// Clicks the first thing labelled `label`, if there is one.
-fn click(h: &mut App<'_>, label: &str) -> bool {
+/// Clicks the first thing labelled `label`. There must be one: a control
+/// renamed in the interface fails the test here, rather than a view going
+/// untimed (or timed in the wrong state) without a word.
+fn click(h: &mut App<'_>, label: &str) {
     let found = h.query_all_by_label(label).next().map(|node| node.click()).is_some();
+    assert!(found, "no {label:?} to click: was the control renamed?");
     h.run_steps(2);
-    found
 }
 
 /// Shows a blueprint palette (not the tileset's, which an open area
@@ -690,10 +693,39 @@ fn render_state() -> egui_wgpu::RenderState {
             ..Default::default()
         });
     }
-    egui_kittest::wgpu::create_render_state(
+    let rs = egui_kittest::wgpu::create_render_state(
         mg_ui::graphics_setup(setup),
         egui_wgpu::RendererOptions::PREDICTABLE,
-    )
+    );
+    RENDER_STATE.with(|r| *r.borrow_mut() = Some(rs.clone()));
+    rs
+}
+
+thread_local! {
+    /// The test's render state ([`render_state`]): the timed frames, run
+    /// outside the harness, hand it their textures' changes.
+    static RENDER_STATE: std::cell::RefCell<Option<egui_wgpu::RenderState>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A timed frame's textures' changes, to the renderer the harness draws
+/// with (not timed): dropped, a font atlas grown in one of them was never
+/// uploaded, and the next frame's glyphs were written past its end.
+fn upload(mut delta: egui::TexturesDelta) {
+    RENDER_STATE.with(|r| {
+        if let Some(rs) = r.borrow().as_ref() {
+            let mut renderer = rs.renderer.write();
+            for (id, images) in delta.set.drain() {
+                for image in images {
+                    renderer.update_texture(&rs.device, &rs.queue, id, &image);
+                }
+            }
+            for id in delta.free.drain() {
+                renderer.free_texture(&id);
+            }
+        }
+    });
+    delta.clear();
 }
 
 /// An area in the viewer: as it opens (all of it in sight, from above),
@@ -1484,16 +1516,15 @@ fn frames_at_144() {
     view(&mut h, &mut r, "module open, no area", None);
 
     // The tree with every list opened.
-    click(&mut h, "⏷");
+    click(&mut h, "Expand All");
     view(&mut h, &mut r, "module tree, every group open", None);
-    click(&mut h, "⏶");
+    click(&mut h, "Collapse All");
 
     // A menu, opened.
-    if click(&mut h, "File") {
-        view(&mut h, &mut r, "File menu open", None);
-        h.key_press(egui::Key::Escape);
-        h.run_steps(2);
-    }
+    click(&mut h, "File");
+    view(&mut h, &mut r, "File menu open", None);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
 
     tab(&mut h, &mut r, "Module Properties", Tab::ModuleProperties);
     for (kind, name) in [
@@ -1596,24 +1627,23 @@ fn frames_at_144_in_a_persistent_world() {
         close(&mut h, t);
     }
     view(&mut h, &mut r, "module open (300 areas in the tree)", None);
-    click(&mut h, "⏷");
+    click(&mut h, "Expand All");
     view(&mut h, &mut r, "module tree, all 25,000 resources listed", None);
-    click(&mut h, "⏶");
+    click(&mut h, "Collapse All");
     // A word in the tree's Filter: every area's placed objects are read
     // for it (over some frames), and what it finds is then kept, not
     // looked for each frame (the review's S19).
     let field = h.query_all_by_role(egui::accesskit::Role::TextInput).next().map(|n| n.click());
-    if field.is_some() {
-        h.run_steps(2);
-        h.event(egui::Event::Text("door".into()));
-        h.run_steps(300);
-        view(&mut h, &mut r, "module tree, a word in the Filter (300 areas' objects)", None);
-        // Cleared, and the groups the word opened closed again, as the
-        // tree was for the views after (open, they cost what the tree
-        // listed whole does).
-        assert!(click(&mut h, "×"), "the Filter's clear button");
-        click(&mut h, "⏶");
-    }
+    assert!(field.is_some(), "the tree's Filter field");
+    h.run_steps(2);
+    h.event(egui::Event::Text("door".into()));
+    h.run_steps(300);
+    view(&mut h, &mut r, "module tree, a word in the Filter (300 areas' objects)", None);
+    // Cleared, and the groups the word opened closed again, as the
+    // tree was for the views after (open, they cost what the tree
+    // listed whole does).
+    click(&mut h, "Clear Filter");
+    click(&mut h, "Collapse All");
 
     palette(&mut h, BlueprintKind::Item, true, "");
     tab(&mut h, &mut r, "custom item palette (8,000)", Tab::Palette);
@@ -1630,23 +1660,20 @@ fn frames_at_144_in_a_persistent_world() {
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
     // Its picker on the custom palette, searched for what all 8,000 have:
     // every blueprint folded into the tree, every match drawn.
-    if click(&mut h, "Custom Palette") {
-        let found = egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("🔍 Find"));
-        if let Some(find) = h.query_all(found).last() {
-            find.click();
-            h.run_steps(2);
-            h.event(egui::Event::Text("pw_i".into()));
-            h.run_steps(3);
-        }
-        view(&mut h, &mut r, "store inventory, picker searched (8,000 found)", Some(&store));
-    }
+    click(&mut h, "Custom Palette");
+    let found = egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("Find"));
+    let find = h.query_all(found).last().expect("the picker's Find field");
+    find.click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("pw_i".into()));
+    h.run_steps(3);
+    view(&mut h, &mut r, "store inventory, picker searched (8,000 found)", Some(&store));
     close(&mut h, &store);
     // An item's Properties page: every property it may take, by kind.
     let item = Tab::Blueprint(ResKey::parse("pw_i00001", ResType::UTI).unwrap());
     open(&mut h, item.clone());
-    if click(&mut h, "Properties") {
-        view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
-    }
+    click(&mut h, "Properties");
+    view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
     close(&mut h, &item);
     // The same store in the Preview window (its stock by page).
     h.state_mut().palette.selected = ResKey::parse("pw_store", ResType::UTM);
@@ -1685,10 +1712,9 @@ fn frames_at_144_in_a_persistent_world() {
     // areas found, the rows in sight laid out (the review's A18).
     h.state_mut().find_instance = Some(Default::default());
     h.run_steps(2);
-    if click(&mut h, "Search") {
-        let found = h.state().find_instance.as_ref().map_or(0, |f| f.results.len());
-        view(&mut h, &mut r, &format!("Find Instance, {found} found"), None);
-    }
+    click(&mut h, "Search");
+    let found = h.state().find_instance.as_ref().map_or(0, |f| f.results.len());
+    view(&mut h, &mut r, &format!("Find Instance, {found} found"), None);
     h.state_mut().find_instance = None;
 
     // placeables.2da with the haks' 4,000 rows, in the 2DA editor, a

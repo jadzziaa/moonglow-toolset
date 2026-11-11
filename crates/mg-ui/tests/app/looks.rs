@@ -25,7 +25,7 @@ fn terrain_screen() {
         ("Water", [10.0, 20.0]),
         ("Water", [10.0, 30.0]),
         ("Trees", [30.0, 30.0]),
-        ("↕ Raise/Lower", [40.0, 30.0]),
+        ("Raise/Lower", [40.0, 30.0]),
     ] {
         h.get_by_label(brush).click();
         h.run_steps(2);
@@ -500,11 +500,11 @@ fn look_custom_group() {
     h.set_size(egui::vec2(1500.0, 1000.0));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // (The palette's own Expand All: the one to the right.)
     let expand = h
-        .query_all_by_label("⏷")
+        .query_all_by_label("Expand All")
         .max_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
         .unwrap()
         .rect()

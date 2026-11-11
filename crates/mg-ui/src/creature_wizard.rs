@@ -11,6 +11,7 @@ use mg_module::blueprints::{self, CreatureSpec};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::{Choice, GameData};
+use mg_uikit::Controls as _;
 
 use crate::images::Loader;
 use crate::widgets::ResRefText;
@@ -351,6 +352,7 @@ fn page(
                  Creature.",
             );
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for c in races(game).iter() {
                     if ui.selectable_label(w.race == Some(c.row as u32), &c.text).clicked() {
                         w.choose_race(game, c.row as u32);
@@ -373,6 +375,7 @@ fn page(
                     ui.set_width(160.0);
                     egui::ScrollArea::vertical().id_salt("cw-classes").show(ui, |ui| {
                         ui.set_width(160.0);
+                        mg_uikit::list_rows(ui);
                         for c in names.iter() {
                             let k = c.row as u32;
                             if w.classes.iter().any(|(x, _)| *x == k) {
@@ -400,21 +403,31 @@ fn page(
                         w.classes.push((k, 1));
                     }
                     let mut remove = None;
-                    egui::Grid::new("cw-slots").num_columns(3).show(ui, |ui| {
-                        ui.strong("Class");
-                        ui.strong("Level");
-                        ui.end_row();
-                        let n = w.classes.len();
-                        for (i, (k, level)) in w.classes.iter_mut().enumerate() {
-                            ui.label(name(*k));
-                            crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
-                            if n > 1
-                                && ui.small_button("✖").on_hover_text("Remove this class").clicked()
-                            {
-                                remove = Some(i);
-                            }
+                    mg_uikit::with_table_rows(ui, |ui| {
+                        egui::Grid::new("cw-slots").num_columns(3).show(ui, |ui| {
+                            ui.strong("Class");
+                            ui.strong("Level");
                             ui.end_row();
-                        }
+                            let n = w.classes.len();
+                            for (i, (k, level)) in w.classes.iter_mut().enumerate() {
+                                let class = name(*k);
+                                ui.label(&class);
+                                crate::widgets::name_next_number(ui, &class);
+                                crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
+                                if n > 1
+                                    && crate::widgets::icon_button(
+                                        ui,
+                                        mg_uikit::Icon::Close,
+                                        &format!("Remove {class}"),
+                                        "Remove this class",
+                                    )
+                                    .clicked()
+                                {
+                                    remove = Some(i);
+                                }
+                                ui.end_row();
+                            }
+                        })
                     });
                     if let Some(i) = remove {
                         w.classes.remove(i);
@@ -508,7 +521,7 @@ fn page(
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Portrait");
                 if ui
-                    .checkbox(&mut w.all_portraits, "All portraits")
+                    .check_box(&mut w.all_portraits, "All portraits")
                     .on_hover_text("Every creature's portrait, not this race's and gender's alone")
                     .changed()
                 {
@@ -566,7 +579,10 @@ fn page(
                                                     ui.painter().rect_stroke(
                                                         r.rect.expand(1.0),
                                                         2.0,
-                                                        ui.visuals().selection.stroke,
+                                                        egui::Stroke::new(
+                                                            1.0,
+                                                            mg_uikit::tokens(ui.ctx()).accent,
+                                                        ),
                                                         egui::StrokeKind::Outside,
                                                     );
                                                 }
@@ -603,11 +619,13 @@ fn page(
             ui.label(
                 "The Faction determines how this creature reacts to players and other creatures.",
             );
-            for (i, name) in mg_module::factions::STANDARD.iter().enumerate().skip(1) {
-                if ui.selectable_label(usize::from(w.faction) == i, *name).clicked() {
-                    w.faction = i as u16;
+            mg_uikit::with_rows(ui, |ui| {
+                for (i, name) in mg_module::factions::STANDARD.iter().enumerate().skip(1) {
+                    if ui.selectable_label(usize::from(w.faction) == i, *name).clicked() {
+                        w.faction = i as u16;
+                    }
                 }
-            }
+            });
         }
         5 => {
             // A random name to begin with, as Aurora gives (from the race's
@@ -623,7 +641,7 @@ fn page(
             egui::Grid::new("cw-name").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Name");
                 ui.end_row();
-                let field = ui.text_edit_singleline(&mut w.first_name);
+                let field = ui.add(mg_uikit::text_field(&mut w.first_name));
                 crate::widgets::autofocus(ui, &field);
                 if ui.button("Random").clicked()
                     && let Some(n) = game.random_name(race, w.gender, false, &mut rng)
@@ -633,7 +651,7 @@ fn page(
                 ui.end_row();
                 crate::widgets::field_label(ui, "Last Name:");
                 ui.end_row();
-                ui.text_edit_singleline(&mut w.last_name);
+                ui.add(mg_uikit::text_field(&mut w.last_name));
                 if ui.button("Random").clicked()
                     && let Some(n) = game.random_name(race, w.gender, true, &mut rng)
                 {
@@ -661,7 +679,7 @@ fn page(
                 ui.end_row();
                 crate::widgets::field_label(ui, "Tag");
                 ui.add(
-                    egui::TextEdit::singleline(&mut w.tag)
+                    mg_uikit::text_field(&mut w.tag)
                         .hint_text(blueprints::tag(&name))
                         .char_limit(mg_module::tags::MAX_TAG)
                         .desired_width(180.0),
@@ -682,6 +700,7 @@ fn page(
             let module = loader.ws.map(|ws| &ws.module);
             let nodes = crate::blueprint_wizard::categories(game, module, BlueprintKind::Creature);
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 crate::blueprint_wizard::category_tree(ui, &nodes, game, &mut w.category);
             });
         }
@@ -696,7 +715,7 @@ fn page(
         _ => {
             ui.label("This creature is now complete.");
             ui.label("If you wish, you can fine-tune it using the Creature Properties.");
-            ui.checkbox(&mut w.launch, "Launch Creature Properties");
+            ui.check_box(&mut w.launch, "Launch Creature Properties");
         }
     }
 }
