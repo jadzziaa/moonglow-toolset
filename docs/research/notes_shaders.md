@@ -3,8 +3,11 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T07:17:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T03:39:33Z }
 sources:
+  - id: bioware-dxt1-one-bit
+    resource: crates/mg-corpus-tests/tests/client_render/batch6.rs (batch6_bioware_dxt1_one_bit), run 2026-11-10
+    title: A DXT1's one-bit texels under BioWare's and the standard header, with TXIs, mesh alpha and an environment map, and the game's tdt01_wood04, in the client
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 and 2026-10-29 on 89.8193.37-17
     title: The time uniforms read back from the client
@@ -133,7 +136,7 @@ Naming key ([WIKI] + [SRC]):
 
    | Mesh | Pair | `NO_DISCARD` |
    |---|---|---|
-   | 24-bit TGA, no TXI; 32-bit TGA all opaque; DXT1 (opaque, or with transparent texels: drawn black) | `vslit`/`fslit` | 1 |
+   | 24-bit TGA, no TXI; 32-bit TGA all opaque; DXT1 (opaque, or with transparent texels: drawn black; under BioWare's header too, `batch6_bioware_dxt1_one_bit`) | `vslit`/`fslit` | 1 |
    | 32-bit TGA with alpha in its texels; DXT5 (opaque texels too); `blending punchthrough` with alpha; TXI `alphamean 0.5` on an opaque 32-bit TGA | `vslit`/`fslit` | 0 |
    | `blending punchthrough` on an opaque texture; `transparencyhint 1`; vertex `colors` | `vslit`/`fslit` | 1 |
    | mesh `alpha 0.5`; MTR `transparency 1`; `bitmap NULL` (no texture) | `vslit`/`fslit` | 0 |
@@ -157,7 +160,7 @@ Naming key ([WIKI] + [SRC]):
 
    - **`vslitc*` are never chosen** (vertex colors draw `vslit`), nor `vsv`, `vsvc`, `vsvtc`, `vsvt_sm` for any content mesh; `vsvt`/`fst` is also the GUI's.
    - **A tileset's `EnvMap` doesn't choose `_sm`** (§M.12): it is the map bound to `texUnitEnv` for every lit mesh without one of its own (read as its mean colour through the band: the floor's and a placeable's `texUnitEnv` were `tcn01__ref01`'s, not `chrome1`'s), and `default` in appearance.2da `ENVMAP` and TXI `envmaptexture default` means it too; **in placeables.2da `Reflection` `default` is `chrome1`** — but under a texture's own `envmaptexture default` the area's map is reflected even so (2026-10-29, `program_choice_in_the_client` with `MG_LYING_ENVD=1 MG_REFLECTION=default`; with `MG_REFLECTION=plc_g_env`, `plc_g_env`) [CLIENT] (`area_env_map_look` with `MG_ENV_SHAPE=sphere MG_ENV_PAINT MG_ENV_CREATURE=24`, 2026-10-25: spheres painted with `texture(texUnitEnv, vTexCoords)` by a patched `inc_standard`; in `tin01` and `tic01` the non-static mirrors' were `chrome1`, the armoire's TXI `default` and the bone golem's `ENVMAP` `default` the tileset's map; `mg_preview::placeable` follows). `bumpyshinytexture` changes nothing (not the program, not the map bound).
-   - **`NO_DISCARD`** (§M.10): 0 where the mesh may be cut or blended by its alpha: no texture, a texture with alpha (in its texels for TGA, by format for DDS: DXT5 yes, DXT1 never; a TXI `alphamean` below 1), a mesh alpha below 1, an MTR's `transparency`. An environment-mapped texture's alpha is not opacity: 1.
+   - **`NO_DISCARD`** (§M.10): 0 where the mesh may be cut or blended by its alpha: no texture, a texture with alpha (in its texels for TGA, by format for DDS: DXT5 yes, DXT1 never; a TXI `alphamean` below 1), a mesh alpha below 1, an MTR's `transparency`. An environment-mapped texture's alpha is not opacity: 1. A DXT1's one-bit (index 3) texels have alpha 1 to the lit and environment-mapped programs (the others not read), under either header: with a TXI `alphamean 0.5` or `blending punchthrough`, on a mesh of `alpha 0.5` (evenly half there) and under an environment map they are drawn as opaque black texels, not cut, holed or reflecting [CLIENT] (`batch6_bioware_dxt1_one_bit`, 2026-11-10). Moonglow uploads such a texture decoded, opaque (`mg_render::texture`'s `one_bit_texels`): the GPU's BC1 gives them alpha 0.
    - **Static placeables and tiles** (`Static 1`): their meshes that share a texture are drawn as one bucket with the first one's (in the model's order) `NO_DISCARD` and opacity: an `alpha 0.5` mesh after an opaque one is drawn solid, `NO_DISCARD` 1; an opaque mesh after an `alpha 0.5` one half see-through, `NO_DISCARD` 0; each keeps its own program [CLIENT] (`batch7_bucket_order`, 2026-11-02, both orders in two static placeables and in a tile's model; first seen in `program_choice_in_the_client` with `MG_STATIC=1`, 2026-10-29). Moonglow draws per mesh and doesn't follow this (the deferred list's M4).
    - **A static placeable doesn't reflect its appearance's `Reflection`** [CLIENT] (`area_env_map_look`, 2026-10-24: authored cards of a gray texture whose alpha is 0, 128 and 255, as the models of appearances whose `Reflection` is `default` or `PLC_G_ENV`, static and not, in `tin01` and `tic01` interiors): static, the alpha-0 cards weren't drawn and the alpha-128 one was half see-through (the alpha is opacity, as without a map); not static, they were drawn solid, reflecting. A texture's TXI `envmaptexture default` on a static placeable reflects the tileset's map (warm in `tin01`). Moonglow leaves the appearance's map out for a static placeable (`mg_preview::placeable`).
    - The stock DDS reader reads past a single-level standard DDS (a 64² DXT1 with `mipMapCount` 0 drew noise at a distance); with all its levels it drew right.
@@ -336,7 +339,7 @@ Script-driven:
 
 - `textureNBound` (int) exists per unit 0–10. Stock code checks 0–5 (a "not bound" slot may hold stale data [WIKI]).
 - `texNoiseBound` [CLIENT] 1 (read through a program including `inc_random`, which only keyholing, water and the post passes include).
-- The texture's alpha [CLIENT]: a TGA's by its texels (a 32-bit picture all opaque is opaque), a standard DDS's by its format (DXT1 none: its transparent texels are drawn black, opaque; DXT3/5 alpha whatever their texels), a TXI `alphamean` below 1 marking alpha (§A.4). A BioWare DDS (4 channels) by its header's alpha mean below 1 [INF: not read from the client; of the game's 3,717 four-channel BioWare DDS, 22 have a mean of 1 (roofs, bark, flagstones: `trm02_roof02`, `tcm02_bark02b`), which Moonglow takes as opaque].
+- The texture's alpha [CLIENT]: a TGA's by its texels (a 32-bit picture all opaque is opaque), a standard DDS's by its format (DXT1 none: its transparent texels are drawn black, opaque; DXT3/5 alpha whatever their texels), a TXI `alphamean` below 1 marking alpha (§A.4). A BioWare DDS of 3 channels (DXT1) none, as the standard DXT1: its one-bit texels drawn black and opaque, a TXI `alphamean 0.5` or `blending punchthrough`, a mesh alpha and an environment map alike, and the game's `tdt01_wood04` (every block in the one-bit mode, a quarter of its texels index 3) drawn as its texels made black [CLIENT] (`batch6_bioware_dxt1_one_bit`, 2026-11-10). A BioWare DDS (4 channels) by its header's alpha mean below 1 [INF: not read from the client; of the game's 3,717 four-channel BioWare DDS, 22 have a mean of 1 (roofs, bark, flagstones: `trm02_roof02`, `tcm02_bark02b`), which Moonglow takes as opaque].
 - MTR `textureN` overrides MDL `bitmap`/`textureN`. `null` skips a slot. An MTR takes precedence over TGA/DDS/PLT of the same name.
 - For PLT, omit `texture0` in the MTR.
 

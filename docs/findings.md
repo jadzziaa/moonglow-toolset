@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T01:38:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T03:39:33Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1782,6 +1782,37 @@ the hak's TGA of it isn't there.
   (`renderer.rs`'s `procedure_picture`, its gray fitted so that the
   reading's cards draw 86 and 96 of 255 where the client's are 83 and
   92).
+- **Wiki:** missing.
+
+### A DXT1's one-bit texels are opaque black
+
+A DXT1 block whose first color is not above its second (the three-color
+mode) holds a "transparent" index 3. The game draws those texels black,
+with alpha 1 to everything that reads it. That holds under BioWare's
+header (3 channels) and under the standard `DDS ` one. A TXI
+`alphamean 0.5` or `blending punchthrough` leaves them opaque and black.
+A mesh of `alpha 0.5` draws them evenly half there, as it draws any
+black texel. An environment map does not show through them. Four of the
+game's 6,737 DDS files hold such texels. In `tdt01_wood04` and
+`tdt01_wood05` every block is in that mode, and about a quarter of their
+texels are index 3. The game draws them as their texels made black, not
+holed. `tts02_gate03` and `tts02_tree01` have a few, in their smaller
+levels only. The same texels in a BioWare DXT5 or a 32-bit TGA are
+see-through. This was read on lit meshes with the stock lit and
+environment-mapped programs. Decals, additive meshes, an MTR's
+`transparency`, particles, static buckets and icons were not read.
+
+- **Checked:** game client, `batch6.rs`'s `batch6_bioware_dxt1_one_bit`
+  (2026-11-10: standing cards before a yellow board, each card's mean
+  read beside Moonglow's area view).
+- **Moonglow:** as the client since 2026-11-10. The texture readers give
+  such a DXT1 no alpha (`mg_image::dds`, `Texture::to_rgba`), and
+  `mg texture convert` and `mg texture info` take a BioWare DXT1 as
+  opaque. The renderer uploads a DXT1 with such texels decoded and
+  opaque, a cube map's face too (`mg_render::texture`'s
+  `one_bit_texels`): the GPU's BC1 gave
+  them alpha 0, and with Shaders on Moonglow cut them under a TXI
+  `alphamean` or a mesh alpha and reflected through them.
 - **Wiki:** missing.
 
 ### How far and how fast a texture ripples

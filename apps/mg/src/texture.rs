@@ -530,7 +530,9 @@ pub(crate) fn decode(l: &Loaded) -> Result<Texture> {
 /// its data holds ([`Texture::stored_rgba`]: a standard DXT1's one bit,
 /// as NWN2's cut-outs keep it), but BioWare's DXT1 opaque, as its header
 /// says (three channels) and the game draws it (two of the game's own,
-/// `tdt01_wood04` and `05`, hold transparent texels it draws black).
+/// `tdt01_wood04` and `05`, hold transparent texels in their largest
+/// level, which it draws black: read in the client, `mg-corpus-tests`'
+/// `batch6_bioware_dxt1_one_bit`).
 pub(crate) fn source_rgba(tex: &Texture) -> Rgba {
     match tex.format == Format::Bc1 && tex.alpha_mean.is_some() {
         true => tex.to_rgba(),

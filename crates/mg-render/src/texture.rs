@@ -1,5 +1,6 @@
 //! Textures on the GPU: BC-compressed data uploaded as it is (when the
-//! device reads BC and the size allows), everything else as RGBA8 with a
+//! device reads BC and the size allows, and it is not a DXT1 whose one-bit
+//! texels the game draws opaque), everything else as RGBA8 with a
 //! mip chain made on the CPU. Rows go up in stored order (bottom row first),
 //! so texture coordinate v = 0 is the image's first stored row, as in the
 //! game. Values stay in gamma space (the shader linearises with pow 2.2).
@@ -38,6 +39,29 @@ fn fits(gpu: &Gpu, width: u32, height: u32) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+/// Whether a texture without alpha is a DXT1 with one-bit texels (a block
+/// in the three-color mode, c0 ≤ c1, using its index 3) in any level. The
+/// game draws them opaque black, alpha 1 to every program that reads it
+/// (a TXI `alphamean`, a mesh's alpha, an environment map's reflectivity:
+/// `batch6_bioware_dxt1_one_bit` in `mg-corpus-tests`' `client_render`),
+/// where the GPU's BC1 gives them alpha 0; so such a texture goes up
+/// decoded. (Four of the game's 6,737 DDS files: `tdt01_wood04` and `05`
+/// with a quarter of their texels so, `tts02_gate03` and `tts02_tree01`
+/// with a few in their smaller levels.) Read on lit meshes with the stock
+/// lit and environment-mapped programs; decals, additive meshes, an MTR's
+/// `transparency`, particles and icons were not.
+fn one_bit_texels(tex: &Texture) -> bool {
+    tex.format == Format::Bc1
+        && !tex.has_alpha
+        && tex.mips.iter().any(|level| {
+            level.as_chunks::<8>().0.iter().any(|b| {
+                let (c0, c1) = (u16::from_le_bytes([b[0], b[1]]), u16::from_le_bytes([b[2], b[3]]));
+                let bits = u32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+                c0 <= c1 && (0..16).any(|i| (bits >> (2 * i)) & 3 == 3)
+            })
+        })
 }
 
 /// Level `level` of a texture as RGBA8, where it stores one (a DDS's own
@@ -122,7 +146,9 @@ impl GpuTexture {
     /// At most [`Gpu::texture_limit`] pixels a side.
     pub fn upload(gpu: &Gpu, label: &str, tex: &Texture, mipmaps: bool) -> GpuTexture {
         let compressed = tex.format != Format::Rgba8;
+        let one_bit = one_bit_texels(tex);
         let bc_ok = compressed
+            && !one_bit
             && gpu.bc_textures()
             && tex.width.is_multiple_of(4)
             && tex.height.is_multiple_of(4);
@@ -152,9 +178,22 @@ impl GpuTexture {
                 .collect();
             (tex.format, levels)
         } else {
-            let rgba = tex.to_rgba();
-            let mut levels = vec![(rgba.data, rgba.width, rgba.height)];
             let over = |w: u32, h: u32| limit.is_some_and(|l| w.max(h) > l);
+            // (A DXT1 with one-bit texels: its stored levels decoded, as
+            // far as they go whole, the texels opaque.)
+            let mut levels: Vec<(Vec<u8>, u32, u32)> = match one_bit {
+                true => (0..tex.mips.len())
+                    .map_while(|i| {
+                        let (w, h) = tex.level_dims(i);
+                        stored_level(tex, i).map(|d| (d, w, h))
+                    })
+                    .collect(),
+                false => Vec::new(),
+            };
+            if levels.is_empty() {
+                let rgba = tex.to_rgba();
+                levels.push((rgba.data, rgba.width, rgba.height));
+            }
             while let Some((d, w, h)) =
                 levels.last().filter(|(_, w, h)| (mipmaps || over(*w, *h)) && (*w > 1 || *h > 1))
             {
@@ -298,7 +337,8 @@ fn upload_cube_as_stored(gpu: &Gpu, label: &str, faces: &[Texture; 6]) -> Option
                 f.mips[i].len() == f.format.level_size(lw, lh)
             })
     };
-    if !faces.iter().all(whole) {
+    // (A DXT1 face with one-bit texels: decoded, opaque, as `upload` does.)
+    if !faces.iter().all(whole) || faces.iter().any(one_bit_texels) {
         return None;
     }
     let over = |level: usize| {
@@ -408,6 +448,48 @@ mod tests {
         assert_eq!(cube.texture.mip_level_count(), 3);
     }
 
+    /// A DXT1 whose blocks use the three-color mode's index 3 goes up
+    /// decoded, its stored levels whole and those texels opaque black (as
+    /// the game draws them, whatever reads their alpha); a DXT1 of four
+    /// colors, or of three without index 3, stays compressed.
+    #[test]
+    fn a_dxt1_s_one_bit_texels_go_up_opaque() {
+        // (c0 blue under c1 magenta: three colors; the west half index 3.)
+        let one_bit = [0x1F, 0x00, 0x1F, 0xF8, 0x0F, 0x0F, 0x0F, 0x0F];
+        let four = [0x1F, 0xF8, 0x1F, 0x00, 0x0F, 0x0F, 0x0F, 0x0F];
+        let three = [0x1F, 0x00, 0x1F, 0xF8, 0x05, 0x05, 0x05, 0x05];
+        let tex = |block: [u8; 8]| Texture {
+            width: 8,
+            height: 8,
+            format: Format::Bc1,
+            mips: vec![block.repeat(4), block.to_vec(), block.to_vec(), block.to_vec()],
+            has_alpha: false,
+            alpha_mean: Some(1.0),
+        };
+        let cut = tex(one_bit);
+        assert!(one_bit_texels(&cut));
+        assert!(!one_bit_texels(&tex(four)) && !one_bit_texels(&tex(three)));
+        // (In a smaller level alone.)
+        let mut deep = tex(four);
+        deep.mips[3] = one_bit.to_vec();
+        assert!(one_bit_texels(&deep));
+        // (A DXT1 read as having alpha keeps it: not this one's case.)
+        assert!(!one_bit_texels(&Texture { has_alpha: true, ..cut.clone() }));
+        let level = stored_level(&cut, 0).unwrap();
+        assert_eq!(&level[..8], [0, 0, 0, 255, 0, 0, 0, 255], "index 3 opaque black");
+        let Some(gpu) = mg_testkit::gpu::open(Gpu::headless) else { return };
+        let up = GpuTexture::upload(&gpu, "dxt1", &cut, true);
+        assert_eq!(up.texture.format(), wgpu::TextureFormat::Rgba8Unorm);
+        assert_eq!(up.texture.mip_level_count(), 4, "the stored levels");
+        assert!(!up.has_alpha);
+        let once = GpuTexture::upload(&gpu, "dxt1", &cut, false);
+        assert_eq!(once.texture.mip_level_count(), 1);
+        if gpu.bc_textures() {
+            let plain = GpuTexture::upload(&gpu, "dxt1", &tex(four), true);
+            assert_eq!(plain.texture.format(), wgpu::TextureFormat::Bc1RgbaUnorm);
+        }
+    }
+
     /// A cube map is uploaded within Options › Largest textures, as a
     /// texture is (a hak's 1024-pixel cube took 32 MB where the limit
     /// asked for 2), and its BC faces as they are stored where the device
@@ -458,6 +540,10 @@ mod tests {
         }
         // Faces that store one level alone, or disagree: decoded, their
         // levels made, as before.
+        // A face with one-bit texels: decoded, opaque (`one_bit_texels`).
+        let mut cut = stored.clone();
+        cut.mips[1] = [0x1F, 0x00, 0x1F, 0xF8, 0xFF, 0xFF, 0xFF, 0xFF].repeat(4);
+        assert_eq!(cube(&cut).texture.format(), wgpu::TextureFormat::Rgba8Unorm);
         let one_level = Texture { mips: vec![stored.mips[0].clone()], ..stored.clone() };
         assert_eq!(cube(&one_level).texture.format(), wgpu::TextureFormat::Rgba8Unorm);
         let mut mixed: [Texture; 6] = std::array::from_fn(|_| stored.clone());

@@ -102,8 +102,10 @@ pub struct Texture {
     pub height: u32,
     pub format: Format,
     pub mips: Vec<Vec<u8>>,
-    /// Whether the alpha channel means anything (BioWare's 3-channel DXT1
-    /// and 24-bit TGAs have none: treat alpha as 1).
+    /// Whether the alpha channel means anything (DXT1 under either DDS
+    /// header and 24-bit TGAs have none: treat alpha as 1; a DXT1's
+    /// one-bit texels are opaque black in the game, read from the client
+    /// in `mg-corpus-tests`' `batch6_bioware_dxt1_one_bit`).
     pub has_alpha: bool,
     /// BioWare DDS's "alpha mean" header value.
     pub alpha_mean: Option<f32>,

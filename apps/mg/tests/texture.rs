@@ -402,6 +402,15 @@ fn dxt1_alpha_is_carried_as_the_header_says_and_ati_is_only_copied() {
     std::fs::write(&std, mg_image::dds::write_standard(&t).unwrap()).unwrap();
     let (ok, json) = convert(&[s(&bio), "-o", s(&dir.join("bio.tga"))]);
     assert!(ok && json["files"][0]["format"] == "rgb8", "opaque: {json}");
+    // (Its one-bit texels black, as the game draws them:
+    // `batch6_bioware_dxt1_one_bit` in mg-corpus-tests' client_render.)
+    let tga = mg_image::read(mg_core::ResType::TGA, &std::fs::read(dir.join("bio.tga")).unwrap());
+    let tga = tga.unwrap().to_rgba();
+    assert_eq!((tga.pixel(0, 0)[3], tga.pixel(1, 0)), (255, [0, 0, 0, 255]));
+    let (ok, json) =
+        crate::json_out(crate::mg_alone().args(["--json", "texture", "info", s(&bio)]));
+    assert!(ok && json["textures"][0]["alpha"] == "opaque", "{json}");
+    assert_eq!(json["textures"][0]["has_alpha"], false);
     let (ok, json) = convert(&[s(&std), "-o", s(&dir.join("std.tga"))]);
     assert!(ok && json["files"][0]["format"] == "rgba8", "its bit kept: {json}");
     let (ok, json) = convert(&[s(&bio), "-o", s(&dir.join("small.dds")), "--max-size", "4"]);

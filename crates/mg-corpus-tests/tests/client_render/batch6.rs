@@ -955,6 +955,187 @@ fn batch6_bioware_dxt1() {
     eprintln!("{}", dir.display());
 }
 
+/// A 64² DXT1 whose blocks use the one-bit mode, every level down to 1×1
+/// (the client reads past a single level): in the half of the rows stored
+/// first a checker of quarters across and eighths up, opaque magenta
+/// blocks (four colors: c0 magenta over c1 black, every index 0) and
+/// transparent ones (three colors: c0 blue under c1 magenta, every index
+/// 3); in the other half every block mixed (c0 = c1 magenta, three colors:
+/// its west two columns index 3, its east two index 0), stripes of two
+/// texels. Each block of a level drawn by where its center falls.
+fn one_bit_dxt1() -> mg_image::Texture {
+    let opaque = [0x1F, 0xF8, 0, 0, 0, 0, 0, 0];
+    let clear = [0x1F, 0x00, 0x1F, 0xF8, 0xFF, 0xFF, 0xFF, 0xFF];
+    // (Each row of 4 index bits: x 0 and 1 are 3, x 2 and 3 are 0.)
+    let mixed = [0x1F, 0xF8, 0x1F, 0xF8, 0x0F, 0x0F, 0x0F, 0x0F];
+    let mut mips = Vec::new();
+    for level in 0..7u32 {
+        let side = (64u32 >> level).max(1);
+        let of = side.div_ceil(4);
+        let mut data = Vec::new();
+        for by in 0..of {
+            for bx in 0..of {
+                let (u, v) = ((bx as f32 + 0.5) / of as f32, (by as f32 + 0.5) / of as f32);
+                let block = if v >= 0.5 {
+                    mixed
+                } else if ((u * 4.0) as u32 + (v * 8.0) as u32).is_multiple_of(2) {
+                    opaque
+                } else {
+                    clear
+                };
+                data.extend(block);
+            }
+        }
+        mips.push(data);
+    }
+    mg_image::Texture {
+        width: 64,
+        height: 64,
+        format: mg_image::Format::Bc1,
+        mips,
+        has_alpha: false,
+        alpha_mean: Some(1.0),
+    }
+}
+
+/// The cards of [`batch6_bioware_dxt1_one_bit`], west to east: the row at
+/// the foot (authored) and the row over it (the game's `tdt01_wood04`).
+const ONE_BIT_CARDS: [&[&str]; 3] = [
+    &["bw", "std", "punch", "amean", "dxt5", "tga"],
+    &["bwhalf", "tgahalf", "bwenv", "tgaenv"],
+    &["wood", "woodstd", "woodblack", "woodcut"],
+];
+
+/// How the client draws a BioWare DXT1 (3 channels) whose blocks use the
+/// one-bit mode's transparent index (`mg texture convert` and `info` take
+/// such a file as opaque, its one-bit texels black: commit 4986ede1; of
+/// the game's, `tdt01_wood04` and `05` have every block in that mode,
+/// about a quarter of their texels index 3): north of the player, a
+/// yellow board, and before it two rows of standing cards, west to east.
+/// At the foot, [`one_bit_dxt1`] under BioWare's header (`bw`), under the
+/// standard `DDS ` one (`std`), under BioWare's with a TXI `blending
+/// punchthrough` (`punch`) and with `alphamean 0.5` (`amean`); then the
+/// controls, its picture with the transparent texels as holes: a BioWare
+/// DXT5 (4 channels, its true alpha mean, `dxt5`) and a 32-bit TGA
+/// (`tga`). Over them, `bw` on a mesh of `alpha 0.5` (`bwhalf`) and with
+/// a TXI `envmaptexture tin01__ref01` (`bwenv`, the copper map, where
+/// alpha is reflectivity), and `tga` the same two ways (`tgahalf`,
+/// `tgaenv`). At the top, the game's `tdt01_wood04` as it has it
+/// (`wood`), its blocks under a standard header (`woodstd`), and as TGAs:
+/// 24-bit, the index-3 texels black (`woodblack`), and 32-bit, them clear
+/// (`woodcut`). Seen close, beside Moonglow's area view with Shaders off
+/// and on; each card's mean printed (client, off, on).
+///
+/// Seen (2026-11-10, the client's build not read from its log): the one-bit texels
+/// are opaque black, alpha 1, to everything that reads it. `bw`, `std`,
+/// `punch` and `amean` alike, black checker and stripes, the board
+/// nowhere through them (means 63, 8, 63 each); `dxt5` and `tga` holed
+/// (121, 63, 64); `bwhalf` evenly half there (102, 62, 45: black and
+/// magenta over the board), `tgahalf` holed and half there (131, 89, 45);
+/// `bwenv` black and magenta (62, 5, 62), `tgaenv` copper in its holes
+/// (65, 13, 57). `wood` and `woodstd` as `woodblack` (34, 29, 23 against
+/// 36, 30, 24; `woodcut` 63, 54, 24). Moonglow with Shaders off drew all
+/// of it so; with them on, before the fix, it holed `amean` (118, 54, 71)
+/// and `bwhalf` (131, 89, 45) and showed the copper in `bwenv`'s black
+/// (81, 27, 68): the GPU's BC1 gave index 3 alpha 0 to the game's
+/// programs. Since, a DXT1 with such texels goes up decoded, opaque
+/// (`mg_render::texture`'s `one_bit_texels`), and both paths draw every
+/// card within 2 of the client's means but `woodcut` and `tgaenv`
+/// (a 32-bit TGA's levels and the copper, not the question).
+///
+/// Only lit meshes are read here: an icon's or the interface's DXT1 is
+/// not.
+#[test]
+#[ignore]
+fn batch6_bioware_dxt1_one_bit() {
+    let base = base_game();
+    let authored = one_bit_dxt1();
+    let bw = mg_image::dds::write_bioware(&authored).unwrap();
+    let holes = authored.stored_rgba();
+    let dxt5 = mg_image::encode::compress(&holes, mg_image::Format::Bc3, true, false);
+    let wood = base.resman.get_named("tdt01_wood04", ResType::DDS).unwrap().to_vec();
+    let wood_tex = mg_image::read(ResType::DDS, &wood).unwrap();
+    let back = mg_image::Rgba { width: 8, height: 8, data: [255u8, 220, 0, 255].repeat(64) };
+    let files: Vec<(String, Vec<u8>)> = vec![
+        ("mgbd_back.tga".into(), mg_image::tga::write(&back, false)),
+        ("mgbd_bw.dds".into(), bw.clone()),
+        ("mgbd_std.dds".into(), standard_dds(&bw)),
+        ("mgbd_punch.dds".into(), bw.clone()),
+        ("mgbd_punch.txi".into(), b"blending punchthrough\n".to_vec()),
+        ("mgbd_amean.dds".into(), bw.clone()),
+        ("mgbd_amean.txi".into(), b"alphamean 0.5\n".to_vec()),
+        ("mgbd_dxt5.dds".into(), mg_image::dds::write_bioware(&dxt5).unwrap()),
+        ("mgbd_tga.tga".into(), mg_image::tga::write(&holes, true)),
+        ("mgbd_bwenv.dds".into(), bw.clone()),
+        ("mgbd_bwenv.txi".into(), b"envmaptexture tin01__ref01\n".to_vec()),
+        ("mgbd_tgaenv.tga".into(), mg_image::tga::write(&holes, true)),
+        ("mgbd_tgaenv.txi".into(), b"envmaptexture tin01__ref01\n".to_vec()),
+        ("mgbd_woodstd.dds".into(), standard_dds(&wood)),
+        ("mgbd_woodblack.tga".into(), mg_image::tga::write(&wood_tex.to_rgba(), false)),
+        ("mgbd_woodcut.tga".into(), mg_image::tga::write(&wood_tex.stored_rgba(), true)),
+    ];
+    eprintln!(
+        "dxt5 alpha mean {:?}; wood04 texels clear as stored {} of {}",
+        dxt5.alpha_mean,
+        wood_tex.stored_rgba().data.as_chunks::<4>().0.iter().filter(|p| p[3] == 0).count(),
+        512 * 512
+    );
+    let bitmap = |c: &str| match c {
+        "wood" => "tdt01_wood04".to_string(),
+        "bwhalf" => "mgbd_bw".to_string(),
+        "tgahalf" => "mgbd_tga".to_string(),
+        c => format!("mgbd_{c}"),
+    };
+    let mut nodes = vec![card_at("back", "mg_bdx", [-3.0, 0.3, 0.0], (6.0, 2.9), "mgbd_back")];
+    for (i, c) in ONE_BIT_CARDS[0].iter().enumerate() {
+        nodes.push(card(c, "mg_bdx", (-2.7 + 0.9 * i as f32, 0.05), (0.8, 0.8), &bitmap(c)));
+    }
+    for (i, c) in ONE_BIT_CARDS[1].iter().enumerate() {
+        let node = card(c, "mg_bdx", (-1.8 + 0.9 * i as f32, 0.95), (0.8, 0.8), &bitmap(c));
+        // (The two halves: the mesh's alpha 0.5.)
+        let half = c.ends_with("half");
+        nodes.push(if half {
+            node.replace("  render 1\n", "  render 1\n  alpha 0.5\n")
+        } else {
+            node
+        });
+    }
+    for (i, c) in ONE_BIT_CARDS[2].iter().enumerate() {
+        nodes.push(card(c, "mg_bdx", (-2.3 + 1.2 * i as f32, 1.85), (1.0, 1.0), &bitmap(c)));
+    }
+    let mut files = files;
+    let (table, first) = placeables_with(&base, &[("mg_bdx", 0)]);
+    files.push(("mg_bdx.mdl".into(), super::batch4::probe_model("mg_bdx", &nodes).into_bytes()));
+    files.push(("placeables.2da".into(), table.into_bytes()));
+    let light = Lighting { ambient: 0x808080, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("bioware_dxt1_one_bit", "tic01", light, &as_overrides(&files));
+    r.place(first, [20.0, 23.0, 0.0], 0.0, &[("Static", Value::Byte(0))]);
+    let (dir, _) = super::batch4::shoot_close(r, INVISIBLE, SETTINGS, (90.0, 7.0, 78.0), &|_| {});
+    // (Each card's middle in the 1024×768 pictures, pixels, inset from its
+    // edges so that both renderers' cards cover it.)
+    let rects: [(&str, [f32; 4]); 14] = [
+        ("bw", [272.0, 372.0, 328.0, 424.0]),
+        ("std", [357.0, 372.0, 411.0, 424.0]),
+        ("punch", [440.0, 372.0, 493.0, 424.0]),
+        ("amean", [522.0, 372.0, 576.0, 424.0]),
+        ("dxt5", [605.0, 372.0, 658.0, 424.0]),
+        ("tga", [687.0, 372.0, 742.0, 424.0]),
+        ("bwhalf", [353.0, 290.0, 408.0, 344.0]),
+        ("tgahalf", [438.0, 290.0, 492.0, 344.0]),
+        ("bwenv", [522.0, 290.0, 576.0, 344.0]),
+        ("tgaenv", [606.0, 290.0, 661.0, 344.0]),
+        ("wood", [303.0, 185.0, 378.0, 258.0]),
+        ("woodstd", [417.0, 185.0, 492.0, 258.0]),
+        ("woodblack", [531.0, 185.0, 606.0, 258.0]),
+        ("woodcut", [646.0, 185.0, 723.0, 258.0]),
+    ];
+    for (name, [x0, y0, x1, y1]) in rects {
+        let r = [x0 / 1024.0, y0 / 768.0, x1 / 1024.0, y1 / 768.0];
+        region_means(&dir, name, r, &["client", "moonglow", "moonglow_on"]);
+    }
+    eprintln!("{}", dir.display());
+}
+
 /// Where `Best` (`with`) is darker than `Off` (`without`), white, for
 /// looking at, written to `path`; and how many columns of the picture's
 /// band `rows` (fractions) hold such pixels, as runs (one a shadow).
