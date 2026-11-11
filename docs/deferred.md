@@ -554,7 +554,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   colors of no rule (`part_textures_look`, rows R to U: 60 blue, 128
   dark red, 0 and 255 black), Moonglow gray. Awaiting a verdict: copying
   colors of no rule, or calling such a file one the game misreads
-  (Verify could say so). (the part textures, 2026-11-10)
+  (Verify could say so). In doubt before either: the rows' files were
+  written with one mip level, and the client reads past a single-level
+  standard DDS (noise; the learning of 2026-10-21 says to write all
+  levels), so the colors may be the fixture's and not the format's. Row
+  Q (the PLT over such a DDS of its name) was read with the same kind of
+  file. To be read again with all levels written before anything is
+  built on it; left filed by the owner's word, 2026-11-10. (the part
+  textures, 2026-11-10)
 
 - **A mesh whose texture is nowhere is drawn black, the client draws it
   light gray:** seen beside the part textures' reading
