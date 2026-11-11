@@ -10469,3 +10469,121 @@ fn windows_at_their_sizes() {
         settle(&mut h);
     }
 }
+
+// The shell's pictures, re-rendered by each task of the redesign's shell
+// milestone (M3, `docs/ui-redesign-proposal.md`) and compared with the
+// mock's boards Main, Narrow, WideArea, Floating and Welcome. Run them by
+// their prefix, in both themes:
+// `cargo test -p mg-ui --test screens -- --ignored shell_`
+// (`target/test-output/screens/shell/`, `screens-light/shell/`).
+
+/// The main window at `size` for the shell's pictures: `Chapter1` open
+/// with its area `map_m1q1a` in the middle, the module tree, the palettes
+/// and the log shown. Settled, with the area's shaders made.
+fn shell_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.log.info("Opened Chapter1.nwm");
+    let mut h = Harness::builder()
+        .with_size(size)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h
+}
+
+/// [`shell_window`] with the area open and an object of it selected, as
+/// the mock's Main board shows.
+fn shell_with_area(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
+    let mut h = shell_window(root, size);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    h.run_steps(5);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Creature, 0)];
+    // (The game's programs are made on threads of their own while the
+    // view is drawn: time for them.)
+    for _ in 0..40 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    h
+}
+
+#[test]
+#[ignore]
+fn shell_main() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    shoot(&mut h, &dir, "shell_main");
+}
+
+#[test]
+#[ignore]
+fn shell_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    shoot(&mut h, &dir, "shell_narrow");
+}
+
+#[test]
+#[ignore]
+fn shell_wide() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(3440.0, 1440.0));
+    shoot(&mut h, &dir, "shell_wide");
+}
+
+#[test]
+#[ignore]
+fn shell_floating() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    h.run_steps(3);
+    place(&mut h, &script, (420.0, 120.0), (820.0, 560.0));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_floating");
+}
+
+#[test]
+#[ignore]
+fn shell_welcome() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.recent = Vec::new();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_welcome");
+}
