@@ -1291,6 +1291,13 @@ impl Moonglow {
             self.dock.set_focused_node_and_surface(at);
             self.dock.push_to_focused_leaf(Tab::NoArea);
         }
+        // (A side editor's tab open already, a hak opened with the module
+        // say, is not the module's to close: back below, if it is not
+        // among those kept.)
+        let side: Vec<Tab> = (self.dock.iter_all_tabs())
+            .map(|(_, t)| t.clone())
+            .filter(|t| crate::side_doc::is_side(t) && self.side_doc(t).is_some())
+            .collect();
         tabs::close_tabs(&mut self.dock, |t| *t != Tab::ModuleProperties);
         // The side editors' files opened first (a 2DA of a hak's needs the
         // hak open), each tab by its text.
@@ -1320,6 +1327,14 @@ impl Moonglow {
             let split = pane.split.as_ref().and_then(|s| Laid::of(s, &opened));
             self.place_pane(pane.place, pane.rect, tabs, active, split);
         }
+        for tab in side {
+            if self.dock.find_tab(&tab).is_none() {
+                self.dock.main_surface_mut().push_to_first_leaf(tab);
+            }
+        }
+        // (A side editor's changed document whose tab was closed above, not
+        // among those kept: its tab, rather than none to save it from.)
+        self.side_docs_follow_tabs();
         // What the views showed: the conversations' and the pages of
         // Module Properties and the Options now, the rest as each is
         // first drawn.

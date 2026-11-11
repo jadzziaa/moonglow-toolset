@@ -378,14 +378,20 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             d.redo();
         }
         if ui.add_enabled(d.is_dirty(), egui::Button::new("Save")).clicked() {
+            // (Why not, under the editor too: `side_doc::failed_foot`.)
+            let tab = crate::Tab::Tileset(d.id);
             match d.save() {
                 Ok(palette) => {
+                    app.clear_failed(&tab);
                     app.log.info(format!("Saved {}", d.path.display()));
                     if let Some(note) = palette {
                         app.log.info(note);
                     }
                 }
-                Err(e) => app.log.error(e),
+                Err(e) => {
+                    app.note_failed(&tab, e.clone());
+                    app.log.error(e);
+                }
             }
         }
         if ui

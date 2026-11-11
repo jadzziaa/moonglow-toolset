@@ -1422,12 +1422,18 @@ fn a_hak_s_ok_and_its_closing_question_save_it_as_a_job() {
         h.state().log.entries.iter().any(|(_, l)| l.contains("Could not save the hak"))
     };
     assert!(said(&h), "{:?}", h.state().log.entries);
+    // (OK asks the tab's question, saying why: not nothing to be seen.)
+    h.get_by_label("Save changes to third.hak?");
+    let why =
+        |h: &Harness<'_, Moonglow>| h.query_all_by_label_contains("It could not be saved").count();
+    assert_eq!(why(&h), 2, "in the question and under the editor");
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Hak(id)]));
     h.run();
     h.get_all_by_label("Save").last().unwrap().click();
     h.step();
     settle(&mut h);
     h.get_by_label("Save changes to third.hak?");
+    assert!(why(&h) >= 1, "why, again");
     assert!(open(&h, id) && h.state().haks[0].hak.is_dirty());
     h.get_by_label("Don't Save").click();
     h.run();
@@ -2340,7 +2346,8 @@ fn the_resource_browser_s_filter_and_list_take_the_keys() {
 /// Exit with a hak never saved beside a saved module asked "Save changes
 /// to the module?", and its Save saved the module and then did nothing,
 /// each time (the review of November 2026, S11): the hak's own question
-/// is asked, and the log says what waits.
+/// is asked, and Exit goes on once it is answered (it was dropped, with
+/// "then do that again" in the log, until a builder's report against 4.0).
 #[test]
 fn quitting_with_an_unsaved_hak_asks_about_the_hak() {
     let dir = mg_testkit::scratch_dir("ui-quit-unsaved-hak");
@@ -2359,8 +2366,17 @@ fn quitting_with_an_unsaved_hak_asks_about_the_hak() {
         h.run();
         let app = h.state();
         assert!(!app.quit_requested && app.confirm_discard.is_none(), "not the module's question");
-        let said =
-            app.log.entries.iter().filter(|(_, l)| l.contains("An editor beside the module"));
-        assert!(said.count() >= 1, "{:?}", app.log.entries);
+        assert!(h.query_by_label("Save changes to New hak?").is_some(), "the hak's, by name");
+        assert_eq!(h.state().side_then, Some(mg_ui::Action::Quit), "Exit waits for it");
+        // Don't Save: Exit goes on.
+        h.get_by_label("Don't Save").click();
+        h.run();
+        assert!(h.state().quit_requested, "then Exit");
+        // (Again, with the hak as it was.)
+        h.state_mut().quit_requested = false;
+        mg_ui::hak_view::new_hak(h.state_mut());
+        h.run();
+        h.state_mut().haks[0].hak.add_files(&[dir.join("mg_one.2da")]);
+        h.run();
     }
 }

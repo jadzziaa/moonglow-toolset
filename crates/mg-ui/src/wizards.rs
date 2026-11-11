@@ -249,8 +249,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             .module_path()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "the new module".into());
+        let failed = app.module_failed.as_ref().map(|why| format!("It could not be saved: {why}"));
         crate::widgets::modal(&ctx, "Unsaved Changes").show(&ctx, |ui| {
             ui.label(format!("Save changes to {what}?"));
+            // (Its Save failed last time: why, under the question.)
+            if let Some(failed) = &failed {
+                ui.set_min_width(440.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(failed).color(ui.visuals().error_fg_color),
+                    )
+                    .wrap(),
+                );
+            }
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
                     app.actions.push(Action::SaveThen(Box::new(pending.clone())));
@@ -265,6 +276,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
         });
+        if app.confirm_discard.is_none() {
+            app.module_failed = None;
+        }
     }
     crate::module_folder::ui(app, &ctx);
 }

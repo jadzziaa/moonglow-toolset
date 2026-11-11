@@ -465,7 +465,9 @@ fn save_to(app: &mut Moonglow, i: usize, ask: bool) -> Result<Option<PathBuf>, (
         .or_else(|| hak_dir(app).map(|d| d.join("new.hak")));
     match app.dialogs.save_file(FileKind::Hak, suggested.as_deref()) {
         Some(p) if in_game_folder(app, &p) => {
-            app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
+            let why = "Moonglow doesn't write into the game's folder: save the hak elsewhere";
+            app.log.error(why);
+            app.note_failed(&Tab::Hak(app.haks[i].id), why);
             Err(())
         }
         Some(p) => Ok(Some(p)),
@@ -513,6 +515,7 @@ pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
         }
         Err(e) => {
             app.log.error(format!("Could not save the hak: {e}"));
+            app.note_failed(&Tab::Hak(id), e);
             false
         }
     }
@@ -557,10 +560,16 @@ fn save_as_job(app: &mut Moonglow, id: u32, ask: bool) {
 /// open and unsaved.
 pub(crate) fn save_then(app: &mut Moonglow, id: u32, ask: bool, then: Then) {
     let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
-    let Ok(to) = save_to(app, i, ask) else { return };
+    app.clear_failed(&Tab::Hak(id));
+    // (Not where the Save dialog was canceled: that is no failure.)
+    let Ok(to) = save_to(app, i, ask) else { return failed(app, id, then) };
     let saving = match app.haks[i].hak.saving(to.as_deref()) {
         Ok(s) => s,
-        Err(e) => return app.log.error(format!("Could not save the hak: {e}")),
+        Err(e) => {
+            app.log.error(format!("Could not save the hak: {e}"));
+            app.note_failed(&Tab::Hak(id), e);
+            return failed(app, id, then);
+        }
     };
     let total = saving.size();
     app.start_job_to_its_end(
@@ -583,10 +592,25 @@ pub(crate) fn save_then(app: &mut Moonglow, id: u32, ask: bool, then: Then) {
                 }
                 // (Stopped: the file is as it was.)
                 Ok(None) => app.log.info("Save Hak: canceled"),
-                Err(e) => app.log.error(format!("Could not save the hak: {e}")),
+                Err(e) => {
+                    app.log.error(format!("Could not save the hak: {e}"));
+                    app.note_failed(&Tab::Hak(id), e);
+                    failed(app, id, then);
+                }
             }
         },
     );
+}
+
+/// A hak's save that was to close its tab failed, with a reason
+/// ([`Moonglow::failed_saving`]): its question is asked (again), saying
+/// why, with Save, Don't Save and Cancel; its OK did nothing to be seen.
+fn failed(app: &mut Moonglow, id: u32, then: Then) {
+    let tab = Tab::Hak(id);
+    if then == Then::Close && app.failed_saving(&tab).is_some() && !app.side_closing.contains(&tab)
+    {
+        app.side_closing.push_back(tab);
+    }
 }
 
 /// Resources of a hak about to be extracted into a folder that has files

@@ -1714,14 +1714,27 @@ fn a_game_table_is_edited_as_a_copy() {
     h.run_steps(3);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
     // The module closed: its table's editor goes with it (kept, the next
-    // module's Save wrote the table into that one); the file's stays.
+    // module's Save wrote the table into that one); the file's goes with
+    // its tab, saved (a document kept without its tab counted as unsaved
+    // work with no editor to save it from, a builder's report against
+    // 4.0), and stays, its tab with it, while it has unsaved changes.
     let module = |h: &Harness<'_, Moonglow>| {
         h.state().tables.iter().any(|d| d.home == mg_ui::table_view::Home::Module)
     };
+    let in_file = |h: &Harness<'_, Moonglow>| {
+        let home = mg_ui::table_view::Home::File(file.clone());
+        h.state().tables.iter().find(|d| d.home == home).map(|d| d.id)
+    };
+    let file_table = in_file(&h).unwrap();
+    h.state_mut().tables.iter_mut().find(|d| d.id == file_table).unwrap().edit.add_rows(1);
     assert!(module(&h));
     h.state_mut().close();
     assert!(!module(&h));
-    assert!(h.state().tables.iter().any(|d| d.home == mg_ui::table_view::Home::File(file.clone())));
+    assert_eq!(in_file(&h), Some(file_table), "changed: kept");
+    assert!(h.state().dock.find_tab(&Tab::Table(file_table)).is_some(), "with its tab");
+    assert!(mg_ui::table_view::save(h.state_mut(), file_table));
+    h.state_mut().close();
+    assert_eq!(in_file(&h), None, "saved: gone with its tab");
 }
 
 fn double_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
