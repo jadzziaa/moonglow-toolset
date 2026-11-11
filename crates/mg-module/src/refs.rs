@@ -45,7 +45,10 @@ impl RefKind {
             RefKind::Conversation => &[ResType::DLG],
             RefKind::Blueprint(t) => ObjectKind::from_restype(t).map_or(&[], ObjectKind::restypes),
             RefKind::Area => &[ResType::ARE],
-            RefKind::Sound => &[ResType::WAV],
+            // (What the game looks for a placed sound's, a sound
+            // blueprint's and a conversation line's sound under: `mg_audio`'s
+            // role table says, the one place it is kept.)
+            RefKind::Sound => mg_audio::Role::Placed.looked_for(),
             RefKind::Tileset => &[ResType::SET],
             RefKind::Portrait => &[ResType::TGA, ResType::DDS],
             // Movies live in `movies/` and `data/mov/`, outside the resource

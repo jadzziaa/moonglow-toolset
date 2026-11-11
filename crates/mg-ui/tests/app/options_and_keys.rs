@@ -198,7 +198,7 @@ fn options_leave_the_module_open() {
     h.run();
     h.get_by_label("General").click();
     h.run();
-    h.get_by_label("Light theme").click();
+    click_in_sight(&mut h, "Light theme");
     h.run();
     h.get_all_by_label("OK").last().unwrap().click();
     h.run();
@@ -211,6 +211,11 @@ fn options_leave_the_module_open() {
     // Another game folder: unsaved work is asked about first.
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
+    // (The game folder's, the first: out of the page's sight until
+    // scrolled to.)
+    h.get_all_by_label("Browse…").next().unwrap().scroll_to_me();
+    let browse = |h: &Harness<'_, Moonglow>| h.get_all_by_label("Browse…").next().unwrap().rect();
+    at_rest(&mut h, "the game folder's Browse…", &browse);
     h.get_all_by_label("Browse…").next().unwrap().click();
     h.run();
     h.get_all_by_label("OK").last().unwrap().click();
@@ -318,7 +323,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.query_by_label("Build Module").is_none());
     // User Manual: F1 taken away, Ctrl+M added by pressing it.
-    h.get_by_label("F1 ×").click();
+    h.get_by_label("Remove F1 from User Manual").click();
     h.run();
     h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
@@ -331,7 +336,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.query_by_label_contains("is the key of both Save and User Manual").is_some());
     // The User Manual's Ctrl+S is taken away again (the only row shown).
-    h.get_by_label("Ctrl+S ×").click();
+    h.get_by_label("Remove Ctrl+S from User Manual").click();
     h.run();
     // A menu command that never had a key takes one.
     h.state_mut().options.as_mut().unwrap().recording = Some("build-module".to_string());
@@ -713,7 +718,7 @@ fn the_graphics_backend_is_chosen_in_options() {
 }
 
 /// Options › General › Toolbar buttons, Icons only: the toolbar's buttons
-/// show their glyphs alone at once, each named in its tip (with its key),
+/// show their icons alone at once, each named in its tip (with its key),
 /// and the toolbar takes less room; kept in the settings, and back to
 /// icons and text.
 #[test]
@@ -721,9 +726,9 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
     let width = |h: &Harness<'_, Moonglow>, first: &str, last: &str| {
-        h.get_by_label(last).rect().right() - h.get_by_label(first).rect().left()
+        tool(h, last).rect().right() - tool(h, first).rect().left()
     };
-    let wide = width(&h, "🗋 New", "✔ Verify");
+    let wide = width(&h, "New", "Verify");
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
     h.get_by_label("General").click();
@@ -745,20 +750,21 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
     assert!(!old.toolbar_icons_only, "icons and text in settings from before");
     h.run();
-    // The glyphs alone.
-    assert!(h.query_by_label("💾 Save").is_none() && h.query_by_label("📦 Palettes").is_none());
-    // (Named by their names for a screen reader, not by their glyphs.)
-    assert!(h.query_by_label("💾").is_none() && h.query_by_label("📦").is_none());
+    // The icons alone (named by their words for a screen reader, the words
+    // in their tips).
+    let (save, palettes) = (tool(&h, "Save").rect(), tool(&h, "Palettes").rect());
+    assert!(icon_drawn(&h, mg_uikit::Icon::Save, save), "Save's icon");
+    assert!(icon_drawn(&h, mg_uikit::Icon::Palette, palettes), "Palettes' icon");
     let narrow = width(&h, "New", "Verify");
     assert!(narrow < wide * 0.6, "the toolbar narrower: {narrow} of {wide}");
     // A tip named for the button: first where it doesn't begin so.
-    let palettes = h.get_by_label("Palettes").rect().center();
+    let palettes = tool(&h, "Palettes").rect().center();
     h.hover_at(palettes);
     // (A tooltip waits a moment.)
     h.run_steps(60);
     h.get_by_label("Palettes\nBlueprint palettes");
     // Save (disabled without a module): its tip too, with its key.
-    let save = h.get_by_label("Save").rect().center();
+    let save = tool(&h, "Save").rect().center();
     h.hover_at(save);
     h.run_steps(60);
     let tip = h.get_by_label_contains("Save module").accesskit_node();
@@ -767,19 +773,54 @@ fn the_toolbar_shows_icons_only_when_asked() {
     // Back to icons and text.
     h.state_mut().settings.toolbar_icons_only = false;
     h.run();
-    h.get_by_label("💾 Save");
-    assert!(h.query_by_label("Save").is_none());
+    assert!((width(&h, "New", "Verify") - wide).abs() < 1.0, "the toolbar as wide as it was");
 }
 
-/// Options › General › Light theme.
+/// Options › General › Light theme: the window's theme follows the
+/// setting, both ways; in the Options window it changes on OK, and
+/// Cancel leaves it as it was.
 #[test]
 fn the_theme_is_set_in_options() {
+    use mg_uikit::{Theme, Tokens};
     let mut h = window_harness(app_with(Vec::new()));
     h.run();
     assert_eq!(h.ctx.theme(), egui::Theme::Dark);
-    h.state_mut().settings.light_theme = true;
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Dark), "the suite's theme, not egui's");
+    // Both ways, as the window runs: the theme's colors and the panels'.
+    for (light, theme) in [(true, Theme::Light), (false, Theme::Dark), (true, Theme::Light)] {
+        h.state_mut().settings.light_theme = light;
+        h.run();
+        assert_eq!(h.ctx.theme(), theme.egui());
+        assert_eq!(mg_uikit::applied(&h.ctx), Some(theme));
+        let t = mg_uikit::tokens(&h.ctx);
+        assert_eq!(t, if light { Tokens::LIGHT } else { Tokens::DARK });
+        assert_eq!(h.ctx.global_style().visuals.panel_fill, t.panel);
+        assert_eq!(h.ctx.global_style().spacing.interact_size.y, mg_uikit::metrics::CONTROL_HEIGHT);
+    }
+    // In the Options window, as Interface size beside it: ticked, the
+    // theme changes on OK, not before; unticked and cancelled, it stays.
+    let options = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(h);
+        h.get_by_label("General").click();
+        settle(h);
+        click_in_sight(h, "Light theme");
+        settle(h);
+    };
+    h.state_mut().settings.light_theme = false;
     h.run();
-    assert_eq!(h.ctx.theme(), egui::Theme::Light);
+    options(&mut h);
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Dark), "not as it is ticked");
+    assert!(!h.state().settings.light_theme);
+    h.get_all_by_label("OK").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().settings.light_theme, "on OK");
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
+    options(&mut h);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().settings.light_theme, "Cancel keeps it");
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
 }
 
 /// Options › General › Toolbar buttons, Icons only, in the editors'
@@ -804,7 +845,8 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.run();
     // (The buttons' widths together: a toolbar wraps.)
     let width = |h: &Harness<'_, Moonglow>, names: &[&str]| -> f32 {
-        names.iter().map(|n| h.get_by_label(n).rect().width()).sum()
+        // (The editor's, after the module tree's: both have an Expand All.)
+        names.iter().map(|n| h.get_all_by_label(n).last().unwrap().rect().width()).sum()
     };
     let scripts = ["Save As…", "Print…", "Open…", "Find…", "Replace…", "Definition", "Used By"];
     let lines = ["Add", "Copy", "Cut", "Paste", "Paste As Link", "Expand All", "Scripts"];
@@ -815,6 +857,10 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.run_steps(3);
     let glyphs = width(&h, &scripts);
     assert!(glyphs < words * 0.6, "the script's toolbar narrower: {glyphs} of {words}");
+    // (Each an icon button, named by its words, its icon drawn.)
+    let used_by = h.get_by_label("Used By").rect();
+    assert!(used_by.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{used_by:?}");
+    assert!(icon_drawn(&h, mg_uikit::Icon::UsedBy, used_by), "Used By's icon");
     h.get_by_label("Used By").hover();
     // (A tooltip waits a moment.)
     h.run_steps(60);
@@ -837,4 +883,118 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.run_steps(2);
     let toggled = h.get_by_label("Comments").accesskit_node().toggled();
     assert_eq!(toggled, Some(egui::accesskit::Toggled::True));
+}
+
+/// The log takes the arrow keys only from a click of its own: a click on
+/// a window lying over it is the window's (the log took the keys from
+/// any click inside its pane, a window's over it too).
+#[test]
+fn the_log_takes_the_keys_only_from_its_own_clicks() {
+    let dir = mg_testkit::scratch_dir("ui-log-keys-under-a-window");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1000.0, 700.0);
+    settle(&mut h);
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::keys_are_the_logs(&h.ctx);
+    // The log's line saying the module opened: where the log is.
+    let line = h.get_all_by_label_contains("Opened").last().expect("the log's line").rect();
+    // A window over it: the manual's, as tall as the screen has room for.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
+    settle(&mut h);
+    let over = egui::pos2(500.0, line.center().y);
+    let window = h.ctx.layer_id_at(over).expect("a layer");
+    assert_ne!(window, egui::LayerId::background(), "the window lies over the log there");
+    click_pos(&h, over);
+    settle(&mut h);
+    assert!(!keys(&h), "a click on the window is the window's");
+    // On the log itself, beside the window: the log's.
+    let beside = egui::pos2(line.left() + 4.0, line.center().y);
+    assert_eq!(h.ctx.layer_id_at(beside), Some(egui::LayerId::background()), "the log there");
+    click_pos(&h, beside);
+    settle(&mut h);
+    assert!(keys(&h), "a click on the log gives it the keys");
+}
+
+/// The theme's chevrons and rows in the running window, in the dark
+/// theme and the light: a combo box's chevron (`text-2`, a stroke, not
+/// egui's filled triangle), a tree header's (`text-3`), and a list's row
+/// under the pointer filled `hover-row` on its own 22 points.
+#[test]
+fn the_theme_s_chevrons_and_row_hover_are_drawn() {
+    let dir = mg_testkit::scratch_dir("ui-theme-chevrons");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 800.0);
+    settle(&mut h);
+    // A chevron: three points, open, stroked in `color`, inside `rect`.
+    let chevrons = |h: &Harness<'_, Moonglow>, rect: egui::Rect, color: egui::Color32| {
+        drawn(h)
+            .iter()
+            .filter(|s| match s {
+                egui::Shape::Path(p) => {
+                    p.points.len() == 3
+                        && !p.closed
+                        && p.stroke.color == egui::epaint::ColorMode::Solid(color)
+                        && p.points.iter().all(|q| rect.contains(*q))
+                }
+                _ => false,
+            })
+            .count()
+    };
+    // egui's triangle: three points, closed and filled.
+    let triangles = |h: &Harness<'_, Moonglow>, rect: egui::Rect| {
+        drawn(h)
+            .iter()
+            .filter(|s| match s {
+                egui::Shape::Path(p) => {
+                    p.points.len() == 3 && p.closed && p.points.iter().all(|q| rect.contains(*q))
+                }
+                _ => false,
+            })
+            .count()
+    };
+    for light in [false, true] {
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        let t = mg_uikit::tokens(&h.ctx);
+        assert_eq!(t, if light { mg_uikit::Tokens::LIGHT } else { mg_uikit::Tokens::DARK });
+        // The module tree's group headers.
+        let header = h.get_by_label_contains("Scripts (").rect();
+        let arrow = header.expand2(egui::vec2(24.0, 0.0));
+        h.hover_at(egui::pos2(header.right() + 200.0, header.top() - 200.0));
+        settle(&mut h);
+        assert!(chevrons(&h, arrow, t.text_3) >= 1, "a tree header's chevron ({light})");
+        assert_eq!(triangles(&h, arrow), 0, "no triangle by a header ({light})");
+        // A combo box's: Options › General's Interface size.
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+        h.get_by_label("General").click();
+        settle(&mut h);
+        let combo = h.get_by_value("100%").rect();
+        assert!(chevrons(&h, combo, t.text_2) >= 1, "a combo box's chevron ({light})");
+        assert_eq!(triangles(&h, combo), 0, "no triangle in a combo box ({light})");
+        // A list's row under the pointer: the Options' pages.
+        let row = h.get_by_label("Area").rect();
+        h.hover_at(row.center());
+        settle(&mut h);
+        let row = h.get_by_label("Area").rect();
+        assert_eq!(row.height(), mg_uikit::metrics::ROW_HEIGHT);
+        let fills: Vec<egui::Rect> = drawn(&h)
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) if r.fill == t.hover_row => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            fills.iter().any(|f| f.y_range() == row.y_range() && f.contains(row.center())),
+            "the row lit on its own 22 points ({light}): {fills:?} for {row:?}"
+        );
+        h.get_all_by_label("Cancel").last().unwrap().click();
+        settle(&mut h);
+    }
 }

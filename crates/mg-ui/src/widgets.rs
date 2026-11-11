@@ -12,6 +12,7 @@ use mg_module::var_desc::{
 };
 use mg_module::vars::VarType;
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::text::{decode, encode, to_editor, with_line_ends, with_loc_line_ends};
 use crate::{Action, FileKind, Moonglow};
@@ -668,6 +669,7 @@ fn completion(
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(field.rect.width());
+                mg_uikit::list_rows(ui);
                 for (i, o) in offered.iter().enumerate() {
                     let d = o.described;
                     let item = ui
@@ -734,7 +736,7 @@ fn value_choice(
     };
     if other {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
+            ui.add(mg_uikit::text_field(value).desired_width(width - 28.0));
             // (Its values to choose from, the arrow keys stepping through
             // them as every dropdown's do.)
             let picked =
@@ -977,7 +979,7 @@ pub(crate) fn set_name_row(ui: &mut Ui, name: &mut String) -> (bool, bool) {
     let mut cancel = false;
     ui.horizontal(|ui| {
         ui.label("Set name");
-        let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
+        let r = ui.add(mg_uikit::text_field(name).desired_width(180.0));
         autofocus(ui, &r);
         let ok = crate::saved::valid_name(name);
         // (Enter in the name is the name's, not the window's OK.)
@@ -1046,7 +1048,14 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
                     }
                     keep = false;
                 }
-                if ui.small_button("✖").on_hover_text("Forget it").clicked() {
+                // (One word for one action: the note goes, the set stays
+                // deleted.)
+                let dismiss = clear_button().name("Dismiss");
+                if ui
+                    .add(dismiss)
+                    .on_hover_text("Dismiss this note: the set stays deleted")
+                    .clicked()
+                {
                     keep = false;
                 }
             });
@@ -1060,7 +1069,7 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
             let mut done = false;
             ui.horizontal_wrapped(|ui| {
                 ui.label(format!("Rename '{name}' to"));
-                let r = ui.add(egui::TextEdit::singleline(to).desired_width(160.0));
+                let r = ui.add(mg_uikit::text_field(to).desired_width(160.0));
                 autofocus(ui, &r);
                 let taken = names.iter().any(|n| n != name && n.eq_ignore_ascii_case(to.trim()));
                 let ok = crate::saved::valid_name(to) && !taken;
@@ -1100,7 +1109,8 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
             ui.weak(kind.none_yet);
         }
         egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-            egui::Grid::new(shelf.folder).num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+            mg_uikit::list_rows(ui);
+            egui::Grid::new(shelf.folder).num_columns(3).spacing([8.0, 0.0]).show(ui, |ui| {
                 for (name, set) in &read {
                     // (What it holds in its tip; one that isn't a set, why.)
                     match set {
@@ -1165,9 +1175,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 ui.label("String Ref");
                 ui.add(
-                    egui::TextEdit::singleline(&mut edit.strref)
-                        .desired_width(120.0)
-                        .hint_text("none"),
+                    mg_uikit::text_field(&mut edit.strref).desired_width(120.0).hint_text("none"),
                 );
             });
             // (A text on its way to the talk table: added with OK.)
@@ -1244,7 +1252,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // English), put where the caret was in its text.
 
                     let language = *language;
-                    ui.menu_button("Token…", |ui| {
+                    mg_uikit::menu_button(ui, "Token…", |ui| {
+                        mg_uikit::menu_rows(ui);
                         if !edit_tokens.iter().any(|(l, _)| *l == language) {
                             edit_tokens.push((language, language_tokens(app, language)));
                         }
@@ -1407,21 +1416,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let shown = p.shown();
             ui.weak(format!("{} of {all}", shown.len()));
             egui::Frame::group(ui.style()).show(ui, |ui| {
-                let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-                egui::ScrollArea::vertical().max_height(300.0).show_rows(
-                    ui,
-                    row,
-                    shown.len(),
-                    |ui, range| {
-                        ui.set_width(260.0);
-                        for r in &shown[range] {
-                            if ui.selectable_label(false, r.to_string()).clicked() {
-                                app.picked.insert(id, *r);
-                                close = true;
-                            }
+                let area = egui::ScrollArea::vertical().max_height(300.0);
+                mg_uikit::show_rows(area, ui, shown.len(), |ui, range| {
+                    ui.set_width(260.0);
+                    for r in &shown[range] {
+                        if ui.selectable_label(false, r.to_string()).clicked() {
+                            app.picked.insert(id, *r);
+                            close = true;
                         }
-                    },
-                );
+                    }
+                });
             });
             ui.horizontal(|ui| {
                 if ui.button("None").on_hover_text("Clear the field").clicked() {
@@ -1476,7 +1480,7 @@ impl egui::TextBuffer for ResRefText<'_> {
 /// A one-line field for typing a resref in `text` ([`ResRefText`]: at
 /// most 16 characters).
 pub(crate) fn resref_edit<'t>(text: &'t mut ResRefText<'_>) -> egui::TextEdit<'t> {
-    egui::TextEdit::singleline(text)
+    mg_uikit::text_field(text)
 }
 
 /// A resref field with a picker button. Returns the new value when the user
@@ -1548,7 +1552,10 @@ fn var_body(
         (VAR_NAME_WIDTH * part, VAR_VALUE_WIDTH * part)
     };
     egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+        // (A table of fields: rows 22 apart, a line between.)
+        mg_uikit::table_rows(ui);
+        let rule = mg_uikit::metrics::TABLE_RULE;
+        egui::Grid::new("vars").num_columns(4).spacing([8.0, rule]).show(ui, |ui| {
             ui.strong("Name");
             ui.strong("Type");
             ui.strong("Value");
@@ -1560,9 +1567,7 @@ fn var_body(
                 // (A minimum: a new window offers the fields no width yet,
                 // and they would keep to it.)
                 fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
-                    egui::TextEdit::singleline(text)
-                        .desired_width(width)
-                        .min_size(egui::vec2(width, 0.0))
+                    mg_uikit::text_field(text).desired_width(width).min_size(egui::vec2(width, 0.0))
                 }
                 // The offer's keys, before the field takes them.
                 let offering = described && help.completing == Some(i);
@@ -1698,7 +1703,8 @@ fn var_body(
         // Variable sets, kept in Moonglow's data folder, and in
         // files anywhere.
         let dir = app.var_set_dir.clone();
-        ui.menu_button("Add Set", |ui| {
+        mg_uikit::menu_button(ui, "Add Set", |ui| {
+            mg_uikit::menu_rows(ui);
             match sets_menu(ui, &mut app.log, &VARIABLE_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(rows)) => crate::var_sets::merge(&mut edit.rows, rows),
                 Some(SetChoice::FromFile) => add_file = true,
@@ -2181,9 +2187,9 @@ fn commit_field(
     let buf = buffers.entry(id).or_insert_with(|| shown.to_owned());
     let mut name = ResRefText(&mut *buf);
     let edit = match rows {
-        _ if resref => egui::TextEdit::singleline(&mut name),
+        _ if resref => mg_uikit::text_field(&mut name),
         Some(rows) => egui::TextEdit::multiline(name.0).desired_rows(rows),
-        None => egui::TextEdit::singleline(name.0),
+        None => mg_uikit::text_field(name.0),
     };
     let edit = if hint.is_empty() { edit } else { edit.hint_text(hint) };
     let edit = match limit {
@@ -2384,8 +2390,12 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
     make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
 ) -> Option<T> {
     let stepped = |v: f64, by: f64| spin_step(v, by, range.start().to_f64(), range.end().to_f64());
+    // (Its label, before the field: the arrows are named with it.)
+    let label = number_name(ui);
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
+        // (A field with its buttons glued on, the mock's `.field-group`:
+        // 1 point between their frames, each a point past its widget.)
+        ui.spacing_mut().item_spacing.x = 3.0;
         // (The field's own id: the next widget is the field.)
         let field = ui.next_auto_id();
         let run_id = field.with("spin-run");
@@ -2416,14 +2426,21 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
             run = None;
         }
         let mut held = focused && ui.input(|i| keys.iter().any(|k| i.key_down(*k)));
-        for (glyph, arrow, tip) in [("⏶", 1i8, "One more"), ("⏷", -1i8, "One less")] {
+        use mg_uikit::Icon;
+        for (icon, words, arrow, tip) in [
+            (Icon::ChevronUp, "One More", 1i8, "One more"),
+            (Icon::ChevronDown, "One Less", -1i8, "One less"),
+        ] {
+            // (Named with the field's label, first: "Hit Points: One More".)
+            let name = label.as_ref().map_or(words.to_string(), |l| format!("{l}: {words}"));
+            let name = name.as_str();
             let by = f64::from(arrow) * step;
             let can = stepped(shown, by) != shown;
             // (A drag too: egui takes a press held past a click's time for
             // no click, and the arrow for no longer pressed.)
-            let arrow_button =
-                egui::Button::new(glyph).small().sense(egui::Sense::click_and_drag());
-            let b = ui.add_enabled(can, arrow_button).on_hover_text(tip);
+            let arrow_button = icon_only(icon, name).sense(egui::Sense::click_and_drag());
+            let b =
+                ui.add_enabled(can, arrow_button).on_hover_text(tip).on_disabled_hover_text(tip);
             if !b.is_pointer_button_down_on() {
                 continue;
             }
@@ -2559,8 +2576,53 @@ fn find_here(ui: &egui::Ui, here: bool) -> bool {
     here && !ui.ctx().egui_wants_keyboard_input() && crate::keys::find_pressed(ui.ctx())
 }
 
-/// What a search field's hint begins with.
-pub(crate) const SEARCH_GLASS: &str = "🔍";
+/// A field's clear button: a `close` icon, named Clear.
+pub(crate) fn clear_button() -> mg_uikit::IconButton {
+    mg_uikit::IconButton::new(mg_uikit::Icon::Close, "Clear").icon_only(true)
+}
+
+/// A small button of `text` and a small `icon` after it (a key and the
+/// cross that takes it away), named `name`: what a click does ("Remove
+/// Ctrl+S from Save"), which its words alone do not say.
+pub(crate) fn text_then_icon(
+    ui: &mut egui::Ui,
+    text: &str,
+    icon: mg_uikit::Icon,
+    name: &str,
+) -> egui::Response {
+    let id = ui.next_auto_id().with("after-icon");
+    let side = egui::Vec2::splat(mg_uikit::metrics::ICON_SMALL);
+    let mut atoms = egui::Atoms::default();
+    atoms.push_right(text.to_string());
+    atoms.push_right(egui::Atom::custom(id, side));
+    let drawn = egui::Button::new(atoms).small().atom_ui(ui);
+    if let Some(rect) = drawn.rect(id) {
+        let color = ui.style().interact(&drawn.response).text_color();
+        icon.paint(ui.painter(), rect, color);
+    }
+    let r = drawn.response;
+    r.ctx.accesskit_node_builder(r.id, |node| node.set_label(name));
+    r
+}
+
+/// An icon button (22 px, frameless until hovered) named `name`, to add
+/// (`ui.add_enabled`; its tip the caller's).
+pub(crate) fn icon_only(icon: mg_uikit::Icon, name: &str) -> mg_uikit::IconButton {
+    mg_uikit::IconButton::new(icon, name).icon_only(true)
+}
+
+/// An icon button (22 px, frameless until hovered) named `name`, with
+/// `tip` (or its name) under the pointer, disabled too.
+pub(crate) fn icon_button(
+    ui: &mut egui::Ui,
+    icon: mg_uikit::Icon,
+    name: &str,
+    tip: &str,
+) -> egui::Response {
+    let tip = if tip.is_empty() { name } else { tip };
+    let r = ui.add(icon_only(icon, name));
+    r.on_hover_text(tip).on_disabled_hover_text(tip)
+}
 
 /// A list's search field: what it looks in said in the field while it is
 /// empty (`hint`), a button to clear it, and its keys (GitHub issue 12):
@@ -2574,6 +2636,7 @@ pub(crate) struct SearchField<'a> {
     text: &'a mut String,
     hint: &'a str,
     clear_tip: &'a str,
+    clear_name: &'a str,
     find: Option<bool>,
     find_over: bool,
     down: bool,
@@ -2594,6 +2657,7 @@ impl<'a> SearchField<'a> {
             text,
             hint: "",
             clear_tip: "Clear the search",
+            clear_name: "Clear",
             find: None,
             find_over: false,
             down: false,
@@ -2610,6 +2674,14 @@ impl<'a> SearchField<'a> {
     /// What the pointer over its clear button says.
     pub(crate) fn clear_tip(mut self, tip: &'a str) -> Self {
         self.clear_tip = tip;
+        self
+    }
+
+    /// What its clear button is named, for a screen reader and tests
+    /// ("Clear", where not given): a pane's own ("Clear Filter", the module
+    /// tree's), apart from the palettes' beside it.
+    pub(crate) fn clear_name(mut self, name: &'a str) -> Self {
+        self.clear_name = name;
         self
     }
 
@@ -2640,7 +2712,8 @@ impl<'a> SearchField<'a> {
     }
 
     pub(crate) fn show(self, ui: &mut egui::Ui) -> Searched {
-        let SearchField { id, text, hint, clear_tip, find, find_over, down, width } = self;
+        let SearchField { id, text, hint, clear_tip, clear_name, find, find_over, down, width } =
+            self;
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
@@ -2655,19 +2728,26 @@ impl<'a> SearchField<'a> {
                 let room = width.unwrap_or(ui.available_width() - button).max(60.0);
                 // (Every search field as the palette's and the module
                 // tree's: the glass before what it looks in, an owner's
-                // ask.)
-                let hint = match hint.starts_with(SEARCH_GLASS) {
-                    true => hint.to_string(),
-                    false => format!("{SEARCH_GLASS} {hint}").trim_end().to_string(),
-                };
+                // ask; drawn in the field, its words after it.)
+                let field = mg_uikit::controls::FIELD_MARGIN;
+                let glass = mg_uikit::metrics::ICON as i8 + 4;
+                let margin = egui::Margin { left: field.left + glass, ..field };
                 let r = ui.add(
-                    egui::TextEdit::singleline(&mut *text)
+                    mg_uikit::text_field(&mut *text)
                         .id(id)
+                        .margin(margin)
                         .hint_text(hint)
                         .desired_width(room),
                 );
+                if ui.is_rect_visible(r.rect) {
+                    let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
+                    let at = egui::pos2(r.rect.left() + f32::from(field.left), r.rect.center().y);
+                    let rect = egui::Rect::from_min_size(at - egui::vec2(0.0, side.y / 2.0), side);
+                    let color = ui.visuals().weak_text_color();
+                    mg_uikit::Icon::Search.paint(ui.painter(), rect, color);
+                }
                 if clear {
-                    let b = ui.small_button("×").on_hover_text(clear_tip);
+                    let b = ui.add(clear_button().name(clear_name)).on_hover_text(clear_tip);
                     let wide = b.rect.width() + ui.spacing().item_spacing.x;
                     if (wide - button).abs() > 0.1 {
                         ui.data_mut(|d| d.insert_temp(button_id, wide));
@@ -3130,6 +3210,14 @@ impl NameWindow<'_> {
 /// grows about it), and moved by its title. Every dialog is one, as
 /// [`modal`] or [`dialog`] make it.
 fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
+    // (Its title in the body's size and face, the mock's title row: egui
+    // gives titles the heading's.)
+    let title = match title.into() {
+        egui::WidgetText::Text(text) => {
+            egui::RichText::new(text).text_style(egui::TextStyle::Body).into()
+        }
+        other => other,
+    };
     egui::Window::new(title)
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
@@ -3271,7 +3359,7 @@ pub(crate) fn always_box(ui: &mut Ui, id: egui::Id, label: &str, options_at: &st
     let (asked_id, now) = (id.with("asked"), ui.ctx().cumulative_pass_nr());
     let anew = ui.data(|d| d.get_temp::<u64>(asked_id)).is_none_or(|at| now > at + 1);
     let mut on = !anew && ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    ui.checkbox(&mut on, label).on_hover_text(format!(
+    ui.check_box(&mut on, label).on_hover_text(format!(
         "Your answer is kept, and this isn't asked again: {options_at} changes it"
     ));
     ui.data_mut(|d| {
@@ -3542,6 +3630,7 @@ impl<'a> RowChoice<'a> {
         // (Open until a choice is made or a click lands outside: a click in
         // its Filter field must not close it.)
         let mut combo = egui::ComboBox::from_id_salt(id)
+            .icon(mg_uikit::combo_icon)
             .selected_text(shown)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
         if let Some(width) = width {
@@ -3557,6 +3646,7 @@ impl<'a> RowChoice<'a> {
         // at its top (a long list was searched for it every time).
         let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         let list = combo.show_ui(ui, |ui| {
+            mg_uikit::list_rows(ui);
             let width_id = open_id.with("width");
             if opened {
                 ui.data_mut(|d| {
@@ -3921,7 +4011,7 @@ pub(crate) struct Dropdown {
 pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
     let salt = egui::Id::new(&id_salt);
     Dropdown {
-        combo: egui::ComboBox::from_id_salt(id_salt),
+        combo: egui::ComboBox::from_id_salt(id_salt).icon(mg_uikit::combo_icon),
         salt,
         stays_open: false,
         filtered: false,
@@ -3935,7 +4025,7 @@ pub(crate) fn dropdown_labelled(
 ) -> Dropdown {
     let salt = egui::Id::new(&id_salt);
     Dropdown {
-        combo: egui::ComboBox::new(id_salt, label),
+        combo: egui::ComboBox::new(id_salt, label).icon(mg_uikit::combo_icon),
         salt,
         stays_open: false,
         filtered: false,
@@ -4030,7 +4120,12 @@ impl Dropdown {
         options: impl FnOnce() -> Vec<T>,
         rows: impl FnOnce(&mut Ui, &mut T),
     ) -> egui::Response {
-        let r = self.combo.show_ui(ui, |ui| rows(ui, current)).response;
+        let r = (self.combo)
+            .show_ui(ui, |ui| {
+                mg_uikit::list_rows(ui);
+                rows(ui, current)
+            })
+            .response;
         // (The options read only when an arrow key is pressed: not each
         // frame the box has the keys.)
         let keyed = ui.input(|i| {
@@ -4143,6 +4238,7 @@ impl Dropdown {
         }
         let r = combo
             .show_ui(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 if !filtered {
                     return contents(ui, &mut keys);
                 }
@@ -4401,7 +4497,12 @@ pub(crate) fn picture_tile(
     // (The name in the text's own size, on up to two lines: in small type
     // on one, long names were hard to read and cut short.)
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let text = ui.visuals().text_color();
+    // (Chosen, on the selection's fill: the fill's own text color, the
+    // weak mark at 85% of it, as the mock's selected row's count.)
+    let (text, weak) = match chosen {
+        true => (visuals.text_color(), visuals.text_color().gamma_multiply(0.85)),
+        false => (ui.visuals().text_color(), ui.visuals().weak_text_color()),
+    };
     match made {
         Some(Some(id)) => {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
@@ -4415,7 +4516,7 @@ pub(crate) fn picture_tile(
                 egui::Align2::CENTER_CENTER,
                 mark,
                 font.clone(),
-                ui.visuals().weak_text_color(),
+                weak,
             );
         }
     }
@@ -4495,40 +4596,56 @@ pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
         field.request_focus();
     }
 }
-/// The bold font family (Ubuntu Bold, the bold of egui's own Ubuntu), for
-/// section headings.
-const BOLD: &str = "bold";
+// The fonts and the form helpers Moonglow Viewer's forms share with the
+// toolset's (field labels, section headings, a palette's swatches) are
+// mg-uikit's, under their old names here.
+pub use mg_uikit::form::SECTION_GAP;
+pub use mg_uikit::{install_fonts, section_heading, swatch, table_heading};
 
-/// Adds the bold font family to `ctx`'s fonts (once a context; it is there
-/// from the next frame): Ubuntu Bold, then egui's emoji fonts for the
-/// glyphs it lacks.
-pub fn install_fonts(ctx: &egui::Context) {
-    let done = egui::Id::new("moonglow-fonts");
-    if ctx.data(|d| d.get_temp::<bool>(done)).is_some() {
-        return;
-    }
-    ctx.data_mut(|d| d.insert_temp(done, true));
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "Ubuntu-Bold".into(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../fonts/Ubuntu-Bold.ttf"
-        ))),
-    );
-    let fallbacks = fonts.families.get(&egui::FontFamily::Proportional).cloned();
-    let mut bold = vec!["Ubuntu-Bold".to_string()];
-    bold.extend(fallbacks.unwrap_or_default().into_iter().skip(1));
-    fonts.families.insert(egui::FontFamily::Name(BOLD.into()), bold);
-    ctx.set_fonts(fonts);
+/// A field's label (`mg_uikit::field_label`), which also names the number
+/// field after it on its row ([`name_next_number`]).
+pub fn field_label(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
+    let text = text.into();
+    let r = mg_uikit::field_label(ui, text.clone());
+    name_number_by(ui, &text, r.rect);
+    r
 }
 
-/// A form's field label (the first column of an editor's grid: "Tag",
-/// "Name"…): in the strong text colour (white in the dark theme), to stand
-/// apart from the values beside it; not bold, which is the headings'.
-/// (Public, with the headings, [`install_fonts`] and [`palette_color`], for
-/// Moonglow Viewer's forms to look as the toolset's.)
-pub fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    ui.label(egui::RichText::new(text).strong())
+/// Names the number field after this on the row (its arrows: "Level: One
+/// More"), where no field label names it ([`field_label`] does).
+pub(crate) fn name_next_number(ui: &mut Ui, label: &str) {
+    let at =
+        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(0.0, ui.spacing().interact_size.y));
+    name_number_by(ui, label, at);
+}
+
+fn number_name_id() -> egui::Id {
+    egui::Id::new("number-field-name")
+}
+
+/// The label `text` at `rect`, kept for a number field after it on its row.
+fn name_number_by(ui: &Ui, text: &str, rect: egui::Rect) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let text = text.trim_end_matches(':').trim().to_string();
+    ui.data_mut(|d| d.insert_temp(number_name_id(), (pass, text, rect)));
+}
+
+/// The label of the number field about to be drawn at `ui`'s cursor: the
+/// last one kept this pass, on the same row and before it (taken: a field
+/// on a later row isn't named by it).
+fn number_name(ui: &Ui) -> Option<String> {
+    let kept = ui.data_mut(|d| {
+        let kept = d.get_temp::<(u64, String, egui::Rect)>(number_name_id());
+        d.remove::<(u64, String, egui::Rect)>(number_name_id());
+        kept
+    })?;
+    let (pass, text, rect) = kept;
+    let at = ui.cursor();
+    let row = rect.y_range().expand(4.0);
+    let same_row = row.contains(at.top()) || row.contains(at.center().y);
+    let before = rect.left() <= at.left() + 1.0;
+    (pass == ui.ctx().cumulative_pass_nr() && same_row && before && !text.is_empty())
+        .then_some(text)
 }
 
 /// How large a gallery's pictures are: a slider of their side in `range`
@@ -4544,7 +4661,7 @@ pub(crate) fn picture_size_slider(
     if let Some(text) = text {
         slider = slider.text(text);
     }
-    let moved = ui.add(slider).on_hover_text("How large the pictures are").changed();
+    let moved = mg_uikit::slider(ui, slider).on_hover_text("How large the pictures are").changed();
     moved.then(|| side.round() as u16)
 }
 
@@ -4582,34 +4699,13 @@ pub fn palette_color(
                         ui.weak("No palette");
                         return;
                     };
-                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                    // 176 colours, 16 to a row.
-                    for row in 0..11u8 {
-                        ui.horizontal(|ui| {
-                            for i in row * 16..row * 16 + 16 {
-                                let size = egui::vec2(16.0, 14.0);
-                                let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
-                                swatch(ui, rect, &tones(p, i));
-                                if i == current && text.is_none() {
-                                    let stroke = ui.visuals().selection.stroke;
-                                    ui.painter().rect_stroke(
-                                        rect,
-                                        0.0,
-                                        stroke,
-                                        egui::StrokeKind::Outside,
-                                    );
-                                }
-                                let name = format!("{what} {i}");
-                                r.widget_info(|| {
-                                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
-                                });
-                                if r.on_hover_text(&name).clicked() {
-                                    *chosen = i;
-                                    pick = Some(i);
-                                    ui.close();
-                                }
-                            }
-                        });
+                    let outline = text.is_none();
+                    if let Some(i) =
+                        mg_uikit::palette_swatches(ui, |i| tones(p, i), what, current, outline)
+                    {
+                        *chosen = i;
+                        pick = Some(i);
+                        ui.close();
                     }
                 },
             );
@@ -4630,57 +4726,6 @@ pub fn tones(palette: &mg_image::Rgba, index: u8) -> [egui::Color32; 4] {
         egui::Color32::from_rgb(r, g, b)
     })
 }
-
-/// Paints a swatch: the tones side by side.
-pub fn swatch(ui: &egui::Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
-    let w = rect.width() / tones.len() as f32;
-    for (i, c) in tones.iter().enumerate() {
-        let r = egui::Rect::from_min_size(
-            rect.min + egui::vec2(w * i as f32, 0.0),
-            egui::vec2(w, rect.height()),
-        );
-        ui.painter().rect_filled(r, 0.0, *c);
-    }
-}
-
-/// A heading in a table's cell (a group of rows: Options › Keyboard's):
-/// as a section's, without its rule and room, which a cell has no place
-/// for.
-pub fn table_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    let bold = egui::FontFamily::Name(BOLD.into());
-    let size = egui::TextStyle::Body.resolve(ui.style()).size * HEADING_SCALE;
-    let mut text = egui::RichText::new(text).strong().size(size);
-    if ui.fonts(|f| f.families().contains(&bold)) {
-        text = text.family(bold);
-    }
-    ui.label(text)
-}
-
-/// A form's section heading ("Lighting Scheme", "Environment"): in Ubuntu
-/// Bold (headings alone are bold), the strong text colour, and larger than
-/// the field labels under it; under it a rule a pixel thick, three quarters
-/// as wide as the pane it is in, then a little room before what follows.
-pub fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    let heading = table_heading(ui, text);
-    // (A pane with no width of its own yet: the heading's.)
-    let pane = ui.available_width();
-    let width = if pane.is_finite() { pane * HEADING_RULE } else { heading.rect.width() };
-    let (rule, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
-    let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
-    ui.painter().hline(rule.x_range(), rule.center().y, stroke);
-    ui.add_space(HEADING_ROOM);
-    heading
-}
-
-/// The room above a section heading that follows other content (its rule
-/// is under it; no separator above).
-pub const SECTION_GAP: f32 = 10.0;
-/// How much larger than the body text a section heading is.
-const HEADING_SCALE: f32 = 1.25;
-/// How much of its pane's width a section heading's rule spans.
-const HEADING_RULE: f32 = 0.75;
-/// The room between a section heading's rule and what follows.
-const HEADING_ROOM: f32 = 6.0;
 
 /// The tokens text in `language` can use, each as written (`<FirstName>`):
 /// the language's own table where the game has one (its

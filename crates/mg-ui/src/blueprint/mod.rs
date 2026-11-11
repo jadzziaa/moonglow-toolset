@@ -3,6 +3,7 @@
 //! change is one undoable command on the blueprint, fields keep the integer
 //! type they are stored with, and fields the editor does not show are kept.
 
+use mg_uikit::Controls as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -792,13 +793,9 @@ pub(crate) fn found_kept(
 }
 
 /// The color of text that is the talk table's (a StrRef's), not a
-/// blueprint's own.
+/// blueprint's own: the theme's `info`.
 pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
-    if ui.visuals().dark_mode {
-        egui::Color32::from_rgb(120, 180, 255)
-    } else {
-        egui::Color32::from_rgb(20, 80, 190)
-    }
+    mg_uikit::tokens(ui.ctx()).info
 }
 
 impl Form<'_> {
@@ -1201,7 +1198,7 @@ impl Form<'_> {
         let id = self.id(label);
         let (shown, _) = crate::text::to_editor(&current);
         let buf = self.app.buffers.entry(id).or_insert_with(|| shown.clone());
-        let r = ui.add(egui::TextEdit::singleline(buf).id(id).char_limit(max).desired_width(240.0));
+        let r = ui.add(mg_uikit::text_field(buf).id(id).char_limit(max).desired_width(240.0));
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != shown {
             *buf = shown.clone();
@@ -1324,7 +1321,10 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = self.int(label);
         let mut v = current;
-        let r = ui.add(egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits));
+        let r = mg_uikit::slider(
+            ui,
+            egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits),
+        );
         if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
             self.set_int(what, label, v, FieldType::Byte);
         }
@@ -1420,7 +1420,7 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = self.int(label) != 0;
         let mut v = current;
-        if ui.checkbox(&mut v, text).changed() {
+        if ui.check_box(&mut v, text).changed() {
             self.set_int(text, label, i64::from(v), FieldType::Byte);
         }
         v
@@ -1440,7 +1440,7 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = self.int(label) != 0;
         let mut v = current;
-        if !ui.checkbox(&mut v, text).changed() {
+        if !ui.check_box(&mut v, text).changed() {
             return v;
         }
         let default = self.schema_type(label).unwrap_or(FieldType::Byte);
@@ -2125,10 +2125,7 @@ pub(crate) fn edit_many(
     let mut form = Form { app, key, path, also, root, together: Default::default() };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-        if viewed {
-            read_only_look(ui);
-        }
-        match restype {
+        read_only_if(ui, viewed, |ui| match restype {
             // (Every kind's, drawn alike.)
             _ if page == "Variables" => form.variables_page(ui),
             ResType::UTW => waypoint::page(&mut form, ui, page),
@@ -2141,7 +2138,7 @@ pub(crate) fn edit_many(
             ResType::UTI => item::page(&mut form, ui, page),
             ResType::UTC => creature::page(&mut form, ui, page),
             _ => {}
-        }
+        })
     });
     // The game's blueprint (or a read-only area's object) takes no
     // change, the note above saying so when one is tried.
@@ -2192,7 +2189,7 @@ pub(crate) fn edit_many(
 
 /// A form only looked at (the game's blueprint, opened by View; what an
 /// area another builder holds has, in a project that keeps those
-/// read-only), drawn with [`read_only_look`]: the changes to
+/// read-only), drawn with [`read_only_if`]: the changes to
 /// what `changes` says that were asked for since `pending` are dropped.
 /// Its fields still take the keyboard, for their text to be chosen and
 /// copied, but nothing typed reaches them ([`typing_kept_out`], before the
@@ -2274,19 +2271,12 @@ pub(crate) fn typing_kept_out(ui: &Ui, within: egui::Rect) {
     });
 }
 
-pub(crate) fn read_only_look(ui: &mut Ui) {
-    let v = ui.visuals_mut();
-    let quiet = v.widgets.noninteractive;
-    let text = egui::Stroke::new(1.0, v.weak_text_color());
-    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-        w.bg_fill = egui::Color32::TRANSPARENT;
-        w.weak_bg_fill = egui::Color32::TRANSPARENT;
-        w.bg_stroke = quiet.bg_stroke;
-        w.fg_stroke = text;
-        w.expansion = 0.0;
-    }
-    v.extreme_bg_color = v.panel_fill;
-    v.text_edit_bg_color = Some(v.panel_fill);
+/// `add`, drawn as read only where `viewed` (the mock's `.field.ro`,
+/// [`mg_uikit::read_only`]): no fill (the panel's), a quiet border, words
+/// in `text-2`, nothing lit under the pointer, check boxes, radio buttons
+/// and sliders quiet too.
+pub(crate) fn read_only_if<R>(ui: &mut Ui, viewed: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if viewed { mg_uikit::read_only(ui, add) } else { add(ui) }
 }
 
 #[cfg(test)]

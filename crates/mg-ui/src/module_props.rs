@@ -8,6 +8,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
+use mg_uikit::Controls as _;
 
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
@@ -330,9 +331,20 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let mut remove = false;
 
     ui.horizontal(|ui| {
-        crate::widgets::section_heading(ui, format!("Hak Files ({n})"));
+        // (The heading's rule stops short of the note at its right.)
+        let note = "Top overrides lower";
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let room = ui
+            .fonts_mut(|f| f.layout_no_wrap(note.into(), font, egui::Color32::PLACEHOLDER))
+            .size()
+            .x
+            + 2.0 * ui.spacing().item_spacing.x;
+        ui.scope(|ui| {
+            ui.set_max_width((ui.available_width() - room).max(0.0));
+            crate::widgets::section_heading(ui, format!("Hak Files ({n})"));
+        });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.weak("Top overrides lower").on_hover_text(
+            ui.weak(note).on_hover_text(
                 "Where two haks have the same resource, the game takes the higher one's",
             );
         });
@@ -340,10 +352,11 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let row_height = ui.spacing().interact_size.y;
     let frame = egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let tall = (row_height + ui.spacing().item_spacing.y) * 14.0;
+        let tall = mg_uikit::row_metrics(ui).1 * 14.0;
         let mut rects = Vec::with_capacity(n);
         egui::ScrollArea::vertical().id_salt("ifo-haks").max_height(tall).show(ui, |ui| {
             ui.set_width(ui.available_width());
+            mg_uikit::list_rows(ui);
             // (An older module's single hak, `Mod_Hak`, read where it has
             // no list: the haks layered, `mg_module::haks_of`.)
             match mg_module::haks_of(root).first().filter(|_| n == 0) {
@@ -576,7 +589,10 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             }
             let can_down = high.is_some_and(|h| h + 1 < n);
             if ui
-                .add_enabled(can_down, egui::Button::new("⏷"))
+                .add_enabled(
+                    can_down,
+                    crate::widgets::icon_only(mg_uikit::Icon::ArrowDown, "Move Down"),
+                )
                 .on_hover_text("Move the haks chosen down (Alt+Down)")
                 .clicked()
             {
@@ -584,7 +600,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             }
             let can_up = low.is_some_and(|l| l > 0);
             if ui
-                .add_enabled(can_up, egui::Button::new("⏶"))
+                .add_enabled(can_up, crate::widgets::icon_only(mg_uikit::Icon::ArrowUp, "Move Up"))
                 .on_hover_text("Move the haks chosen up (Alt+Up)")
                 .clicked()
             {
@@ -706,9 +722,9 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Typed text");
         ui.label("lines");
-        ui.add(egui::TextEdit::singleline(&mut draft.0).desired_width(80.0).hint_text("from"));
+        ui.add(mg_uikit::text_field(&mut draft.0).desired_width(80.0).hint_text("from"));
         ui.label("to");
-        ui.add(egui::TextEdit::singleline(&mut draft.1).desired_width(80.0).hint_text("to"));
+        ui.add(mg_uikit::text_field(&mut draft.1).desired_width(80.0).hint_text("to"));
         let typed = format!("{}-{}", draft.0.trim(), draft.1.trim());
         let parsed = match (draft.0.trim(), draft.1.trim()) {
             ("", "") => Ok(None),
@@ -892,7 +908,7 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
                 };
                 ui.weak(what).on_hover_text(format!(
                     "{from}
-→ {}",
+-> {}",
                     p.to.display()
                 ));
                 if !p.is_tlk {
@@ -919,7 +935,7 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
             draft.placements.swap(a, b);
         }
         if draft.placements.iter().any(|p| p.there == There::Different) {
-            ui.checkbox(&mut draft.replace, "Replace the files of the same names that are there");
+            ui.check_box(&mut draft.replace, "Replace the files of the same names that are there");
         }
         ui.horizontal(|ui| {
             if ui.button("OK").clicked() {

@@ -109,6 +109,10 @@ pub struct Missing {
     /// haks the user's `userpatch.ini` names, the user's `override/`, a
     /// Workshop item): a player without the same has nothing in its place.
     pub only_local: Option<Local>,
+    /// For sounds: the type it is there as, which the game does not look
+    /// for in the role (a sound kept only as `.bmu`, which Moonglow plays
+    /// and the game does not: [`mg_audio::Role::looked_for`]).
+    pub found_as: Option<ResType>,
 }
 
 /// Content of the user's own, which a module's players have only if they
@@ -190,9 +194,16 @@ impl Missing {
     }
 
     /// What is wrong with it, after its name: "missing", "not compiled",
-    /// or found only in the player's own content ("only in userpatch.ini's
-    /// haks …", "only in your override folder …").
-    pub fn what(&self) -> &'static str {
+    /// found only in the player's own content ("only in userpatch.ini's
+    /// haks …", "only in your override folder …"), or there only under a
+    /// type the game does not look for ("missing (only mg_snd.bmu is there,
+    /// …)").
+    pub fn what(&self) -> std::borrow::Cow<'static, str> {
+        if let (None, Some(t)) = (self.only_local, self.found_as) {
+            let name = format!("{}.{}", self.reference.target, t.extension().unwrap_or("?"));
+            return format!("missing (only {name} is there, which the game does not look for)")
+                .into();
+        }
         match self.only_local {
             Some(Local::Userpatch) => {
                 "only in userpatch.ini's haks (players without them won't have it)"
@@ -206,6 +217,7 @@ impl Missing {
             None if self.uncompiled => "not compiled",
             None => "missing",
         }
+        .into()
     }
 
     pub fn is_error(&self) -> bool {
@@ -348,7 +360,7 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
     // to it, so each is looked for in the layers once, however many
     // creatures name the script (a quarter of a million placed creatures
     // each name the same dozen default scripts, found under every hak).
-    type Wrong = Option<(bool, Option<Local>)>;
+    type Wrong = Option<(bool, Option<Local>, Option<ResType>)>;
     let verdict = |kind: RefKind, target: mg_core::ResRef| -> Wrong {
         let candidates = kind.candidates(target);
         // The game runs compiled scripts; a source alone does not satisfy a
@@ -370,14 +382,23 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
         let uncompiled = local_only.is_none()
             && kind == RefKind::Script
             && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
-        Some((uncompiled, local_only))
+        // A sound there only under a type the game doesn't look for in
+        // its role, which Moonglow plays: said, as a sound kept only as
+        // `.bmu` is no sound in the game.
+        let found_as = match (kind, satisfying.is_empty()) {
+            (RefKind::Sound, true) => (mg_audio::Role::Placed.lookup().into_iter())
+                .filter(|t| !kind.types().contains(t))
+                .find(|t| has(&ResKey::new(target, *t))),
+            _ => None,
+        };
+        Some((uncompiled, local_only, found_as))
     };
     let mut verdicts: HashMap<(RefKind, mg_core::ResRef), Wrong> = HashMap::new();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for r in references {
         let found = verdicts.entry((r.kind, r.target)).or_insert_with(|| verdict(r.kind, r.target));
-        let Some((uncompiled, local_only)) = *found else { continue };
+        let Some((uncompiled, local_only, found_as)) = *found else { continue };
         // Each missing target once per referencing resource (a dialog may
         // use the same script on hundreds of nodes).
         if !seen.insert((r.from, r.kind, r.target)) {
@@ -388,6 +409,7 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
             reference: r,
             uncompiled,
             only_local: local_only,
+            found_as,
         });
     }
     out
@@ -1134,8 +1156,10 @@ mod tests {
         rm.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
         rm.add(priority::USERPATCH, "userpatch:hd", LayerClass::Erf, patch);
         let miss = missing(&m, &rm);
-        let mut said: Vec<(String, Option<Local>, &str)> =
-            miss.iter().map(|x| (x.reference.target.to_string(), x.only_local, x.what())).collect();
+        let what: Vec<String> = miss.iter().map(|x| x.what().into_owned()).collect();
+        let mut said: Vec<(String, Option<Local>, &str)> = (miss.iter().zip(&what))
+            .map(|(x, w)| (x.reference.target.to_string(), x.only_local, w.as_str()))
+            .collect();
         said.sort_by(|a, b| a.0.cmp(&b.0));
         let override_ = "only in your override folder (players without the same won't have it)";
         assert_eq!(

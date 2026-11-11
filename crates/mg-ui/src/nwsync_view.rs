@@ -9,6 +9,7 @@
 //! how far it is (an upload: its output, as a project's command's) and has
 //! Cancel, and a panic in the work is said in the log, not a crash.
 
+use mg_uikit::Controls as _;
 use std::path::{Path, PathBuf};
 
 use mg_module::nwsync::{AFTER_PRUNING, AFTER_PUBLISHING, Part};
@@ -364,16 +365,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.add_enabled_ui(!busy, |ui| {
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, "Repository folder");
-                    ui.add(egui::TextEdit::singleline(&mut p.folder).desired_width(320.0));
+                    ui.add(mg_uikit::text_field(&mut p.folder).desired_width(320.0));
                     browse = ui.button("Browse…").clicked();
                 });
-                ui.checkbox(&mut p.with_module, "With the module itself").on_hover_text(
+                ui.check_box(&mut p.with_module, "With the module itself").on_hover_text(
                     "For a single-player module players download whole, not a persistent world",
                 );
                 if p.with_module {
                     ui.horizontal(|ui| {
                         crate::widgets::field_label(ui, "Name");
-                        ui.text_edit_singleline(&mut p.name);
+                        ui.add(mg_uikit::text_field(&mut p.name));
                     });
                     crate::widgets::field_label(ui, "Description");
                     let field = egui::TextEdit::multiline(&mut p.description)
@@ -386,7 +387,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.add(egui::DragValue::new(&mut p.group_id));
                     ui.weak("for servers sharing a repository");
                 });
-                ui.checkbox(
+                ui.check_box(
                     &mut p.latest,
                     "Make it the latest (what nwserver serves unless told a hash)",
                 );
@@ -466,7 +467,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     });
                     ui.weak(format!("Set in {}.", c.from()));
                     ui.add_enabled_ui(!busy, |ui| {
-                        ui.checkbox(
+                        ui.check_box(
                             &mut settings.nwsync_upload_after,
                             "Upload after publishing and after removing unused data",
                         );

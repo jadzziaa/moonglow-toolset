@@ -988,7 +988,7 @@ fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> e
     let fill = if enabled { color } else { ui.visuals().widgets.noninteractive.bg_fill };
     ui.painter().rect_filled(rect, 2.0, fill);
     let stroke = if selected {
-        egui::Stroke::new(2.0, ui.visuals().selection.stroke.color)
+        egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent)
     } else {
         ui.visuals().widgets.noninteractive.bg_stroke
     };
@@ -1061,7 +1061,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     let r = ui
                         .add_enabled(
                             props.has_loops[k],
-                            egui::Checkbox::new(on, format!("Animation Loop {}", k + 1)),
+                            mg_uikit::Checkbox::new(on, format!("Animation Loop {}", k + 1)),
                         )
                         .on_hover_text("Check to play this tile animation");
                     props.touched[4 + k] |= r.changed();
@@ -1089,7 +1089,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         let r = ui
                             .add_enabled(
                                 props.has_loops[2],
-                                egui::Checkbox::new(on, "Animation Loop 3"),
+                                mg_uikit::Checkbox::new(on, "Animation Loop 3"),
                             )
                             .on_hover_text("Check to play this tile animation");
                         props.touched[6] |= r.changed();
@@ -1148,7 +1148,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             ui.separator();
             ui.horizontal_wrapped(|ui| {
                 let all = ui
-                    .add_enabled(free, egui::Checkbox::new(&mut props.all_tiles, ALL_TILES))
+                    .add_enabled(free, mg_uikit::Checkbox::new(&mut props.all_tiles, ALL_TILES))
                     .on_hover_text(
                         "Offer every tile of the tileset, whether it fits its neighbors or not",
                     );
@@ -1384,7 +1384,7 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
 }
 
 /// The hint in All tiles' search field.
-pub const ALL_TILES_SEARCH: &str = "🔍 Search model, number";
+pub const ALL_TILES_SEARCH: &str = "Search model, number";
 
 /// Tile Properties' All tiles switch's name.
 pub const ALL_TILES: &str = "All Tiles (Ignore Fit)";
@@ -1408,8 +1408,8 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
         ui.add_enabled_ui(!locked, |ui| {
             let mut v = props.height.unwrap_or(props.first_height);
             let mut set = None;
-            let down = ui.button("-").on_hover_text("A height step down for these tiles alone");
-            named(&down, "Lower Height", !locked);
+            let tip = "A height step down for these tiles alone";
+            let down = crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, "Lower Height", tip);
             if down.clicked() {
                 set = Some(v - 1);
             }
@@ -1425,8 +1425,8 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
             if r.changed() {
                 set = Some(v);
             }
-            let up = ui.button("+").on_hover_text("A height step up for these tiles alone");
-            named(&up, "Raise Height", !locked);
+            let tip = "A height step up for these tiles alone";
+            let up = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Raise Height", tip);
             if up.clicked() {
                 set = Some(v + 1);
             }

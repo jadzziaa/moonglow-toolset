@@ -528,6 +528,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(190.0);
+            mg_uikit::list_rows(ui);
             for (i, (_, text)) in CHAPTERS.iter().enumerate() {
                 let name = if i == 0 { "Contents" } else { title(text) };
                 if ui.selectable_label(m.chapter == i, name).clicked() {

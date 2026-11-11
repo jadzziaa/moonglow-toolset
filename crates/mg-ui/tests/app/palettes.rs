@@ -483,15 +483,15 @@ fn edit_copy_s_cancel_takes_the_copy_back() {
     let key = copy(&mut h);
     click_tab_close(&mut h, &Tab::Blueprint(key));
     h.run_steps(3);
-    assert!(has(&h, &key) && open(&h, key).is_none(), "and so does its ×");
+    assert!(has(&h, &key) && open(&h, key).is_none(), "and so does its close button");
 
-    // With "Closing a window cancels its changes", its × is its Cancel:
+    // With "Closing a window cancels its changes", its close button is its Cancel:
     // no copy (as Aurora's close button leaves none), back with Undo.
     h.state_mut().settings.close_cancels = true;
     let key = copy(&mut h);
     click_tab_close(&mut h, &Tab::Blueprint(key));
     h.run_steps(3);
-    assert!(!has(&h, &key) && open(&h, key).is_none(), "its × takes the copy back");
+    assert!(!has(&h, &key) && open(&h, key).is_none(), "its close button takes the copy back");
     assert!(h.state().palette.selected.is_none(), "nothing of it is left to place");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Cancel Changes"));
     h.state_mut().actions.push(mg_ui::Action::Undo);
@@ -551,9 +551,12 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     h.run();
     assert!(h.query_by_label("Gate A").is_none(), "closed again");
     // (The palette's, under its search: the module tree has one too.)
-    let search = search_rect(&h, "🔍 Search name, tag, resref");
+    let search = search_rect(&h, "Search name, tag, resref");
     let below = |n: &egui_kittest::Node<'_>| (n.rect().top() - search.bottom()).abs();
-    let expand = h.get_all_by_label("⏷").min_by(|a, b| below(a).total_cmp(&below(b)));
+    let expand = h
+        .get_all_by_label("Expand All")
+        .filter(|n| n.accesskit_node().bounding_box().is_some())
+        .min_by(|a, b| below(a).total_cmp(&below(b)));
     expand.expect("Expand All").click();
     h.run();
     h.get_by_label("Gate A").click_secondary();
@@ -568,7 +571,10 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
         h.get_by_label("Special").click();
         h.run();
     }
-    let from = h.get_all_by_label("★ Gate A").last().unwrap().rect().center();
+    // (Marked with a bookmark before its name: the favorite's row.)
+    let marked = |n: &egui_kittest::Node<'_>| icon_drawn(&h, mg_uikit::Icon::Bookmark, n.rect());
+    let from = h.get_all_by_label("Gate A").filter(marked).last().expect("its bookmarked row");
+    let from = from.rect().center();
     let to = h.get_by_label("Custom 1 (1)").rect().center();
     h.hover_at(from);
     h.run();
@@ -619,9 +625,12 @@ fn empty_palette_categories_are_hidden_when_asked() {
     app.palette.custom = true;
     let mut h = harness(app, 900.0, 700.0);
     h.run();
-    let search = search_rect(&h, "🔍 Search name, tag, resref");
+    let search = search_rect(&h, "Search name, tag, resref");
     let below = |n: &egui_kittest::Node<'_>| (n.rect().top() - search.bottom()).abs();
-    let expand = h.get_all_by_label("⏷").min_by(|a, b| below(a).total_cmp(&below(b)));
+    let expand = h
+        .get_all_by_label("Expand All")
+        .filter(|n| n.accesskit_node().bounding_box().is_some())
+        .min_by(|a, b| below(a).total_cmp(&below(b)));
     expand.expect("Expand All").click();
     h.run();
     h.get_by_label("Custom 1 (1)");
@@ -641,6 +650,77 @@ fn empty_palette_categories_are_hidden_when_asked() {
     h.state_mut().settings.palette_hides_empty = false;
     h.run();
     assert!(h.query_by_label("Custom 2").is_some(), "listed again");
+}
+
+/// The palette's types in a narrow pane: a row of icons (wrapped) down to
+/// the width where four fit, a dropdown with its icon below it; at every
+/// width across the change, nothing of either is cut at the pane's edge.
+/// (MG_SHOT: a picture at each width.)
+#[test]
+fn the_palette_s_types_fit_a_narrow_pane() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-palette-types-narrow");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    let mut h = harness(app, 900.0, 700.0);
+    h.run_steps(3);
+    let tab = Tab::Palette;
+    let at = h.state().dock.find_tab(&tab).expect("the palettes' pane");
+    let rect = egui::Rect::from_min_size(egui::pos2(300.0, 60.0), egui::vec2(200.0, 600.0));
+    h.state_mut().dock.detach_tab(at, rect);
+    settle(&mut h);
+    let shots = std::env::var_os("MG_SHOT").is_some();
+    let out = shots.then(|| mg_testkit::scratch_dir("ui-palette-types-narrow-shots"));
+    let (mut rows, mut lists) = (0, 0);
+    // (Across the change, at 96 px of pane: from a window of 90, its pane
+    // a little narrower.)
+    for width in (90..=130).step_by(2) {
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        let state = h.state_mut().dock.get_window_state_mut(at.surface).unwrap();
+        state.set_size(egui::vec2(width as f32, 600.0));
+        settle(&mut h);
+        let body = (h.state().dock.iter_leaves())
+            .find(|(_, leaf)| leaf.tabs.contains(&tab))
+            .map(|(_, leaf)| leaf.viewport)
+            .unwrap();
+        let inside =
+            |r: egui::Rect| r.left() >= body.left() - 0.5 && r.right() <= body.right() + 0.5;
+        if let Some(row) = h.query_by_label("Palette types") {
+            rows += 1;
+            for n in row.query_all_by(|n| n.role() == egui::accesskit::Role::Button) {
+                let r = n.rect();
+                assert!(
+                    inside(r),
+                    "{:?} at {r:?}, past the pane {body:?}",
+                    n.accesskit_node().label()
+                );
+            }
+        } else {
+            lists += 1;
+            let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+            let is_type = |n: &egui_kittest::Node<'_>| {
+                PALETTE_TYPES.contains(&n.accesskit_node().value().unwrap_or_default().as_str())
+            };
+            let list = h.query_all(combo).find(is_type).expect("the types' dropdown").rect();
+            assert!(inside(list), "the dropdown at {list:?}, past the pane {body:?}");
+            // (Its icon before it, on its row.)
+            let icons = mg_uikit::icons_drawn(&h.ctx);
+            let lead = icons.iter().find(|(_, r)| {
+                (r.center().y - list.center().y).abs() < 4.0 && r.right() <= list.left() + 0.5
+            });
+            let lead = lead.expect("the type's icon before the dropdown").1;
+            assert!(inside(lead), "its icon at {lead:?}, past the pane {body:?}");
+        }
+        if let Some(out) = &out {
+            mg_testkit::gpu::hold();
+            h.render().unwrap().save(out.join(format!("types-{width}.png"))).unwrap();
+        }
+    }
+    assert!(rows > 0 && lists > 0, "both seen: {rows} rows, {lists} lists");
 }
 
 /// GitHub issue 16: the palette's header. The types are one row of icons
@@ -666,12 +746,18 @@ fn the_palette_s_header() {
         let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
         leaves.find(|l| l.tabs.contains(&Tab::Palette)).expect("the palettes' pane").rect
     };
-    let last = h.get_by_label("🗐").rect();
+    let last = h.get_by_label("Palette types").get_by_label("Prefabs").rect();
     assert!(last.right() <= pane.right() && last.left() > pane.left(), "{last:?} in {pane:?}");
-    h.get_by_label("🚪").click();
+    palette_type(&mut h, "Doors");
     h.run_steps(2);
     assert_eq!(h.state().palette.kind, mg_module::palette::BlueprintKind::Door);
-    h.get_by_label("Doors");
+    // Named above the list: the heading, the one "Doors" outside the
+    // types' row and the area toolbar (whose filter is "Show Doors").
+    let in_types = |n: &egui_kittest::Node<'_>| in_group(n, "Palette types");
+    let headings: Vec<_> = h.query_all_by_label("Doors").filter(|n| !in_types(n)).collect();
+    assert_eq!(headings.len(), 1, "the doors, named in the heading");
+    assert_eq!(headings[0].accesskit_node().role(), egui::accesskit::Role::Label);
+    assert!(headings[0].rect().top() > last.bottom(), "under the types");
     // How many the list has; a search that finds none, and cleared.
     let count = |h: &Harness<'_, Moonglow>| -> usize {
         let counts = h.query_all_by_label_contains(" item").filter_map(|n| {
@@ -683,11 +769,11 @@ fn the_palette_s_header() {
     };
     let all = count(&h);
     assert!(all > 10, "{all} doors");
-    assert!(h.query_by_label("×").is_none());
+    assert!(h.query_by_label("Clear").is_none());
     type_into_hint(&mut h, "Find", "zzzzqq");
     h.run_steps(2);
     assert!(count(&h) < 5);
-    h.get_by_label("×").click();
+    h.get_by_label("Clear").click();
     h.run_steps(2);
     assert!(h.state().palette.filter.is_empty());
     assert_eq!(count(&h), all);
@@ -1623,7 +1709,7 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
     // The palette's Prefabs: none yet, and how to make one.
-    palette_type(&mut h, "🗐", "Prefabs");
+    palette_type(&mut h, "Prefabs");
     h.run_steps(2);
     assert!(h.query_by_label_contains("No prefabs yet").is_some());
     assert!(h.query_by_label_contains("Save 2 as Prefab").is_none());
@@ -1631,7 +1717,7 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     // Two objects selected: the toolbar offers to save them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
     h.run_steps(2);
-    h.get_by_label("🗐 Save 2 as Prefab…").click();
+    h.get_by_label("Save 2 as Prefab…").click();
     h.run_steps(2);
     let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
     assert_eq!(clip.objects.len(), 2);
@@ -1716,7 +1802,7 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
     close_tab(h.state_mut(), &Tab::ModuleProperties);
     close_tab(h.state_mut(), &Tab::Palette);
     h.run();
-    h.get_by_label("📦 Palettes").click();
+    tool(&h, "Palettes").click();
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Palette).is_some());
 }
@@ -1730,7 +1816,7 @@ fn the_palette_shown_last_is_remembered() {
     h.state_mut().open_palette = true;
     h.run_steps(3);
     assert_eq!(h.state().settings.palette_type, None);
-    palette_type(&mut h, "🚪", "Doors");
+    palette_type(&mut h, "Doors");
     h.run_steps(2);
     assert_eq!(h.state().settings.palette_type.as_deref(), Some("utd"));
     // A category opened, and what is typed in the search: kept too (a
@@ -1872,7 +1958,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     assert!(!modified(&h));
     // Every category closed (Collapse All) with the search typed: the one
     // a blueprint the search finds arrives in opens again.
-    h.get_all_by_label("⏶").last().unwrap().click();
+    h.get_all_by_label("Collapse All").last().unwrap().click();
     h.run_steps(4);
     assert!(!listed(&h, &kept), "closed");
 
@@ -1964,12 +2050,12 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-gallery").join("gallery.png")).unwrap();
     // List goes back to the names, and Gallery to the pictures.
-    h.get_by_label("☰").click();
+    h.get_by_label("List").click();
     h.run_steps(3);
     assert!(!h.state().settings.palette_gallery);
     let row = h.get_all_by_label(&name).next().expect("the chest's row").rect().size();
     assert!(row.y < 30.0, "a row of the list: {row:?}");
-    h.get_by_label("🖼").click();
+    h.get_by_label("Gallery").click();
     h.run_steps(3);
     assert!(h.state().settings.palette_gallery);
 }
@@ -2602,10 +2688,10 @@ fn the_palette_s_blueprint_menu_groups_its_commands_in_submenus() {
             "Edit",
             "Export…",
             "Edit Copy…",
-            "Replace Selected ⏵",
+            "Replace Selected",
             "Add to Favorites",
             "Find References",
-            "Copy ⏵",
+            "Copy",
             "Update Instances",
             "Delete"
         ],
@@ -2645,6 +2731,7 @@ fn palette_labels(
     search: egui::Rect,
 ) -> std::collections::BTreeSet<String> {
     h.query_all_by_label_contains("")
+        .filter(|n| n.accesskit_node().bounding_box().is_some())
         .filter(|n| {
             let r = n.rect();
             r.top() > search.bottom() && r.left() >= search.left() - 30.0
@@ -2668,7 +2755,7 @@ fn a_search_cleared_leaves_the_categories_as_they_were() {
     }
     h.state_mut().settings.palette_gallery = true;
     settle(&mut h);
-    let hint = search_rect(&h, "🔍 Search name, tag, resref");
+    let hint = search_rect(&h, "Search name, tag, resref");
     let first = palette_labels(&h, hint);
     // A category opened: its rows under it.
     let header = first
@@ -2708,7 +2795,7 @@ fn the_tiles_palette_s_search_cleared_leaves_its_headings_as_they_were() {
     h.state_mut().palette.filter.clear();
     h.state_mut().settings.palette_gallery = true;
     settle(&mut h);
-    let hint = search_rect(&h, "🔍 Search name, model");
+    let hint = search_rect(&h, "Search name, model");
     let before = palette_labels(&h, hint);
     h.state_mut().palette.filter = "water".into();
     settle(&mut h);
@@ -2882,9 +2969,12 @@ fn the_palette_groups_blueprints_by_the_project_s_groupings() {
     let gates = headers(&h, "Gates (");
     assert_eq!(gates.first().map(|g| g.0.as_str()), Some("Gates (2)"), "{gates:?}");
     // (Expand All: the palette's, under its search.)
-    let search = search_rect(&h, "🔍 Search name, tag, resref");
+    let search = search_rect(&h, "Search name, tag, resref");
     let below = |n: &egui_kittest::Node<'_>| (n.rect().top() - search.bottom()).abs();
-    let expand = h.get_all_by_label("⏷").min_by(|a, b| below(a).total_cmp(&below(b)));
+    let expand = h
+        .get_all_by_label("Expand All")
+        .filter(|n| n.accesskit_node().bounding_box().is_some())
+        .min_by(|a, b| below(a).total_cmp(&below(b)));
     expand.expect("Expand All").click();
     settle(&mut h);
     let menus = h.query_all_by_label("Edit").count();

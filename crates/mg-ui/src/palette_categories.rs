@@ -310,6 +310,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
         ui.weak("Drag a row to move it: before or after another, or into a group.");
         egui::ScrollArea::vertical().max_height(420.0).auto_shrink([false, true]).show(ui, |ui| {
+            mg_uikit::list_rows(ui);
             let list = w.skeleton.root.list("MAIN").unwrap_or(&[]).to_vec();
             let (mut at, mut drop) = (Vec::new(), None);
             let p = &w.pending;
@@ -343,7 +344,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "Name");
             ui.add(
-                egui::TextEdit::singleline(&mut w.name)
+                mg_uikit::text_field(&mut w.name)
                     .desired_width(220.0)
                     .hint_text("a category's or group's name"),
             );
@@ -395,7 +396,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "StrRef");
             ui.add(
-                egui::TextEdit::singleline(&mut w.strref)
+                mg_uikit::text_field(&mut w.strref)
                     .desired_width(100.0)
                     .hint_text("a talk-table line"),
             );
@@ -479,6 +480,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     .width(260.0)
                     .selected_text(shown)
                     .show_ui(ui, |ui| {
+                        mg_uikit::list_rows(ui);
                         for (id, name) in &left {
                             ui.selectable_value(&mut r.to, Some(*id), name);
                         }

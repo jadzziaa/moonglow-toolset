@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T13:50:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
 ---
 
 # Modules
@@ -1269,9 +1269,9 @@ log by line, as the project file's are.
 
 **In the window**, with your code set (**Edit › Builder Code…**):
 
-- the module tree marks each claimed area: ✔ and your code for yours,
-  🔒 and the other's code for another's (in the warning color), 📌 for a
-  merged one; on hover, who claimed it and since when;
+- the module tree marks each claimed area: a check and your code for
+  yours, a lock and the other's code for another's (in the warning
+  color), a pin for a merged one; on hover, who claimed it and since when;
 - an area another builder claimed says so above its view and its
   Properties, as does an unclaimed one in a project that warns of those
   (`unclaimed = "warn"`), with **Claim This Area** beside it;
@@ -1892,7 +1892,8 @@ folder's files, subfolders included, to look over and save.
   or by size (the largest first).
 - **Viewing:** **View**, or a double click, shows a resource under the
   list: a picture (a TGA or DDS; a PLT in each layer's first color), a
-  sound with **Play**, a 2DA's rows and columns as the resource browser
+  sound with **Play** (a `.bmu` holding a WAVE is marked as one the game
+  does not play), a 2DA's rows and columns as the resource browser
   shows them, a GFF's fields, a text file's text, else its first bytes.
   A model is drawn in the model viewer: where the game reads this hak's
   copy (the hak is one of the module's, saved as it is) as the game
@@ -2125,7 +2126,7 @@ over the table, and Save writes the editor's table over the other.
 Under the table are **OK** and **Cancel**: OK saves the table and closes
 its window; Cancel closes it without saving, asking first where there
 are unsaved changes (**Save**, **Don't Save** or **Cancel**), as the
-window's × does (a table's changes are its own, and the module's Undo
+window's close button does (a table's changes are its own, and the module's Undo
 does not bring them back).
 
 ### A table's description

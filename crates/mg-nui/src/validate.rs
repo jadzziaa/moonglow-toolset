@@ -203,7 +203,9 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             "/actions",
             &format!(
                 "Value changed handlers form a recursive bind cycle: {}",
-                circle.join(" \u{2192} ")
+                // (`->`: the NUI Creator shows its checks in a
+                // proportional font, which has no arrow.)
+                circle.join(" -> ")
             ),
         );
     }
@@ -1028,7 +1030,7 @@ mod tests {
             watch("a", Action::Toggle { bind: "b".into() }),
             watch("b", Action::Toggle { bind: "a".into() }),
         ];
-        assert!(error(&window(), &s, "recursive bind cycle: a \u{2192} b \u{2192} a"));
+        assert!(error(&window(), &s, "recursive bind cycle: a -> b -> a"));
     }
 
     #[test]
@@ -1052,8 +1054,8 @@ mod tests {
             .map(|d| d.message)
             .collect();
         assert_eq!(said.len(), 2, "{said:?}");
-        assert!(said[0].ends_with("a \u{2192} b \u{2192} c \u{2192} a"), "{said:?}");
-        assert!(said[1].ends_with("p \u{2192} q \u{2192} p"), "{said:?}");
+        assert!(said[0].ends_with("a -> b -> c -> a"), "{said:?}");
+        assert!(said[1].ends_with("p -> q -> p"), "{said:?}");
     }
 
     #[test]

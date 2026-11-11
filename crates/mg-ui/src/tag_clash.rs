@@ -19,6 +19,7 @@ use mg_gff::Value;
 use mg_module::project_file::PasteWarning;
 use mg_module::tags::{Clash, MadeTag, TagCache, TagIndex, clashes, retag};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::Moonglow;
 
@@ -322,7 +323,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if clash.from_option {
                 let mut dont = !app.settings.warn_duplicate_tags;
                 if ui
-                    .checkbox(&mut dont, "Don't warn again")
+                    .check_box(&mut dont, "Don't warn again")
                     .on_hover_text(
                         "Turn off the duplicate tags warning (Options › General turns it on again)",
                     )

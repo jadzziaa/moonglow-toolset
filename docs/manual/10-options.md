@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-09T22:57:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
 ---
 
 # Options
@@ -125,7 +125,7 @@ the module is opened again from its file.
 ### Graphics
 
 - **Shadows quality**: how the area view draws the game's shadows (its
-  **◑ Shadows**; also chosen in that button's menu, see
+  **Shadows**; also chosen in that button's menu, see
   [Areas](04-areas.md)). **Fast** (the default): a shadow map stands in
   for the game's shadows, cheap in every area; in a large area seen out
   to its far side, its edges up close are a little soft and stepped.
@@ -168,7 +168,7 @@ the module is opened again from its file.
 
 - **Lights of any color and reach, written into a hak** (off by
   default): Moonglow's own. On, the area's **Add Light Here** and the
-  palette's **☀ Lights** offer **Custom Light…** (see
+  palette's **Lights** offer **Custom Light…** (see
   [Areas](04-areas.md#lights-of-any-color-and-reach)), which writes a
   light's model and a placeables.2da row into a hak you choose, one
   the module's players must have. Off, nothing is ever written into a
@@ -244,7 +244,14 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
 
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
-- **Light theme**: dark text on light, rather than the dark theme.
+- **Light theme**: the suite's light theme (light gray panels and bars,
+  dark text, the same blue for what is chosen) rather than its dark one,
+  which is the default. It changes when OK closes the Options window,
+  in every window, as Interface size does (Cancel leaves it as it was). What a 3D view, a model preview or a NUI window shows (the
+  game's own look) is the same in both, and so are the script editor's
+  colors where a Background of your own is set: a dark Background takes
+  the dark theme's colors and a light one the light theme's, so its text
+  stays readable whichever theme the window wears.
 - **Toolbar buttons** (Icons and text): **Icons only** shows the
   buttons of the main toolbar, of the area view's toolbar and of the
   editors' toolbars (the script editor's, the conversation editor's, a
@@ -252,8 +259,9 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   toolbars are, to save room: the area view's toolbar takes about half
   the rows it took. Rest the pointer on an icon and its tip names it,
   with its key and what it does; a screen reader reads the button's
-  name, not its icon. The area view's dropdowns show an icon for what
-  they set (🏠 Fade Geometry, 📐 Snap, ↻ Turn) before their choice. The
+  name, not its icon. With Icons only, the area view's Fade Geometry,
+  Snap and Turn dropdowns show an icon for what they set before their
+  choice. The
   editors' buttons show their words alone with Icons and text, as they
   always have; the palette's tile tools (Select Tiles, Eraser, Refine
   Tile…) are rows of its list, named as in Aurora's palette, and keep
@@ -299,7 +307,7 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   A window with **OK** and **Cancel** (a blueprint's or a placed
   object's Properties, several edited together, Module and Area
   Properties, a conversation, the journal, the factions, the raw fields
-  view, a NUI window) closed any way but OK (its tab's ×, the tab's
+  view, a NUI window) closed any way but OK (its tab's close button, the tab's
   **Close**, **Close Others**, **Close Tabs to the Right** or **Close
   All**, Ctrl+W) does what its Cancel does, as Aurora's close button
   does: what was changed in it is set back, as one step that Undo takes
@@ -495,7 +503,8 @@ outside Moonglow) always ask.
 ### Font and Colors
 
 - The editor's **font size**, syntax **colors** and **Background**
-  (the theme's unless Custom is ticked), with a preview. **Reset to
+  (the theme's unless Custom is ticked; colors not chosen follow the
+  Background's lightness), with a preview. **Reset to
   defaults** sets these back; it leaves the indentation alone.
 
 ## Conversation Editor
@@ -601,7 +610,8 @@ tree and the palettes). Every command of the menus
 is listed, in the menus' order, whether it has a key or not: give Build
 Module or Verify Module one here. **Find a command** narrows the list to
 what you type (a command's name, or its group's).
-- **+** then the keys adds a key (Escape: none); a key's **×** removes
+- **Add a key** (the plus button) then the keys adds a key (Escape:
+  none); a key's own button (**Remove Ctrl+S from Save**, say) removes
   it. A command can have several keys, or none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
   command.

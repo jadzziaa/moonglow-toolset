@@ -267,10 +267,16 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                         ui.add(egui::Label::new(line).wrap());
                     }
                     ui.add_space(4.0);
+                    // (A square of each color before what it shows.)
+                    let chip = |ui: &mut egui::Ui, color| {
+                        let side = egui::Vec2::splat(10.0);
+                        let (rect, _) = ui.allocate_exact_size(side, egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 1.0, color);
+                    };
                     ui.horizontal(|ui| {
-                        ui.colored_label(BEFORE, "■");
+                        chip(ui, BEFORE);
                         ui.label("as the game has it now");
-                        ui.colored_label(AFTER, "■");
+                        chip(ui, AFTER);
                         ui.label("as baked");
                     });
                     ui.weak(

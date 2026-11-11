@@ -3,6 +3,7 @@
 
 use egui::Ui;
 use mg_module::new::{AREA_SIZE_RANGE, AREA_SIZES, AreaSpec, TilesetChoice};
+use mg_uikit::Controls as _;
 
 use crate::{Action, Moonglow};
 
@@ -89,7 +90,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Wizard::NewModule { name }) => {
             crate::widgets::modal(&ctx, "New Module").show(&ctx, |ui| {
                 crate::widgets::field_label(ui, "Module name");
-                let field = ui.text_edit_singleline(name);
+                let field = ui.add(mg_uikit::text_field(name));
                 crate::widgets::autofocus(ui, &field);
                 ui.horizontal(|ui| {
                     let ok = !name.trim().is_empty();
@@ -108,7 +109,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Wizard::NewArea(w)) => {
             crate::widgets::modal(&ctx, "Area Wizard").show(&ctx, |ui| {
                 crate::widgets::field_label(ui, "Name");
-                let field = ui.text_edit_singleline(&mut w.name);
+                let field = ui.add(mg_uikit::text_field(&mut w.name));
                 crate::widgets::autofocus(ui, &field);
                 // The ResRef the name gives, where the builder's code
                 // makes it other than the name (as Create makes it).
@@ -132,6 +133,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     list.show(ui, |ui| {
                         ui.set_width(280.0);
+                        mg_uikit::list_rows(ui);
                         for (i, t) in w.tilesets.iter().enumerate() {
                             if !w.shows(t) {
                                 continue;
@@ -153,7 +155,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if !w.hidden.is_empty() {
                     let label = format!("Show hidden tilesets ({})", w.hidden.len());
                     if ui
-                        .checkbox(&mut w.show_hidden, label)
+                        .check_box(&mut w.show_hidden, label)
                         .on_hover_text(
                             "Tilesets the project's moonglow.toml hides. Areas on them still open \
                              as usual.",
@@ -182,8 +184,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.weak("tiles, 10 m each");
                 });
                 ui.add_space(6.0);
-                ui.checkbox(&mut w.launch_properties, "Launch Area Properties Dialog");
-                ui.checkbox(&mut w.open_viewer, "Open Area in the Area Viewer");
+                ui.check_box(&mut w.launch_properties, "Launch Area Properties Dialog");
+                ui.check_box(&mut w.open_viewer, "Open Area in the Area Viewer");
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let spec = w.spec().filter(|s| !s.name.is_empty());

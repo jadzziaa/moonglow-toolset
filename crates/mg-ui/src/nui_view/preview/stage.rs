@@ -272,7 +272,7 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
             state.runtime = None;
             state.forget_scrolls();
         }
-        ui.menu_button(format!("UI scale {:.0}%", state.preview_scale * 100.0), |ui| {
+        mg_uikit::menu_button(ui, format!("UI scale {:.0}%", state.preview_scale * 100.0), |ui| {
             for (label, scale) in [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("200%", 2.0)] {
                 if ui.selectable_value(&mut state.preview_scale, scale, label).clicked() {
                     ui.close();
@@ -296,8 +296,9 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         }
         ui.toggle_value(&mut state.preview_info, "Resources");
         ui.toggle_value(&mut state.preview_clean, "Clean view");
-        ui.menu_button("Screen", |ui| {
-            ui.checkbox(&mut state.screen_preview, "Preview on screen");
+        mg_uikit::menu_button(ui, "Screen", |ui| {
+            mg_uikit::menu_rows(ui);
+            ui.check_box(&mut state.screen_preview, "Preview on screen");
             for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
                 if ui
                     .selectable_value(&mut state.screen_size, vec2(w, h), format!("{w} × {h}"))

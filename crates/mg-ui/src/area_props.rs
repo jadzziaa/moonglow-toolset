@@ -9,6 +9,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Value};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
@@ -171,27 +172,32 @@ fn pages(
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     let shown = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-        if viewed {
-            crate::blueprint::read_only_look(ui);
-        }
-        if page == "Audio" {
-            audio(app, ui, area, others);
-            return;
-        }
-        if page == "Grass" {
-            crate::area_grass::page(app, ui, area, others);
-            return;
-        }
-        let mut f =
-            Form { app, key: are, path: GffPath::root(), also, root, together: Default::default() };
-        match page {
-            "Basic" => basic(&mut f, ui),
-            "Visual" => visual(&mut f, ui),
-            "Events" => events(&mut f, ui),
-            "Advanced" => advanced(&mut f, ui),
-            "Variables" => variables_page(&mut f, ui),
-            _ => f.memo(ui, "Comments", "Comments"),
-        }
+        crate::blueprint::read_only_if(ui, viewed, |ui| {
+            if page == "Audio" {
+                audio(app, ui, area, others);
+                return;
+            }
+            if page == "Grass" {
+                crate::area_grass::page(app, ui, area, others);
+                return;
+            }
+            let mut f = Form {
+                app,
+                key: are,
+                path: GffPath::root(),
+                also,
+                root,
+                together: Default::default(),
+            };
+            match page {
+                "Basic" => basic(&mut f, ui),
+                "Visual" => visual(&mut f, ui),
+                "Events" => events(&mut f, ui),
+                "Advanced" => advanced(&mut f, ui),
+                "Variables" => variables_page(&mut f, ui),
+                _ => f.memo(ui, "Comments", "Comments"),
+            }
+        })
     });
     Some(shown.inner_rect)
 }
@@ -363,23 +369,33 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     let focus_id = egui::Id::new(("schemes-focus", f.key));
     let refocus: Option<usize> = ui.data_mut(|d| d.remove_temp(focus_id));
     let mut stepped = None;
-    egui::Grid::new(("schemes", f.key)).spacing([16.0, 2.0]).min_col_width(widest).show(ui, |ui| {
-        for row in 0..rows {
-            for col in 0..columns {
-                let at = col * rows + row;
-                let Some(c) = schemes.get(at) else { continue };
-                let r = ui.selectable_label(c.row as i64 == current, &c.text);
-                if refocus == Some(at) {
-                    r.request_focus();
+    mg_uikit::with_rows(ui, |ui| {
+        egui::Grid::new(("schemes", f.key)).spacing([16.0, 0.0]).min_col_width(widest).show(
+            ui,
+            |ui| {
+                for row in 0..rows {
+                    for col in 0..columns {
+                        let at = col * rows + row;
+                        let Some(c) = schemes.get(at) else { continue };
+                        let r = ui.selectable_label(c.row as i64 == current, &c.text);
+                        if refocus == Some(at) {
+                            r.request_focus();
+                        }
+                        if r.clicked() {
+                            picked = Some(c.row);
+                        }
+                        stepped = stepped.or(crate::widgets::grid_arrow_pick(
+                            ui,
+                            &r,
+                            at,
+                            schemes.len(),
+                            rows,
+                        ));
+                    }
+                    ui.end_row();
                 }
-                if r.clicked() {
-                    picked = Some(c.row);
-                }
-                stepped =
-                    stepped.or(crate::widgets::grid_arrow_pick(ui, &r, at, schemes.len(), rows));
-            }
-            ui.end_row();
-        }
+            },
+        )
     });
     if let Some(at) = stepped {
         picked = Some(schemes[at].row);
@@ -436,7 +452,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal(|ui| {
         f.mark_mixed_inline(ui, &["DayNightCycle", "IsNight"]);
         for (m, text) in [(0, "Cycle Day and Night"), (1, "Always Bright"), (2, "Always Dark")] {
-            if ui.radio(mode == m, text).clicked() && mode != m {
+            if ui.radio_button(mode == m, text).clicked() && mode != m {
                 let (c, n) = match m {
                     0 => (1, i64::from(night)),
                     1 => (0, 0),
@@ -474,7 +490,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         f.mark_mixed(ui, "WindPower");
         ui.horizontal(|ui| {
             for (i, w) in winds.iter().enumerate() {
-                if ui.radio(wind == i as i64, *w).clicked() && wind != i as i64 {
+                if ui.radio_button(wind == i as i64, *w).clicked() && wind != i as i64 {
                     f.set_int("Wind power", "WindPower", i as i64, FieldType::Int);
                 }
             }
@@ -521,7 +537,8 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let mut relight: bool = ui.data(|d| d.get_temp(relight_id)).unwrap_or(false);
     let mut scheme_of = None;
     ui.horizontal(|ui| {
-        ui.menu_button("Copy From Area", |ui| {
+        mg_uikit::menu_button(ui, "Copy From Area", |ui| {
+            mg_uikit::menu_rows(ui);
             // (The module's other areas, made while the menu is open.)
             let mut areas: Vec<(ResRef, String)> = match &f.app.ws {
                 Some(ws) => (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
@@ -544,7 +561,8 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
         .on_hover_text(
             "Takes the lighting, fog, sky and weather from another area. Tiles' lights stay.",
         );
-        ui.menu_button("Saved Lighting", |ui| {
+        mg_uikit::menu_button(ui, "Saved Lighting", |ui| {
+            mg_uikit::menu_rows(ui);
             is_open = true;
             if !was_open {
                 saved = std::sync::Arc::new(crate::lighting::list(dir.as_deref()));
@@ -572,7 +590,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             }
             if !saved.is_empty() {
-                ui.checkbox(&mut relight, "Tiles' Lights Too").on_hover_text(
+                ui.check_box(&mut relight, "Tiles' Lights Too").on_hover_text(
                     "Also picks each tile's lights anew from the colors saved with the lighting",
                 );
             }
@@ -584,7 +602,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
             if saved.is_empty() {
                 return;
             }
-            ui.menu_button("Rename", |ui| {
+            mg_uikit::menu_button(ui, "Rename", |ui| {
                 for name in saved {
                     if ui.button(name).clicked() {
                         ui.data_mut(|d| d.insert_temp(naming, (Some(name.clone()), name.clone())));
@@ -592,7 +610,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                     }
                 }
             });
-            ui.menu_button("Delete", |ui| {
+            mg_uikit::menu_button(ui, "Delete", |ui| {
                 for name in saved {
                     if ui
                         .button(name)
@@ -611,12 +629,12 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                     }
                 }
             });
-            ui.menu_button("Make a Lighting Scheme", |ui| {
+            mg_uikit::menu_button(ui, "Make a Lighting Scheme", |ui| {
                 ui.weak("A row of environment.2da: the table to add it to");
                 let key =
                     ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
                 for name in saved {
-                    ui.menu_button(name, |ui| {
+                    mg_uikit::menu_button(ui, name, |ui| {
                         if let Some(home) = crate::browser::table_homes(f.app, ui, key) {
                             scheme_of = Some((name.clone(), home));
                             ui.close();
@@ -650,7 +668,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
     let mut done = false;
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, if from.is_some() { "Rename to" } else { "Name" });
-        let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(200.0));
+        let r = ui.add(mg_uikit::text_field(&mut name).desired_width(200.0));
         crate::widgets::autofocus(ui, &r);
         let other = |s: &&String| from.as_ref() != Some(*s) && s.eq_ignore_ascii_case(name.trim());
         let taken = saved.iter().any(|s| other(&s));
@@ -972,7 +990,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 let set = flags & bit != 0;
                 for (want, text) in [(false, off), (true, on)] {
-                    if ui.radio(set == want, text).clicked() && set != want {
+                    if ui.radio_button(set == want, text).clicked() && set != want {
                         set_flag(f, text, bit, want);
                     }
                 }
@@ -992,7 +1010,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 for (k, bit) in (3..16).map(|b| 1u32 << b).enumerate() {
                     let mut on = flags & bit != 0;
                     f.mark_mixed_bit(ui, "Flags", bit);
-                    if ui.checkbox(&mut on, bit.to_string()).changed() {
+                    if ui.check_box(&mut on, bit.to_string()).changed() {
                         set_flag(f, "Shader flags", bit, on);
                     }
                     if k % 7 == 6 {
@@ -1379,13 +1397,13 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                             crate::widgets::field_label(ui, name);
                             ui.horizontal(|ui| {
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut c.hold_name)
+                                    mg_uikit::text_field(&mut c.hold_name)
                                         .hint_text(hint)
                                         .desired_width(150.0),
                                 );
                                 ui.label("=");
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut c.hold_value)
+                                    mg_uikit::text_field(&mut c.hold_value)
                                         .hint_text("any")
                                         .desired_width(90.0),
                                 )
@@ -1417,7 +1435,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 }
                 ui.add(
-                    egui::TextEdit::singleline(&mut c.set_name)
+                    mg_uikit::text_field(&mut c.set_name)
                         .hint_text("set name")
                         .desired_width(140.0),
                 );
@@ -1474,13 +1492,12 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.separator();
             // (The rows in sight alone are laid out: a world has
             // thousands of areas.)
-            let height = ui.spacing().interact_size.y;
             let rows = egui::ScrollArea::vertical().max_height(250.0).auto_shrink([false, false]);
-            rows.show_rows(ui, height, shown.len(), |ui, range| {
+            mg_uikit::show_rows(rows, ui, shown.len(), |ui, range| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 for (a, _, label) in &shown[range] {
                     let mut on = c.chosen.contains(a);
-                    if ui.checkbox(&mut on, label.as_str()).changed() {
+                    if ui.check_box(&mut on, label.as_str()).changed() {
                         if on {
                             c.chosen.insert(*a);
                         } else {

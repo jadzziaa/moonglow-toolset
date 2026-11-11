@@ -17,7 +17,7 @@ fastrand.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
 mg-area.workspace = true
-mg-audio.workspace = true
+mg-audio = { workspace = true, features = ["decode"] }
 mg-edit.workspace = true
 mg-image.workspace = true
 glam.workspace = true
@@ -39,6 +39,7 @@ mg-script.workspace = true
 mg-set.workspace = true
 mg-tiles.workspace = true
 mg-tlk.workspace = true
+mg-uikit.workspace = true
 mg-update.workspace = true
 notify.workspace = true
 ron.workspace = true

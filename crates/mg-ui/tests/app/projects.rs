@@ -1957,8 +1957,9 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
     );
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    // The tree's mark: whose it is.
-    h.get_by_label("🔒 cd");
+    // The tree's mark: whose it is (a lock, and its builder code).
+    let mark = h.get_by_label("cd").rect().expand2(egui::vec2(24.0, 4.0));
+    assert!(icon_drawn(&h, mg_uikit::Icon::Lock, mark), "the lock beside cd");
     // Read-only: the change is refused, and said.
     h.state_mut().actions.push(rename_start("Market"));
     h.run();
@@ -1978,25 +1979,21 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
         .push(mg_ui::Action::OpenTab(Tab::AreaProperties(ResRef::from_str("start").unwrap())));
     h.run();
     h.run();
-    assert!(
-        h.query_by_label(
-            "🔒 start is claimed by cd since 2026-10-20: read-only here. Ask them to release it, \
-             then claim it."
-        )
-        .is_some()
+    let said = h.get_by_label(
+        "start is claimed by cd since 2026-10-20: read-only here. Ask them to release it, \
+         then claim it.",
     );
+    assert!(icon_drawn(&h, mg_uikit::Icon::Lock, said.rect().expand2(egui::vec2(24.0, 4.0))));
 
     // Warned: the change is made, and the save asks.
     std::fs::write(dir.join("moonglow.toml"), "[claims]\nfile = \"claims.2da\"\n").unwrap();
     h.state_mut().reload_project_files();
     h.run();
-    assert!(
-        h.query_by_label(
-            "🔒 start is claimed by cd since 2026-10-20: a save asks before it writes your \
-             changes to it."
-        )
-        .is_some()
+    let said = h.get_by_label(
+        "start is claimed by cd since 2026-10-20: a save asks before it writes your \
+         changes to it.",
     );
+    assert!(icon_drawn(&h, mg_uikit::Icon::Lock, said.rect().expand2(egui::vec2(24.0, 4.0))));
     h.state_mut().actions.push(rename_start("Market"));
     h.run();
     assert_eq!(area_name(&mut h), "Market");
@@ -2170,7 +2167,8 @@ fn claim_this_area_and_release_claim_edit_the_claims_table() {
     let row = table.lines().nth(3).unwrap();
     assert!(row.starts_with("0   start            ab       claimed  "), "{table}");
     assert!(logged(&h, "start claimed by ab, in builders/claims.2da: commit it"));
-    h.get_by_label("✔ ab");
+    let mine = h.get_by_label("ab").rect().expand2(egui::vec2(24.0, 4.0));
+    assert!(icon_drawn(&h, mg_uikit::Icon::Check, mine), "yours: a check beside ab");
     // An edit of it is the builder's own: no question at the save.
     h.state_mut().actions.push(rename_start("Market"));
     h.run();
@@ -2187,7 +2185,7 @@ fn claim_this_area_and_release_claim_edit_the_claims_table() {
     h.run();
     let table = std::fs::read_to_string(dir.join("builders/claims.2da")).unwrap();
     assert!(table.lines().nth(3).unwrap().starts_with("0   start            ****     free     "));
-    assert!(h.query_by_label("✔ ab").is_none());
+    assert!(h.query_by_label("ab").is_none());
     // Unclaimed, in a project that warns of those: said above it, and a
     // save of a change to it asks.
     h.state_mut().actions.push(rename_start("Square"));
@@ -2218,7 +2216,16 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     );
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    h.get_by_label("✔ ab 📌");
+    // Merged: the check of yours before ab, and the pin after it.
+    let ab = h.get_by_label("ab").rect();
+    let before = egui::Rect::from_x_y_ranges(ab.left() - 24.0..=ab.left(), ab.y_range());
+    let after = egui::Rect::from_x_y_ranges(ab.right()..=ab.right() + 24.0, ab.y_range());
+    let drawn = mg_uikit::icons_drawn(&h.ctx);
+    let at = |icon, room: egui::Rect| {
+        drawn.iter().any(|(i, r)| *i == icon && room.expand(1.0).contains(r.center()))
+    };
+    assert!(at(mg_uikit::Icon::Check, before), "merged: a check before ab, {drawn:?}");
+    assert!(at(mg_uikit::Icon::Pin, after), "merged: a pin after ab, {drawn:?}");
     let key = ResKey::parse("start", ResType::ARE).unwrap();
     let retag = |tag: &str| {
         mg_ui::Action::Apply(mg_edit::Command::new(
@@ -2482,7 +2489,7 @@ fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
     h.run();
     h.run();
     // Saved first, as on closing.
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     h.run();
     assert!(!h.state().has_unsaved_work(), "saved before it runs");
@@ -2562,7 +2569,7 @@ fn allow_and_run_asks_about_what_was_edited_behind_the_question() {
     settle(&mut h);
     assert!(!dir.join("ran.txt").exists(), "not run over unsaved changes");
     assert!(h.state().confirm_discard.is_some(), "asked, as on closing");
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     settle(&mut h);
     assert!(!h.state().has_unsaved_work(), "saved before it runs");
     assert!(dir.join("ran.txt").exists(), "{:?}", h.state().log.entries);

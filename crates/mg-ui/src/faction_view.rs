@@ -7,6 +7,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::Command;
 use mg_module::factions::{Factions, STANDARD, faction_users, renumber_faction_users};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 
 use crate::Moonglow;
 
@@ -307,7 +308,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
                             crate::widgets::field_label(ui, label);
                             let mut rep = f.reputation(p, target).unwrap_or(mg_module::factions::DEFAULT_REPUTATION);
                             let before = rep;
-                            let r = ui.add(egui::Slider::new(&mut rep, 0..=100).clamping(egui::SliderClamping::Edits).show_value(true));
+                            let r = mg_uikit::slider(ui, egui::Slider::new(&mut rep, 0..=100).clamping(egui::SliderClamping::Edits).show_value(true));
                             let fill = r.rect.with_max_x(r.rect.min.x + 4.0);
                             ui.painter().rect_filled(fill, 0.0, color(rep));
                             ui.weak(attitude(rep));
@@ -319,7 +320,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
                         }
                     }
                 });
-                ui.checkbox(&mut view.full_detail, "Full Detail");
+                ui.check_box(&mut view.full_detail, "Full Detail");
             }
         });
 
@@ -327,36 +328,47 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         row.separator();
         // The faction list and its commands.
         row.vertical(|ui| {
-        crate::widgets::section_heading(ui, "Factions");
-        for (i, fac) in f.factions.iter().enumerate() {
-            let r = ui.selectable_label(view.selected == i as u32, &fac.name);
-            if r.clicked() {
-                view.selected = i as u32;
-            }
-        }
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if ui.button("Add Faction…").clicked() {
-                view.adding = Some(AddFaction { name: String::new(), global: true, parent: 1 });
-            }
-            let custom = view.selected as usize >= STANDARD.len();
-            if ui.add_enabled(custom, egui::Button::new("Remove Faction")).clicked() {
-                remove = Some(view.selected);
-            }
-            if ui.add_enabled(custom, egui::Button::new("Change Name…")).clicked() {
-                view.renaming = Some((view.selected, f.factions[view.selected as usize].name.clone()));
-            }
-        });
-        let sel = view.selected as usize;
-        let mut global = f.factions[sel].global;
-        if ui
-            .add_enabled(sel >= STANDARD.len(), egui::Checkbox::new(&mut global, "Global Effect"))
-            .on_hover_text("A change of reputation applies to the whole faction")
-            .changed()
-        {
-            f.factions[sel].global = global;
-            changed = Some("Faction global effect".into());
-        }
+            // (Scrolled where the pane is too short for the list and its
+            // buttons: they were cut off under it.)
+            egui::ScrollArea::vertical().id_salt("faction-list").show(ui, |ui| {
+                crate::widgets::section_heading(ui, "Factions");
+                mg_uikit::with_rows(ui, |ui| {
+                    for (i, fac) in f.factions.iter().enumerate() {
+                        let r = ui.selectable_label(view.selected == i as u32, &fac.name);
+                        if r.clicked() {
+                            view.selected = i as u32;
+                        }
+                    }
+                });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Add Faction…").clicked() {
+                        view.adding =
+                            Some(AddFaction { name: String::new(), global: true, parent: 1 });
+                    }
+                    let custom = view.selected as usize >= STANDARD.len();
+                    if ui.add_enabled(custom, egui::Button::new("Remove Faction")).clicked() {
+                        remove = Some(view.selected);
+                    }
+                    if ui.add_enabled(custom, egui::Button::new("Change Name…")).clicked() {
+                        view.renaming =
+                            Some((view.selected, f.factions[view.selected as usize].name.clone()));
+                    }
+                });
+                let sel = view.selected as usize;
+                let mut global = f.factions[sel].global;
+                if ui
+                    .add_enabled(
+                        sel >= STANDARD.len(),
+                        mg_uikit::Checkbox::new(&mut global, "Global Effect"),
+                    )
+                    .on_hover_text("A change of reputation applies to the whole faction")
+                    .changed()
+                {
+                    f.factions[sel].global = global;
+                    changed = Some("Faction global effect".into());
+                }
+            });
         });
     });
 
@@ -366,13 +378,15 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         crate::widgets::modal(&ctx, "Add Faction").show(&ctx, |ui| {
             crate::widgets::field_label(ui, "Name");
-            let field = ui.text_edit_singleline(&mut add.name);
+            let field = ui.add(mg_uikit::text_field(&mut add.name));
             crate::widgets::autofocus(ui, &field);
-            ui.checkbox(&mut add.global, "Global Effect");
+            ui.check_box(&mut add.global, "Global Effect");
             crate::widgets::field_label(ui, "Parent (its reputations are copied)");
-            for p in 1..STANDARD.len() as u32 {
-                ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
-            }
+            mg_uikit::with_rows(ui, |ui| {
+                for p in 1..STANDARD.len() as u32 {
+                    ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
+                }
+            });
             ui.horizontal(|ui| {
                 let ok = !add.name.trim().is_empty();
                 if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
@@ -406,7 +420,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
     if let Some((id, mut name)) = view.renaming.clone() {
         let mut close = false;
         crate::widgets::modal(&ctx, "Change Faction Name").show(&ctx, |ui| {
-            let field = ui.text_edit_singleline(&mut name);
+            let field = ui.add(mg_uikit::text_field(&mut name));
             crate::widgets::autofocus(ui, &field);
             ui.horizontal(|ui| {
                 if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()

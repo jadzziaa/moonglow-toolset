@@ -335,7 +335,7 @@ fn an_item_property_s_spells_have_a_filter() {
         field(h, &key).list("PropertiesList").unwrap()[0].integer("Subtype")
     };
     h.run();
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run();
     // The potion's Cast Spell, chosen: its parameters show under it.
     h.get_all_by_label_contains("Cure Light Wounds").last().unwrap().click();
@@ -353,7 +353,7 @@ fn an_item_property_s_spells_have_a_filter() {
     h.run();
     // Opened at the chosen spell (far down the list: Aid, Barkskin… come
     // first), under the Filter field.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
     let row = (h.query_all_by_label_contains("Cure Light Wounds"))
         .map(|n| n.rect().center().y)
@@ -863,8 +863,7 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(2);
     // (Typed into its Filter: frames are stepped, as the preview plays.)
-    let filter =
-        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Filter");
+    let filter = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     h.get(egui_kittest::kittest::by().predicate(filter)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
@@ -1328,7 +1327,7 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     h.get_all_by_label("Select Texture…").next().unwrap().click();
     settle(&mut h);
     h.get_by_label("Select Texture");
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(&mut h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(&pick);
@@ -1446,7 +1445,7 @@ fn select_texture_leaves_the_interface_out() {
     h.run();
     h.get_all_by_label("Select Texture…").next().unwrap().click();
     settle(&mut h);
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(&mut h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("po_hezrou_h");
@@ -1896,7 +1895,7 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
         (s.integer("Cost"), Some(i64::from(game.item_cost(&value))))
     };
     h.run();
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run();
     let before = field(&mut h, &key).list("PropertiesList").map_or(0, <[_]>::len);
     // Far down the list: scrolled to first.
@@ -1938,12 +1937,11 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     let before = count(&h, "Enhancement Bonus");
     assert!(before >= 1);
     // (Back up the page, to the search field.)
-    let search = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.placeholder() == Some("🔍 Search properties")
-    };
+    let search =
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Search properties");
     h.get(egui_kittest::kittest::by().predicate(search)).scroll_to_me();
     h.run();
-    type_into_hint(&mut h, "🔍 Search properties", "cast fireball");
+    type_into_hint(&mut h, "Search properties", "cast fireball");
     h.run_steps(2);
     assert_eq!(count(&h, "Cast Spell"), 1);
     assert_eq!(count(&h, "Enhancement Bonus"), before - 1, "not among those found");
@@ -1965,7 +1963,7 @@ fn a_property_s_parameters_are_in_the_table_s_order() {
         return;
     };
     h.run();
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run();
     let name = "Damage Bonus vs. Specific Alignment";
     h.get_by_label(name).scroll_to_me();
@@ -2786,7 +2784,7 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     h.run();
     h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Loot");
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     assert!(sets.join("Loot.vars.json").is_file());
     h.get_all_by_label("Cancel").last().unwrap().click();
@@ -2843,8 +2841,9 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     // The menu: the sets, then what is done with sets.
     h.get_by_label("Add Set").click();
     h.run();
+    let items = menu_items(&h, "Open Sets Folder");
     for label in ["Doors", "Loot", "Add from File…", "Manage Sets…", "Open Sets Folder"] {
-        assert!(h.query_by_label(label).is_some(), "{label}");
+        assert!(items.iter().any(|i| i == label), "{label} in {items:?}");
     }
     // The one that isn't a set is said so, and can't be added; what a set
     // holds is its tip.
@@ -2861,7 +2860,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     h.get_all_by_label("Delete").next().unwrap().click();
     h.run();
     assert_eq!(mg_ui::var_sets::list(Some(&sets)), ["Doors", "Loot"]);
-    h.get_by_label("✖").click();
+    h.get_by_label("Dismiss").click();
     h.run();
     // Rename… Loot (the second): refused over Doors and a name that isn't
     // a file's, then renamed.
@@ -3114,7 +3113,7 @@ fn spell_list(h: &mut Harness<'_, Moonglow>, key: &ResKey, list: &str) -> Vec<(i
 
 /// A cleric's Spells page, laid out as the Feats page: a click on a spell
 /// of those to choose from prepares one more of it, each row of those
-/// prepared has its count, with arrows, and × takes it away; the other
+/// prepared has its count, with arrows, and Remove takes it away; the other
 /// entries stay as they were, a metamagic one too. One change each.
 #[test]
 fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
@@ -3150,12 +3149,11 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), level1);
-    // The Empowered Bless is shown, and × takes it alone away.
+    // The Empowered Bless is shown, and Remove takes it alone away (its
+    // own, named with it, on its row).
     let shown = h.get_by_label("Bless (Empower Spell)").rect();
-    let x = h
-        .get_all_by_label("×")
-        .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
-        .expect("its ×");
+    let x = h.get_by_label("Remove Bless (Empower Spell)");
+    assert!((x.rect().center().y - shown.center().y).abs() < 4.0, "on its row");
     x.click();
     h.run();
     let without: Vec<_> = level3.iter().copied().filter(|e| *e != (bless, 1, 1)).collect();
@@ -3170,7 +3168,7 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     let lights = level0.iter().filter(|e| e.0 == light).count();
     let row = h.get_all_by_label("Light").last().expect("Light among those prepared").rect();
     let up = h
-        .get_all_by_label("⏶")
+        .get_all_by_label("One More")
         .find(|n| (n.rect().center().y - row.center().y).abs() < 4.0)
         .expect("its arrow up")
         .rect()
@@ -3239,7 +3237,7 @@ fn the_spells_page_prepares_with_the_metamagic_chosen() {
 }
 
 /// A sorcerer's known spells: ticked among those to choose from, listed
-/// by level beside them, × to forget one.
+/// by level beside them, Remove to forget one.
 #[test]
 fn the_spells_page_ticks_known_spells() {
     let Some((mut h, key)) = blueprint_harness("db_tanarukk_do", "sorc_known", ResType::UTC) else {
@@ -3262,12 +3260,12 @@ fn the_spells_page_ticks_known_spells() {
     let mut more = was.clone();
     more.push(acid_splash);
     assert_eq!(known(&mut h, 0), more);
-    // Listed beside, where its × forgets it.
+    // Listed beside, where its Remove forgets it (named with it, on its
+    // row).
     let shown = h.get_all_by_label("Acid Splash").last().unwrap().rect();
-    h.get_all_by_label("×")
-        .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
-        .expect("its ×")
-        .click();
+    let x = h.get_by_label("Remove Acid Splash");
+    assert!((x.rect().center().y - shown.center().y).abs() < 4.0, "on its row");
+    x.click();
     h.run();
     assert_eq!(known(&mut h, 0), was);
 }
@@ -3454,12 +3452,13 @@ fn the_levelup_wizard_takes_a_class_past_level_sixty() {
     assert_eq!(h.state().levelup.as_ref().expect("the wizard").slots[0].1, 70, "as it is");
     // One less comes back to the most the wizard gives; one more does not
     // go further out.
-    let last = |h: &Harness<'_, Moonglow>, glyph: &str| {
-        let arrow = h.query_all_by_label(glyph).last().expect("an arrow");
+    // (The wizard's arrows, named with the class's row.)
+    let arrow = |h: &Harness<'_, Moonglow>, name: &str| {
+        let arrow = h.get_by_label(name);
         (arrow.rect().center(), arrow.accesskit_node().is_disabled())
     };
-    assert!(last(&h, "⏶").1, "no more than it has");
-    let (down, off) = last(&h, "⏷");
+    assert!(arrow(&h, "Fighter: One More").1, "no more than it has");
+    let (down, off) = arrow(&h, "Fighter: One Less");
     assert!(!off);
     h.hover_at(down);
     for pressed in [true, false] {
@@ -3596,7 +3595,7 @@ fn creature_names_can_be_random() {
         l.strings.first().map(|(_, b)| String::from_utf8_lossy(b).into_owned())
     };
     let before = name(&mut h);
-    h.get_all_by_label("🎲").next().unwrap().click();
+    h.get_all_by_label("Random Name").next().unwrap().click();
     h.run();
     let after = name(&mut h).expect("a name");
     assert_ne!(Some(after.clone()), before);
@@ -3679,7 +3678,7 @@ fn a_creature_s_sound_set_plays_a_sample() {
     h.run();
     h.get_by_label("Advanced").click();
     h.run();
-    h.get_by_label("▶").click();
+    h.get_by_label("Play Sample").click();
     h.run();
     let played = speaker.borrow().channels.get(&Channel::Preview).cloned();
     assert!(played.is_some(), "{:?}", h.state().log.entries);
@@ -3837,7 +3836,8 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     h.run();
     let torso = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_Torso");
     let before = torso(&mut h).expect("a torso");
-    // The torso's list: beside its label, on its row.
+    // The torso's list: beside its label, on its row, the first after it
+    // (the area's tab under the window has lists on that row too).
     // (The field's label: the part's button under the lists is named so too.)
     let label = (h.get_all_by_label("Torso"))
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
@@ -3846,7 +3846,8 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
-        .find(|r| r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0)
+        .filter(|r| r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0)
+        .min_by(|a, b| a.min.x.total_cmp(&b.min.x))
         .expect("the torso's list");
     let wheel = |h: &mut Harness<'_, Moonglow>, y: f32| {
         h.hover_at(list.center());
@@ -3991,10 +3992,18 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
 
     // Another edit, and a save: both parts' colors are in the saved file.
     let cloth = field(&mut h, &key).integer("Cloth1Color").unwrap();
-    // (Its colors are in the right column; part numbers, some the same,
-    // in the left.)
+    // (Its colors' lists are beside their labels, the armor's Cloth 1
+    // above the part's; part numbers, some the same, are in the left
+    // column.)
+    let label = (h.get_all_by_label("Cloth 1"))
+        .filter(|n| n.accesskit_node().role() != combo)
+        .map(|n| n.rect())
+        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .expect("the armor's Cloth 1 label");
     h.get_all_by_value(&cloth.to_string())
-        .find(|n| n.accesskit_node().role() == combo && n.rect().min.x > 590.0)
+        .filter(|n| n.accesskit_node().role() == combo)
+        .filter(|n| n.rect().min.x > label.max.x)
+        .find(|n| (n.rect().center().y - label.center().y).abs() < 6.0)
         .expect("the armor's Cloth 1")
         .click();
     h.run();
@@ -4267,7 +4276,7 @@ fn a_viewed_blueprint_s_fields_take_no_typing() {
         app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(store)));
     }
     h.run_steps(3);
-    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find");
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
     h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
     h.run();
     h.event(egui::Event::Text("torch".into()));
@@ -4317,7 +4326,7 @@ fn a_placeable_s_and_a_door_s_page_show_the_model() {
         h.set_size(egui::vec2(900.0, 800.0));
         h.run_steps(10);
         assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
-        assert!(h.query_by_label("Preview").is_some(), "{key}");
+        assert!(apart_all(&h, "Preview").next().is_some(), "{key}");
         // Wide enough: the viewer beside the fields.
         h.set_size(egui::vec2(1900.0, 1000.0));
         h.run_steps(10);
@@ -4373,6 +4382,12 @@ fn pictures_shown(h: &Harness<'_, Moonglow>) -> usize {
 fn picture_on_hover(h: &mut Harness<'_, Moonglow>, value: &dyn Fn(&str) -> bool) -> (usize, usize) {
     h.hover_at(egui::pos2(1.0, 1.0));
     h.run_steps(10);
+    // (The pictures in sight made first, a few milliseconds' worth a frame.)
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while h.state().thumbnails.waiting() + h.state().thumbnails.reading() > 0 {
+        assert!(std::time::Instant::now() < deadline, "the pictures in sight are made");
+        h.run_steps(1);
+    }
     let (without, made) = (pictures_shown(h), h.state().thumbnails.drawn);
     let at = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
@@ -4430,6 +4445,17 @@ fn an_item_s_appearance_lists_show_the_item_with_each() {
         };
         h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
         h.run_steps(4);
+        if name == "nw_aarcl001" {
+            // (The parts' pictures under the lists open at the armor's
+            // torso, which makes the torso's alone once in sight: turned to
+            // the neck's, and the pictures made so far forgotten, it is the
+            // hover's to make.)
+            let toggle = |n: &egui_kittest::Node<'_>| n.accesskit_node().toggled().is_some();
+            h.get_all_by_label("Neck").find(toggle).expect("the parts' pictures' Neck").click();
+            h.run_steps(2);
+            h.state_mut().thumbnails = Default::default();
+            h.run_steps(2);
+        }
         // (Its icon too; an armor's part, that part alone as well.)
         let (shown, made) = picture_on_hover(&mut h, list);
         let pictures = if name == "nw_aarcl001" { 2 } else { 1 };
@@ -4647,4 +4673,59 @@ fn a_creature_s_class_is_not_made_one_it_has_already() {
     assert_eq!(classes(&mut h), [i64::from(fighter), i64::from(wizard)]);
     let s = field(&mut h, &key);
     assert_eq!(s.list("ClassList").unwrap()[1].get("Class"), Some(&mg_gff::Value::Int(wizard)));
+}
+
+/// A game blueprint opened to look at draws its controls quiet, the
+/// mock's read-only fields: a ticked check box is `text-3`, not the
+/// accent an editable one has, and looks the same under the pointer.
+#[test]
+fn a_viewed_blueprint_s_check_boxes_are_quiet() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    // The fills of the box of the check box labeled `label`.
+    let box_fills = |h: &Harness<'_, Moonglow>, label: &str| -> Vec<egui::Color32> {
+        let r = h.get_all_by_label(label).last().unwrap().rect();
+        let square = egui::Rect::from_min_size(r.left_top(), egui::vec2(16.0, r.height()));
+        drawn(h)
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(b) if square.contains_rect(b.rect) && b.rect.width() < 16.0 => {
+                    Some(b.fill)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    for light in [false, true] {
+        // Editable: the accent.
+        let Some((mut h, _)) = blueprint_harness("plc_chest1", "quiet_edit", ResType::UTP) else {
+            return;
+        };
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        let t = mg_uikit::tokens(&h.ctx);
+        assert!(box_fills(&h, "Useable").contains(&t.accent_fill), "editable ({light})");
+        // Viewed: quiet, under the pointer too.
+        let dir = mg_testkit::scratch_dir("ui-viewed-quiet");
+        let mut app = game_app(&root, None);
+        app.open_module(&sample_module(&dir));
+        app.settings.light_theme = light;
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(key, Gff::read(&data).unwrap());
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        close_tab(&mut app, &Tab::ModuleProperties);
+        let mut h = harness(app, 1000.0, 800.0);
+        settle(&mut h);
+        assert!(h.query_by_label_contains("shown to look at").is_some(), "viewed");
+        let fills = box_fills(&h, "Useable");
+        assert!(fills.contains(&t.text_3), "quiet ({light}): {fills:?}");
+        assert!(!fills.contains(&t.accent_fill), "not the accent ({light})");
+        h.hover_at(h.get_all_by_label("Useable").last().unwrap().rect().center());
+        settle(&mut h);
+        assert_eq!(box_fills(&h, "Useable"), fills, "the same under the pointer ({light})");
+        assert!(!box_fills(&h, "Useable").contains(&t.accent_fill_hover));
+    }
 }

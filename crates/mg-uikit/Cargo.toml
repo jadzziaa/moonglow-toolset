@@ -1,0 +1,26 @@
+[package]
+name = "mg-uikit"
+description = "The Moonglow suite's look: theme, color tokens, metrics, fonts, the drawn icon set and the form helpers shared by Moonglow Toolset and Moonglow Viewer (egui)"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# (Egui alone among the UI crates, and no Moonglow crate: Moonglow Viewer,
+# which takes the toolset's crates by git tag and not mg-ui, uses it too.)
+[dependencies]
+egui.workspace = true
+serde.workspace = true
+
+[build-dependencies]
+# (The icon set, icons/icons.json, made into Rust at build time.)
+serde_json.workspace = true
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
+mg-testkit.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

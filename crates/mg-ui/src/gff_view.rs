@@ -160,6 +160,8 @@ fn fields(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let file_type = doc.file_type_str();
     let mut ctx = Ctx { key, file_type, game: game.as_deref(), factions, actions, buffers };
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        // (A table of fields: rows 22 apart, a line between.)
+        mg_uikit::table_rows(ui);
         struct_ui(&mut ctx, ui, &doc.root, &GffPath::root());
     });
 }
@@ -192,6 +194,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                         ui.weak(format!("struct {}", child.id));
                         let child_path = path.field(&label);
                         egui::CollapsingHeader::new(format!("{} fields", child.fields.len()))
+                            .icon(mg_uikit::collapsing_icon)
                             .id_salt(id)
                             .show(ui, |ui| struct_ui(ctx, ui, child, &child_path));
                     }
@@ -199,6 +202,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                         ui.label(&label);
                         ui.weak("list");
                         egui::CollapsingHeader::new(format!("{} items", items.len()))
+                            .icon(mg_uikit::collapsing_icon)
                             .id_salt(id)
                             .show(ui, |ui| {
                                 // An item that stands for a row of a table
@@ -228,6 +232,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                                         "[{i}] struct {}{name}",
                                         item.id
                                     ))
+                                    .icon(mg_uikit::collapsing_icon)
                                     .id_salt((id, i))
                                     .show(ui, |ui| struct_ui(ctx, ui, item, &item_path));
                                 }
@@ -256,9 +261,13 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                                     meaning_ui(ctx, ui, id, (path, &label), v, m, *n);
                                 }
                                 if warned {
-                                    ui.colored_label(
-                                        ui.visuals().warn_fg_color,
-                                        PC_FACTION_WARNING,
+                                    let warn = ui.visuals().warn_fg_color;
+                                    let text = egui::RichText::new(PC_FACTION_WARNING).color(warn);
+                                    mg_uikit::icon_label(
+                                        ui,
+                                        mg_uikit::Icon::Warning,
+                                        Some(warn),
+                                        text,
                                     )
                                     .on_hover_text(PC_FACTION_HOVER);
                                 }
@@ -274,7 +283,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
 
 /// Beside an object's faction field of 0 (what Verify's `pc-faction`
 /// warns of).
-const PC_FACTION_WARNING: &str = "⚠ The PC faction: the players' alone";
+const PC_FACTION_WARNING: &str = "The PC faction: the players' alone";
 const PC_FACTION_HOVER: &str = "Faction 0 is the players' own: the game puts a creature of it in \
                                 Hostile. Pick another.";
 

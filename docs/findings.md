@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T03:39:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T21:14:50Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2216,6 +2216,177 @@ icon is the man's whoever wears it.
 - **Wiki:** "cloakmodel.2da" names the icon `icloak_m_NNN` and says
   nothing of a woman's; the armor parts' `ipf_` and `ipm_` icons are not
   named in the mirror.
+
+### What the game plays as music and as sounds
+
+The game decides what a sound is from its bytes, but which names it looks
+under, and which forms it plays there, differ between music, ambient
+sounds and `PlaySound`. Every row below is firm: a working track or sound
+played after it in the same launch. Files were in a hak; the `music` user
+folder and an area's own `MusicDay` and `MusicNight` (in place of the
+script) behaved the same where tried. "MP3" is the MP3 data of a track
+of the game's, read from the install by the test; "BMU" is the 8-byte
+header `BMU V1.0`.
+
+**Music** (an `ambientmusic.2da` row; only a `.bmu` is looked for):
+
+| Played | Silent |
+| --- | --- |
+| BMU + MP3 (as shipped); bare MP3 | PCM WAVE of every kind tried (s16 stereo 44100, s16 mono 22050, u8, float32; s24 gave faint noise, never the tone) |
+| bare MP3 behind a small ID3v2 tag, a 2 MiB ID3v2 tag, 1 KiB of zeros, 1 KiB of junk starting with a false sync; the same after BMU | IMA ADPCM WAVE; BMU + PCM WAVE; PCM WAVEs with wrong sizes; RF64 |
+| MP3 in a RIFF WAVE (`fmt ` tag 0x55), also by the area's own fields and loose in `music` | anything that exists only under the name `.wav` (PCM, BMU + MP3, bare MP3): a music row never finds a `.wav` |
+
+**Ambient sound** (an `ambientsound.2da` row; `.wav`, else `.bmu`):
+
+| Played | Silent |
+| --- | --- |
+| PCM s16 WAVE; IMA ADPCM WAVE | BMU + MP3 under `.wav`, the game's own `as_an_piranha.wav` (BMU + mono MP3) by its own name included; bare MP3 under `.wav`; MP3 in a RIFF WAVE under `.wav` |
+| PCM WAVE with RIFF size 0, and with RIFF size too small (36) | a PCM WAVE whose `data` size runs 1 MB past the file's end |
+| BMU + MP3 that exists only as `.bmu` | a PCM WAVE that exists only as `.bmu` (noise in three runs, near silence in two, never its tone) |
+
+**`PlaySound`** (on the player; `.wav` only):
+
+| Played | Silent |
+| --- | --- |
+| PCM s16 mono WAVE | that sound's MP3 without the header, under `.wav` |
+| the shipped `as_an_piranha.wav` (BMU + mono MP3) by its own name, and copied under another | anything that exists only as `.bmu` |
+| | stereo files (stereo PCM and stereo MP3 both silent: stereo is the likely cause, not settled) |
+
+**Placed sound objects** (a looping `SoundList` entry of the area's GIT,
+present from the start, switched by `SoundObjectPlay` and
+`SoundObjectStop`; positional twice, area-wide once; `.wav` only):
+
+| Played | Silent |
+| --- | --- |
+| PCM s16 mono WAVE; IMA ADPCM mono WAVE | that MP3 without the header, under `.wav`; that MP3 in a RIFF WAVE (tag 0x55) under `.wav` |
+| BMU + mono MP3 under `.wav`: the shipped `as_an_piranha.wav` by its own name, and copied under another | anything that exists only as `.bmu` (PCM, BMU + MP3) |
+| a PCM s16 stereo WAVE from an area-wide object (`Positional` 0) | the same stereo WAVE from a positional object |
+| a stereo IMA ADPCM WAVE from an area-wide object, both channels heard | the same from a positional object, at the stock blueprints' distances (min 1, max 10) and at 50 and 100: flat in both channels (`MG_AUDIO_FORMS=stereo`) |
+
+**Battle music** (`MusicBattleChange` to a custom `ambientmusic.2da` row,
+then `MusicBattlePlay`: started by script; only a `.bmu` is looked for),
+exactly as music by day and night:
+
+| Played | Silent |
+| --- | --- |
+| the game's track (BMU + MP3); MP3 in a RIFF WAVE as `.bmu` | a PCM WAVE as `.bmu`; anything that exists only as `.wav` (PCM, BMU + MP3) |
+
+So a builder's "WAV renamed to `.bmu`" plays as music only if the WAVE
+holds MP3 (a RIFF WAVE whose format tag is 0x55, which some tools write);
+a WAVE of PCM does not, which is what the wiki says. The game finds an
+MP3's first frame itself: after an ID3v2 tag of any size tried, after
+zeros or junk, with or without the header. A WAVE's RIFF size is not
+believed: 0 or too small plays as an ambient sound.
+
+Two of the game's own, read the same way (`MG_AUDIO_FORMS=stock`):
+`ambientsound.2da` row 200, `al_mus_throne2` ("Music, Throne Room"), is
+silent: its file is BMU + stereo MP3 under `.wav`, and the stock row by its
+number with nothing overridden, a new row naming the game's file and its
+bytes copied under a test name were all silent in two runs each (-99.3
+dBFS, the PCM control playing before and after); every other stock
+`ambientsound.2da` row names a WAVE. And a music row whose `Resource` is
+longer than 16 characters is silent: Wyvern Crown of Cormyr's row 83,
+`mus_wc_ruralguitar` (18), with the file of that name in `data/mus`, in
+two runs, while a row naming `mus_wc_ruralg`, the same bytes, played.
+Whether the game cuts the name or refuses it is not known (the cut name,
+`mus_wc_ruralguit`, exists nowhere either). And the game's own positional
+blueprints `lavalakeloop.uts` and `sludgelake.uts` (stereo IMA ADPCM
+`al_na_lavalake1.wav` and `al_na_sludglake1.wav`), every field copied into
+a placed object (Positional 1, Looping 1, Volume 127, MinDistance 1,
+MaxDistance 10), are silent as shipped and play made area-wide (-27.4 and
+-35.4 dBFS; `MG_AUDIO_FORMS=stereo`).
+
+So `PlaySound` and placed sound objects agree on what they tried: a
+`.wav` holding a WAVE, or MP3 behind the `BMU V1.0` header (nwn.wiki says
+the same of MP3 under `.wav`); a positional object plays no stereo WAVE.
+
+Not determined: stereo MP3 by `PlaySound` or from a placed sound (the
+game ships no stereo BMU + MP3 `.wav` to use as a control), stereo IMA
+ADPCM from a positional sound in an area as shipped (XP2_Chapter2's
+`q3_area_sanctum`, read only through its blueprint's fields), battle music
+in real combat, a conversation line's sound, and the Windows and macOS
+clients.
+
+- **Checked:** the game client, Linux build 26c6e573
+  (`bin/linux-x86/build.txt`, Oct 6, 2025; the engine above is 89.8193.37),
+  on the off-screen display, by `client_audio.rs`
+  (`client_audio`, by hand). `tools/nwclient/run-client.sh` has an opt-in,
+  `MG_CLIENT_AUDIO_OUT=<file under SCRATCH>`, which gives the sandboxed
+  client OpenAL Soft's `wave` backend (still no audio device), so all the
+  client plays is written to a WAV file. The test's module steps through
+  the forms by script (music and ambient rows added in a hak, `PlaySound`
+  on the player; placed sound objects and battle music with
+  `MG_AUDIO_FORMS=placed,battle`, the area-wide object with
+  `MG_AUDIO_AREAWIDE=1`); each authored WAVE is a tone of its own frequency, found
+  with a Goertzel filter, and the MP3 forms are judged by level against a
+  silent control (silence -99.3 dBFS; the game's track -36.6; the ambient
+  tone -17.1). The test asserts the controls, PCM as music silent, bare,
+  in-WAVE and ID3-tagged MP3 as music played, and PCM and IMA ADPCM as
+  ambient played; the rest it prints as observations.
+- **Moonglow:** `mg_audio::container` tells a sound's format from its
+  bytes and returns the range that is audio (`crates/mg-audio/src/lib.rs`,
+  so every reader has it: the area view's Music, Ambient and Sounds, the
+  Play buttons of the sound editor, conversations and sound sets, the hak
+  editor's View). An MP3's first frame is found (`find_mp3`: ID3v2 tags
+  skipped, then the first frame header that a second one confirms, looked
+  for up to a mebibyte on), behind `BMU V1.0` or not; a WAVE holding MP3 is
+  read from its `data` chunk; a WAVE's RIFF size is not believed. What it
+  still refuses says what it is (`an RF64 WAVE, which the game does not
+  play`; `a WAVE of a format Moonglow does not play (format 0x0050, MPEG
+  layer 1 or 2)`; Windows Media Audio, AAC and Ogg Vorbis named likewise).
+  Moonglow still plays the forms the game is silent on and says so in
+  the log, once per file and role (the owner's ruling of 2026-11-11): a
+  WAVE under `.bmu` as music, a music track that exists only as `.wav`, an
+  MP3 under `.wav` as an ambient sound, a WAVE under `.bmu` as an ambient
+  sound, a sound that exists only as `.bmu` (a Play button, a placed
+  sound); the hak editor's View marks a WAVE under `.bmu`. Music looks for
+  the `.bmu` first, as the game does. A WAVE cut short in its data is
+  played without a word. Verify holds an area's music and ambient rows to
+  the same rules (`sound-silent`, a warning: the `MusicDay`, `MusicNight`
+  and `MusicBattle` rows of `ambientmusic.2da`, the `AmbientSndDay` and
+  `AmbientSndNight` rows of `ambientsound.2da`, each file judged once a
+  run from its first bytes, `mg_audio::container_by_start`), and says a
+  placed sound or sound blueprint kept only as `.bmu` is missing, there
+  only as the `.bmu`; the rules are kept once, in `mg_audio::role`, for the
+  log and Verify alike, battle music and placed sounds by their own
+  readings. Verify holds placed sound objects and sound blueprints to them
+  too: MP3 under `.wav` without the header, and a stereo WAVE (its `fmt `
+  chunk's channels, `mg_audio::wave_channels`) where the object is
+  positional; the log, which doesn't know whether a sound is positional,
+  says the first only. A row's `Resource` longer than 16 characters is
+  said too (read for music; an ambient row's by the same limit on names).
+  Stereo MP3 is not judged, nor are stingers. The game's own content
+  draws findings by these readings: read in the client and right,
+  `ambientsound.2da` row 200, `al_mus_throne2.wav`, which
+  `the_game_s_own_music_and_ambient_rows_are_heard` (every row, every
+  day) holds to be the one finding, and Wyvern Crown of Cormyr's six
+  areas on its row 83, `mus_wc_ruralguitar`, known findings of
+  `shipped_modules_have_only_known_findings`; and the positional
+  blueprints `lavalakeloop.uts` and `sludgelake.uts`, of the stereo IMA
+  ADPCM `al_na_lavalake1.wav` and `al_na_sludglake1.wav`, silent as shipped
+  by the client's reading, the two findings
+  `the_game_s_own_sound_blueprints_name_only_two_sounds_it_does_not_play`
+  holds to (every one of the 301 blueprints, 876 sounds, every day), with
+  XP2_Chapter2's `q3_area_sanctum`, a positional LavaLakeLoop placed, a
+  known finding of `shipped_modules_have_only_known_findings` (its
+  blueprint's fields read; the area's own instance not loaded). No
+  blueprint of the game's names MP3 without the header. Unit tests in
+  `mg-audio`, among them `mp3_in_the_forms_the_game_plays_decodes`,
+  `mp3_inside_a_wave_decodes_from_its_data_chunk`,
+  `a_wave_with_wrong_sizes_decodes`, `finds_where_the_mp3_starts`,
+  `what_moonglow_does_not_play_is_refused_by_name` and
+  `cut_or_garbled_mp3_forms_are_answers_not_panics`; the area view's
+  `custom_music_kept_as_mp3_in_a_wave_named_bmu_plays`; the app's
+  `audio::tests::the_game_is_silent_where_the_client_was`; the install's
+  sounds still all decode and agree with ffmpeg (`audio.rs`).
+- **Wiki:** "Sounds and Music" (mirror synced 2026-09-29) says music "Must
+  be MP3" and "BMU files cannot be actual WAV encoded files": borne out, no
+  PCM WAVE plays as music, but a WAVE holding MP3 does, which it does not
+  mention. An MP3 under `.wav` needs the header: borne out for `PlaySound`,
+  but an ambient row plays no MP3 under `.wav` at all, header or not,
+  where the wiki's table lists ambient sounds as `.wav` with the header.
+  The 1.79.8193 patch notes ("The game will now read plain mp3 files (the
+  .bmu extension rename is still required...)") are borne out.
 
 ## GFF fields
 

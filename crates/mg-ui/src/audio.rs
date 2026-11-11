@@ -53,10 +53,13 @@ pub trait Speaker {
 #[derive(Debug, Default)]
 pub struct Silence {
     pub channels: HashMap<Channel, (ResRef, f32, bool)>,
+    /// The file each channel was given.
+    pub data: HashMap<Channel, Arc<[u8]>>,
 }
 
 impl Speaker for Silence {
     fn play(&mut self, channel: Channel, sound: Sound, volume: f32, looped: bool) {
+        self.data.insert(channel, sound.data);
         self.channels.insert(channel, (sound.name, volume, looped));
     }
 
@@ -67,6 +70,7 @@ impl Speaker for Silence {
     }
 
     fn stop(&mut self, channel: Channel) {
+        self.data.remove(&channel);
         self.channels.remove(&channel);
     }
 
@@ -94,18 +98,62 @@ impl Speaker for std::rc::Rc<std::cell::RefCell<Silence>> {
     }
 }
 
+/// What a sound is for, and why the game would be silent on it: the rules
+/// are `mg_audio`'s ([`mg_audio::role`]), which Verify's `sound-silent`
+/// asks too.
+pub use mg_audio::{Role, Silent, silent_in_game};
+// (A positional placed sound's stereo WAVE, `mg_audio::silent_positional`,
+// is Verify's to say: the log doesn't know whether a sound is positional.)
+
+impl Channel {
+    /// The role a sound played on the channel has: a Play button's is
+    /// `PlaySound`'s, a placed sound's is a placed sound's.
+    pub fn role(self) -> Role {
+        match self {
+            Channel::Music => Role::Music,
+            Channel::Ambient => Role::Ambient,
+            Channel::Preview => Role::Other,
+            Channel::Placed(_) => Role::Placed,
+        }
+    }
+}
+
 impl Moonglow {
-    /// A sound's file: the module's, else the game's (`.wav`, then `.bmu`).
-    pub fn sound_data(&self, name: ResRef) -> Option<Arc<[u8]>> {
-        [ResType::WAV, ResType::BMU].into_iter().find_map(|t| {
+    /// A sound's file for a role: the module's, else the game's, for each
+    /// type in the order the game looks for them. The type it was found as
+    /// too.
+    pub fn sound_file(&self, role: Role, name: ResRef) -> Option<(ResType, Arc<[u8]>)> {
+        role.lookup().into_iter().find_map(|t| {
             let key = ResKey::new(name, t);
             let module = self.ws.as_ref().and_then(|ws| ws.module.get(&key)).map(Arc::from);
-            module.or_else(|| self.game.as_deref()?.resman.get(&key).ok().map(|d| Arc::from(&*d)))
+            let data = module
+                .or_else(|| self.game.as_deref()?.resman.get(&key).ok().map(|d| Arc::from(&*d)))?;
+            Some((t, data))
         })
     }
 
+    /// Tells the log that the game is silent on a file, once for each file
+    /// and role (a replaced file, which has another length, is judged anew).
+    /// Whether it did.
+    pub(crate) fn warn_silent(
+        &mut self,
+        role: Role,
+        name: ResRef,
+        found: ResType,
+        data: &[u8],
+    ) -> bool {
+        let Some(form) = mg_audio::form(data) else { return false };
+        let Some(reason) = silent_in_game(role, found, form) else { return false };
+        if self.sound_said.insert((role, name, found, data.len())) {
+            self.log.warn(reason.message(name));
+            return true;
+        }
+        false
+    }
+
     /// Plays a sound on a channel; one that is missing or does not decode is
-    /// reported in the log. Whether it plays.
+    /// reported in the log, and so is one that plays here and not in the
+    /// game. Whether it plays.
     pub fn play_sound(
         &mut self,
         channel: Channel,
@@ -116,7 +164,8 @@ impl Moonglow {
         if name.is_empty() {
             return false;
         }
-        let Some(data) = self.sound_data(name) else {
+        let role = channel.role();
+        let Some((found, data)) = self.sound_file(role, name) else {
             self.log.warn(format!("Sound {name} not found"));
             return false;
         };
@@ -124,11 +173,25 @@ impl Moonglow {
             self.log.warn(format!("Sound {name}: {e}"));
             return false;
         }
+        self.warn_silent(role, name, found, &data);
         self.speaker.play(channel, Sound { name, data }, volume.clamp(0.0, 1.0), looped);
         true
     }
 
     pub fn stop_sound(&mut self, channel: Channel) {
         self.speaker.stop(channel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_channel_plays_in_its_role() {
+        assert_eq!(Channel::Music.role(), Role::Music);
+        assert_eq!(Channel::Ambient.role(), Role::Ambient);
+        assert_eq!(Channel::Preview.role(), Role::Other);
+        assert_eq!(Channel::Placed(3).role(), Role::Placed);
     }
 }

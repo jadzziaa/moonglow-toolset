@@ -20,7 +20,9 @@ publish = false
 # Moonglow crates
 mg-2da = { path = "crates/mg-2da" }
 mg-area = { path = "crates/mg-area" }
-mg-audio = { path = "crates/mg-audio" }
+# (Without decoding by default, so that mg-module's Verify can tell what a
+# sound holds without Symphonia: mg-ui, the GUI and the corpus tests ask for it.)
+mg-audio = { path = "crates/mg-audio", default-features = false }
 mg-core = { path = "crates/mg-core" }
 mg-gff = { path = "crates/mg-gff" }
 mg-image = { path = "crates/mg-image" }
@@ -47,6 +49,7 @@ mg-testkit = { path = "crates/mg-testkit" }
 mg-tiles = { path = "crates/mg-tiles" }
 mg-tlk = { path = "crates/mg-tlk" }
 mg-ui = { path = "crates/mg-ui" }
+mg-uikit = { path = "crates/mg-uikit" }
 mg-update = { path = "crates/mg-update" }
 
 # Third party

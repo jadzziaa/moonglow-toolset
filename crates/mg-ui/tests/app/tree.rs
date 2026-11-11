@@ -90,13 +90,13 @@ fn resources_open_in_their_editors() {
     // Tab titles are drawn without accessible labels; check the dock and the
     // editor's content.
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
-    h.get_by_label("Compile");
+    apart(&h, "Compile");
     let area = ResKey::parse("start", ResType::ARE).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(area).unwrap()));
     h.run();
     // The area viewer, with its object filters.
     assert!(h.state().dock.find_tab(&Tab::Area(area.resref)).is_some());
-    h.get_by_label("⛲ Placeables");
+    area_tool(&h, "Show Placeables");
 }
 
 /// The log is among Next Pane's panes (the module tree and the palettes'
@@ -280,12 +280,11 @@ fn the_module_tree_by_the_keyboard() {
     // again before it goes to the area's group.
     key(&mut h, egui::Key::ArrowRight);
     h.run();
-    // (One is the tree's own Expand All.)
-    assert_eq!(h.query_all_by_label("⏷").count(), 2, "the area is opened out");
+    assert_eq!(opened_out(&h), 1, "the area is opened out");
     key(&mut h, egui::Key::ArrowLeft);
     h.run();
     assert_eq!(at(&h), Some(TreeAt::Resource(start)), "closed, the cursor stays");
-    assert_eq!(h.query_all_by_label("⏷").count(), 1);
+    assert_eq!(opened_out(&h), 0);
     key(&mut h, egui::Key::ArrowLeft);
     assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
     // The keys are the tree's with the pointer off it too (over the
@@ -313,21 +312,29 @@ fn the_module_tree_s_groups_open_and_close_together() {
     let listed = |h: &Harness<'_, Moonglow>| h.query_all_by_label(&area.to_string()).count();
     let before = listed(&h);
     assert!(before >= 1, "Areas is open to begin with");
-    h.get_all_by_label("⏶").next().unwrap().click();
+    h.get_all_by_label("Collapse All").next().unwrap().click();
     h.run_steps(4);
     assert_eq!(listed(&h), before - 1, "the area's row is gone from the tree");
-    h.get_all_by_label("⏷").next().unwrap().click();
+    // (Each group's row says whether it is open, for a screen reader.)
+    let areas_open = |h: &Harness<'_, Moonglow>| {
+        let row = h.get_by_label_contains("Areas (");
+        row.accesskit_node().data().is_expanded()
+    };
+    assert_eq!(areas_open(&h), Some(false), "Areas said closed");
+    h.get_all_by_label("Expand All").next().unwrap().click();
     h.run_steps(4);
     assert_eq!(listed(&h), before, "and back");
+    assert_eq!(areas_open(&h), Some(true), "Areas said open");
     // By their keys (Options › Keyboard), once the tree has the keys:
     // Collapse All closes an area opened out to its objects too.
     let ctrl_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
-    let arrows = |h: &Harness<'_, Moonglow>| h.query_all_by_label("⏷").count();
+    let arrows = |h: &Harness<'_, Moonglow>| opened_out(h);
     let closed = arrows(&h);
     h.get_all_by_label(&area.to_string()).next().unwrap().click();
     h.run_steps(2);
     h.key_press(egui::Key::ArrowRight);
     h.run_steps(3);
+    settle(&mut h);
     assert_eq!(arrows(&h), closed + 1, "the area opened out");
     h.key_press_modifiers(ctrl_shift, egui::Key::ArrowLeft);
     h.run_steps(4);
@@ -482,7 +489,7 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-contents") else { return };
     assert!(h.query_by_label("Waypoints (2)").is_none());
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     // Every kind, with how many; the empty ones too.
     // (The tree's own Creatures group, of blueprints, reads the same.)
@@ -693,9 +700,11 @@ fn blueprints_are_listed_by_name_when_asked() {
     h.state_mut().settings.area_names = true;
     h.run();
     h.get_by_label("Hent Fynolds");
-    h.get_by_label("Old Chest");
     h.get_by_label("nameless.utc");
     assert!(h.query_by_label("creature007.utc").is_none());
+    // (The placeables' group is below the pane's edge: scrolled to.)
+    let tree = h.get_by_label("Hent Fynolds").rect().center();
+    wheel_to(&mut h, tree, "Old Chest");
     h.state_mut().settings.name_resrefs = true;
     h.run();
     h.get_by_label("Hent Fynolds (creature007)");
@@ -757,7 +766,7 @@ fn delete_on_a_tree_row_asks_first() {
     let Some((mut h, key)) = plugin_harness("ui-tree-delete-key", false) else { return };
     h.run();
     // The guard's row (its type opened out), under the pointer.
-    h.get_all_by_label("⏷").next().unwrap().click();
+    h.get_all_by_label("Expand All").next().unwrap().click();
     h.run_steps(3);
     let found = h.query_all_by_label_contains("guard").count();
     assert!(found > 0, "the guard's row");
@@ -925,7 +934,7 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     assert!(h.query_by_label("Waypoints (2)").is_none(), "the area stays closed");
     // Opened out (its arrow): the kinds are listed, folded, and opening
     // it does not go to the object selected before.
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(6);
     assert!(h.query_by_label("Waypoints (2)").is_some());
     let folded = h.query_all_by_label_contains("WAYPOINT").count();
@@ -945,15 +954,15 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     // area closed again, a selection opens it out and goes to the object.
     // (The arrow on the area's row, before its name.)
     let row = h.get_by_label("field").rect();
-    let arrow = h
-        .get_all_by_label("⏷")
-        .find(|n| {
-            n.rect().right() <= row.left() && (n.rect().center().y - row.center().y).abs() < 4.0
-        })
-        .unwrap();
+    let arrow = h.get_by_label("Placed Objects in field");
+    let r = arrow.rect();
+    assert!(r.right() <= row.left() && (r.center().y - row.center().y).abs() < 4.0, "{r:?}");
+    assert_eq!(arrow.accesskit_node().data().is_expanded(), Some(true), "open before the click");
     arrow.click();
     h.run_steps(6);
     assert!(h.query_by_label("Waypoints (2)").is_none());
+    let arrow = h.get_by_label("Placed Objects in field");
+    assert_eq!(arrow.accesskit_node().data().is_expanded(), Some(false), "closed by it");
     h.state_mut().settings.tree_keeps_areas_closed = false;
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
     h.run_steps(8);
@@ -993,7 +1002,7 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     h.run_steps(4);
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     h.get_by_label("Waypoints (40)").click();
     h.run_steps(6);
@@ -1342,7 +1351,7 @@ fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
     ];
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(tabs));
     h.run_steps(3);
-    let hint = "🔍 Filter name, resref";
+    let hint = "Filter name, resref";
     type_into_hint(&mut h, hint, "script_0");
     h.run_steps(3);
     assert!(h.query_by_label("script_50").is_none(), "hidden by the Filter");
@@ -1383,12 +1392,12 @@ fn placed_objects_are_chosen_together_and_found_in_areas_not_opened_out() {
     h.run_steps(30);
     assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "found in the area closed");
     h.get_by_label("Waypoints (2 of 2)");
-    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.get_by_label("Clear Filter").click();
     h.run_steps(4);
     assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "closed again");
     // Opened out (its waypoints open still, as the Filter opened them):
     // one clicked, another with Ctrl.
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(30);
     let rows: Vec<egui::Pos2> =
         h.query_all_by_label("NW_WAYPOINT001").map(|n| n.rect().center()).collect();
@@ -1447,7 +1456,7 @@ fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
     h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Area(area)));
     h.run_steps(3);
     h.state_mut().area_views.remove(&area);
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     h.get_by_label("Waypoints (2)").click();
     h.run_steps(3);
@@ -1470,7 +1479,7 @@ fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
 #[test]
 fn empty_groups_are_hidden_when_asked() {
     let Some((mut h, _area)) = area_harness("tree-hide-empty") else { return };
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     let empty = |h: &Harness<'_, Moonglow>| -> Vec<String> {
         let rows = h.query_all_by_label_contains(" (0)");
@@ -1500,7 +1509,7 @@ fn adjust_location_from_a_placed_object_s_row() {
     use mg_area::ObjectKind::Waypoint;
     let Some((mut h, area)) = area_harness("tree-adjust-location") else { return };
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     h.get_by_label("Waypoints (2)").click();
     h.run_steps(3);
@@ -1527,7 +1536,7 @@ fn a_placed_object_is_exported_as_a_blueprint() {
     let _ = std::fs::remove_file(&erf);
     h.state_mut().dialogs = Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() });
     let before = h.state().ws.as_ref().unwrap().module.keys().count();
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     h.get_by_label("Waypoints (2)").click();
     h.run_steps(3);
@@ -1608,7 +1617,7 @@ fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     h.run_steps(4);
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     h.get_by_label("Waypoints (40)").click();
     h.run_steps(6);
@@ -1657,7 +1666,7 @@ fn the_kinds_the_filter_opens_close_again() {
     h.get_by_label("Waypoints (2 of 2)").click();
     h.run_steps(10);
     // The Filter cleared and typed again: opened once more.
-    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.get_by_label("Clear Filter").click();
     h.run_steps(4);
     let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
     filter.click();
@@ -1685,26 +1694,26 @@ fn an_area_the_filter_opens_out_closes_again() {
     let kinds = |h: &Harness<'_, Moonglow>| h.query_all_by_label("Waypoints (2 of 2)").count();
     typed(&mut h, "nw_waypoint001");
     assert_eq!(kinds(&h), 1, "opened out by the Filter");
-    // (The area's arrow: the "⏷" just above its kinds, left of them;
-    // Expand All's is above the tree, the area view has its own.)
+    // (The area's arrow, said open, just above its kinds and left of them.)
     let under = h.get_by_label("Waypoints (2 of 2)").rect();
-    let arrow = (h.get_all_by_label("⏷"))
-        .filter(|n| n.rect().left() < under.left() && n.rect().top() < under.top())
-        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    arrow.unwrap().click();
+    let arrow = h.get_by_label_contains("Placed Objects in ");
+    assert_eq!(arrow.accesskit_node().data().is_expanded(), Some(true));
+    assert!(arrow.rect().left() < under.left() && arrow.rect().top() < under.top());
+    arrow.click();
     h.run_steps(10);
     assert_eq!(kinds(&h), 0, "closed, and stays closed");
-    h.get_by_label("⏵").click();
+    h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(10);
     assert_eq!(kinds(&h), 1, "opened out again");
     // Collapse All, then the Filter cleared and typed again: opened out once more.
     // (The tree's, left of the area view's.)
-    let collapse =
-        h.get_all_by_label("⏶").min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()));
+    let collapse = h
+        .get_all_by_label("Collapse All")
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()));
     collapse.unwrap().click();
     h.run_steps(10);
     assert_eq!(kinds(&h), 0, "Collapse All");
-    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.get_by_label("Clear Filter").click();
     h.run_steps(4);
     typed(&mut h, "nw_waypoint001");
     assert_eq!(kinds(&h), 1, "typed again");
@@ -1975,7 +1984,7 @@ fn several_of_every_kind_have_delete_and_export_in_their_menu() {
         assert_eq!(chosen(&h), wanted, "{group}");
         right_click(&mut h, &rows[last]);
         h.get_by_label(&format!("{} resources chosen", wanted.len()));
-        h.get_by_label("Export ⏵");
+        h.get_by_label("Export");
         // (A plugin's command where they are of one kind.)
         let one_kind = keys.iter().all(|k| k.restype == keys[0].restype);
         assert_eq!(h.query_by_label("Each Kind").is_some(), one_kind, "{group}");
@@ -2016,7 +2025,7 @@ fn several_of_every_kind_have_delete_and_export_in_their_menu() {
     h.run_steps(2);
     right_click(&mut h, "code_3");
     h.get_by_label("2 resources chosen");
-    h.get_by_label("Export ⏵");
+    h.get_by_label("Export");
     assert!(h.query_by_label("Each Kind").is_none(), "of two kinds");
     h.get_by_label("Delete…").click();
     h.run_steps(3);
@@ -2254,4 +2263,17 @@ fn several_conversations_are_exported_as_ink_twine_text_and_csv() {
     open_submenu(&mut h, "Export");
     h.get_by_label("Export as Files…");
     assert!(h.query_by_label("Export as Twine…").is_none(), "a script");
+}
+
+/// How many area rows of the module tree are opened out to what is placed
+/// in them: their arrow ("Placed Objects in" the area) is said open, and
+/// points down.
+fn opened_out(h: &Harness<'_, Moonglow>) -> usize {
+    let open = |n: &egui_kittest::Node<'_>| {
+        let said = n.accesskit_node().data().is_expanded() == Some(true);
+        let down = icon_drawn(h, mg_uikit::Icon::ChevronDown, n.rect());
+        assert_eq!(said, down, "an area's arrow says what it shows");
+        said
+    };
+    h.query_all_by_label_contains("Placed Objects in ").filter(open).count()
 }

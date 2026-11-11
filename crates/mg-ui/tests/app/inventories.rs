@@ -114,7 +114,7 @@ fn placeable_editor_fills_its_inventory() {
     h.get_all_by_value("nw_it_torch001").find(typed).unwrap().type_text("nw_it_mpotion001");
     h.run();
     // (The palette's row is the leftmost of that name; the list's rows are
-    // right of it, top to bottom.)
+    // right of it or under it, top to bottom.)
     let named = |h: &Harness<'_, Moonglow>, name: &str| -> Vec<egui::Rect> {
         let mut rects: Vec<egui::Rect> = h
             .get_all_by_label(name)
@@ -167,8 +167,10 @@ fn placeable_editor_fills_its_inventory() {
     assert_eq!(held(&mut h)[3], "nw_it_mpotion001", "pasted");
     // The last row dragged onto the first: it takes that place (one step).
     let last = *named(&h, &potion).last().unwrap();
-    let first =
-        named(&h, "Torch").into_iter().find(|r| r.left() > 400.0).expect("the list's torch");
+    // (The palette shows the potion alone: the torches are the list's.)
+    let first = (named(&h, "Torch").into_iter())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("the list's torch");
     let (from, to) = (last.center(), first.center());
     h.hover_at(from);
     h.run_steps(1);
@@ -521,11 +523,18 @@ fn what_the_game_takes_off_is_marked() {
     };
     h.get_by_label("Inventory").click();
     h.run();
-    assert!(h.query_all_by_label("⚠ Longsword").next().is_none(), "a bandit wears its sword");
+    // (Marked off with a warning icon before its name.)
+    let marked = |h: &Harness<'_, Moonglow>| {
+        let beside = |n: &egui_kittest::Node<'_>| {
+            icon_drawn(h, mg_uikit::Icon::Warning, n.rect().expand2(egui::vec2(24.0, 4.0)))
+        };
+        h.query_all_by_label("Longsword").any(|n| beside(&n))
+    };
+    assert!(!marked(&h), "a bandit wears its sword");
     apply(&mut h, feats(Vec::new()));
-    assert!(h.query_all_by_label("⚠ Longsword").next().is_some(), "without its feats, not");
+    assert!(marked(&h), "without its feats, not");
     apply(&mut h, feats(vec![45]));
-    assert!(h.query_all_by_label("⚠ Longsword").next().is_none());
+    assert!(!marked(&h));
 }
 
 #[test]
@@ -711,7 +720,7 @@ fn a_held_item_s_properties_open_from_the_inventory() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(6);
     let held = path.item("ItemList", 0);
     let tab = Tab::Instance { area, path: held.clone() };
@@ -862,7 +871,7 @@ fn a_held_item_s_properties_follow_the_item() {
     assert_eq!(open_items.count(), 0, "closed with its item");
 }
 
-/// A placed object's Properties closed by the tab's ×, with Options'
+/// A placed object's Properties closed by the tab's close button, with Options'
 /// "Closing a window cancels its changes" on: what was changed is set
 /// back as by Cancel, which Undo takes back; off, it is kept.
 #[test]
@@ -963,7 +972,7 @@ fn a_placed_store_s_items_open_their_properties_and_follow_them() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Properties").click();
+    apart(&h, "Properties").click();
     h.run_steps(6);
     let page = path.item("StoreList", page);
     assert_eq!(
@@ -1324,11 +1333,12 @@ fn a_held_item_dragged_to_another_object_is_carried_as_it_is() {
     h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
     h.run_steps(6);
-    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 640.0));
+    // (Tall enough for the palette and the chest's three rows under it.)
+    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 780.0));
     let item = Tab::Instance { area, path: chest.item("ItemList", 1) };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(item.clone()));
     h.run_steps(6);
-    own_window(&mut h, &item, egui::pos2(920.0, 700.0), egui::vec2(560.0, 660.0));
+    own_window(&mut h, &item, egui::pos2(920.0, 830.0), egui::vec2(560.0, 560.0));
     assert_eq!(held_window(&h, area, "ITEM_B"), chest.item("ItemList", 1));
     // The chest's second sword (its rows at the right, top to bottom), onto
     // the creature's backpack (under its heading, at the left).
@@ -1336,7 +1346,7 @@ fn a_held_item_dragged_to_another_object_is_carried_as_it_is() {
         .query_all_by_label("Longsword")
         .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
         .map(|n| n.rect())
-        .filter(|r| r.left() > 920.0 && r.top() < 680.0 && r.width() > 80.0)
+        .filter(|r| r.left() > 920.0 && r.top() < 820.0 && r.width() > 80.0)
         .collect();
     rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
     assert_eq!(rows.len(), 3, "the chest's three swords");
@@ -1591,7 +1601,8 @@ fn items_dragged_between_a_creature_s_slots_and_a_chest() {
     h.state_mut().blueprint_pages.insert((git, chest.clone()), "Inventory");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
     h.run_steps(6);
-    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 640.0));
+    // (Tall enough for the palette and the chest's three rows under it.)
+    own_window(&mut h, &tab, egui::pos2(920.0, 40.0), egui::vec2(560.0, 780.0));
     let in_chest = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
         let ws = h.state_mut().ws.as_mut().unwrap();
         let root = &ws.doc(&git).unwrap().root;

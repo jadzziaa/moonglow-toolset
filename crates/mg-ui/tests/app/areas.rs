@@ -29,7 +29,7 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     h.run();
     // (One button for the walkmeshes: a right click, or holding it,
     // opens the two to choose from.)
-    h.get_by_label("👣 Walkmesh…").click_secondary();
+    area_tool(&h, "Walkmesh…").click_secondary();
     h.run();
     h.get_by_label("Object Walkmeshes").click();
     h.run();
@@ -39,12 +39,12 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     h.get_by_label("Ground Walkmesh");
     h.key_press(egui::Key::Escape);
     h.run();
-    h.get_by_label("👣 Walkmesh…").click();
+    area_tool(&h, "Walkmesh…").click();
     h.run();
     assert!(!h.state().area_views[&area].object_walkmesh);
     // Held down a moment: the two open, and stay open when it is let go
     // (the release no click); one chosen there.
-    let at = h.get_by_label("👣 Walkmesh…").rect().center();
+    let at = area_tool(&h, "Walkmesh…").rect().center();
     h.hover_at(at);
     let button = |pressed| egui::Event::PointerButton {
         pos: at,
@@ -285,7 +285,7 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.run_steps(3);
     h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Dusk");
     h.run_steps(2);
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run_steps(2);
     assert_eq!(mg_ui::lighting::list(Some(&dir)), ["Dusk"]);
     // Given to the second: its colors are the first's.
@@ -375,20 +375,25 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
 }
 
 /// Options › General › Toolbar buttons, Icons only: the area view's
-/// toolbar too, at once: glyphs alone, named in their tips (a button with
-/// no tip of its own: its name) and by their names for a screen reader,
-/// not by their glyphs; the toggles still toggling. All, None, Together,
-/// To Scratch and Save as Prefab… have glyphs too.
+/// toolbar too, at once: icons alone, named in their tips (a button with
+/// no tip of its own: its name) and by their words for a screen reader;
+/// the toggles still toggling. All, None, Together, To Scratch and Save
+/// as Prefab… have icons too.
 #[test]
 fn the_area_toolbar_shows_icons_only_when_asked() {
     let Some((mut h, area)) = area_harness("area-icons-only") else { return };
-    h.get_by_label("🎥 Reorient Camera");
-    h.get_by_label("☑ All");
+    let names = ["Reorient Camera", "Grid", "All", "To Scratch"];
+    let wide: Vec<f32> = names.iter().map(|n| area_tool(&h, n).rect().width()).collect();
     h.state_mut().settings.toolbar_icons_only = true;
     h.run_steps(2);
-    for gone in ["🎥 Reorient Camera", "⊞ Grid", "🎥", "⊞", "☑ All", "📤 To Scratch"] {
-        assert!(h.query_by_label(gone).is_none(), "{gone}");
+    for (name, was) in names.iter().zip(wide) {
+        let now = area_tool(&h, name).rect().width();
+        assert!(now < was, "{name} is an icon alone now: {was} -> {now}");
+        // (An icon button, 22 square: the words are gone, its icon drawn.)
+        assert!(now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{name} {now} wide");
     }
+    let camera = area_tool(&h, "Reorient Camera").rect();
+    assert!(icon_drawn(&h, mg_uikit::Icon::Camera, camera), "Reorient Camera's icon");
     for name in ["All", "None", "Together", "To Scratch", "Area Properties"] {
         h.get_by_label(name);
     }
@@ -404,7 +409,7 @@ fn the_area_toolbar_shows_icons_only_when_asked() {
     let before = shown(&h);
     h.get_by_label("Grid").click();
     h.run_steps(2);
-    assert_ne!(shown(&h), before, "Grid toggled by its glyph");
+    assert_ne!(shown(&h), before, "Grid toggled by its icon");
     let on = match before {
         true => egui::accesskit::Toggled::False,
         false => egui::accesskit::Toggled::True,
@@ -416,6 +421,87 @@ fn the_area_toolbar_shows_icons_only_when_asked() {
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
 }
 
+/// The area toolbar's controls stay inside its tab's sides at every width, with
+/// Icons and text and with Icons only, and each dropdown's lead icon (Icons
+/// only) stays just before its dropdown on the same row: a dropdown begun
+/// on a row with room for it alone ran some 20 px past the tab's edge, its
+/// icon left at the end of the row above.
+#[test]
+fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
+    let Some((mut h, area)) = area_harness("area-toolbar-sweep") else { return };
+    let tab = Tab::Area(area);
+    // (The tab's body, and the toolbar's controls: each widget in it.)
+    let body = |h: &Harness<'_, Moonglow>| {
+        (h.state().dock.iter_leaves())
+            .find(|(_, leaf)| leaf.tabs.contains(&tab))
+            .map(|(_, leaf)| leaf.viewport)
+            .unwrap()
+    };
+    let controls = |h: &Harness<'_, Moonglow>| -> Vec<(String, egui::Rect)> {
+        let group = h.get_by_label("Area toolbar");
+        let all = group.query_all_by(|n| n.bounding_box().is_some());
+        let named = |n: &egui_kittest::Node<'_>| {
+            let a = n.accesskit_node();
+            format!("{:?} {}", a.role(), a.label().or(a.value()).unwrap_or_default())
+        };
+        all.map(|n| (named(&n), n.rect())).collect()
+    };
+    let (mut first_wrong, mut widths) = (None, Vec::new());
+    for icons_only in [false, true] {
+        h.state_mut().settings.toolbar_icons_only = icons_only;
+        for width in (640..=1600).step_by(4) {
+            h.set_size(egui::vec2(width as f32, 800.0));
+            // (A dropdown's room is the one it took the frame before: run
+            // until the toolbar is laid out the same twice, with a deadline.)
+            let started = std::time::Instant::now();
+            let mut was = Vec::new();
+            loop {
+                h.run();
+                let now = controls(&h);
+                if now == was {
+                    break;
+                }
+                assert!(started.elapsed().as_secs() < 20, "the toolbar never settles at {width}");
+                was = now;
+            }
+            let body = body(&h).expand(0.5);
+            let mut wrong: Vec<String> = (was.iter())
+                .filter(|(_, r)| r.left() < body.left() || r.right() > body.right())
+                .map(|(n, r)| format!("{n} at {r:?}"))
+                .collect();
+            // Each lead icon: on its dropdown's row, just before it.
+            let combos: Vec<egui::Rect> =
+                (was.iter()).filter(|(n, _)| n.starts_with("ComboBox")).map(|(_, r)| *r).collect();
+            for (icon, name) in [
+                (mg_uikit::Icon::Fade, "Fade Geometry"),
+                (mg_uikit::Icon::Magnet, "Snap"),
+                (mg_uikit::Icon::Rotate, "Turn"),
+            ] {
+                let drawn = mg_uikit::icons_drawn(&h.ctx);
+                let leads: Vec<egui::Rect> = (drawn.iter())
+                    .filter(|(i, r)| *i == icon && body.x_range().contains(r.center().x))
+                    .map(|(_, r)| *r)
+                    .collect();
+                assert_eq!(leads.len(), usize::from(icons_only), "{name}'s icon at {width}");
+                for lead in leads {
+                    let beside = combos.iter().any(|c| {
+                        let gap = c.left() - lead.right();
+                        (0.0..=12.0).contains(&gap) && c.y_range().contains(lead.center().y)
+                    });
+                    if !beside {
+                        wrong.push(format!("{name}'s icon at {lead:?}, apart from its dropdown"));
+                    }
+                }
+            }
+            if !wrong.is_empty() {
+                widths.push((icons_only, width));
+                first_wrong.get_or_insert((icons_only, width, body, wrong));
+            }
+        }
+    }
+    assert!(first_wrong.is_none(), "fails at {widths:?}, first: {first_wrong:#?}");
+}
+
 #[test]
 fn area_properties_edit_the_area() {
     let Some((mut h, area)) = area_harness("area-props") else { return };
@@ -423,7 +509,7 @@ fn area_properties_edit_the_area() {
         let ws = h.state_mut().ws.as_mut().unwrap();
         ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
     };
-    h.get_by_label("🔧 Area Properties").click();
+    area_tool(&h, "Area Properties").click();
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
 
@@ -465,7 +551,7 @@ fn area_properties_edit_the_area() {
     assert_eq!(a.integer("SunAmbientColor"), Some(0x32_3A_3C), "ExteriorDark's 60, 58, 50");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting Scheme"));
     // Always dark.
-    h.get_by_label("Always Dark").click();
+    click_in_sight(&mut h, "Always Dark");
     h.run_steps(2);
     let a = are(&mut h);
     assert_eq!((a.integer("DayNightCycle"), a.integer("IsNight")), (Some(0), Some(1)));
@@ -892,6 +978,9 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     h.run();
     h.get_by_label("Edit Areas Together…").click();
     h.run();
+    // (The window, taller than the test's screen, is placed a frame after
+    // it is drawn: the box is clicked where it comes to rest.)
+    at_rest(&mut h, "the Holding box", &|h| h.get_by_value("Anything").rect());
     h.get_by_value("Anything").click();
     h.run();
     h.get_all_by_label("A variable").last().unwrap().click();
@@ -985,6 +1074,8 @@ fn several_areas_are_edited_together() {
     h.get_by_label("Edit Areas Together…").click();
     h.run();
     h.get_by_label_contains("Apple Inn");
+    // (Where the window comes to rest, a frame after it is drawn.)
+    at_rest(&mut h, "the ground box", &|h| h.get_by_value("Above or under ground").rect());
     h.get_by_value("Above or under ground").click();
     h.run();
     h.get_all_by_label("Underground").last().unwrap().click();
@@ -1000,7 +1091,7 @@ fn several_areas_are_edited_together() {
     assert!(h.query_by_label("Edit Areas Together").is_none(), "the chooser closed");
 
     // Visual: always dark, on both caves and not on the inn.
-    h.get_by_label("Always Dark").click();
+    click_in_sight(&mut h, "Always Dark");
     h.run_steps(2);
     for (name, night) in [("cave1", 1), ("cave2", 1), ("inn", 0)] {
         let a = are(&mut h, name);

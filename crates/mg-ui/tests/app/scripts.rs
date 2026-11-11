@@ -236,7 +236,7 @@ fn compile_errors_go_to_their_line() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
     h.run();
-    h.get_by_label("Compile").click();
+    apart(&h, "Compile").click();
     h.run();
     let message = h.state().script_tools.messages.last().cloned().expect("a compiler message");
     assert!(message.error);
@@ -270,7 +270,7 @@ fn x2_inc_cutscene_compiles_with_a_warning() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
     h.run();
-    h.get_by_label("Compile").click();
+    apart(&h, "Compile").click();
     h.run();
     let ncs = ResKey::new(key.resref, ResType::NCS);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&ncs), "compiled");
@@ -455,6 +455,7 @@ fn the_module_s_undo_keeps_a_script_s_unsaved_text() {
 fn edit_row(h: &Harness<'_, Moonglow>, what: &str) -> String {
     let rows: Vec<String> = h
         .query_all_by_label_contains(what)
+        .filter(|n| !in_toolbar(n))
         .filter_map(|n| n.accesskit_node().label())
         .filter(|l| l.starts_with(what))
         .collect();
@@ -507,11 +508,11 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     assert_eq!(script(&h), edited, "and Redo gives it again");
     assert!(script_has_keys(&h, key));
     // The toolbar's, the same.
-    h.get_by_label("⟲ Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(script(&h), text);
     assert!(script_has_keys(&h, key));
-    h.get_by_label("⟳ Redo").click();
+    tool(&h, "Redo").click();
     h.run_steps(2);
     assert_eq!(script(&h), edited);
     assert!(script_has_keys(&h, key));
@@ -618,7 +619,7 @@ fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {
     h.run_steps(2);
     assert_eq!(h.state().script_text(key).as_deref(), Some(text));
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
-    h.get_by_label("⟳ Redo").click();
+    tool(&h, "Redo").click();
     h.run_steps(2);
     assert_eq!(h.state().script_text(key), Some(edited));
     assert!(script_has_keys(&h, key));
@@ -715,7 +716,7 @@ fn saving_a_script_compiles_it_with_debug_information_when_chosen() {
     h.run();
     h.key_press(egui::Key::Enter);
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     let module = &h.state().ws.as_ref().unwrap().module;
     let compiled = |t| module.contains(&ResKey::new(key.resref, t));
@@ -757,7 +758,7 @@ fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
     h.run();
     h.event(egui::Event::Text("// ę\n".into()));
     h.run();
-    h.get_by_label("Compile").click();
+    apart(&h, "Compile").click();
     h.run();
     let module = |h: &Harness<'_, Moonglow>, k: ResKey| {
         h.state().ws.as_ref().unwrap().module.get(&k).map(<[u8]>::to_vec)
@@ -775,7 +776,7 @@ fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
     h.run();
     h.event(egui::Event::Text("// 日\n".into()));
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     assert!(module(&h, key).unwrap().starts_with(b"// ?\n// "));
     let warned = |h: &Harness<'_, Moonglow>| {
@@ -1020,7 +1021,7 @@ fn a_crlf_script_has_no_carriage_returns_in_its_editor() {
     h.run();
     let text = h.state().script_text(key).unwrap();
     assert!(!text.contains('\r'), "{text:?}");
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     let saved = module(&h).unwrap();
     assert_eq!(saved, b"void main()x\r\n// a\r\n// b\r\n{\r\n    int n;\r\n}\r\n");
@@ -1048,7 +1049,7 @@ fn a_save_that_does_not_compile_says_so() {
         h.run();
         h.event(egui::Event::Text(letter.into()));
         h.run();
-        h.get_by_label("Save").click();
+        apart(&h, "Save").click();
         h.run();
     }
     let said: Vec<_> = h.state().script_tools.messages.iter().filter(|m| m.script == key).collect();
@@ -1523,7 +1524,7 @@ fn compile_and_the_live_check_read_an_include_as_saved() {
         h.state().script_error_for_test(nss("uses_n"))
     };
     let compiled = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("Compile").click();
+        apart(h, "Compile").click();
         h.run_steps(3);
         let messages = &h.state().script_tools.messages;
         !messages.iter().any(|m| m.script == nss("uses_n") && m.error)
@@ -1621,12 +1622,13 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     h.run_steps(2);
     let error = h.state().script_error_for_test(main);
     assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
-    h.get_by_label_contains("⚠ line 4:");
+    let said = h.get_by_label_contains("line 4:").rect().expand2(egui::vec2(24.0, 4.0));
+    assert!(icon_drawn(&h, mg_uikit::Icon::Error, said), "marked with an error icon");
     assert_eq!(top(&h), before, "the text stays where it was");
     // Options › Script Editor: no checking as you type.
     h.state_mut().settings.no_live_check = true;
     h.run_steps(2);
-    assert!(h.query_by_label_contains("⚠").is_none());
+    assert!(h.query_by_label_contains("line 4:").is_none());
     assert!(h.state().script_error_for_test(main).is_none(), "nor its underline");
     assert!(top(&h) < before, "and no line kept for one");
 }
@@ -2117,7 +2119,7 @@ fn a_script_compiled_on_its_own_is_passed_over_by_compile_all() {
     h.run_steps(3);
     h.state_mut().scripts_mut_for_test(nss("alone"), "void main() { int a = 2; }\n");
     h.run_steps(1);
-    h.get_by_label("Compile").click();
+    apart(&h, "Compile").click();
     h.run_steps(3);
     let ncs = ResKey::parse("alone", ResType::NCS).unwrap();
     let made = h.state().ws.as_ref().unwrap().module.get(&ncs).map(<[u8]>::to_vec);
@@ -2154,7 +2156,7 @@ fn a_script_compiled_on_its_own_is_passed_over_by_compile_all() {
         h.state_mut().settings.external_compiler_args = "{src} {out} {files}".into();
         h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("uses_n"))));
         h.run_steps(3);
-        h.get_by_label("Compile").click();
+        apart(&h, "Compile").click();
         h.run_steps(3);
         let given = std::fs::read_to_string(&listed).unwrap();
         assert_eq!(given.lines().collect::<Vec<_>>(), ["inc_n.nss", "uses_n.nss"], "{given}");
@@ -2195,7 +2197,7 @@ fn an_include_s_includers_are_compiled_with_it() {
     let from = h.state().log.entries.len();
     h.state_mut().scripts_mut_for_test(nss("inc_n"), "int N() { return 2; }\n");
     h.run_steps(1);
-    h.get_by_label("Compile").click();
+    apart(&h, "Compile").click();
     h.run_steps(3);
     let by_compile = ncs(&mut h, "uses_n").unwrap();
     assert_ne!(by_compile, uses, "compiled again by the include's Compile");
@@ -2258,7 +2260,7 @@ fn open_script_s_arrows_choose_among_those_listed() {
 }
 
 /// In Open Script, Escape clears the name typed (the window stays) and
-/// closes the window next, as every dialog's search field does; × clears
+/// closes the window next, as every dialog's search field does; Clear clears
 /// it too.
 #[test]
 fn open_script_s_escape_clears_the_name_then_closes() {
@@ -2274,13 +2276,13 @@ fn open_script_s_escape_clears_the_name_then_closes() {
         h.state().script_tools.open_script.as_ref().map(|w| w.filter.clone())
     };
     let field =
-        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("🔍 Find by name");
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find by name");
     h.get(egui_kittest::kittest::by().predicate(field)).type_text("hel");
     h.run_steps(2);
     assert_eq!(filter(&h).as_deref(), Some("hel"));
-    h.get_by_label("×").click();
+    h.get_by_label("Clear").click();
     h.run_steps(2);
-    assert_eq!(filter(&h).as_deref(), Some(""), "× clears it");
+    assert_eq!(filter(&h).as_deref(), Some(""), "Clear clears it");
     h.get(egui_kittest::kittest::by().predicate(field)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(field)).type_text("hel");
@@ -2390,7 +2392,7 @@ fn open_script_opens_the_scripts_selected_together() {
     window(&mut h);
     h.get_by_label("7 scripts");
     // Open is off with nothing selected.
-    assert!(h.get_by_label("Open").accesskit_node().is_disabled());
+    assert!(apart(&h, "Open").accesskit_node().is_disabled());
     h.get_by_label("s1").click();
     h.run_steps(2);
     assert_eq!(selected(&h), ["s1"]);
@@ -2452,7 +2454,7 @@ fn open_script_opens_the_scripts_selected_together() {
     // While a name is typed in its field, they are the field's: Ctrl+A
     // selects its text, not the scripts.
     (h.get_all_by_role(egui::accesskit::Role::TextInput))
-        .find(|n| n.accesskit_node().placeholder() == Some("🔍 Find by name"))
+        .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
         .expect("the name field")
         .click();
     h.run_steps(2);
@@ -2674,4 +2676,49 @@ fn a_long_script_s_lines_out_of_sight_are_edited_where_they_are() {
     h.run();
     assert_eq!(line(&h, 1010), "かint nLine10 = 10; // line 10");
     assert!(script_row_in_sight(&h, "かint nLine10 "));
+}
+
+/// The script editor has no frame around its code, with the keys or not
+/// (the mock's `.code`): egui framed it white while it had them (the
+/// selection's stroke), the theme's fields' accent pass leaving it.
+#[test]
+fn the_script_editor_has_no_frame_with_the_keys() {
+    let dir = mg_testkit::scratch_dir("ui-script-no-frame");
+    let path = sample_module(&dir);
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(script, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1300.0, 900.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
+    settle(&mut h);
+    let code = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    for light in [false, true] {
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        h.get(code.clone()).click();
+        settle(&mut h);
+        assert!(h.ctx.memory(|m| m.focused()).is_some(), "the editor has the keys");
+        let field = h.get(code.clone()).rect();
+        // A rectangle stroked round the code (within a few points of the
+        // field's edges), in any color.
+        let framed: Vec<egui::epaint::RectShape> = drawn(&h)
+            .into_iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r)
+                    if r.stroke.width > 0.0
+                        && r.stroke.color != egui::Color32::TRANSPARENT
+                        && (r.rect.min - field.min).length() < 4.0
+                        && (r.rect.max - field.max).length() < 4.0 =>
+                {
+                    Some(r)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(framed.is_empty(), "no frame round the code ({light}): {framed:?}");
+    }
 }

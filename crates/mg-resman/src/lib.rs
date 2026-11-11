@@ -736,8 +736,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A resource's first bytes are its bytes' first, from an archive (read
-    /// alone) and from other containers alike.
+    /// A resource's first bytes are its bytes' first, from an archive and a
+    /// folder (read alone) and from other containers alike.
     #[test]
     fn a_resource_s_first_bytes() {
         let dir = mg_testkit::scratch_dir("mg-resman-start");
@@ -754,12 +754,31 @@ mod tests {
         let mut rm = ResMan::new();
         rm.add(priority::HAK, "hak", LayerClass::Erf, ErfContainer::open(&hak).unwrap());
         rm.add(priority::MODULE, "module", LayerClass::Erf, mem);
-        for (name, n) in [("long", 12), ("long", 1000), ("short", 12), ("mem", 3), ("mem", 0)] {
+        let folder = dir.join("override");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("loose.mdl"), b"loose model, read in part").unwrap();
+        std::fs::write(folder.join("empty.mdl"), b"").unwrap();
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, DirContainer::open(&folder));
+        let cases = [
+            ("long", 12),
+            ("long", 1000),
+            ("short", 12),
+            ("mem", 3),
+            ("mem", 0),
+            ("loose", 5),
+            ("loose", 0),
+            ("loose", usize::MAX),
+            ("empty", 4),
+        ];
+        for (name, n) in cases {
             let k = key(name, ResType::MDL);
             let all = rm.get(&k).unwrap();
             assert_eq!(&rm.get_start(&k, n).unwrap()[..], &all[..n.min(all.len())], "{name} {n}");
         }
         assert!(rm.get_start(&key("none", ResType::MDL), 12).is_err());
+        // A file gone from the folder since it was listed is an error.
+        std::fs::remove_file(folder.join("loose.mdl")).unwrap();
+        assert!(rm.get_start(&key("loose", ResType::MDL), 5).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

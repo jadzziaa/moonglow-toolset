@@ -14,6 +14,7 @@ use mg_resman::ResKey;
 use mg_rules::creatures::{ABILITIES, modifier};
 use mg_rules::items::part_number;
 use mg_rules::{Challenge, Choice, CreatureSheet, GameData};
+use mg_uikit::Controls as _;
 
 use super::{Form, creature_lists, situated};
 use crate::widgets::{commit_number, spin_number};
@@ -176,7 +177,14 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 f.locstring(ui, what, label);
                 // A random name from the race's letter tables.
-                if ui.small_button("🎲").on_hover_text("Random name").clicked() {
+                if crate::widgets::icon_button(
+                    ui,
+                    mg_uikit::Icon::Dice,
+                    "Random Name",
+                    "Random name",
+                )
+                .clicked()
+                {
                     let race = f.root.integer("Race").unwrap_or(6).max(0) as u32;
                     let gender = f.root.integer("Gender").unwrap_or(0).clamp(0, 255) as u8;
                     let name =
@@ -236,7 +244,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "");
         f.mark_mixed(ui, "Interruptable");
         let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
-        if ui.checkbox(&mut no_interrupt, "No Interrupt").changed() {
+        if ui.check_box(&mut no_interrupt, "No Interrupt").changed() {
             f.set_int("No interrupt", "Interruptable", i64::from(!no_interrupt), FieldType::Byte);
         }
         ui.end_row();
@@ -933,27 +941,29 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let targets = f.list_targets();
     let mut edit = None;
     egui::ScrollArea::vertical().id_salt(("utc-skills", key)).show(ui, |ui| {
-        egui::Grid::new(("utc-skill-grid", key))
-            .num_columns(2)
-            .striped(true)
-            .spacing([24.0, 4.0])
-            .show(ui, |ui| {
-                ui.strong("Skill");
-                ui.strong("Rank");
-                ui.end_row();
-                for s in skills.iter() {
-                    let r = ui.label(&s.text);
-                    let game = described_by.as_deref();
-                    super::creature_lists::described(r, game, "skills", "Description", s.row);
-                    let rank = lists::skill_rank(&targets[0], s.row);
-                    let differs = targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
-                    f.mark_if(ui, &format!("Skill#{}", s.row), differs);
-                    if let Some(v) = commit_number(ui, rank, 0..=127) {
-                        edit = Some((s.row, v));
-                    }
+        mg_uikit::with_table_rows(ui, |ui| {
+            egui::Grid::new(("utc-skill-grid", key))
+                .num_columns(2)
+                .striped(true)
+                .spacing([24.0, mg_uikit::metrics::TABLE_RULE])
+                .show(ui, |ui| {
+                    ui.strong("Skill");
+                    ui.strong("Rank");
                     ui.end_row();
-                }
-            });
+                    for s in skills.iter() {
+                        let r = ui.label(&s.text);
+                        let game = described_by.as_deref();
+                        super::creature_lists::described(r, game, "skills", "Description", s.row);
+                        let rank = lists::skill_rank(&targets[0], s.row);
+                        let differs = targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
+                        f.mark_if(ui, &format!("Skill#{}", s.row), differs);
+                        if let Some(v) = commit_number(ui, rank, 0..=127) {
+                            edit = Some((s.row, v));
+                        }
+                        ui.end_row();
+                    }
+                })
+        });
     });
     if let Some((row, v)) = edit {
         // (The list is indexed by skill: missing entries up to it are
@@ -1031,9 +1041,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                         f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
                         // Aurora's sound set list plays a sample when clicked.
                         let set = f.root.integer("SoundSetFile").unwrap_or(-1);
-                        if ui
-                            .small_button("▶")
-                            .on_hover_text("Play a sample of the sound set")
+                        let tip = "Play a sample of the sound set";
+                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Play, "Play Sample", tip)
                             .clicked()
                             && let Some(name) = sound_set_sample(f.app, set)
                         {

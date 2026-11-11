@@ -12,6 +12,7 @@ use egui::Ui;
 use mg_core::StrRef;
 use mg_module::talk::{self, Line, Table};
 use mg_schema::{ExoString, GffValue, ifo};
+use mg_uikit::Controls as _;
 
 use crate::text::encode;
 use crate::{Action, Moonglow};
@@ -671,8 +672,8 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
     let v = &mut app.talk_view;
     ui.horizontal(|ui| {
         ui.label("New talk table");
-        ui.add(egui::TextEdit::singleline(&mut v.new_name).desired_width(140.0).hint_text("name"));
-        ui.checkbox(&mut v.new_feminine, "With a feminine table")
+        ui.add(mg_uikit::text_field(&mut v.new_name).desired_width(140.0).hint_text("name"));
+        ui.check_box(&mut v.new_feminine, "With a feminine table")
             .on_hover_text("For languages whose text differs for female characters");
     });
     let problem = if new.is_empty() {
@@ -849,9 +850,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     ui.horizontal_wrapped(|ui| {
         ui.label("Find");
         ui.add(
-            egui::TextEdit::singleline(&mut v.filter)
-                .desired_width(180.0)
-                .hint_text("words or a StrRef"),
+            mg_uikit::text_field(&mut v.filter).desired_width(180.0).hint_text("words or a StrRef"),
         );
 
         ui.add_enabled_ui(editable, |ui| {
@@ -903,9 +902,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         ui.label("Go to");
         let field = ui
             .add(
-                egui::TextEdit::singleline(&mut v.go_to)
-                    .desired_width(110.0)
-                    .hint_text("StrRef or line"),
+                mg_uikit::text_field(&mut v.go_to).desired_width(110.0).hint_text("StrRef or line"),
             )
             .on_hover_text(
                 "A StrRef (16777216 and up) or a line's number, then Enter, to go to it",
@@ -960,7 +957,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
             actions.push(Action::FindStrRef(Table::strref(row).0));
         }
         if ui
-            .checkbox(&mut v.only_text, "Only lines with text")
+            .check_box(&mut v.only_text, "Only lines with text")
             .on_hover_text("Leave empty lines out of the list (reserved ranges)")
             .changed()
         {
@@ -1031,7 +1028,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         rows
     });
     v.selected = v.selected.filter(|&s| s < t.len());
-    let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    let (row_height, pitch) = mg_uikit::row_metrics(ui); // (rows of controls, none between)
     let feminine = t.feminine.is_some();
     // The list and the chosen line's editor share the tab's height, and
     // the editor's text boxes what is left of its part: a long text
@@ -1101,10 +1098,9 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     if std::mem::take(&mut v.reveal)
         && let Some(at) = v.selected.and_then(|s| rows.iter().position(|r| *r == s))
     {
-        let pitch = row_height + ui.spacing().item_spacing.y;
         list = list.vertical_scroll_offset((at as f32 * pitch - list_height / 2.0).max(0.0));
     }
-    let shown = list.show_rows(ui, row_height, rows.len(), |ui, range| {
+    let shown = mg_uikit::show_rows(list, ui, rows.len(), |ui, range| {
         ui.data_mut(|d| d.insert_temp(seen_id, (range.start, range.end)));
         for &row in &rows[range] {
             let line = t.line(row);

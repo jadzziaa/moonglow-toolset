@@ -4,6 +4,7 @@
 //! blueprint into the module as a new custom one; Delete removes a custom
 //! one; Preview shows it in the 3D viewer.
 
+use mg_uikit::Controls as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -382,9 +383,16 @@ pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
 /// where the arrow keys go.
 pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
     if keys_are(ui.ctx(), list) {
-        let stroke = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color);
+        let stroke = egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).accent);
         ui.painter().rect_stroke(rect.shrink(1.0), 2.0, stroke, egui::StrokeKind::Inside);
     }
+}
+
+/// Whether the arrow keys are the log's (it took them with a click on
+/// it). For the window's tests.
+#[doc(hidden)]
+pub fn keys_are_the_logs(ctx: &egui::Context) -> bool {
+    keys_are(ctx, Keys::Log)
 }
 
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
@@ -886,11 +894,14 @@ pub(crate) fn fold_icons(
     use crate::keys::Cmd;
     let mut fold = None;
     let expand = keymap.titled(&format!("Open every {what}"), Cmd::ExpandAll, ui.ctx());
-    if ui.small_button("⏷").on_hover_text(expand).clicked() {
+    let icon = |ui: &mut egui::Ui, icon, name, tip: &str| {
+        crate::widgets::icon_button(ui, icon, name, tip).clicked()
+    };
+    if icon(ui, crate::icons::Icon::ExpandAll, "Expand All", &expand) {
         fold = Some(true);
     }
     let collapse = keymap.titled(&format!("Close every {what}"), Cmd::CollapseAll, ui.ctx());
-    if ui.small_button("⏶").on_hover_text(collapse).clicked() {
+    if icon(ui, crate::icons::Icon::CollapseAll, "Collapse All", &collapse) {
         fold = Some(false);
     }
     fold
@@ -984,12 +995,14 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
         return;
     }
     let tip = "Chosen, a click in an area's view puts this light there (Shift+click: more)";
-    for light in lights.iter() {
-        let on = view.placing_light == Some(light.row);
-        if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
-            view.placing_light = if on { None } else { Some(light.row) };
+    mg_uikit::with_rows(ui, |ui| {
+        for light in lights.iter() {
+            let on = view.placing_light == Some(light.row);
+            if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
+                view.placing_light = if on { None } else { Some(light.row) };
+            }
         }
-    }
+    });
     // Lights of any color and reach, as content: only with the option on
     // (Options › Areas, or the project's `[lights] generated`).
     if crate::light_maker::generated_lights(app) {
@@ -998,12 +1011,14 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
             ui.separator();
             ui.weak("Made by Custom Light, in the module's haks:");
         }
-        for light in made.iter() {
-            let on = view.placing_light == Some(light.row);
-            if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
-                view.placing_light = if on { None } else { Some(light.row) };
+        mg_uikit::with_rows(ui, |ui| {
+            for light in made.iter() {
+                let on = view.placing_light == Some(light.row);
+                if crate::area_view::light_toggle(ui, light, on).on_hover_text(tip).clicked() {
+                    view.placing_light = if on { None } else { Some(light.row) };
+                }
             }
-        }
+        });
         ui.add_space(4.0);
         let area = view.area.filter(|a| app.area_views.contains_key(a));
         let r = ui
@@ -1075,7 +1090,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (and below, for the one shown); in a pane too narrow for the row, a
     // dropdown with their names.
     {
-        use crate::icons::{LIGHTS, PREFABS, START, TILES, labelled, object};
+        use crate::icons::{LIGHTS, PREFABS, START, TILES, object};
         #[derive(Clone, Copy, PartialEq)]
         enum Type {
             Tiles,
@@ -1116,23 +1131,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "Click in an area to put the start location there",
         ));
         let mut chosen = None;
-        // Larger than the text beside them (a line's height, about a
-        // third more than its letters), to be told apart and hit at a
-        // glance; in rows, where the pane is narrower than the twelve of
-        // them.
-        let size = ui.text_style_height(&egui::TextStyle::Body);
-        let each = size + 10.0;
+        // Icon buttons (22 px), in rows where the pane is narrower than the
+        // twelve of them. (Named by their types within the row, a group
+        // of its own: the area view's toolbar names its filters so too.)
+        let each = mg_uikit::metrics::ICON_BUTTON + 2.0;
         // (The button that folds the pane away is on its edge, not among
         // these: GitHub issue 10, `Moonglow::palettes_edge`.)
         if ui.available_width() >= each * 4.0 {
             ui.horizontal_wrapped(|ui| {
+                mg_uikit::name_group(ui, "Palette types");
                 ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
-                for (t, glyph, name, tip) in &types {
+                for (t, icon, name, tip) in &types {
                     let tip =
                         if tip.is_empty() { name.to_string() } else { format!("{name}\n{tip}") };
-                    let icon = egui::RichText::new(*glyph).size(size);
-                    if ui.selectable_label(now == *t, icon).on_hover_text(tip).clicked() {
+                    let button = mg_uikit::IconButton::new(*icon, *name)
+                        .icon_only(true)
+                        .selectable(now == *t);
+                    if ui.add(button).on_hover_text(tip).clicked() {
                         chosen = Some(*t);
                     }
                 }
@@ -1141,14 +1156,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             let shown = types.iter().find(|t| t.0 == now).expect("one of them");
             let all: Vec<_> = types.iter().map(|t| t.0).collect();
             let mut pick = now;
-            crate::widgets::dropdown("palette-type")
-                .selected_text(labelled(shown.1, shown.2))
-                .width(ui.available_width())
-                .show(ui, &mut pick, &all, |t| {
-                    let (_, glyph, name, _) =
-                        types.iter().find(|x| x.0 == *t).expect("one of them");
-                    labelled(glyph, name)
-                });
+            // (Its icon before it: what is shown, at a glance.)
+            ui.horizontal(|ui| {
+                mg_uikit::icon(ui, shown.1);
+                crate::widgets::dropdown("palette-type")
+                    .selected_text(shown.2)
+                    .width(ui.available_width())
+                    .show_with(
+                        ui,
+                        &mut pick,
+                        || all.clone(),
+                        |ui, pick| {
+                            // (Its list named as the row of icons is.)
+                            mg_uikit::name_group(ui, "Palette types");
+                            for (t, _, name, _) in &types {
+                                ui.selectable_value(pick, *t, *name);
+                            }
+                        },
+                    );
+            });
             if pick != now {
                 chosen = Some(pick);
             }
@@ -1257,12 +1283,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // As the blueprint palettes: the search, then a row of what there
         // is and how it is shown (the tile palette's own: its headings,
         // brushes and tiles), then the list.
-        search_row(ui, &mut view, "🔍 Search name, model");
+        search_row(ui, &mut view, "Search name, model");
         app.palette = view;
         crate::terrain_mode::palette_ui(app, ui);
         return;
     }
-    let entered = search_row(ui, &mut view, "🔍 Search name, tag, resref");
+    let entered = search_row(ui, &mut view, "Search name, tag, resref");
     // (Given the keys by Next Pane: at its first row, as Down from the
     // search goes.)
     let entered = entered || (std::mem::take(&mut view.to_first) && view.cursor.is_none());
@@ -1316,13 +1342,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // that have them (the others are lists, whichever is chosen).
         let pictures = pictured(view.kind);
         let shown = app.settings.palette_gallery && pictures;
-        if ui.selectable_label(!shown, "☰").on_hover_text("Show the blueprints by name").clicked()
-        {
+        let list = mg_uikit::IconButton::new(crate::icons::LIST, "List").icon_only(true);
+        if ui.add(list.selected(!shown)).on_hover_text("Show the blueprints by name").clicked() {
             app.settings.palette_gallery = false;
         }
         ui.add_enabled_ui(pictures, |ui| {
+            let gallery =
+                mg_uikit::IconButton::new(crate::icons::GALLERY, "Gallery").icon_only(true);
             if ui
-                .selectable_label(shown, crate::icons::GALLERY)
+                .add(gallery.selected(shown))
                 .on_hover_text("Show the blueprints as pictures, to choose by eye")
                 .on_disabled_hover_text(
                     "Only creatures, doors, items, placeables and waypoints have pictures",
@@ -1339,7 +1367,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         {
             crate::commands::Id::new_blueprint(view.kind).run(app, ui.ctx());
         }
-        ui.menu_button("More", |ui| {
+        mg_uikit::menu_button(ui, "More", |ui| {
+            mg_uikit::menu_rows(ui);
             if ui
                 .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
                 .on_hover_text("Add, rename and remove this module's categories for this kind")
@@ -1435,7 +1464,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
             if by.is_some()
                 && ui
-                    .checkbox(&mut nested, "Then by Category")
+                    .check_box(&mut nested, "Then by Category")
                     .on_hover_text("Each group holds the palette's categories, as they are nested")
                     .changed()
             {
@@ -1573,6 +1602,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // more.
         if !tree.gallery {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            // (Rows 22 apart; a gallery's pictures keep their gaps.)
+            mg_uikit::list_rows(ui);
         }
         if find.is_empty() {
             tree.remembered(ui, "Favorites", &favorites, &palette);
@@ -1588,6 +1619,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let (_, below) = ui.allocate_exact_size(rest, egui::Sense::click());
         if let Some(label) = tree.new {
             below.context_menu(|ui| {
+                mg_uikit::menu_rows(ui);
                 if ui.button(label).clicked() {
                     tree.picks.push(Pick::New);
                     ui.close();
@@ -1998,7 +2030,8 @@ impl Tree<'_> {
         behind: egui::layers::ShapeIdx,
     ) {
         if self.cursor_in(branch) == Some(None) {
-            let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.6);
+            // (The keys' cursor on a header: the theme's `cell-select`.)
+            let fill = mg_uikit::tokens(ui.ctx()).cell_select;
             let radius = ui.visuals().widgets.inactive.corner_radius;
             ui.painter().set(behind, egui::epaint::RectShape::filled(header.rect, radius, fill));
             if self.reveal {
@@ -2054,6 +2087,7 @@ impl Tree<'_> {
         let remembered = self.remembered_key(path);
         let searching = self.found.is_some();
         let shown = egui::CollapsingHeader::new(title)
+            .icon(mg_uikit::collapsing_icon)
             .id_salt(("palette", kind, custom, path, searching, &self.grouping))
             .default_open(searching || self.open.contains(&remembered))
             .open(self.asked(&branch).or_else(|| self.arrives_in(node).then_some(true)))
@@ -2078,6 +2112,7 @@ impl Tree<'_> {
         if !custom {
             if plugins {
                 shown.header_response.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
                     if let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
                         let mut keys = Vec::new();
                         all_under(node, kind, &mut keys);
@@ -2098,6 +2133,7 @@ impl Tree<'_> {
         let new = self.new;
         let mut made = false;
         shown.header_response.context_menu(|ui| {
+            mg_uikit::menu_rows(ui);
             if let Some(label) = new {
                 if ui.button(label).clicked() {
                     made = true;
@@ -2167,20 +2203,38 @@ impl Tree<'_> {
         let favorite = self.favorites.contains(&b.resref);
         let label =
             blueprint_label(&name, self.resrefs.then_some(b.resref), b.cr.filter(|_| self.cr));
-        let label = if favorite { format!("★ {label}") } else { label };
         // Dragged into an area view, it is placed where it is dropped; onto
-        // a custom category, it moves there.
+        // a custom category, it moves there. (A favorite marked with a
+        // bookmark: before its name in the list, at a picture's top right.)
         let r = if self.gallery {
             let r = self.tile(ui, key, &label);
+            if favorite && ui.is_rect_visible(r.rect) {
+                let side = egui::Vec2::splat(mg_uikit::metrics::ICON_SMALL);
+                let at = r.rect.right_top() + egui::vec2(-side.x - 3.0, 3.0);
+                let color = mg_uikit::tokens(ui.ctx()).thumb_flag;
+                crate::icons::FAVORITE.paint(
+                    ui.painter(),
+                    egui::Rect::from_min_size(at, side),
+                    color,
+                );
+            }
             if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
                 listed.places.insert(listed.rows.len() - 1, r.rect);
             }
             r
         } else {
-            ui.add(
-                egui::Button::selectable(self.sel.has(key), label)
-                    .sense(egui::Sense::click_and_drag()),
-            )
+            let on = self.sel.has(key);
+            let sense = egui::Sense::click_and_drag();
+            match favorite {
+                true => {
+                    // (Its own sense, a click and a drag, as the other rows'.)
+                    let row = mg_uikit::IconButton::new(crate::icons::FAVORITE, label)
+                        .selectable(on)
+                        .sense(sense);
+                    ui.add(row)
+                }
+                false => ui.add(egui::Button::selectable(on, label).sense(sense)),
+            }
         };
         if r.hovered() {
             self.hovered = Some(key);
@@ -2243,6 +2297,7 @@ impl Tree<'_> {
         let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
         let commands = self.commands;
         r.context_menu(|ui| {
+            mg_uikit::menu_rows(ui);
             if let Some(label) = new {
                 if ui.button(label).on_hover_text("A new blueprint (the type's wizard)").clicked() {
                     picks.push(Pick::New);
@@ -2305,7 +2360,7 @@ impl Tree<'_> {
                 ui.close();
             }
             // The two ways of replacing the area's selection, together.
-            ui.menu_button("Replace Selected", |ui| {
+            mg_uikit::menu_button(ui, "Replace Selected", |ui| {
                 if ui
                     .button("Replace Selected with This")
                     .on_hover_text(
@@ -2345,7 +2400,7 @@ impl Tree<'_> {
             // (For a script, without opening the blueprint: Troubletcat's
             // ask after 3.1.0, the game's blueprints' fields copied from
             // View.) Its names to paste, together.
-            ui.menu_button("Copy", |ui| {
+            mg_uikit::menu_button(ui, "Copy", |ui| {
                 if ui.button("Copy ResRef").on_hover_text("Its ResRef, to paste").clicked() {
                     ui.ctx().copy_text(key.resref.to_string());
                     ui.close();
@@ -2431,6 +2486,7 @@ impl Tree<'_> {
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
         let shown = egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
+            .icon(mg_uikit::collapsing_icon)
             .id_salt(("palette-remembered", title, self.kind, self.custom))
             .default_open(true)
             .open(self.asked(&branch))
@@ -2653,7 +2709,9 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
                 keep = false;
             }
-            if ui.small_button("✖").on_hover_text("Forget it").clicked() {
+            let dismiss = crate::widgets::clear_button().name("Dismiss");
+            let tip = "Dismiss this note: the prefab stays deleted";
+            if ui.add(dismiss).on_hover_text(tip).clicked() {
                 keep = false;
             }
         });
@@ -2674,7 +2732,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let mut done = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(format!("Rename '{name}' to"));
-            let r = ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0));
+            let r = ui.add(mg_uikit::text_field(&mut to).desired_width(160.0));
             crate::widgets::autofocus(ui, &r);
             let taken = names.iter().any(|n| n != &name && n.eq_ignore_ascii_case(to.trim()));
             let ok = crate::prefabs::valid_name(&to) && !taken;
@@ -2710,6 +2768,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
         ui,
         |ui| {
+            mg_uikit::list_rows(ui);
             for name in crate::prefabs::list(dir.as_deref()) {
                 let being = renamed.as_ref().is_some_and(|(n, _)| n == &name);
                 let r = ui.selectable_label(being, &name).on_hover_ui(|ui| {
@@ -2724,6 +2783,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.actions.push(Action::PlacePrefab(name.clone()));
                 }
                 r.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
                     if ui.button("Place").clicked() {
                         app.actions.push(Action::PlacePrefab(name.clone()));
                         ui.close();

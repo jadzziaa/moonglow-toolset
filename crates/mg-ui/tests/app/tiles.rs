@@ -185,21 +185,21 @@ fn tileset_made_edited_saved_with_its_palette() {
     h.run();
     h.get_by_label("Add Tile").click();
     h.run();
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run();
     h.get_by_label("Add Group").click();
     h.run();
-    h.get_by_label("Undo").click();
+    apart(&h, "Undo").click();
     h.run();
     assert!(h.state().tilesets[0].tileset().unwrap().groups.is_empty());
-    h.get_by_label("Redo").click();
+    apart(&h, "Redo").click();
     h.run();
     let t = h.state().tilesets[0].tileset().unwrap().clone();
     assert_eq!((t.tiles.len(), t.groups.len()), (1, 1));
     assert_eq!(t.tiles[0].corners[0].0, "Grass");
 
     // Saved, its palette made, checked.
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     let saved =
         mg_set::Tileset::parse(&std::fs::read(&set_path).unwrap(), mg_core::Codepage::default())
@@ -324,7 +324,7 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     let t = h.state().tilesets[0].tileset().unwrap().clone();
     assert_eq!((t.crossers[road].name.as_str(), edges(&t, "Lane")), ("Lane", roads));
     // Saved: the palette follows both.
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run_steps(3);
     let p = palette(&h);
     assert!(p.contains(&"meadow".into()) && p.contains(&"lane".into()), "{p:?}");
@@ -335,10 +335,10 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     assert_eq!(saved.terrains[grass].name, "Meadow");
     // Undone, one step each, and saved: as it was, the palette too.
     for _ in 0..2 {
-        h.get_by_label("Undo").click();
+        apart(&h, "Undo").click();
         h.run_steps(3);
     }
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run_steps(3);
     assert_eq!(std::fs::read(&path).unwrap(), ttr, "the file as it was, byte for byte");
     let p = palette(&h);
@@ -369,7 +369,7 @@ fn a_tileset_group_s_name_is_typed() {
     h.run();
     h.get_by_label("Add Tile").click();
     h.run();
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run();
     h.get_by_label("Add Group").click();
     h.run();
@@ -437,7 +437,7 @@ fn a_tileset_s_rules_and_doors_are_edited() {
     assert_eq!(h.query_all(combo.clone()).filter(grass).count(), 3, "Placed, Adjacent, Changed");
     h.query_all(combo).filter(grass).nth(2).expect("the rule's Changed").click();
     h.run();
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run();
     assert_eq!(set(&h).primary_rules[0].changed, "Water");
     h.get_all_by_label("Add Rule").nth(1).expect("the secondary rules' Add Rule").click();
@@ -483,11 +483,11 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
     let Some((mut h, area)) = area_harness("crosser-cursor") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: ground well above the tiles'
     // own corners nearby.
-    h.get_by_label("↕ Raise/Lower").click();
+    h.get_by_label("Raise/Lower").click();
     h.run_steps(2);
     for corner in [(10.0, 10.0), (10.0, 20.0)] {
         for _ in 0..2 {
@@ -498,7 +498,7 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
             h.run_steps(3);
         }
     }
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     // Wherever the pointer rests on raised ground, the quarter drawn for it
     // lies on that ground.
@@ -559,9 +559,9 @@ fn area_viewer_paints_terrain() {
     // The Tiles palette: the area's tileset, its Terrain branch open.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     h.get_by_label_contains("Water: click a corner");
 
@@ -576,7 +576,7 @@ fn area_viewer_paints_terrain() {
 
     // Shift + click with Grass on a grass corner: the four tiles around it
     // step to their next variants; the terrain stays.
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     let tiles = |h: &mut Harness<'_, Moonglow>| {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -598,7 +598,7 @@ fn area_viewer_paints_terrain() {
     assert!(moved > 0, "the tiles step to their next variants");
 
     // Raise and lower a corner.
-    h.get_by_label("↕ Raise/Lower").click();
+    h.get_by_label("Raise/Lower").click();
     h.run_steps(2);
     click(&mut h, Vec3::new(10.0, 30.0, 0.0));
     assert_eq!(lattice(&mut h).corner(1, 3).height, 1);
@@ -607,7 +607,7 @@ fn area_viewer_paints_terrain() {
 
     // A road dragged from tile (0, 0) to (2, 0), starting in the east
     // quarter of the first: on the two edges crossed.
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
     h.hover_at(from);
@@ -628,7 +628,7 @@ fn area_viewer_paints_terrain() {
     assert_eq!(edges[2], [None, None, None, Some(road)]);
 
     // Trees beside the straight road: no tile has that, nothing changes.
-    h.get_by_label("Trees").click();
+    click_in_sight(&mut h, "Trees");
     h.run_steps(2);
     let before = lattice(&mut h);
     click(&mut h, Vec3::new(20.0, 10.0, 0.0));
@@ -639,7 +639,7 @@ fn area_viewer_paints_terrain() {
     assert!(!refused.0.is_empty());
 
     // The Eraser on the road's middle tile takes the road away.
-    h.get_by_label("🗑 Eraser").click();
+    h.get_by_label("Eraser").click();
     h.run_steps(2);
     click(&mut h, Vec3::new(15.0, 5.0, 0.0));
     let l = lattice(&mut h);
@@ -647,9 +647,9 @@ fn area_viewer_paints_terrain() {
 
     // A group (Barn 1: tiles 145, 147 / 144, 146 from the south-west),
     // turned a quarter by a right click, its first tile where clicked.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     button(&mut h, Vec3::new(25.0, 15.0, 0.0), egui::PointerButton::Secondary);
     click(&mut h, Vec3::new(25.0, 15.0, 0.0));
@@ -675,7 +675,7 @@ fn tile_properties_choose_a_variant_by_picture() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
@@ -757,7 +757,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     let set = mg_edit::Command::new("Replacement texture", vec![set]);
     h.state_mut().actions.push(mg_ui::Action::Apply(set));
     h.run_steps(2);
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     // The room in the middle: tile (1, 1), index 5.
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
@@ -850,7 +850,7 @@ fn set_tile_id(h: &mut Harness<'_, Moonglow>, area: ResRef, index: usize, id: i3
 /// first) and opens Tile Properties from the tile menu.
 fn tile_properties_of(h: &mut Harness<'_, Moonglow>, area: ResRef, points: &[glam::Vec3]) {
     if !h.state().area_views[&area].tile_mode {
-        h.get_by_label("⛶ Select Tiles").click();
+        area_tool(h, "Select Tiles").click();
         h.run_steps(2);
     }
     for (i, p) in points.iter().enumerate() {
@@ -1024,7 +1024,7 @@ fn tile_properties_ask_before_closing_with_changes() {
     change(&mut h);
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::TileProperties]));
     h.run_steps(3);
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run_steps(3);
     assert!(h.state().tile_props.is_none());
     assert_ne!(tile(&mut h).integer("Tile_MainLight1"), was.integer("Tile_MainLight1"));
@@ -1079,12 +1079,12 @@ fn groups_and_features_change_only_whole() {
     let says = |h: &Harness<'_, Moonglow>, text: &str| h.query_by_label_contains(text).is_some();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // A barn, its first tile in (1, 1).
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     click(&mut h, Vec3::new(15.0, 15.0, 0.0), egui::Modifiers::NONE);
     let barn = vec![(1, 1), (2, 1), (1, 2), (2, 2)];
@@ -1102,14 +1102,14 @@ fn groups_and_features_change_only_whole() {
     // (The cursor over it is red, as Aurora's outline turns.)
     h.render().unwrap().save(mg_testkit::scratch_dir("ui-group-locked").join("over.png")).unwrap();
     // (The groups closed: the tools above in view.)
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
     // The tile tools on one of its tiles: refused, saying why.
     let east = Vec3::new(25.0, 15.0, 0.0);
     for (tool, label) in [
-        ("⏭ Next Tile Appearance", "Next tile appearance"),
-        ("↺ Rotate Tile", "Rotate tile"),
-        ("🔁 Refine Tile", "Refine tile"),
+        ("Next Tile Appearance", "Next tile appearance"),
+        ("Rotate Tile", "Rotate tile"),
+        ("Refine Tile", "Refine tile"),
     ] {
         h.get_by_label(tool).click();
         h.run_steps(2);
@@ -1121,7 +1121,7 @@ fn groups_and_features_change_only_whole() {
     h.run_steps(2);
     // Shift + right click in Select Tiles; and Tile Properties offers no
     // variants.
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     let at = screen(&h, area, east);
     h.hover_at(at);
@@ -1147,7 +1147,7 @@ fn groups_and_features_change_only_whole() {
     h.run_steps(2);
     // Out of Select Tiles, the area's own menu on the ground: Rotate Tile
     // refused, the log saying why (the status line is the objects').
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     assert!(!h.state().area_views[&area].tile_mode);
     for pressed in [true, false] {
@@ -1159,25 +1159,26 @@ fn groups_and_features_change_only_whole() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Rotate Tile").click();
+    // (The menu's: the palette has a Rotate Tile button too.)
+    popup_item(&h, "Rotate Tile").click();
     h.run_steps(3);
     assert_eq!(grid(&mut h), placed, "the ground menu's Rotate Tile: nothing changed");
     assert!(says(&h, "Rotate tile: tiles of a group or feature"));
 
     // Allowed: the next appearance is put there, with a warning.
     h.state_mut().settings.edit_group_tiles = true;
-    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.get_by_label("Next Tile Appearance").click();
     h.run_steps(2);
     click(&mut h, east, egui::Modifiers::NONE);
     assert_ne!(grid(&mut h).tile(2, 1), placed.tile(2, 1), "allowed: changed");
-    assert!(says(&h, "⚠ Next tile appearance: a group or feature left part changed"));
+    assert!(says(&h, "Next tile appearance: a group or feature left part changed"));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(grid(&mut h), placed, "undone");
     // A barn over its east half: the first goes whole.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
 
     h.run_steps(2);
     click(&mut h, east, egui::Modifiers::NONE);
@@ -1191,7 +1192,7 @@ fn groups_and_features_change_only_whole() {
     // Not allowed: Delete on one of its tiles takes the whole barn.
     h.state_mut().settings.edit_group_tiles = false;
     if !h.state().area_views[&area].tile_mode {
-        h.get_by_label("⛶ Select Tiles").click();
+        area_tool(&h, "Select Tiles").click();
         h.run_steps(2);
     }
     click(&mut h, east, egui::Modifiers::NONE);
@@ -1362,9 +1363,9 @@ fn area_are(h: &mut Harness<'_, Moonglow>, area: ResRef) -> mg_gff::Struct {
 fn choose_tile_brush(h: &mut Harness<'_, Moonglow>, brush: &str) {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(h, "🗻", "Tiles");
+    palette_type(h, "Tiles");
     h.run_steps(2);
-    h.get_by_label(brush).click();
+    click_in_sight(h, brush);
     h.run_steps(2);
 }
 
@@ -1423,7 +1424,7 @@ fn a_terrain_drag_across_an_undo_of_resize_area_paints_nothing() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("terrain-drag-undo-resize") else { return };
     let before = area_are(&mut h, area);
-    choose_tile_brush(&mut h, "↕ Raise/Lower");
+    choose_tile_brush(&mut h, "Raise/Lower");
     resize_area_to(&mut h, area, 4, 8);
     let (from, to) = (
         screen(&h, area, Vec3::new(20.0, 50.0, 0.0)),
@@ -1476,7 +1477,7 @@ fn tiles_selected_on_ground_an_undo_took_away_are_dropped() {
     let before = area_are(&mut h, area);
     resize_area_to(&mut h, area, 4, 8);
     if !h.state().area_views[&area].tile_mode {
-        h.get_by_label("⛶ Select Tiles").click();
+        area_tool(&h, "Select Tiles").click();
         h.run_steps(2);
     }
     let south = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
@@ -1517,7 +1518,7 @@ fn tiles_selected_across_rotate_area_are_dropped() {
     use glam::Vec3;
     use mg_edit::Command;
     let Some((mut h, area)) = area_harness("tiles-rotate") else { return };
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     // (Where tile (0, 0) is on screen: Tile Properties' pane takes room.)
     let at = |h: &Harness<'_, Moonglow>| screen(h, area, Vec3::new(5.0, 5.0, 0.0));
@@ -1574,7 +1575,7 @@ fn tiles_copy_and_paste() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
         let at = screen(h, area, p);
@@ -1641,9 +1642,9 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     let before = lattice(&mut h);
     // Dragged from corner (1, 2) to corner (3, 2), 10 m apart each, then
@@ -1704,14 +1705,14 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     let Some((mut h, area)) = area_harness("cycle-cursor") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     let colors = |h: &Harness<'_, Moonglow>| -> Vec<egui::Color32> {
         h.state().area_views[&area].brush_cursor.iter().map(|(_, c)| *c).collect()
     };
     // A crosser over grass: a drag from there lays it, green.
     let green = egui::Color32::from_rgb(80, 220, 80);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(13.0, 15.0, 0.0));
     h.hover_at(at);
@@ -1734,7 +1735,7 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     assert_eq!(colors(&h), [CYCLE]);
     // The Eraser erases, and with Shift steps the tile through those that
     // fit: blue then.
-    h.get_by_label("🗑 Eraser").click();
+    h.get_by_label("Eraser").click();
     h.run_steps(2);
     h.hover_at(at);
     h.run_steps(3);
@@ -1747,7 +1748,7 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     // A terrain brush on a corner of its own terrain adds none, it chooses
     // the tiles again: blue; elsewhere it paints. (Corner (3, 3), clear of
     // the road.)
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     let corner = screen(&h, area, Vec3::new(30.0, 30.0, 0.0));
     h.hover_at(corner);
@@ -1791,9 +1792,9 @@ fn a_crosser_click_lays_it_on_the_edge_of_the_quarter_clicked() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Doorway").click();
+    click_in_sight(&mut h, "Doorway");
     h.run_steps(2);
     let doorway = index.crosser("Doorway").expect("tic01's Doorway");
     let (green, red) = (egui::Color32::from_rgb(80, 220, 80), egui::Color32::from_rgb(230, 60, 60));
@@ -1848,9 +1849,9 @@ fn a_crosser_drag_lays_what_fits_and_passes_over_the_rest() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Doorway").click();
+    click_in_sight(&mut h, "Doorway");
     h.run_steps(2);
     let doorway = index.crosser("Doorway").expect("tic01's Doorway");
     let red = egui::Color32::from_rgb(230, 60, 60);
@@ -1919,9 +1920,9 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     // Two roads, along the first row and the third.
     for y in [5.0, 25.0] {
@@ -1934,7 +1935,7 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
     assert!(road(&roads, 0) && road(&roads, 2), "two roads drawn");
 
     // One Eraser drag down across both: each is erased.
-    h.get_by_label("🗑 Eraser").click();
+    h.get_by_label("Eraser").click();
     h.run_steps(2);
     let path: Vec<Vec3> =
         [5.0, 10.0, 15.0, 20.0, 25.0].iter().map(|&y| Vec3::new(15.0, y, 0.0)).collect();
@@ -1977,9 +1978,9 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     // A road along the first row.
     let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
@@ -2023,12 +2024,12 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
         h.run_steps(2);
     };
     right_click(&mut h, Vec3::new(18.0, 5.0, 0.0));
-    h.get_by_label("Stream").click();
+    click_in_sight(&mut h, "Stream");
     h.run_steps(2);
     let along: Vec<Vec3> =
         [3.0, 8.0, 14.0, 20.0, 26.0, 32.0, 37.0].iter().map(|&x| Vec3::new(x, 15.0, 0.0)).collect();
     drag(&mut h, &along);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let up: Vec<Vec3> =
         [3.0, 8.0, 14.0, 20.0, 26.0, 32.0, 37.0].iter().map(|&y| Vec3::new(15.0, y, 0.0)).collect();
@@ -2058,10 +2059,10 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // (Its place among the tools: `tile_tools_change_a_tile_s_appearance_and_turn_it`.)
-    h.get_by_label("🔁 Refine Tile").click();
+    h.get_by_label("Refine Tile").click();
     h.run_steps(2);
     let before = grid(&mut h);
     let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(1, 1), before.tile(1, 1))
@@ -2139,9 +2140,9 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     // Painting Grass: a right click is the tile menu, and Grass stays.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     right_click(&mut h, ground);
     let items = menu_items(&h, "Tile Properties…");
@@ -2162,14 +2163,14 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     h.run_steps(2);
     assert!(h.state().palette.tile_brush.is_none());
     // The palette's Select Tiles: the view's tile mode, the brush let go.
-    h.get_by_label("↕ Raise/Lower").click();
+    h.get_by_label("Raise/Lower").click();
     h.run_steps(2);
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     assert!(h.state().area_views[&area].tile_mode);
     assert!(h.state().palette.tile_brush.is_none());
     // A brush chosen: out of tile mode.
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     assert!(!h.state().area_views[&area].tile_mode);
 }
@@ -2202,25 +2203,25 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
         |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // The tools, in order: Select Tiles, the Eraser, Refine Tile, the
     // three, Raise/Lower; then the terrains (Rural's Grass, Road, Water…).
-    let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
+    let top = |h: &Harness<'_, Moonglow>, label: &str| apart(h, label).rect().top();
     let order = [
-        "⛶ Select Tiles (F10)",
-        "🗑 Eraser",
-        "🔁 Refine Tile",
-        "⏭ Next Tile Appearance",
-        "⏮ Previous Tile Appearance",
-        "↺ Rotate Tile",
-        "↕ Raise/Lower",
+        "Select Tiles",
+        "Eraser",
+        "Refine Tile",
+        "Next Tile Appearance",
+        "Previous Tile Appearance",
+        "Rotate Tile",
+        "Raise/Lower",
     ];
     for pair in order.windows(2) {
         assert!(top(&h, pair[0]) < top(&h, pair[1]), "{} above {}", pair[0], pair[1]);
     }
     for terrain in ["Grass", "Road", "Water"] {
-        assert!(top(&h, "↕ Raise/Lower") < top(&h, terrain), "Raise/Lower is above {terrain}");
+        assert!(top(&h, "Raise/Lower") < top(&h, terrain), "Raise/Lower is above {terrain}");
     }
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     let click = |h: &mut Harness<'_, Moonglow>| {
@@ -2234,7 +2235,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     let cell = before.lattice.cell(1, 1);
     let now = before.tile(1, 1);
     // Next, then Previous: another tile, then back.
-    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.get_by_label("Next Tile Appearance").click();
     h.run_steps(2);
     click(&mut h);
     let next = step_appearance(&index, &cell, now, false).expect("Rural's grass has others");
@@ -2243,7 +2244,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     assert_eq!(g.tile(1, 1), next);
     assert_eq!(g.lattice, before.lattice, "no terrain painted");
     assert_eq!(undo_label(&h).as_deref(), Some("Next tile appearance"));
-    h.get_by_label("⏮ Previous Tile Appearance").click();
+    h.get_by_label("Previous Tile Appearance").click();
     h.run_steps(2);
     click(&mut h);
     assert_eq!(grid(&mut h).tile(1, 1), now, "a step back");
@@ -2260,7 +2261,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
             .map(|l| t.integer(l))
     };
     let was = tile(&mut h);
-    h.get_by_label("↺ Rotate Tile").click();
+    h.get_by_label("Rotate Tile").click();
     h.run_steps(2);
     click(&mut h);
     let turned = turn_fit(&index, &cell, now, false).expect("grass turns");
@@ -2274,7 +2275,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     // The tile menu's, in tile mode: on the tile selected.
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     click(&mut h);
     assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
@@ -2287,7 +2288,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Rotate Tile").click();
+    popup_item(&h, "Rotate Tile").click();
     h.run_steps(3);
     assert_eq!(grid(&mut h).tile(1, 1), turned);
     assert_eq!(undo_label(&h).as_deref(), Some("Rotate tile"));
@@ -2300,7 +2301,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Next Tile Appearance").click();
+    popup_item(&h, "Next Tile Appearance").click();
     h.run_steps(3);
     let other = step_appearance(&index, &cell, turned, false).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), other);
@@ -2357,9 +2358,9 @@ fn palette_tile_tools_step_the_selected_tiles() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     let (a, b) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
     click(&mut h, a, egui::Modifiers::NONE);
@@ -2373,7 +2374,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     // Next: the selected tile steps, the selection stays; again, a step
     // further; each one step to undo.
     shot(&mut h, "one-before");
-    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.get_by_label("Next Tile Appearance").click();
     h.run_steps(3);
     shot(&mut h, "one-next");
     let next = step_appearance(&index, &cell((1, 1)), now, false).expect("grass has others");
@@ -2383,7 +2384,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(selecting(&h), (true, one.clone(), true), "Select Tiles and the selection kept");
     assert_eq!(undo_label(&h).as_deref(), Some("Next tile appearance"));
     only_changed(&list, &tiles(&mut h), &[5]);
-    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.get_by_label("Next Tile Appearance").click();
     h.run_steps(3);
     let further = step_appearance(&index, &cell((1, 1)), next, false).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), further, "a second click: a step further");
@@ -2394,7 +2395,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(tiles(&mut h), list);
 
     // Previous: a step back.
-    h.get_by_label("⏮ Previous Tile Appearance").click();
+    h.get_by_label("Previous Tile Appearance").click();
     h.run_steps(3);
     let back = step_appearance(&index, &cell((1, 1)), now, true).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), back);
@@ -2405,7 +2406,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
 
     // Rotate: the same tile a quarter round, its lights kept; with Shift,
     // the other way.
-    h.get_by_label("↺ Rotate Tile").click();
+    h.get_by_label("Rotate Tile").click();
     h.run_steps(3);
     let turned = turn_fit(&index, &cell((1, 1)), now, false).expect("grass turns");
     assert_eq!(grid(&mut h).tile(1, 1), turned);
@@ -2418,7 +2419,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(undo_label(&h).as_deref(), Some("Rotate tile"));
     undo(&mut h);
     assert_eq!(tiles(&mut h), list, "undone");
-    h.get_by_label("↺ Rotate Tile").click_modifiers(egui::Modifiers::SHIFT);
+    h.get_by_label("Rotate Tile").click_modifiers(egui::Modifiers::SHIFT);
     h.run_steps(3);
     let clockwise = turn_fit(&index, &cell((1, 1)), now, true).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), clockwise, "Shift: clockwise");
@@ -2432,9 +2433,9 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(selecting(&h), (true, two.clone(), true));
     shot(&mut h, "two-before");
     for (tool, label) in [
-        ("⏭ Next Tile Appearance", "Next tile appearance"),
-        ("⏮ Previous Tile Appearance", "Previous tile appearance"),
-        ("↺ Rotate Tile", "Rotate tile"),
+        ("Next Tile Appearance", "Next tile appearance"),
+        ("Previous Tile Appearance", "Previous tile appearance"),
+        ("Rotate Tile", "Rotate tile"),
     ] {
         h.get_by_label(tool).click();
         h.run_steps(3);
@@ -2442,7 +2443,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
         for c in [(1, 1), (2, 1)] {
             let was = before.tile(c.0, c.1);
             let made = match tool {
-                "↺ Rotate Tile" => turn_fit(&index, &cell(c), was, false),
+                "Rotate Tile" => turn_fit(&index, &cell(c), was, false),
                 _ => step_appearance(&index, &cell(c), was, tool.contains("Previous")),
             };
             assert_eq!(g.tile(c.0, c.1), made.unwrap(), "{tool}: tile {c:?} on its own");
@@ -2460,22 +2461,22 @@ fn palette_tile_tools_step_the_selected_tiles() {
 
     // A group's tile: refused, saying why, the group in red; the
     // selection kept.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     click(&mut h, a, egui::Modifiers::NONE);
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
     let placed = grid(&mut h);
     assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     click(&mut h, b, egui::Modifiers::NONE);
     let east = vec![(2, 1)];
     assert_eq!(selecting(&h), (true, east.clone(), true));
     for (tool, label) in
-        [("⏭ Next Tile Appearance", "Next tile appearance"), ("↺ Rotate Tile", "Rotate tile")]
+        [("Next Tile Appearance", "Next tile appearance"), ("Rotate Tile", "Rotate tile")]
     {
         h.state_mut().area_views.get_mut(&area).unwrap().refused = None;
         h.get_by_label(tool).click();
@@ -2493,7 +2494,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     // No selection: the tool is chosen, as ever, Select Tiles let go.
     h.state_mut().area_views.get_mut(&area).unwrap().tile_selection.clear();
     h.run_steps(2);
-    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.get_by_label("Next Tile Appearance").click();
     h.run_steps(2);
     let brush = h.state().palette.tile_brush.clone().map(|b| b.brush);
     assert_eq!(brush, Some(mg_area::terrain::Brush::Appearance { back: false }));
@@ -2550,9 +2551,9 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
     let shots = mg_testkit::scratch_dir("ui-tile-tools-keys");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     let (a, b) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
     click(&mut h, a, egui::Modifiers::NONE);
@@ -2564,7 +2565,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
 
     // Refine Tile: the first the next that fits, the second (grass too)
     // the same tile.
-    h.get_by_label("🔁 Refine Tile").click();
+    h.get_by_label("Refine Tile").click();
     h.run_steps(3);
     let first = next_fit(&index, &cell((1, 1)), before.tile(1, 1)).expect("grass has others");
     let g = grid(&mut h);
@@ -2606,23 +2607,23 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
 
     // A barn: the Eraser on one of its tiles takes it all, as Delete; X
     // the same.
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     click(&mut h, a, egui::Modifiers::NONE);
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
     let placed = grid(&mut h);
     assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
-    h.get_by_label("⛶ Select Tiles (F10)").click();
+    apart(&h, "Select Tiles").click();
     h.run_steps(2);
     click(&mut h, b, egui::Modifiers::NONE);
     let east = vec![(2, 1)];
     assert_eq!(selecting(&h), (true, east.clone(), true));
     // Refine Tile on a barn's tile: refused, the reason first on the line.
     h.state_mut().area_views.get_mut(&area).unwrap().refused = None;
-    h.get_by_label("🔁 Refine Tile").click();
+    h.get_by_label("Refine Tile").click();
     h.run_steps(3);
     assert_eq!(grid(&mut h), placed, "refused");
     let says = "Refine tiles: tiles of a group or feature";
@@ -2637,7 +2638,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
         let g = grid(h);
         [(1, 1), (2, 1), (1, 2), (2, 2)].iter().all(|&(x, y)| !index.is_grouped(g.tile(x, y).tile))
     };
-    h.get_by_label("🗑 Eraser").click();
+    h.get_by_label("Eraser").click();
     h.run_steps(3);
     assert!(erased(&mut h), "the barn gone whole");
     assert_eq!(undo_label(&h).as_deref(), Some("Delete tiles"));
@@ -2688,9 +2689,9 @@ fn the_eraser_s_key_chooses_the_palette_s_eraser() {
     assert_eq!(brush.brush, mg_area::terrain::Brush::Eraser);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    let name = format!("🗑 {}", brush.label);
+    let name = brush.label.to_string();
     let row = h.get_by_label(&name);
     let chosen = Some(egui::accesskit::Toggled::True);
     assert_eq!(row.accesskit_node().toggled(), chosen, "its row shows it chosen");
@@ -2736,14 +2737,17 @@ fn tile_variant_pictures_take_the_size_set() {
         assert_eq!(a.top(), b.top(), "on one row");
         b.left() - a.left()
     };
-    assert!((apart(&h) - 214.0).abs() < 1.0, "200 points and the gaps: {}", apart(&h));
+    // (A column: the picture, its button's padding either side and the
+    // grid's gap of 6.)
+    let gaps = 2.0 * h.ctx.global_style().spacing.button_padding.x + 6.0;
+    assert!((apart(&h) - (200.0 + gaps)).abs() < 1.0, "200 points and the gaps: {}", apart(&h));
     h.get_by_label("Size");
     let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
     h.render().unwrap().save(dir.join("large.png")).unwrap();
     // The usual size, unless set.
     h.state_mut().settings.tile_variant_side = None;
     h.run_steps(3);
-    assert!((apart(&h) - 98.0).abs() < 1.0, "{}", apart(&h));
+    assert!((apart(&h) - (84.0 + gaps)).abs() < 1.0, "{}", apart(&h));
     // Small, a picture under the pointer shows at its largest beside it.
     let (p, model) = &variants[1];
     let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
@@ -2797,7 +2801,7 @@ fn a_tile_chosen_in_the_gallery_is_painted_along_a_drag() {
     h.state_mut().settings.palette_gallery = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(3);
     // (Scrolled to: the pictures under the headings above take the
     // pane's height.)
@@ -2941,15 +2945,15 @@ fn an_exact_tile_goes_in_alone() {
     let away = egui::pos2(960.0, 610.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(3);
     // Not shown with the List and no tile chosen; beside the Gallery's
     // switch with it.
-    assert!(h.query_by_label("📌 Exact Tile").is_none());
-    h.get_by_label("🖼").click();
+    assert!(h.query_by_label("Exact Tile").is_none());
+    h.get_by_label("Gallery").click();
     h.run_steps(2);
     assert!(!h.state().settings.exact_tiles, "off at first");
-    h.get_by_label("📌 Exact Tile").click();
+    h.get_by_label("Exact Tile").click();
     h.run_steps(2);
     assert!(h.state().settings.exact_tiles, "on, and remembered");
     let picture = index_model(&h, tile);
@@ -3021,7 +3025,7 @@ fn an_exact_tile_goes_in_alone() {
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "the drag: one step");
     // Off: the same tile is fitted in, as before, or refused where it can't.
-    h.get_by_label("📌 Exact Tile").click();
+    h.get_by_label("Exact Tile").click();
     h.run_steps(2);
     assert!(!h.state().settings.exact_tiles);
 }
@@ -3070,13 +3074,13 @@ fn tile_properties_raise_one_tile_alone() {
     let shown = &h.state().area_views[&area].model.as_ref().unwrap().tiles[10];
     assert_eq!(shown.position.z, (was + 2) as f32 * step, "drawn at its height");
     assert_eq!(waypoints(&mut h), [2.0 * step, 0.0], "what stands on it rises with it");
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     area_shots(&mut h, area, &shots.join("after"));
     // Its walkmesh with it: the ground the game walks on (green).
     h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = true;
     area_shots(&mut h, area, &shots.join("walkmesh"));
     h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = false;
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile Properties"));
     // Two tiles of different heights: mixed; Escape with it set asks.
@@ -3702,7 +3706,7 @@ fn the_tile_selection_s_outline_follows_a_cliff_tile() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Turn", vec![turn])));
     h.run_steps(3);
-    h.get_by_label("⛶ Select Tiles").click();
+    area_tool(&h, "Select Tiles").click();
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     click_pos(&h, at);
@@ -3775,9 +3779,9 @@ fn refine_tile_dragged_makes_tiles_of_a_kind_alike() {
     h.state_mut().settings.palette_gallery = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(3);
-    h.get_by_label("🔁 Refine Tile").click();
+    h.get_by_label("Refine Tile").click();
     h.run_steps(2);
     let before = grid(&mut h);
     let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(0, 2), before.tile(0, 2))
@@ -3807,9 +3811,9 @@ fn refine_tile_dragged_makes_tiles_of_a_kind_alike() {
     // (The search cleared: it found the tile alone.)
     h.state_mut().palette.filter.clear();
     h.run_steps(3);
-    h.get_by_label_contains("Refine Tile →").scroll_to_me();
+    h.get_by_label_contains("Refine Tile ->").scroll_to_me();
     h.run_steps(3);
-    h.get_by_label_contains("Refine Tile →").click();
+    h.get_by_label_contains("Refine Tile ->").click();
     h.run_steps(2);
     assert_eq!(h.state().palette.tile_brush.as_ref().unwrap().target, Some(tile));
     drag(&mut h, 5.0);
@@ -3840,7 +3844,7 @@ fn the_tile_gallery_searches_opens_a_tile_and_drops_one_in_the_area() {
     h.state_mut().settings.palette_gallery = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(3);
     // Headings closed at first: no picture shows.
     let grass = index.terrain("Grass").unwrap();
@@ -3910,7 +3914,7 @@ fn the_tile_gallery_s_groups_are_pictures_to_choose_and_drop() {
     h.state_mut().settings.palette_gallery = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     open_tile_heading(&mut h, "well");
     // Rural's Well: a group of one tile (117), its picture named.
     let well = h.get_all_by_label_contains("Well").next().expect("its picture").rect().center();
@@ -3948,7 +3952,7 @@ fn the_tile_search_finds_a_group_by_its_tiles_models() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(3);
     let model = "tcm02_s01_05";
     h.state_mut().palette.filter = model.into();
@@ -3987,9 +3991,9 @@ fn a_terrain_drag_with_shift_fills_its_rectangle() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     let before = lattice(&mut h);
     // Corner (1, 1) diagonally to (3, 2), Shift held.
@@ -4039,9 +4043,9 @@ fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let before = lattice(&mut h);
     // Tile (0, 0) diagonally to tile (2, 2), Shift held.
@@ -4086,9 +4090,9 @@ fn painting_with_shift_held_the_camera_still_zooms_and_turns() {
     let Some((mut h, area)) = area_harness("shift-camera") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
     let at = screen(&h, area, glam::Vec3::new(20.0, 10.0, 0.0));
@@ -4144,7 +4148,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // What the preview shows is what the click puts down.
     let check = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
@@ -4172,12 +4176,12 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     };
     // Water on a corner (its four tiles, chosen at random among those that
     // fit), and a barn.
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     check(&mut h, Vec3::new(20.0, 20.0, 0.0));
-    h.get_by_label("Groups").click();
+    click_in_sight(&mut h, "Groups");
     h.run_steps(2);
-    h.get_by_label("Barn 1 2x2").click();
+    click_in_sight(&mut h, "Barn 1 2x2");
     h.run_steps(2);
     check(&mut h, Vec3::new(5.0, 5.0, 0.0));
 }
@@ -4198,7 +4202,7 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // Dragged along `path` (metres): before it is let go, the preview; let
     // go, those very tiles.
@@ -4231,10 +4235,10 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
             );
         }
     };
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     check(&mut h, &[10.0, 15.0, 20.0, 25.0, 30.0].map(|x| Vec3::new(x, 20.0, 0.0)));
-    h.get_by_label("Road").click();
+    click_in_sight(&mut h, "Road");
     h.run_steps(2);
     check(&mut h, &[7.0, 12.0, 18.0, 24.0, 25.0].map(|x| Vec3::new(x, 5.0, 0.0)));
 }
@@ -4276,7 +4280,7 @@ fn a_right_drag_back_to_where_it_began_is_not_a_right_click() {
         h.run_steps(3);
     };
     let yaw = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.as_ref().unwrap().yaw;
-    choose_tile_brush(&mut h, "↕ Raise/Lower");
+    choose_tile_brush(&mut h, "Raise/Lower");
     let before = area_are(&mut h, area);
     let was = yaw(&h);
     right(&mut h, true);
@@ -4286,7 +4290,7 @@ fn a_right_drag_back_to_where_it_began_is_not_a_right_click() {
     right(&mut h, false);
     assert!(area_are(&mut h, area) != before, "a right click lowers");
     // A terrain: its right click is the tile menu, a right drag back isn't.
-    h.get_by_label("Grass").click();
+    click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     right(&mut h, true);
     assert!(h.query_by_label("Tile Properties…").is_none(), "no tile menu");
@@ -4303,9 +4307,9 @@ fn a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object() {
     let Some((mut h, area)) = area_harness("brush-over-object") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("↕ Raise/Lower").click();
+    h.get_by_label("Raise/Lower").click();
     h.run_steps(2);
     // (On the waypoint at 20, 20.)
     let at = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
@@ -4320,7 +4324,7 @@ fn a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object() {
         });
     }
     h.run_steps(3);
-    assert!(h.query_by_label("Properties").is_none(), "no object menu");
+    assert!(apart_all(&h, "Properties").next().is_none(), "no object menu");
     assert!(h.query_by_label("Go To").is_none());
     assert!(h.state().palette.tile_brush.is_some(), "the brush stays in hand");
     // A right click where no ground of the area is under the pointer (off
@@ -4366,7 +4370,7 @@ fn a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object() {
         h.run_steps(if round % 4 == 0 { 1 } else { 2 });
         assert!(sel(&h).is_empty(), "round {round}: selected {:?}", sel(&h));
         assert!(h.query_by_label("Go To").is_none(), "round {round}: the object's menu");
-        assert!(h.query_by_label("Properties").is_none(), "round {round}: the object's menu");
+        assert!(apart_all(&h, "Properties").next().is_none(), "round {round}: the object's menu");
         assert!(h.state().palette.tile_brush.is_some(), "round {round}: the brush dropped");
     }
 }
@@ -4839,9 +4843,9 @@ fn a_brush_s_tiles_are_drawn_by_the_game_s_shaders() {
     assert!(!area_alone.is_empty(), "the area's tiles, by the game's programs");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    palette_type(&mut h, "Tiles");
     h.run_steps(2);
-    h.get_by_label("Water").click();
+    click_in_sight(&mut h, "Water");
     h.run_steps(2);
     h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
     h.run_steps(3);
@@ -4891,7 +4895,7 @@ fn drag_with(
 fn select_tiles_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let (mut h, area) = area_harness(name)?;
     if !h.state().area_views[&area].tile_mode {
-        h.get_by_label("⛶ Select Tiles").click();
+        area_tool(&h, "Select Tiles").click();
         h.run_steps(2);
     }
     assert!(h.state().area_views[&area].tile_mode);
@@ -4987,15 +4991,15 @@ fn the_tile_palette_s_headings_close_while_a_search_is_typed() {
     let Some((mut h, _)) = area_harness("tile-search-folds") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.state_mut().palette.filter = "water".into();
     h.run_steps(3);
     assert!(h.query_by_label("Water").is_some(), "found, its folder opened out");
     // The folder closed by a click: closed, and kept so.
-    h.get_by_label("Terrain").click();
+    click_in_sight(&mut h, "Terrain");
     h.run_steps(5);
     assert!(h.query_by_label("Water").is_none(), "the folder closed");
-    h.get_by_label("Terrain").click();
+    click_in_sight(&mut h, "Terrain");
     h.run_steps(5);
     assert!(h.query_by_label("Water").is_some(), "opened again");
     // In the Gallery, the terrain's heading: its tiles, closed by its arrow.
@@ -5057,11 +5061,11 @@ fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
     area_shots(&mut h, area, &shots.join("before"));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
+    palette_type(&mut h, "Tiles");
     h.run_steps(3);
-    h.get_by_label("🖼").click();
+    h.get_by_label("Gallery").click();
     h.run_steps(2);
-    h.get_by_label("📌 Exact Tile").click();
+    h.get_by_label("Exact Tile").click();
     // (Small pictures: the palette finds three for "stairs up", and a
     // picture out of sight is not laid out to be found.)
     h.state_mut().settings.gallery_tile = Some(64);
@@ -5107,7 +5111,7 @@ fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
     // Off: the group is placed by the fit rules, which refuse it here.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
-    h.get_by_label("📌 Exact Tile").click();
+    h.get_by_label("Exact Tile").click();
     h.run_steps(2);
     choose(&mut h, &up_name);
     click(&mut h, 25.0, 5.0);

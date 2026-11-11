@@ -1,0 +1,146 @@
+/* The redesign's color tokens, as the mockups give them: a copy kept for
+   mg-uikit's tests (tests/tokens.rs holds Tokens::DARK and Tokens::LIGHT to
+   it). The first part of each block is the mockups' own (moonglow.css's .mg
+   block and the light theme's .mg.light block, from the UI redesign's
+   mockups of 2026-11-10); the second part, the stylesheet's fixed colors
+   (the mockup spec, section 12) and its two-part --shadow given tokens of
+   their own, with their light values from the light theme's component
+   rules. */
+
+.mg {
+  --base: #15171a;
+  --panel: #1e2125;
+  --bar: #262a2f;
+  --raised: #30353c;
+  --raised-hover: #3b414a;
+  --inset: #131518;
+  --line: #0c0d0f;
+  --line-soft: #383d45;
+  --text: #e6e8ec;
+  --text-2: #aab0ba;
+  --text-3: #8a919e;
+  --text-off: #5f6672;
+  --accent: #62a8ea;
+  --accent-fill: #1d5488;
+  --accent-fill-hover: #24629d;
+  --on-fill: #ffffff;
+  --select: #ffb02e;
+  --error: #f0666a;
+  --warn: #e8a33d;
+  --ok: #4cc35a;
+  --info: #5b9bd5;
+  --hover-row: #2a2e34;
+  --current-line: #1b1e22;
+  --thumb-bg: #292e36;
+  --thumb-flag: #e8a33d;
+  --thumb-badge: #f0666a;
+  --thumb-badge-text: #15171a;
+  --overlay: rgba(21, 23, 26, 0.86);
+  --syn-text: var(--text);
+  --syn-comment: #6a9955;
+  --syn-directive: #c586c0;
+  --syn-keyword: #569cd6;
+  --syn-number: #ce9178;
+  --syn-string: #ce9178;
+  --syn-constant: #4fc1ff;
+  --syn-error: #ff0000;
+  --mdl-plain: #d4d4d4;
+  --mdl-structure: #c586c0;
+  --mdl-keyword: #9cdcfe;
+  --mdl-keyed: #4ec9b0;
+  --mdl-node-type: #dcdcaa;
+  --mdl-number: #b5cea8;
+  --mdl-comment: #6a9955;
+  /* fixed colors and the shadow, given tokens */
+  --shadow: rgba(0, 0, 0, 0.55);
+  --shadow-rim: rgba(0, 0, 0, 0.4);
+  --accent-fill-off: #22364a;
+  --on-fill-off: #5f6672;
+  --tab-hover: #2b2f35;
+  --cell-line: #25292e;
+  --cell-select: #1a2a3a;
+  --on-status: #15171a;
+  --on-select: #15171a;
+  --scroll-thumb: #3b414a;
+  --scroll-thumb-hover: #555c67;
+  --current-line-edge: #262a30;
+  --code-select: #264f78;
+  --swatch-line: rgba(0, 0, 0, 0.35);
+  --key-bg: #30353c;
+  --key-text: #e6e8ec;
+  --tooltip-bg: #15171a;
+  --switch-off: #3b414a;
+  --switch-knob: #aab0ba;
+  --slider-thumb: #aab0ba;
+  --slider-thumb-ring: transparent;
+  --select-ring: transparent;
+}
+
+.mg.light {
+  --base: #c4c9d0;
+  --panel: #e4e7eb;
+  --bar: #d8dce1;
+  --raised: #c9ced5;
+  --raised-hover: #bcc2ca;
+  --inset: #f4f5f7;
+  --line: #adb3bb;
+  --line-soft: #b9bfc7;
+  --text: #14171b;
+  --text-2: #363c44;
+  --text-3: #4c535b;
+  --text-off: #838a95;
+  --accent: #175896;
+  --accent-fill: #2765a1;
+  --accent-fill-hover: #1f598f;
+  --on-fill: #ffffff;
+  --select: #f09000;
+  --error: #b4232b;
+  --warn: #8a5000;
+  --ok: #1b6b2d;
+  --info: #1f5a98;
+  --hover-row: #d5d9df;
+  --current-line: #e9edf3;
+  --overlay: rgba(232, 235, 239, 0.90);
+  --syn-text: var(--text);
+  --syn-comment: #008000;
+  --syn-directive: #800080;
+  --syn-keyword: #0000c8;
+  --syn-number: #a31515;
+  --syn-string: #a31515;
+  --syn-constant: #0070c1;
+  --syn-error: #ff0000;
+  --mdl-plain: #202020;
+  --mdl-structure: #af00db;
+  --mdl-keyword: #001080;
+  --mdl-keyed: #267f99;
+  --mdl-node-type: #795e26;
+  --mdl-number: #098658;
+  --mdl-comment: #008000;
+  --thumb-bg: #292e36;
+  --thumb-flag: #e8a33d;
+  --thumb-badge: #f0666a;
+  --thumb-badge-text: #15171a;
+  /* the thumbnails keep their dark values; fixed colors and the shadow, given tokens */
+  --shadow: rgba(28, 34, 44, 0.22);
+  --shadow-rim: rgba(28, 34, 44, 0.10);
+  --accent-fill-off: #c4d4e5;
+  --on-fill-off: #7189a3;
+  --tab-hover: #dee1e6;
+  --cell-line: #d3d7dc;
+  --cell-select: #d3e2f2;
+  --on-status: #ffffff;
+  --on-select: #15171a;
+  --scroll-thumb: #b3b9c2;
+  --scroll-thumb-hover: #8d949e;
+  --current-line-edge: #dce1e8;
+  --code-select: #add6ff;
+  --swatch-line: rgba(0, 0, 0, 0.25);
+  --key-bg: #f4f5f7;
+  --key-text: #363c44;
+  --tooltip-bg: #f4f5f7;
+  --switch-off: #a9b0b9;
+  --switch-knob: #ffffff;
+  --slider-thumb: #ffffff;
+  --slider-thumb-ring: #8d949e;
+  --select-ring: #a35c00;
+}

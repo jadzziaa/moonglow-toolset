@@ -21,6 +21,7 @@ use mg_core::ResType;
 use mg_edit::{Command, Edit};
 use mg_nui::{Binding, Settings, Severity};
 use mg_resman::ResKey;
+use mg_uikit::Controls as _;
 use serde_json::{Value, json};
 
 mod bindings;
@@ -870,22 +871,23 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
             ui.end_row();
             egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true)
         };
-        // (With Icons only, each glyph alone, its name in its tip.)
+        // (With Icons only, each icon alone, its name in its tip.)
         let tools = crate::icons::Tools::of(&app.settings);
-        use crate::icons::editor as glyph;
+        use crate::icons::editor as icon;
         ui.with_layout(layout, |ui| {
-            let r = ui.button(tools.word(glyph::IMPORT, "Import…"));
+            let r = ui.add(tools.word_widget(icon::IMPORT, "Import…"));
             let tip = "Bring NUI windows into the module from .jui files or ERF and zip archives";
-            if tools.named(r, "Import…", tip, None).clicked() {
+            if tools.named(r, "Import…", tip).clicked() {
                 app.actions.push(Action::ImportNui);
             }
-            let r = ui.button(tools.word(glyph::EXPORT, "Export…"));
+            let r = ui.add(tools.word_widget(icon::EXPORT, "Export…"));
             let tip = "Build the window, then export it with its settings, opener include and \
                        event script";
-            if tools.named(r, "Export…", tip, None).clicked() {
+            if tools.named(r, "Export…", tip).clicked() {
                 app.actions.push(Action::GenerateNui { name: name.to_owned(), export: true });
             }
-            let build = egui::Button::new(tools.word(glyph::BUILD, "Build & compile"))
+            let build = tools
+                .word_widget(icon::BUILD, "Build & compile")
                 .fill(ui.visuals().selection.bg_fill);
             let r = ui.add_enabled(checked.errors == 0, build);
             let tip = match checked.errors {
@@ -895,7 +897,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                     count(n, "error")
                 ),
             };
-            if tools.named(r, "Build & compile", &tip, None).clicked() {
+            if tools.named(r, "Build & compile", &tip).clicked() {
                 app.actions.push(Action::GenerateNui { name: name.to_owned(), export: false });
             }
             if let Some((_, why)) = app.nui_build_error.as_ref().filter(|(n, _)| n == name) {
@@ -905,7 +907,8 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                     .on_hover_text("Build before testing: the game runs what was last built");
             }
             // The window opens from a script of yours: what to put in it.
-            let how = ui.menu_button(tools.word(glyph::HOW_TO_OPEN, "How to open it…"), |ui| {
+            let how = tools.word_widget(icon::HOW_TO_OPEN, "How to open it…").menu(ui, |ui| {
+                mg_uikit::menu_rows(ui);
                 let code = format!(
                     "#include \"{name}_o\"\n\n\
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
@@ -920,7 +923,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                 }
                 ui.weak("Pass the player who should see it. Build & compile first.");
             });
-            tools.named(how.response, "How to open it…", "What to write to open the window", None);
+            tools.named(how.response, "How to open it…", "What to write to open the window");
         });
     });
 }
@@ -952,7 +955,8 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                         .selected_text(state.view_mode.label())
                         .show(ui, &mut state.view_mode, &ViewMode::ALL, |m| m.label());
                 }
-                ui.menu_button("Advanced", |ui| {
+                mg_uikit::menu_button(ui, "Advanced", |ui| {
+                    mg_uikit::menu_rows(ui);
                     if ui.selectable_label(state.page == Page::JuiSource, "JUI source").clicked() {
                         state.page = Page::JuiSource;
                         ui.close();
@@ -1032,7 +1036,7 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
         .id_salt("nui-diagnostics")
         .max_height(160.0)
         .auto_shrink([false, true]);
-    area.show_rows(ui, line, rows.rows.len(), |ui, shown| {
+    mg_uikit::show_rows(area, ui, rows.rows.len(), |ui, shown| {
         for (i, (target, place)) in &rows.rows[shown] {
             let d = &findings[*i];
             ui.push_id(i, |ui| {
@@ -1733,6 +1737,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         }
         let revealing = reveal.as_deref().is_some_and(|key| keys.contains(&key));
         egui::CollapsingHeader::new(*section)
+            .icon(mg_uikit::collapsing_icon)
             .id_salt(("nui-properties", section))
             .open(revealing.then_some(true))
             .default_open(*open)
@@ -1778,14 +1783,17 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     add_property(ui, obj, &ty, reveal_id);
     let advanced_keys = advanced_keys(obj, &ty);
     if !advanced_keys.is_empty() {
-        egui::CollapsingHeader::new("Advanced properties").show(ui, |ui| {
-            for key in &advanced_keys {
-                let Some(value) = obj.get_mut(key) else { continue };
-                ui.push_id(key, |ui| {
-                    property(ui, key, &ty, value, s, &mut remove);
-                });
-            }
-        });
+        egui::CollapsingHeader::new("Advanced properties").icon(mg_uikit::collapsing_icon).show(
+            ui,
+            |ui| {
+                for key in &advanced_keys {
+                    let Some(value) = obj.get_mut(key) else { continue };
+                    ui.push_id(key, |ui| {
+                        property(ui, key, &ty, value, s, &mut remove);
+                    });
+                }
+            },
+        );
     }
     if let Some(key) = remove {
         obj.remove(&key);
@@ -1857,7 +1865,7 @@ const SECTIONS: &[(&str, &[&str], bool)] = &[
 fn title_bar(ui: &mut Ui, obj: &mut serde_json::Map<String, Value>, s: &mut Settings) {
     let mut shown = obj.get("title") != Some(&json!(false));
     if ui
-        .checkbox(&mut shown, "Title bar")
+        .check_box(&mut shown, "Title bar")
         .on_hover_text("Without it the window has no title, close or collapse button")
         .changed()
     {
@@ -1894,7 +1902,8 @@ fn add_property(
 ) {
     let (fit_width, fit_height) =
         (fitting_size(obj, "width", 150.0), fitting_size(obj, "height", 30.0));
-    ui.menu_button("+ Add property", |ui| {
+    mg_uikit::menu_button(ui, "+ Add property", |ui| {
+        mg_uikit::menu_rows(ui);
         for (k, label, val) in [
             ("id", "Element ID", json!("element")),
             ("width", "Width", json!(fit_width)),
@@ -2187,12 +2196,16 @@ fn property(
     let heading = ui
         .horizontal(|ui| {
             let heading = if let Value::Bool(flag) = value {
-                ui.checkbox(flag, &label)
+                ui.check_box(flag, &label)
             } else {
                 widgets::field_label(ui, &label)
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.menu_button("…", |ui| {
+                // (Named with its property: each row has one.)
+                let more = widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "More")
+                    .name(format!("More for {label}"));
+                let menu = more.menu(ui, |ui| {
+                    mg_uikit::menu_rows(ui);
                     if let Some(name) = &bind {
                         if ui.button("Use a Constant Value").clicked() {
                             *value = s.bindings.get(name).map_or(Value::Null, |b| b.value.clone());
@@ -2212,7 +2225,7 @@ fn property(
                         ui.close();
                     }
                     if can_bind && !s.bindings.is_empty() {
-                        ui.menu_button("Use existing bind", |ui| {
+                        mg_uikit::menu_button(ui, "Use existing bind", |ui| {
                             for name in s.bindings.keys() {
                                 if ui.selectable_label(bind.as_ref() == Some(name), name).clicked()
                                 {
@@ -2252,6 +2265,8 @@ fn property(
                         ui.close();
                     }
                 });
+                let tip = "Bind it, use a talk-table string, or remove it";
+                menu.response.on_hover_text(tip);
             });
             heading
         })
@@ -2348,7 +2363,7 @@ fn named_choices(key: &str) -> Option<&'static [&'static str]> {
 fn scalar(ui: &mut Ui, v: &mut Value) -> Option<egui::Response> {
     match v {
         Value::String(text) => return fields::text(ui, text, ui.available_width().max(0.0)),
-        Value::Bool(b) => return Some(ui.checkbox(b, "On")),
+        Value::Bool(b) => return Some(ui.check_box(b, "On")),
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 return Some(fields::number(ui, v, i, |d| d));
@@ -2619,12 +2634,12 @@ mod tests {
             (json!("Text"), Settings::default()),
         );
         h.run();
-        h.get_by_label("…").click();
+        h.get_by_label_contains("More for ").click();
         h.run();
         h.get_by_label("Use TLK String (StrRef)").click();
         h.run();
         assert_eq!(h.state().0, json!({"strref":0}));
-        h.get_by_label("…").click();
+        h.get_by_label_contains("More for ").click();
         h.run();
         h.get_by_label("Make Dynamic (Bind)").click();
         h.run();
@@ -2650,7 +2665,7 @@ mod tests {
                 (initial.clone(), settings),
             );
             h.run();
-            h.get_by_label("…").click();
+            h.get_by_label_contains("More for ").click();
             h.run();
             h.query_by_label_contains("Use existing bind")
                 .expect("Missing existing-bind selector")
@@ -2681,7 +2696,7 @@ mod tests {
             (json!(128), settings),
         );
         h.run();
-        h.get_by_label("…").click();
+        h.get_by_label_contains("More for ").click();
         h.run();
         assert!(
             h.query_by_label_contains("Use existing bind").is_none(),

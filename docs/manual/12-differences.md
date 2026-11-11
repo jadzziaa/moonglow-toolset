@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T06:59:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
 ---
 
 # Differences from Aurora
@@ -104,7 +104,7 @@ it differs, it is on purpose:
   tables, strengths, number of properties and most an item is worth),
   not draw for draw.
 - **The renderer** draws with the game's own shaders (the area view's
-  and the model viewer's **🎨 Shaders**, on by default), compiled from the
+  and the model viewer's **Shaders**, on by default), compiled from the
   game and the module's haks: each mesh with the program the game would
   choose for it, as read from the game's client. Water, particles and
   the sky are drawn by Moonglow's own shader, which closely approximates

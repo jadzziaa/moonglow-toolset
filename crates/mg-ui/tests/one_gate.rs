@@ -16,10 +16,26 @@ fn sources(dir: &Path, out: &mut Vec<(String, String)>) {
             sources(&path, out);
         } else if path.extension().is_some_and(|e| e == "rs") {
             let text = std::fs::read_to_string(&path).unwrap();
-            let code = text.split("#[cfg(test)]").next().unwrap_or_default().to_string();
-            out.push((path.display().to_string(), code));
+            out.push((path.display().to_string(), without_tests(&text).to_string()));
         }
     }
+}
+
+/// `text` up to its tests: the first `#[cfg(test)]` that opens a block
+/// (a test module written in the file). One that only names a module of
+/// tests in a file of its own (`#[cfg(test)] mod x;`) is kept, and what
+/// follows it.
+fn without_tests(text: &str) -> &str {
+    let mut from = 0;
+    while let Some(at) = text[from..].find("#[cfg(test)]").map(|i| from + i) {
+        let after = &text[at + "#[cfg(test)]".len()..];
+        let next = after.trim_start().lines().next().unwrap_or_default();
+        if next.trim_end().ends_with('{') {
+            return &text[..at];
+        }
+        from = at + 1;
+    }
+    text
 }
 
 /// The crate's sources without their tests, as (file, code).

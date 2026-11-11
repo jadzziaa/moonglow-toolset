@@ -93,138 +93,142 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             .unwrap_or(&keys[0])
             .into();
     }
-    egui::CollapsingHeader::new("Property binding").default_open(true).show(ui, |ui| {
-        ui.weak("A bound property takes its value from a bind, which a script can change.");
-        let property = widgets::field_label(ui, "Property");
-        widgets::dropdown("bind-property")
-            .selected_text(label(&state.binding_property, &ty))
-            .width(ui.available_width().max(0.0))
-            .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
-            .labelled_by(property.id);
-        let key = state.binding_property.clone();
-        let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
-        let bound = current["bind"].as_str().map(str::to_owned);
-        let rows = row_count(doc, &path, settings);
-        ui.push_id((&path, &key), |ui| {
-            let draft_id = ui.make_persistent_id("property-bind-draft");
-            let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
-            let mut chosen = bound.clone().unwrap_or_default();
-            widgets::field_label(ui, "Value from");
-            // Checked only while the list is used (open, or with the keys).
-            let choices = || -> Vec<String> {
-                (settings.bindings.iter())
-                    .filter(|(_, b)| compatible(doc, &path, &key, settings, &b.value))
-                    .map(|(n, _)| n.clone())
-                    .collect()
-            };
-            let options = || std::iter::once(String::new()).chain(choices()).collect();
-            widgets::dropdown("property-bind-source")
-                .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
+    egui::CollapsingHeader::new("Property binding")
+        .icon(mg_uikit::collapsing_icon)
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.weak("A bound property takes its value from a bind, which a script can change.");
+            let property = widgets::field_label(ui, "Property");
+            widgets::dropdown("bind-property")
+                .selected_text(label(&state.binding_property, &ty))
                 .width(ui.available_width().max(0.0))
-                .show_with(ui, &mut chosen, options, |ui, chosen| {
-                    let choices = choices();
-                    ui.selectable_value(chosen, String::new(), "Constant (no bind)");
-                    for name in &choices {
-                        ui.selectable_value(chosen, name.clone(), name);
-                    }
-                    if choices.is_empty() {
-                        ui.weak("No bind holds a value of this kind: make one below.");
-                    }
-                });
-            if chosen != bound.clone().unwrap_or_default() {
-                let Some(node) = doc.pointer_mut(&path) else { return };
-                let target = &mut node[&key];
-                if chosen.is_empty() {
-                    let value = bound
-                        .as_ref()
-                        .and_then(|n| settings.bindings.get(n))
-                        .map(|b| b.value.clone())
-                        .unwrap_or(Value::Null);
-                    *target =
-                        if rows.is_some() {
+                .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
+                .labelled_by(property.id);
+            let key = state.binding_property.clone();
+            let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
+            let bound = current["bind"].as_str().map(str::to_owned);
+            let rows = row_count(doc, &path, settings);
+            ui.push_id((&path, &key), |ui| {
+                let draft_id = ui.make_persistent_id("property-bind-draft");
+                let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
+                let mut chosen = bound.clone().unwrap_or_default();
+                widgets::field_label(ui, "Value from");
+                // Checked only while the list is used (open, or with the keys).
+                let choices = || -> Vec<String> {
+                    (settings.bindings.iter())
+                        .filter(|(_, b)| compatible(doc, &path, &key, settings, &b.value))
+                        .map(|(n, _)| n.clone())
+                        .collect()
+                };
+                let options = || std::iter::once(String::new()).chain(choices()).collect();
+                widgets::dropdown("property-bind-source")
+                    .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
+                    .width(ui.available_width().max(0.0))
+                    .show_with(ui, &mut chosen, options, |ui, chosen| {
+                        let choices = choices();
+                        ui.selectable_value(chosen, String::new(), "Constant (no bind)");
+                        for name in &choices {
+                            ui.selectable_value(chosen, name.clone(), name);
+                        }
+                        if choices.is_empty() {
+                            ui.weak("No bind holds a value of this kind: make one below.");
+                        }
+                    });
+                if chosen != bound.clone().unwrap_or_default() {
+                    let Some(node) = doc.pointer_mut(&path) else { return };
+                    let target = &mut node[&key];
+                    if chosen.is_empty() {
+                        let value = bound
+                            .as_ref()
+                            .and_then(|n| settings.bindings.get(n))
+                            .map(|b| b.value.clone())
+                            .unwrap_or(Value::Null);
+                        *target = if rows.is_some() {
                             value.as_array().and_then(|a| a.first()).cloned().unwrap_or_else(|| {
                                 property_default(&ty, &key).unwrap_or(Value::Null)
                             })
                         } else {
                             value
                         };
-                } else {
-                    *target = json!({"bind":chosen});
+                    } else {
+                        *target = json!({"bind":chosen});
+                    }
+                    draft = None;
                 }
-                draft = None;
-            }
-            if rows.is_some_and(|n| n > 10000) {
-                ui.weak(
+                if rows.is_some_and(|n| n > 10000) {
+                    ui.weak(
                     "For more than 10000 rows, write the bind in Binding JSON and choose it here.",
                 );
-            }
-            if draft.is_none()
-                && ui
-                    .add_enabled(
-                        rows.is_none_or(|n| n <= 10000),
-                        egui::Button::new("+ New Bind for Property"),
-                    )
-                    .clicked()
-            {
-                let source = resolved(&current, settings).clone();
-                let source = if source.is_null() {
-                    property_default(&ty, &key).unwrap_or(json!(""))
-                } else {
-                    source
-                };
-                let initial = if let Some(count) = rows.filter(|_| bound.is_none()) {
-                    Value::Array(vec![source; count])
-                } else {
-                    source
-                };
-                let base = format!(
-                    "{}_{}",
-                    doc.pointer(&path).and_then(|n| n["id"].as_str()).unwrap_or(&ty),
-                    key
-                );
-                let mut name = base.clone();
-                let mut n = 2;
-                while settings.bindings.contains_key(&name) {
-                    name = format!("{base}_{n}");
-                    n += 1;
                 }
-                draft = Some(Draft { name, value: initial, fits: None });
-            }
-            let mut finish = false;
-            if let Some(draft) = draft.as_mut() {
-                let mut open = true;
-                let window = widgets::dialog(ui.ctx(), "New Bind for a Property", &mut open)
-                    .collapsible(false)
-                    .resizable(false);
-                window.show(ui.ctx(), |ui| {
-                    let heading = widgets::field_label(ui, "Bind name");
-                    let field =
-                        ui.add(egui::TextEdit::singleline(&mut draft.name)).labelled_by(heading.id);
-                    widgets::autofocus(ui, &field);
-                    widgets::field_label(ui, "Initial value");
-                    if rows.is_some() {
-                        ui.weak("One value per list row.");
-                    }
-                    fields::value(ui, &mut draft.value, 0);
-                    // (Its name by the rule New Bind and Rename have.)
-                    let named = workflow::new_bind_name(&draft.name, &settings.bindings);
-                    let now = stamp(&draft.value);
-                    let fits = match draft.fits {
-                        Some((at, fits)) if at == now => fits,
-                        _ => compatible(doc, &path, &key, settings, &draft.value),
+                if draft.is_none()
+                    && ui
+                        .add_enabled(
+                            rows.is_none_or(|n| n <= 10000),
+                            egui::Button::new("+ New Bind for Property"),
+                        )
+                        .clicked()
+                {
+                    let source = resolved(&current, settings).clone();
+                    let source = if source.is_null() {
+                        property_default(&ty, &key).unwrap_or(json!(""))
+                    } else {
+                        source
                     };
-                    draft.fits = Some((now, fits));
-                    let error = match named {
-                        Err(why) => Some(why),
-                        Ok(_) if !fits => Some("The property doesn't take a value of this kind."),
-                        Ok(_) => None,
+                    let initial = if let Some(count) = rows.filter(|_| bound.is_none()) {
+                        Value::Array(vec![source; count])
+                    } else {
+                        source
                     };
-                    let name = named.unwrap_or_default();
-                    if let Some(error) = error {
-                        ui.weak(error);
+                    let base = format!(
+                        "{}_{}",
+                        doc.pointer(&path).and_then(|n| n["id"].as_str()).unwrap_or(&ty),
+                        key
+                    );
+                    let mut name = base.clone();
+                    let mut n = 2;
+                    while settings.bindings.contains_key(&name) {
+                        name = format!("{base}_{n}");
+                        n += 1;
                     }
-                    ui.horizontal(|ui| {
-                        if (ui
+                    draft = Some(Draft { name, value: initial, fits: None });
+                }
+                let mut finish = false;
+                if let Some(draft) = draft.as_mut() {
+                    let mut open = true;
+                    let window = widgets::dialog(ui.ctx(), "New Bind for a Property", &mut open)
+                        .collapsible(false)
+                        .resizable(false);
+                    window.show(ui.ctx(), |ui| {
+                        let heading = widgets::field_label(ui, "Bind name");
+                        let field =
+                            ui.add(mg_uikit::text_field(&mut draft.name)).labelled_by(heading.id);
+                        widgets::autofocus(ui, &field);
+                        widgets::field_label(ui, "Initial value");
+                        if rows.is_some() {
+                            ui.weak("One value per list row.");
+                        }
+                        fields::value(ui, &mut draft.value, 0);
+                        // (Its name by the rule New Bind and Rename have.)
+                        let named = workflow::new_bind_name(&draft.name, &settings.bindings);
+                        let now = stamp(&draft.value);
+                        let fits = match draft.fits {
+                            Some((at, fits)) if at == now => fits,
+                            _ => compatible(doc, &path, &key, settings, &draft.value),
+                        };
+                        draft.fits = Some((now, fits));
+                        let error = match named {
+                            Err(why) => Some(why),
+                            Ok(_) if !fits => {
+                                Some("The property doesn't take a value of this kind.")
+                            }
+                            Ok(_) => None,
+                        };
+                        let name = named.unwrap_or_default();
+                        if let Some(error) = error {
+                            ui.weak(error);
+                        }
+                        ui.horizontal(|ui| {
+                            if (ui
                             .add_enabled(error.is_none(), egui::Button::new("Create"))
                             .on_hover_text("Makes the bind and binds the property to it")
                             .clicked()
@@ -232,58 +236,61 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                             // (Asked once more as it is made: the window
                             // may have changed under the open dialog.)
                             && compatible(doc, &path, &key, settings, &draft.value)
-                        {
-                            settings.bindings.insert(
-                                name.into(),
-                                Binding { value: draft.value.clone(), ..Default::default() },
-                            );
-                            if let Some(node) = doc.pointer_mut(&path) {
-                                node[&key] = json!({"bind":name});
+                            {
+                                settings.bindings.insert(
+                                    name.into(),
+                                    Binding { value: draft.value.clone(), ..Default::default() },
+                                );
+                                if let Some(node) = doc.pointer_mut(&path) {
+                                    node[&key] = json!({"bind":name});
+                                }
+                                finish = true;
                             }
-                            finish = true;
-                        }
-                        if widgets::cancel(ui) {
-                            finish = true;
-                        }
+                            if widgets::cancel(ui) {
+                                finish = true;
+                            }
+                        });
                     });
+                    finish |= !open;
+                }
+                ui.ctx().data_mut(|d| {
+                    if finish {
+                        d.remove::<Draft>(draft_id);
+                    } else if let Some(draft) = draft {
+                        d.insert_temp(draft_id, draft);
+                    } else {
+                        d.remove::<Draft>(draft_id);
+                    }
                 });
-                finish |= !open;
-            }
-            ui.ctx().data_mut(|d| {
                 if finish {
-                    d.remove::<Draft>(draft_id);
-                } else if let Some(draft) = draft {
-                    d.insert_temp(draft_id, draft);
-                } else {
-                    d.remove::<Draft>(draft_id);
+                    ui.ctx().request_repaint();
+                }
+                if let Some(name) =
+                    doc.pointer(&path).and_then(|n| n[&key]["bind"].as_str()).map(str::to_owned)
+                {
+                    if let Some(binding) = settings.bindings.get_mut(&name) {
+                        widgets::field_label(ui, "Initial value");
+                        ui.weak("Shared by the controls that use this bind.");
+                        fields::value(ui, &mut binding.value, 0);
+                    } else {
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            "There is no such bind: make it, or choose another above.",
+                        );
+                    }
                 }
             });
-            if finish {
-                ui.ctx().request_repaint();
-            }
-            if let Some(name) =
-                doc.pointer(&path).and_then(|n| n[&key]["bind"].as_str()).map(str::to_owned)
-            {
-                if let Some(binding) = settings.bindings.get_mut(&name) {
-                    widgets::field_label(ui, "Initial value");
-                    ui.weak("Shared by the controls that use this bind.");
-                    fields::value(ui, &mut binding.value, 0);
-                } else {
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        "There is no such bind: make it, or choose another above.",
-                    );
-                }
-            }
         });
-    });
     ui.separator();
 }
 
 pub(super) fn watch(ui: &mut Ui, name: &str, doc: &Value, s: &mut Settings, state: &mut State) {
-    egui::CollapsingHeader::new("When this value changes").default_open(true).show(ui, |ui| {
-        events::editor_reading(ui, doc, s, state, Some(events::Target::Bind(name.into())));
-    });
+    egui::CollapsingHeader::new("When this value changes")
+        .icon(mg_uikit::collapsing_icon)
+        .default_open(true)
+        .show(ui, |ui| {
+            events::editor_reading(ui, doc, s, state, Some(events::Target::Bind(name.into())));
+        });
 }
 
 #[cfg(test)]

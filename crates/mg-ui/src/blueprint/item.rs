@@ -650,7 +650,7 @@ fn part_grid(
                     learned = true;
                 }
                 if i64::from(n) == current {
-                    let stroke = ui.visuals().selection.stroke;
+                    let stroke = egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).accent);
                     // (Within the icon's own room: outside it, the grid's
                     // edge cut the top of the first row's off.)
                     ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
@@ -992,7 +992,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             let search_id = f.id("uti-search");
             let mut search: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
             crate::widgets::SearchField::new(search_id.with("field"), &mut search)
-                .hint("🔍 Search properties")
+                .hint("Search properties")
                 .clear_tip("Clear")
                 .find_over()
                 .show(ui);
@@ -1002,6 +1002,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             egui::ScrollArea::vertical().id_salt(("uti-available", key)).max_height(380.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     let mut found = 0;
                     for t in &available {
                         // A kind's choices by name, as Aurora's tree has
@@ -1037,6 +1038,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                             }
                         } else {
                             egui::CollapsingHeader::new(&t.name)
+                                .icon(mg_uikit::collapsing_icon)
                                 .id_salt(("uti-type", key, t.row))
                                 .open((!needle.is_empty()).then_some(true))
                                 .show(ui, |ui| {
@@ -1064,6 +1066,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             egui::ScrollArea::vertical().id_salt(("uti-assigned", key)).max_height(200.0).show(
                 ui,
                 |ui| {
+                    mg_uikit::list_rows(ui);
                     for (i, a) in assigned.iter().enumerate() {
                         ui.horizontal(|ui| {
                             let text = game.property_text(&a.p);

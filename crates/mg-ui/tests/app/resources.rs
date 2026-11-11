@@ -81,7 +81,7 @@ fn browse_view_and_copy_a_game_resource() {
     h.run();
     h.get_by_label("nw_it_torch001.uti").click_secondary();
     h.run();
-    h.get_by_label("Open").click();
+    apart(&h, "Open").click();
     h.run();
     let key = ResKey::parse("nw_it_torch001", ResType::UTI).unwrap();
     assert!(h.state().dock.find_tab(&Tab::Resource(key)).is_some());
@@ -193,7 +193,7 @@ fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
     let rows: Vec<_> = h.get_all_by_label("portraits.2da").collect();
     rows[1].click_secondary();
     h.run();
-    h.get_by_label("Open").click();
+    apart(&h, "Open").click();
     h.run();
     h.get_by_label("Edit in mg_low.hak").click();
     h.run_steps(3);
@@ -275,7 +275,7 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     // The lower hak's, opened: its own row, said to be overridden.
     rows[1].click_secondary();
     h.run();
-    h.get_by_label("Open").click();
+    apart(&h, "Open").click();
     h.run();
     let key = ResKey::parse("portraits", ResType::TWODA).unwrap();
     let tab = Tab::ResourceCopy { key, layer: "hak:mg_low".into() };
@@ -372,7 +372,7 @@ fn an_overridden_copy_is_previewed_as_its_layer_has_it() {
     assert!(rows.len() >= 2, "ours and the game's");
     rows[1].click_secondary();
     h.run();
-    h.get_by_label("Preview").click();
+    apart(&h, "Preview").click();
     h.run();
     let tab = Tab::ModelCopy { key, layer: game_layer.clone() };
     assert!(h.state().dock.find_tab(&tab).is_some(), "the copy's viewer");
@@ -760,8 +760,7 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
     h.run();
     assert_eq!(chosen(&h), [1, 2]);
-    // (The last: the first is the module tree's Expand All.)
-    h.get_all_by_label("⏷").last().unwrap().click();
+    h.get_by_label("Move Down").click();
     h.run();
     assert_eq!(haks(&mut h), ["alpha", "gone", "bravo", "charlie"]);
     assert_eq!(chosen(&h), [2, 3]);
@@ -1271,7 +1270,7 @@ fn a_hak_row_s_remove_takes_that_row_alone() {
     h.run();
     assert_eq!(names(&h), ["mg_b.2da", "mg_c.2da"]);
     assert!(h.query_by_label("mg_a.2da").is_none(), "the row is gone from the list");
-    h.get_by_label("Undo").click();
+    apart(&h, "Undo").click();
     h.run();
     assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
 }
@@ -1347,7 +1346,7 @@ fn a_hak_s_extract_asks_about_files_there_and_runs_as_a_job() {
     settle(&mut h);
     assert!(fresh.join("mg_a.2da").is_file() && fresh.join("mg_b.2da").is_file());
     assert!(h.query_by_label("Files Already in the Folder").is_none(), "none there: not asked");
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.step();
     assert!(h.state().busy(), "saved off the window's thread");
     assert!(h.state().haks[0].hak.is_dirty(), "not saved before it is written");
@@ -1530,7 +1529,7 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
-    h.get_by_label("Redo").click();
+    apart(&h, "Redo").click();
     h.run();
     assert_eq!(items(&h), 1, "redone by the toolbar's Redo");
     h.hover_at(h.get_by_label("Add Files…").rect().center());
@@ -1551,7 +1550,7 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     // module's (GitHub issue 18's rule). Typed in, the field's own.
     let find =
         egui_kittest::kittest::by().predicate(|n: &egui_kittest::kittest::AccessKitNode<'_>| {
-            n.placeholder() == Some("🔍 name or .type")
+            n.placeholder() == Some("name or .type")
         });
     h.get(find.clone()).click();
     h.run();
@@ -1782,7 +1781,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert_eq!(h.state().haks[0].filter, "", "left: what is typed is not the field's");
     assert!(h.state().dock.find_tab(&Tab::Hak(id)).is_some(), "and the editor is open still");
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     assert!(hak.is_file(), "{:?}", log(&h));
     assert!(!h.state().haks[0].hak.is_dirty());
@@ -1820,11 +1819,11 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.get_by_label("Remove (1)").click();
     h.run();
     assert!(h.state().haks[0].hak.is_dirty());
-    h.get_by_label("Undo").click();
+    apart(&h, "Undo").click();
     h.run();
-    h.get_by_label("Redo").click();
+    apart(&h, "Redo").click();
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     assert!(!has(&h), "{:?}", log(&h));
     let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
@@ -1877,7 +1876,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     std::fs::write(content.join("mg_ui_box.mdl"), &bytes).unwrap();
     h.get_by_label("Update from Folder").click();
     h.run();
-    h.get_by_label("Save").click();
+    apart(&h, "Save").click();
     h.run();
     let shown_as = |h: &mut Harness<'_, Moonglow>| {
         h.get_by_label("mg_ui_box.mdl").click_secondary();

@@ -2691,6 +2691,7 @@ dependencies = [
 name = "mg-audio"
 version = "0.0.0"
 dependencies = [
+ "mg-core",
  "symphonia",
  "thiserror 2.0.21",
 ]
@@ -2816,6 +2817,7 @@ dependencies = [
  "fastrand",
  "indexmap",
  "mg-2da",
+ "mg-audio",
  "mg-core",
  "mg-erf",
  "mg-gff",
@@ -3080,6 +3082,7 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "mg-uikit",
  "mg-update",
  "notify",
  "png",
@@ -3092,6 +3095,17 @@ dependencies = [
  "toml",
  "wgpu",
  "zip",
+]
+
+[[package]]
+name = "mg-uikit"
+version = "0.0.0"
+dependencies = [
+ "egui",
+ "egui_kittest",
+ "mg-testkit",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

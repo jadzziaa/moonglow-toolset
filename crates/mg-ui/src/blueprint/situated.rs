@@ -8,6 +8,7 @@ use mg_core::ResType;
 use mg_gff::{FieldType, Value};
 use mg_resman::ResKey;
 use mg_rules::Choice;
+use mg_uikit::Controls as _;
 
 use super::Form;
 use crate::text::{decode, encode};
@@ -282,7 +283,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                     (1, "Placeable Objects and Doors"),
                     (2, "Plot Characters"),
                 ] {
-                    ui.radio_value(&mut state.mode, m, text);
+                    ui.radio_choice(&mut state.mode, m, text);
                 }
             });
             ui.horizontal(|ui| {
@@ -344,7 +345,10 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                                             ui.painter().rect_stroke(
                                                 resp.rect.expand(1.0),
                                                 2.0,
-                                                ui.visuals().selection.stroke,
+                                                egui::Stroke::new(
+                                                    1.0,
+                                                    mg_uikit::tokens(ui.ctx()).accent,
+                                                ),
                                                 egui::StrokeKind::Outside,
                                             );
                                         }
@@ -544,10 +548,15 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                 .width(260.0)
                 .show(ui, &mut state.area, &options, name);
             ui.separator();
-            // Doors, waypoints, or both, on the map and in the lists.
-            for (showing, label) in [(0, "Both"), (1, "Doors"), (2, "Waypoints")] {
-                ui.selectable_value(&mut state.showing, showing, label);
-            }
+            // Doors, waypoints, or both, on the map and in the lists (a
+            // group named for them: the area toolbar's and the palette's
+            // Doors are others).
+            ui.horizontal(|ui| {
+                mg_uikit::name_group(ui, "Destinations Shown");
+                for (showing, label) in [(0, "Both"), (1, "Doors"), (2, "Waypoints")] {
+                    ui.selectable_value(&mut state.showing, showing, label);
+                }
+            });
         });
         let showing = state.showing;
         let here: Vec<Destination> = (state.destinations.iter())
@@ -620,6 +629,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                     .max_height(ui.available_height().max(TRANSITION_MAP) - 60.0)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        mg_uikit::list_rows(ui);
                         for (flags, title) in [(1, "Available Doors:"), (2, "Available Waypoints:")]
                         {
                             if showing != 0 && showing != flags {
@@ -705,7 +715,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         f.mark_mixed(ui, "LinkedToFlags");
         ui.horizontal(|ui| {
             for (text, v) in [("Door", 1), ("Waypoint", 2), ("None", 0)] {
-                if ui.radio(flags == v, text).clicked() && flags != v {
+                if ui.radio_button(flags == v, text).clicked() && flags != v {
                     f.set_int("Destination type", "LinkedToFlags", v, FieldType::Byte);
                 }
             }
@@ -837,7 +847,7 @@ pub(super) fn advanced(
             // Aurora's No Interrupt is the inverse of Interruptable.
             f.mark_mixed(ui, "Interruptable");
             let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
-            if ui.checkbox(&mut no_interrupt, "No Interrupt").changed() {
+            if ui.check_box(&mut no_interrupt, "No Interrupt").changed() {
                 f.set_int(
                     "No interrupt",
                     "Interruptable",

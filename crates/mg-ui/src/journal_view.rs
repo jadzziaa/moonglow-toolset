@@ -208,6 +208,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         });
     });
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        mg_uikit::list_rows(ui);
         // As in Aurora: select Root to add categories.
         if ui.selectable_label(view.selected.is_none(), "Root").clicked() {
             view.selected = None;
@@ -231,9 +232,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
             let count = entries(cat).len();
             let open = view.open.contains(&c);
             ui.horizontal(|ui| {
-                let arrow = if open { "⏷" } else { "⏵" };
+                let (arrow, verb) = match open {
+                    true => (mg_uikit::Icon::ChevronDown, "Collapse"),
+                    false => (mg_uikit::Icon::ChevronRight, "Expand"),
+                };
                 let hint = if open { "Close the category" } else { "Show its entries" };
-                if ui.add(egui::Button::new(arrow).frame(false)).on_hover_text(hint).clicked() {
+                let named = format!("{verb} {name}");
+                let button = crate::widgets::icon_only(arrow, &named).expanded(open);
+                if ui.add(button).on_hover_text(hint).clicked() {
                     if open {
                         view.open.remove(&c);
                         // (Its entry, now out of sight, isn't left selected.)

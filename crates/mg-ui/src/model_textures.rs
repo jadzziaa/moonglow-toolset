@@ -258,7 +258,10 @@ pub(crate) fn section(
         (n, m) => format!("Textures of {model} ({n}, {m} missing)"),
     };
     let id = egui::Id::new(("model-textures-section", salt));
-    let header = egui::CollapsingHeader::new(title).id_salt(id).default_open(place.open);
+    let header = egui::CollapsingHeader::new(title)
+        .icon(mg_uikit::collapsing_icon)
+        .id_salt(id)
+        .default_open(place.open);
     // (Within the width in sight: a window's content may be wider than
     // the window, in its scroll area, and the rows wrap to what is seen.)
     let seen = ui.clip_rect().right() - ui.cursor().left();
@@ -307,7 +310,10 @@ fn row_ui(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
                 let text = egui::RichText::new(&row.name).strong();
                 let text = if missing { text.color(ui.visuals().error_fg_color) } else { text };
                 let name = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-                name.context_menu(|ui| menu(app, ui, row));
+                name.context_menu(|ui| {
+                    mg_uikit::menu_rows(ui);
+                    menu(app, ui, row)
+                });
                 if ui.small_button("Copy").on_hover_text("Copy the texture's name").clicked() {
                     ui.ctx().copy_text(row.name.clone());
                 }

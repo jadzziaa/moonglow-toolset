@@ -3,6 +3,7 @@
 //! do), fill a page for each, name the script. Finish writes the source,
 //! compiles it and sets it on the line, in one undoable command.
 
+use mg_uikit::Controls as _;
 use std::sync::Arc;
 
 use egui::Ui;
@@ -365,26 +366,21 @@ fn pick_list(
         ui.set_min_size(size.into());
         ui.set_max_width(size[0]);
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt(id)
-                .max_height(size[1])
-                .auto_shrink(false)
-                .show_rows(
-                    ui,
-                    ui.text_style_height(&egui::TextStyle::Body),
-                    rows.len(),
-                    |ui, range| {
-                        for &(row, text) in &rows[range] {
-                            let r = ui.selectable_label(*selected == Some((list, row)), text);
-                            if r.clicked() {
-                                *selected = Some((list, row));
-                            }
-                            if r.double_clicked() {
-                                chosen = Some(row);
-                            }
-                        }
-                    },
-                );
+            let area =
+                egui::ScrollArea::vertical().id_salt(id).max_height(size[1]).auto_shrink(false);
+            // (Each row a selectable label, 22 high: the rows were given
+            // the text's height, and drifted from where the list put them.)
+            mg_uikit::show_rows(area, ui, rows.len(), |ui, range| {
+                for &(row, text) in &rows[range] {
+                    let r = ui.selectable_label(*selected == Some((list, row)), text);
+                    if r.clicked() {
+                        *selected = Some((list, row));
+                    }
+                    if r.double_clicked() {
+                        chosen = Some(row);
+                    }
+                }
+            });
         });
     });
     chosen
@@ -424,14 +420,16 @@ fn move_lists(
         });
         ui.vertical(|ui| {
             ui.add_space(40.0);
-            if ui.button("->").on_hover_text(format!("Move to {}", titles[1])).clicked()
+            let to = format!("Move to {}", titles[1]);
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronRight, &to, "").clicked()
                 && let Some((l, row)) = *selected
                 && l == lists[0]
                 && !chosen.contains(&row)
             {
                 chosen.push(row);
             }
-            if ui.button("<-").on_hover_text(format!("Move to {}", titles[0])).clicked()
+            let to = format!("Move to {}", titles[0]);
+            if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronLeft, &to, "").clicked()
                 && let Some((l, row)) = *selected
                 && l == lists[1]
             {
@@ -462,7 +460,7 @@ fn add_list(
 ) -> bool {
     let mut pick = false;
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(entry).desired_width(200.0).id_salt(id));
+        ui.add(mg_uikit::text_field(entry).desired_width(200.0).id_salt(id));
         if picker {
             pick = ui.small_button("…").on_hover_text("Select an item blueprint").clicked();
         }
@@ -509,7 +507,7 @@ fn local_draft(ui: &mut Ui, w: &mut ScriptWizard, condition: bool) -> Option<(St
     let d = &mut w.local;
     egui::Grid::new("wiz-local").num_columns(2).show(ui, |ui| {
         combo(ui, "wiz-local-type", &mut d.ty, &VarType::ALL, |t| t.label().to_string());
-        ui.add(egui::TextEdit::singleline(&mut d.name).hint_text("variable name"));
+        ui.add(mg_uikit::text_field(&mut d.name).hint_text("variable name"));
         ui.end_row();
         if condition {
             if !d.ty.comparisons().contains(&d.compare) {
@@ -524,7 +522,7 @@ fn local_draft(ui: &mut Ui, w: &mut ScriptWizard, condition: bool) -> Option<(St
         combo(ui, "wiz-local-src", &mut d.variable, &[false, true], |v| {
             format!("{} {ty}", if v { "variable" } else { "constant" })
         });
-        ui.add(egui::TextEdit::singleline(&mut d.value).hint_text(if d.variable {
+        ui.add(mg_uikit::text_field(&mut d.value).hint_text(if d.variable {
             "variable name"
         } else {
             "value"
@@ -546,7 +544,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
             egui::Grid::new("wiz-abilities").num_columns(3).show(ui, |ui| {
                 for (i, (name, _)) in ABILITIES.iter().enumerate() {
                     let (on, cmp, value) = &mut w.abilities[i];
-                    ui.checkbox(on, *name);
+                    ui.check_box(on, *name);
                     ui.add_enabled_ui(*on, |ui| {
                         combo(ui, &format!("wiz-ab-{i}"), cmp, &Compare::ALL, |c| {
                             c.label().to_string()
@@ -568,9 +566,9 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                     std::iter::once(None).chain((0..lists.classes.len()).map(Some)).collect();
                 combo(ui, "wiz-class", &mut w.class, &options, name);
                 ui.vertical(|ui| {
-                    ui.radio_value(&mut w.specific_level, false, "Any level");
+                    ui.radio_choice(&mut w.specific_level, false, "Any level");
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut w.specific_level, true, "Specific level");
+                        ui.radio_choice(&mut w.specific_level, true, "Specific level");
                         ui.add_enabled_ui(w.specific_level, |ui| {
                             crate::widgets::spin_draft(ui, &mut w.level, 1..=60, 1.0, |d| d);
                         });
@@ -593,6 +591,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     ui.set_min_size([280.0, 100.0].into());
                     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                        mg_uikit::list_rows(ui);
                         egui::Grid::new("wiz-classes").num_columns(2).striped(true).show(
                             ui,
                             |ui| {
@@ -622,12 +621,12 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                 w.selected = None;
             }
             ui.add_enabled_ui(w.classes.len() > 1, |ui| {
-                ui.radio_value(
+                ui.radio_choice(
                     &mut w.all_classes,
                     false,
                     "The player needs to meet only one of the restrictions",
                 );
-                ui.radio_value(
+                ui.radio_choice(
                     &mut w.all_classes,
                     true,
                     "The player needs to meet all of the restrictions",
@@ -637,6 +636,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
         2 => {
             ui.label("Select required genders");
             egui::Frame::group(ui.style()).show(ui, |ui| {
+                mg_uikit::list_rows(ui);
                 for e in &lists.genders {
                     let on = w.genders.contains(&e.row);
                     if ui.selectable_label(on, &e.name).clicked() {
@@ -670,11 +670,11 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
         }
         4 => {
             for (i, (name, _)) in GOOD_EVIL.iter().enumerate() {
-                ui.checkbox(&mut w.alignment.good_evil[i], *name);
+                ui.check_box(&mut w.alignment.good_evil[i], *name);
             }
             ui.add_space(8.0);
             for (i, (name, _)) in LAW_CHAOS.iter().enumerate() {
-                ui.checkbox(&mut w.alignment.law_chaos[i], *name);
+                ui.check_box(&mut w.alignment.law_chaos[i], *name);
             }
         }
         5 => {
@@ -727,7 +727,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                     crate::widgets::field_label(ui, "Difficulty");
                     ui.horizontal(|ui| {
                         for d in Difficulty::ALL {
-                            ui.radio_value(&mut w.difficulty, d, d.label());
+                            ui.radio_choice(&mut w.difficulty, d, d.label());
                         }
                     });
                     let skill = w.selected.filter(|s| s.0 == 0).map(|s| s.1);
@@ -829,7 +829,7 @@ fn local_list<T>(
 
 fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
     let number = |ui: &mut Ui, s: &mut String, id: &str| {
-        ui.add(egui::TextEdit::singleline(s).desired_width(70.0).id_salt(id));
+        ui.add(mg_uikit::text_field(s).desired_width(70.0).id_salt(id));
         s.retain(|c| c.is_ascii_digit());
     };
     match page {
@@ -838,12 +838,12 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                 ui.vertical(|ui| {
                     crate::widgets::field_label(ui, "Give gold");
                     number(ui, &mut w.give_gold, "wiz-give-gold");
-                    ui.checkbox(&mut w.gold_to_party, "To Party");
+                    ui.check_box(&mut w.gold_to_party, "To Party");
                 });
                 ui.vertical(|ui| {
                     crate::widgets::field_label(ui, "Give XP");
                     number(ui, &mut w.give_xp, "wiz-give-xp");
-                    ui.checkbox(&mut w.xp_to_party, "To Party");
+                    ui.check_box(&mut w.xp_to_party, "To Party");
                 });
                 ui.vertical(|ui| {
                     let id = egui::Id::new("wiz-give-item-pick");
@@ -870,8 +870,8 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                 ui.vertical(|ui| {
                     crate::widgets::field_label(ui, "Take gold");
                     number(ui, &mut w.take_gold, "wiz-take-gold");
-                    ui.radio_value(&mut w.destroy_gold, true, "Destroy");
-                    ui.radio_value(&mut w.destroy_gold, false, "Keep");
+                    ui.radio_choice(&mut w.destroy_gold, true, "Destroy");
+                    ui.radio_choice(&mut w.destroy_gold, false, "Keep");
                     ui.add_space(12.0);
                     crate::widgets::field_label(ui, "Take XP");
                     number(ui, &mut w.take_xp, "wiz-take-xp");
@@ -887,8 +887,8 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                         &mut w.selected,
                         false,
                     );
-                    ui.radio_value(&mut w.destroy_items, true, "Destroy");
-                    ui.radio_value(&mut w.destroy_items, false, "Keep");
+                    ui.radio_choice(&mut w.destroy_items, true, "Destroy");
+                    ui.radio_choice(&mut w.destroy_items, false, "Keep");
                 });
             });
         }
@@ -913,13 +913,13 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
         _ => {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 let store = matches!(w.perform, Perform::Store { .. });
-                if ui.radio(w.perform == Perform::Nothing, "No Action").clicked() {
+                if ui.radio_button(w.perform == Perform::Nothing, "No Action").clicked() {
                     w.perform = Perform::Nothing;
                 }
-                if ui.radio(w.perform == Perform::Attack, "Attack").clicked() {
+                if ui.radio_button(w.perform == Perform::Attack, "Attack").clicked() {
                     w.perform = Perform::Attack;
                 }
-                if ui.radio(store, "Open a Store").clicked() && !store {
+                if ui.radio_button(store, "Open a Store").clicked() && !store {
                     w.perform = Perform::Store { tag: String::new(), appraise: true };
                 }
                 let (mut tag, mut appraise) = match &w.perform {
@@ -928,9 +928,9 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                 };
                 ui.add_enabled_ui(store, |ui| {
                     ui.indent("wiz-store", |ui| {
-                        ui.checkbox(&mut appraise, "Use appraise checks");
+                        ui.check_box(&mut appraise, "Use appraise checks");
                         crate::widgets::field_label(ui, "Script Tag");
-                        ui.add(egui::TextEdit::singleline(&mut tag).id_salt("wiz-store-tag"));
+                        ui.add(mg_uikit::text_field(&mut tag).id_salt("wiz-store-tag"));
                     });
                 });
                 if store {
@@ -944,7 +944,7 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, "Modify Faction");
                     ui.spacing_mut().slider_width = 320.0;
-                    ui.add(egui::Slider::new(&mut faction, -100..=100).step_by(10.0));
+                    mg_uikit::slider(ui, egui::Slider::new(&mut faction, -100..=100).step_by(10.0));
                 });
             });
             if !attack {
@@ -979,7 +979,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                         let half = if w.condition { 8 } else { pages.len() };
                         for (i, (label, _)) in pages.iter().enumerate() {
                             let col = usize::from(i >= half);
-                            cols[col].checkbox(&mut w.pages[i], *label);
+                            cols[col].check_box(&mut w.pages[i], *label);
                         }
                     });
                 }
@@ -1003,7 +1003,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                             "The module has a script of this name; it will be replaced.",
                         );
                     }
-                    ui.checkbox(&mut w.open_editor, "Start the script editor");
+                    ui.check_box(&mut w.open_editor, "Start the script editor");
                 }
             }
         });

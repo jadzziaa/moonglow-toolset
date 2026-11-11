@@ -300,7 +300,7 @@ pub(super) fn resize_handles(
         ui.painter().rect_stroke(
             hit.shrink(2.0),
             1,
-            egui::Stroke::new(1.0, egui::Color32::WHITE),
+            egui::Stroke::new(1.0, mg_uikit::tokens(ui.ctx()).on_fill),
             egui::StrokeKind::Inside,
         );
         if response.drag_started()

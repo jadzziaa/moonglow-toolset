@@ -103,7 +103,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Code");
                 let field = ui.add(
-                    egui::TextEdit::singleline(&mut draft.code)
+                    mg_uikit::text_field(&mut draft.code)
                         .char_limit(MAX_CODE + 4)
                         .desired_width(120.0)
                         .hint_text("ab"),
