@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T21:14:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T17:18:46Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -2029,6 +2029,85 @@ and a placeable's shadow at a cliff's top reaches the ground below it.
 - **Wiki:** "Model Shadows" says the volumes come of a mesh's faces;
   not that a face casts from its front only.
 
+### When the client shows an area transition
+
+The client draws an area transition trigger (`Type` 1) only with the
+pointer over it, as a translucent blue fill of its outline: nothing shows
+with nothing held, and holding Tab shows no transition at all (not even
+Aurora's own). A click on a shown one takes the player to its
+destination; a stock transition fires on the click, not on walking
+across it, even a shown one. It is shown, and can be clicked, only when
+both hold:
+
+1. its `Geometry` points run counterclockwise seen from above (a
+   positive signed area in X and Y). The same trigger with only its
+   points' order reversed is never shown nor clickable (five runs);
+2. each point is on the ground: the height the client takes is the
+   trigger's `ZPosition` plus the point's `PointZ` (a trigger at
+   `ZPosition` −1 with `PointZ` 1.025 is shown; at `ZPosition` 1 with
+   `PointZ` 0.025 it is not).
+
+| Points above the ground (on flat ground) | Shown |
+|---|---|
+| 0, 0.025 (Aurora's), 0.03 | yes |
+| 0.05 | at some spots, in streaks, or not at all: unreliable |
+| 0.1, 0.3, 3; −0.1, −1, −5 | no |
+
+That table is of flat authored ground (`ttr01`). Elsewhere how far off
+the client still shows a transition depends on the place, and what
+decides it was not found: on a slope of Darkness over Daggerford's
+`c1ar1900_lizard` a whole outline is still shown 0.6 m above its
+walkmesh, not 1.0 m above nor 0.6 m below; at `c1ar0900_wildhil`'s
+`AR0900_AR0700_EXIT` it is shown 0.2 m below and hidden 0.3 m below; in
+XP1-Interlude's `area007` a disc was still drawn 1.0 m up (a scene with a
+fight and its spells' light in it: no click there was taken, not even
+on the shipped trigger). The game's own transitions there, 0.23 to
+0.31 m off the walkmesh (flat outlines over sloping ground, one 0.225 m
+above flat ground), are shown, and two of them took a click (the third
+could not be seen from the camera). The drawn tile surface lies within
+0.04 m of the walkmesh under every point of those three: it is not
+what makes the difference. An outline at the walkmesh + 0.025 is shown
+on every ground measured (flat `ttr01`, Aurora's captures, the three
+shipped tiles). A corner alone off the ground (one of four at +0.3,
+−0.3 or +0.05; two of four at +0.3) leaves the outline shown in part,
+the fill missing near the corner, and clickable at its middle.
+
+A hidden one can't be clicked either: the player walks to the ground
+clicked and stands inside it. `Cursor` (0 or 1) and `HighlightHeight`
+(0 or 3) make no difference to any of it. Aurora's own painted and
+linked trigger, moved onto flat ground with its points left 5 m up (as
+painted on its tileset's ground 5 m up), is not shown; with its points
+brought to 0.025 it is.
+
+- **Checked:** game client, `client_render/transition_outlines.rs`'s six
+  ignored tests (2026-11-12; a pointer moved down a column through a
+  row of triggers each differing from the first in one field, shots
+  every 20 px, Tab held, clicks), with Aurora's `TT_A1`
+  (`transition-triggers/07-s2-both.mod`) as the control. Rounds three
+  and four (2026-11-12), in the same file: `transition_outlines_before_and_after_the_fix`
+  (Moonglow's fixed build's three triggers of `after-fix.mod` shown and
+  taken through; the south-east rectangle in the order 4.1.0 saved it,
+  authored by the test, not),
+  `transition_outlines_with_a_lone_corner`,
+  `shipped_transitions_off_the_walkmesh_are_shown`,
+  `shipped_transitions_on_the_walkmesh`,
+  `shipped_transitions_far_off_the_walkmesh`,
+  `transition_outlines_fix_clicked_and_raised_by_position`,
+  `transition_outlines_by_size_off_the_ground` (on flat ground 0.3 m up
+  hidden, 2 m and 6 m across, by `ZPosition` or `PointZ` alike), and
+  `shipped_transitions_against_the_drawn_tiles` (the drawn surface, no
+  client).
+- **Moonglow:** draws and saves outlines counterclockwise and on the
+  ground, and Verify's `transition-hidden` finds a transition saved
+  clockwise and, as a possibility, one left at another level, every
+  point more than 1 m off the walkable ground: nearer, the client's
+  answer depends on the place
+  ([below](#a-triggers-outline-its-points-order-its-heights-and-trigger-type);
+  `crates/mg-module/src/doctor.rs`, `TRANSITION_OFF_GROUND`). It says
+  nothing of the game's own modules.
+- **Wiki:** missing (nothing on triggers' fields or when a transition is
+  drawn).
+
 ## Talk tables and 2DAs
 
 ### Where the game finds a custom talk table
@@ -2708,12 +2787,132 @@ into whole item structs at (−1, −1, −1), struct id the list index
 missing. A store gets its five pages; a sound's `Priority` is recomputed; a
 placeable without `Static` gets !`Useable`; an encounter's `CreatureList`
 is sorted by CR, then resref. Triggers and encounters stand at the
-outline's first point, with relative X/Y and absolute heights (ground +
-0.025 m). Everything faces north.
+outline's first point clicked, with relative X/Y and absolute heights
+(ground + 0.025 m); a trigger's points are saved in Aurora's own order
+([A trigger's outline](#a-triggers-outline-its-points-order-its-heights-and-trigger-type)).
+Everything faces north.
 
 - **Checked:** Aurora, `aurora_instances.rs` `placed_objects_match_aurora`;
   engine, `engine_blueprints.rs`.
 - **Moonglow:** `crates/mg-module/src/instances.rs`.
+- **Wiki:** missing.
+
+### A trigger's outline: its points' order, its heights and Trigger Type
+
+**Order.** Aurora saves every trigger's outline counterclockwise, whatever
+the order of the clicks: a clockwise drawing is reversed (five corners
+P1…P5 clicked clockwise are saved P1 P5 P4 P3 P2, which no rotation
+gives), and the list then starts at the point of smallest X relative to
+the trigger's position (of two alike, the one of smaller Y; one case).
+The comparison is exact: a corner clicked 1.9e-6 west of the first is
+saved first. A concave outline is kept as drawn (no hull). The trigger
+stands at the first click, so (0, 0) is among the points but not
+always the first. Generic, trap and transition triggers alike.
+
+**Heights.** Painting, Redraw Polygon and a drag with the mouse each put
+every point at the ground (walkmesh) under it + 0.025, point by point;
+painting and Redraw also set `ZPosition` 0, a drag leaves it as it was
+(so in Aurora a dragged trigger with a `ZPosition` other than 0 ends up
+off the ground by it). A paste gives the copy `ZPosition` = the ground's
+height at the paste point and keeps the copied `PointZ` (already
+absolute), leaving it as high again in the air (5 m on a tileset whose
+ground is 5 m up, in the same area or another): Aurora's bug. Changing
+the ground under a trigger that doesn't move (Raise/Lower, which
+replaces the tiles) leaves the outline where it was, buried or in the
+air. Aurora has no Adjust Location and no turning for a trigger. The
+waypoint Setup Area Transition makes takes its Z from the points'
+stored `PointZ` (their middle), not from the ground.
+
+**Trigger Type.** Generic to Area Transition changes `Type` 0 to 1 and
+`Cursor` 0 to 1; Area Transition to Generic changes `Type` alone
+(`Cursor` stays 1). Nothing else changes either way. Aurora's Trigger
+wizard's Area Transition category writes `Cursor` 0 and
+`HighlightHeight` 3.0 (`blueprint-wizards.mod`), which the client shows
+all the same.
+
+- **Checked:** Aurora, `transition-triggers/01-painted.mod`,
+  `04-base.mod`, `05-concave.mod` (eight drawings of known clicks),
+  `06-typechange.mod`, and `24` to `48` (round two, the heights;
+  2026-11-12); `aurora_trigger_order.rs` holds every trigger of `04`,
+  `05` and `23` to Moonglow's order and its points to the ground.
+- **Moonglow:** the order is `mg_module::instances::outline_order`,
+  taken by placing, the Alt rectangle and Redraw Polygon
+  (`crates/mg-ui/src/area_view.rs`, `place`, `redraw_outline`); Redraw
+  Polygon puts the trigger at height 0 as Aurora's; a trigger moved (a
+  drag, the arrows, Adjust Location, Q and E, a paste) keeps its
+  `ZPosition` and has each point put on the ground against it (`PointZ`
+  = the ground + 0.025 − `ZPosition`, `mg_area::edit::move_edits_on`,
+  `moved_on`): a pasted one lands on the ground, unlike Aurora's.
+  Trigger Type sets `Cursor` as Aurora's (`blueprint/trigger.rs`). The
+  ground changed under a trigger is left as Aurora leaves it, and
+  Verify's `transition-hidden` says of a transition so left a meter or
+  more off it that the game may hide it.
+- **Wiki:** missing.
+
+### Setup Area Transition with triggers
+
+Whatever links to a trigger links to a waypoint Aurora makes for it:
+`WP_` + the trigger's tag (case kept, the trigger's tag never changed),
+struct id 5, in the trigger's area, `Appearance` 1, facing north
+(`YOrientation` 1; `XOrientation` is 0 or a stray denormal), appended to
+the `WaypointList`. Its X and Y are the trigger's position plus the center
+of the bounding box of its points (not their mean or centroid); its Z is
+the middle of the points' `PointZ` (min + max over 2), not the ground's
+(a ground raised under the trigger afterwards leaves it stale). The link
+holds `LinkedToFlags` 2 on a waypoint and 1 on a door (the door's tag; a
+door gets no waypoint); nothing else of either object changes.
+
+| Current → target (connection) | Current writes | Target writes | Waypoints |
+|---|---|---|---|
+| trigger → trigger, Both Ways | `WP_<target>` / 2 | `WP_<current>` / 2 | both |
+| trigger → trigger, Current To Target | `WP_<target>` / 2 | nothing | target's |
+| trigger → trigger, Target To Current | nothing | `WP_<current>` / 2 | current's |
+| trigger → door, Both Ways | door's tag / 1 | `WP_<current>` / 2 | current's |
+| trigger → door, Current To Target | door's tag / 1 | nothing | none |
+| trigger → door, Target To Current | nothing | `WP_<current>` / 2 | current's |
+| door → trigger, Both Ways | `WP_<target>` / 2 | door's tag / 1 | target's |
+| door → trigger, Current To Target | `WP_<target>` / 2 | nothing | target's |
+| door → trigger, Target To Current | nothing | door's tag / 1 | none |
+| trigger → waypoint (Current To Target only) | waypoint's tag / 2 | nothing | none |
+| door → door, Both Ways | other's tag / 1 | current's tag / 1 | none |
+
+**The dialog** lists, for Trigger, every trigger of `Type` 1 of the target
+area, linked or not, under its tag (two alike appear twice), without the
+current one; a generic or trap trigger is not listed. Doors and
+waypoints list all of the area's. Choosing Waypoint grays out Both Ways
+and Target To Current. The Area Transition tab shows only while Trigger
+Type is Area Transition. The current object's fields are written by its
+Properties' OK, the target's and the waypoints' by the dialog's OK.
+
+**Prompts**, in order: (1) the CURRENT object's tag is still its
+blueprint's; (2) the same for the TARGET's; (3) "This action requires
+that the current area be saved" (saves it to `temp0`); (4) the object
+"already links to" another, the original link to be overwritten. No on
+any returns to the dialog with nothing written, except No on the fourth,
+which closes it back to Properties. Aurora never retags.
+
+**Aurora's defects**, not copied: every run makes another `WP_<tag>`
+(three `WP_TT_A1` after three runs) and never reuses or removes one, nor
+the old partner's; Target To Current marks the target's area unchanged,
+so the target's link reaches the file only when that area is saved later
+for another reason (saving the current one does not flush it); Properties'
+Cancel after the dialog's OK leaves a half link (the target and the
+waypoints written, the current unlinked); a pasted trigger is left in
+the air ([above](#a-triggers-outline-its-points-order-its-heights-and-trigger-type)).
+
+- **Checked:** Aurora, 48 captures in
+  `~/.local/share/moonglow-oracle/captures/transition-triggers/`
+  (2026-11-12; a module of three areas painted in Aurora; its palette
+  places no door on the off-screen display, so the four doors were
+  written by `tools/aurora/capture_transition_triggers.py` and linked in
+  Aurora; every row above measured, the doors' one-way rows in captures 44
+  to 48); `aurora_transitions.rs` holds Moonglow's links to the captures
+  field by field (eleven steps).
+- **Moonglow:** `crates/mg-edit/src/transition.rs` (`plan`,
+  `waypoint_position`), one undoable step. It reuses a waypoint of that
+  tag already inside the trigger's box, writes Target To Current's other
+  end, writes everything on the window's OK and shows lines in place of
+  the prompts ([Differences from Aurora](manual/12-differences.md)).
 - **Wiki:** missing.
 
 ### Update Instances

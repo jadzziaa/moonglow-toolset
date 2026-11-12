@@ -26,7 +26,7 @@ const KEPT: &[(&str, usize, &str)] = &[
     ("tile_select.rs", 6, "the tileset's own toolset color, and tile cursors over the view"),
     ("widgets.rs", 1, "a PLT palette's tones (data)"),
     ("script_view.rs", 7, "the script colors of Options › Script Editor (data), and its tests"),
-    ("blueprint/situated.rs", 6, "a door's transitions marked on the area's map (a picture)"),
+    ("blueprint/situated.rs", 5, "transition destinations marked on the area's map (a picture)"),
     ("nui_view/draw.rs", 2, "NUI draw lists as the game draws them"),
     ("nui_view/preview.rs", 2, "NUI windows as the game draws them"),
     ("nui_view/preview/chart.rs", 3, "NUI windows as the game draws them"),

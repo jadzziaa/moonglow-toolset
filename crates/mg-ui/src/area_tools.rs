@@ -525,6 +525,8 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
     let Some(model) = &view.model else { return };
     let Ok(doc) = ws.doc(&git) else { return };
     let mut edits = Vec::new();
+    // (A trigger moved in X or Y goes back on the ground.)
+    let on = |p: glam::Vec2, near: f32| view.ground().and_then(|g| g.height(p, near));
     for &(kind, index) in &a.objects {
         let (Some(o), Some(s)) =
             (model.object(kind, index), doc.root.list(kind.list()).and_then(|l| l.get(index)))
@@ -538,7 +540,7 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
             }
         }
         let rotation = if a.changed[3] { a.bearing.to_radians() } else { o.rotation };
-        edits.extend(mg_area::edit::move_edits(git, o, s, p, rotation));
+        edits.extend(mg_area::edit::move_edits_on(git, o, s, p, rotation, Some(&on)));
         if (a.visual_changed || a.speed_changed) && o.takes_visual_transform() {
             // (What wasn't changed here, each its own: a speed alone
             // changed leaves the object's transform as it was.)

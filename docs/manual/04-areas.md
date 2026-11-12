@@ -431,7 +431,8 @@ selected object: red to the east, green to the north and blue upward.
 Take an arrow's head and lead it along: the object moves along that axis
 alone, however the pointer strays, with its place on the axis shown in
 meters. East and north keep its height as it is (a raised placeable
-stays where it was raised, whatever the ground below), and **Snap**
+stays where it was raised, whatever the ground below; a trigger's
+corners go onto the ground under their new places), and **Snap**
 snaps along the axis; up raises or lowers it, as Alt + drag does. A
 click or a drag on a handle (an arrow, a ring, the scale handle) is the
 handle's, even where another object lies behind it. They move the object itself, so they work for static placeables
@@ -788,6 +789,30 @@ themselves, to move the window, and there it is let go first. Escape
 drops the outline, to begin again point by point. Turn the rectangle
 after, by its ring, if it is to lie another way.
 
+However you click the corners, a trigger is saved as Aurora saves it:
+its corners counterclockwise seen from above, from the westernmost one,
+and the trigger standing at the first corner you clicked; each corner
+0.025 m above the ground under it. That matters for area transitions:
+the game shows one under the pointer, and lets a player click it, only
+when its corners run that way and lie on the ground. A trigger drawn,
+drawn as a rectangle the way you like, or redrawn is always so.
+**Redraw Polygon** also puts the trigger itself at height 0 with every
+corner on the ground, as Aurora's does: the cure for a transition that
+was raised or left off the ground. Verify's `transition-hidden` finds the
+transitions saved clockwise, and those left at another level, a meter or
+more off the ground (see [Build and Test](09-build-and-test.md#verify-module)).
+
+A trigger moved across the ground (dragged, led by the east or north
+arrow, given a new X or Y in **Adjust Location**, turned with Q and E)
+or pasted, in its own area or another, has each corner put back on the
+ground under its new place, in the same step to undo. Raised or lowered
+on purpose (Alt + drag, the blue arrow, Adjust Location's Z), it stays
+where you put it; and when the ground changes under a trigger that
+doesn't move (the terrain brush, a tile's height, Change Tileset), the
+trigger is left as it was, as in Aurora: for an area transition, run
+Verify, which says which ones are left at another level, where the
+game may hide them.
+
 **Edit › Find Instance…** lists the placed objects across the module by
 kind, area, blueprint and tag; double-click one to go to it. Where
 objects were added to or removed from its area since the search, the
@@ -819,7 +844,10 @@ placeables around.
   (Copying leaves a line of text on the
   system's clipboard, "Moonglow Toolset: 3 objects": Windows gives Ctrl+V
   nothing to do with an empty clipboard.) A paste that puts a tag on a
-  second object says so: see [Duplicate tags](#duplicate-tags).
+  second object says so: see [Duplicate tags](#duplicate-tags). A
+  pasted trigger lands with its corners on the ground where it is put
+  down (Aurora's paste leaves it as high in the air as the ground is
+  there).
 - **Any area, any module:** prefabs are kept in Moonglow's data folder, in
   `prefabs` (see [Troubleshooting](13-troubleshooting.md)). Copy the
   `.prefab.json` files to share them.

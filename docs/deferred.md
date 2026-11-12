@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:25:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:34:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -440,22 +440,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Area visibility
 
 
-- **Setup Area Transition's Connection Type:** the window picks a door
-  or waypoint on the target area's map or in its lists, as Aurora's
-  `TdlgAreaTransition` does, but has none of its Connection Type (Both
-  Ways, Current To Target, Target To Current) nor its Target Type
-  Trigger: the target linked back to this door or trigger. Measured in
-  Aurora (2026-10-30, `captures/wave2/transitions.mod`, door to door in
-  another area): Both Ways writes `LinkedTo` and `LinkedToFlags` 1 on both
-  doors; Current To Target on the current one alone; Target To Current
-  wrote nothing on either (twice); it saves the current area first, and
-  asks before going on when the current object's tag is its
-  blueprint's. Moonglow's window writes the current one's, as Current To
-  Target; the Connection Type is to add, the target's fields written in
-  its area's GIT in the same step. A trigger as the target was not
-  captured (the probe's trigger stopped Aurora's dialog: "List index out
-  of bounds (-1)"); a trigger painted from the palette would show it.
-  (S–M) (what was left of "The minimap in Moonglow", 2026-10-29)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
   same builder's picture. The model is chosen by the torso's
   parts_chest.2da `ACBONUS` (`mg_preview::item::item_placed`, measured

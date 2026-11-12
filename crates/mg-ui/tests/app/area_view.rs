@@ -6007,11 +6007,17 @@ fn setup_area_transition_picks_on_the_target_area_s_map() {
     h.run_steps(2);
     assert!(h.query_by_label_contains("WP_WEST").is_none(), "doors alone");
     assert!(h.query_by_label("Available Waypoints:").is_none());
-    h.get_by_label("Both").click();
+    h.get_by_label("Destinations Shown").get_by_label("All").click();
     h.run_steps(2);
     h.get_by_label_contains("WP_WEST").click();
-    h.run_steps(1);
+    h.run_steps(2);
     h.get_by_label("Leads to the waypoint tagged WP_WEST");
+    // A blueprint is no one placed object to lead back to: Current To
+    // Target alone, and why.
+    assert!(h.get_by_label("Both Ways").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Target To Current").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Current To Target").accesskit_node().is_disabled());
+    h.get_by_label_contains("can't be led back to");
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run_steps(3);
     assert_eq!(linked(&mut h), before);

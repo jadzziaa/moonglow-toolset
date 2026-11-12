@@ -16,6 +16,7 @@ pub mod found;
 pub mod lists;
 pub mod tags;
 pub mod terrain;
+pub mod transition;
 pub mod wire;
 
 #[derive(Debug, Error)]

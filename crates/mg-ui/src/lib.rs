@@ -5750,7 +5750,8 @@ impl Moonglow {
                 let left = skip.named();
                 // Each finding with its fix, if it has one; and what the
                 // fixes were worked out on.
-                let found = mg_edit::fix::attach(&job.module, findings, &theirs);
+                let found =
+                    mg_edit::fix::attach_on(&job.module, Some(&game.resman), findings, &theirs);
                 let fixes = found.iter().filter_map(|f| f.fix.as_ref());
                 let guard = mg_edit::fix::Guard::new(&job.module, fixes);
                 Some((missing, found, said, left, guard))
