@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:07:24Z }
 ---
 
 # Areas
@@ -342,7 +342,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |
 | Ctrl + wheel, the pointer on one of them | scale their models, as in Aurora: up larger, down smaller |
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
-| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90°. Shown at once, and one step of Undo once the keys rest, however many presses (Escape drops it before then) |
+| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90°. Shown at once, and one step of Undo once the keys rest, however many presses (Escape drops it before then). Pressed while you drag the selection, the turn goes with the drag: one step as you let go, and Escape drops both |
 | G | drop them to the ground |
 | Shift+G | drop them onto the placeable below |
 | Page Up, Page Down | move them up or down to the next flat surface: a placeable's top, a floor, the ground (also a blueprint about to be placed) |
@@ -1093,6 +1093,8 @@ as Aurora's Terrain tab does:
   and a right click turns it a quarter, as a group. Drag a picture into
   the area to place it where you drop it. The tiles around fit themselves
   to it (a tile with a bit of road brings the road into its neighbors).
+  A press on an object stays the object's (**A press on an object**,
+  below).
   Double-click a picture for the tile's view: its model to turn and zoom,
   and what the tileset says of it (each corner's terrain and height, each
   edge's crosser, its lights, loops, doors and sounds), with **Paint with
@@ -1111,6 +1113,8 @@ as Aurora's Terrain tab does:
   area's `Tile_List`; [Verify](09-build-and-test.md#verify-module) names
   a tile that doesn't fit a neighbor, `tile-seam`). The preview and the
   cursor show that one tile.
+  A press on an object stays the object's, as with any tile or group in
+  hand (**A press on an object**, below).
   Its lights are chosen afresh, as a painted tile's, and the doors its
   hooks call for come and go as a painted tile's do (as the plugin
   API's `set_tile` puts a tile). Over a group of one tile (a staircase
@@ -1135,7 +1139,24 @@ as Aurora's Terrain tab does:
   around that its placement changes (a castle's gate, a single tile, in
   the castle its corners call for; a boat in its water). Click one to
   place it (a right click in the area turns it), or drag it into the
-  area.
+  area. A press on an object stays the object's (below).
+- **A press on an object**, with a tile or a group in hand (from the
+  Gallery, Exact Tile on or off), is the object's, as with no brush: a
+  click selects it (Ctrl + click adds it or takes it out), a drag moves
+  it (the selection with it), and its rings and arrows turn and slide
+  it; the brush stays chosen. Over an object nothing is previewed and
+  the status line says a click or drag there goes to the object. A
+  press on bare ground places as ever, and a drag begun there paints
+  every tile it passes, those under objects too: to put a tile or a
+  group under an object, start on the ground beside it (a tile: drag
+  over it), or hide the object's kind (the toolbar's switches) or lock
+  it first. An object hidden, locked or seen behind a raised tile
+  doesn't take the press: what is seen there is placed on. A right
+  click still turns the tile or group, a picture dropped on an object
+  still places it, and Ctrl + drag and Alt + drag move the camera. The
+  painting brushes (the terrains and crossers, Raise/Lower, the Eraser,
+  Refine Tile and the tile tools below) take every press, an object's
+  too.
 - **Next Tile Appearance** and **Previous Tile Appearance** (Moonglow's
   own) give the tile you click another tile of the same kind: the same
   terrain at its corners and the same crossers, so it still fits, turned

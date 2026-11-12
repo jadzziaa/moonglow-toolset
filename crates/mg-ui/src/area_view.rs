@@ -633,6 +633,17 @@ pub struct AreaView {
     /// with Alt where Alt + drag moves the view: it is the camera's
     /// ([`camera_input`]), and every mode leaves it alone.
     pub(crate) camera_press: bool,
+    /// With a tile or group brush in hand: the primary press going on (or
+    /// the last one) began on what a press picks in object mode, an
+    /// object or a handle of the selection ([`object_takes_press`]); it is
+    /// the objects' until it is let go, and the brush places nothing with
+    /// it (`terrain_mode::input`). Decided as it is pressed.
+    pub(crate) object_press: bool,
+    /// With a tile or group brush in hand: the pointer is over what a
+    /// press would pick ([`object_takes_press`]): the brush promises
+    /// nothing there (no ghost, no cursor) and the status line says the
+    /// press goes to the object.
+    pub over_object: bool,
     /// What the log was told this area lacks (problems reading it, models
     /// not found): told once.
     told: Vec<String>,
@@ -1144,6 +1155,8 @@ impl AreaView {
             brush_cursor: Vec::new(),
             terrain_drag: None,
             camera_press: false,
+            object_press: false,
+            over_object: false,
             told: Vec::new(),
             left_out: std::collections::HashMap::new(),
             tile_preview: Default::default(),
@@ -1339,6 +1352,21 @@ impl AreaView {
             // (Locked objects can't be picked: a click passes them by.)
             &|o| self.show[o.kind.index()] && !o.locked,
         )
+    }
+
+    /// Whether object `i`, under `pos`, is seen there: nearer the eye than
+    /// the ground the ray meets (a tile's raised ground in front of it
+    /// hides it), as [`AreaView::put_down_at`] weighs a model against the
+    /// ground. (`pick` weighs objects alone.)
+    fn seen_before_ground(&self, i: usize, pos: Pos2) -> bool {
+        let (Some(ray), Some(model), Some(scene)) =
+            (self.ray(pos), self.model.as_ref(), self.scene.as_ref())
+        else {
+            return true;
+        };
+        let Some(ground) = self.ground.as_ref().and_then(|g| g.hit(&ray)) else { return true };
+        let along = (ground - ray.origin).length() / ray.dir.length().max(1e-6);
+        scene.ray_hit(model, i, &ray).flatten().is_none_or(|t| t <= along)
     }
 
     /// The tile at a column and row, for the view's readout: its model's
@@ -2786,6 +2814,53 @@ fn start_on_ground(app: &mut Moonglow, view: &AreaView) -> Option<(Vec3, f32)> {
     Some((p.with_z(z), facing))
 }
 
+/// Whether a primary press at `pos` is one object mode would take for an
+/// object, `shift` held or not: a handle of the selection (its rings,
+/// arrows and scale handle, a spawn point's arrow or foot), an object
+/// [`AreaView::pick`] picks there (shown, not locked) that is seen, not
+/// behind the ground under the pointer, or the start location's marker.
+/// A tile or group brush leaves such a press to the objects
+/// (`terrain_mode::objects_keep_their_presses`); the painting brushes
+/// take it.
+pub(crate) fn object_takes_press(
+    app: &mut Moonglow,
+    view: &AreaView,
+    pos: Pos2,
+    shift: bool,
+) -> bool {
+    let spawn = !app.settings.no_spawn_markers
+        && (view.spawn_arrow_at(pos).is_some() || view.spawn_foot_at(pos).is_some());
+    let handle = spawn
+        || (!shift && view.ring_at(pos).is_some())
+        || (shift
+            && (view.tilt_ring_at(pos).is_some()
+                || view.axis_arrow_at(pos).is_some()
+                || view.scale_handle_at(pos).is_some()));
+    if handle {
+        return true;
+    }
+    if let Some(i) = view.pick(pos) {
+        return view.seen_before_ground(i, pos);
+    }
+    start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())
+}
+
+/// [`object_takes_press`] for `area`'s view, `None` without one: for the
+/// hand-run timing of the Exact Tile brush's hover in a large area
+/// (`tile_edges::exact_tile_hover_decision_timing`).
+#[doc(hidden)]
+pub fn object_takes_press_in(
+    app: &mut Moonglow,
+    area: ResRef,
+    pos: Pos2,
+    shift: bool,
+) -> Option<bool> {
+    let view = app.area_views.remove(&area)?;
+    let taken = object_takes_press(app, &view, pos, shift);
+    app.area_views.insert(area, view);
+    Some(taken)
+}
+
 /// When tiles are drawn without their fading parts (Aurora's Environment ›
 /// Fade Geometry).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -3330,7 +3405,17 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             more => format!("{paint} · {more} more are laid than are drawn"),
         }
     } else if let Some(b) = crate::terrain_mode::active(app, view) {
+        // (Over an object a tile's or group's press would leave to it:
+        // what the press does there, after the brush's name.)
+        let leaves = view.over_object && crate::terrain_mode::objects_keep_their_presses(&b);
         let how = match b.brush {
+            _ if leaves && b.exact => {
+                "Exact Tile: a click or drag here goes to the object (select, move or turn it) and \
+                 places nothing"
+            }
+            _ if leaves => {
+                "a click or drag here goes to the object (select, move or turn it) and places nothing"
+            }
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
             mg_area::terrain::Brush::Eraser => {
@@ -3362,8 +3447,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             }
             _ => "click a corner; right click: the tile menu",
         };
-        let at = crate::terrain_mode::status(view).unwrap_or_default();
-        format!("{}: {how}; Escape: stop. {at}", b.label)
+        // (The tile under the pointer after, where there is one.)
+        match crate::terrain_mode::status(view) {
+            Some(at) => format!("{}: {how}; Escape: stop. {at}", b.label),
+            None => format!("{}: {how}; Escape: stop.", b.label),
+        }
     } else if view.redraw.is_some() {
         "Redraw Polygon: click its corners, double click to close (after the first, press Alt: \
          the next click makes a rectangle to there); right click or Escape: stop"
@@ -3685,8 +3773,7 @@ fn viewport(
         && (vp.renderer.textures_read() != view.textures_drawn
             || vp.renderer.drawn.textures_pending > 0)
     {
-        let left = (ANIMATION_STEP - s).max(0.0);
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(left));
+        crate::jobs::repaint_in(ui.ctx(), f64::from(ANIMATION_STEP - s));
     }
 
     // The scene, with the drag (or Adjust Location) applied to what it
@@ -3857,7 +3944,11 @@ fn viewport(
     // second that no one looked at, an integrated GPU's every moment).
     if animates_now(ui, app.settings.animate_unfocused, view.drawn.is_some(), pending) {
         let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+        // (Due already, or the clock odd: at once.)
+        match crate::jobs::wait(f64::from(due.min(1.0))) {
+            Some(after) => ui.ctx().request_repaint_after(after),
+            None => ui.ctx().request_repaint(),
+        }
     }
     // (The map last: over the rest, and the pointer's there.)
     minimap_overlay(app, ui, view);
@@ -6524,7 +6615,7 @@ fn wheel_scales(
             view.wheel_scale = None;
             commit_scale(app, view, &scaled);
         } else {
-            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));
+            crate::jobs::repaint_in(ui.ctx(), rest);
         }
     }
     // (With Ctrl held, egui reports the wheel as a zoom.)
@@ -7077,7 +7168,14 @@ fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
 /// it, as it drops a Ctrl + wheel scaling.
 fn key_turns(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let Some(k) = &view.key_turn else { return };
-    if escaped(ui, response) {
+    // (Not while the selection is dragged: the drag's command takes it.)
+    let dragging = view
+        .drag
+        .is_some_and(|d| matches!(d, Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. }));
+    // (Escape ends a drag with the pointer led off the view too, which
+    // `escaped` doesn't see: the turn the drag carries is dropped with it,
+    // not made a command once the drag is gone.)
+    if escaped(ui, response) || (dragging && view.held.cancelled()) {
         view.key_turn = None;
         return;
     }
@@ -7091,15 +7189,15 @@ fn key_turns(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &
             _ => false,
         })
     });
-    // (Not while the selection is dragged: the drag's command takes it.)
-    let dragging = view
-        .drag
-        .is_some_and(|d| matches!(d, Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. }));
     if (rest <= 0.0 && !dragging) || k.selection != view.selection || other {
         commit_key_turn(app, view, false);
-    } else {
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));
+    } else if !dragging {
+        crate::jobs::repaint_in(ui.ctx(), rest);
     }
+    // (While dragged, no frame is asked for: the turn waits for the drag's
+    // end, which is input and has a frame of its own. A wait asked for
+    // then was the rest less the drag's length, negative once the drag
+    // went on longer, and 4.1.0 stopped at it.)
 }
 
 /// Makes Q and E's turning under way in any area a command at once:

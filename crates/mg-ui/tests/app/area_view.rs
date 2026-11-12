@@ -4521,8 +4521,8 @@ fn q_and_e_turn_what_is_being_dragged() {
     let turned = shown[0].2 - bearing;
     assert!(turned.abs() > 0.1, "the turn seen with the drag: {turned}");
     // The keys at rest past their wait, the button still held: nothing yet.
-    h.state_mut().area_views.get_mut(&area).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(700));
+    // (The harness's clock moved on: sleeping moves it no further.)
+    hold_clock(&mut h, PAST_KEY_TURN_REST);
     for k in 5..=8 {
         h.hover_at(from + (to - from) * (k as f32 / 8.0));
         h.run_steps(1);
@@ -4536,6 +4536,286 @@ fn q_and_e_turn_what_is_being_dragged() {
     assert!((now - at).truncate().length() > 2.0, "moved: {at} to {now}");
     assert!((facing - bearing - turned).abs() < 1e-3, "turned as shown: {facing}");
     assert!(!h.state().area_views[&area].key_turning(), "the turn went with the drag");
+}
+
+/// How the selection is dragged in the tests of Q and E during a drag:
+/// moved (a press on it), raised (Alt and a drag) or slid along the east
+/// arrow (Shift held).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DragWay {
+    Move,
+    Lift,
+    Slide,
+}
+
+/// Longer than Q and E's rest before their turn is made a command
+/// (`KEY_TURN_REST`, 0.6 s), seconds.
+const PAST_KEY_TURN_REST: f64 = 0.7;
+
+/// Sets the harness's clock (egui's input time) `later` seconds on and
+/// holds it there until [`free_clock`]: kittest otherwise steps it a 60th
+/// of a second a frame, and a busy machine makes no frame longer.
+fn hold_clock(h: &mut Harness<'_, Moonglow>, later: f64) {
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + later);
+}
+
+/// Lets the harness's clock go on a frame at a time again.
+fn free_clock(h: &mut Harness<'_, Moonglow>) {
+    h.input_mut().time = None;
+}
+
+/// The first placeable of `git`: where it stands and its bearing.
+fn first_placeable(h: &mut Harness<'_, Moonglow>, git: ResKey) -> (glam::Vec3, f32) {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let o = ws.doc(&git).unwrap().root.list("Placeable List").unwrap()[0].clone();
+    let f = |l: &str| o.float(l).unwrap_or(0.0);
+    (glam::Vec3::new(f("X"), f("Y"), f("Z")), f("Bearing"))
+}
+
+/// The left button pressed or let go at `pos` with `m` held (and still
+/// held after it: kittest's own presses let the modifiers go).
+fn left_button(h: &Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool, m: egui::Modifiers) {
+    let button = egui::PointerButton::Primary;
+    h.event(egui::Event::PointerButton { pos, button, pressed, modifiers: m });
+}
+
+/// E (Turn Clockwise; with Shift, by 90°) pressed and let go with `m`
+/// held, `m` held after it.
+fn turn_key(h: &mut Harness<'_, Moonglow>, m: egui::Modifiers) {
+    let key = |pressed| egui::Event::Key {
+        key: egui::Key::E,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: m,
+    };
+    h.event(key(true));
+    h.event(key(false));
+    h.run_steps(1);
+}
+
+/// Begins dragging the chest standing at `at` (the first placeable, the
+/// selection for a lift or a slide) the way given, and leads it some way:
+/// where the pointer is, and the modifiers held from then on (Alt is let
+/// go once a lift is under way, as a builder who then turns it does: Alt
+/// with E is no turn key).
+fn begin_drag(
+    h: &mut Harness<'_, Moonglow>,
+    area: ResRef,
+    at: glam::Vec3,
+    way: DragWay,
+) -> (egui::Pos2, egui::Modifiers) {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Placeable;
+    let none = egui::Modifiers::NONE;
+    match way {
+        DragWay::Move => {
+            let from = screen(h, area, at + Vec3::Z * 0.3);
+            let to = screen(h, area, at + Vec3::new(4.0, 0.0, 0.3));
+            h.event(egui::Event::ModifiersChanged(none));
+            h.hover_at(from);
+            h.run_steps(2);
+            left_button(h, from, true, none);
+            for k in 1..=6 {
+                h.hover_at(from + (to - from) * (k as f32 / 6.0));
+                h.step();
+            }
+            (to, none)
+        }
+        DragWay::Lift => {
+            h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Placeable, 0)];
+            h.run_steps(2);
+            let from = screen(h, area, at + Vec3::Z * 0.3);
+            let to = from - egui::vec2(0.0, 60.0);
+            let alt = egui::Modifiers::ALT;
+            h.event(egui::Event::ModifiersChanged(alt));
+            h.hover_at(from);
+            h.run_steps(1);
+            left_button(h, from, true, alt);
+            for k in 1..=6 {
+                h.hover_at(from + (to - from) * (k as f32 / 6.0));
+                h.step();
+            }
+            h.event(egui::Event::ModifiersChanged(none));
+            h.run_steps(1);
+            (to, none)
+        }
+        DragWay::Slide => {
+            h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Placeable, 0)];
+            let shift = egui::Modifiers::SHIFT;
+            h.event(egui::Event::ModifiersChanged(shift));
+            h.run_steps(3);
+            let (centre, east) = (screen(h, area, at), screen(h, area, at + Vec3::X * 2.0));
+            let way = (east - centre).normalized();
+            let on_arrow = (1..400).rev().map(|k| centre + way * k as f32).find(|&p| {
+                let v = &h.state().area_views[&area];
+                v.arrow_axis_at(p) == Some(0)
+            });
+            let from = on_arrow.expect("its east arrow");
+            let to = from + way * 60.0;
+            h.hover_at(from);
+            h.run_steps(1);
+            left_button(h, from, true, shift);
+            for k in 1..=6 {
+                h.hover_at(from + (to - from) * (k as f32 / 6.0));
+                h.step();
+            }
+            (to, shift)
+        }
+    }
+}
+
+/// The 4.1.0 crash (two Windows reports: "cannot convert float seconds
+/// to Duration: value is negative"): Q or E pressed while the selection
+/// was dragged asked for a frame when the keys would rest, and once the
+/// drag had gone on past that rest the wait was negative and the toolset
+/// stopped. Now, for a move, a lift and an arrow's slide: the pointer held
+/// still past the rest stops nothing and asks for no frame after frame;
+/// nothing is a command while the button is held; let go where it is,
+/// the drag and the turn are one command, as shown; one Undo takes both
+/// back.
+#[test]
+fn q_or_e_during_a_drag_held_past_their_rest_is_part_of_the_drag() {
+    for way in [DragWay::Move, DragWay::Lift, DragWay::Slide] {
+        turn_during_a_drag_held_past_its_rest(way);
+    }
+}
+
+fn turn_during_a_drag_held_past_its_rest(way: DragWay) {
+    let name = format!("drag-turn-rest-{way:?}").to_lowercase();
+    let Some((mut h, area)) = area_harness(&name) else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    place_tinted_chest(h.state_mut(), git);
+    settle(&mut h);
+    let (at, bearing) = first_placeable(&mut h, git);
+    let depth = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().undo_depth();
+    let undo = depth(&h);
+    let (pos, m) = begin_drag(&mut h, area, at, way);
+    turn_key(&mut h, m);
+    let shown = h.state().area_views[&area].dragged();
+    assert_eq!(shown.len(), 1, "{way:?}: the chest, dragged");
+    let turned = shown[0].2 - bearing;
+    assert!(turned.abs() > 0.1, "{way:?}: the turn seen with the drag: {turned}");
+    // The pointer held still past the keys' rest (the clock held there).
+    hold_clock(&mut h, PAST_KEY_TURN_REST);
+    h.run_steps(2);
+    assert!(h.try_run().is_ok(), "{way:?}: frame after frame while the pointer is still");
+    let view = &h.state().area_views[&area];
+    assert!(view.key_turning(), "{way:?}: the turn waits for the drag");
+    assert!((view.dragged()[0].2 - bearing - turned).abs() < 1e-4, "{way:?}: still shown");
+    assert_eq!(depth(&h), undo, "{way:?}: no command while the button is held");
+    // Let go where it is, the pointer moving no more.
+    left_button(&h, pos, false, m);
+    h.run_steps(1);
+    assert!(h.try_run().is_ok(), "{way:?}: frame after frame after the drag");
+    assert_eq!(depth(&h), undo + 1, "{way:?}: one command");
+    let label = if way == DragWay::Lift { "Raise" } else { "Move" };
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some(label), "{way:?}");
+    assert!(!h.state().area_views[&area].key_turning(), "{way:?}: the turn went with the drag");
+    let (now, facing) = first_placeable(&mut h, git);
+    if way == DragWay::Lift {
+        assert!(now.z - at.z > 0.1, "{way:?}: raised: {at} to {now}");
+    } else {
+        assert!((now - at).truncate().length() > 0.5, "{way:?}: moved: {at} to {now}");
+    }
+    assert!((facing - bearing - turned).abs() < 1e-3, "{way:?}: turned as shown: {facing}");
+    // One Undo: where it stood and how it faced.
+    free_clock(&mut h);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    let (back, faces) = first_placeable(&mut h, git);
+    assert!((back - at).length() < 1e-3, "{way:?}: back: {at} to {back}");
+    assert!((faces - bearing).abs() < 1e-4, "{way:?}: turned back: {faces}");
+    assert_eq!(depth(&h), undo, "{way:?}: one step");
+}
+
+/// E before the drag: the press that begins the drag makes the turn a
+/// command of its own (what a press does starts from where the turn left
+/// the selection), so a drag held past the keys' rest has none waiting;
+/// the drag is a second command, and each Undo takes one back.
+#[test]
+fn q_or_e_before_a_drag_is_a_command_of_its_own() {
+    use mg_area::ObjectKind::Placeable;
+    let Some((mut h, area)) = area_harness("turn-then-drag") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    place_tinted_chest(h.state_mut(), git);
+    settle(&mut h);
+    let (at, bearing) = first_placeable(&mut h, git);
+    let depth = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().undo_depth();
+    let undo = depth(&h);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Placeable, 0)];
+    h.hover_at(screen(&h, area, at + glam::Vec3::Z * 0.3));
+    h.run_steps(2);
+    turn_key(&mut h, egui::Modifiers::NONE);
+    assert!(h.state().area_views[&area].key_turning(), "turning, not yet a command");
+    let (pos, m) = begin_drag(&mut h, area, at, DragWay::Move);
+    assert!(!h.state().area_views[&area].key_turning(), "made a command by the press");
+    hold_clock(&mut h, PAST_KEY_TURN_REST);
+    h.run_steps(2);
+    assert!(h.try_run().is_ok(), "frame after frame while the pointer is still");
+    left_button(&h, pos, false, m);
+    h.run_steps(1);
+    assert!(h.try_run().is_ok());
+    free_clock(&mut h);
+    settle(&mut h);
+    assert_eq!(depth(&h), undo + 2, "the turn, then the move");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
+    let (now, facing) = first_placeable(&mut h, git);
+    assert!((now - at).truncate().length() > 0.5, "moved: {at} to {now}");
+    assert!((facing - bearing).abs() > 0.1, "turned: {facing}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    let (back, still) = first_placeable(&mut h, git);
+    assert!((back - at).length() < 1e-3, "the move undone: {back}");
+    assert!((still - facing).abs() < 1e-4, "still turned: {still}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    let (_, faces) = first_placeable(&mut h, git);
+    assert!((faces - bearing).abs() < 1e-4, "the turn undone: {faces}");
+}
+
+/// Escape during a drag that Q or E turned, held past the keys' rest:
+/// nothing moves or turns and no command is made, let go or not, with the
+/// pointer over the view or led off it.
+#[test]
+fn escape_during_a_turned_drag_drops_the_drag_and_the_turn() {
+    for off_the_view in [false, true] {
+        let name = if off_the_view { "drag-turn-escape-off" } else { "drag-turn-escape" };
+        let Some((mut h, area)) = area_harness(name) else { return };
+        let git = ResKey::new(area, ResType::GIT);
+        place_tinted_chest(h.state_mut(), git);
+        settle(&mut h);
+        let (at, bearing) = first_placeable(&mut h, git);
+        let undo = h.state().ws.as_ref().unwrap().undo_depth();
+        let (mut pos, m) = begin_drag(&mut h, area, at, DragWay::Move);
+        turn_key(&mut h, m);
+        assert!(h.state().area_views[&area].key_turning());
+        if off_the_view {
+            // (Above the view: the menu bar.)
+            pos = egui::pos2(h.state().area_views[&area].rect.center().x, 4.0);
+            h.hover_at(pos);
+            h.run_steps(1);
+        }
+        hold_clock(&mut h, PAST_KEY_TURN_REST);
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        let view = &h.state().area_views[&area];
+        assert!(!view.key_turning(), "off the view {off_the_view}: the turn dropped");
+        assert!(view.dragged().is_empty(), "off the view {off_the_view}: the drag dropped");
+        left_button(&h, pos, false, egui::Modifiers::NONE);
+        h.run_steps(1);
+        free_clock(&mut h);
+        settle(&mut h);
+        let ws = h.state().ws.as_ref().unwrap();
+        let done = ws.can_undo();
+        assert_eq!(ws.undo_depth(), undo, "off the view {off_the_view}: no command: {done:?}");
+        let (now, facing) = first_placeable(&mut h, git);
+        assert!((now - at).length() < 1e-3, "off the view {off_the_view}: not moved: {now}");
+        assert!((facing - bearing).abs() < 1e-4, "off the view {off_the_view}: not turned");
+    }
 }
 
 /// The move arrows (Shift held) of a raised placeable, a builder's

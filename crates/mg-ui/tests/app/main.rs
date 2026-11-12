@@ -42,6 +42,7 @@ mod shell;
 mod sounds;
 mod status_bar;
 mod tables;
+mod tile_edges;
 mod tiles;
 mod tree;
 mod typed_text;

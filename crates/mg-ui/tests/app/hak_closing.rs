@@ -93,7 +93,8 @@ enum Variant {
     /// The route pressed while the Save Hak job runs (window routes): it
     /// is refused with a line in the log, by design (nothing replaces the
     /// module or closes the window under a job, whose window is on
-    /// screen); the route again once it is done.
+    /// screen); the route again once it is done. (The route is taken in
+    /// the frame the Save is, so that it runs under the job every time.)
     WhileSaving,
     /// The added file deleted from disk before the route.
     FileDeleted,
@@ -250,6 +251,20 @@ fn click_in_tab(h: &mut Harness<'_, Moonglow>, tab: &Tab, label: &str) -> bool {
     }
 }
 
+/// The pointer's first button pressed or let go at `pos`: one input
+/// event, so a frame of its own at the next step (`press` adds two for
+/// the modifiers).
+fn pointer(h: &Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool) {
+    let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+    h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+}
+
+/// Where the last button `label` inside the hak's leaf is.
+fn button_in_tab(h: &Harness<'_, Moonglow>, tab: &Tab, label: &str) -> Option<egui::Rect> {
+    let (rect, _) = leaf_rects(h, tab)?;
+    h.query_all_by_label(label).rfind(|n| rect.contains_rect(n.rect())).map(|n| n.rect())
+}
+
 /// A node's text: a label's is its value (AccessKit's way).
 fn text_of(n: &egui_kittest::Node<'_>) -> Option<String> {
     let a = n.accesskit_node();
@@ -302,6 +317,26 @@ fn settle_noting(h: &mut Harness<'_, Moonglow>, note: &mut String) {
     }
 }
 
+/// Settles until `done` holds (`what` names what is waited for), at most
+/// [`SETTLE_TIME`]: for what comes a frame or more after the window's
+/// own work is over (tabs put back after a module is opened).
+fn wait_for(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    done: impl Fn(&Harness<'_, Moonglow>) -> bool,
+) {
+    let started = std::time::Instant::now();
+    loop {
+        settle(h);
+        if done(h) {
+            return;
+        }
+        assert!(started.elapsed() < SETTLE_TIME, "{what} never came");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 fn panic_text(e: &Box<dyn std::any::Any + Send>) -> String {
     e.downcast_ref::<String>()
         .cloned()
@@ -337,8 +372,15 @@ fn answer_all(h: &mut Harness<'_, Moonglow>, answers: &[Answer], obs: &mut Obs, 
             return;
         };
         node.click();
-        h.step();
     }
+}
+
+/// The menu item `item` on screen (by its label, or the text it begins).
+fn menu_item<'t>(h: &'t Harness<'_, Moonglow>, item: &'t str) -> Option<egui_kittest::Node<'t>> {
+    h.query_all_by_label(item).last().or_else(|| {
+        h.query_all_by_label_contains(item)
+            .rfind(|n| text_of(n).is_some_and(|t| t.starts_with(item)))
+    })
 }
 
 /// Opens a menu of the menu bar and clicks its item: whether it was there
@@ -349,20 +391,25 @@ fn menu(h: &mut Harness<'_, Moonglow>, name: &str, item: &str, note: &mut String
         return false;
     };
     m.click();
-    h.step();
-    h.step();
-    let found = h.query_all_by_label(item).last().or_else(|| {
-        h.query_all_by_label_contains(item)
-            .rfind(|n| text_of(n).is_some_and(|t| t.starts_with(item)))
-    });
-    let Some(i) = found else {
+    // (Until the menu is open and its item laid out, at most
+    // `SETTLE_TIME`.)
+    let started = std::time::Instant::now();
+    loop {
+        settle_noting(h, note);
+        if menu_item(h, item).is_some() || started.elapsed() > SETTLE_TIME {
+            break;
+        }
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let Some(i) = menu_item(h, item) else {
         let seen: Vec<String> =
             h.query_all_by_label_contains(&item[..2]).filter_map(|n| text_of(&n)).collect();
         note.push_str(&format!(" [{name} › {item} not found; seen {seen:?}]"));
         return false;
     };
     i.click();
-    h.step();
+    settle_noting(h, note);
     true
 }
 
@@ -391,45 +438,45 @@ fn do_route(h: &mut Harness<'_, Moonglow>, route: Route, tab: &Tab, note: &mut S
         }
         Route::CloseTabs => {
             h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
-            h.step();
+            settle_noting(h, note);
         }
         Route::CtrlW => {
             if let Some((_, body)) = leaf_rects(h, tab) {
                 click_pos(h, body.center());
-                h.step();
+                settle_noting(h, note);
             }
             h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
-            h.step();
+            settle_noting(h, note);
         }
         Route::FootOk | Route::FootCancel => {
             let label = if route == Route::FootOk { "OK" } else { "Cancel" };
             if !click_in_tab(h, tab, label) {
                 note.push_str(&format!(" [no {label} in the tab]"));
             }
-            h.step();
+            settle_noting(h, note);
         }
         Route::Escape => {
             if let Some((_, body)) = leaf_rects(h, tab) {
                 h.hover_at(body.center());
-                h.step();
+                settle_noting(h, note);
             }
             h.key_press(egui::Key::Escape);
-            h.step();
+            settle_noting(h, note);
         }
         Route::WindowX => {
             h.state_mut().actions.push(mg_ui::Action::CloseWindow);
-            h.step();
+            settle_noting(h, note);
         }
         Route::FileExit => {
             if !menu(h, "File", "Exit", note) {
                 h.state_mut().actions.push(mg_ui::Action::Quit);
-                h.step();
+                settle_noting(h, note);
             }
         }
         Route::FileClose => {
             if !menu(h, "File", "Close", note) {
                 h.state_mut().actions.push(mg_ui::Action::Close);
-                h.step();
+                settle_noting(h, note);
             }
         }
     }
@@ -495,13 +542,11 @@ fn run_cell(cell: &Cell, dir: &Path) -> Obs {
     settle_noting(&mut h, &mut note);
     // Add Files…, through the editor's button.
     assert!(click_in_tab(&mut h, &tab, "Add Files…"), "the editor's Add Files… button");
-    h.step();
     settle_noting(&mut h, &mut note);
     if cell.kind == Kind::Replaced {
         let replace = h.query_all_by_label("Replace 1").last();
         assert!(replace.is_some(), "the Replace question: {:?}", on_screen(&h));
         replace.unwrap().click();
-        h.step();
         settle_noting(&mut h, &mut note);
     }
     let dirty = |h: &Harness<'_, Moonglow>| {
@@ -511,7 +556,6 @@ fn run_cell(cell: &Cell, dir: &Path) -> Obs {
     match cell.variant {
         Variant::EditorSaveFirst => {
             assert!(click_in_tab(&mut h, &tab, "Save"), "the editor's Save");
-            h.step();
             settle_noting(&mut h, &mut note);
         }
         Variant::FileDeleted => std::fs::remove_file(&added).unwrap(),
@@ -525,7 +569,6 @@ fn run_cell(cell: &Cell, dir: &Path) -> Obs {
                 "A table",
                 vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
             )));
-            h.step();
             settle_noting(&mut h, &mut note);
             let modified = h.state().ws.as_ref().is_some_and(|ws| ws.is_modified());
             assert!(modified, "the module changed: {:?}", h.state().log.entries);
@@ -533,16 +576,30 @@ fn run_cell(cell: &Cell, dir: &Path) -> Obs {
         _ => {}
     }
     if cell.variant == Variant::WhileSaving {
-        // The editor's Save as a job, the route pushed before it ends.
-        assert!(click_in_tab(&mut h, &tab, "Save"), "the editor's Save");
+        // The editor's Save as a job, and the route in the frame it is
+        // taken in: the Save is taken as the editor is drawn, which starts
+        // the job, and the route runs with the frame's actions, after the
+        // editors; the job is over only at a later frame's start
+        // (`poll_job`), however soon its thread is done. (Pushed at the
+        // next frame, the route raced the thread: done before that frame
+        // began, the job was over and the route not refused.) The button
+        // pressed, then the route pushed and the button let go, alone: a
+        // harness step is a frame for each input event queued, and a
+        // click's three (the pointer there, pressed, let go) ran the route
+        // in the first, before the Save.
+        let at = button_in_tab(&h, &tab, "Save").expect("the editor's Save").center();
+        h.hover_at(at);
+        pointer(&h, at, true);
         h.step();
-        let busy = h.state().busy();
+        assert!(!h.state().busy(), "nothing under way before the Save");
         let action = match cell.route {
             Route::WindowX => mg_ui::Action::CloseWindow,
             _ => mg_ui::Action::Quit,
         };
         h.state_mut().actions.push(action);
+        pointer(&h, at, false);
         h.step();
+        let busy = h.state().busy();
         let refused = h.state().log.entries.iter().any(|(_, m)| m.contains("is still running"));
         obs.during_job = Some(format!(
             "busy {busy}, refused {refused}, quit {}, confirm {:?}",
@@ -555,8 +612,7 @@ fn run_cell(cell: &Cell, dir: &Path) -> Obs {
     answer_all(&mut h, &cell.answers, &mut obs, &mut note);
     obs.goal = goal(&h, cell.route, &tab);
     // (Refused under the job: the route again, once it is done.)
-    let refused = obs.during_job.as_deref().is_some_and(|d| d.contains("refused true"));
-    if cell.variant == Variant::WhileSaving && refused && !obs.goal {
+    if cell.variant == Variant::WhileSaving && !obs.goal {
         let before = obs.answered.len();
         do_route(&mut h, cell.route, &tab, &mut note);
         answer_all(&mut h, &cell.answers, &mut obs, &mut note);
@@ -708,16 +764,13 @@ fn deviations(cell: &Cell, o: &Obs) -> Vec<String> {
     if !w.reason_seen && o.reason_seen {
         out.push("a reason shown where no save failed".into());
     }
-    // (Under the job the route is refused; on a busy machine the job can
-    // end within the frame the route was pushed in, before it ran: then it
-    // is done at once, as with nothing under way.)
-    let refused = o.during_job.as_deref().is_some_and(|d| d.contains("refused true"));
-    if (w.retried && refused) != o.retry.is_some() {
+    // (Under the job the route is refused, with the job's window up and
+    // nothing quit; then done again once the job is over.)
+    if w.retried != o.retry.is_some() {
         out.push(format!("the route again {:?}", o.retry));
     }
     if let Some(during) = &o.during_job
-        && !(refused && during.contains("quit false"))
-        && !(!refused && o.goal)
+        && !during.starts_with("busy true, refused true, quit false,")
     {
         out.push(format!("under the job: {during}"));
     }
@@ -961,7 +1014,6 @@ fn module_change(h: &mut Harness<'_, Moonglow>) {
 /// settles.
 fn answer(h: &mut Harness<'_, Moonglow>, label: &str) {
     h.get_all_by_label(label).last().unwrap().click();
-    h.step();
     settle(h);
 }
 
@@ -1105,12 +1157,10 @@ fn the_editor_says_why_its_save_failed() {
     let tab = changed_hak(&mut h, &path, &added);
     std::fs::remove_file(&added).unwrap();
     assert!(click_in_tab(&mut h, &tab, "Save"));
-    h.step();
     settle(&mut h);
     assert_eq!(reason_shown(&h), 1, "under the editor");
     assert!(questions(&h).is_empty(), "its own Save asks nothing");
     assert!(click_in_tab(&mut h, &tab, "OK"));
-    h.step();
     settle(&mut h);
     assert_eq!(questions(&h), ["Save changes to mine.hak?"], "OK asks");
     assert_eq!(reason_shown(&h), 2);
@@ -1122,7 +1172,6 @@ fn the_editor_says_why_its_save_failed() {
     assert!(h.state().dock.find_tab(&tab).is_some());
     std::fs::write(&added, NEW_TABLE).unwrap();
     assert!(click_in_tab(&mut h, &tab, "OK"));
-    h.step();
     settle(&mut h);
     assert!(has_added(&path) && h.state().dock.find_tab(&tab).is_none(), "put right: saved");
     assert_eq!(reason_shown(&h), 0, "saved: forgotten");
@@ -1161,8 +1210,9 @@ fn side_documents_follow_their_tabs() {
     assert!(h.state().ws.is_none() && h.state().haks.is_empty(), "let go");
     // Opened again: the hak's tab kept with the module, and its document.
     h.state_mut().actions.push(mg_ui::Action::OpenModule(module.clone()));
-    settle(&mut h);
-    h.run_steps(4);
+    wait_for(&mut h, "the kept hak opened again, with its tab", |h| {
+        h.state().haks.len() == 1 && orphans(h.state()) == 0
+    });
     assert_eq!(h.state().haks.len(), 1, "the kept hak opened again");
     assert_eq!(orphans(h.state()), 0, "with its tab");
     // Changed, then another module opened by a way that does not ask:
@@ -1172,8 +1222,9 @@ fn side_documents_follow_their_tabs() {
     d.hak.add_files(std::slice::from_ref(&added));
     settle(&mut h);
     h.state_mut().open_module(&other);
-    settle(&mut h);
-    h.run_steps(4);
+    wait_for(&mut h, "the changed hak kept, with its tab", |h| {
+        h.state().haks.iter().any(|d| d.id == id && d.hak.is_dirty()) && orphans(h.state()) == 0
+    });
     assert!(h.state().haks.iter().any(|d| d.id == id && d.hak.is_dirty()), "kept");
     assert_eq!(orphans(h.state()), 0, "with its tab");
     // A clean one beside it, File › Close: the clean one let go, the
@@ -1217,9 +1268,9 @@ fn a_2da_and_a_tileset_ask_by_name_at_quit() {
         settle(&mut h);
         let made = std::fs::read(&set).unwrap();
         h.get_by_label("Terrains and Crossers").click();
-        h.run_steps(2);
+        settle(&mut h);
         h.state_mut().tilesets[0].new_type = "Grass".into();
-        h.run_steps(2);
+        wait_for(&mut h, "Add Terrain", |h| h.query_by_label("Add Terrain").is_some());
         answer(&mut h, "Add Terrain");
         assert!(h.state().has_unsaved_work());
         if fail {
@@ -1274,14 +1325,12 @@ fn a_reason_goes_once_the_hak_is_clean() {
     let tab = changed_hak(&mut h, &path, &added);
     std::fs::remove_file(&added).unwrap();
     assert!(click_in_tab(&mut h, &tab, "OK"));
-    h.step();
     settle(&mut h);
     assert_eq!(questions(&h), ["Save changes to mine.hak?"]);
     answer(&mut h, "Cancel");
     assert_eq!(reason_shown(&h), 1, "under the editor");
     let dirty = |h: &Harness<'_, Moonglow>| h.state().haks[0].hak.is_dirty();
     assert!(click_in_tab(&mut h, &tab, "Undo"));
-    h.step();
     settle(&mut h);
     assert!(!dirty(&h), "undone: clean");
     assert_eq!(reason_shown(&h), 0, "clean: nothing to say");
@@ -1293,7 +1342,6 @@ fn a_reason_goes_once_the_hak_is_clean() {
     assert!(dirty(&h));
     assert_eq!(reason_shown(&h), 0, "the reason was let go for good");
     assert!(click_in_tab(&mut h, &tab, "Undo"));
-    h.step();
     settle(&mut h);
     assert!(!dirty(&h));
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab.clone()]));
@@ -1329,7 +1377,6 @@ fn the_talk_table_says_why_its_save_failed() {
     assert!(h.state().talk.as_ref().unwrap().is_dirty());
     h.state_mut().talk.as_mut().unwrap().source = Source::File(dir.join("a_file").join("w.tlk"));
     assert!(click_in_tab(&mut h, &Tab::TalkTable, "OK"));
-    h.step();
     settle(&mut h);
     let asked = questions(&h);
     assert_eq!(asked, ["Save changes to the talk table words?"], "OK asks");
@@ -1407,8 +1454,10 @@ fn a_hak_opened_with_a_module_keeps_its_document() {
         }
         let id = mg_ui::hak_view::open_at(h.state_mut(), &path).unwrap();
         h.state_mut().actions.push(mg_ui::Action::OpenModule(module.clone()));
-        settle(&mut h);
-        h.run_steps(4);
+        wait_for(&mut h, "the module, the hak's tab and its document", |h| {
+            let s = h.state();
+            s.ws.is_some() && s.dock.find_tab(&Tab::Hak(id)).is_some() && orphans(s) == 0
+        });
         let way = if kept { "with kept tabs" } else { "without" };
         assert!(h.state().ws.is_some(), "{way}");
         assert!(h.state().dock.find_tab(&Tab::Hak(id)).is_some(), "{way}: its tab");

@@ -983,6 +983,17 @@ pub(crate) fn input(
         view.terrain_drag = None;
         return true;
     }
+    // With a tile or a group in hand, a primary press begun on what
+    // object mode would take (an object seen under the pointer, a handle
+    // of the selection) is the objects': decided as it is pressed and held
+    // until it is let go, so that a click selects, a drag moves, and a
+    // stroke begun on the ground stays a stroke over an object. The brush
+    // stays chosen; only this press passes it by.
+    if object_press(app, ui, view, response, &brush, shift) {
+        view.spot = None;
+        view.terrain_drag = None;
+        return false;
+    }
     // A press that is the camera's (begun with Ctrl or Alt held: Ctrl +
     // drag, Alt + drag move the view): the brush paints nothing with it,
     // during it or when it is let go.
@@ -1095,6 +1106,54 @@ pub(crate) fn input(
         }
     }
     true
+}
+
+/// Whether a press on an object is the object's with `brush` in hand: a
+/// tile or a group, Exact Tile on or off (the owner's rulings of
+/// 2026-11-11 and 2026-11-12). The painting brushes (terrains, crossers,
+/// Raise/Lower, the Eraser, Refine Tile and the tile tools) take every
+/// press. The press, the hover and the status line all ask this.
+pub(crate) fn objects_keep_their_presses(brush: &TileBrush) -> bool {
+    matches!(brush.brush, Brush::Tile(_) | Brush::Group(_))
+}
+
+/// Whether a tile or group brush ([`objects_keep_their_presses`]) leaves
+/// this frame's input to the objects ([`AreaView::object_press`]): a
+/// primary press begun over what [`crate::area_view::object_takes_press`]
+/// says object mode takes, from its press until it is let go (the release
+/// frame included: a click and a drag's end are read then), so that
+/// neither the tile's stroke nor the group's click placement sees it.
+/// Sets [`AreaView::over_object`] for the hover: nothing is promised
+/// there. Any other brush keeps every press, as ever.
+fn object_press(
+    app: &mut Moonglow,
+    ui: &egui::Ui,
+    view: &mut AreaView,
+    response: &egui::Response,
+    brush: &TileBrush,
+    shift: bool,
+) -> bool {
+    let leaves = objects_keep_their_presses(brush);
+    let (pressed, down, released, origin) = ui.input(|i| {
+        let p = &i.pointer;
+        (p.primary_pressed(), p.primary_down(), p.primary_released(), p.press_origin())
+    });
+    if pressed {
+        view.object_press = leaves
+            && response.hovered()
+            && origin.is_some_and(|p| crate::area_view::object_takes_press(app, view, p, shift));
+    } else if !down && !released {
+        view.object_press = false;
+    }
+    view.over_object = leaves
+        && !down
+        && response
+            .hover_pos()
+            .is_some_and(|p| crate::area_view::object_takes_press(app, view, p, shift));
+    if view.over_object {
+        view.spot = None;
+    }
+    view.object_press
 }
 
 /// A terrain brush (or Raise/Lower) dragged with the primary button: it
