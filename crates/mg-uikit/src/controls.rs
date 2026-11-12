@@ -470,11 +470,14 @@ fn themed(style: &Style) -> bool {
 }
 
 /// A menu's style (egui's [`egui::containers::menu::menu_style`], with
-/// the mock's `.menu-row`): rows hovered or open in `accent-fill` with
-/// their words in `on-fill`, 8 px at each end. For `MenuConfig::style`,
-/// and inside a context menu, where egui's own is fixed, through
-/// [`menu_rows`]. Egui's own menu style where the style is not the
-/// theme's.
+/// the mock's `.menu-row`): rows [`metrics::MENU_ROW`] high with no gap
+/// between them, hovered or open in `accent-fill` with their words in
+/// `on-fill`, 8 px at each end; their fills drawn on the rows' own
+/// rectangles, square, so that a lit row meets its neighbors with neither
+/// overlap nor seam (egui's 1 px expansion, and a border, reached a pixel
+/// into the row beside). For `MenuConfig::style`, and inside a context
+/// menu, where egui's own is fixed, through [`menu_rows`]. Egui's own menu
+/// style where the style is not the theme's.
 pub fn menu_style(style: &mut Style) {
     egui::containers::menu::menu_style(style);
     if !themed(style) {
@@ -482,13 +485,23 @@ pub fn menu_style(style: &mut Style) {
     }
     let t = tokens_of(style);
     style.spacing.button_padding = vec2(metrics::CONTROL_PADDING_X, 0.0);
+    style.spacing.item_spacing.y = 0.0;
+    // (Taller where a window made its controls taller with its text.)
+    style.spacing.interact_size.y = style.spacing.interact_size.y.max(metrics::MENU_ROW);
     let w = &mut style.visuals.widgets;
     for state in [&mut w.hovered, &mut w.active, &mut w.open] {
         state.weak_bg_fill = t.accent_fill;
         state.bg_fill = t.accent_fill;
         state.fg_stroke.color = t.on_fill;
     }
-    no_borders(w);
+    // (As `row_style`: no expansion, and so no border either, which egui
+    // takes from the padding and gives back by the expansion.)
+    for state in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        state.expansion = 0.0;
+        state.bg_stroke = Stroke::new(0.0, Color32::TRANSPARENT);
+        state.corner_radius = egui::CornerRadius::ZERO;
+    }
+    style.visuals.selection.stroke.width = 0.0;
 }
 
 /// The menu's style ([`menu_style`]) given to the rows that follow in
@@ -497,6 +510,19 @@ pub fn menu_style(style: &mut Style) {
 pub fn menu_rows(ui: &mut Ui) {
     if theme::applied(ui.ctx()).is_some() {
         menu_style(ui.style_mut());
+    }
+}
+
+/// A menu that holds a form rather than rows (a color picker, a field to
+/// type a name into, a block of code to copy): [`menu_rows`]' look for its
+/// buttons, with a control's height and the theme's gap between its
+/// parts given back (the rows' 24 px with no gap would run a field into
+/// the label above it).
+pub fn menu_form(ui: &mut Ui) {
+    if theme::applied(ui.ctx()).is_some() {
+        menu_style(ui.style_mut());
+        ui.spacing_mut().item_spacing.y = metrics::GAP_S;
+        ui.spacing_mut().interact_size.y = metrics::CONTROL_HEIGHT;
     }
 }
 
@@ -876,6 +902,84 @@ mod tests {
             assert_eq!(fill.rect.y_range(), tops[0].y_range(), "{theme:?}");
             assert_eq!(fill.corner_radius, egui::CornerRadius::ZERO);
         }
+    }
+
+    /// A menu's rows are 24 apart with no gap (the mock's `.menu-row`;
+    /// they were 22 and a 4 px gap), a hovered row's fill exactly its own
+    /// rectangle, square, and a separator between rows still a line.
+    #[test]
+    fn menu_rows_are_24_apart_and_their_fills_meet() {
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let mut rects = Vec::new();
+            let out = frame(Some(theme), |ui| {
+                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    menu_rows(ui);
+                    assert_eq!(row_pitch(ui), metrics::MENU_ROW, "{theme:?}");
+                    rects.push(ui.button("Undo").rect);
+                    // (Drawn as hovered: the style's hovered state at rest.)
+                    ui.scope(|ui| {
+                        let w = &mut ui.visuals_mut().widgets;
+                        w.inactive = w.hovered;
+                        rects
+                            .push(ui.add(egui::Button::new("Redo").frame_when_inactive(true)).rect);
+                    });
+                    rects.push(ui.add(egui::Button::new("Cut").selected(true)).rect);
+                    ui.separator();
+                    rects.push(ui.button("Paste").rect);
+                });
+            });
+            assert_eq!(rects[0].height(), metrics::MENU_ROW, "{theme:?}");
+            assert_eq!(rects[1].top() - rects[0].top(), metrics::MENU_ROW);
+            assert_eq!(rects[2].top() - rects[1].top(), metrics::MENU_ROW);
+            // (The separator's own 6 between the rows, no gap beside it.)
+            assert_eq!(rects[3].top() - rects[2].bottom(), 6.0, "{rects:?}");
+            let fills: Vec<egui::epaint::RectShape> = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    Shape::Rect(r) if r.fill == t.accent_fill => Some(r.clone()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(fills.len(), 2, "the hovered and the selected rows' fills: {fills:?}");
+            for (fill, row) in fills.iter().zip([rects[1], rects[2]]) {
+                assert_eq!(fill.rect, row, "{theme:?}: a fill on its row alone");
+                assert_eq!(fill.corner_radius, egui::CornerRadius::ZERO);
+                assert!(fill.stroke.width == 0.0 || fill.stroke.color.a() == 0);
+            }
+        }
+    }
+
+    /// A menu holding a form keeps a control's height and the theme's gap
+    /// between its parts, its buttons the menu's look.
+    #[test]
+    fn a_menu_s_form_keeps_its_gaps() {
+        let _ = frame(Some(crate::Theme::Dark), |ui| {
+            menu_form(ui);
+            assert_eq!(ui.spacing().item_spacing.y, metrics::GAP_S);
+            assert_eq!(ui.spacing().interact_size.y, metrics::CONTROL_HEIGHT);
+            let t = crate::Theme::Dark.tokens();
+            assert_eq!(ui.visuals().widgets.hovered.weak_bg_fill, t.accent_fill);
+        });
+        let _ = frame(None, |ui| {
+            let before = ui.style().clone();
+            menu_form(ui);
+            assert_eq!(*ui.style(), before, "egui's own without the theme");
+        });
+    }
+
+    /// A menu bar's titles keep the mock's 22 px (`.menu`), its rows'
+    /// 24 not reaching them.
+    #[test]
+    fn menu_titles_stay_22_high() {
+        let mut style = crate::theme::style(crate::Theme::Dark, &Style::default());
+        menu_bar_style(&mut style);
+        assert_eq!(style.spacing.interact_size.y, metrics::MENU_TITLE);
+        let mut rows = crate::theme::style(crate::Theme::Dark, &Style::default());
+        menu_style(&mut rows);
+        assert_eq!(rows.spacing.interact_size.y, metrics::MENU_ROW);
+        assert_eq!(rows.spacing.item_spacing.y, 0.0);
     }
 
     /// A table of fields: its rows 22 high, a 1 px line of the panel

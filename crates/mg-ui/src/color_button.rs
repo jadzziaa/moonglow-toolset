@@ -130,7 +130,8 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
     const COLOR_SLIDER_WIDTH: f32 = 275.0;
     Popup::menu(&button).id(popup_id).close_behavior(PopupCloseBehavior::CloseOnClickOutside).show(
         |ui| {
-            mg_uikit::menu_rows(ui);
+            // (A picker, not a menu's rows: its parts keep their gaps.)
+            mg_uikit::menu_form(ui);
             ui.spacing_mut().slider_width = COLOR_SLIDER_WIDTH;
             if color_picker_hsva_2d(ui, &mut hsva, alpha) {
                 button.mark_changed();

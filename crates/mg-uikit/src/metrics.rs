@@ -38,6 +38,10 @@ pub const TOOL_SHELF: f32 = 36.0;
 pub const TOOL_BUTTON: f32 = 28.0;
 /// The status bar.
 pub const STATUS_BAR: f32 = 24.0;
+/// A menu's row (the mock's `.menu-row`), with no gap between rows.
+pub const MENU_ROW: f32 = 24.0;
+/// A menu's title in the top bar (the mock's `.menu`).
+pub const MENU_TITLE: f32 = 22.0;
 /// The active document tab's accent line along its top.
 pub const ACTIVE_TAB_LINE: f32 = 2.0;
 

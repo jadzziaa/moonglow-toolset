@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-11T23:31:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T00:11:18Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -933,6 +933,8 @@ Three merge points cut M3 into coherent, taggable states. Every task ends with:
   - Run `menus_by_the_keyboard` and the context-menu screens.
 - **Risks.** Every menu's height changes: `grouped_context_menus` and `context_menus` pictures.
 - **Coherent.** Yes.
+
+**Done, 2026-11-12.** The parts are in `mg-uikit`'s `marks` (key cap, badge, modified dot), `shell` (Top Bar row, dock tabs, panel header, fold strip, document-tab helpers, `Yields`) and `status` (switch, separator, hints, items, job), each on the kit sheet in both themes; the egui_dock style and tab marks are `mg_uikit::dock` (feature `dock`), re-exported by `mg_ui::dock_look`. Menu rows are 24 px with no gap. Beyond the plan: menus holding a form (the color picker, two NUI menus) take a new `menu_form`, which keeps their gaps. Against the stylesheet: rows stay 4 px inside the popover (a context menu's frame is egui's, made before `menu_rows`), separators take egui's fixed 6 px (`.pop-sep` 9), and key caps are Ubuntu Light (no regular face in the kit). 1280 is not a threshold.
 
 **T2. The frame skeleton: Top Bar, Left and Bottom Dock frames, Status Bar (the smallest task that proves the frame end to end).**
 

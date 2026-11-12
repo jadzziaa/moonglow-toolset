@@ -908,7 +908,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
             }
             // The window opens from a script of yours: what to put in it.
             let how = tools.word_widget(icon::HOW_TO_OPEN, "How to open it…").menu(ui, |ui| {
-                mg_uikit::menu_rows(ui);
+                mg_uikit::menu_form(ui);
                 let code = format!(
                     "#include \"{name}_o\"\n\n\
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"

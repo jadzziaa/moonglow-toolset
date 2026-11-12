@@ -1,16 +1,20 @@
 //! The kit sheet: one of each standard egui control in its states under
-//! the applied theme, the form helpers, the icon widgets in every state
-//! and the whole icon set, to compare with the mockups' `_kit.png`,
-//! `Foundations.png` and `LightFoundations.png`.
+//! the applied theme, the form helpers, the shell's parts (key caps,
+//! badges, tabs, the Status Bar, the Top Bar's row and menu, a folded
+//! dock's strip), the icon widgets in every state and the whole icon set,
+//! to compare with the mockups' `_kit.png`, `Foundations.png` and
+//! `LightFoundations.png`.
 
 use egui::{Rect, RichText, Ui, vec2};
 use egui_kittest::Harness;
 use mg_uikit::Controls as _;
 use mg_uikit::icons::{ButtonState, paint_icon_button};
-use mg_uikit::{Icon, Theme, TokensExt as _, metrics};
+use mg_uikit::shell::{self, DockTab, DockTabs, FoldStrip, PanelHeader, Side};
+use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusSwitch};
+use mg_uikit::{Badge, BadgeKind, Icon, IconButton, KeyCap, Theme, TokensExt as _, metrics};
 
 /// The sheet's size.
-const SIZE: egui::Vec2 = egui::vec2(1600.0, 1100.0);
+const SIZE: egui::Vec2 = egui::vec2(1600.0, 1400.0);
 /// A cell's width.
 const CELL: f32 = 376.0;
 
@@ -53,6 +57,16 @@ impl Default for State {
 fn cell(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
     ui.allocate_ui_with_layout(vec2(CELL, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
         ui.set_width(CELL);
+        ui.label(RichText::new(caption).small().weak());
+        add(ui);
+    });
+}
+
+/// A cell two wide.
+fn cell_wide(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
+    let width = 2.0 * CELL + 16.0;
+    ui.allocate_ui_with_layout(vec2(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+        ui.set_width(width);
         ui.label(RichText::new(caption).small().weak());
         add(ui);
     });
@@ -385,6 +399,233 @@ fn icon_widgets(ui: &mut Ui) {
     });
 }
 
+/// Key caps, badges of every kind (and a tag), the modified dot (the
+/// mock's "Key Caps and Badges" cell).
+fn marks(ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for key in ["Ctrl", "Right Drag", "F9"] {
+            ui.add(KeyCap::new(key));
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for (text, kind) in [
+            ("12", BadgeKind::Plain),
+            ("3", BadgeKind::Accent),
+            ("2", BadgeKind::Error),
+            ("5", BadgeKind::Warn),
+            ("0", BadgeKind::Ok),
+        ] {
+            ui.add(Badge::new(text).kind(kind));
+        }
+        ui.add(Badge::new("NEW").kind(BadgeKind::Info).tag());
+        mg_uikit::modified_dot(ui);
+        ui.label(RichText::new("modified").color(ui.tokens().text_2));
+    });
+}
+
+/// Document tabs (active and modified, hovered, plain) painted with the
+/// kit's parts on a 28 px bar, and a dock's tab bar with badges and tools
+/// (the mock's "Tabs" cell), and a panel's header.
+fn tabs(ui: &mut Ui) {
+    let t = ui.tokens();
+    let (bar, _) = ui.allocate_exact_size(vec2(CELL, metrics::DOCUMENT_TABS), egui::Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(bar, 0.0, t.bar);
+    p.hline(bar.x_range(), bar.bottom() - 0.5, egui::Stroke::new(1.0, t.line));
+    let mut x = bar.left();
+    let docs = [
+        (Icon::Area, "map_m1q1a", true, true, ButtonState::Rest),
+        (Icon::Creature, "m1q1faribeth.utc", false, false, ButtonState::Rest),
+        (Icon::Module, "Module", false, false, ButtonState::Rest),
+    ];
+    for (i, (icon, title, active, modified, close)) in docs.into_iter().enumerate() {
+        let font = egui::FontId::proportional(metrics::BODY_SIZE);
+        let color = if active || i == 1 { t.text } else { t.text_2 };
+        let galley = p.layout_no_wrap(title.to_string(), font, color);
+        let width = shell::doc_tab_width(galley.size().x, modified) + 1.0;
+        let tab = Rect::from_min_size(egui::pos2(x, bar.top()), vec2(width, bar.height()));
+        let body = tab.with_max_x(tab.right() - 1.0);
+        let parts = shell::doc_tab_parts(body, galley.size().x, modified);
+        if active {
+            p.rect_filled(body, 0.0, t.panel);
+            let line = Rect::from_min_size(body.min, vec2(body.width(), metrics::ACTIVE_TAB_LINE));
+            p.rect_filled(line, 0.0, t.accent);
+        } else if i == 1 {
+            p.rect_filled(body.with_max_y(body.bottom() - 1.0), 0.0, t.tab_hover);
+        }
+        p.vline(tab.right() - 0.5, tab.top()..=tab.bottom() - 1.0, egui::Stroke::new(1.0, t.line));
+        shell::paint_doc_tab_icon(p, &t, parts.icon, icon, active);
+        let y = (parts.title.center().y - galley.size().y / 2.0).round();
+        p.galley(egui::pos2(parts.title.left(), y), galley, color);
+        if let Some(dot) = parts.dot {
+            mg_uikit::paint_modified_dot(p, &t, dot.center());
+        }
+        if active || i == 1 {
+            shell::paint_doc_tab_close(p, &t, parts.close, close);
+        }
+        x = tab.right();
+    }
+    ui.add_space(4.0);
+    let mut on = 0;
+    DockTabs::new("Bottom Dock")
+        .tab("Log")
+        .with(DockTab::new("Problems").badge(Badge::count(3).kind(BadgeKind::Error)))
+        .with(DockTab::new("Search Results").badge(Badge::count(12)))
+        .drawn_hovered(2)
+        .show(ui, &mut on, |ui| {
+            ui.add(IconButton::new(Icon::Delete, "Clear the log").icon_only(true));
+            ui.add(IconButton::new(Icon::Close, "Close").icon_only(true));
+        });
+    ui.add_space(4.0);
+    PanelHeader::new("Outliner").detail("map_m1q1a").show(ui, |ui| {
+        ui.add(IconButton::new(Icon::CollapseAll, "Collapse All").icon_only(true));
+    });
+}
+
+/// The Status Bar's parts (the mock's "Status Bar" cell, and the rows of
+/// Main.png and Narrow.png): switches on, off with a badge and hovered;
+/// hints dropping whole where the room ends; a job; the right-hand items;
+/// then the narrow window's row, the switches icons alone and the game
+/// folder gone.
+fn status_bar(ui: &mut Ui) {
+    let t = ui.tokens();
+    let hints = [
+        Hint::keys(["Drag"], "Move"),
+        Hint::keys(["Shift"], "Handles"),
+        Hint::keys(["Alt", "Drag"], "Raise"),
+        Hint::either(["Q", "E"], "Turn by a step"),
+        Hint::keys(["G"], "Drop to ground"),
+    ];
+    for narrow in [false, true] {
+        let width = 2.0 * CELL + 16.0;
+        let (row, _) =
+            ui.allocate_exact_size(vec2(width, metrics::STATUS_BAR), egui::Sense::hover());
+        ui.painter().rect_filled(row, 0.0, t.bar);
+        let builder = egui::UiBuilder::new().max_rect(row.shrink2(vec2(status::PADDING, 0.0)));
+        ui.scope_builder(builder, |ui| {
+            status::bar(
+                ui,
+                |ui| {
+                    ui.add(StatusSwitch::new(Icon::Log, "Log", true).icon_only(narrow));
+                    let problems = Badge::count(3).kind(BadgeKind::Error);
+                    let switch =
+                        StatusSwitch::new(Icon::Problems, "Problems", false).badge(problems);
+                    ui.add(switch.icon_only(narrow));
+                    if narrow {
+                        let hovered = StatusSwitch::new(Icon::Find, "Search Results", false);
+                        ui.add(hovered.icon_only(true).drawn_as(ButtonState::Hovered));
+                    }
+                    status::separator(ui);
+                },
+                |ui, room| Hints::new(&hints).show(ui, room),
+                |ui| {
+                    if narrow {
+                        ui.add(StatusItem::new("192 objects"));
+                    } else {
+                        ui.add(StatusJob::new("Verify Module", Some(0.4)));
+                    }
+                    status::separator(ui);
+                    ui.add(StatusItem::new("Chapter1 (modified)").modified(true));
+                    if !narrow {
+                        status::separator(ui);
+                        ui.add(StatusItem::new(".../Neverwinter Nights").weak());
+                    }
+                },
+            );
+        });
+        ui.add_space(4.0);
+    }
+}
+
+/// The Top Bar's row (menus' titles, one open; quick actions; Quick Open
+/// centered; the build actions), an open menu's 24 px rows (one hovered,
+/// a submenu's, a separator, a disabled one) and a folded dock's strip.
+fn top_bar(ui: &mut Ui) {
+    let t = ui.tokens();
+    let (row, _) =
+        ui.allocate_exact_size(vec2(2.0 * CELL + 16.0, metrics::TOP_BAR), egui::Sense::hover());
+    ui.painter().rect_filled(row, 0.0, t.bar);
+    let builder = egui::UiBuilder::new().max_rect(row.shrink2(vec2(shell::TOP_BAR_PADDING, 0.0)));
+    ui.scope_builder(builder, |ui| {
+        shell::top_bar(
+            ui,
+            shell::QUICK_OPEN_MAX,
+            |ui| {
+                ui.scope(|ui| {
+                    let mut style = (**ui.style()).clone();
+                    mg_uikit::menu_bar_style(&mut style);
+                    ui.set_style(style);
+                    let _ = ui.button("File");
+                    as_hovered(ui, |ui| {
+                        ui.add(egui::Button::new("Edit").frame_when_inactive(true))
+                    });
+                    as_open(ui, |ui| ui.add(egui::Button::new("View").frame_when_inactive(true)));
+                    let _ = ui.button("Help");
+                });
+                shell::vsep(ui);
+                for (icon, name) in [(Icon::New, "New"), (Icon::Open, "Open"), (Icon::Save, "Save")]
+                {
+                    ui.add(IconButton::new(icon, name).icon_only(true));
+                }
+            },
+            |ui, width| {
+                let mut find = String::new();
+                ui.add(
+                    mg_uikit::text_field(&mut find)
+                        .hint_text("Go to resource or command")
+                        .desired_width(width),
+                );
+            },
+            |ui| {
+                ui.add(IconButton::new(Icon::Compile, "Compile"));
+                ui.add(IconButton::new(Icon::Verify, "Verify"));
+                ui.add(IconButton::new(Icon::Test, "Test Module"));
+            },
+        );
+    });
+    ui.add_space(4.0);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 16.0;
+        // An open menu (drawn in place).
+        egui::Frame::menu(ui.style()).show(ui, |ui| {
+            ui.set_width(240.0);
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                mg_uikit::menu_rows(ui);
+                let _ = ui.add(egui::Button::new("Module Tree").shortcut_text("Ctrl+Alt+1"));
+                // (A lit row's keys in `on-fill`, as the toolset's menus
+                // give them: egui's are the weak text's.)
+                as_hovered(ui, |ui| {
+                    ui.add(
+                        egui::Button::new("Log")
+                            .shortcut_text(RichText::new("Ctrl+Alt+3").color(ui.tokens().on_fill))
+                            .frame_when_inactive(true),
+                    )
+                });
+                let _ = ui.add(egui::Button::new("Copy Log"));
+                ui.separator();
+                let sub = IconButton::new(Icon::ChevronRight, "Position")
+                    .label(mg_uikit::Label::WordsOnly);
+                let _ = mg_uikit::submenu_button(ui, sub);
+                ui.add_enabled(false, egui::Button::new("Go to Start Location"));
+            });
+        });
+        ui.allocate_ui(vec2(shell::STRIP, 160.0), |ui| {
+            ui.set_height(160.0);
+            FoldStrip::new("Left Dock", Side::Left)
+                .panel(Icon::Module, "Module", "Module")
+                .panel(Icon::Folder, "Resources", "Resources")
+                .panel(Icon::Outliner, "Outliner", "Outliner")
+                .show(ui);
+        });
+        ui.vertical(|ui| {
+            ui.label(RichText::new("fold button").small().weak());
+            shell::fold_button(ui, Side::Left, "Left Dock");
+        });
+    });
+}
+
 /// The whole set, names beside.
 fn icon_grid(ui: &mut Ui) {
     let t = ui.tokens();
@@ -450,6 +691,27 @@ fn sheet(ui: &mut Ui, theme: Theme, s: &mut State) {
         });
     });
     ui.add_space(8.0);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 16.0;
+        cell(ui, "key caps; badges: plain, accent, error, warn, ok, tag; modified dot", marks);
+        cell(
+            ui,
+            "document tabs (kit parts); dock tabs: on, badge, hovered, tools; panel header",
+            tabs,
+        );
+        cell_wide(
+            ui,
+            "status bar: switches on, badge; hints dropping whole; job; items; narrow: icons, hovered",
+            status_bar,
+        );
+    });
+    ui.add_space(8.0);
+    cell_wide(
+        ui,
+        "top bar: menus (hovered, open), quick actions, Quick Open, build actions; a menu's 24 px rows; folded dock strip",
+        top_bar,
+    );
+    ui.add_space(8.0);
     cell(
         ui,
         "icon widgets: icon, button (rest, hovered, pressed, on, on hovered, disabled), toggle; sizes 12 16 20 32; state colors",
@@ -459,7 +721,7 @@ fn sheet(ui: &mut Ui, theme: Theme, s: &mut State) {
     ui.label(RichText::new(format!("icon set ({} icons, 16 px)", Icon::ALL.len())).small().weak());
     icon_grid(ui);
     // A window over it all.
-    egui::Window::new("Window").default_pos(egui::pos2(560.0, 440.0)).default_width(280.0).show(
+    egui::Window::new("Window").default_pos(egui::pos2(1100.0, 700.0)).default_width(280.0).show(
         ui.ctx(),
         |ui| {
             ui.label("A floating window: panel fill, a line-soft border, no shadow.");
