@@ -109,8 +109,8 @@ pub(crate) fn icons() -> Vec<Icon> {
 /// [`module_tools`].) The tree's row of the same name is apart from the
 /// button: in the group [`tree::MODULE_TREE`], a selectable row.
 const MODULE_TOOLS: [TopBarButton; 2] = [
-    (Id::ModuleProperties, Icon::Module, "Module Properties", "Module properties"),
-    (Id::AreaWizard, Icon::Plus, "New Area", "A new area, by the Area Wizard"),
+    (Id::ModuleProperties, Icon::Module, "Module Properties", "Open the module's properties"),
+    (Id::AreaWizard, Icon::Plus, "New Area", "Make a new area with the Area Wizard"),
 ];
 
 /// The Left Dock's least width: its tab bar's Module tab, the Module

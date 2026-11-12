@@ -139,3 +139,107 @@ fn a_tree_row_is_selectable_or_quiet() {
     let name = drawn.iter().find(|(t, _)| t == "Module Properties").unwrap().1;
     assert_eq!(name.left() - 8.0, tree::name_offset(true), "the harness's margin, then 42");
 }
+
+/// The rects filled in a frame.
+fn fills(h: &Harness<'_>) -> Vec<(egui::Rect, egui::Color32)> {
+    fn add(shape: &egui::Shape, to: &mut Vec<(egui::Rect, egui::Color32)>) {
+        match shape {
+            egui::Shape::Rect(r) => to.push((r.rect, r.fill)),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
+    all
+}
+
+/// A row as a module tree's resource rows are drawn: indented under its
+/// group in a scroll area, selected, its fill from the scroll area's left
+/// edge to its right (the board fills the indent too), its name 22 px
+/// into the row; a row that drags (`sense`) starts a drag; and a row whose
+/// arrow's column is the caller's ([`TreeRow::arrow_apart`]): the button
+/// put there before the row takes its clicks and the keyboard's focus
+/// before it, its fill under the button (`fill_under`), and the row
+/// answers from its name on; marks put after its name
+/// (`TreeRowShown::after`) stand after the name.
+#[test]
+fn a_tree_row_fills_the_row_drags_and_leaves_its_arrow_to_a_button() {
+    let arrow_clicks = Cell::new(0);
+    let row_clicks = Cell::new(0);
+    let parts = Cell::new(None::<(egui::Rect, egui::Rect, egui::Pos2)>);
+    let mut h = Harness::builder().with_size(egui::vec2(260.0, 200.0)).build_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+            mg_uikit::list_rows(ui);
+            ui.indent("rows", |ui| {
+                // (The row's fill kept a place under the button.)
+                let fill = ui.painter().add(egui::Shape::Noop);
+                let at = tree::arrow_column(ui);
+                let button = egui::Rect::from_center_size(at.center(), egui::vec2(22.0, 22.0));
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(button));
+                if child.add(egui::Button::new(">").frame(false)).clicked() {
+                    arrow_clicks.set(arrow_clicks.get() + 1);
+                }
+                let shown = TreeRow::new("map_m1q1a").selected(true).arrow_apart().fill_under(fill);
+                let shown = shown.show_parts(ui);
+                if shown.response.clicked() {
+                    row_clicks.set(row_clicks.get() + 1);
+                }
+                parts.set(Some((at, shown.response.rect, shown.after)));
+                TreeRow::new("nw_chicken.utc").sense(egui::Sense::click_and_drag()).show(ui);
+            });
+        });
+    });
+    h.run();
+    let (arrow, row, after) = parts.get().unwrap();
+    // (The harness's 8 px margin, the indent 14: the row's own left at 22.)
+    assert_eq!(arrow.left(), 22.0 + tree::ROW_PADDING_LEFT);
+    assert_eq!(arrow.width(), tree::ARROW);
+    assert_eq!(row.left(), 22.0 + tree::name_offset(false), "the row from its name on");
+    let drawn = texts(&h);
+    let name = drawn.iter().find(|(t, _)| t == "map_m1q1a").unwrap().1;
+    assert_eq!(name.left(), 22.0 + tree::name_offset(false), "the name 22 px into the row");
+    assert!((after.x - (name.right() + tree::ROW_GAP)).abs() < 0.5, "{after:?} {name:?}");
+    // The selected row's fill: from the scroll area's left edge (8) to
+    // the right edge of what is in sight.
+    let accent = mg_uikit::tokens(&h.ctx).accent_fill;
+    let fill = fills(&h).into_iter().find(|(_, c)| *c == accent).expect("the row's fill").0;
+    assert_eq!(fill.left(), 8.0, "{fill:?}");
+    assert_eq!(fill.right(), row.right());
+    assert_eq!(fill.y_range(), row.y_range());
+    // Under the button, drawn before it ([`TreeRow::fill_under`]).
+    let order: Vec<String> = (h.output().shapes.iter())
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.fill == accent => Some("fill".to_string()),
+            egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+            _ => None,
+        })
+        .collect();
+    let at = |w: &str| order.iter().position(|o| o == w).unwrap();
+    assert!(at("fill") < at(">"), "{order:?}");
+    // A click on the arrow is the button's, one on the row the row's.
+    h.get_by_label(">").click();
+    h.run();
+    assert_eq!((arrow_clicks.get(), row_clicks.get()), (1, 0));
+    h.get_by_label("map_m1q1a").click();
+    h.run();
+    assert_eq!((arrow_clicks.get(), row_clicks.get()), (1, 1));
+    // The keyboard's focus: the button, then the row.
+    h.get_by_label(">").focus();
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert!(h.get_by_label("map_m1q1a").is_focused());
+    // The row that drags.
+    let from = h.get_by_label("nw_chicken.utc").rect().center();
+    h.drag_at(from);
+    h.run();
+    for k in 1..=4 {
+        h.hover_at(from + egui::vec2(10.0, 5.0) * k as f32);
+        h.run();
+    }
+    assert!(h.ctx.dragged_id().is_some(), "a drag from the row");
+    h.drop_at(from + egui::vec2(40.0, 20.0));
+    h.run();
+}

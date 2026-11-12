@@ -2642,6 +2642,7 @@ pub(crate) struct SearchField<'a> {
     down: bool,
     width: Option<f32>,
     icon: mg_uikit::Icon,
+    name: Option<&'a str>,
 }
 
 /// What a [`SearchField`] did: the field's response, and how its keys
@@ -2664,7 +2665,16 @@ impl<'a> SearchField<'a> {
             down: false,
             width: None,
             icon: mg_uikit::Icon::Search,
+            name: None,
         }
+    }
+
+    /// Its name for a screen reader (and tests), apart from what it says
+    /// while empty: the module tree's "Filter Module Tree", told from a
+    /// dropdown's Filter that says the same.
+    pub(crate) fn name(mut self, name: &'a str) -> Self {
+        self.name = Some(name);
+        self
     }
 
     /// The icon before what it looks in (the glass, where not given; the
@@ -2732,6 +2742,7 @@ impl<'a> SearchField<'a> {
             down,
             width,
             icon,
+            name,
         } = self;
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
@@ -2758,6 +2769,9 @@ impl<'a> SearchField<'a> {
                         .hint_text(hint)
                         .desired_width(room),
                 );
+                if let Some(name) = name {
+                    r.ctx.accesskit_node_builder(r.id, |node| node.set_label(name));
+                }
                 if ui.is_rect_visible(r.rect) {
                     let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
                     let at = egui::pos2(r.rect.left() + f32::from(field.left), r.rect.center().y);

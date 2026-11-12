@@ -471,31 +471,20 @@ pub(crate) fn icon_drawn(
         .any(|(i, r)| *i == icon && rect.expand(1.0).contains_rect(*r))
 }
 
-/// Whether the accessible node `n` is in the group named `group`.
-pub(crate) fn node_in_group(n: &egui_kittest::kittest::AccessKitNode<'_>, group: &str) -> bool {
-    let mut up = n.parent();
-    while let Some(p) = up {
-        if p.label().as_deref() == Some(group) {
-            return true;
-        }
-        up = p.parent();
-    }
-    false
-}
-
-/// The Module panel's group (its Filter and the module tree).
-pub(crate) const MODULE_PANEL: &str = "Module Panel";
+/// The module tree's Filter's accessible name (it says "Filter" while
+/// empty, as a dropdown's does).
+pub(crate) const TREE_FILTER: &str = "Filter Module Tree";
 
 /// Whether `n` is a dropdown's or a list's Filter field (its placeholder
-/// "Filter"), not the module tree's (which says the same, in the Module
-/// panel).
+/// "Filter"), not the module tree's (which says the same, named
+/// [`TREE_FILTER`]).
 pub(crate) fn list_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
-    n.placeholder() == Some("Filter") && !node_in_group(n, MODULE_PANEL)
+    n.placeholder() == Some("Filter") && n.label().as_deref() != Some(TREE_FILTER)
 }
 
 /// Whether `n` is the module tree's Filter field.
 pub(crate) fn tree_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
-    n.placeholder() == Some("Filter") && node_in_group(n, MODULE_PANEL)
+    n.label().as_deref() == Some(TREE_FILTER)
 }
 
 /// Types `text` into the module tree's Filter, and waits for what it shows.

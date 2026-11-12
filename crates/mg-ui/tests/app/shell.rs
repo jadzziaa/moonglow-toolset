@@ -194,7 +194,7 @@ fn verify_and_the_module_panel_s_buttons_run_their_commands() {
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_none());
     let props = module_tool(&h, "Module Properties").rect();
-    assert!(tip_at(&mut h, props).is_some_and(|t| t.contains("Module properties")));
+    assert!(tip_at(&mut h, props).is_some_and(|t| t.contains("Open the module's properties")));
     module_tool(&h, "Module Properties").click();
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_some(), "Module Properties");

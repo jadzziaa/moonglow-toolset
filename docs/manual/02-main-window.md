@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T04:48:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T07:09:58Z }
 ---
 
 # The main window
@@ -259,18 +259,24 @@ Sword`, as every Filter and Find field of names does: the palettes', the
 resource browser's, a list's, a wizard's; its clear button, **Clear
 Filter**, clears it; each group's count is then of what it finds); it
 stays in sight while the tree scrolls, and Home and End go to the
-tree's top and bottom with the pointer over it.
+tree's top and bottom with the pointer over it (over the Areas group's
+well, to the well's: below). Cleared, the tree and the well are where
+they were before anything was typed.
 
 **The Areas group scrolls by itself:** its rows (and the objects of the
 areas opened out) are in a well of their own, with a scroll bar of its
 own, so the groups under it stay in sight and where they are however
 many areas the module has. The well is as high as the tree's view less
 a row for each of the tree's other rows (Module Properties, each
-group's row and the line under them), and never fewer than five rows:
-in a window 800 pixels high, with the groups closed, all of them are
-in sight under the Areas group. The mouse wheel over the well scrolls
-it (at its top or foot, the tree around it), and Home and End over it
-go to its top and foot. An area or an object the tree goes to (a tab
+group's row and the line under them), in whole rows, however many of
+the other groups are open: never fewer than five rows in a low window
+(the groups under it are then scrolled to), and no more rows than the
+module has areas (three areas, three rows, the next group right under
+them). In a window 800 pixels high, with the groups closed, all of them
+are in sight under the Areas group. The mouse wheel over the well
+scrolls it (at its top or foot, the tree around it), and Home and End
+over it go to its top and foot; elsewhere over the tree, the Areas
+group closed too, to the tree's. An area or an object the tree goes to (a tab
 chosen, an object selected in an area's view, the keys) is scrolled to
 in the well, and the well into the tree's view. A name too long for the
 pane goes on past its edge, and the tree scrolls sideways to it (Shift

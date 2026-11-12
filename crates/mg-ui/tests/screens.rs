@@ -121,17 +121,10 @@ fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<
 }
 
 /// Whether `n` is a dropdown's or a list's Filter field (its placeholder
-/// "Filter"), not the module tree's, which says the same in the group
-/// "Module Panel".
+/// "Filter"), not the module tree's, which says the same and is named
+/// "Filter Module Tree".
 fn list_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
-    let mut up = n.parent();
-    while let Some(p) = up {
-        if p.label().as_deref() == Some("Module Panel") {
-            return false;
-        }
-        up = p.parent();
-    }
-    n.placeholder() == Some("Filter")
+    n.placeholder() == Some("Filter") && n.label().as_deref() != Some("Filter Module Tree")
 }
 
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
@@ -10613,9 +10606,105 @@ fn shell_tree_groups() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
-    h.get_all_by_label("Expand All").next().unwrap().click();
+    // (The Left Dock's: the palette has an Expand All of its own.)
+    h.get_by_label("Left Dock").get_by_label("Expand All").click();
     h.run_steps(10);
     shoot(&mut h, &dir, "shell_tree_groups");
+}
+
+/// The module tree's rows at the narrow board's size (1280 by 800): the
+/// Scripts group open with one of its scripts chosen, an area in the
+/// Areas group's well under the pointer (each row's fill across the whole
+/// row, the names where the board has them), and the well's rows with a
+/// group open under it.
+#[test]
+#[ignore]
+fn shell_tree_rows() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    let group = |h: &Harness<'_, Moonglow>, name: &str| {
+        let prefix = format!("{name} (");
+        let rows = h.get_by_label("Module Tree Rows");
+        let found = rows.query_all_by(move |n| n.label().is_some_and(|l| l.starts_with(&prefix)));
+        found.min_by(|a, b| a.rect().left().total_cmp(&b.rect().left())).unwrap().rect()
+    };
+    let scripts = group(&h, "Scripts");
+    h.get_by_label("Module Tree Rows")
+        .query_all_by(|n| n.label().is_some_and(|l| l.starts_with("Scripts (")))
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap()
+        .click();
+    h.run_steps(10);
+    // (A script a few rows down the group, chosen.)
+    let below = scripts.bottom() + 2.0 * mg_uikit::metrics::ROW_HEIGHT;
+    let rows = h.get_by_label("Module Tree Rows");
+    let mut under: Vec<_> = rows
+        .query_all_by(|n| n.label().is_some())
+        .filter(|n| n.rect().top() >= below - 0.5 && n.rect().left() > scripts.left())
+        .collect();
+    under.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    under[0].click();
+    h.run_steps(10);
+    // (The well's first row under the pointer.)
+    let areas = group(&h, "Areas");
+    h.hover_at(egui::pos2(areas.left() + 80.0, areas.bottom() + 11.0));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "shell_tree_rows");
+}
+
+/// The Left Dock widened by 300 points, then narrowed to its least width,
+/// and the tree wheeled sideways over the Scripts group's row: with no
+/// row wider than the dock, it does not scroll sideways (and has no bar
+/// across its foot).
+#[test]
+#[ignore]
+fn shell_tree_narrowed() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    let edge = |h: &Harness<'_, Moonglow>| {
+        h.get_by_label("Left Dock").get_by_label("Fold the Left Dock").rect().right() + 3.0
+    };
+    let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
+        h.hover_at(from);
+        h.run_steps(2);
+        h.drag_at(from);
+        h.run_steps(1);
+        for step in 1..=8 {
+            h.hover_at(from + (to - from) * (step as f32 / 8.0));
+            h.run_steps(1);
+        }
+        h.drop_at(to);
+        h.run_steps(5);
+    };
+    let y = 400.0;
+    let w = edge(&h);
+    drag(&mut h, egui::pos2(w, y), egui::pos2(w + 300.0, y));
+    let w = edge(&h);
+    drag(&mut h, egui::pos2(w, y), egui::pos2(w - 600.0, y));
+    let rows = h.get_by_label("Module Tree Rows");
+    let scripts = rows
+        .query_all_by(|n| n.label().is_some_and(|l| l.starts_with("Scripts (")))
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap()
+        .rect();
+    h.hover_at(scripts.center());
+    for _ in 0..8 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(-100.0, 0.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_tree_narrowed");
 }
 
 /// The Module panel with a word typed in its Filter ("m1q1"): the areas,
@@ -10629,10 +10718,9 @@ fn shell_tree_filter() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
-    let field = egui::accesskit::Role::TextInput;
-    h.get_all_by_role(field).next().unwrap().click();
+    h.get_by_label("Filter Module Tree").click();
     h.run_steps(2);
-    h.get_all_by_role(field).next().unwrap().type_text("m1q1");
+    h.get_by_label("Filter Module Tree").type_text("m1q1");
     for _ in 0..20 {
         h.step();
         std::thread::sleep(std::time::Duration::from_millis(20));

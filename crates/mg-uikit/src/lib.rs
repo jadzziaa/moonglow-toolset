@@ -57,4 +57,4 @@ pub use menu::{
 };
 pub use theme::{Theme, TokensExt, applied, apply, tokens};
 pub use tokens::Tokens;
-pub use tree::{TreeGroup, TreeRow};
+pub use tree::{TreeGroup, TreeRow, TreeRowShown};

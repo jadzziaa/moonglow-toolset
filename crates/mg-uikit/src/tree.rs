@@ -3,9 +3,13 @@
 //! right-aligned, over its rows, which open and close under it), and a
 //! row that opens nothing ([`TreeRow`]: the arrow's column left empty).
 //! Each is [`metrics::ROW_HEIGHT`] high and as wide as what holds it, its
-//! fill drawn across the whole row: `hover-row` under the pointer,
-//! `accent-fill` marked (its words and icons then `on-fill`, the count at
-//! 85%).
+//! fill drawn across the whole row (in a scroll area from its left edge,
+//! the indent of a row under its group too, as the board fills it):
+//! `hover-row` under the pointer, `accent-fill` marked (its words and
+//! icons then `on-fill`, the count at 85%). A row can drag
+//! ([`TreeRow::sense`]), leave its arrow's column to a button of the
+//! caller's ([`TreeRow::arrow_apart`], [`arrow_column`]) and show marks
+//! after its name ([`TreeRow::show_parts`]).
 //!
 //! ```
 //! # egui::__run_test_ui(|ui| {
@@ -48,6 +52,14 @@ pub fn name_offset(icon: bool) -> f32 {
     ROW_PADDING_LEFT + ARROW + ROW_GAP + icon
 }
 
+/// The arrow's column of the row laid out next in `ui` (at its cursor), as
+/// high as a row: where a [`TreeRow::arrow_apart`] row's caller puts the
+/// button that opens it out.
+pub fn arrow_column(ui: &Ui) -> Rect {
+    let at = ui.cursor().min;
+    Rect::from_min_size(pos2(at.x + ROW_PADDING_LEFT, at.y), vec2(ARROW, crate::row_height(ui)))
+}
+
 /// The parts a group's or a row's line shows.
 #[derive(Clone, Debug)]
 struct Line {
@@ -57,11 +69,19 @@ struct Line {
     label: Option<String>,
     marked: bool,
     dim: bool,
+    /// Its arrow's column another widget's: the row answers the pointer
+    /// from its name on.
+    arrow_apart: bool,
+    /// Where in the painter's shapes its fill goes (under what was drawn
+    /// before the row over it), else drawn with the row.
+    fill_under: Option<egui::layers::ShapeIdx>,
 }
 
 impl Line {
     fn new(name: String) -> Self {
-        Line { name, icon: None, count: None, label: None, marked: false, dim: false }
+        let (marked, dim, arrow_apart) = (false, false, false);
+        let (icon, count, label, fill_under) = (None, None, None, None);
+        Line { name, icon, count, label, marked, dim, arrow_apart, fill_under }
     }
 
     /// Its accessible name: its own, else the name with the count after
@@ -101,9 +121,21 @@ impl Line {
             name_offset(self.icon.is_some()) + w.name.size().x + count + ROW_PADDING_RIGHT
         });
         let (auto, taken) = ui.allocate_space(vec2(needed, height));
-        let rect = taken.with_max_x(taken.right().max(right));
+        let mut rect = taken.with_max_x(taken.right().max(right));
+        if self.arrow_apart {
+            rect.min.x = (rect.min.x + name_offset(self.icon.is_some())).min(rect.max.x - 1.0);
+        }
         let response = ui.interact(rect, id.unwrap_or(auto), sense);
-        Allocated { rect, taken, response, words }
+        // (Drawn from the row's own left edge.)
+        let rect = rect.with_min_x(taken.left());
+        // (Its fill from the left edge of what scrolls it, as the board
+        // fills a row indented under its group: the indent is the row's
+        // own padding there.)
+        let fill = match ui.stack().contained_in(egui::UiKind::ScrollArea) {
+            true => rect.with_min_x(rect.left().min(ui.clip_rect().left())),
+            false => rect,
+        };
+        Allocated { rect, taken, fill, response, words }
     }
 
     fn galley(ui: &Ui, text: &str) -> std::sync::Arc<egui::Galley> {
@@ -143,7 +175,11 @@ impl Line {
         };
         let p = ui.painter();
         if fill != Color32::TRANSPARENT {
-            p.rect_filled(rect, 0.0, fill);
+            let shape = egui::Shape::rect_filled(row.fill, 0.0, fill);
+            match self.fill_under {
+                Some(at) => p.set(at, shape),
+                None => _ = p.add(shape),
+            }
         }
         let left = rect.left() + ROW_PADDING_LEFT;
         let middle = rect.center().y;
@@ -157,7 +193,7 @@ impl Line {
         }
         let name = words.name.clone();
         let x = rect.left() + name_offset(self.icon.is_some());
-        let name_end = x + name.size().x;
+        let name_end = row.name_end(self.icon.is_some());
         p.galley(Pos2::new(x, (middle - name.size().y / 2.0).round()), name, text);
         if let Some(galley) = words.count.clone() {
             // (Against the edge in sight: the tree scrolled sideways keeps
@@ -178,13 +214,26 @@ struct Words {
 
 /// A row's room taken ([`Line::allocate`]).
 struct Allocated {
-    /// The whole row, as drawn.
+    /// The whole row (as it answers the pointer, but for an arrow's
+    /// column apart: [`Line::arrow_apart`]).
     rect: Rect,
     /// The room it took.
     taken: Rect,
+    /// Where its fill is drawn: the whole row, and in a scroll area out
+    /// to its left edge.
+    fill: Rect,
     response: Response,
     /// Its words, where it is in sight.
     words: Option<Words>,
+}
+
+impl Allocated {
+    /// Where its name ends (where it would begin, its words not laid
+    /// out).
+    fn name_end(&self, icon: bool) -> f32 {
+        let name = self.words.as_ref().map_or(0.0, |w| w.name.size().x);
+        self.rect.left() + name_offset(icon) + name
+    }
 }
 
 /// A tree's group (`.tree-row` with an arrow, over its rows): its row
@@ -345,8 +394,44 @@ impl TreeRow {
         self
     }
 
+    /// Its arrow's column holds a widget of the caller's (a button that
+    /// opens the row out, added before the row at [`arrow_column`], so
+    /// that the keyboard's focus comes to it before the row): the row
+    /// answers the pointer, and is said to be, from its name on.
+    pub fn arrow_apart(mut self) -> Self {
+        self.line.arrow_apart = true;
+        self
+    }
+
+    /// Its fill drawn at `at` among the painter's shapes: a place kept
+    /// (`Painter::add(Shape::Noop)`) before what is drawn over the row
+    /// before it, the button in its arrow's column
+    /// ([`TreeRow::arrow_apart`]), which its fill would cover.
+    pub fn fill_under(mut self, at: egui::layers::ShapeIdx) -> Self {
+        self.line.fill_under = Some(at);
+        self
+    }
+
+    /// What it answers ([`Sense::click`] where not given): a row that is
+    /// dragged too (a blueprint's, into an area) senses clicks and drags.
+    pub fn sense(mut self, sense: Sense) -> Self {
+        self.sense = sense;
+        self
+    }
+
     /// Draws the row; its response.
     pub fn show(self, ui: &mut Ui) -> Response {
+        self.show_parts(ui).response
+    }
+
+    /// Draws the row; its response, and where the caller puts what the
+    /// row holds besides its name: a button in its arrow's column (an
+    /// area's, that opens it out to what is placed in it) and marks after
+    /// its name (who holds it, a note). Put there in a child `Ui`
+    /// (`Ui::new_child`) after the row, they answer the pointer before it
+    /// and take nothing from the rows' layout: the caller widens what
+    /// holds the row by what they take (`Ui::expand_to_include_x`).
+    pub fn show_parts(self, ui: &mut Ui) -> TreeRowShown {
         let TreeRow { line, sense } = self;
         let row = line.allocate(ui, sense, None);
         let (enabled, selected) = (ui.is_enabled(), line.marked);
@@ -358,6 +443,24 @@ impl TreeRow {
                 WidgetInfo::selected(WidgetType::SelectableLabel, enabled, selected, line.label())
             });
         }
-        line.paint(ui, row, None).response
+        let rect = row.rect;
+        let arrow = Rect::from_min_size(
+            pos2(rect.left() + ROW_PADDING_LEFT, rect.top()),
+            vec2(ARROW, rect.height()),
+        );
+        let after = pos2(row.name_end(line.icon.is_some()) + ROW_GAP, rect.top());
+        let response = line.paint(ui, row, None).response;
+        TreeRowShown { response, arrow, after }
     }
+}
+
+/// A [`TreeRow`] drawn ([`TreeRow::show_parts`]).
+#[derive(Clone, Debug)]
+pub struct TreeRowShown {
+    /// The row's response: the whole row's.
+    pub response: Response,
+    /// Its arrow's column, as high as the row (left empty by the row).
+    pub arrow: Rect,
+    /// Where the room after its name begins, at the row's top.
+    pub after: Pos2,
 }
