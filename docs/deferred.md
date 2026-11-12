@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T12:45:13Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -962,17 +962,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Right Dock's Palette panel since M3 T5, neither of them a tab of the
   editor area to share a pane with or drop on the middle
   (`the_palette_is_a_panel_not_a_tab`); the editor area holds editors
-  alone, and the middle keeps its place with every tab closed
+  alone, and the middle keeps its place with every area closed
   (`the_middle_keeps_its_place_with_no_area_open`). A tool's tab
   dropped on a side of the middle is still docked there
-  (`a_tool_tab_dropped_on_a_side_is_docked_there`). What remains: a
-  tool window dragged from a window of its own onto a side target of
-  the middle was seen to move and not to dock, by the tests' drag
-  (issue 21's report was the resource browser's; not confirmed either
-  way in the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20 and
-  21 after 1.30.2) (the window's drop waits on a drag by hand in the
-  running program, the owner's: the UI tests can't make a window of
-  its own)
+  (`a_tool_tab_dropped_on_a_side_is_docked_there`). What remains:
+  another tool docked alone on the right (the talk table, a script, the
+  Faction Editor split off an area's right) is not known as a side pane:
+  with the last area and Module Properties closed it takes the whole
+  editor area, the middle's "No area open" gone (seen in the review of
+  M3 T5); it waits on M3b's editor groups (T9 and T10 make how the
+  editor area splits anew). And a tool window dragged from a window of
+  its own onto a side target of the middle was seen to move and not to
+  dock, by the tests' drag (issue 21's report was the resource
+  browser's; not confirmed either way in the window). (S) (GitHub
+  issues 10 to 24, after 1.20.0; 20 and 21 after 1.30.2) (the side
+  pane waits on M3b's T9 and T10; the window's drop waits on a drag by
+  hand in the running program, the owner's: the UI tests can't make a
+  window of its own)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
   Left and fold the tree): after a click in a list (the module tree, a

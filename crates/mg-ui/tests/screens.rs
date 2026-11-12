@@ -9209,7 +9209,7 @@ fn main_window_log_and_tree() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
-    app.palette_dock = false;
+    // (The Right Dock beside the tree, as the palettes' pane was.)
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     for n in 0..30 {
         app.log.info(format!("Line {n} of what was said"));
@@ -10586,12 +10586,10 @@ fn show_palette(app: &mut Moonglow) {
     app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
 }
 
-/// The Left Dock `width` wide (its outer width, as its edge is dragged to;
-/// kept by egui under the panel's id, `"tree"`).
-fn left_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
-    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
-    let state = egui::containers::panel::PanelState { outer_rect: rect };
-    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+/// The Left Dock `width` wide (its outer width, as its edge is dragged to:
+/// the width chosen, `Settings::left_dock_width`).
+fn left_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.left_dock_width = Some(width.round() as u32);
 }
 
 /// The Left Dock on its Resources panel, as the board Resources.png has it:
@@ -10608,7 +10606,7 @@ fn shell_resources_window(
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
     h.state_mut().browser.filter = "nw_c".into();
     if let Some(width) = width {
-        left_dock_width(&h, width);
+        left_dock_width(&mut h, width);
     }
     h.run_steps(5);
     // (Its row brought into sight by the wheel, and clicked: the keys'.)
@@ -10665,12 +10663,12 @@ fn shell_resources_least() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_resources_window(&root, egui::vec2(1600.0, 900.0), Some(190.0));
     shoot(&mut h, &dir, "shell_resources_least");
-    left_dock_width(&h, 500.0);
+    left_dock_width(&mut h, 500.0);
     h.run_steps(5);
     shoot(&mut h, &dir, "shell_resources_500");
     // (The Module tab at the least width: its tab bar's room beside it.)
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
-    left_dock_width(&h, 190.0);
+    left_dock_width(&mut h, 190.0);
     h.run_steps(5);
     shoot(&mut h, &dir, "shell_module_least");
 }
@@ -10863,12 +10861,10 @@ fn shell_tree_filter() {
     shoot(&mut h, &dir, "shell_tree_filter");
 }
 
-/// The Right Dock's width kept by egui under its panel's id, from the
-/// next frame.
-fn right_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
-    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
-    let state = egui::containers::panel::PanelState { outer_rect: rect };
-    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
+/// The Right Dock `width` wide (the width chosen,
+/// `Settings::right_dock_width`), from the next frame.
+fn right_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.right_dock_width = Some(width.round() as u32);
 }
 
 /// The Right Dock at its least width (280) on the tiles palette (the area
@@ -10885,7 +10881,7 @@ fn shell_right_dock() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
-    right_dock_width(&h, 280.0);
+    right_dock_width(&mut h, 280.0);
     h.run_steps(5);
     shoot(&mut h, &dir, "shell_right_least_tiles");
     {
@@ -10901,13 +10897,13 @@ fn shell_right_dock() {
     shoot(&mut h, &dir, "shell_right_least_placeables");
     h.state_mut().settings.palette_gallery = true;
     h.state_mut().background_jobs = true;
-    right_dock_width(&h, 320.0);
+    right_dock_width(&mut h, 320.0);
     for _ in 0..60 {
         h.step();
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     shoot(&mut h, &dir, "shell_right_gallery");
-    right_dock_width(&h, 440.0);
+    right_dock_width(&mut h, 440.0);
     for _ in 0..30 {
         h.step();
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -10918,6 +10914,63 @@ fn shell_right_dock() {
     h.state_mut().settings.hide_palettes = true;
     h.run_steps(5);
     shoot(&mut h, &dir, "shell_right_folded");
+}
+
+/// The Right Dock in windows too narrow for its least width beside the
+/// Left Dock (both unfolded): 420 (the least window, the dock 190 wide),
+/// 460 and 500, on the standard placeables, every category open, and on
+/// the tiles at 420 (`shell_right_narrow_420.png` and the others).
+#[test]
+#[ignore]
+fn shell_right_dock_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 760.0));
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, mg_module::palette::BlueprintKind::Placeable, false);
+    }
+    h.run_steps(5);
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let expand = h.get_all_by_label("Expand All").find(|n| dock.contains(n.rect().center()));
+    expand.expect("the palette's Expand All").click();
+    h.run_steps(5);
+    for width in [420.0, 460.0, 500.0] {
+        h.set_size(egui::vec2(width, 760.0));
+        h.run_steps(5);
+        shoot(&mut h, &dir, &format!("shell_right_narrow_{width}"));
+    }
+    h.state_mut().palette.tiles = true;
+    h.set_size(egui::vec2(420.0, 760.0));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_narrow_tiles_420");
+}
+
+/// The Right Dock with no game data read: Tools › Palettes shows it, its
+/// Palette panel saying so, beside a module opened without the game.
+#[test]
+#[ignore]
+fn shell_right_dock_no_game() {
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-right-dock-no-game");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let path = scratch.join("no_game.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    shoot(&mut h, &dir, "shell_right_no_game");
 }
 
 /// The frame at 760 by 600 with a module and its area open: the Top Bar's

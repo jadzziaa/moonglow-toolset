@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T12:45:13Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -343,7 +343,7 @@ Wizard.
 | Edit › Area Properties (the area's Edit too) | the area view's toolbar and the module tree's context menu | ✅ |
 | View › Selection Mode › Select Terrain, Select Objects | the area view's Select Tiles (F10, Aurora's Select Terrain's key) | ✅ |
 | View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | the Top Bar (the menus, New, Open, Save, Undo, Redo, Compile, Verify, Test Module) and the area view's toolbar, always shown; Options › General › Editors' toolbar buttons: Icons only (the area view's and the editors' toolbars) | — |
-| View › Interface Panels › Message Log, Module Contents, Palettes | View › Log, Left Dock, Palettes Panel (each ticked while shown), Hide All Panels, Reset Layout; the module tree is the Left Dock's Module panel (its tab bar: Module Properties, New Area, Expand All, Collapse All), beside its Resources panel, and View › Left Dock (Ctrl+Alt+1) folds the dock on either | ✅ |
+| View › Interface Panels › Message Log, Module Contents, Palettes | View › Log, Left Dock, Right Dock (each ticked while shown), Hide All Panels, Reset Layout; the module tree is the Left Dock's Module panel (its tab bar: Module Properties, New Area, Expand All, Collapse All), beside its Resources panel, and View › Left Dock (Ctrl+Alt+1) folds the dock on either; the palettes are the Right Dock's Palette panel, which View › Right Dock (Ctrl+Alt+2) folds | ✅ |
 | View › Interface Panels › Toolbar, Visual Camera Controls | none: the camera's keys and the mouse (the manual's chapter 4) | — |
 | View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area view's toolbar: each kind, All, None, Start, as in Aurora for every area view; View › Go to Start Location | ✅ |
 | View › Full Screen (F11) | Full Screen (F11), from the key and the Command Palette | ✅ |

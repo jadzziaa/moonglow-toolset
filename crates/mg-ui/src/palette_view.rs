@@ -20,6 +20,28 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
+/// A collapsing header's words (`text`), cut short with an ellipsis
+/// where they are wider than the room beside its arrow in `ui` (egui lays
+/// a header's words out on one line, as wide as they are). Its name for a
+/// screen reader is the whole of them.
+fn fitted(ui: &egui::Ui, text: String) -> egui::WidgetText {
+    let spacing = ui.spacing();
+    let room = ui.available_width()
+        - spacing.icon_width
+        - spacing.icon_spacing
+        - 2.0 * spacing.button_padding.x;
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let whole = ui.fonts_mut(|f| {
+        f.layout_no_wrap(text.clone(), font.clone(), egui::Color32::PLACEHOLDER).size().x
+    });
+    if whole <= room || room <= 0.0 {
+        return text.into();
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(text, font, egui::Color32::PLACEHOLDER);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+    ui.fonts_mut(|f| f.layout_job(job)).into()
+}
+
 /// Whether blueprints of a kind have pictures (a model to draw: their own,
 /// or a waypoint's flag).
 fn pictured(kind: BlueprintKind) -> bool {
@@ -1251,19 +1273,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // The type shown, by name; the source beside it (a blueprint
         // type's: the game's, or the module's).
         let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
+        let sources = !view.tiles && !view.prefabs && !view.start && !view.lights;
+        // (The source on a row of its own under the name where the two do
+        // not fit side by side: the dock at its narrowest.)
+        let width = |text: &str, style: egui::TextStyle| {
+            let font = style.resolve(ui.style());
+            ui.fonts_mut(|f| f.layout_no_wrap(text.into(), font, egui::Color32::PLACEHOLDER))
+                .size()
+                .x
+        };
+        let pad = ui.spacing().button_padding.x * 2.0;
+        let gap = ui.spacing().item_spacing.x;
+        let toggles = width("Standard", egui::TextStyle::Button)
+            + width("Custom", egui::TextStyle::Button)
+            + 2.0 * pad
+            + gap;
+        let beside = width(name, egui::TextStyle::Body) + gap * 2.0 + toggles;
+        let apart = sources && beside > ui.available_width();
+        let mut source = |ui: &mut egui::Ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_enabled_ui(app.ws.is_some(), |ui| {
+                    ui.selectable_value(&mut view.custom, true, "Custom")
+                        .on_hover_text("The module's blueprints");
+                });
+                ui.selectable_value(&mut view.custom, false, "Standard")
+                    .on_hover_text("The game's blueprints");
+            });
+        };
         ui.horizontal(|ui| {
             ui.strong(name);
-            if !view.tiles && !view.prefabs && !view.start && !view.lights {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_enabled_ui(app.ws.is_some(), |ui| {
-                        ui.selectable_value(&mut view.custom, true, "Custom")
-                            .on_hover_text("The module's blueprints");
-                    });
-                    ui.selectable_value(&mut view.custom, false, "Standard")
-                        .on_hover_text("The game's blueprints");
-                });
+            if sources && !apart {
+                source(ui);
             }
         });
+        if apart {
+            ui.horizontal(&mut source);
+        }
     }
     if view.custom != custom_was {
         app.settings.palette_custom = view.custom;
@@ -2093,6 +2138,9 @@ impl Tree<'_> {
         } else {
             shown_name(&node.name, game)
         };
+        // (Cut short with an ellipsis where the panel is too narrow for it:
+        // a header's words never wrap, and would widen the dock.)
+        let title = fitted(ui, title);
         // (Finding opens every category with a match as it is typed,
         // through `fold`: they can be closed again after.)
         // (Open as it was left at the last start, until it is opened or

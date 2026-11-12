@@ -40,13 +40,21 @@ fn folded(h: &Harness<'_, Moonglow>) -> bool {
 /// The palette list's first row in sight: its name (the rows under the
 /// palette's header, 140 points down the dock).
 fn top_label(h: &Harness<'_, Moonglow>) -> String {
+    top_node(h).and_then(|(_, label)| label).unwrap_or_default()
+}
+
+/// The palette list's first row in sight: where it is.
+fn top_row(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    top_node(h).map_or(egui::Rect::NOTHING, |(rect, _)| rect)
+}
+
+fn top_node(h: &Harness<'_, Moonglow>) -> Option<(egui::Rect, Option<String>)> {
     let dock = right_dock_rect(h);
     let list_top = dock.top() + 140.0;
     h.query_all_by(|n| n.role() == egui::accesskit::Role::Button)
         .filter(|n| dock.contains(n.rect().center()) && n.rect().top() > list_top)
         .min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
-        .and_then(|n| n.accesskit_node().label())
-        .unwrap_or_default()
+        .map(|n| (n.rect(), n.accesskit_node().label()))
 }
 
 /// Clicks the palette's Expand All (not the Module panel's).
@@ -153,81 +161,330 @@ fn without_a_module_tools_palettes_shows_the_standard_palettes() {
     assert!(!folded(&h), "View's row unfolds it");
 }
 
+/// What is drawn in and over the Right Dock, as the accessibility tree
+/// has it: the dock's own nodes are those under its panel (the pane over
+/// its tab bar, `Right Dock`), wherever they are drawn; the others are
+/// every node elsewhere in the tree.
+struct DockNodes {
+    /// The dock's nodes: their names, rects, and egui ids.
+    own: Vec<(String, egui::Rect, u64)>,
+    /// The other nodes (not those holding the dock's panel: the window's,
+    /// the layout's), their names, rects and egui ids.
+    others: Vec<(String, egui::Rect, u64)>,
+    /// The egui ids of the dock's panel and of every node under it, with
+    /// a rect or not (its layouts).
+    ids: std::collections::HashSet<u64>,
+}
+
+fn dock_nodes(h: &Harness<'_, Moonglow>) -> DockNodes {
+    use egui_kittest::kittest::AccessKitNode;
+    let rect = |n: &AccessKitNode<'_>| {
+        n.bounding_box().map(|b| {
+            let ppp = h.ctx.pixels_per_point() as f64;
+            egui::Rect::from_min_max(
+                egui::pos2((b.x0 / ppp) as f32, (b.y0 / ppp) as f32),
+                egui::pos2((b.x1 / ppp) as f32, (b.y1 / ppp) as f32),
+            )
+        })
+    };
+    let name = |n: &AccessKitNode<'_>| {
+        format!("{:?} {:?}", n.role(), n.label().or_else(|| n.value()).unwrap_or_default())
+    };
+    // The path down to the dock's tab bar.
+    fn find<'t>(
+        n: AccessKitNode<'t>,
+        path: &mut Vec<AccessKitNode<'t>>,
+        out: &mut Option<Vec<AccessKitNode<'t>>>,
+    ) {
+        let tabs = n.label().as_deref() == Some(mg_ui::RIGHT_DOCK)
+            && matches!(n.role(), egui::accesskit::Role::Group | egui::accesskit::Role::TabList);
+        path.push(n);
+        if tabs && out.is_none() {
+            *out = Some(path.clone());
+        }
+        for k in n.children() {
+            find(k, path, out);
+        }
+        path.pop();
+    }
+    let mut path = Vec::new();
+    let mut above = None;
+    find(h.root().accesskit_node(), &mut path, &mut above);
+    let above = above.expect("the Right Dock's tab bar");
+    // (The dock's panel is a pane: `shell::dock_pane`.)
+    let panel = *(above.iter().rev())
+        .find(|n| n.role() == egui::accesskit::Role::Pane)
+        .expect("the Right Dock's panel in the tree");
+    let key = |n: &AccessKitNode<'_>| n.locate().0.0;
+    let holders: Vec<u64> = above.iter().take_while(|n| key(n) != key(&panel)).map(&key).collect();
+    let mut own = Vec::new();
+    let mut others = Vec::new();
+    let mut ids = std::collections::HashSet::new();
+    fn walk<'t>(
+        n: AccessKitNode<'t>,
+        inside: bool,
+        panel: u64,
+        each: &mut dyn FnMut(AccessKitNode<'t>, bool),
+    ) {
+        let inside = inside || n.locate().0.0 == panel;
+        each(n, inside);
+        for k in n.children() {
+            walk(k, inside, panel, each);
+        }
+    }
+    walk(h.root().accesskit_node(), false, key(&panel), &mut |n, inside| {
+        if inside {
+            ids.insert(key(&n));
+        }
+        let Some(r) = rect(&n) else { return };
+        if key(&n) == key(&panel) || holders.contains(&key(&n)) {
+            return;
+        }
+        if inside {
+            own.push((name(&n), r, key(&n)));
+        } else {
+            others.push((name(&n), r, key(&n)));
+        }
+    });
+    DockNodes { own, others, ids }
+}
+
+/// What is wrong in and over the Right Dock: a node of the dock's outside
+/// it (left or right of it, or above it: the lists are at their tops,
+/// and rows below the dock's foot are the lists' scrolled out of sight),
+/// or over its fold button; another node reaching into the dock (but
+/// the fold button, beside its edge); two of its named widgets over each
+/// other (their visible rects, clipped by their scroll areas, overlapping
+/// by more than a quarter of the smaller, in any layers). `at` names the
+/// case. The dock's nodes are counted into `seen`.
+fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<String> {
+    let dock = right_dock_rect(h);
+    let fold = h.get_by_label("Fold the Right Dock").rect();
+    let DockNodes { own, others, ids: mine } = dock_nodes(h);
+    let mut wrong = Vec::new();
+    for (name, r, _) in &own {
+        *seen += 1;
+        let past = r.left() < dock.left() - 0.5
+            || r.right() > dock.right() + 0.5
+            || r.top() < dock.top() - 0.5;
+        if past {
+            wrong.push(format!("{at}: {name} at {r:?}, past {dock:?}"));
+        }
+        if r.intersects(fold) {
+            wrong.push(format!("{at}: {name} at {r:?}, under the fold button {fold:?}"));
+        }
+    }
+    // Anything drawn across the dock's edges (where it is in sight: its
+    // rect clipped, as egui records it for the frame): another widget
+    // reaching into it, or one of the dock's own reaching out of it (its
+    // layouts, which have no node of their own, too). But the dock's
+    // edge, which it is resized by, its fold button beside it, and what
+    // holds the whole dock (the window's layouts).
+    let inner = dock.shrink(1.0);
+    let edge = egui::Id::new("right-dock").with("__resize").value();
+    let names: std::collections::HashMap<u64, &String> = (others.iter())
+        .map(|(name, _, id)| (*id, name))
+        .chain(own.iter().map(|(name, _, id)| (*id, name)))
+        .collect();
+    h.ctx.viewport(|v| {
+        for (_, widgets) in v.prev_pass.widgets.layers() {
+            for w in widgets {
+                let r = w.interact_rect;
+                let id = w.id.value();
+                let across = r.intersects(inner) && !dock.expand(0.5).contains_rect(r);
+                let beside = fold.expand(0.5).contains_rect(r);
+                if across && !beside && id != edge && !r.contains_rect(inner) && r.area() > 1.0 {
+                    let mut name = names.get(&id).map_or("a widget".to_string(), |n| n.to_string());
+                    if mine.contains(&id) {
+                        name = format!("the dock's {name}");
+                    }
+                    wrong.push(format!("{at}: {name} at {r:?}, across the dock's edge {dock:?}"));
+                }
+            }
+        }
+    });
+    // (Named widgets: the dock's leaves with a name.)
+    let ids: std::collections::HashMap<u64, &String> = own
+        .iter()
+        .filter(|(name, _, _)| !name.ends_with("\"\""))
+        .map(|(name, _, id)| (*id, name))
+        .collect();
+    h.ctx.viewport(|v| {
+        let shown: Vec<(egui::Rect, &String)> = (v.prev_pass.widgets.layers())
+            .flat_map(|(_, widgets)| widgets.iter())
+            .filter(|w| w.interact_rect.area() > 1.0)
+            .filter_map(|w| Some((w.interact_rect, *ids.get(&w.id.value())?)))
+            .collect();
+        for (i, (a, name_a)) in shown.iter().enumerate() {
+            for (b, name_b) in &shown[i + 1..] {
+                let both = a.intersect(*b);
+                if both.is_positive() && both.area() > 0.25 * a.area().min(b.area()) {
+                    wrong.push(format!("{at}: {name_a} {a:?} over {name_b} {b:?}"));
+                }
+            }
+        }
+    });
+    wrong
+}
+
+/// A type of palette the sweeps show.
+#[derive(Debug, Clone, Copy)]
+enum Kind {
+    Tiles,
+    /// A blueprint type, in the Gallery or not.
+    Blueprint(BlueprintKind, bool),
+    Prefabs,
+    Lights,
+    Start,
+}
+
+/// Every type of palette: the tiles' (an area open), each blueprint
+/// type's, in the Gallery too where the type has pictures, prefabs,
+/// lights and the start location.
+fn every_kind() -> Vec<Kind> {
+    use BlueprintKind as K;
+    let mut kinds = vec![Kind::Tiles];
+    kinds.extend(BlueprintKind::ALL.map(|k| Kind::Blueprint(k, false)));
+    let pictured = [K::Creature, K::Door, K::Item, K::Placeable, K::Waypoint];
+    kinds.extend(pictured.map(|k| Kind::Blueprint(k, true)));
+    kinds.extend([Kind::Prefabs, Kind::Lights, Kind::Start]);
+    kinds
+}
+
+/// Shows the palette of `kind`, its categories all open where it has
+/// them (rows to look at).
+fn show_kind(h: &mut Harness<'_, Moonglow>, kind: Kind) {
+    {
+        let app = h.state_mut();
+        let p = &mut app.palette;
+        (p.tiles, p.prefabs, p.lights, p.start) = (false, false, false, false);
+        app.settings.palette_gallery = false;
+        match kind {
+            Kind::Tiles => p.tiles = true,
+            Kind::Blueprint(k, gallery) => {
+                (p.kind, p.custom) = (k, false);
+                app.settings.palette_gallery = gallery;
+            }
+            Kind::Prefabs => p.prefabs = true,
+            Kind::Lights => p.lights = true,
+            Kind::Start => p.start = true,
+        }
+    }
+    settle(h);
+    if matches!(kind, Kind::Blueprint(..)) {
+        expand_all_in_the_dock(h);
+    }
+}
+
+/// The dock's nodes below its header (the type strip, the type's name and
+/// source, the search: 110 points), at least: the list's rows or
+/// pictures, or the type's own controls. Fewer, the palette is empty for
+/// the type.
+fn body_nodes(h: &Harness<'_, Moonglow>) -> usize {
+    let dock = right_dock_rect(h);
+    let header = dock.top() + 110.0;
+    let own = dock_nodes(h).own;
+    own.iter().filter(|(name, r, _)| !name.ends_with("\"\"") && r.top() > header).count()
+}
+
+/// The fewest body nodes ([`body_nodes`]) each type shows in the sweeps
+/// (at the narrowest, the most in its rows): a list's toolbar and rows,
+/// the Gallery's pictures, the tiles' brushes, prefabs' and lights' and
+/// the start location's controls.
+fn least_body(kind: Kind) -> usize {
+    match kind {
+        Kind::Tiles | Kind::Blueprint(..) => 10,
+        Kind::Prefabs | Kind::Lights => 3,
+        Kind::Start => 1,
+    }
+}
+
+/// The sweep: each type of palette at each of `widths` (given by `set`,
+/// the dock's width then measured): nothing wrong ([`dock_wrong`]), and
+/// on each its body ([`least_body`]).
+fn sweep(
+    h: &mut Harness<'_, Moonglow>,
+    widths: &[f32],
+    set: &dyn Fn(&mut Harness<'_, Moonglow>, f32),
+) -> (Vec<String>, usize) {
+    let (mut wrong, mut seen) = (Vec::new(), 0);
+    for kind in every_kind() {
+        show_kind(h, kind);
+        for &width in widths {
+            set(h, width);
+            settle(h);
+            let at = format!("{kind:?} at {:.0}", right_dock_rect(h).width());
+            wrong.extend(dock_wrong(h, &at, &mut seen));
+            let body = body_nodes(h);
+            if body < least_body(kind) {
+                wrong.push(format!("{at}: {body} nodes under the header: an empty palette"));
+            }
+        }
+    }
+    (wrong, seen)
+}
+
 /// The palette inside the Right Dock at every width from its least, 280,
-/// to 600, on every type of palette (the tiles' with an area open, each
-/// blueprint type, prefabs, lights, the start location) and in the
-/// Gallery: nothing of the panel lies outside the dock, under its fold
-/// button, or over another of its widgets. (With the palettes' pane
-/// dragged to about 135 px, a blueprint type's list toolbar spilled left
-/// under its fold button: the dock is never so narrow.)
+/// to 600, 8 points apart, on every type of palette (the tiles' with an
+/// area open, each blueprint type, in the Gallery too where it has
+/// pictures, prefabs, lights, the start location), each with something
+/// in it: nothing of the panel lies outside the dock, under its fold
+/// button or over another of its widgets, and nothing else lies over the
+/// dock ([`dock_wrong`]). (With the palettes' pane dragged to about 135
+/// px, a blueprint type's list toolbar spilled left under its fold
+/// button: the dock is never so narrow. Narrower than 280, in a narrow
+/// window: `the_palette_fits_the_right_dock_in_the_narrowest_window`.)
 #[test]
 fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
     let Some((mut h, _)) = area_harness("right-dock-sweep") else { return };
     h.set_size(egui::vec2(1600.0, 900.0));
     settle(&mut h);
-    #[derive(Debug, Clone, Copy)]
-    enum Kind {
-        Tiles,
-        Blueprint(BlueprintKind, bool),
-        Prefabs,
-        Lights,
-        Start,
-    }
-    let mut kinds = vec![Kind::Tiles];
-    kinds.extend(BlueprintKind::ALL.map(|k| Kind::Blueprint(k, false)));
-    kinds.extend([
-        Kind::Blueprint(BlueprintKind::Placeable, true),
-        Kind::Prefabs,
-        Kind::Lights,
-        Kind::Start,
-    ]);
-    let (mut wrong, mut seen) = (Vec::new(), 0);
-    for kind in kinds {
-        {
-            let app = h.state_mut();
-            let p = &mut app.palette;
-            (p.tiles, p.prefabs, p.lights, p.start) = (false, false, false, false);
-            app.settings.palette_gallery = false;
-            match kind {
-                Kind::Tiles => p.tiles = true,
-                Kind::Blueprint(k, gallery) => {
-                    (p.kind, p.custom) = (k, false);
-                    app.settings.palette_gallery = gallery;
-                }
-                Kind::Prefabs => p.prefabs = true,
-                Kind::Lights => p.lights = true,
-                Kind::Start => p.start = true,
-            }
+    let widths: Vec<f32> = (280..=600).step_by(8).map(|w| w as f32).collect();
+    let set = |h: &mut Harness<'_, Moonglow>, width: f32| {
+        right_dock_width(h, width);
+        settle(h);
+        let dock = right_dock_rect(h);
+        assert!((dock.width() - width).abs() < 1.5, "{width}: {dock:?}");
+    };
+    let (wrong, seen) = sweep(&mut h, &widths, &set);
+    assert!(seen > 20_000, "the panel's nodes looked at: {seen}");
+    assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+/// The palette in the Right Dock where the window is too narrow for its
+/// least width beside the Left Dock (both unfolded): from the least
+/// window, 420 points, where the dock is 190 wide, a window 8 points
+/// wider at a time to where the dock has its 280, on every type of
+/// palette as `the_palette_fits_the_right_dock_from_its_least_width_to_600`.
+/// (The editor area is then left little: the shell's yields, M3 T14,
+/// fold the Left Dock.)
+#[test]
+fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
+    let Some((mut h, _)) = area_harness("right-dock-sweep-narrow") else { return };
+    let least = mg_ui::LEAST_WINDOW_SIZE.x;
+    let set = |h: &mut Harness<'_, Moonglow>, window: f32| {
+        h.set_size(egui::vec2(window, 800.0));
+        settle(h);
+        assert!(!h.state().settings.hide_tree && !h.state().settings.hide_palettes);
+    };
+    set(&mut h, least);
+    let narrowest = right_dock_rect(&h).width();
+    assert!((narrowest - 190.0).abs() < 2.0, "the dock at the least window: {narrowest}");
+    // (The windows from the least to where the dock is 280.)
+    let mut windows = Vec::new();
+    let mut window = least;
+    loop {
+        set(&mut h, window);
+        windows.push(window);
+        if right_dock_rect(&h).width() >= mg_ui::RIGHT_DOCK_LEAST - 0.5 {
+            break;
         }
-        for width in (280..=600).step_by(16) {
-            right_dock_width(&h, width as f32);
-            settle(&mut h);
-            let dock = right_dock_rect(&h);
-            assert!((dock.width() - width as f32).abs() < 1.5, "{width}: {dock:?}");
-            let fold = h.get_by_label("Fold the Right Dock").rect();
-            // Every widget drawn in the dock: inside it, clear of the
-            // button beside its edge.
-            for n in h.query_all_by(|n| n.bounding_box().is_some()) {
-                let r = n.rect();
-                if !dock.contains(r.center()) || r.height() > dock.height() - 4.0 {
-                    continue;
-                }
-                seen += 1;
-                let a = n.accesskit_node();
-                let name = a.label().or(a.value()).unwrap_or_default();
-                if r.left() < dock.left() - 0.5 || r.right() > dock.right() + 0.5 {
-                    wrong.push(format!("{kind:?} at {width}: {name:?} at {r:?}, past {dock:?}"));
-                }
-                if r.intersects(fold) {
-                    wrong.push(format!("{kind:?} at {width}: {name:?} under the fold button"));
-                }
-            }
-            for o in overlapping(&h) {
-                wrong.push(format!("{kind:?} at {width}: {o}"));
-            }
-        }
+        window += 8.0;
+        assert!(window < 800.0, "the dock never reached its least width");
     }
-    assert!(seen > 2000, "the panel's widgets looked at: {seen}");
+    assert!(windows.len() >= 10, "{windows:?}");
+    let (wrong, seen) = sweep(&mut h, &windows, &set);
+    assert!(seen > 5_000, "the panel's nodes looked at: {seen}");
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
 }
 
@@ -397,20 +654,29 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
     let right = right_dock_rect(&h).center().x;
     for x in [left, middle, right] {
         h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(props.clone()));
-        h.run_steps(8);
+        settle(&mut h);
         let big = pane(&h);
         assert!(big.width() > first.width() + 200.0, "maximized: {big:?}");
         let at = egui::pos2(x, big.top() + 10.0);
         h.hover_at(at);
-        h.run_steps(2);
+        settle(&mut h);
         for _ in 0..2 {
             press(&h, at, true, egui::Modifiers::NONE);
             press(&h, at, false, egui::Modifiers::NONE);
         }
-        h.run_steps(8);
+        let clicked = h.ctx.input(|i| i.time);
+        settle(&mut h);
         assert!((pane(&h).size() - first.size()).length() < 3.0, "put back from {x}");
         h.hover_at(at + egui::vec2(0.0, 300.0));
-        h.run_steps(30);
+        settle(&mut h);
+        // (Until these clicks are too long ago to make a triple click with
+        // the next two: egui counts clicks together by the time between.)
+        let apart = 2.0 * h.ctx.options(|o| o.input_options.max_double_click_delay);
+        let started = std::time::Instant::now();
+        while h.ctx.input(|i| i.time) - clicked <= apart {
+            h.step();
+            assert!(started.elapsed() < SETTLE_TIME, "the window's time stands still");
+        }
     }
 }
 
@@ -466,15 +732,15 @@ fn the_palette_s_lists_keep_their_own_scroll_places() {
         phase: egui::TouchPhase::Move,
         modifiers: egui::Modifiers::NONE,
     });
-    settle(&mut h);
-    h.run_steps(30);
+    // (egui's scrolling is animated: until the list is still.)
+    at_rest(&mut h, "the scrolled list", &top_row);
     let scrolled = top_label(&h);
     assert_ne!(scrolled, at_top, "scrolled");
     let tree = h.state().tree_cursor;
     set(&mut h, true);
     let tiles_top = top_label(&h);
     set(&mut h, false);
-    h.run_steps(10);
+    at_rest(&mut h, "the placeables' list", &top_row);
     assert_eq!(top_label(&h), scrolled, "the placeables' list where it was");
     set(&mut h, true);
     assert_eq!(top_label(&h), tiles_top, "the tiles' list where it was");
@@ -486,7 +752,7 @@ fn the_palette_s_lists_keep_their_own_scroll_places() {
 #[test]
 fn reset_layout_puts_the_right_dock_back_at_320() {
     let Some(mut h) = dock_harness("ui-right-dock-reset", 1400.0) else { return };
-    right_dock_width(&h, 470.0);
+    right_dock_width(&mut h, 470.0);
     settle(&mut h);
     assert!((right_dock_rect(&h).width() - 470.0).abs() < 1.5);
     fold_palette(h.state_mut());
@@ -499,17 +765,27 @@ fn reset_layout_puts_the_right_dock_back_at_320() {
     assert!((width - want).abs() < 1.5, "{width}, not {want}");
 }
 
-/// In the least window (and at 480 and 600), both side docks unfolded:
-/// nothing panics, the two fold buttons stand apart, the Left Dock's
-/// first, the Right Dock inside the window (narrower than its least
-/// width where the window has not the room: never past its edge), and at
-/// 600 nothing overlaps. (The editor area is left little room under
-/// about 760: the shell's yields, M3 T14, fold the Left Dock in narrow
-/// windows.)
+/// In the least window (and at 460, 480, 500 and 600), both side docks
+/// unfolded: nothing panics, the two fold buttons stand apart, the Left
+/// Dock's first, the Right Dock inside the window (narrower than its least
+/// width where the window has not the room: never past its edge), nothing
+/// in the Right Dock outside it or over another of its widgets, nothing
+/// else drawn across its edges ([`dock_wrong`]), and at 600 nothing in the
+/// window overlaps. (The editor area is left little room under about 760,
+/// and the Bottom Dock's tab is over its buttons under about 500: the
+/// shell's yields, M3 T14, fold the Left Dock in narrow windows.)
 #[test]
 fn the_least_window_holds_both_docks() {
     let Some(mut h) = dock_harness("ui-right-dock-least-window", 1400.0) else { return };
-    for size in [mg_ui::LEAST_WINDOW_SIZE, egui::vec2(480.0, 400.0), egui::vec2(600.0, 500.0)] {
+    let sizes = [
+        mg_ui::LEAST_WINDOW_SIZE,
+        egui::vec2(460.0, 400.0),
+        egui::vec2(480.0, 400.0),
+        egui::vec2(500.0, 450.0),
+        egui::vec2(600.0, 500.0),
+    ];
+    let mut seen = 0;
+    for size in sizes {
         h.set_size(size);
         settle(&mut h);
         assert!(!h.state().settings.hide_tree && !folded(&h));
@@ -521,11 +797,214 @@ fn the_least_window_holds_both_docks() {
         let dock = right_dock_rect(&h);
         assert!(window.expand(0.5).contains_rect(dock), "at {size:?}: {dock:?} in {window:?}");
         assert!(left.right() <= right.left() + 0.5, "the Left Dock's first: {left:?} {right:?}");
-        // (Under about 500 the editor area is too narrow for the Bottom
-        // Dock's tab and buttons side by side: T14's yields give it room.)
+        let wrong = dock_wrong(&h, &format!("{size:?}"), &mut seen);
+        assert!(wrong.is_empty(), "in the Right Dock:\n{}", wrong.join("\n"));
         if size.x >= 600.0 {
             let found = overlapping(&h);
             assert!(found.is_empty(), "at {size:?}:\n{}", found.join("\n"));
         }
+    }
+    assert!(seen > 100, "the dock's nodes looked at: {seen}");
+}
+
+/// The Right Dock's inner edge dragged by `by` (to the left, wider), above
+/// its fold button.
+fn drag_edge(h: &mut Harness<'_, Moonglow>, by: f32) {
+    let dock = right_dock_rect(h);
+    let from = egui::pos2(dock.left() + 1.0, dock.top() + 150.0);
+    drag(h, from, from - egui::vec2(by, 0.0));
+    settle(h);
+}
+
+/// The Right Dock's width now (it must be shown).
+fn right_width(h: &Harness<'_, Moonglow>) -> f32 {
+    right_dock_rect(h).width()
+}
+
+/// The width the Right Dock is given is kept apart from the width it is
+/// drawn at: dragged to 470, it is narrower in a window too narrow for it
+/// (900 wide, then 700) and 470 again when the window is wide again (it
+/// stayed as narrow as the narrowest window, for good: egui kept the
+/// width drawn as the panel's); dragged in a narrow window, the width
+/// dragged to is kept when the window widens; the width chosen is saved
+/// and read back by the next run, which opens in a narrow window without
+/// losing it.
+#[test]
+fn the_right_dock_keeps_its_width_through_a_narrow_window() {
+    let Some(mut h) = dock_harness("ui-right-dock-width-kept", 1400.0) else { return };
+    let size = |h: &mut Harness<'_, Moonglow>, width: f32| {
+        h.set_size(egui::vec2(width, 800.0));
+        settle(h);
+    };
+    let first = right_width(&h);
+    drag_edge(&mut h, 150.0);
+    let wide = right_width(&h);
+    assert!((wide - first - 150.0).abs() < 2.0, "dragged: {first} -> {wide}");
+    assert_eq!(h.state().settings.right_dock_width, Some(wide.round() as u32));
+    size(&mut h, 900.0);
+    let at_900 = right_width(&h);
+    assert!(at_900 < wide - 60.0, "narrower at 900: {at_900}");
+    size(&mut h, 700.0);
+    let at_700 = right_width(&h);
+    assert!(at_700 < at_900 - 30.0, "narrower still at 700: {at_700}");
+    size(&mut h, 1400.0);
+    assert!((right_width(&h) - wide).abs() < 1.0, "{wide} again, not {}", right_width(&h));
+    // Dragged while the window is narrow: the width dragged to, kept.
+    size(&mut h, 900.0);
+    drag_edge(&mut h, -40.0);
+    let dragged = right_width(&h);
+    assert!((dragged - (at_900 - 40.0)).abs() < 2.0, "dragged narrow: {at_900} -> {dragged}");
+    size(&mut h, 1400.0);
+    assert!((right_width(&h) - dragged).abs() < 1.0, "{dragged} kept, not {}", right_width(&h));
+    // Saved, and read back by the next run, in a window too narrow for it.
+    let dir = mg_testkit::scratch_dir("ui-right-dock-width-kept-again");
+    let file = dir.join("app.ron");
+    let map: std::collections::HashMap<String, String> =
+        [("moonglow-settings".to_string(), h.state().settings.saved_text())].into_iter().collect();
+    std::fs::write(&file, ron::to_string(&map).unwrap()).unwrap();
+    let read = mg_ui::Settings::read_eframe(&file, "moonglow-settings");
+    assert!(read.unread.is_empty() && read.unreadable.is_none(), "{:?}", read.problem());
+    let migrated = Moonglow::with_settings(read.settings, Box::new(NoDialogs::default()));
+    let root = mg_testkit::nwn_root().unwrap();
+    let mut app = game_app(&root, None);
+    app.settings = migrated.settings;
+    app.open_module(&sample_module(&dir));
+    let mut h = harness(app, 700.0, 800.0);
+    settle(&mut h);
+    assert!(right_width(&h) < dragged - 20.0, "held to the narrow window");
+    assert_eq!(h.state().settings.right_dock_width, Some(dragged.round() as u32), "not lost");
+    size(&mut h, 1400.0);
+    assert!((right_width(&h) - dragged).abs() < 1.0, "{dragged} again, not {}", right_width(&h));
+}
+
+/// A Right Dock width egui kept from an earlier run (under the panel's
+/// id, before the width chosen was kept apart) is taken as the width
+/// chosen, once: drawn so where the window has the room, and kept as it
+/// is in a window without it.
+#[test]
+fn a_width_kept_by_an_earlier_run_is_the_right_dock_s() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-right-dock-width-before");
+    let path = sample_module(&dir);
+    for window in [1400.0, 700.0] {
+        let mut app = game_app(&root, None);
+        assert_eq!(app.settings.right_dock_width, None);
+        app.open_module(&path);
+        let mut h = harness(app, window, 800.0);
+        // (Settings with no width chosen, and the width egui kept for the
+        // panel: as an earlier run left them. The harness has drawn a
+        // first frame, which took the first width: given up.)
+        h.state_mut().settings.right_dock_width = None;
+        let rect = egui::Rect::from_min_size(egui::pos2(900.0, 40.0), egui::vec2(430.0, 600.0));
+        let state = egui::containers::panel::PanelState { outer_rect: rect };
+        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
+        settle(&mut h);
+        assert_eq!(h.state().settings.right_dock_width, Some(430), "at {window}");
+        let width = right_width(&h);
+        if window > 1000.0 {
+            assert!((width - 430.0).abs() < 1.0, "{width}");
+        } else {
+            assert!(width < 400.0, "held to the window at {window}: {width}");
+            h.set_size(egui::vec2(1400.0, 800.0));
+            settle(&mut h);
+            assert!((right_width(&h) - 430.0).abs() < 1.0, "{}", right_width(&h));
+        }
+    }
+}
+
+/// With no module open and the Right Dock the only dock shown (Tools ›
+/// Palettes; no Resources panel asked for), F6 and Shift+F6 still go round
+/// the panes: from the editor area to the Right Dock's Palette panel, the
+/// Bottom Dock's log and back. (They were grayed: Next Pane counted the
+/// Left Dock's panels only.) No game data is needed for it.
+#[test]
+fn f6_reaches_the_right_dock_with_no_module() {
+    let mut h = harness(app_with(Vec::new()), 1400.0, 800.0);
+    h.state_mut().settings.hide_log = false;
+    settle(&mut h);
+    assert!(h.query_by_label("Fold the Left Dock").is_none(), "no Left Dock");
+    menu_command(&mut h, "Tools", "Palettes");
+    settle(&mut h);
+    assert!(palette_shown(h.state()));
+    h.get_by_label("Fold the Right Dock");
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    let step = |h: &mut Harness<'_, Moonglow>, back: bool| {
+        let m = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        h.key_press_modifiers(m, egui::Key::F6);
+        settle(h);
+        keys(h)
+    };
+    let forward: Vec<String> = (0..3).map(|_| step(&mut h, false)).collect();
+    assert_eq!(forward, ["Palette", "Log", "Area"], "F6");
+    let back: Vec<String> = (0..3).map(|_| step(&mut h, true)).collect();
+    assert_eq!(back, ["Log", "Palette", "Area"], "Shift+F6");
+    // The Log closed, the Right Dock and the editor area alone.
+    h.state_mut().settings.hide_log = true;
+    settle(&mut h);
+    let forward: Vec<String> = (0..2).map(|_| step(&mut h, false)).collect();
+    assert_eq!(forward, ["Palette", "Area"], "F6 with the log closed");
+}
+
+/// Tools › Palettes with no game data read shows the Right Dock all the
+/// same, its Palette panel saying so (as the palettes' pane did; it did
+/// nothing), with no module open and with one; View › Right Dock is then
+/// enabled, ticked, and folds it to its strip, whose Palette button and
+/// the button beside it bring it back.
+#[test]
+fn tools_palettes_without_game_data_says_so() {
+    let dir = mg_testkit::scratch_dir("ui-right-dock-no-game");
+    let path = sample_module(&dir);
+    for module in [false, true] {
+        let mut app = app_with(Vec::new());
+        app.settings.no_last_area = true;
+        if module {
+            app.open_module(&path);
+        }
+        let mut h = harness(app, 1400.0, 800.0);
+        settle(&mut h);
+        assert!(h.state().game.is_none());
+        assert!(h.query_by_label("Fold the Right Dock").is_none(), "{module}: not at first");
+        h.get_by_label("View").click();
+        h.run();
+        let grayed = h.get_by_label("Right Dock").accesskit_node().is_disabled();
+        assert!(grayed, "{module}: View › Right Dock grayed with no panel to show");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        menu_command(&mut h, "Tools", "Palettes");
+        settle(&mut h);
+        assert!(palette_shown(h.state()), "{module}: shown");
+        h.get_by_label("Fold the Right Dock");
+        let said = h.get_by_label("No game data.").rect();
+        let dock = right_dock_rect(&h);
+        assert!(dock.contains_rect(said), "{module}: said in the dock: {said:?} {dock:?}");
+        // View › Right Dock: enabled, ticked, folds it.
+        h.get_by_label("View").click();
+        h.run();
+        let checkbox = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::CheckBox
+                && n.label().as_deref() == Some("Right Dock")
+        };
+        let row = h.get(egui_kittest::kittest::by().predicate(checkbox));
+        let row = row.accesskit_node();
+        assert!(!row.is_disabled(), "{module}: View › Right Dock enabled");
+        assert_eq!(row.toggled(), Some(egui::accesskit::Toggled::True), "{module}: ticked");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        menu_command(&mut h, "View", "Right Dock");
+        settle(&mut h);
+        assert!(h.state().settings.hide_palettes, "{module}: folded");
+        assert!(h.query_by_label("No game data.").is_none());
+        h.get_by_label("Right Dock").get_by_label("Palette").click();
+        settle(&mut h);
+        assert!(palette_shown(h.state()), "{module}: the strip's Palette button");
+        h.get_by_label("No game data.");
+        h.get_by_label("Fold the Right Dock").click();
+        settle(&mut h);
+        h.get_by_label("Show the Right Dock").click();
+        settle(&mut h);
+        assert!(palette_shown(h.state()), "{module}: the button beside the strip");
     }
 }

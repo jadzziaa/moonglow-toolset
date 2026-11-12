@@ -131,11 +131,10 @@ pub(crate) fn fold_palette(app: &mut Moonglow) {
 }
 
 /// The Right Dock `width` wide (its outer width, as its edge is dragged
-/// to: kept by egui under the panel's id), from the next frame.
-pub(crate) fn right_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
-    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
-    let state = egui::containers::panel::PanelState { outer_rect: rect };
-    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
+/// to: the width chosen, `Settings::right_dock_width`), from the next
+/// frame, where the window has the room.
+pub(crate) fn right_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.right_dock_width = Some(width.round() as u32);
 }
 
 /// Where the Right Dock is drawn: from its inner edge (where its fold
@@ -146,11 +145,10 @@ pub(crate) fn right_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
 }
 
 /// The Left Dock `width` wide (its outer width, as its edge is dragged to:
-/// kept by egui under the panel's id, `"tree"`), from the next frame.
-pub(crate) fn left_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
-    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
-    let state = egui::containers::panel::PanelState { outer_rect: rect };
-    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+/// the width chosen, `Settings::left_dock_width`), from the next frame,
+/// where the window has the room.
+pub(crate) fn left_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.left_dock_width = Some(width.round() as u32);
 }
 
 /// A scratch user folder for the game: `dir`'s `user`, with `subfolders`

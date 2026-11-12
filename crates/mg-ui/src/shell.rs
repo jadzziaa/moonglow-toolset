@@ -34,9 +34,14 @@
 //! Dock (each the whole height between the bars), the Bottom Dock (under
 //! the editor area only), and the editor area in what is left. The panels
 //! keep the ids the window's panes had (`"tree"`, `"log"`), so the widths
-//! and heights eframe kept for them carry over; the Right Dock's width is
-//! kept under an id of its own ([`RIGHT_DOCK_ID`]: the palettes' pane was
-//! a share of the editor area, kept for no run after). `Settings::hide_tree`
+//! and heights eframe kept for them carry over, taken once as the sizes
+//! chosen; the Right Dock's panel has an id of its own ([`RIGHT_DOCK_ID`]:
+//! the palettes' pane was a share of the editor area, kept for no run
+//! after). The size each dock was given (its edge dragged) is kept apart
+//! from the size it is drawn at (`Settings::left_dock_width`,
+//! `right_dock_width`, `bottom_dock_height`; [`chosen_size`]): drawn held
+//! to what the window allows, a dock is as large again when the window
+//! is. `Settings::hide_tree`
 //! is "the Left Dock folded", `Settings::hide_palettes` "the Right Dock
 //! folded" and `Settings::hide_log` "the Bottom Dock closed".
 //!
@@ -182,15 +187,16 @@ impl Panel {
     /// open; the resource browser a module open, or (without one) once it
     /// was asked for (Tools › Resource Browser), for the run; the palettes
     /// the game's data read and a module open (as the palettes' pane came
-    /// with a module), or (without one) once asked for (Tools › Palettes:
-    /// the game's standard palettes), for the run, unless a test turned
-    /// it off (`Moonglow::palette_dock`).
+    /// with a module), or (without either) once asked for (Tools ›
+    /// Palettes: the game's standard palettes, or with no game data read
+    /// the panel saying so, as the palettes' pane did), for the run, unless
+    /// a test turned it off (`Moonglow::palette_dock`).
     pub(crate) fn available(self, app: &Moonglow) -> bool {
         match self {
             Panel::Module => app.ws.is_some(),
             Panel::Resources => app.ws.is_some() || app.resources_alone,
             Panel::Palette => {
-                app.palette_dock && app.game.is_some() && (app.ws.is_some() || app.palettes_alone)
+                app.palette_dock && ((app.game.is_some() && app.ws.is_some()) || app.palettes_alone)
             }
         }
     }
@@ -234,14 +240,14 @@ pub(crate) fn left_shown(app: &Moonglow) -> Option<Panel> {
 /// The Left Dock's name: its tab bar's and, folded, its strip's group.
 pub(crate) const LEFT_DOCK: &str = "Left Dock";
 /// The Right Dock's name: its tab bar's and, folded, its strip's group.
-pub(crate) const RIGHT_DOCK: &str = "Right Dock";
+pub const RIGHT_DOCK: &str = "Right Dock";
 /// The Right Dock's panel's id, under which egui keeps its width (from
 /// run to run, as eframe keeps egui's memory). Its own: no other panel or
 /// area of the window is named so.
 pub(crate) const RIGHT_DOCK_ID: &str = "right-dock";
 /// The Right Dock's least width (`Narrow.png`'s 280): the palette's type
 /// strip in two rows, its list's toolbar on one.
-pub(crate) const RIGHT_DOCK_LEAST: f32 = kit::RIGHT_DOCK_NARROW;
+pub const RIGHT_DOCK_LEAST: f32 = kit::RIGHT_DOCK_NARROW;
 /// The Bottom Dock's name: its tab bar's group.
 pub(crate) const BOTTOM_DOCK: &str = "Bottom Dock";
 /// The Test Module arrow's name (it opens the menu of the other ways to
@@ -598,6 +604,68 @@ fn module_name(path: &std::path::Path) -> String {
     name.map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 
+/// The size of the dock whose egui panel is `id` as the builder chose it
+/// (`kept`, one of `Settings::left_dock_width`, `right_dock_width` and
+/// `bottom_dock_height`), along `axis` (0 a width, 1 a height): where none
+/// is chosen yet, the size egui kept for the panel (in an earlier run,
+/// before the chosen sizes were kept apart from those drawn), taken once,
+/// else `default`.
+pub(crate) fn chosen_size(
+    ctx: &egui::Context,
+    kept: &mut Option<u32>,
+    id: &str,
+    axis: usize,
+    default: f32,
+) -> f32 {
+    let size = *kept.get_or_insert_with(|| {
+        let was = egui::containers::panel::PanelState::load(ctx, egui::Id::new(id));
+        let size = was.map_or(default, |s| s.size()[axis]);
+        size.round().max(0.0) as u32
+    });
+    size as f32
+}
+
+/// Has egui draw the panel `id` `size` points along `axis` at this frame
+/// (the chosen size held to what the window allows): egui draws a panel
+/// at the size it kept for it, and keeps the size it drew, so a window
+/// made smaller would otherwise leave the dock as small as it was drawn
+/// there, for good.
+fn draw_at(ctx: &egui::Context, id: &str, axis: usize, size: f32) {
+    use egui::containers::panel::PanelState;
+    let id = egui::Id::new(id);
+    let mut state = PanelState::load(ctx, id).unwrap_or(PanelState {
+        outer_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(size)),
+    });
+    if (state.size()[axis] - size).abs() > 0.01 {
+        // (Where it was: only its size is read.)
+        let r = &mut state.outer_rect;
+        if axis == 0 {
+            r.max.x = r.min.x + size
+        } else {
+            r.max.y = r.min.y + size
+        }
+        ctx.data_mut(|d| d.insert_persisted(id, state));
+    }
+}
+
+/// Says of a dock's panel (`ui`, the one its contents are laid out in)
+/// that it is a pane, for a screen reader: everything the dock draws is
+/// under it (tests find a dock's widgets so, wherever they are drawn).
+fn dock_pane(ui: &Ui) {
+    ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+        node.set_role(egui::accesskit::Role::Pane);
+    });
+}
+
+/// Whether the edge of the panel `id` is being dragged, or was let go of,
+/// at this frame (egui then draws the panel as large as the pointer asks,
+/// within its range): read before the panel is drawn, as egui reads it.
+/// (egui's resize handle is the panel's id with `"__resize"`.)
+fn edge_dragged(ctx: &egui::Context, id: &str) -> bool {
+    let handle = egui::Id::new(id).with("__resize");
+    ctx.read_response(handle).is_some_and(|r| r.dragged() || r.drag_stopped())
+}
+
 /// The Left Dock (`Panel::left("tree")`), with a module open: its tab bar
 /// (the Module tab; the Module panel's Module Properties, New Area, Expand
 /// All and Collapse All, and the fold button at its right), the Module
@@ -684,12 +752,19 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             _ => i.pointer.hover_pos().is_some_and(|p| fold.contains(p)),
         })
     });
+    // Drawn at the width chosen, held to what the window allows; the
+    // width chosen changes only as the edge is dragged.
+    let range = LEFT_DOCK_LEAST..=(window.x * 0.4).max(LEFT_DOCK_LEAST);
+    let wide = chosen_size(&ctx, &mut app.settings.left_dock_width, "tree", 0, metrics::LEFT_DOCK);
+    draw_at(&ctx, "tree", 0, wide.clamp(*range.start(), *range.end()));
+    let dragged = edge_dragged(&ctx, "tree");
     let shown = egui::Panel::left("tree")
         .resizable(!on_button)
         .default_size(metrics::LEFT_DOCK)
-        .size_range(LEFT_DOCK_LEAST..=(window.x * 0.4).max(LEFT_DOCK_LEAST))
+        .size_range(range)
         .frame(egui::Frame::new().fill(t.panel))
         .show(ui, |ui| {
+            dock_pane(ui);
             let pane = ui.max_rect();
             let mut tab = held.iter().position(|p| *p == front).unwrap_or(0);
             let keymap = &app.keymap;
@@ -722,6 +797,9 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             (bar.inner, chosen)
         });
     app.tree_width = Some(shown.response.rect.width());
+    if dragged {
+        app.settings.left_dock_width = Some(shown.response.rect.width().round() as u32);
+    }
     let (((clicked, _), browser_asked), chosen) = shown.inner;
     // (Its fold button beside its inner edge, half way down, the line
     // along the edge the dock's: after the dock's own controls for Tab.)
@@ -862,12 +940,25 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let buttons = 2.0 * kit::EDGE_FOLD_WIDTH;
     let room = (ui.available_rect_before_wrap().width() - buttons).max(0.0);
     let least = RIGHT_DOCK_LEAST.min(room);
+    let range = least..=(window.x * 0.4).max(least).min(room.max(least));
+    // (Drawn at the width chosen, held to what the window allows: as the
+    // Left Dock.)
+    let wide = chosen_size(
+        &ctx,
+        &mut app.settings.right_dock_width,
+        RIGHT_DOCK_ID,
+        0,
+        metrics::RIGHT_DOCK,
+    );
+    draw_at(&ctx, RIGHT_DOCK_ID, 0, wide.clamp(*range.start(), *range.end()));
+    let dragged = edge_dragged(&ctx, RIGHT_DOCK_ID);
     let shown = egui::Panel::right(RIGHT_DOCK_ID)
         .resizable(!on_button)
         .default_size(metrics::RIGHT_DOCK.min(room))
-        .size_range(least..=(window.x * 0.4).max(least).min(room.max(least)))
+        .size_range(range)
         .frame(egui::Frame::new().fill(t.panel))
         .show(ui, |ui| {
+            dock_pane(ui);
             let pane = ui.max_rect();
             // (The pane last clicked in, whose selection a plugin's
             // command from the Plugins menu or a key runs on.)
@@ -889,8 +980,15 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
             let margin = Margin { left: 8, right: 8, top: 6, bottom: 4 };
             egui::Frame::new().inner_margin(margin).show(ui, |ui| {
                 ui.set_min_size(ui.available_size());
+                // (Laid out in the dock's room and cut at its edges: a
+                // widget wider than the dock never widens it, which would
+                // push its edge past the window's and draw the editor area
+                // over it.)
+                let room = ui.available_rect_before_wrap();
+                let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room));
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
                 match front {
-                    Panel::Palette => crate::palette_view::ui(app, ui),
+                    Panel::Palette => crate::palette_view::ui(app, &mut body),
                     // (Not the Right Dock's.)
                     Panel::Module | Panel::Resources => {}
                 }
@@ -898,6 +996,9 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
             chosen
         });
     let dock = shown.response.rect;
+    if dragged {
+        app.settings.right_dock_width = Some(dock.width().round() as u32);
+    }
     app.right_rect = Some(dock);
     app.right_fold = Some(kit::edge_fold_rect_beside(dock.left(), dock.y_range(), Side::Right));
     let fold = app.right_fold.is_some_and(|r| edge_fold(app, ui, r, Side::Right, true));
@@ -931,12 +1032,20 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
     ];
     let tips: Vec<String> =
         buttons.iter().map(|b| format!("{}{}", b.3, key_note(app, &ctx, b.0))).collect();
-    let chosen = egui::Panel::bottom("log")
+    // (Drawn at the height chosen, held to what the window allows: as the
+    // side docks' widths.)
+    let range = least..=(window.y * 0.5).max(least);
+    let high =
+        chosen_size(&ctx, &mut app.settings.bottom_dock_height, "log", 1, metrics::BOTTOM_DOCK);
+    draw_at(&ctx, "log", 1, high.clamp(*range.start(), *range.end()));
+    let dragged = edge_dragged(&ctx, "log");
+    let shown = egui::Panel::bottom("log")
         .resizable(true)
         .default_size(metrics::BOTTOM_DOCK)
-        .size_range(least..=(window.y * 0.5).max(least))
+        .size_range(range)
         .frame(egui::Frame::new().fill(t.panel))
         .show(ui, |ui| {
+            dock_pane(ui);
             let mut tab = 0;
             let bar =
                 DockTabs::new(BOTTOM_DOCK).with(DockTab::new("Log")).show(ui, &mut tab, |ui| {
@@ -953,9 +1062,11 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             let margin = Margin { left: 8, right: 8, top: 4, bottom: 4 };
             egui::Frame::new().inner_margin(margin).show(ui, |ui| app.log_ui(ui));
             bar.inner
-        })
-        .inner;
-    if let Some(id) = chosen {
+        });
+    if dragged {
+        app.settings.bottom_dock_height = Some(shown.response.rect.height().round() as u32);
+    }
+    if let Some(id) = shown.inner {
         id.run(app, &ctx);
     }
 }

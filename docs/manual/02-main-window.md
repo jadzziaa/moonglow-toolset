@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T12:45:13Z }
 ---
 
 # The main window
@@ -20,7 +20,8 @@ unsaved changes, and the game's folder at its right: rest the pointer
 on the name for the module's file, on the folder for its whole path).
 The palette comes with each module, in the Right Dock, 320 points wide
 at first. If you fold the dock away, **Tools › Palettes** brings it
-back.
+back. With no game data read (no game folder found), Tools › Palettes
+still shows the dock, its panel saying "No game data.".
 
 The Top Bar's buttons are icons: **New**, **Open** and **Save** after
 the menus, then **Undo** and **Redo**; at its right end **Compile**,
@@ -483,7 +484,12 @@ its edge and a button for its panel (**Palette**). It holds the
 palettes, which stay there: they can no longer be dragged into the
 middle, to the left or into a window of their own. The **log** opens and closes by its switch, **Log**, at
 the left of the Status Bar, lit while the log is open; it comes back as
-high as it was. What is folded stays so the next time Moonglow starts.
+high as it was. What is folded stays so the next time Moonglow starts,
+and so do the docks' sizes. In a window too small for a dock's size it
+is drawn smaller (a side dock at most two fifths of the window, the log
+at most half its height, and in the narrowest windows the Right Dock
+narrower than 280 so as to stay inside), and it is as large again when
+the window is; only dragging its edge changes the size it keeps.
 **View › Reset Layout** shows all three docks at the sizes they have at
 first.
 

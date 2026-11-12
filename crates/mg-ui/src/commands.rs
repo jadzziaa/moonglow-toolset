@@ -724,9 +724,12 @@ impl Id {
             | Id::FullScreen
             | Id::NextTab
             | Id::PreviousTab => true,
-            // (The Left Dock's panes too: the Resources panel without a
-            // module.)
-            Id::NextPane | Id::PreviousPane => open || crate::shell::left_shown(app).is_some(),
+            // (The docks' panels too: the Resources panel or the Palette
+            // panel without a module.)
+            Id::NextPane | Id::PreviousPane => {
+                open || crate::shell::left_shown(app).is_some()
+                    || crate::shell::right_shown(app).is_some()
+            }
             Id::ViewLog | Id::ResetLayout => true,
             Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
             // (Whenever the Left Dock holds a panel: its Resources panel

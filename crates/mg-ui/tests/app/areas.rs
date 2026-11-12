@@ -451,12 +451,14 @@ fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
         h.state_mut().settings.toolbar_icons_only = icons_only;
         for width in (640..=1600).step_by(4) {
             h.set_size(egui::vec2(width as f32, 800.0));
-            // (Under 760 the Left Dock and the Right Dock, at its least
-            // width, 280, leave the editor area less than the toolbar's
-            // widest control: the Left Dock folded there, as the shell's
-            // yields fold it in narrow windows, M3 T14. Before the Right
-            // Dock, M3 T5, the palettes' pane shared the editor area.)
-            h.state_mut().settings.hide_tree = width < 760;
+            // (Under 772 the Left Dock and the Right Dock, at its 320 held
+            // to two fifths of the window, leave the editor area less than
+            // the toolbar's widest control: the Left Dock folded there, as
+            // the shell's yields fold it in narrow windows, M3 T14. Before
+            // the Right Dock, M3 T5, the palettes' pane shared the editor
+            // area; until T5's review the Right Dock stayed at the 280 the
+            // narrower windows before had drawn it at, and 760 was enough.)
+            h.state_mut().settings.hide_tree = width < 772;
             // (A dropdown's room is the one it took the frame before: run
             // until the toolbar is laid out the same twice, with a deadline.)
             let started = std::time::Instant::now();

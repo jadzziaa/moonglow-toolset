@@ -774,7 +774,7 @@ fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
             settle(&mut h);
             let mut icons_seen = Vec::new();
             for dock in 190..=most {
-                left_dock_width(&h, dock as f32);
+                left_dock_width(&mut h, dock as f32);
                 let mut each = Vec::new();
                 for _ in 0..2 {
                     h.run();
@@ -1295,4 +1295,174 @@ fn at_760_wide_the_bars_controls_neither_overlap_nor_leave_the_window() {
         let bottom = window.bottom() - 8.0 - mg_uikit::metrics::STATUS_BAR / 2.0;
         assert!((log.center().y - bottom).abs() <= 1.0, "{log:?}");
     }
+}
+
+/// The settings `settings` as the next run reads them: written into an
+/// eframe settings file and read back, as the desktop app does.
+fn next_run(settings: &mg_ui::Settings, name: &str) -> mg_ui::Settings {
+    let dir = mg_testkit::scratch_dir(name);
+    let file = dir.join("app.ron");
+    let map: std::collections::HashMap<String, String> =
+        [("moonglow-settings".to_string(), settings.saved_text())].into_iter().collect();
+    std::fs::write(&file, ron::to_string(&map).unwrap()).unwrap();
+    let read = mg_ui::Settings::read_eframe(&file, "moonglow-settings");
+    assert!(read.unread.is_empty() && read.unreadable.is_none(), "{:?}", read.problem());
+    Moonglow::with_settings(read.settings, Box::new(NoDialogs::default())).settings
+}
+
+/// The sample module open (no game data, in the scratch folder `name`),
+/// in a window `width` by `height`, with `settings`.
+fn module_window(
+    name: &str,
+    settings: mg_ui::Settings,
+    width: f32,
+    height: f32,
+) -> Harness<'static, Moonglow> {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings = settings;
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, width, height);
+    settle(&mut h);
+    h
+}
+
+/// The Left Dock's width now: from the window's frame to its inner edge.
+fn left_width(h: &Harness<'_, Moonglow>) -> f32 {
+    fold_edge(h) - (h.ctx.content_rect().left() + TEST_FRAME / 2.0)
+}
+
+/// The width the Left Dock is given is kept apart from the width it is
+/// drawn at: dragged wider, it is narrower in a window too narrow for it
+/// (900 wide, then 700) and as wide again when the window is wide again
+/// (it stayed as narrow as the narrowest window, for good); dragged in a
+/// narrow window, the width dragged to is kept when the window widens;
+/// the width chosen is saved and read back by the next run, which opens
+/// in a narrow window without losing it.
+#[test]
+fn the_left_dock_keeps_its_width_through_a_narrow_window() {
+    let mut h = module_window("ui-left-dock-width", mg_ui::Settings::default(), 1400.0, 800.0);
+    let size = |h: &mut Harness<'_, Moonglow>, width: f32| {
+        h.set_size(egui::vec2(width, 800.0));
+        settle(h);
+    };
+    let first = left_width(&h);
+    let y = h.ctx.content_rect().top() + 150.0;
+    let from = egui::pos2(fold_edge(&h) + 1.0, y);
+    drag(&mut h, from, egui::vec2(150.0, 0.0));
+    let wide = left_width(&h);
+    assert!((wide - first - 150.0).abs() < 2.0, "dragged: {first} -> {wide}");
+    assert_eq!(h.state().settings.left_dock_width, Some(wide.round() as u32));
+    size(&mut h, 900.0);
+    let at_900 = left_width(&h);
+    assert!(at_900 < wide - 40.0, "narrower at 900: {at_900}");
+    size(&mut h, 700.0);
+    let at_700 = left_width(&h);
+    assert!(at_700 < at_900 - 40.0, "narrower still at 700: {at_700}");
+    size(&mut h, 1400.0);
+    assert!((left_width(&h) - wide).abs() < 1.0, "{wide} again, not {}", left_width(&h));
+    // Dragged while the window is narrow: the width dragged to, kept.
+    size(&mut h, 900.0);
+    let from = egui::pos2(fold_edge(&h) + 1.0, y);
+    drag(&mut h, from, egui::vec2(-40.0, 0.0));
+    let dragged = left_width(&h);
+    assert!((dragged - (at_900 - 40.0)).abs() < 2.0, "dragged narrow: {at_900} -> {dragged}");
+    size(&mut h, 1400.0);
+    assert!((left_width(&h) - dragged).abs() < 1.0, "{dragged} kept, not {}", left_width(&h));
+    // Saved, and read back by the next run, in a window too narrow for it.
+    let read = next_run(&h.state().settings, "ui-left-dock-width-again");
+    assert_eq!(read.left_dock_width, Some(dragged.round() as u32));
+    let mut h = module_window("ui-left-dock-width-next", read, 700.0, 800.0);
+    assert!(left_width(&h) < dragged - 20.0, "held to the narrow window: {}", left_width(&h));
+    assert_eq!(h.state().settings.left_dock_width, Some(dragged.round() as u32), "not lost");
+    size(&mut h, 1400.0);
+    assert!((left_width(&h) - dragged).abs() < 1.0, "{dragged} again, not {}", left_width(&h));
+}
+
+/// A Left Dock width egui kept from an earlier run (under the panel's id,
+/// `"tree"`, before the width chosen was kept apart) is taken as the
+/// width chosen, once: drawn so where the window has the room, kept as it
+/// is in a window without it; and View › Reset Layout puts the dock back
+/// at its first width, whatever the window.
+#[test]
+fn a_width_kept_by_an_earlier_run_is_the_left_dock_s() {
+    let dir = mg_testkit::scratch_dir("ui-left-dock-width-before");
+    let path = sample_module(&dir);
+    for window in [1400.0, 700.0] {
+        let mut app = app_with(Vec::new());
+        app.settings.no_last_area = true;
+        assert_eq!(app.settings.left_dock_width, None);
+        app.open_module(&path);
+        let mut h = harness(app, window, 800.0);
+        // (Settings with no width chosen, and the width egui kept for the
+        // panel: as an earlier run left them. The harness has drawn a
+        // first frame, which took the first width: given up.)
+        h.state_mut().settings.left_dock_width = None;
+        let rect = egui::Rect::from_min_size(egui::pos2(8.0, 40.0), egui::vec2(430.0, 600.0));
+        let state = egui::containers::panel::PanelState { outer_rect: rect };
+        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+        settle(&mut h);
+        assert_eq!(h.state().settings.left_dock_width, Some(430), "at {window}");
+        if window > 1000.0 {
+            assert!((left_width(&h) - 430.0).abs() < 1.0, "{}", left_width(&h));
+        } else {
+            assert!(left_width(&h) < 300.0, "held to the window at {window}: {}", left_width(&h));
+        }
+        // Reset Layout: its first width, kept so when the window widens.
+        menu_command(&mut h, "View", "Reset Layout");
+        settle(&mut h);
+        h.set_size(egui::vec2(1400.0, 800.0));
+        settle(&mut h);
+        let want = mg_uikit::metrics::LEFT_DOCK;
+        assert!((left_width(&h) - want).abs() < 1.0, "{} after Reset Layout", left_width(&h));
+    }
+}
+
+/// The Bottom Dock's height, as the side docks' widths: raised by its
+/// edge, it is lower in a window too low for it (500 high, then 400) and
+/// as high again when the window is high again; raised in a low window,
+/// the height dragged to is kept; saved and read back by the next run.
+#[test]
+fn the_bottom_dock_keeps_its_height_through_a_low_window() {
+    let mut h = module_window("ui-bottom-dock-height", mg_ui::Settings::default(), 1000.0, 900.0);
+    let size = |h: &mut Harness<'_, Moonglow>, height: f32| {
+        h.set_size(egui::vec2(1000.0, height));
+        settle(h);
+    };
+    let high = |h: &Harness<'_, Moonglow>| {
+        let tab = h.get_by_label("Bottom Dock").get_by_label("Log").rect().top();
+        h.get_by_label("Status Bar").get_by_label("Log").rect().top() - tab
+    };
+    let edge = |h: &Harness<'_, Moonglow>| {
+        h.get_by_label("Bottom Dock").get_by_label("Log").rect().top() - 1.0
+    };
+    let first = high(&h);
+    let from = egui::pos2(500.0, edge(&h));
+    drag(&mut h, from, egui::vec2(0.0, -200.0));
+    let raised = high(&h);
+    assert!((raised - first - 200.0).abs() < 3.0, "raised: {first} -> {raised}");
+    let kept = h.state().settings.bottom_dock_height.expect("the height chosen");
+    size(&mut h, 500.0);
+    let at_500 = high(&h);
+    assert!(at_500 < raised - 60.0, "lower at 500: {at_500}");
+    size(&mut h, 400.0);
+    let at_400 = high(&h);
+    assert!(at_400 < at_500 - 30.0, "lower still at 400: {at_400}");
+    size(&mut h, 900.0);
+    assert!((high(&h) - raised).abs() < 1.0, "{raised} again, not {}", high(&h));
+    assert_eq!(h.state().settings.bottom_dock_height, Some(kept));
+    // Lowered while the window is low: the height dragged to, kept.
+    size(&mut h, 500.0);
+    let from = egui::pos2(500.0, edge(&h));
+    drag(&mut h, from, egui::vec2(0.0, 40.0));
+    let dragged = high(&h);
+    assert!((dragged - (at_500 - 40.0)).abs() < 3.0, "lowered: {at_500} -> {dragged}");
+    size(&mut h, 900.0);
+    assert!((high(&h) - dragged).abs() < 1.0, "{dragged} kept, not {}", high(&h));
+    let read = next_run(&h.state().settings, "ui-bottom-dock-height-again");
+    assert_eq!(read.bottom_dock_height, h.state().settings.bottom_dock_height);
+    let h = module_window("ui-bottom-dock-height-next", read, 1000.0, 900.0);
+    assert!((high(&h) - dragged).abs() < 1.0, "{dragged} in the next run, not {}", high(&h));
 }

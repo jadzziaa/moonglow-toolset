@@ -71,7 +71,7 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     let mut counts = Vec::new();
     counts.push(("main window", walk(&mut h, "main window", &mut seen, &mut wrong)));
     // The Left Dock at its least width: its tabs as icons, on both tabs.
-    left_dock_width(&h, 190.0);
+    left_dock_width(&mut h, 190.0);
     settle(&mut h);
     let before = seen.len();
     counts.push(("Left Dock", walk(&mut h, "Left Dock (Module)", &mut seen, &mut wrong)));
@@ -85,7 +85,7 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
         .collect();
     assert_eq!(tabs.len(), 2, "the icon tabs walked: {:?}", &seen[before..]);
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
-    left_dock_width(&h, 260.0);
+    left_dock_width(&mut h, 260.0);
     settle(&mut h);
     // The editors, each opened in turn (and closed after: one at a time
     // in sight, none over another's buttons).

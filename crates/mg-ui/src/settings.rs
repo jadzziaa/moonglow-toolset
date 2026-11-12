@@ -676,6 +676,18 @@ pub struct Settings {
     pub hide_tree: bool,
     pub hide_log: bool,
     pub hide_palettes: bool,
+    /// The docks' sizes as the builder chose them, in points: the Left
+    /// and Right Docks' widths and the Bottom Dock's height, as their edge
+    /// was dragged to (or as they are at first: View › Reset Layout puts
+    /// them back so). Each is drawn held to what the window allows, and
+    /// kept as chosen while the window is too small for it, so that the
+    /// dock is as large again when the window is. `None`: not chosen yet,
+    /// the size egui kept for the dock's panel in an earlier run taken
+    /// once, else the size at first (`shell::chosen_size`). Whole points,
+    /// as the windows' sizes are kept.
+    pub left_dock_width: Option<u32>,
+    pub right_dock_width: Option<u32>,
+    pub bottom_dock_height: Option<u32>,
     /// The area view's Fade Geometry (0 never, 1 in object mode only,
     /// 2 always), in views opened from now on.
     pub fade_geometry: u8,

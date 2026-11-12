@@ -421,14 +421,14 @@ fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
     // From the Palette tab, Tab by Tab: each control in the dock until the
     // fold button.
     h.get_by_label("Right Dock").get_by_label("Palette").focus();
-    h.run_steps(2);
+    settle(&mut h);
     let fold_is_focused = |h: &Harness<'_, Moonglow>| {
         h.query_by_label("Fold the Right Dock").is_some_and(|n| n.accesskit_node().is_focused())
     };
     let mut steps = 0;
     while !fold_is_focused(&h) {
         h.key_press(egui::Key::Tab);
-        h.run_steps(2);
+        settle(&mut h);
         steps += 1;
         assert!(steps < 200, "never reached the fold button");
         let focused = h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id));
@@ -444,14 +444,14 @@ fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
     assert!(steps > 3, "the dock's controls first: {steps}");
     // On from it, out of the dock, and Enter on it folds the dock.
     h.key_press(egui::Key::Tab);
-    h.run_steps(2);
+    settle(&mut h);
     let next = h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id));
     assert!(next.is_some_and(|r| r.rect != fold), "Tab goes on past it");
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
-    h.run_steps(2);
+    settle(&mut h);
     assert!(fold_is_focused(&h), "Shift+Tab back to it");
     h.key_press(egui::Key::Enter);
-    h.run_steps(3);
+    settle(&mut h);
     assert!(h.state().settings.hide_palettes, "folded by Enter");
 }
 
@@ -637,17 +637,24 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
 
 /// The palettes are the Right Dock's Palette panel, fixed there (the
 /// owner's ruling R5 of 2026-11-11), not a tab: Tools › Palettes shows the
-/// panel and puts no tab in the editor area, so there is no tab of theirs
-/// to drag into the middle (GitHub issue 20's drop, retired with
-/// `the_palettes_dropped_on_the_middle_join_its_tabs`), nor a pane of
-/// theirs for tabs to open in (`tabs_open_beside_the_palette_not_in_its_pane`,
-/// retired). The editor area holds the editors alone: the area's pane is
-/// the main window's only one, and tabs opened go to it or to windows.
+/// panel in the Right Dock and puts no tab in the editor area, so there is
+/// no tab of theirs to drag into the middle (GitHub issue 20's drop,
+/// retired with `the_palettes_dropped_on_the_middle_join_its_tabs`), nor a
+/// pane of theirs for tabs to open in
+/// (`tabs_open_beside_the_palette_not_in_its_pane`, retired). The editor
+/// area holds the editors alone: the area's pane is the main window's
+/// only one, and tabs opened go to it or to windows; the module's open
+/// tabs are kept without a tab or a pane of the palettes. (The kit's
+/// tabs, the dock's, are not egui_dock's and cannot be dragged at all.)
 #[test]
 fn the_palette_is_a_panel_not_a_tab() {
     let Some((mut h, area)) = area_harness("palette-panel") else { return };
+    let path = h.state().module_path().expect("saved");
+    let kept = mg_testkit::scratch_dir("ui-palette-panel-tabs");
+    h.state_mut().open_tabs_dir = Some(kept.clone());
     fold_palette(h.state_mut());
     settle(&mut h);
+    assert!(h.query_by_label("Palette types").is_none(), "folded");
     let leaves = |h: &Harness<'_, Moonglow>| -> Vec<Vec<Tab>> {
         h.state().dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect()
     };
@@ -655,8 +662,16 @@ fn the_palette_is_a_panel_not_a_tab() {
     menu_command(&mut h, "Tools", "Palettes");
     settle(&mut h);
     assert!(palette_shown(h.state()));
-    h.get_by_label("Palette types");
     assert_eq!(leaves(&h), before, "the editor area's panes and tabs as they were");
+    // The palette drawn in the Right Dock, beside the editor area.
+    let dock = right_dock_rect(&h);
+    let types = h.get_by_label("Palette types").get_by_label("Tiles").rect();
+    assert!(dock.contains_rect(types), "the palette in the Right Dock: {types:?} {dock:?}");
+    let editor = (h.state().dock.iter_leaves())
+        .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
+        .map(|(_, l)| l.rect)
+        .unwrap();
+    assert!(editor.right() <= dock.left(), "the editor area beside it: {editor:?} {dock:?}");
     // Tools opened beside it go to the editor area or windows: one pane
     // of the main window, the area's.
     let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
@@ -670,18 +685,15 @@ fn the_palette_is_a_panel_not_a_tab() {
         .collect();
     assert_eq!(main.len(), 1, "{main:?}");
     assert!(main[0].contains(&Tab::Area(area)), "{main:?}");
-    // (The dock's tab bar is the kit's, not egui_dock's: nothing of it
-    // is a tab of the editor area to drag.)
-    let tab = h.get_by_label("Right Dock").get_by_label("Palette").rect();
-    let middle = (h.state().dock.iter_leaves())
-        .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
-        .map(|(_, l)| l.rect)
-        .unwrap();
-    drag(&mut h, tab.center(), middle.center());
+    // The open tabs kept with the module: the area and the tools, no tab
+    // or pane of the palettes.
+    h.state_mut().actions.push(mg_ui::Action::Close);
     settle(&mut h);
-    assert!(palette_shown(h.state()), "the panel where it was");
-    let main = (h.state().dock.iter_leaves()).filter(|(p, _)| p.surface.is_main()).count();
-    assert_eq!(main, 1);
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains(&format!("area:{area}")) && text.contains("factions"), "{text}");
+    assert!(!text.contains("\"palettes\""), "no palettes' pane: {text}");
+    assert!(!text.contains("\"palette\""), "no palettes' tab: {text}");
 }
 
 /// GitHub issue 21: a tool's tab dropped on a side of the middle pane is
@@ -1067,7 +1079,7 @@ fn views_draw_nothing_over_anything_else() {
         // spilled a blueprint type's list toolbar under its fold button).
         show_palette(h.state_mut());
         look(&mut h, "Palettes");
-        right_dock_width(&h, 280.0);
+        right_dock_width(&mut h, 280.0);
         look(&mut h, "Palettes at 280");
         h.state_mut().palette.tiles = false;
         look(&mut h, "Palettes on a blueprint type at 280");
@@ -1295,7 +1307,10 @@ fn tabs_app(name: &str) -> (std::path::PathBuf, Moonglow, std::path::PathBuf) {
     m.set(ResKey::parse("bye", ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
     m.save().unwrap();
     let mut app = app_with(Vec::new());
-    app.palette_dock = false;
+    // (The Right Dock beside the tabs, as Tools › Palettes shows it: with
+    // no game data its Palette panel says so. The tabs come back with
+    // the dock shown, as they did with the palettes' pane.)
+    show_palette(&mut app);
     app.open_tabs_dir = Some(dir.join("open-tabs"));
     (path, app, dir.join("open-tabs"))
 }
@@ -1384,7 +1399,7 @@ fn the_talk_table_opens_again_on_its_line() {
     let session = || {
         let mut app = game_app(&root, Some(user.clone()));
         app.settings.no_last_area = true;
-        app.palette_dock = false;
+        // (The Right Dock shown with the module, beside the tabs.)
         app.open_tabs_dir = Some(kept.clone());
         app.open_module(&path);
         harness(app, 1100.0, 800.0)
@@ -1402,6 +1417,7 @@ fn the_talk_table_opens_again_on_its_line() {
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "open again");
     assert_eq!(h.state().talk_view.selected, Some(2), "on its line");
+    assert!(palette_shown(h.state()), "the Right Dock beside it");
 }
 
 /// Tile Properties kept with a module, still waiting for its area's view
@@ -1651,11 +1667,15 @@ fn tab_kind(tab: &Tab) -> String {
 /// in `kept`, with the module at `path` opened in its first frame.
 fn tabs_session(path: &std::path::Path, kept: &std::path::Path) -> Harness<'static, Moonglow> {
     let mut app = app_with(Vec::new());
-    app.palette_dock = false;
+    // (The Right Dock beside the tabs, as Tools › Palettes shows it: with
+    // no game data its Palette panel says so. The tabs come back with
+    // the dock shown, as they did with the palettes' pane.)
+    show_palette(&mut app);
     app.open_tabs_dir = Some(kept.to_path_buf());
     let mut h = harness(app, 1400.0, 900.0);
     h.state_mut().open_module(path);
     h.run_steps(3);
+    assert!(h.state().right_dock_rect().is_some(), "the Right Dock beside the tabs");
     h
 }
 
@@ -2212,7 +2232,10 @@ fn a_recovered_module_opens_with_its_tabs() {
         // (It "crashes": never closed.)
     }
     let mut app = app_with(Vec::new());
-    app.palette_dock = false;
+    // (The Right Dock beside the tabs, as Tools › Palettes shows it: with
+    // no game data its Palette panel says so. The tabs come back with
+    // the dock shown, as they did with the palettes' pane.)
+    show_palette(&mut app);
     app.open_tabs_dir = Some(kept);
     app.recovery_dir = Some(recovery);
     app.find_recoveries();
@@ -2223,6 +2246,7 @@ fn a_recovered_module_opens_with_its_tabs() {
     assert!(h.state().ws.as_ref().unwrap().is_modified(), "recovered");
     assert!(h.state().dock.find_tab(&hello).is_some(), "with its tabs");
     assert!(h.state().dock.find_tab(&Tab::Factions).is_some());
+    assert!(h.state().right_dock_rect().is_some(), "the Right Dock beside them");
 }
 
 /// Escape closes a model's window while the pointer is over it.

@@ -101,7 +101,7 @@ pub mod trace;
 mod transfer;
 mod tree;
 pub mod updates;
-pub use shell::{LEAST_WINDOW_SIZE, Panel};
+pub use shell::{LEAST_WINDOW_SIZE, Panel, RIGHT_DOCK, RIGHT_DOCK_LEAST};
 pub use tree::TreeAt;
 pub mod var_sets;
 pub mod widgets;
@@ -829,9 +829,10 @@ pub struct Moonglow {
     /// The Right Dock's panel chosen last (its tab selected), for the run:
     /// shown where the dock holds it (`shell::right_shown`).
     pub(crate) right_panel: Panel,
-    /// The Palette panel was asked for with no module open (Tools ›
-    /// Palettes): from then on the Right Dock holds it with no module open
-    /// too, the game's standard palettes in it, for the run.
+    /// The Palette panel was asked for with no module open, or with no
+    /// game data read (Tools › Palettes): from then on the Right Dock holds
+    /// it so too, the game's standard palettes in it (or without the
+    /// game's data, the words saying so), for the run.
     pub(crate) palettes_alone: bool,
     /// Whether the Right Dock may hold the Palette panel (true). Tests of
     /// other windows turn it off, so that the dock is not drawn beside
@@ -1773,6 +1774,12 @@ impl Moonglow {
         shell::status_bar(self, ui);
         shell::left_dock(self, ui);
         shell::right_dock(self, ui);
+        // (The Bottom Dock and the editor area drawn within the room the
+        // side docks leave them: in a window too narrow for what they
+        // hold, cut there, never drawn over a dock. Until the shell yields,
+        // M3 T14, the least window leaves them about 24 points.)
+        let whole_clip = ui.clip_rect();
+        ui.set_clip_rect(whole_clip.intersect(ui.available_rect_before_wrap()));
         shell::bottom_dock(self, ui);
         self.heard = None;
         // The options' draft shows in its tab.
@@ -1836,6 +1843,7 @@ impl Moonglow {
             dock_look::marks(ui.ctx(), &self.dock, &self.tab_buttons);
             self.window_bars(ui);
         });
+        ui.set_clip_rect(whole_clip);
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
@@ -2194,7 +2202,9 @@ impl Moonglow {
                 self.settings.hide_tree = false;
             }
             shell::Dock::Right => {
-                if panel == Panel::Palette && self.ws.is_none() {
+                // (Without a module, or without the game's data, which
+                // the panel then says it lacks.)
+                if panel == Panel::Palette && (self.ws.is_none() || self.game.is_none()) {
                     self.palettes_alone = true;
                 }
                 // (Asked for, it is shown: a test that kept the dock from
@@ -2256,6 +2266,12 @@ impl Moonglow {
         self.settings.hide_tree = false;
         self.settings.hide_log = false;
         self.settings.hide_palettes = false;
+        // (Chosen anew, not left to be taken from what egui kept: drawn in
+        // a small window, that is smaller than chosen.)
+        let size = |s: f32| Some(s.round() as u32);
+        self.settings.left_dock_width = size(mg_uikit::metrics::LEFT_DOCK);
+        self.settings.right_dock_width = size(mg_uikit::metrics::RIGHT_DOCK);
+        self.settings.bottom_dock_height = size(mg_uikit::metrics::BOTTOM_DOCK);
         self.settings.window_places.clear();
     }
 

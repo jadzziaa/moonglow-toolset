@@ -2703,22 +2703,31 @@ fn w_a_s_d_drive_the_camera_like_the_arrows() {
     hold(&mut h, egui::Key::W, none);
     let by_w = target(&h) - start;
     assert!((by_w - by_arrow).length() < 0.05 * by_arrow.length(), "{by_w} like {by_arrow}");
-    // Ctrl+W is not a move. (It is Close Tab: the area's, in front of the
-    // middle, which is opened again. Before the palettes were the Right
-    // Dock's panel, M3 T5, it closed the palettes' tab, the one with the
-    // focus.)
+    // Ctrl+W is not a move: it is Close Tab, and closes the tab in front,
+    // here the Faction Editor's window (before the palettes were the Right
+    // Dock's panel, M3 T5, the palettes' tab), the area's view left open
+    // under the pointer, its camera where it was.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    settle(&mut h);
+    // (Its window over the Left Dock, clear of the view, and in front: as
+    // after a click in it.)
+    own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 420.0), egui::vec2(240.0, 300.0));
+    let at = h.state().dock.find_tab(&Tab::Factions).unwrap();
+    let (surface, node) = (at.surface, at.node);
+    h.state_mut().dock.set_focused_node_and_surface(egui_dock::NodePath { surface, node });
+    h.hover_at(centre);
+    settle(&mut h);
+    assert_eq!(h.state().front_tab(), Some(Tab::Factions), "the Faction Editor in front");
     let start = target(&h);
     hold(&mut h, egui::Key::W, egui::Modifiers::COMMAND);
-    assert_eq!(target(&h), start);
-    if h.state().dock.find_tab(&Tab::Area(area)).is_none() {
-        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-        h.run_steps(3);
-        h.hover_at(centre);
-        h.run_steps(2);
-    }
+    assert!(h.state().dock.find_tab(&Tab::Factions).is_none(), "Ctrl+W closed the editor");
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area's view still open");
+    assert_eq!(target(&h), start, "Ctrl+W moved the camera");
+    // W alone still drives it as the arrow does.
     let start = target(&h);
     hold(&mut h, egui::Key::W, none);
     let by_w = target(&h) - start;
+    assert!((by_w - by_arrow).length() < 0.05 * by_arrow.length(), "{by_w} like {by_arrow}");
     // The pointer gone to the module tree: the keys still drive the view.
     h.hover_at(egui::pos2(60.0, 300.0));
     h.run_steps(2);

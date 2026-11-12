@@ -188,7 +188,7 @@ fn the_list_s_rows_fit_the_dock_at_190_260_and_500() {
     settle(&mut h);
     let mut cut = None;
     for width in [190.0, 260.0, 500.0] {
-        left_dock_width(&h, width);
+        left_dock_width(&mut h, width);
         settle(&mut h);
         // (The dock's left edge: its first tab's.)
         let bar = h.get_by_label("Left Dock").get_by_label("Resources").rect();
@@ -221,7 +221,7 @@ fn the_list_s_rows_fit_the_dock_at_190_260_and_500() {
         assert!(edge - left > width - 60.0, "{width}: the dock {} wide", edge - left);
     }
     // A cut cell's whole text in its row's tip (back at the least width).
-    left_dock_width(&h, 190.0);
+    left_dock_width(&mut h, 190.0);
     settle(&mut h);
     let row = h.get_all_by_label("portraits.2da").nth(1).unwrap().rect();
     assert!(cut.is_some());
@@ -616,7 +616,7 @@ fn the_dock_s_tabs_keep_their_form_and_place_whichever_panel_is_in_front() {
     let tabs =
         |h: &Harness<'_, Moonglow>| (dock_tab(h, "Module").rect(), dock_tab(h, "Resources").rect());
     for width in 190..=300 {
-        left_dock_width(&h, width as f32);
+        left_dock_width(&mut h, width as f32);
         let mut each = Vec::new();
         for panel in [Panel::Module, Panel::Resources] {
             h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
@@ -626,7 +626,7 @@ fn the_dock_s_tabs_keep_their_form_and_place_whichever_panel_is_in_front() {
         }
         assert_eq!(each[0], each[1], "{width}: the tabs as they were on the other panel");
     }
-    left_dock_width(&h, 220.0);
+    left_dock_width(&mut h, 220.0);
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(Panel::Module));
     settle(&mut h);
     for (name, panel) in [("Resources", Panel::Resources), ("Module", Panel::Module)] {
@@ -958,7 +958,7 @@ fn at_the_least_width_the_rows_are_told_apart_by_their_names() {
     let Some(mut h) = browser_harness("ui-panel-row-names", 1280.0, 800.0) else { return };
     show_resources(h.state_mut());
     h.state_mut().browser.filter = "nw_ch_s".into();
-    left_dock_width(&h, 190.0);
+    left_dock_width(&mut h, 190.0);
     settle(&mut h);
     let rows = painted_rows(&h);
     assert!(rows.len() > 8, "{rows:?}");
@@ -978,7 +978,7 @@ fn at_the_least_width_the_rows_are_told_apart_by_their_names() {
     let tip = tip_at(&mut h, rect).unwrap_or_default();
     assert!(tip.contains(&format!("{whole} from key:")), "{tip}");
     // At 260: the names whole, each row's layer beside it.
-    left_dock_width(&h, 260.0);
+    left_dock_width(&mut h, 260.0);
     settle(&mut h);
     let rows = painted_rows(&h);
     for row in &rows {
@@ -1012,7 +1012,7 @@ fn a_name_longer_than_its_row_is_cut_in_its_middle() {
     app.browser.filter = long.resref.to_string();
     app.browser.restype = Some(ResType::NSS);
     let mut h = harness(app, 1280.0, 800.0);
-    left_dock_width(&h, 190.0);
+    left_dock_width(&mut h, 190.0);
     settle(&mut h);
     let rows = painted_rows(&h);
     let whole = long.to_string();

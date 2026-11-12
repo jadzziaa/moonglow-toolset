@@ -747,7 +747,7 @@ fn the_module_tree_never_takes_the_window() {
     assert!(view.right() <= palette.left(), "the view beside the palettes: {view:?} {palette:?}");
     // The Right Dock dragged (or remembered) wider than the window is held
     // to two fifths of it: the area's view keeps its room.
-    right_dock_width(&h, 5000.0);
+    right_dock_width(&mut h, 5000.0);
     h.run_steps(3);
     let palette = right_dock_rect(&h);
     assert!(palette.width() <= window * 0.4 + 2.0, "the palettes: {palette:?}");
