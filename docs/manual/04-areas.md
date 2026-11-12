@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T05:11:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:07:24Z }
 ---
 
 # Areas
@@ -342,7 +342,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |
 | Ctrl + wheel, the pointer on one of them | scale their models, as in Aurora: up larger, down smaller |
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
-| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90°. Shown at once, and one step of Undo once the keys rest, however many presses (Escape drops it before then) |
+| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90°. Shown at once, and one step of Undo once the keys rest, however many presses (Escape drops it before then). Pressed while you drag the selection, the turn goes with the drag: one step as you let go, and Escape drops both |
 | G | drop them to the ground |
 | Shift+G | drop them onto the placeable below |
 | Page Up, Page Down | move them up or down to the next flat surface: a placeable's top, a floor, the ground (also a blueprint about to be placed) |

@@ -142,7 +142,27 @@ impl Moonglow {
         let soonest = if self.background_jobs { Duration::ZERO } else { Duration::from_secs(1) };
         ctx.request_repaint_after(after.max(soonest));
     }
+}
 
+/// A wait of `secs` seconds worked out from the time (so long, less what
+/// has passed): `None` for one that is over, is not a number or is too
+/// long to be a `Duration`. An odd order of events leaves such waits
+/// behind: Q or E while the selection was dragged asked for a frame 0.6 s
+/// after the key less the time since, which `Duration::from_secs_f64`
+/// refused once the drag went on longer, and 4.1.0 stopped.
+pub(crate) fn wait(secs: f64) -> Option<Duration> {
+    (secs > 0.0).then(|| Duration::try_from_secs_f64(secs).ok()).flatten()
+}
+
+/// Asks for a frame in `secs` seconds ([`wait`]); for none where there is
+/// nothing left to wait for.
+pub(crate) fn repaint_in(ctx: &egui::Context, secs: f64) {
+    if let Some(after) = wait(secs) {
+        ctx.request_repaint_after(after);
+    }
+}
+
+impl Moonglow {
     /// What of the window's own work is under way, to be taken at a later
     /// frame, in a few words (`None`: nothing): a job, a look at the
     /// module's files or the scripts it read to compile, blueprints read
@@ -383,6 +403,24 @@ mod tests {
 
     use super::*;
     use crate::Level;
+
+    /// A wait worked out from the time is one only while some is left: an
+    /// overdue, odd or endless one asks for no frame, and nothing panics.
+    #[test]
+    fn a_wait_from_the_time_is_none_when_over_odd_or_endless() {
+        assert_eq!(wait(0.25), Some(Duration::from_millis(250)));
+        assert_eq!(wait(f64::MIN_POSITIVE), Some(Duration::ZERO), "too short to count");
+        for odd in [0.0, -0.0, -0.1, -1e300, f64::NAN, -f64::NAN, f64::INFINITY, f64::NEG_INFINITY]
+        {
+            assert_eq!(wait(odd), None, "{odd}");
+        }
+        assert_eq!(wait(1e30), None, "longer than a Duration holds");
+        // (And asked of a window: no frame asked for, no panic.)
+        let ctx = egui::Context::default();
+        for secs in [-0.5, f64::NAN, f64::INFINITY, 1e30, 0.1] {
+            repaint_in(&ctx, secs);
+        }
+    }
 
     /// An application with a small module open, its jobs in the background.
     fn app(name: &str) -> Moonglow {

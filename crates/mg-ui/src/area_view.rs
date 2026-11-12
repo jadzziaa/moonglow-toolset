@@ -3774,8 +3774,7 @@ fn viewport(
         && (vp.renderer.textures_read() != view.textures_drawn
             || vp.renderer.drawn.textures_pending > 0)
     {
-        let left = (ANIMATION_STEP - s).max(0.0);
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(left));
+        crate::jobs::repaint_in(ui.ctx(), f64::from(ANIMATION_STEP - s));
     }
 
     // The scene, with the drag (or Adjust Location) applied to what it
@@ -3946,7 +3945,11 @@ fn viewport(
     // second that no one looked at, an integrated GPU's every moment).
     if animates_now(ui, app.settings.animate_unfocused, view.drawn.is_some(), pending) {
         let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+        // (Due already, or the clock odd: at once.)
+        match crate::jobs::wait(f64::from(due.min(1.0))) {
+            Some(after) => ui.ctx().request_repaint_after(after),
+            None => ui.ctx().request_repaint(),
+        }
     }
     // (The map last: over the rest, and the pointer's there.)
     minimap_overlay(app, ui, view);
@@ -6613,7 +6616,7 @@ fn wheel_scales(
             view.wheel_scale = None;
             commit_scale(app, view, &scaled);
         } else {
-            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));
+            crate::jobs::repaint_in(ui.ctx(), rest);
         }
     }
     // (With Ctrl held, egui reports the wheel as a zoom.)
@@ -7166,7 +7169,14 @@ fn commit_key_turn(app: &mut Moonglow, view: &mut AreaView, now: bool) {
 /// it, as it drops a Ctrl + wheel scaling.
 fn key_turns(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let Some(k) = &view.key_turn else { return };
-    if escaped(ui, response) {
+    // (Not while the selection is dragged: the drag's command takes it.)
+    let dragging = view
+        .drag
+        .is_some_and(|d| matches!(d, Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. }));
+    // (Escape ends a drag with the pointer led off the view too, which
+    // `escaped` doesn't see: the turn the drag carries is dropped with it,
+    // not made a command once the drag is gone.)
+    if escaped(ui, response) || (dragging && view.held.cancelled()) {
         view.key_turn = None;
         return;
     }
@@ -7180,15 +7190,15 @@ fn key_turns(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &
             _ => false,
         })
     });
-    // (Not while the selection is dragged: the drag's command takes it.)
-    let dragging = view
-        .drag
-        .is_some_and(|d| matches!(d, Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. }));
     if (rest <= 0.0 && !dragging) || k.selection != view.selection || other {
         commit_key_turn(app, view, false);
-    } else {
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));
+    } else if !dragging {
+        crate::jobs::repaint_in(ui.ctx(), rest);
     }
+    // (While dragged, no frame is asked for: the turn waits for the drag's
+    // end, which is input and has a frame of its own. A wait asked for
+    // then was the rest less the drag's length, negative once the drag
+    // went on longer, and 4.1.0 stopped at it.)
 }
 
 /// Makes Q and E's turning under way in any area a command at once:

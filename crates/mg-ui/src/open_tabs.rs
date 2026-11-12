@@ -1148,7 +1148,7 @@ impl Moonglow {
             // (Asked for again until it is due: a frame may come a little
             // early.)
             match 1.0 - (now - moved) {
-                left if left > 0.0 => ctx.request_repaint_after_secs(left as f32),
+                left if left > 0.0 => crate::jobs::repaint_in(ctx, left),
                 _ => {
                     self.open_tabs.moved = None;
                     self.keep_open_tabs();
