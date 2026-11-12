@@ -1220,6 +1220,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::PreviousTab
         | Id::ReopenTab
         | Id::MaximizeWindow
+        | Id::SplitEditor
         | Id::NextPane
         | Id::PreviousPane
         | Id::ClearLog

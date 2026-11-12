@@ -395,6 +395,10 @@ pub enum Action {
     /// A tab's own window made to fill the main pane, or put back as it
     /// was.
     ToggleMaximize(Tab),
+    /// Split Editor: the tab in front of the focused editor group to a
+    /// group of its own at its right (or, with two groups or more, to the
+    /// group beside it), the focus with it.
+    SplitEditor,
     /// Build › Test Module, Choose Character: the game's character
     /// selection for the module.
     TestModuleChoose,
@@ -1179,6 +1183,22 @@ pub struct Moonglow {
     /// Each pane's tabs in their order, as this frame began (the dock is
     /// out of reach while its tabs are drawn).
     pub(crate) panes_tabs: Vec<Vec<Tab>>,
+    /// Each tab's look this frame (its icon, name, modified dot and title
+    /// laid out: `tabs::prepare`, before the dock is drawn).
+    pub(crate) doc_tabs: HashMap<Tab, tabs::Look>,
+    /// What the tabs' looks are kept by from frame to frame.
+    pub(crate) look_cache: tabs::LookCache,
+    /// The tabs in front of their panes, as this frame began.
+    pub(crate) fronts: std::collections::HashSet<Tab>,
+    /// The tab in front of each pane at the last frame: a pane whose tab in
+    /// front is another now scrolls its tab bar to it (`reveal_fronts`).
+    fronts_before: std::collections::HashSet<Tab>,
+    /// Where each tab was drawn at the last frame, and the part of it in
+    /// sight.
+    pub(crate) tab_rects: HashMap<Tab, (egui::Rect, egui::Rect)>,
+    /// The tab being dragged this frame (its parts drawn where it is
+    /// dragged, not in its place: `TabViewer::on_tab_dragged`).
+    pub(crate) dragged_tab: Option<Tab>,
     /// The tabs closed, the last one last: Reopen Closed Tab's.
     pub(crate) closed_tabs: Vec<Tab>,
     /// Where each window (by its first tab) is.
@@ -1496,6 +1516,12 @@ impl Moonglow {
             area_hovered: false,
             tab_places: HashMap::new(),
             panes_tabs: Vec::new(),
+            doc_tabs: HashMap::new(),
+            look_cache: tabs::LookCache::default(),
+            fronts: Default::default(),
+            fronts_before: Default::default(),
+            tab_rects: HashMap::new(),
+            dragged_tab: None,
             closed_tabs: Vec::new(),
             windows: HashMap::new(),
             window_frame: 1.0,
@@ -1853,6 +1879,12 @@ impl Moonglow {
                 .cloned()
                 .collect();
             self.panes_tabs = self.dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect();
+            self.fronts = (self.dock.iter_leaves())
+                .filter_map(|(_, l)| l.tabs.get(l.active.0).cloned())
+                .collect();
+            self.reveal_fronts();
+            self.dragged_tab = None;
+            tabs::prepare(self, ui.ctx());
             let mut dock = std::mem::replace(&mut self.dock, DockState::new(Vec::new()));
             // A window's frame without a margin: egui_dock makes a collapsed
             // window as tall as its tab bar, margin included, which left
@@ -1862,13 +1894,18 @@ impl Moonglow {
             self.window_frame = ui.visuals().window_stroke.width;
             {
                 let mut viewer = tabs::Viewer { app: self };
+                // (Its own close buttons, shown on the tab in front and the
+                // one under the pointer: `doc_tab_parts`. The groups' bars
+                // have no arrow and no close all, and room at their right
+                // end for Split Editor; the windows' keep both.)
                 DockArea::new(&mut dock)
-                    .style(dock_look::style(ui))
-                    .show_close_buttons(true)
+                    .style(mg_uikit::dock::doc_tabs_style(ui))
+                    .show_close_buttons(false)
+                    .main_surface_end_room(tabs::SPLIT_ROOM)
                     .show_inside(ui, &mut viewer);
             }
             self.dock = dock;
-            dock_look::marks(ui.ctx(), &self.dock, &self.tab_buttons);
+            self.doc_tab_parts(ui);
             self.window_bars(ui);
         });
         ui.set_clip_rect(whole_clip);
@@ -2102,14 +2139,11 @@ impl Moonglow {
         Some(self.split_of(path.node).unwrap_or(Place::Middle))
     }
 
-    /// Splits the middle (the pane of the areas) at `side` for `tab`, the
-    /// new pane `share` thousandths of the two, and gives its place; `None`
-    /// with no middle to split.
+    /// Splits the middle ([`Moonglow::middle_pane`]) at `side` for `tab`,
+    /// the new pane `share` thousandths of the two, and gives its place;
+    /// `None` with no middle to split.
     fn split_middle(&mut self, side: Side, share: u16, tab: &Tab) -> Option<egui_dock::NodePath> {
-        let middle = |t: &Tab| matches!(t, Tab::Area(_) | Tab::NoArea);
-        let at = (self.dock.iter_leaves())
-            .find(|(p, leaf)| p.surface.is_main() && leaf.tabs.iter().any(middle))
-            .map(|(p, _)| p.node)?;
+        let at = self.middle_pane()?.node;
         // (The fraction is the left or upper pane's, whichever is new.)
         let share = f32::from(share) / 1000.0;
         let main = self.dock.main_surface_mut();
@@ -2122,16 +2156,15 @@ impl Moonglow {
         Some(egui_dock::NodePath::new(egui_dock::SurfaceIndex::main(), new))
     }
 
-    /// A pane of the main surface split off a side of the middle (the
-    /// panes with the areas): which side, and how much of the two it is.
+    /// An editor group of the main surface off a side of the middle
+    /// ([`Moonglow::middle_pane`]): which side, and how much of the two it
+    /// is. A group beside another that is itself beside the middle (three
+    /// groups in a row) is by the part of the main surface that holds it:
+    /// the side of the middle that part is on, and its share.
     fn split_of(&self, node: egui_dock::NodeIndex) -> Option<Place> {
-        let parent = node.parent()?;
-        let sibling = if node.is_left() { parent.right() } else { parent.left() };
-        // (The other side holds the middle: a pane of the areas, or the
-        // one that says none is open.)
-        let middle = |t: &Tab| matches!(t, Tab::Area(_) | Tab::NoArea);
-        let within = |mut n: egui_dock::NodeIndex| loop {
-            if n == sibling {
+        let middle = self.middle_pane()?.node;
+        let within = |mut n: egui_dock::NodeIndex, of: egui_dock::NodeIndex| loop {
+            if n == of {
                 return true;
             }
             match n.parent() {
@@ -2139,20 +2172,126 @@ impl Moonglow {
                 None => return false,
             }
         };
-        let holds = (self.dock.iter_leaves())
-            .filter(|(p, _)| p.surface.is_main())
-            .any(|(p, leaf)| leaf.tabs.iter().any(middle) && within(p.node));
-        if !holds {
+        if within(middle, node) {
             return None;
         }
-        let (side, share) = match &self.dock.main_surface()[parent] {
-            egui_dock::Node::Horizontal(split) if node.is_left() => (Side::Left, split.fraction),
-            egui_dock::Node::Horizontal(split) => (Side::Right, 1.0 - split.fraction),
-            egui_dock::Node::Vertical(split) if node.is_left() => (Side::Above, split.fraction),
-            egui_dock::Node::Vertical(split) => (Side::Below, 1.0 - split.fraction),
-            _ => return None,
+        // (Up from the group to the part whose other half holds the middle.)
+        let mut at = node;
+        loop {
+            let parent = at.parent()?;
+            let sibling = if at.is_left() { parent.right() } else { parent.left() };
+            if within(middle, sibling) {
+                let (side, share) = match &self.dock.main_surface()[parent] {
+                    egui_dock::Node::Horizontal(split) if at.is_left() => {
+                        (Side::Left, split.fraction)
+                    }
+                    egui_dock::Node::Horizontal(split) => (Side::Right, 1.0 - split.fraction),
+                    egui_dock::Node::Vertical(split) if at.is_left() => {
+                        (Side::Above, split.fraction)
+                    }
+                    egui_dock::Node::Vertical(split) => (Side::Below, 1.0 - split.fraction),
+                    _ => return None,
+                };
+                let share = (share.clamp(0.05, 0.95) * 1000.0).round() as u16;
+                return Some(Place::Split(side, share));
+            }
+            at = parent;
+        }
+    }
+
+    /// The editor groups of the main surface, in order: depth first, the
+    /// left or upper part of each split before the other (left to right
+    /// for groups side by side).
+    pub(crate) fn editor_groups(&self) -> Vec<egui_dock::NodePath> {
+        fn walk(
+            tree: &egui_dock::Tree<Tab>,
+            at: egui_dock::NodeIndex,
+            out: &mut Vec<egui_dock::NodePath>,
+        ) {
+            if at.0 >= tree.len() {
+                return;
+            }
+            match &tree[at] {
+                egui_dock::Node::Leaf(leaf) if !leaf.tabs.is_empty() => {
+                    out.push(egui_dock::NodePath::new(egui_dock::SurfaceIndex::main(), at));
+                }
+                egui_dock::Node::Horizontal(_) | egui_dock::Node::Vertical(_) => {
+                    walk(tree, at.left(), out);
+                    walk(tree, at.right(), out);
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        walk(self.dock.main_surface(), egui_dock::NodeIndex::root(), &mut out);
+        out
+    }
+
+    /// The editor group with the focus: the main surface's pane that has
+    /// it, or had it last while a window has it, else the middle's
+    /// ([`Moonglow::active_editor`]'s group).
+    pub(crate) fn focused_group(&self) -> Option<egui_dock::NodePath> {
+        let main = egui_dock::SurfaceIndex::main();
+        (self.dock.main_surface().focused_leaf())
+            .map(|node| egui_dock::NodePath { surface: main, node })
+            .filter(|p| self.dock.leaf(*p).is_ok_and(|l| !l.tabs.is_empty()))
+            .or_else(|| self.middle_pane())
+    }
+
+    /// Whether Split Editor has a tab to move: the focused group has more
+    /// than one (a group's only tab moved would leave it empty).
+    pub(crate) fn can_split(&self) -> bool {
+        let leaf = self.focused_group().and_then(|p| self.dock.leaf(p).ok());
+        leaf.is_some_and(|l| l.tabs.len() > 1)
+    }
+
+    /// Split Editor: the tab in front of the focused group moves to a
+    /// group of its own at the group's right, half of the room, with one
+    /// group; with two or more, into the group after it (the one before
+    /// it, for the last), at its end. The group it went to has the focus,
+    /// so the docks follow it ([`Moonglow::active_editor`]).
+    pub(crate) fn split_editor(&mut self) {
+        if !self.can_split() {
+            return;
+        }
+        let Some(from) = self.focused_group() else { return };
+        let Ok(leaf) = self.dock.leaf(from) else { return };
+        let index = leaf.active;
+
+        let groups = self.editor_groups();
+        let at = groups.iter().position(|g| *g == from).unwrap_or(0);
+        let to = match groups.len() {
+            0 | 1 => None,
+            n => Some(groups[if at + 1 < n { at + 1 } else { at - 1 }]),
         };
-        Some(Place::Split(side, (share.clamp(0.05, 0.95) * 1000.0).round() as u16))
+        let main = self.dock.main_surface_mut();
+        let Some(tab) = main.remove_tab((from.node, index)) else { return };
+        match to {
+            Some(to) => {
+                self.dock.set_focused_node_and_surface(to);
+                self.dock.push_to_focused_leaf(tab.clone());
+            }
+            None => {
+                let [_, new] =
+                    self.dock.main_surface_mut().split_right(from.node, 0.5, vec![tab.clone()]);
+                self.dock.set_focused_node_and_surface(egui_dock::NodePath::new(
+                    egui_dock::SurfaceIndex::main(),
+                    new,
+                ));
+            }
+        }
+        // (In front of it, and the module tree going to it, as a click.)
+        self.show_tab(tab.clone());
+        tree::reveal_tab(self, &tab);
+    }
+
+    /// The editor group off `side` of the middle, where there is one: a
+    /// kind kept there opens in it rather than in another split off.
+    fn group_off(&self, side: Side) -> Option<egui_dock::NodePath> {
+        let groups = self.editor_groups();
+        groups
+            .into_iter()
+            .find(|g| matches!(self.split_of(g.node), Some(Place::Split(s, _)) if s == side))
     }
 
     /// Where the next window of a kind opens: where one of its kind was
@@ -2176,10 +2315,20 @@ impl Moonglow {
         }
     }
 
-    /// The middle's pane: the main window's first (the areas', or the one
-    /// that says none is open).
+    /// The middle: the editor group of the areas (the first that holds an
+    /// area, or the one that says none is open), else the first editor
+    /// group ([`Moonglow::editor_groups`]); the main surface's pane where it
+    /// has no tab. What the other groups are kept by, as splits off its
+    /// sides ([`Moonglow::split_of`]).
     pub(crate) fn middle_pane(&self) -> Option<egui_dock::NodePath> {
-        (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| p.surface.is_main())
+        let groups = self.editor_groups();
+        let areas = groups.iter().find(|g| {
+            self.dock
+                .leaf(**g)
+                .is_ok_and(|l| l.tabs.iter().any(|t| matches!(t, Tab::Area(_) | Tab::NoArea)))
+        });
+        (areas.or(groups.first()).copied())
+            .or_else(|| (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| p.surface.is_main()))
     }
 
     /// Notes where the user dragged a tool window to (a window seen in
@@ -2268,6 +2417,13 @@ impl Moonglow {
     /// Palette's tab in front, the dock folded or not drawn).
     pub fn preview_panel_rect(&self) -> Option<egui::Rect> {
         self.preview_rect
+    }
+
+    /// Where a tab of the editor area (a group's, or a floating window's)
+    /// was drawn at the last frame, its whole button (part of it may be
+    /// scrolled out of its bar's sight): `None` where it was not drawn.
+    pub fn tab_rect(&self, tab: &Tab) -> Option<egui::Rect> {
+        self.tab_rects.get(tab).map(|r| r.0)
     }
 
     /// Where the editor area (the `DockArea` between the docks) was drawn
@@ -2410,12 +2566,14 @@ impl Moonglow {
         }
     }
 
-    /// The pane the tab keys work in: the one with the focus, if it has
-    /// tabs to go between, else the middle's (the areas').
+    /// The pane the tab keys work in: the editor group with the focus
+    /// (whatever its tabs), or a window's pane with the focus that has tabs
+    /// to go between; else the focused group ([`Moonglow::focused_group`]).
     fn tab_pane(&self) -> Option<egui_dock::NodePath> {
         let tabs = |p: &egui_dock::NodePath| self.dock.leaf(*p).map_or(0, |l| l.tabs.len());
-        let focused = self.dock.focused_leaf().filter(|p| tabs(p) > 1);
-        focused.or_else(|| self.middle_pane())
+        let focused =
+            (self.dock.focused_leaf()).filter(|p| tabs(p) > usize::from(!p.surface.is_main()));
+        focused.or_else(|| self.focused_group())
     }
 
     /// The tab Close Tab closes: the one in front of the pane with the
@@ -2559,10 +2717,10 @@ impl Moonglow {
         }
     }
 
-    /// The middle's tab of a number (from 1; 9: its last), brought to the
-    /// front.
+    /// The tab of a number (from 1; 9: its last) of the pane the tab keys
+    /// work in ([`Moonglow::tab_pane`]), brought to the front.
     fn number_tab(&mut self, number: usize) {
-        let Some(leaf) = self.middle_pane().and_then(|p| self.dock.leaf(p).ok()) else {
+        let Some(leaf) = self.tab_pane().and_then(|p| self.dock.leaf(p).ok()) else {
             return;
         };
         let tab = if number == 9 { leaf.tabs.last() } else { leaf.tabs.get(number - 1) };
@@ -2599,12 +2757,17 @@ impl Moonglow {
         }
     }
 
-    /// With a module open, the middle of the window keeps its place when
-    /// its last tab is closed: a pane that says no area is open takes it,
-    /// and goes when something opens there. (The editor area holds only
-    /// editors since the palettes are the Right Dock's panel, M3's T5: the
-    /// half of this that kept the palettes' pane beside the middle,
-    /// GitHub issues 11 and 20, is gone with the pane.)
+    /// With a module open, the editor area never goes empty: its editor
+    /// groups are its panes with tabs (a tab dragged to a side of a group
+    /// makes a group, and a group whose last tab goes is gone, the group
+    /// beside it taking its room, egui_dock's own), and with the last tab
+    /// of the last group closed a pane that says no area is open takes the
+    /// whole area, and goes when something opens there. A tool's group left
+    /// alone (the Faction Editor split off an area's right, the area and
+    /// Module Properties closed) is an editor group as any, and takes the
+    /// editor area (GitHub issues 11 and 20's last part, settled by the
+    /// editor groups of M3's T9: the boards' editor area holds editors
+    /// alone, the placeholder only where it has none).
     fn keep_middle(&mut self) {
         if self.ws.is_none() {
             return;
@@ -4057,16 +4220,23 @@ impl Moonglow {
                 }
             }
             Action::CloseTabs(tabs) => {
+                let one = tabs.len() == 1;
                 for tab in tabs {
                     if tab.closeable() && self.may_close(&tab) {
                         self.closed(&tab);
                         if let Some(path) = self.dock.find_tab(&tab) {
                             self.dock.remove_tab(path);
                         }
+                    } else if one && tab.closeable() {
+                        // (A tab that asks first, closed by its close
+                        // button or its menu's Close from behind another:
+                        // brought to the front, as the question is of it.)
+                        self.show_tab(tab);
                     }
                 }
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
+            Action::SplitEditor => self.split_editor(),
             Action::OpenTab(tab) => {
                 if let Tab::Dialog(key) = &tab {
                     self.dialog_keys = Some(*key);
@@ -4097,7 +4267,11 @@ impl Moonglow {
                             Place::Middle => self.middle_pane(),
                             // A pane of its own off that side of the middle,
                             // as large as it was (GitHub issue 22).
-                            Place::Split(side, share) => self.split_middle(side, share, &tab),
+                            // (Into the group off that side where there
+                            // is one: a group, not one more each time.)
+                            Place::Split(side, share) => self
+                                .group_off(side)
+                                .or_else(|| self.split_middle(side, share, &tab)),
                         };
                         // A script, with a script's window open: a tab of
                         // that window, not one more window (Options ›

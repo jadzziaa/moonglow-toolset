@@ -854,7 +854,9 @@ impl Moonglow {
         };
         // (Each kept text, as it is named now.)
         let mut renamed: HashMap<String, String> = HashMap::new();
-        let mut panes = Vec::new();
+        // (Every pane's tabs found first: the middle's pane's tree of the
+        // editor groups names the other groups' tabs.)
+        let mut found_tabs = Vec::new();
         for pane in &record.panes {
             let mut tabs = Vec::new();
             for text in &pane.tabs {
@@ -863,9 +865,12 @@ impl Moonglow {
                     tabs.push((now, want));
                 }
             }
-            if tabs.is_empty() {
-                continue;
+            if !tabs.is_empty() {
+                found_tabs.push((pane, tabs));
             }
+        }
+        let mut panes = Vec::new();
+        for (pane, tabs) in found_tabs {
             let rename = |t: &Option<String>| t.as_ref().and_then(|t| renamed.get(t)).cloned();
             let mut split = pane.split.clone();
             fn rename_split(s: &mut Split, renamed: &HashMap<String, String>) {
@@ -1072,6 +1077,16 @@ impl Moonglow {
             }
             let place = self.split_of(path.node).unwrap_or(Place::Middle);
             panes.push(Pane { place: place.text(), tabs, active, ..Default::default() });
+        }
+        // The editor groups as they lie, on the middle's pane, where there
+        // are two or more: each group has its place too (`split right
+        // 500`), which an older Moonglow reads, and which is the whole of it
+        // for two groups; the tree keeps three or more in their order.
+        if self.editor_groups().len() > 1
+            && let Some(middle) = panes.iter_mut().find(|p| p.place == Place::Middle.text())
+        {
+            middle.split = split_of(self, self.dock.main_surface(), NodeIndex::root())
+                .filter(|s| !s.parts.is_empty());
         }
         // Tile Properties still waiting for its area's view (its tab not
         // shown since the module opened): kept as it was read, beside the
@@ -1338,6 +1353,31 @@ impl Moonglow {
                     Some(tab) => _ = opened.insert(text.clone(), tab),
                     None => trace::note(format!("open tabs: {text} passed over: not opened")),
                 }
+            }
+        }
+        // The editor groups laid out first, as they lay, from the middle's
+        // tree where the record has one (where the pane that says no area
+        // is open holds the middle's place): the groups' own places then
+        // find their tabs placed. (Module Properties, docked as the module
+        // opened, goes where the tree has it.)
+        let groups = (panes.iter())
+            .find(|p| p.place == Some(Place::Middle))
+            .and_then(|p| p.split.as_ref())
+            .and_then(|s| Laid::of(s, &opened));
+        if let Some(groups) = groups {
+            for tab in groups.tabs() {
+                if let Some(path) = self.dock.find_tab(&tab) {
+                    self.dock.remove_tab(path);
+                }
+            }
+            let at = (self.dock.find_tab(&Tab::NoArea))
+                .map(|p| NodePath { surface: p.surface, node: p.node })
+                .or_else(|| self.middle_pane())
+                .filter(|p| p.surface.is_main());
+            if let Some(at) = at {
+                self.dock.set_focused_node_and_surface(at);
+                self.dock.push_to_focused_leaf(groups.first().clone());
+                groups.build(self.dock.main_surface_mut(), at.node);
             }
         }
         for pane in panes {

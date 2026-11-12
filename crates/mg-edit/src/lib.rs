@@ -166,6 +166,9 @@ pub struct Workspace {
     /// made outside the edit history ([`Workspace::changed_at`]).
     last_touched: HashMap<ResKey, u64>,
     outside: u64,
+    /// The saved copies [`Workspace::differs_from_saved`] has read, by
+    /// resource and the saved data's place (saving puts new data there).
+    saved_read: std::sync::Mutex<HashMap<ResKey, (usize, std::sync::Arc<Gff>)>>,
 }
 
 /// What an edit touched ([`Workspace::touched_since`]): the resource, the
@@ -227,6 +230,7 @@ impl Workspace {
             touched: std::collections::VecDeque::new(),
             last_touched: HashMap::new(),
             outside: 0,
+            saved_read: Default::default(),
         }
     }
 
@@ -760,6 +764,42 @@ impl Workspace {
         }
         self.edited.remove(key);
         Ok(())
+    }
+
+    /// Whether resource `key` differs from the module as opened or last
+    /// saved ([`Workspace::saved`]): a document edited and not yet flushed
+    /// is compared by what it holds (an edit and its undo, or a field set
+    /// back by hand, leave it as saved), anything else by the module's
+    /// bytes. A document edited is written out to be compared (and the
+    /// saved copy read where the bytes differ): what a view asks after each
+    /// change of the resource ([`Workspace::changed_at`]), not every frame.
+    /// The saved copy is read once and kept until the resource is saved
+    /// again: a change then costs the comparison alone, which stops at the
+    /// first difference (the game's largest GIT, Tyrants of the Moonsea's
+    /// 1.3 MB `zhentkeepwar`, in release: 1.1 ms for a change to its last
+    /// placeable, under a microsecond for one to its root, where writing
+    /// it out and reading the saved copy each time took 3.2 ms).
+    pub fn differs_from_saved(&self, key: &ResKey) -> bool {
+        if self.edited.contains(key)
+            && let Some(gff) = self.docs.get(key)
+        {
+            let Some(saved) = self.saved.shared(key) else { return true };
+            let at = std::sync::Arc::as_ptr(saved).cast::<u8>() as usize;
+            let Ok(mut read) = self.saved_read.lock() else { return true };
+            let parsed = match read.get(key) {
+                Some((was, g)) if *was == at => g.clone(),
+                _ => match Gff::read(saved) {
+                    Ok(g) => {
+                        let g = std::sync::Arc::new(g);
+                        read.insert(*key, (at, g.clone()));
+                        g
+                    }
+                    Err(_) => return true,
+                },
+            };
+            return *parsed != *gff;
+        }
+        resource_differs(&self.saved, &self.module, key)
     }
 
     /// How many documents hold edits [`Workspace::flush`] has not yet
@@ -1650,6 +1690,44 @@ mod tests {
             assert_eq!(ws.unflushed(), 0);
         }
         assert_eq!(ws.module.get(&info), Some(&other[..]), "the document only read, still not");
+    }
+
+    /// Whether a resource differs from the module as saved: edited (and
+    /// flushed or not), undone back, new, taken out.
+    #[test]
+    fn a_resource_differs_from_saved_until_saved_or_undone() {
+        let mut ws = workspace();
+        let k = key("area", ResType::GIT);
+        let other = key("module", ResType::IFO);
+        let set = |v: i32| {
+            Command::new(
+                "Extra",
+                vec![Edit::SetField {
+                    key: k,
+                    path: GffPath::root(),
+                    label: "Extra".into(),
+                    value: Some(Value::Int(v)),
+                }],
+            )
+        };
+        assert!(!ws.differs_from_saved(&k));
+        ws.apply(set(3)).unwrap();
+        assert!(ws.differs_from_saved(&k), "edited, not flushed");
+        assert!(!ws.differs_from_saved(&other), "only the resource edited");
+        ws.flush().unwrap();
+        assert!(ws.differs_from_saved(&k), "flushed into the module, not saved");
+        ws.undo().unwrap();
+        assert!(!ws.differs_from_saved(&k), "undone back to what is saved");
+        // A new resource, and one taken out.
+        let script = key("new_script", ResType::NSS);
+        ws.apply(Command::new(
+            "New script",
+            vec![Edit::SetResource { key: script, data: Some(b"void main(){}".to_vec()) }],
+        ))
+        .unwrap();
+        assert!(ws.differs_from_saved(&script));
+        ws.apply(Command::new("Gone", vec![Edit::SetResource { key: k, data: None }])).unwrap();
+        assert!(ws.differs_from_saved(&k), "taken out");
     }
 
     #[test]

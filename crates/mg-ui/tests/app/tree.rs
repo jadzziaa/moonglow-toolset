@@ -250,7 +250,7 @@ fn the_module_tree_by_the_keyboard() {
     key(&mut h, egui::Key::S);
     assert_eq!(at(&h), Some(TreeAt::Resource(start)), "the area named start, after Areas");
     // F2 and Delete at the cursor ask, as the row's menu does.
-    h.get_by_label("start").hover();
+    tree_row(&h, "start").hover();
     key(&mut h, egui::Key::F2);
     assert!(h.state().rename.is_some(), "Rename… of the cursor's resource");
     h.state_mut().rename = None;
@@ -616,12 +616,12 @@ fn areas_are_listed_by_name_when_asked() {
     let mut h = window_harness(app);
     h.run();
     // By ResRef, as Aurora lists them.
-    h.get_by_label("area467");
+    tree_row(&h, "area467");
     assert!(h.query_by_label("The Docks").is_none());
     h.state_mut().settings.area_names = true;
     h.run();
     assert!(h.query_by_label("area467").is_none());
-    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
+    let y = |h: &Harness<'_, Moonglow>, label: &str| tree_row(h, label).rect().top();
     assert!(y(&h, "Apple Inn") < y(&h, "The Docks"), "in the names' order");
     // The area without a name keeps its ResRef.
     h.get_by_label("start");
@@ -650,8 +650,10 @@ fn areas_are_listed_by_name_when_asked() {
         .unwrap()
         .type_text("apple");
     h.run();
-    h.get_by_label("Apple Inn");
-    assert!(h.query_by_label("A Quay").is_none());
+    tree_row(&h, "Apple Inn");
+    // (The area's tab, open, keeps its name: the tree's rows are looked
+    // in.)
+    assert!(h.get_by_label("Module Tree Rows").query_by_label("A Quay").is_none());
 }
 
 /// The tree's filter finds a name whatever the case of its letters, those
@@ -673,7 +675,7 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
     h.run();
     h.state_mut().settings.area_names = true;
     h.run();
-    h.get_by_label("Übelwald");
+    tree_row(&h, "Übelwald");
     for typed in ["Übel", "ÜBEL", "übel"] {
         h.get_all_by_role(egui::accesskit::Role::TextInput)
             .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
@@ -686,7 +688,7 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
             .unwrap()
             .type_text(typed);
         h.run();
-        assert!(h.query_by_label("Übelwald").is_some(), "{typed}");
+        assert!(h.get_by_label("Module Tree Rows").query_by_label("Übelwald").is_some(), "{typed}");
         assert!(h.query_by_label("start").is_none(), "{typed}");
     }
 }
@@ -982,7 +984,7 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     // With Options › General's choice as it is at first, as Aurora: the
     // area closed again, a selection opens it out and goes to the object.
     // (The arrow on the area's row, before its name.)
-    let row = h.get_by_label("field").rect();
+    let row = tree_row(&h, "field").rect();
     let arrow = h.get_by_label("Placed Objects in field");
     let r = arrow.rect();
     assert!(r.right() <= row.left() && (r.center().y - row.center().y).abs() < 4.0, "{r:?}");
@@ -1607,7 +1609,7 @@ fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
     let mut h = window_harness(app);
     h.run();
     assert_eq!(h.get_all_by_label("(not in the area list)").count(), 1);
-    h.get_by_label("lost").click_secondary();
+    tree_row(&h, "lost").click_secondary();
     h.run();
     h.get_by_label("Add to the Module's Area List").click();
     h.run();

@@ -139,6 +139,7 @@ pub enum Cmd {
     PreviousTab,
     ReopenTab,
     MaximizeWindow,
+    SplitEditor,
     /// The keys to the next pane (the module tree, the middle, the
     /// palettes), or the one before.
     NextPane,
@@ -166,7 +167,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 82] = [
+    pub const ALL: [Cmd; 83] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -233,6 +234,7 @@ impl Cmd {
         Cmd::PreviousTab,
         Cmd::ReopenTab,
         Cmd::MaximizeWindow,
+        Cmd::SplitEditor,
         Cmd::NextPane,
         Cmd::PreviousPane,
         Cmd::ExpandAll,
@@ -329,6 +331,7 @@ impl Cmd {
             Cmd::PreviousTab => ("previous-tab", None, General),
             Cmd::ReopenTab => ("reopen-tab", None, General),
             Cmd::MaximizeWindow => ("maximize-window", None, General),
+            Cmd::SplitEditor => ("split-editor", None, General),
             Cmd::NextPane => ("next-pane", None, General),
             Cmd::PreviousPane => ("previous-pane", None, General),
             Cmd::ExpandAll => ("expand-all", Some("Expand All"), Panes),
@@ -450,6 +453,7 @@ impl Cmd {
             Cmd::PreviousTab => vec![k(CTRL | SHIFT, Key::Tab), k(CTRL, Key::PageUp)],
             Cmd::ReopenTab => vec![k(CTRL | SHIFT, Key::T)],
             Cmd::MaximizeWindow => vec![k(CTRL | SHIFT, Key::M)],
+            Cmd::SplitEditor => vec![k(CTRL, Key::Backslash)],
             Cmd::NextPane => vec![k(NONE, Key::F6)],
             Cmd::PreviousPane => vec![k(SHIFT, Key::F6)],
             // (Right and Left open and close a row; with Ctrl+Shift,

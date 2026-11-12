@@ -1,10 +1,13 @@
 //! The central area's tabs.
 
+use std::collections::HashMap;
+
 use egui::{Id, Ui, WidgetText};
 use egui_dock::TabViewer;
 use mg_core::ResType;
 use mg_resman::ResKey;
 
+use crate::side_doc::SideDoc;
 use crate::{
     Action, Moonglow, area_view, browser, dialog_view, faction_view, gff_view, journal_view,
     model_view, module_props, script_view,
@@ -522,76 +525,14 @@ impl TabViewer for Viewer<'_> {
         }
     }
 
+    /// The tab's title as [`prepare`] laid it out this frame (its name,
+    /// cut short where its bar is crowded, with room for its kind icon,
+    /// modified dot and close button).
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        match tab {
-            Tab::Welcome => "Welcome".into(),
-            Tab::NoArea => "No Area Open".into(),
-            Tab::Nui(k) => k.to_string().into(),
-            Tab::ModuleProperties => "Module Properties".into(),
-            Tab::Script(k) => {
-                let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());
-                format!("{k}{}", if dirty { " *" } else { "" }).into()
-            }
-            Tab::Gff(k) => k.to_string().into(),
-            Tab::Blueprint(k) if self.app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) => {
-                format!("{k} (the game's: view only)").into()
-            }
-            Tab::Blueprint(k) => k.to_string().into(),
-            Tab::Factions => "Factions".into(),
-            Tab::Journal => "Journal".into(),
-            Tab::Tileset(id) => {
-                let doc = self.app.tilesets.iter().find(|d| d.id == *id);
-                doc.map_or("Tileset".into(), |d| d.title()).into()
-            }
-            Tab::Hak(id) => {
-                let doc = self.app.haks.iter().find(|d| d.id == *id);
-                doc.map_or("Hak".into(), |d| d.title()).into()
-            }
-            Tab::Table(id) => {
-                let doc = self.app.tables.iter().find(|d| d.id == *id);
-                doc.map_or("2DA".into(), |d| d.title()).into()
-            }
-            Tab::TalkTable => {
-                let dirty = self.app.talk.as_ref().is_some_and(|t| t.is_dirty());
-                format!("Talk Table{}", if dirty { " *" } else { "" }).into()
-            }
-            Tab::Dialog(k) => k.to_string().into(),
-            Tab::Resource(k) => format!("{k} (read-only)").into(),
-            Tab::ResourceCopy { key, layer } => format!("{key} from {layer} (read-only)").into(),
-            Tab::Model(k) => k.to_string().into(),
-            Tab::ModelCopy { key, layer } => format!("{key} from {layer}").into(),
-            Tab::Area(r) => area_label(self.app, *r).into(),
-            Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
-            Tab::AreaProperties(area) => {
-                format!("{} (Area Properties)", area_label(self.app, *area)).into()
-            }
-            Tab::AreasProperties(areas) => {
-                format!("{} areas (Area Properties)", areas.len()).into()
-            }
-            Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
-            Tab::Blueprints(keys) => {
-                let ext = keys[0].restype.extension().unwrap_or_default();
-                format!("{} blueprints (.{ext})", keys.len()).into()
-            }
-            Tab::Manual => "User Manual".into(),
-            Tab::References => "References".into(),
-            Tab::AdvancedSearch => "Advanced Search".into(),
-            Tab::PlaceableGallery => "Appearance Gallery".into(),
-            Tab::Options => "Options".into(),
-            Tab::TileProperties => "Tile Properties".into(),
-            Tab::Tile { tileset, tile } => {
-                // (As an open area has the tileset: not read for a title.)
-                let model = (self.app.open_tileset(*tileset))
-                    .and_then(|t| t.set.tiles.get(*tile as usize).map(|t| t.model.clone()));
-                format!("{} (tile)", model.unwrap_or_else(|| format!("{tileset} tile {tile}")))
-                    .into()
-            }
-            Tab::InstanceModel { area, path } => {
-                format!("{} (preview)", instance_title(self.app, *area, path)).into()
-            }
-            Tab::PluginPanel { plugin, panel } => {
-                crate::plugin_kinds::panel_title(self.app, plugin, panel).into()
-            }
+        match self.app.doc_tabs.get(tab) {
+            Some(look) => WidgetText::Galley(look.title.galley.clone()),
+            // (Not prepared: one opened as the dock is drawn.)
+            None => name(self.app, tab).into(),
         }
     }
 
@@ -641,8 +582,8 @@ impl TabViewer for Viewer<'_> {
         );
     }
 
-    /// The tab's menu (beside egui_dock's Eject and Close): Rename… for a
-    /// resource of the module, which renames it everywhere it is named.
+    /// The tab's menu (before egui_dock's Eject): Rename… for a resource of
+    /// the module, which renames it everywhere it is named, and the rest.
     fn context_menu(&mut self, ui: &mut Ui, tab: &mut Tab, _path: egui_dock::NodePath) {
         mg_uikit::menu_rows(ui);
         let ours = tab
@@ -700,7 +641,7 @@ impl TabViewer for Viewer<'_> {
         if !edited.is_empty() && !commands.is_empty() {
             crate::plugins::menu_on(ui, &commands, &edited, &mut self.app.actions);
         }
-        // Closing those of its pane (its own Close is the dock's, below).
+        // Closing it, and those of its pane.
         if tab.closeable() {
             let pane: Vec<Tab> = (self.app.panes_tabs.iter())
                 .find(|tabs| tabs.contains(tab))
@@ -713,6 +654,11 @@ impl TabViewer for Viewer<'_> {
             let others: Vec<Tab> = closing(&pane).into_iter().filter(|t| t != tab).collect();
             let right = closing(&pane[at + 1..]);
             let mut close = None;
+            // (Its own Close: egui_dock's goes with its close buttons,
+            // which the document tabs draw themselves.)
+            if ui.button("Close").clicked() {
+                close = Some(vec![tab.clone()]);
+            }
             if ui.add_enabled(!others.is_empty(), egui::Button::new("Close Others")).clicked() {
                 close = Some(others);
             }
@@ -738,6 +684,28 @@ impl TabViewer for Viewer<'_> {
         // still gives each tab out of sight its button.)
         let shown = response.rect.intersect(response.interact_rect);
         self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id, shown));
+        // A tab by its name for a screen reader (egui_dock names none), said
+        // selected where it is its pane's in front, and "Modified" where
+        // its document has unsaved changes; its whole name in its tip where
+        // it is cut short.
+        if let Some(look) = self.app.doc_tabs.get(tab) {
+            let front = self.app.fronts.contains(tab);
+            let name = look.name.clone();
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, front, &name)
+            });
+            let modified = look.modified;
+            response.ctx.accesskit_node_builder(response.id, |node| {
+                node.set_role(egui::accesskit::Role::Tab);
+                node.set_selected(front);
+                if modified {
+                    node.set_description("Modified");
+                }
+            });
+            if look.title.cut {
+                let _ = response.clone().on_hover_text(&look.name);
+            }
+        }
         // (A press on a side editor's tab is work in it: the active
         // editor, `Moonglow::note_worked`.)
         let side = crate::side_doc::is_side(tab) || *tab == Tab::TalkTable;
@@ -755,6 +723,31 @@ impl TabViewer for Viewer<'_> {
         if response.double_clicked() && !tab.docks() {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }
+    }
+
+    /// The tab being dragged keeps its kind icon, dot and close button,
+    /// painted where it stood on the layer that follows the pointer.
+    fn on_tab_dragged(
+        &mut self,
+        ctx: &egui::Context,
+        tab: &mut Tab,
+        layer: egui::LayerId,
+        rect: egui::Rect,
+    ) {
+        self.app.dragged_tab = Some(tab.clone());
+        let Some(look) = self.app.doc_tabs.get(tab) else { return };
+        let mark = mg_uikit::dock::DocTabMark {
+            tab: (),
+            rect,
+            layer,
+            shown: rect,
+            icon: look.icon,
+            title_width: look.title.width,
+            modified: look.modified,
+            active: true,
+            close: tab.closeable().then_some(mg_uikit::icons::ButtonState::Rest),
+        };
+        mg_uikit::dock::paint_doc_tab_parts(&ctx.layer_painter(layer), &mark);
     }
 
     /// A side editor with unsaved changes asks first; a closed one is let
@@ -787,6 +780,302 @@ impl TabViewer for Viewer<'_> {
         // (None of egui_dock's: those that scroll have Moonglow's, `ui`.)
         [false, false]
     }
+}
+
+/// A tab's name: its title, with no mark of unsaved changes (the tab's
+/// modified dot says that, [`Look::modified`]): what its tab shows and a
+/// screen reader says.
+pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
+    match tab {
+        Tab::Welcome => "Welcome".into(),
+        Tab::NoArea => "No Area Open".into(),
+        Tab::Nui(k) => k.to_string(),
+        Tab::ModuleProperties => "Module Properties".into(),
+        Tab::Script(k) => k.to_string(),
+        Tab::Gff(k) => k.to_string(),
+        Tab::Blueprint(k) if app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) => {
+            format!("{k} (the game's: view only)")
+        }
+        Tab::Blueprint(k) => k.to_string(),
+        Tab::Factions => "Factions".into(),
+        Tab::Journal => "Journal".into(),
+        Tab::Tileset(id) => {
+            let doc = app.tilesets.iter().find(|d| d.id == *id);
+            doc.map_or("Tileset".into(), SideDoc::title)
+        }
+        Tab::Hak(id) => {
+            let doc = app.haks.iter().find(|d| d.id == *id);
+            doc.map_or("Hak".into(), SideDoc::title)
+        }
+        Tab::Table(id) => {
+            let doc = app.tables.iter().find(|d| d.id == *id);
+            doc.map_or("2DA".into(), SideDoc::title)
+        }
+        Tab::TalkTable => "Talk Table".into(),
+        Tab::Dialog(k) => k.to_string(),
+        Tab::Resource(k) => format!("{k} (read-only)"),
+        Tab::ResourceCopy { key, layer } => format!("{key} from {layer} (read-only)"),
+        Tab::Model(k) => k.to_string(),
+        Tab::ModelCopy { key, layer } => format!("{key} from {layer}"),
+        Tab::Area(r) => area_label(app, *r),
+        Tab::Instance { area, path } => instance_title(app, *area, path),
+        Tab::AreaProperties(area) => {
+            format!("{} (Area Properties)", area_label(app, *area))
+        }
+        Tab::AreasProperties(areas) => {
+            format!("{} areas (Area Properties)", areas.len())
+        }
+        Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()),
+        Tab::Blueprints(keys) => {
+            let ext = keys[0].restype.extension().unwrap_or_default();
+            format!("{} blueprints (.{ext})", keys.len())
+        }
+        Tab::Manual => "User Manual".into(),
+        Tab::References => "References".into(),
+        Tab::AdvancedSearch => "Advanced Search".into(),
+        Tab::PlaceableGallery => "Appearance Gallery".into(),
+        Tab::Options => "Options".into(),
+        Tab::TileProperties => "Tile Properties".into(),
+        Tab::Tile { tileset, tile } => {
+            // (As an open area has the tileset: not read for a title.)
+            let model = (app.open_tileset(*tileset))
+                .and_then(|t| t.set.tiles.get(*tile as usize).map(|t| t.model.clone()));
+            format!("{} (tile)", model.unwrap_or_else(|| format!("{tileset} tile {tile}")))
+        }
+        Tab::InstanceModel { area, path } => {
+            format!("{} (preview)", instance_title(app, *area, path))
+        }
+        Tab::PluginPanel { plugin, panel } => crate::plugin_kinds::panel_title(app, plugin, panel),
+    }
+}
+
+// ------------------------------------------------------------------ the document tabs' look
+
+/// A document tab as this frame draws it ([`prepare`]): its kind icon, its
+/// name, whether its own document has unsaved changes (its modified dot),
+/// and its title as laid out for egui_dock.
+#[derive(Clone, Debug)]
+pub(crate) struct Look {
+    pub(crate) icon: mg_uikit::Icon,
+    pub(crate) name: String,
+    pub(crate) modified: bool,
+    pub(crate) title: mg_uikit::dock::DocTabTitle,
+}
+
+/// What [`prepare`] keeps from frame to frame: the titles laid out (by
+/// what they were laid out from), and whether each module resource shown
+/// in a tab differs from the module as saved (by when it last changed).
+#[derive(Debug, Default)]
+pub(crate) struct LookCache {
+    titles: HashMap<TitleKey, mg_uikit::dock::DocTabTitle>,
+    resources: HashMap<ResKey, (ResourceStamp, bool)>,
+}
+
+/// A title laid out from: its name, the widest it may be (the bits of the
+/// cap, `u32::MAX` for none), its dot, and the font, the display's scale
+/// and how many times egui has made its fonts (`script_layout::fonts_made`:
+/// a galley kept from before is drawn from the old atlas's places).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TitleKey(String, u32, bool, u32, u32, u64);
+
+/// When a module resource last changed ([`mg_edit::Workspace::changed_at`])
+/// and which data the module and the saved module hold for it (by where
+/// it is: saving puts the module's in the saved).
+type ResourceStamp = (u64, usize, usize);
+
+/// Every tab's kind icon: the drawn icon of the resource type it shows
+/// (the Resources panel's and Quick Open's for the type), or the editor's
+/// own for a tool that shows no resource.
+pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
+    use mg_uikit::Icon as I;
+    let of = crate::browser::kind_icon;
+    // (A placed object: its kind's, by its list in the area.)
+    let placed = |path: &mg_edit::GffPath| {
+        let kind = path.first().and_then(|s| s.item()).map(|(list, _)| list);
+        kind.and_then(mg_area::ObjectKind::from_list).map_or(I::Properties, crate::icons::object)
+    };
+    match tab {
+        Tab::Welcome => I::Home,
+        Tab::ModuleProperties => I::Module,
+        Tab::NoArea | Tab::Area(_) => I::Area,
+        Tab::Script(_) => I::Script,
+        Tab::Nui(_) => I::Nui,
+        Tab::Gff(k) | Tab::Blueprint(k) | Tab::Resource(k) => of(k.restype),
+        Tab::ResourceCopy { key, .. } => of(key.restype),
+        Tab::Model(k) | Tab::ModelCopy { key: k, .. } => {
+            if k.restype == ResType::MDL {
+                I::Model
+            } else {
+                of(k.restype)
+            }
+        }
+        Tab::Blueprints(keys) => keys.first().map_or(I::Properties, |k| of(k.restype)),
+        Tab::Factions => I::Faction,
+        Tab::Journal => I::Journal,
+        Tab::TalkTable => I::TalkTable,
+        Tab::Hak(_) => I::Hak,
+        Tab::Table(_) => I::Table,
+        Tab::Tileset(_) => I::Tileset,
+        Tab::Dialog(_) => I::Conversation,
+        Tab::AreaProperties(_) | Tab::AreasProperties(_) => I::AreaProperties,
+        Tab::Instance { path, .. } => placed(path),
+        Tab::Instances { paths, .. } => paths.first().map_or(I::Properties, placed),
+        Tab::InstanceModel { .. } => I::Model,
+        Tab::Manual => I::Book,
+        Tab::References => I::References,
+        Tab::AdvancedSearch => I::Search,
+        Tab::PlaceableGallery => I::Gallery,
+        Tab::Options => I::Settings,
+        Tab::TileProperties | Tab::Tile { .. } => I::Tile,
+        // (The plugin API names no icons: a panel is the plugins'.)
+        Tab::PluginPanel { .. } => I::Plugin,
+    }
+}
+
+/// The module's resources a tab's own document is made of, whose changes
+/// since the module was saved its modified dot shows: an area's three
+/// files, a resource's own, Module Properties' `module.ifo`; none for a
+/// tab with a document of its own ([`own_unsaved`]) or none at all (a
+/// placed object's Properties edit its area's, whose tab shows it).
+fn resources_of(app: &Moonglow, tab: &Tab) -> Vec<ResKey> {
+    let area = |r: mg_core::ResRef, types: &[ResType]| -> Vec<ResKey> {
+        types.iter().map(|t| ResKey::new(r, *t)).collect()
+    };
+    match tab {
+        Tab::Area(r) => area(*r, &[ResType::ARE, ResType::GIT, ResType::GIC]),
+        Tab::AreaProperties(r) => area(*r, &[ResType::ARE, ResType::GIT]),
+        Tab::AreasProperties(areas) => {
+            areas.iter().flat_map(|r| area(*r, &[ResType::ARE, ResType::GIT])).collect()
+        }
+        Tab::Blueprint(k) | Tab::Dialog(k) | Tab::Gff(k) | Tab::Nui(k) => {
+            // (The game's blueprint, looked at: nothing of the module's.)
+            if app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) { Vec::new() } else { vec![*k] }
+        }
+        Tab::Blueprints(keys) => keys.clone(),
+        Tab::ModuleProperties => ResKey::parse("module", ResType::IFO).into_iter().collect(),
+        Tab::Factions | Tab::Journal => tab.tree_key().into_iter().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether an editor with a document of its own (a script's text, the talk
+/// table, a hak, a 2DA, a tileset) has changes not saved where they go:
+/// `None` for a tab without one.
+fn own_unsaved(app: &Moonglow, tab: &Tab) -> Option<bool> {
+    match tab {
+        Tab::Script(k) => Some(app.scripts.get(k).is_some_and(|b| b.is_dirty())),
+        Tab::TalkTable => Some(app.talk.as_ref().is_some_and(|t| t.is_dirty())),
+        Tab::Hak(_) | Tab::Table(_) | Tab::Tileset(_) => {
+            Some(app.side_doc(tab).is_some_and(|d| d.has_unsaved()))
+        }
+        _ => None,
+    }
+}
+
+/// Whether a tab's own document has unsaved changes: its editor's own
+/// state ([`own_unsaved`]), else whether any of its module resources
+/// differs from the module as saved ([`resources_of`]; asked of the
+/// workspace only after the resource changed, `cache`).
+fn modified(app: &Moonglow, tab: &Tab, cache: &mut HashMap<ResKey, (ResourceStamp, bool)>) -> bool {
+    if let Some(own) = own_unsaved(app, tab) {
+        return own;
+    }
+    let Some(ws) = &app.ws else { return false };
+    let at = |m: &mg_module::Module, k: &ResKey| {
+        m.shared(k).map_or(0, |a| std::sync::Arc::as_ptr(a).cast::<u8>() as usize)
+    };
+    resources_of(app, tab).iter().fold(false, |any, key| {
+        let stamp = (ws.changed_at(key), at(&ws.module, key), at(ws.saved(), key));
+        let differs = match cache.get(key) {
+            Some((was, differs)) if *was == stamp => *differs,
+            _ => {
+                let differs = ws.differs_from_saved(key);
+                cache.insert(*key, (stamp, differs));
+                differs
+            }
+        };
+        any || differs
+    })
+}
+
+/// The room a pane's tab bar leaves its tabs: the main surface's, all but
+/// the Split Editor button's at its right end ([`SPLIT_ROOM`]); a window's,
+/// all but egui_dock's arrow and close all at its ends and the Maximize
+/// button before the close ([`Moonglow::window_bars`]).
+pub(crate) fn tab_room(main: bool, width: f32) -> f32 {
+    if main { width - SPLIT_ROOM } else { width - 2.0 * 24.0 - WINDOW_BAR_BUTTON }
+}
+
+/// The room at the right end of each tab bar of the main surface, which
+/// egui_dock leaves free of tabs for the Split Editor button (the mock's
+/// `.doctabs .tools`: a 22 px button and 3 px at each side).
+pub(crate) const SPLIT_ROOM: f32 = 28.0;
+
+/// The room a window's Maximize button takes in its bar.
+const WINDOW_BAR_BUTTON: f32 = 28.0;
+
+/// Lays out every tab's title for the frame ahead, before the dock is
+/// drawn ([`Look`], in `Moonglow::doc_tabs`): each pane's titles whole
+/// where its bar has the room, else cut alike to fit it
+/// ([`mg_uikit::dock::doc_tab_cap`], not under its least), and laid out
+/// again only where what they are laid out from changed ([`LookCache`]).
+pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
+    let font = egui::TextStyle::Button.resolve(&ctx.global_style());
+    let made = (ctx.pixels_per_point().to_bits(), crate::script_layout::fonts_made(ctx));
+    let panes: Vec<(bool, f32, Vec<Tab>)> = (app.dock.iter_leaves())
+        .map(|(p, l)| (p.surface.is_main(), l.rect.width(), l.tabs.clone()))
+        .collect();
+    let mut cache = std::mem::take(&mut app.look_cache);
+    let mut titles = HashMap::new();
+    let mut looks = HashMap::new();
+    let mut lay = |name: &str, cap: Option<f32>, modified: bool| {
+        let key = TitleKey(
+            name.to_string(),
+            cap.map_or(u32::MAX, f32::to_bits),
+            modified,
+            font.size.to_bits(),
+            made.0,
+            made.1,
+        );
+        if let Some(title) = titles.get(&key) {
+            return std::clone::Clone::clone(title);
+        }
+        let title = cache.titles.remove(&key).unwrap_or_else(|| {
+            let max = cap.unwrap_or(f32::INFINITY);
+            mg_uikit::dock::doc_tab_title(ctx, font.clone(), name, max, modified)
+        });
+        titles.insert(key, title.clone());
+        title
+    };
+    for (main, width, tabs) in panes {
+        let named: Vec<(Tab, String, bool)> = tabs
+            .into_iter()
+            .map(|t| {
+                let name = name(app, &t);
+                let modified = modified(app, &t, &mut cache.resources);
+                (t, name, modified)
+            })
+            .collect();
+        let whole: Vec<(f32, bool)> =
+            named.iter().map(|(_, n, m)| (lay(n, None, *m).width, *m)).collect();
+        // (A pane not drawn yet, a group or window just made, has no width
+        // to fit: its titles whole until it has.)
+        let cap = (width > 0.0)
+            .then(|| mg_uikit::dock::doc_tab_cap(tab_room(main, width), &whole))
+            .flatten();
+        for (tab, name, modified) in named {
+            let title = lay(&name, cap, modified);
+            looks.insert(tab.clone(), Look { icon: icon(&tab), name, modified, title });
+        }
+    }
+    // (Only the titles laid out this frame are kept, and the resources of
+    // the tabs open.)
+    cache.titles = titles;
+    let open: std::collections::HashSet<ResKey> =
+        looks.keys().flat_map(|t| resources_of(app, t)).collect();
+    cache.resources.retain(|k, _| open.contains(k));
+    app.look_cache = cache;
+    app.doc_tabs = looks;
 }
 
 /// Whether a tab fits its pane, scrolling within itself, or scrolls in it
@@ -975,6 +1264,96 @@ mod tests {
         assert_eq!(tab(ResType::UTC).kind_before(), None);
         assert_eq!(tab(ResType::UTW).kind_before(), Some("blueprint"));
         assert_eq!(Tab::Factions.kind_before(), None);
+    }
+
+    /// Every kind of tab has its kind's icon (`icon` matches every
+    /// variant, with no catch-all: a new kind of tab must be given one), the
+    /// resource type's where it shows a resource; none is the plain file's.
+    #[test]
+    fn every_kind_of_tab_has_its_icon() {
+        use mg_uikit::Icon as I;
+        let k = |n: &str, t| ResKey::parse(n, t).unwrap();
+        let r = mg_core::ResRef::from_str("area").unwrap();
+        let path = mg_edit::GffPath::root().item("Creature List", 0);
+        let every = vec![
+            (Tab::Welcome, I::Home),
+            (Tab::ModuleProperties, I::Module),
+            (Tab::NoArea, I::Area),
+            (Tab::Script(k("s", ResType::NSS)), I::Script),
+            (Tab::Nui(k("n", ResType::JUI)), I::Nui),
+            (Tab::Gff(k("g", ResType::FAC)), I::Faction),
+            (Tab::Factions, I::Faction),
+            (Tab::Journal, I::Journal),
+            (Tab::TalkTable, I::TalkTable),
+            (Tab::Hak(1), I::Hak),
+            (Tab::Table(1), I::Table),
+            (Tab::Tileset(1), I::Tileset),
+            (Tab::Dialog(k("d", ResType::DLG)), I::Conversation),
+            (Tab::Resource(k("t", ResType::TGA)), I::Texture),
+            (Tab::ResourceCopy { key: k("t", ResType::TWODA), layer: "hak".into() }, I::Table),
+            (Tab::ModelCopy { key: k("m", ResType::MDL), layer: "hak".into() }, I::Model),
+            (Tab::Model(k("m", ResType::MDL)), I::Model),
+            (Tab::Model(k("c", ResType::UTC)), I::Creature),
+            (Tab::Blueprint(k("p", ResType::UTP)), I::Placeable),
+            (Tab::Blueprints(vec![k("i", ResType::UTI)]), I::Item),
+            (Tab::Area(r), I::Area),
+            (Tab::AreaProperties(r), I::AreaProperties),
+            (Tab::AreasProperties(vec![r]), I::AreaProperties),
+            (Tab::Instances { area: r, paths: vec![path.clone()] }, I::Creature),
+            (Tab::Instance { area: r, path: path.clone() }, I::Creature),
+            (Tab::Manual, I::Book),
+            (Tab::References, I::References),
+            (Tab::AdvancedSearch, I::Search),
+            (Tab::PlaceableGallery, I::Gallery),
+            (Tab::Options, I::Settings),
+            (Tab::TileProperties, I::Tile),
+            (Tab::InstanceModel { area: r, path }, I::Model),
+            (Tab::Tile { tileset: r, tile: 0 }, I::Tile),
+            (Tab::PluginPanel { plugin: "p".into(), panel: "q".into() }, I::Plugin),
+        ];
+        // (Every variant is in the list: this match fails to compile
+        // where one is not named.)
+        for (tab, _) in &every {
+            match tab {
+                Tab::Welcome
+                | Tab::ModuleProperties
+                | Tab::NoArea
+                | Tab::Script(_)
+                | Tab::Nui(_)
+                | Tab::Gff(_)
+                | Tab::Factions
+                | Tab::Journal
+                | Tab::TalkTable
+                | Tab::Hak(_)
+                | Tab::Table(_)
+                | Tab::Tileset(_)
+                | Tab::Dialog(_)
+                | Tab::Resource(_)
+                | Tab::ResourceCopy { .. }
+                | Tab::ModelCopy { .. }
+                | Tab::Model(_)
+                | Tab::Blueprint(_)
+                | Tab::Blueprints(_)
+                | Tab::Area(_)
+                | Tab::AreaProperties(_)
+                | Tab::AreasProperties(_)
+                | Tab::Instances { .. }
+                | Tab::Instance { .. }
+                | Tab::Manual
+                | Tab::References
+                | Tab::AdvancedSearch
+                | Tab::PlaceableGallery
+                | Tab::Options
+                | Tab::TileProperties
+                | Tab::InstanceModel { .. }
+                | Tab::Tile { .. }
+                | Tab::PluginPanel { .. } => {}
+            }
+        }
+        for (tab, want) in every {
+            assert_eq!(icon(&tab), want, "{tab:?}");
+            assert_ne!(icon(&tab), I::File, "{tab:?}");
+        }
     }
 
     /// A window's last tab closed takes the window with it, and the

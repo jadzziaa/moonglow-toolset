@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T19:38:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T21:50:22Z }
 ---
 
 # The main window
@@ -79,7 +79,7 @@ the area view's toolbar and in the palette's row of types.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Left Dock (the Module and Resources panels), Right Dock (the Palette and Preview panels), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
+| View | Left Dock (the Module and Resources panels), Right Dock (the Palette and Preview panels), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Go to Start, Split Editor (see [Tabs and windows](#tabs-and-windows)), Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
@@ -292,9 +292,11 @@ changes them; the menus show the current keys.
 | Ctrl+Alt+I | Item Wizard |
 | F11 | Full screen |
 | Alt+X | Exit (File › Exit, Aurora's key) |
-| Ctrl+W, Ctrl+F4 | Close the tab in front |
-| Ctrl+Tab, Ctrl+Page Down | Next tab |
+| Ctrl+W, Ctrl+F4 | Close the tab in front (of the editor group with the focus) |
+| Ctrl+Tab, Ctrl+Page Down | Next tab (of the group with the focus) |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
+| Ctrl+1 to Ctrl+9 | The group's tab of that number (Ctrl+9: its last) |
+| Ctrl+\ | Split Editor: the tab in front to an editor group of its own |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
 | F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
@@ -642,6 +644,38 @@ first row). In the rows, Escape hands the keys back. The row the keys are at is 
 
 ## Tabs and windows
 
+**A document tab** shows its kind's icon (an area's, a script's, a
+creature's, the tool's own for Module Properties, the manual or a plugin's
+panel), its name, a **dot** after the name where what it shows has
+changes not saved (a script typed in and not saved into the module, a hak,
+2DA, tileset or the talk table not saved to its file, an area,
+conversation, blueprint or Module Properties changed since the module was
+last saved; the dot goes when it is saved, or undone back to what was
+saved), and a **close button**: on the tab in front of its group always,
+on another while the pointer is over it (its room is kept, so the name
+does not move as it comes). A screen reader says the tab's name and, with
+the dot, "modified". The window's title keeps its star for the module's
+unsaved changes. Where a group has more tabs than its bar holds, their
+names are cut short alike (to about eight letters at least, the whole name
+in the tab's tip), and past that the bar scrolls (the wheel over it); the
+tab brought to the front is scrolled into sight.
+
+**Editor groups.** The main pane can hold groups of tabs side by side:
+**Split Editor** (the button at the right end of the focused group's tab
+bar, View › Split Editor, Ctrl+\\) moves the tab in front to a group of
+its own at the right, half the room, and gives it the focus; with two
+groups or more it moves the tab into the group beside (the next, or for
+the last the one before). It is there while the group has more than one
+tab. Dragging a tab to a side of a group makes a group there too, and
+into another group's tab bar moves it there. The group with the focus has
+the accent line over its tab in front, the others a gray one; the docks
+follow its tab in front (an area brings the Palette and Preview), and the
+tab keys act in it. A group whose last tab closes goes, its neighbor
+taking its room; with every tab closed the main pane says no area is
+open. The groups are kept with the module's open tabs and come back as
+they lay. **F6** gives the arrow keys to the editor area as one pane, the
+tab in front of the focused group.
+
 Areas open as tabs in the main pane. Everything else (blueprint and object
 editors, scripts, conversations, previews, Module Properties, the Faction
 and Journal Editors, a resource opened read-only, this manual) opens in a window
@@ -664,9 +698,9 @@ Script's name, a wizard's Find, Open 2DA, the Area chooser, the Command
 Palette, a long dropdown's Filter) Escape clears what is typed, and the
 next Escape closes the dialog (or the list). With something in hand in the area (a blueprint to place, a paste, a
 terrain brush) and the pointer over the area, Escape lets go of that and
-leaves the window open. Right-click a tab for **Eject** and **Close**,
-for **Close Others**, **Close Tabs to the Right** and **Close All** (the
-tabs of its pane), and for an area,
+leaves the window open. Right-click a tab for **Close**, **Close
+Others**, **Close Tabs to the Right** and **Close All** (the tabs of its
+group or window) and **Eject** (to a window of its own), and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
 the module's area list), and its tab with it. A window with **OK** and
@@ -675,11 +709,12 @@ Right, Close All or Ctrl+W keeps what was changed in it, as OK does;
 with **Closing a window cancels its changes (as Aurora)** on in
 Options › General, it does what its Cancel does instead.
 
-**The tab keys** work on the pane with the focus when it has more than
-one tab, else on the main pane's: Ctrl+W (or Ctrl+F4) closes the tab in
+**The tab keys** work on the editor group with the focus, or on a
+window with the focus that has more than one tab: Ctrl+W (or Ctrl+F4) closes the tab in
 front (File › Close, which closes the module, has no key until you give
 it one in the Options: in Aurora it is Ctrl+F4),
-Ctrl+Tab and Ctrl+Shift+Tab go round them (with **Ctrl+Tab goes to the
+Ctrl+Tab and Ctrl+Shift+Tab go round them, Ctrl and a digit goes to
+one by its number (9: the last) (with **Ctrl+Tab goes to the
 tab used last** on, in Options › General, in the order they were last
 used for as long as Ctrl is held: one press goes back to the tab before,
 and again returns), and Ctrl+Shift+T opens the tab

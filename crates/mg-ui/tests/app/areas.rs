@@ -15,7 +15,7 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("CHESS").click_secondary();
+    tree_row(&h, "CHESS").click_secondary();
     h.run();
     open_submenu(&mut h, "Export");
     h.get_by_label("Export Minimap…").click();
@@ -120,7 +120,7 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     // One area, with its map notes: the note, unsaved, marked.
     let png = dir.join("one.png");
     h.state_mut().dialogs = Box::new(NoDialogs { save: vec![png.clone()], ..Default::default() });
-    h.get_by_label("chess").click_secondary();
+    tree_row(&h, "chess").click_secondary();
     h.run();
     open_submenu(&mut h, "Export");
     h.get_by_label("Export Minimap with Map Notes…").click();
@@ -134,9 +134,9 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     let into = |h: &mut Harness<'_, Moonglow>, item: &str| {
         h.state_mut().dialogs =
             Box::new(NoDialogs { folders: vec![folder.clone()], ..Default::default() });
-        h.get_by_label("chess").click();
+        tree_row(h, "chess").click();
         h.run_steps(2);
-        h.get_by_label("chess2").click_modifiers(egui::Modifiers::SHIFT);
+        tree_row(h, "chess2").click_modifiers(egui::Modifiers::SHIFT);
         h.run_steps(2);
         h.get_by_label("chess2").click_secondary();
         h.run_steps(2);
@@ -925,7 +925,7 @@ fn an_area_is_renamed_from_its_tab() {
     let Some((mut h, area)) = area_harness("rename-tab") else { return };
     h.run_steps(3);
     // Right click on the area's tab: Rename….
-    h.get_by_label(&area.to_string()).click_secondary();
+    doc_tab(&h, &area.to_string()).click_secondary();
     h.run_steps(2);
     h.get_by_label("Rename…").click();
     h.run_steps(2);

@@ -81,10 +81,12 @@ fn the_middle_says_no_area_is_open_without_the_palettes() {
     assert!(h.state().dock.find_tab(&Tab::NoArea).is_none());
 }
 
-/// GitHub issue 15: the tabs by the keyboard, as in a browser. Ctrl+W
-/// closes the one in front, Ctrl+Tab and Ctrl+Shift+Tab (and Ctrl+Page
-/// Down and Up) go round them, Ctrl and a digit goes to one by its number
-/// (9: the last), Ctrl+Shift+T opens the one closed last again.
+/// GitHub issue 15: the tabs by the keyboard, as in a browser, in the
+/// editor group with the focus (here the only one; two groups:
+/// `doc_tabs::the_tab_keys_act_on_the_focused_group`). Ctrl+W closes the
+/// one in front, Ctrl+Tab and Ctrl+Shift+Tab (and Ctrl+Page Down and Up)
+/// go round them, Ctrl and a digit goes to one by its number (9: the
+/// last), Ctrl+Shift+T opens the one closed last again.
 #[test]
 fn tabs_by_the_keyboard() {
     let dir = mg_testkit::scratch_dir("ui-tab-keys");
@@ -858,7 +860,9 @@ fn the_middle_keeps_the_editor_area_whatever_the_left_dock_shows() {
 }
 
 /// GitHub issue 22: a tool window closed in a pane split off a side of
-/// the middle opens there again, as large. (The palettes, which could be
+/// the middle (an editor group of its own) opens there again, as large;
+/// while that group is there, others of its kind join it
+/// (`doc_tabs::a_kind_kept_beside_the_middle_opens_in_that_group`). (The palettes, which could be
 /// split off another side than their right too, are the Right Dock's
 /// panel since M3 T5, fixed there: ruling R5.)
 #[test]

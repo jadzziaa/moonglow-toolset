@@ -49,8 +49,9 @@ fn picture_dir(dir: &std::path::Path) -> std::path::PathBuf {
         return dir.to_path_buf();
     }
     let name = dir.file_name().expect("a folder");
-    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
-    let light = out.join("screens-light").join(name);
+    // (Where the tests write, `MOONGLOW_TEST_OUTPUT` where it is set: the
+    // light pictures of a run beside another went to the other's folder.)
+    let light = mg_testkit::test_output().join("screens-light").join(name);
     std::fs::create_dir_all(&light).unwrap();
     light
 }
@@ -10629,6 +10630,35 @@ fn shell_narrow() {
     shoot(&mut h, &dir, "shell_narrow");
 }
 
+/// The WideArea board's tabs: Module Properties, the area (changed, its
+/// modified dot), Faribeth's blueprint in the area's group, and the script
+/// `m1q3_formosa_9` in a second group at its right (Split Editor), the
+/// focus back in the area's group.
+fn board_tabs(h: &mut Harness<'_, Moonglow>) {
+    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+    let area = mg_ui::Tab::Area(mg_core::ResRef::from_str("map_m1q1a").unwrap());
+    h.state_mut().settings.window_places =
+        ["script", "creature"].iter().map(|k| (k.to_string(), "middle".to_string())).collect();
+    for tab in [utc, script] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(3);
+    }
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    h.run_steps(3);
+    // (The area changed: its tab's dot.)
+    let are = ResKey::parse("map_m1q1a", ResType::ARE).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key: are,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String("MAP_M1Q1A_X".into())),
+    };
+    h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Tag", vec![edit])).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area));
+    h.run_steps(5);
+}
+
 #[test]
 #[ignore]
 fn shell_wide() {
@@ -10637,7 +10667,87 @@ fn shell_wide() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(3440.0, 1440.0));
+    board_tabs(&mut h);
     shoot(&mut h, &dir, "shell_wide");
+}
+
+/// The document tabs (M3's T9), at the Main board's size: the board's
+/// tabs in two groups with the focus in each (`shell_groups_left`,
+/// `_right`); a modified script beside the modified area
+/// (`shell_tabs_modified`); an inactive tab hovered, its close button
+/// shown (`shell_tabs_hover`); a tab being dragged (`shell_tab_dragged`);
+/// and thirty tabs in an 800 point window (`shell_tabs_30`).
+#[test]
+#[ignore]
+fn shell_doc_tabs() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    board_tabs(&mut h);
+    shoot(&mut h, &dir, "shell_groups_left");
+    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+    let tab_rect =
+        |h: &Harness<'_, Moonglow>, tab: &mg_ui::Tab| h.state().tab_rect(tab).expect("drawn");
+    let at = tab_rect(&h, &script).center();
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "shell_groups_right");
+    // The script typed in: its dot too.
+    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(3);
+    h.event(egui::Event::Text("// ".into()));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "shell_tabs_modified");
+    // Module Properties under the pointer.
+    let module = tab_rect(&h, &mg_ui::Tab::ModuleProperties);
+    h.hover_at(module.center());
+    h.run_steps(3);
+    shoot(&mut h, &dir, "shell_tabs_hover");
+    // Faribeth's tab held and dragged down over the area's view.
+    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+    let from = tab_rect(&h, &utc).center();
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(1);
+    for i in 1..=12 {
+        h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "shell_tab_dragged");
+    h.event(egui::Event::PointerButton {
+        pos: from + egui::vec2(120.0, 240.0),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(2);
+    // Thirty tabs in 800 points.
+    let mut h = shell_window(&root, egui::vec2(800.0, 600.0));
+    h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
+    let scripts: Vec<ResKey> =
+        (h.state().ws.as_ref().unwrap().module.keys_of(ResType::NSS)).take(30).copied().collect();
+    for key in scripts {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+        h.run_steps(1);
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_tabs_30");
 }
 
 #[test]

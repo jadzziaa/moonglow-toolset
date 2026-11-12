@@ -1368,7 +1368,7 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     settle(&mut h);
     assert!(h.state().tables[0].description().is_some(), "read from beside the .mod");
     assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
-    h.get_by_label("mystore.2da");
+    doc_tab(&h, "mystore.2da");
     // A click selects a cell and F2 (or Enter, or a double click) types
     // into it; Enter keeps what is typed.
     h.get_by_label("Cheese").click();

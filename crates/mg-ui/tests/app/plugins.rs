@@ -405,7 +405,7 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
 
     // An area's row: its command above the Properties that end the menu,
     // run on the area.
-    h.get_by_label("start").click_secondary();
+    tree_row(&h, "start").click_secondary();
     h.run();
     assert!(h.query_by_label("Set Local Variable…").is_none(), "that one is for objects");
     let count = h.get_by_label("Count Objects").rect();

@@ -585,6 +585,13 @@ pub(crate) fn tree_row<'t>(h: &'t Harness<'_, Moonglow>, label: &'t str) -> egui
     h.get_by_label("Module Tree Rows").get_by_label(label)
 }
 
+/// A document tab of the editor area by its name (its title, with no mark
+/// of unsaved changes): a node of role Tab, where a tree row or a field
+/// may have the same name.
+pub(crate) fn doc_tab<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.get_by_role_and_label(egui::accesskit::Role::Tab, name)
+}
+
 /// Types into the text field with placeholder `hint` (a live filter), and
 /// waits for what it shows ([`settle`]: a gallery's pictures, made a few
 /// milliseconds' worth a frame). A "Filter" is a dropdown's or a list's,
@@ -908,8 +915,17 @@ pub(crate) fn overlapping(h: &Harness<'_, Moonglow>) -> Vec<String> {
                 .filter(|w| w.interact_rect.area() > 1.0)
                 .filter_map(|w| Some((w.interact_rect, named.get(&w.id.value())?)))
                 .collect();
+            // (A document tab's close button lies in its tab, by design.)
+            let close_of = |close: &str, tab: &str| {
+                tab.strip_prefix("Tab ").is_some_and(|t| {
+                    close == format!("Button \"Close {}", t.trim_start_matches('"'))
+                })
+            };
             for (i, (a, name_a)) in shown.iter().enumerate() {
                 for (b, name_b) in &shown[i + 1..] {
+                    if close_of(name_a, name_b) || close_of(name_b, name_a) {
+                        continue;
+                    }
                     let both = a.intersect(*b);
                     let smaller = a.area().min(b.area());
                     if both.is_positive() && both.area() > 0.25 * smaller {
@@ -930,12 +946,19 @@ pub(crate) fn close_tab(app: &mut Moonglow, tab: &Tab) {
 }
 
 /// Clicks a tab's close button as the pointer does (pressed, then let go a frame
-/// on). (egui_dock's close button has no name: it is the square at the
-/// right end of its tab, the tabs being what can be clicked and dragged
-/// in their pane's tab bar, in their order.)
+/// on): the tab hovered first, for one not in front shows its close
+/// button only under the pointer. (The close button is the square inside
+/// its tab, named "Close" and the tab's name; the tabs are what can be
+/// clicked and dragged in their pane's tab bar, in their order.)
 pub(crate) fn click_tab_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
+    let (own, _) = tab_rects(h, tab);
+    h.hover_at(egui::pos2(own.left() + 12.0, own.center().y));
+    h.run_steps(1);
     let (own, squares) = tab_rects(h, tab);
-    let close = squares.iter().find(|r| own.contains_rect(**r) && r.right() >= own.right() - 0.5);
+    // (16 points square: the Top Bar's buttons under a window's bar are
+    // 22.)
+    let side = mg_uikit::shell::DOC_TAB_CLOSE;
+    let close = squares.iter().find(|r| own.contains_rect(**r) && (r.width() - side).abs() < 0.5);
     let at = close.expect("its close button").center();
     h.hover_at(at);
     h.run_steps(1);

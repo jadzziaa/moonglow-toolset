@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T21:50:22Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -53,6 +53,9 @@ Every control of today's screens and its home in the mockups, by the names the c
 | View › Palettes Panel | View › Right Dock: it folds the Right Dock, its key (Ctrl+Alt+2) as before | ✓ M3 T5 (the boards name no row; the dock holds the Preview's tab too since T6, and is drawn beside an area's tab alone) |
 | Status line: module path, game folder | Status Bar, right | ✓ M3 T2 (the module's name, its path in the tip); T7: a running job, its name and bar, before the module's name |
 | Help › Command Palette… (Ctrl+Shift+P), a window over the toolset (no board draws it: the proposal's section 6.1 and the second rulings' third make it Quick Open) | Quick Open, the Top Bar's field "Go to resource or command" (Ctrl+P): resources and commands; Ctrl+Shift+P and Help › Command Palette… open it among the commands | ✓ M3 T8 (the window is gone) |
+| The main pane's tabs: name, " *" after a script's, the talk table's or a side editor's with unsaved changes, egui_dock's close button on every tab | Document tabs: the kind's icon, the name, the modified dot (for an area, conversation, blueprint or Module Properties changed since the module was saved too), a close button on the tab in front and the one under the pointer; titles cut alike with their whole name in their tip where the bar is crowded | ✓ M3 T9 (the tab menu's Close is Moonglow's own, first of the close rows) |
+| egui_dock's arrow at the left of the main pane's tab bar (folds a pane split above or below another to its tab bar) and its close all button at the bar's right (closes the pane's tabs; with Shift, a window's) | Gone from the editor groups' bars, which the boards draw with neither: the tab menu's Close All closes a group's tabs, and a group is made smaller by dragging its seam (no fold). A floating window's bar keeps both, as the Floating board draws them | ✓ M3 T9 (`vendor/egui_dock`: egui_dock decides them for every bar or none) |
+| Panes split off the middle by dragging a tab to a side | Editor groups: the same, and **Split Editor** at the right end of the focused group's tab bar (also View › Split Editor, Ctrl+\\); the docks and the tab keys follow the focused group | ✓ M3 T9 |
 
 
 ### Area Editor

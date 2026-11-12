@@ -204,7 +204,8 @@ fn the_module_panel_s_header_buttons_act_on_the_tree_with_tips() {
     let row = tree_row(&h, "Module Properties");
     assert_eq!(button.accesskit_node().role(), egui::accesskit::Role::Button);
     assert_ne!(row.rect(), button.rect());
-    assert_eq!(h.query_all_by_label("Module Properties").count(), 2);
+    // (And Module Properties' document tab, docked as the module opened.)
+    assert_eq!(h.query_all_by_label("Module Properties").count(), 3);
     // Expand All and Collapse All, on the tree only; the palette's on
     // the palette only. (What the palette shows: every node outside the
     // Left Dock's tab bar and the Module panel.)

@@ -265,9 +265,12 @@ fn the_command_palette_finds_a_command_and_runs_it() {
     h.state_mut().build = None;
     settle(&mut h);
 
-    // The arrows choose among several: the second of the two editors.
+    // The arrows choose among several: the third of the editors (Split
+    // Editor first, a shorter name of the same tier).
     command_palette(&mut h, "editor");
-    assert_eq!(quick_open_rows(&h), ["Faction Editor", "Journal Editor"]);
+    assert_eq!(quick_open_rows(&h), ["Split Editor", "Faction Editor", "Journal Editor"]);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
     h.key_press(egui::Key::ArrowDown);
     settle(&mut h);
     h.key_press(egui::Key::Enter);

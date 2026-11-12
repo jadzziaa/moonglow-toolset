@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:34:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T21:50:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -920,10 +920,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and the palettes joined to the middle's tabs, split above, below or
   left of it, or in a window with no edge button, are gone with the
   pane (`each_pane_folds_by_one_button_on_its_inner_edge` holds the
-  Right Dock to the Left's assertions). Left for the reporter's word, as
-  their rule shapes it (S): the middle's panes keep egui_dock's arrows
-  (it offers no per-pane choice: a patched egui_dock, or the arrows
-  covered). (from builders' reports after 1.19.1)
+  Right Dock to the Left's assertions). The middle's panes' egui_dock arrows
+  are gone with M3 T9's editor groups (egui_dock patched, `vendor/egui_dock`:
+  the main surface's tab bars draw no arrow and no close all; a floating
+  window's keep its arrow, which folds the window to its bar). (from builders' reports after 1.19.1)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them (over an area's
   view F10 is Select Tiles', as in Aurora), Left and Right
@@ -951,20 +951,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   alone, and the middle keeps its place with every area closed
   (`the_middle_keeps_its_place_with_no_area_open`). A tool's tab
   dropped on a side of the middle is still docked there
-  (`a_tool_tab_dropped_on_a_side_is_docked_there`). What remains:
-  another tool docked alone on the right (the talk table, a script, the
-  Faction Editor split off an area's right) is not known as a side pane:
-  with the last area and Module Properties closed it takes the whole
-  editor area, the middle's "No area open" gone (seen in the review of
-  M3 T5); it waits on M3b's editor groups (T9 and T10 make how the
-  editor area splits anew). And a tool window dragged from a window of
-  its own onto a side target of the middle was seen to move and not to
-  dock, by the tests' drag (issue 21's report was the resource
-  browser's; not confirmed either way in the window). (S) (GitHub
-  issues 10 to 24, after 1.20.0; 20 and 21 after 1.30.2) (the side
-  pane waits on M3b's T9 and T10; the window's drop waits on a drag by
-  hand in the running program, the owner's: the UI tests can't make a
-  window of its own)
+  (`a_tool_tab_dropped_on_a_side_is_docked_there`). A tool docked alone
+  beside the middle (the Faction Editor split off an area's right) is an
+  editor group since M3 T9, as the boards' editor area has them: with
+  the last area and Module Properties closed it takes the whole editor
+  area, as any group left alone does, and "No area open" shows once no
+  tab is left (`a_tool_s_group_left_alone_takes_the_editor_area`). What
+  remains: a tool window dragged from a window of its own onto a side
+  target of the middle was seen to move and not to dock, by the tests'
+  drag (issue 21's report was the resource browser's; not confirmed
+  either way in the window). (S) (GitHub issues 10 to 24, after 1.20.0;
+  20 and 21 after 1.30.2) (the window's drop waits on a drag by hand in
+  the running program, the owner's: the UI tests can't make a window of
+  its own)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
   Left and fold the tree): after a click in a list (the module tree, a

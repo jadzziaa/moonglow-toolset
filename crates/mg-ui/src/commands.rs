@@ -119,6 +119,9 @@ pub enum Id {
     /// The window of the tab in front made to fill Moonglow's window, or
     /// put back (as its bar's button, a double click on it, its menu).
     MaximizeWindow,
+    /// The tab in front to an editor group of its own (the Split Editor
+    /// button at the right end of the focused group's tab bar).
+    SplitEditor,
     /// The arrow keys given to the next pane, or the one before.
     NextPane,
     PreviousPane,
@@ -226,6 +229,8 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ClearLog),
             Separator,
             Do(Id::GoToStart),
+            Separator,
+            Do(Id::SplitEditor),
             Separator,
             Do(Id::HidePanels),
             Do(Id::ResetLayout),
@@ -603,6 +608,11 @@ impl Id {
                 "Maximize Window",
                 "Fill Moonglow's window with the tab in front, or restore it",
             ),
+            Id::SplitEditor => (
+                "split-editor",
+                "Split Editor",
+                "Move the tab in front to an editor group of its own",
+            ),
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
             Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),
@@ -762,6 +772,7 @@ impl Id {
             Id::ViewPalettes => crate::shell::right_shown(app).is_some(),
             Id::CloseTab => app.front_tab().is_some(),
             Id::MaximizeWindow => app.front_window_tab().is_some(),
+            Id::SplitEditor => app.can_split(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
             // (A script's, with the keys in its editor: as its Ctrl+Z,
@@ -842,6 +853,7 @@ impl Id {
                 "It acts on the script in front, or the one typed in last, and none is open"
             }
             Id::CloseTab | Id::MaximizeWindow => "No tab is open",
+            Id::SplitEditor => "The editor group in front has one tab",
             Id::ReopenTab => "No tab was closed",
             Id::InstallPlugin => "Moonglow has no plugin folder",
             Id::BuilderCode => "Open a module in a folder or a nasher project first",
@@ -1016,6 +1028,7 @@ impl Id {
                 Some(tab) => Action::ToggleMaximize(tab),
                 None => return,
             },
+            Id::SplitEditor => Action::SplitEditor,
             Id::NextTab => return app.step_tab(1),
             Id::PreviousTab => return app.step_tab(-1),
             Id::ReopenTab => return app.reopen_tab(),
