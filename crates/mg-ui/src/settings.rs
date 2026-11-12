@@ -1074,6 +1074,20 @@ impl Settings {
         }
     }
 
+    /// Settings an older Moonglow kept, made the shell's (the redesign's
+    /// M3): what a panel of the docks took the place of is dropped, the
+    /// place and size kept for the resource browser's window (kind
+    /// `resources`), now the Left Dock's Resources panel, which neither
+    /// moves nor has a window. Nothing else changes, and run again it
+    /// changes nothing more. ([`crate::Moonglow::with_settings`] runs it.)
+    pub fn shell_migrate(&mut self) {
+        // (The kinds of window that are panels now; T5 adds the palettes'.)
+        const PANELS: [&str; 1] = ["resources"];
+        let panel = |kind: &String| PANELS.contains(&kind.as_str());
+        self.window_places.retain(|(kind, _)| !panel(kind));
+        self.window_sizes.retain(|(kind, _)| !panel(kind));
+    }
+
     /// The settings as they are saved: RON text.
     pub fn saved_text(&self) -> String {
         ron::to_string(self).unwrap_or_default()
@@ -1300,6 +1314,33 @@ pub fn expand_home(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shell's migration drops the resource browser's window place and
+    /// size (kind `resources`: the Left Dock's panel now), keeps every
+    /// other, and run again changes nothing more.
+    #[test]
+    fn shell_migrate_drops_the_browser_s_window_once() {
+        let mut s = Settings {
+            window_places: vec![
+                ("resources".into(), "split below 330".into()),
+                ("script".into(), "middle".into()),
+                ("palette".into(), "split left 300".into()),
+            ],
+            window_sizes: vec![("resources".into(), [920, 700]), ("dialog".into(), [900, 680])],
+            hide_tree: true,
+            ..Default::default()
+        };
+        let mut want = s.clone();
+        want.window_places.remove(0);
+        want.window_sizes.remove(0);
+        s.shell_migrate();
+        assert_eq!(s, want);
+        s.shell_migrate();
+        assert_eq!(s, want, "run again: nothing more");
+        let mut new = Settings::default();
+        new.shell_migrate();
+        assert_eq!(new, Settings::default());
+    }
 
     /// A leading `~` is the home folder; `~name` and a `~` further in are
     /// left as they are.

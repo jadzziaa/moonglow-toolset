@@ -3,13 +3,15 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T07:32:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T09:14:36Z }
 ---
 
 # The main window
 
 From top to bottom: the **Top Bar** (the menus and the common
-commands, in one row), then the **Left Dock** with the module tree, the
+commands, in one row), then the **Left Dock** with its two panels, each
+on a tab of its own (**Module**, the module tree, and **Resources**, the
+resource browser), the
 **tabs** in the middle and the **palette** on the right, the **log** in
 the Bottom Dock under the tabs, and the **Status Bar** (the log's
 switch at its left; the module's name, "(modified)" while there are
@@ -42,8 +44,9 @@ toolbar's other buttons of earlier versions have homes of their own:
 plus) are icons on the Module panel's tab bar, beside **Expand All** and
 **Collapse All**; **Start** is **View ›
 Go to Start Location** (the area view's Go to Start Location and its
-Start filter show its circled arrow); **Resources** and **Palettes** are
-in the Tools menu (Resource Browser, Palettes); **Preview** is Preview
+Start filter show its circled arrow); **Resources** is the Left Dock's
+Resources tab (also Tools › Resource Browser); **Palettes** is in the
+Tools menu; **Preview** is Preview
 Window in the Command Palette (**Help › Command Palette…**,
 Ctrl+Shift+P). Each kind of object has one icon wherever it appears: on
 the area view's toolbar and in the palette's row of types.
@@ -196,7 +199,7 @@ changes them; the menus show the current keys.
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane (the module tree, the middle, the palettes, the log), or the one before: to what the pane's tab in front has (in the middle a talk table's lines, a 2DA's cells, at its first cell if none is selected, the resource browser's list, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
+| F6, Shift+F6 | The arrow keys to the next pane (the Left Dock's panel shown, the middle, the palettes, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
@@ -250,7 +253,11 @@ Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints) and
 the journal and factions, each group's row with its kind's icon and,
 at the right, how many it holds; **Module Properties** is at the top,
 and under the groups how many other resources the module has (those no
-group lists). Its tab bar has four buttons: **Module Properties**,
+group lists). (The dock's other tab, **Resources**, is [the resource
+browser](#the-resource-browser); where the dock is too narrow for the
+tabs' words beside the buttons of the panel shown, the tabs show their
+icons alone, a box and a folder, with their names in their tips.) With
+the Module tab chosen, the tab bar has four buttons: **Module Properties**,
 **New Area** (the Area Wizard), **Expand All** and **Collapse All**
 (below). **Filter** (the field under the tab bar) narrows every group to the
 rows with every word typed in their name or ResRef, in any order, case
@@ -445,16 +452,20 @@ terminal, `mg gff --names` names them the same way (a faction with
 --where` and `mg areas --set` take a row's label or name in place of its
 number.
 
-**The docks and the panes beside the middle** (the module tree in the
-Left Dock, the palettes on the right, the log in the Bottom Dock) fold
+**The docks and the panes beside the middle** (the module tree and the
+resource browser in the Left Dock, the palettes on the right, the log
+in the Bottom Dock) fold
 away to give the area's view the room: **View** has each (Module Tree,
 Palettes Panel, Log), ticked while shown, and **Hide All Panels**. Each
 also has one control of its own for it. The **Left Dock** has a small
-arrow at the right end of its tab bar, by the middle (**Fold the Left
-Dock**): folded, the dock leaves a thin strip at the window's left with
-an arrow at its top that brings it back (**Show the Left Dock**) and
-the Module panel's icon under it, which brings it back on that panel;
-it comes back as wide as it was. The **palettes** have an arrow on the edge they face
+arrow on its inner edge, by the middle, half way down (**Fold the Left
+Dock**; drag the edge above or below it to make the dock wider or
+narrower): folded, the dock leaves a thin strip at the window's left with
+an arrow at its top that brings it back (**Show the Left Dock**) on the
+panel it showed, and under it a button for each of its panels (**Module**,
+a box; **Resources**, a folder), which brings it back on that panel;
+it comes back as wide as it was. Its panels stay in it: neither can be
+dragged to another side or into the middle. The **palettes** have an arrow on the edge they face
 the middle by, halfway along it, pointing the way the pane goes; folded
 away they leave a thin strip at that edge, with the same button in the
 same place, pointing the other way. Palettes you moved to the left of
@@ -507,7 +518,7 @@ first row). In the rows, Escape hands the keys back. The row the keys are at is 
 
 Areas open as tabs in the main pane. Everything else (blueprint and object
 editors, scripts, conversations, previews, Module Properties, the Faction
-and Journal Editors, the resource browser, this manual) opens in a window
+and Journal Editors, a resource opened read-only, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
 put. Drag a window by its tab into the main pane, or beside another, to
 dock it; drag a tab out to float it again. The palettes keep their pane on
@@ -709,23 +720,39 @@ blueprint in them ([Options](10-options.md#module-tree-and-palettes)).
 
 ## The resource browser
 
-**Tools › Resource Browser** lists every resource the game sees in its
-load order (the game's files, haks, override, the module), with the layer
-each one comes from. A file linked into `override` or `development`
+The Left Dock's **Resources** tab lists every resource the game sees in
+its load order (the game's files, haks, override, the module), with the
+layer each one comes from. **Tools › Resource Browser** shows it: the
+dock unfolded on that tab (with no module open, the Left Dock with the
+Resources tab alone). Click **Module** to go back to the module tree;
+the dock shows the tab chosen last while Moonglow runs, and a module
+whose browser was open as a tab in an earlier version opens with the
+Resources tab shown. At the top of the panel are **Type** (one type of
+resource, or all), the **Name** field and **Overridden copies**, and
+under them how many resources are listed, of how many ("12 of 113538
+resources", and the overridden copies listed). Each row has its kind's
+icon, its name, and at the right the layer it comes from; where the
+dock is too narrow for both, the name and the layer are cut short with
+an ellipsis, and resting the pointer on the row shows them whole
+("portraits.2da from hak:low, overridden by hak:top"). Widen the dock by
+dragging its edge. A file linked into `override` or `development`
 (a symbolic link) is read as the game reads it, as a file copied there; a
-link to a folder is not followed. Open one to view it (GFF files as a field tree, 2DA
-tables, scripts and other text; models, and blueprints with **Preview**,
-in the model viewer), copy it into the module, or save it to a file
-(**Save As…**, also on its right-click menu in the list; a compiled
-model shows as the text it compiles from, and **Save As Text…** saves
-it so). **Export N as
-Files…** writes all the resources listed into a folder, once a type or
-part of a name narrows the list. Files go out as they are; with
-**Models as text** ticked (shown when models are listed), compiled
-models go out as the text they compile from. Where the folder has some
-of the files already, it asks first (**Replace** them, **Skip Those**,
-or **Cancel**), and the files are written while a window shows how far
-it is, with **Cancel**.
+link to a folder is not followed. Double-click a resource (or press
+Enter on it) to view it read-only in a tab or window of the editor area
+(GFF files as a field tree, 2DA tables, scripts and other text; models,
+and blueprints with **Preview**, in the model viewer), copy it into the
+module, or save it to a file (**Save As…**, also on its right-click
+menu in the list; a compiled model shows as the text it compiles from,
+and **Save As Text…** saves it so). The panel's tab bar has two buttons:
+**Export N as Files…** (an arrow out of a tray) writes all the
+resources listed into a folder, once a type or part of a name narrows
+the list (its tip says how many), and **Refresh** reads the load order
+again. Files go out as they are; with **Models as text** ticked (under
+Overridden copies, shown when models are listed), compiled models go
+out as the text they compile from. Where the folder has some of the
+files already, it asks first (**Replace** them, **Skip Those**, or
+**Cancel**), and the files are written while a window shows how far it
+is, with **Cancel**.
 
 A resource that several layers have (a portraits.2da in two haks, a
 texture in a hak and in the game's files) is listed once for the copy
@@ -737,17 +764,19 @@ right-click menu), or see a model or blueprint of it in the 3D viewer
 (**Preview** on its right-click menu: that copy, drawn with the rest of
 the load order as the game reads it; the viewer's Export Files… is left
 out there, as what it gathers is the game's); for a table in one of your own haks, **Edit in
-name.hak** opens it there. With **Overridden copies** (at the top) unticked, it lists
+name.hak** opens it there. With **Overridden copies** unticked, it lists
 the copy the game reads alone. **Export N as Files…** writes the copies
 the game reads into the folder chosen, and each overridden copy listed
 into a folder of its layer's under it (`hak_low/portraits.2da`). `mg which NAME.EXT --module
 MODULE` says the same on the command line.
 
 Its **Name** field has the side panes' keys: Ctrl+F, with the pointer
-over the browser, goes to it; Escape clears what is typed, and Escape
+over the panel, goes to it; Escape clears what is typed, and Escape
 again leaves it; Down goes into the list, where Up and Down (Page Up,
 Page Down, Home, End) choose a row and Enter opens it. A click on a row
-gives the list the keys too. The **Find** fields of the hak editor, the
+gives the list the keys too, and **F6** steps to the list and on from
+it. Choosing the Module or Resources tab takes the keys from the one
+list to the other. The **Find** fields of the hak editor, the
 tileset editor, the 2DA editor and the Appearance Gallery take Ctrl+F
 and Escape the same way, with the pointer over them. Ctrl+F is
 **Find** in **Options › Keyboard** (under Script Editor): the keys given to it there go to

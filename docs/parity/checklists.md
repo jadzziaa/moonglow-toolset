@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T04:48:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T08:51:04Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -139,7 +139,7 @@ unless their file (under `crates/`) follows the name.
 | Find In Files (open scripts / all module scripts) → Search Results | all module scripts (with unsaved editor text) → Search Results tab, click opens | ✅ |
 | Bookmarks (F5 toggle; Ctrl+Shift+1…9 / Ctrl+1…9) | F5 toggle; Ctrl+Shift+1…9 sets, Ctrl+1…9 goes; the gutter shows ◆ or the number; Bookmarks tab | ✅ [script_editor_completion_find_bookmarks] |
 | New (Ctrl+N), Save As (Ctrl+Alt+S), Save All, Close | Tools > New Script…, Save As…, module Save stores all edited scripts, tab close | ✅ |
-| Open (all resources / module / hak) | resource browser and the module tree | ✅ |
+| Open (all resources / module / hak) | the resource browser (the Left Dock's Resources panel) and the module tree | ✅ |
 | Options › Script Editor: font, colours of text, comment, directive, identifier, keyword, number, string, error, with a preview | font size and a colour per element (else the light or dark theme's), preview, reset; applied without reloading the game | ✅ (`options.rs` tests) |
 | Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | the templates folder (listed with `data/scr` and `scripttemplates`), compile on save, `.ndb` with each compiled script; font size and colours | ✅ [saving_a_script_compiles_it_with_debug_information_when_chosen]; the external editor: External Editor opens the script's file in the chosen program, and its saves come back into the editor [the_external_script_editor_s_saves_come_back] |
 | Indent with Tab | Tab indents the lines a selection touches, Shift+Tab outdents them (or the cursor's line) | ✅ [tab_indents_selected_lines_in_the_script_editor] |
@@ -178,7 +178,7 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Preview window: orbit, zoom | Resources > open a model: orbit (left drag), pan (right/middle drag), zoom (wheel), Frame | ✅ [model_viewer_plays_animations] |
+| Preview window: orbit, zoom | Resources (the Left Dock's panel) > open a model: orbit (left drag), pan (right/middle drag), zoom (wheel), Frame | ✅ [model_viewer_plays_animations] |
 | Aurora's own lighting (no EE lighting) | the game's enhanced-lighting equations (area light, point lights, GGX specular, environment maps, fog) | ✅ improvement (`render.rs`: lighting matches a CPU evaluation; `client_render.rs`: reference scenes within 10/255 of the game client, light uniforms equal to the client's) |
 | Animations (placeables, doors, creatures idle) | any animation of the model or its supermodels, play/pause; skins deform on the GPU with the stored bind poses | ✅ (`render.rs`: animated models; bind poses match the stored ones for 98% of bones) |
 | Light nodes light the model (Aurora: no) | light nodes as point lights (colour, radius, multiplier, animated), converted as the game does (colours above 1 reach further); tile main lights take the area's colours and the engine's radii | ✅ [lights_convert_like_the_game (`mg-render/src/scene.rs`)] |

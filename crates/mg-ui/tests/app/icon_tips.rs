@@ -6,15 +6,20 @@
 use crate::common::*;
 
 /// The buttons drawn as an icon alone (a button no wider than an icon
-/// button with an icon drawn in it), each once: its name, and where.
+/// button with an icon drawn in it), and a dock's tabs showing their icons
+/// alone (a tab no wider than an icon and its padding), each once: its
+/// name, and where.
 fn icon_buttons(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
+    use egui::accesskit::Role;
     let screen = h.ctx.content_rect();
     let drawn = mg_uikit::icons_drawn(&h.ctx);
     let side = mg_uikit::metrics::ICON_BUTTON + 4.0;
+    let tab = mg_uikit::metrics::ICON + 2.0 * mg_uikit::shell::DOCK_TAB_ICON_PADDING + 2.0;
     let mut out: Vec<(String, egui::Rect)> = Vec::new();
-    for n in h.query_all_by(|n| n.role() == egui::accesskit::Role::Button) {
+    for n in h.query_all_by(|n| matches!(n.role(), Role::Button | Role::Tab)) {
         let r = n.rect();
-        if r.width() > side || r.height() > side || !screen.contains_rect(r) {
+        let wide = if n.accesskit_node().role() == Role::Tab { tab } else { side };
+        if r.width() > wide || r.height() > side + 4.0 || !screen.contains_rect(r) {
             continue;
         }
         if !drawn.iter().any(|(_, at)| r.expand(1.0).contains_rect(*at)) {
@@ -65,6 +70,23 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     let (mut seen, mut wrong) = (Vec::new(), Vec::new());
     let mut counts = Vec::new();
     counts.push(("main window", walk(&mut h, "main window", &mut seen, &mut wrong)));
+    // The Left Dock at its least width: its tabs as icons, on both tabs.
+    left_dock_width(&h, 190.0);
+    settle(&mut h);
+    let before = seen.len();
+    counts.push(("Left Dock", walk(&mut h, "Left Dock (Module)", &mut seen, &mut wrong)));
+    show_resources(h.state_mut());
+    settle(&mut h);
+    counts.push(("Resources", walk(&mut h, "Left Dock (Resources)", &mut seen, &mut wrong)));
+    let tabs: Vec<&String> = seen[before..]
+        .iter()
+        .map(|(n, _)| n)
+        .filter(|n| *n == "Module" || *n == "Resources")
+        .collect();
+    assert_eq!(tabs.len(), 2, "the icon tabs walked: {:?}", &seen[before..]);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    left_dock_width(&h, 260.0);
+    settle(&mut h);
     // The editors, each opened in turn (and closed after: one at a time
     // in sight, none over another's buttons).
     let game = h.state().game.clone().expect("the game's data");

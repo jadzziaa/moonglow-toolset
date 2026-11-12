@@ -54,18 +54,20 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     // The area just opened is offered first, among those opened lately.
     h.get_by_label("Opened lately");
     assert_eq!(h.query_all_by_label("start").count(), 3);
-    // With the resource browser docked beside the palettes (the side
-    // pane's tab, not the middle's), the middle keeps its place too.
+    // With a tool's tab docked beside the palettes (the side pane's tab,
+    // not the middle's: the Faction Editor's), the middle keeps its place
+    // too. (The resource browser was the tab of the report; it is the
+    // Left Dock's Resources panel now, and docks nowhere.)
     h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
     h.run();
     h.run();
     let side = h.state().dock.find_tab(&Tab::Palette).unwrap();
-    h.state_mut().dock[side.surface][side.node].append_tab(Tab::Resources);
+    h.state_mut().dock[side.surface][side.node].append_tab(Tab::Factions);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::CloseTab(area));
     h.run();
     h.run();
-    assert!(has(&h, &Tab::NoArea), "the middle is kept with Resources in the side pane");
+    assert!(has(&h, &Tab::NoArea), "the middle is kept with a tool in the side pane");
     let now = width(&h, &Tab::Palette).unwrap();
     assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
 }
@@ -438,10 +440,10 @@ fn the_palettes_covered_arrow_is_passed_by_the_keyboard() {
 /// GitHub issue 10, as its reporter put it on 1.31.0, kept by the shell:
 /// one control per dock or pane to fold it away or close it, on the side
 /// it faces the middle by, and in the same place folded, in the window.
-/// The Left Dock's fold button at the right end of its tab bar, by the
-/// middle (a click at the dock's very edge, where it is resized, is the
-/// button's); folded, its strip's chevron at the window's left, beside
-/// the middle, where the button was. The palettes' on their left edge,
+/// The Left Dock's fold button on its inner edge, by the middle, half way
+/// along it (a click on the dock's very edge there, where it is resized
+/// above and below, is the button's); folded, its strip's chevron at the
+/// window's left, beside the middle, at the strip's top. The palettes' on their left edge,
 /// half way down; their tab bar has no other (egui_dock's arrow that
 /// folded the pane to its bar). The Bottom Dock's is the Log's switch in
 /// the Status Bar, which says whether it is on and stays where it is.
@@ -475,16 +477,22 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     // round.)
     const MARGIN: f32 = 8.0;
 
-    // The Left Dock: at the right end of its tab bar, by the middle, at
-    // the dock's top; folded, the same, at the window's left.
+    // The Left Dock: on its inner edge, by the middle, half way along it;
+    // folded, the strip's chevron at the window's left.
     let (shown, mid) = (button(&h, "the Left Dock"), middle(&h));
     assert!(shown.left() > window.left() + 150.0, "right of the tree: {shown:?}");
-    assert!(shown.right() < mid.left() - MARGIN, "in the dock: {shown:?} {mid:?}");
-    assert!(shown.right() > mid.left() - MARGIN - 6.0, "on its inner edge: {shown:?} {mid:?}");
-    assert!(shown.top() < mid.top(), "at the dock's top: {shown:?} {mid:?}");
+    near(shown.center().x, mid.left() - MARGIN, "across the dock's inner edge");
+    let dock_top = h.get_by_label("Left Dock").get_by_label("Module").rect().top();
+    let dock_bottom = h.get_by_label("Status Bar").get_by_label("Log").rect().top();
+    let half = (dock_top + dock_bottom) / 2.0;
+    assert!((shown.center().y - half).abs() < 3.0, "half way along it: {shown:?} {half}");
     assert!(shown.width() >= 12.0 && shown.height() >= 12.0, "{shown:?}");
-    // (A click at the edge, where the dock is resized, is the button's.)
-    let at = egui::pos2(shown.right() - 1.0, shown.center().y);
+    assert!(
+        h.get_by_label("Left Dock").query_by_label("Fold the Left Dock").is_none(),
+        "not on the tab bar"
+    );
+    // (A click on the edge, where the dock is resized, is the button's.)
+    let at = shown.center();
     h.hover_at(at);
     h.run();
     press(&h, at, true, egui::Modifiers::NONE);
@@ -499,8 +507,8 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     let mid = middle(&h);
     assert!(folded.right() < mid.left(), "beside the middle: {folded:?} {mid:?}");
     assert!(mid.left() - folded.right() < MARGIN + 4.0, "by the middle: {folded:?} {mid:?}");
-    assert_eq!(folded.size(), shown.size());
-    assert!((folded.center().y - shown.center().y).abs() < 4.0, "where it was: {folded:?}");
+    assert!(folded.width() >= 12.0 && folded.height() >= 12.0, "{folded:?}");
+    assert!((folded.top() - dock_top).abs() < 8.0, "at the strip's top: {folded:?} {dock_top}");
     h.get_by_label("Show the Left Dock").click();
     h.run_steps(2);
     assert!(!h.state().settings.hide_tree);
@@ -629,13 +637,15 @@ fn the_palettes_dropped_on_the_middle_join_its_tabs() {
     assert!(!after[0].contains("NoArea"), "{after:?}");
 }
 
-/// GitHub issue 21: the resource browser dropped on a side of the middle
-/// pane is docked there, beside it, as the targets drawn say. (From a pane
-/// of its own beside the palettes; dragged from a window of its own, the
-/// window moves, here and in the report, and was not seen to dock.)
+/// GitHub issue 21: a tool's tab dropped on a side of the middle pane is
+/// docked there, beside it, as the targets drawn say. (From a pane of its
+/// own beside the palettes; dragged from a window of its own, the window
+/// moves, here and in the report, and was not seen to dock.) The report's
+/// tab was the resource browser's, a panel since (ruling R5); the Faction
+/// Editor's is dragged in its place.
 #[test]
-fn the_resource_browser_dropped_on_a_side_is_docked_there() {
-    let Some((mut h, area)) = area_harness("dock-resources") else { return };
+fn a_tool_tab_dropped_on_a_side_is_docked_there() {
+    let Some((mut h, area)) = area_harness("dock-tool-side") else { return };
     // (Docked beside the palettes, as the reporter had it.)
     {
         let dock = &mut h.state_mut().dock;
@@ -644,7 +654,7 @@ fn the_resource_browser_dropped_on_a_side_is_docked_there() {
             surface: palettes.surface,
             node: palettes.node,
         });
-        dock.push_to_focused_leaf(Tab::Resources);
+        dock.push_to_focused_leaf(Tab::Factions);
     }
     h.run_steps(4);
     let layout = |h: &Harness<'_, Moonglow>| {
@@ -663,7 +673,7 @@ fn the_resource_browser_dropped_on_a_side_is_docked_there() {
         let found = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
         found.map(|(_, l)| (l.rect, l.viewport)).unwrap()
     };
-    let (rect, viewport) = leaf(&h, &Tab::Resources);
+    let (rect, viewport) = leaf(&h, &Tab::Factions);
     // (Its tab: the second in the bar, after the palettes'.)
     // (Its tab: the second in the bar, after the palettes'.)
     let tab = egui::pos2(rect.left() + 160.0, (rect.top() + viewport.top()) / 2.0);
@@ -683,42 +693,75 @@ fn the_resource_browser_dropped_on_a_side_is_docked_there() {
         let found = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
         found.map(|(p, l)| (p.surface.is_main(), l.tabs.len(), l.rect.center().x)).unwrap()
     };
-    let (resources, area_pane) = (main(&Tab::Resources), main(&Tab::Area(area)));
-    assert_eq!((resources.0, resources.1), (true, 1), "{:?}", layout(&h));
-    assert!(resources.2 < area_pane.2, "left of the area: {:?}", layout(&h));
+    let (tool, area_pane) = (main(&Tab::Factions), main(&Tab::Area(area)));
+    assert_eq!((tool.0, tool.1), (true, 1), "{:?}", layout(&h));
+    assert!(tool.2 < area_pane.2, "left of the area: {:?}", layout(&h));
     assert_eq!(main(&Tab::Palette).1, 1, "{:?}", layout(&h));
 }
 
-/// GitHub issue 23: with the resource browser beside the palettes, the
-/// area closed and then the palettes, the browser stays a side pane: the
-/// middle keeps its place beside it (it took the whole window).
+/// The resource browser is the Left Dock's Resources panel, fixed there
+/// (the owner's ruling R5 of 2026-11-11), not a tab: Tools › Resource
+/// Browser shows the panel and puts no tab in the editor area, so there
+/// is no tab of it to drag to a side or into the middle (GitHub issue 21's
+/// drop, retired with `the_resource_browser_dropped_on_a_side_is_docked_there`).
+/// The editor area keeps the middle as it was, its panes and their tabs.
 #[test]
-fn the_resource_browser_alone_keeps_the_middle_beside_it() {
-    let Some((mut h, area)) = area_harness("dock-browser-alone") else { return };
-    {
-        let dock = &mut h.state_mut().dock;
-        let palettes = dock.find_tab(&Tab::Palette).unwrap();
-        dock.set_focused_node_and_surface(egui_dock::NodePath {
-            surface: palettes.surface,
-            node: palettes.node,
-        });
-        dock.push_to_focused_leaf(Tab::Resources);
-    }
-    h.run_steps(3);
+fn the_resource_browser_is_a_panel_not_a_tab() {
+    let Some((mut h, area)) = area_harness("browser-panel") else { return };
+    settle(&mut h);
+    let leaves = |h: &Harness<'_, Moonglow>| -> Vec<(Vec<Tab>, egui::Rect)> {
+        let dock = &h.state().dock;
+        dock.iter_leaves().map(|(_, l)| (l.tabs.clone(), l.rect)).collect()
+    };
+    let before = leaves(&h);
+    let tabs = h.state().dock.iter_all_tabs().count();
+    menu_command(&mut h, "Tools", "Resource Browser");
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
+    h.get_by_label("Filter Resources");
+    assert_eq!(h.state().dock.iter_all_tabs().count(), tabs, "no tab of its own");
+    let after = leaves(&h);
+    assert_eq!(
+        after.iter().map(|l| &l.0).collect::<Vec<_>>(),
+        before.iter().map(|l| &l.0).collect::<Vec<_>>(),
+        "the editor area's panes and tabs as they were"
+    );
+    // (The area's pane where it was: the Left Dock as wide on either tab.)
+    let middle = |ls: &[(Vec<Tab>, egui::Rect)]| {
+        ls.iter().find(|l| l.0.contains(&Tab::Area(area))).map(|l| l.1).unwrap()
+    };
+    assert_eq!(middle(&after), middle(&before));
+}
+
+/// GitHub issue 23 (retired with
+/// `the_resource_browser_alone_keeps_the_middle_beside_it`: the browser
+/// is no pane of the editor area to be left alone in it): with the
+/// Resources panel shown and the area, Module Properties and the
+/// palettes closed, the middle keeps the whole editor area, a pane that
+/// says no area is open; the Left Dock beside it as wide as it was.
+#[test]
+fn the_middle_keeps_the_editor_area_whatever_the_left_dock_shows() {
+    let Some((mut h, area)) = area_harness("browser-panel-middle") else { return };
+    show_resources(h.state_mut());
+    settle(&mut h);
+    // (The dock's inner edge: its fold button's, 2 points in from it.)
+    let edge = |h: &Harness<'_, Moonglow>| h.get_by_label("Fold the Left Dock").rect().right();
+    let dock = edge(&h);
     for tab in [Tab::Area(area), Tab::ModuleProperties, Tab::Palette] {
         h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab]));
-        h.run_steps(3);
+        settle(&mut h);
     }
-    let leaves: Vec<(Vec<Tab>, f32)> = h
-        .state()
-        .dock
-        .iter_leaves()
+    let leaves: Vec<(Vec<Tab>, egui::Rect)> = (h.state().dock.iter_leaves())
         .filter(|(p, _)| p.surface.is_main())
-        .map(|(_, l)| (l.tabs.clone(), l.rect.center().x))
+        .map(|(_, l)| (l.tabs.clone(), l.rect))
         .collect();
-    assert_eq!(leaves.len(), 2, "{leaves:?}");
-    let x = |tab: &Tab| leaves.iter().find(|(t, _)| t.contains(tab)).map(|(_, x)| *x).unwrap();
-    assert!(x(&Tab::NoArea) < x(&Tab::Resources), "the middle, then the browser: {leaves:?}");
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert_eq!(leaves[0].0, [Tab::NoArea], "{leaves:?}");
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
+    assert_eq!(edge(&h), dock, "the Left Dock as wide");
+    // (The middle from the dock's edge, the editor area's margin between.)
+    let gap = leaves[0].1.left() - dock;
+    assert!((0.0..16.0).contains(&gap), "{:?} from {dock}", leaves[0].1);
 }
 
 /// GitHub issue 22: a tool window closed in a pane split off a side of
@@ -739,29 +782,30 @@ fn a_tool_window_reopens_in_its_split_of_the_middle() {
         let found = dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
         found.map(|(p, l)| (p.surface.is_main(), l.tabs.len(), l.rect)).unwrap()
     };
-    // The resource browser, split off below the middle, a third as tall.
-    // (The fraction: the upper pane's, the middle's.)
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    // The user manual, split off below the middle, a third as tall.
+    // (The fraction: the upper pane's, the middle's.) (The resource
+    // browser was this tool until it was the Left Dock's panel.)
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
     h.run_steps(3);
     {
         let (node, _) = middle(&h);
         let dock = &mut h.state_mut().dock;
-        let window = dock.find_tab(&Tab::Resources).unwrap();
+        let window = dock.find_tab(&Tab::Manual).unwrap();
         dock.remove_tab(window);
-        dock.main_surface_mut().split_below(node, 0.67, vec![Tab::Resources]);
+        dock.main_surface_mut().split_below(node, 0.67, vec![Tab::Manual]);
     }
     h.run_steps(3);
     let placed = |h: &Harness<'_, Moonglow>, kind: &str| {
         let places = &h.state().settings.window_places;
         places.iter().find(|(k, _)| k == kind).map(|(_, p)| p.clone())
     };
-    assert_eq!(placed(&h, "resources").as_deref(), Some("split below 330"));
-    let was = pane(&h, &Tab::Resources).2;
-    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Resources]));
+    assert_eq!(placed(&h, "manual").as_deref(), Some("split below 330"));
+    let was = pane(&h, &Tab::Manual).2;
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Manual]));
     h.run_steps(3);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
     h.run_steps(3);
-    let (main, tabs, now) = pane(&h, &Tab::Resources);
+    let (main, tabs, now) = pane(&h, &Tab::Manual);
     assert!(main && tabs == 1, "a pane of its own in the main window");
     let (_, area_rect) = middle(&h);
     assert!(now.top() >= area_rect.bottom() - 2.0, "below the middle: {now:?} {area_rect:?}");
@@ -986,7 +1030,6 @@ fn views_draw_nothing_over_anything_else() {
             (Tab::Journal, "Journal"),
             (Tab::Dialog(talk), "Conversation"),
             (Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap()), "Script"),
-            (Tab::Resources, "Resources"),
             (Tab::Palette, "Palettes"),
             (Tab::Manual, "Manual"),
         ] {
@@ -1003,6 +1046,12 @@ fn views_draw_nothing_over_anything_else() {
                 }
             }
         }
+        // The Left Dock's Resources panel (the browser, a tab before), and
+        // the Module panel again.
+        show_resources(h.state_mut());
+        look(&mut h, "Resources");
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+        look(&mut h, "Module");
         // Windows.
         let settings = h.state().settings.clone();
         h.state_mut().options = Some(mg_ui::OptionsDraft::from_settings(&settings));
@@ -1459,14 +1508,48 @@ fn a_tab_kept_in_the_palettes_pane_opens_there_again() {
             surface: at.surface,
             node: at.node,
         });
-        app.dock.push_to_focused_leaf(Tab::Resources);
+        app.dock.push_to_focused_leaf(Tab::Factions);
     }
     h.run_steps(3);
-    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Resources]);
+    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Factions]);
     h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some());
-    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Resources], "in its pane again");
+    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Factions], "in its pane again");
+}
+
+/// A module's open tabs kept by an older Moonglow with the resource
+/// browser's tab open (`resources`, before the browser was the Left
+/// Dock's Resources panel): the module opens with the dock on that panel
+/// and the record's other tabs where they were; kept again, the record
+/// has no such tab. A record with that tab alone shows the panel too.
+#[test]
+fn an_old_record_with_the_resource_browser_shows_the_panel() {
+    let (path, app, kept) = tabs_app("ui-open-tabs-resources");
+    drop(app);
+    std::fs::create_dir_all(&kept).unwrap();
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let write = |tabs: &str| {
+        let record = format!(r#"{{"panes":[{{"place":"middle","tabs":[{tabs}]}}]}}"#);
+        std::fs::write(&file, record).unwrap();
+    };
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    write(r#""script:hello.nss","resources""#);
+    let mut h = tabs_session(&path, &kept);
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
+    assert!(h.state().dock.find_tab(&Tab::Script(hello)).is_some(), "its other tab");
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    drop(h);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("script:hello.nss"), "{text}");
+    assert!(!text.contains("\"resources\""), "never kept again: {text}");
+    // The tab alone.
+    write(r#""resources""#);
+    let mut h = tabs_session(&path, &kept);
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
 }
 
 /// A tab's kind: its variant's name.

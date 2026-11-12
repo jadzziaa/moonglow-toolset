@@ -215,11 +215,15 @@ fn persistent_world_stays_within_budget() {
     b.check("frame (area view)", median(v), MS(50));
     close(&mut h, &Tab::Area(last));
 
-    // The resource browser over everything.
+    // The resource browser over everything: the Left Dock's Resources
+    // panel (loudly: the panel shown, its list there).
     frames(&mut h, &mut b, "resource browser", S(1), MS(33), |app| {
-        app.actions.push(Action::OpenTab(Tab::Resources));
+        app.actions.push(Action::ShowPanel(mg_ui::Panel::Resources));
     });
-    close(&mut h, &Tab::Resources);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "the panel shown");
+    h.get_by_label("Filter Resources");
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(2);
 
     // Whole-module work.
     let app = h.state_mut();

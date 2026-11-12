@@ -86,6 +86,40 @@ pub(crate) fn window_harness(app: Moonglow) -> Harness<'static, Moonglow> {
     harness(app, 800.0, 600.0)
 }
 
+/// A double click on a widget: both clicks in one frame (the harness gives
+/// each event it queues a frame of its own, a quarter of a second by
+/// default, longer than egui's double-click time), a second past any
+/// click before at 60 frames a second (else the three are a triple click).
+pub(crate) fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.run_steps(60);
+    let button = egui::PointerButton::Primary;
+    for pressed in [true, false, true, false] {
+        let modifiers = egui::Modifiers::NONE;
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers,
+        });
+    }
+    h.run_steps(2);
+}
+
+/// The resource browser shown: the Left Dock unfolded on its Resources
+/// panel, as Tools › Resource Browser shows it (at the next frame).
+pub(crate) fn show_resources(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
+}
+
+/// The Left Dock `width` wide (its outer width, as its edge is dragged to:
+/// kept by egui under the panel's id, `"tree"`), from the next frame.
+pub(crate) fn left_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+    let state = egui::containers::panel::PanelState { outer_rect: rect };
+    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+}
+
 /// A scratch user folder for the game: `dir`'s `user`, with `subfolders`
 /// (`hak`, `override`, `tlk`...) made in it.
 pub(crate) fn user_folder(dir: &std::path::Path, subfolders: &[&str]) -> std::path::PathBuf {

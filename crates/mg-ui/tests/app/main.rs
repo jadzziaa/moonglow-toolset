@@ -32,6 +32,7 @@ mod plugins;
 mod projects;
 mod renderer_check;
 mod resources;
+mod resources_panel;
 mod scripts;
 mod search;
 mod shell;

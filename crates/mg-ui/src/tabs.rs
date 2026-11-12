@@ -26,8 +26,6 @@ pub enum Tab {
     Nui(ResKey),
     /// Any GFF resource, as an editable field tree.
     Gff(ResKey),
-    /// The resource browser.
-    Resources,
     /// The Faction Editor.
     Factions,
     /// The Journal Editor.
@@ -142,7 +140,6 @@ impl Tab {
             Tab::Script(_) => "script",
             Tab::Nui(_) => "nui",
             Tab::Gff(_) => "gff",
-            Tab::Resources => "resources",
             Tab::Factions => "factions",
             Tab::Journal => "journal",
             Tab::TalkTable => "talk-table",
@@ -195,9 +192,7 @@ impl Tab {
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
             Tab::Nui(_) => (1140.0, 792.0),
-            Tab::Manual | Tab::Resources | Tab::Resource(_) | Tab::ResourceCopy { .. } => {
-                (920.0, 700.0)
-            }
+            Tab::Manual | Tab::Resource(_) | Tab::ResourceCopy { .. } => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Table(_) => (1040.0, 732.0),
@@ -451,7 +446,6 @@ impl Viewer<'_> {
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Nui(k) => crate::nui_view::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
-            Tab::Resources => browser::ui(self.app, ui),
             Tab::Palette => crate::palette_view::ui(self.app, ui),
             Tab::Blueprint(k) => crate::blueprint::ui(self.app, ui, *k),
             Tab::Factions => faction_view::ui(self.app, ui),
@@ -544,7 +538,6 @@ impl TabViewer for Viewer<'_> {
                 format!("{k}{}", if dirty { " *" } else { "" }).into()
             }
             Tab::Gff(k) => k.to_string().into(),
-            Tab::Resources => "Resources".into(),
             Tab::Palette => "Palettes".into(),
             Tab::Blueprint(k) if self.app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) => {
                 format!("{k} (the game's: view only)").into()
@@ -692,6 +685,9 @@ impl TabViewer for Viewer<'_> {
                 .clicked()
         {
             self.app.tree_reveal = Some((key, true));
+            // (The Left Dock on the Module panel, the tree's, where it
+            // showed the Resources panel.)
+            self.app.left_panel = crate::Panel::Module;
             ui.close();
         }
         // Claim This Area or Release Claim (the project's claims table).

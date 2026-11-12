@@ -2530,27 +2530,6 @@ fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
     assert_eq!(now, "void main()\n{\n    int n;\n    x\n}\n");
 }
 
-/// A double click at `at`: two clicks, a frame each.
-/// A double click on a widget: both clicks in one frame (the harness gives
-/// each event it queues a frame of its own, a quarter of a second by
-/// default, longer than egui's double-click time), a second past any
-/// click before at 60 frames a second (else the three are a triple click).
-fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
-    h.hover_at(at);
-    h.run_steps(60);
-    let button = egui::PointerButton::Primary;
-    for pressed in [true, false, true, false] {
-        let modifiers = egui::Modifiers::NONE;
-        h.input_mut().events.push(egui::Event::PointerButton {
-            pos: at,
-            button,
-            pressed,
-            modifiers,
-        });
-    }
-    h.run_steps(2);
-}
-
 /// Where a script editor shows the row that begins with `start` (the
 /// accessibility tree's text run of it), if it is laid out.
 fn script_row(h: &Harness<'_, Moonglow>, start: &str) -> Option<egui::Rect> {

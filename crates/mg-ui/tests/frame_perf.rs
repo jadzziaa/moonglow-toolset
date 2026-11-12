@@ -388,13 +388,26 @@ fn view_with(
     r: &mut Report,
     what: &str,
     tab: Option<&Tab>,
+    each: impl FnMut(&mut Moonglow, usize),
+) {
+    let rect = tab.and_then(|t| rect_of(h.state(), t));
+    view_in(h, r, what, rect, each);
+}
+
+/// [`view_with`] with the pointer moved and the wheel turned over `rect`
+/// (the whole screen where `None`).
+fn view_in(
+    h: &mut App<'_>,
+    r: &mut Report,
+    what: &str,
+    rect: Option<egui::Rect>,
     mut each: impl FnMut(&mut Moonglow, usize),
 ) {
     if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
         return;
     }
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
-    let rect = tab.and_then(|t| rect_of(h.state(), t)).unwrap_or(screen);
+    let rect = rect.unwrap_or(screen);
     if r.shots {
         // (The view as its frames have it: its first frame's change made;
         // an area's animations at a fixed clock, so that a run's pictures
@@ -625,6 +638,26 @@ fn close(h: &mut App<'_>, tab: &Tab) {
     if let Some(at) = dock.find_tab(tab) {
         dock.remove_tab(at);
     }
+    h.run_steps(2);
+}
+
+/// Shows the Left Dock's Resources panel (the resource browser), times it
+/// with the pointer and the wheel over it, and shows the Module panel
+/// again. Loudly: the panel must be shown and its list there.
+fn resources_panel(h: &mut App<'_>, r: &mut Report, what: &str) {
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Resources));
+    h.run_steps(3);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "{what}: shown");
+    // (The panel: under the dock's tab bar, from its first tab to its
+    // edge, where its fold button stands, down to the Status Bar.)
+    let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
+    let edge = h.get_by_label("Fold the Left Dock").rect().center().x;
+    h.get_by_label("Filter Resources");
+    let bottom = SCREEN.y - mg_uikit::metrics::STATUS_BAR;
+    let panel =
+        egui::Rect::from_min_max(egui::pos2(tab.left(), tab.bottom()), egui::pos2(edge, bottom));
+    view_in(h, r, what, Some(panel), |_, _| {});
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Module));
     h.run_steps(2);
 }
 
@@ -1580,7 +1613,7 @@ fn frames_at_144() {
     h.state_mut().background_jobs = background;
     h.state_mut().palette.filter.clear();
 
-    tab(&mut h, &mut r, "resource browser", Tab::Resources);
+    resources_panel(&mut h, &mut r, "resource browser");
     tab(&mut h, &mut r, "Faction Editor", Tab::Factions);
     tab(&mut h, &mut r, "Journal Editor", Tab::Journal);
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
@@ -1700,7 +1733,7 @@ fn frames_at_144_in_a_persistent_world() {
     h.run_steps(3);
     view(&mut h, &mut r, "Preview window, a store of 1,000 items", None);
     h.state_mut().preview_window = false;
-    tab(&mut h, &mut r, "resource browser (300,000)", Tab::Resources);
+    resources_panel(&mut h, &mut r, "resource browser (300,000)");
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));
     // Advanced Search for any variable, every hit ticked: the rows in

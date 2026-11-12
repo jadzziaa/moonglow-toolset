@@ -653,9 +653,9 @@ fn undo_on_the_top_bar_with_a_floating_editor() {
     undo_is_the_module_s(&mut h, tree, Some(1));
 }
 
-/// The fold button's right edge, which follows the Left Dock's width.
+/// The Left Dock's inner edge: where its fold button stands, across it.
 fn fold_edge(h: &Harness<'_, Moonglow>) -> f32 {
-    h.get_by_label("Left Dock").get_by_label("Fold the Left Dock").rect().right()
+    h.get_by_label("Fold the Left Dock").rect().center().x
 }
 
 /// Drags from `from` by `by`, a frame a step.
@@ -685,9 +685,9 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     let mut h = harness(app, 1400.0, 900.0);
     settle(&mut h);
     let keys = egui::Modifiers::COMMAND | egui::Modifiers::ALT;
-    // Widened by its edge, half way down (the button's at the top).
-    let edge = fold_edge(&h) + 3.0;
-    let y = h.ctx.content_rect().center().y;
+    // Widened by its edge, above its button (which is half way down).
+    let edge = fold_edge(&h) + 1.0;
+    let y = h.ctx.content_rect().top() + 150.0;
     drag(&mut h, egui::pos2(edge, y), egui::vec2(80.0, 0.0));
     let wide = fold_edge(&h);
     assert!(wide > edge + 60.0, "widened: {edge} -> {wide}");
@@ -736,10 +736,16 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     h.get_by_label("Areas (1)");
 }
 
-/// Dragged as narrow as it goes, the Left Dock is as wide as its tab bar
-/// needs (the Module tab, the Module panel's four buttons and the fold
-/// button, 190 points), and nothing on it overlaps; so too in the least
-/// window (420 points wide), where two fifths of the window would be less.
+/// Dragged as narrow as it goes, the Left Dock is 190 points wide (its
+/// tabs as icons and the Module panel's four buttons), and nothing on its
+/// tab bar overlaps. From there to 600 points (as far as the window lets
+/// it), a point at a time, on both of its tabs: nothing of the tab bar is
+/// past the dock's inner edge or overlaps, the Module panel's buttons are
+/// all on it, the tabs show their words or their icons the same on every
+/// frame at one width, icons below a width and words above it; and its
+/// fold button stands on the edge, half way down the dock. So too in the
+/// least window (420 points wide), where two fifths of the window would be
+/// less than 190.
 #[test]
 fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
     let dir = mg_testkit::scratch_dir("ui-left-dock-least");
@@ -750,21 +756,65 @@ fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
         app.open_module(&path);
         let mut h = harness(app, width, 700.0);
         settle(&mut h);
-        let edge = fold_edge(&h) + 3.0;
-        let y = h.ctx.content_rect().center().y;
+        // (Above the fold button, half way down.)
+        let edge = fold_edge(&h) + 1.0;
+        let y = h.ctx.content_rect().top() + 150.0;
         drag(&mut h, egui::pos2(edge, y), egui::vec2(-400.0, 0.0));
-        // (The test's window frame, 8 points; the fold button 2 points
-        // from the dock's inner edge.)
+        // (The test's window frame, 8 points.)
         let left = h.ctx.content_rect().left() + 8.0;
-        let wide = fold_edge(&h) + 2.0 - left;
-        assert!((wide - 190.0).abs() <= 3.0, "{width}: the dock {wide} wide");
-        let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
-        let dock = egui::Rect::from_x_y_ranges(left..=fold_edge(&h), tab.y_range());
-        let wrong: Vec<String> =
-            bars_wrong(&h, true).into_iter().filter(|w| w.starts_with("Left Dock")).collect();
-        assert!(wrong.is_empty(), "{width}: {wrong:#?}");
-        for name in ["Module Properties", "New Area", "Expand All", "Collapse All"] {
-            assert!(dock.contains_rect(module_tool(&h, name).rect()), "{width}: {name}");
+        let wide = fold_edge(&h) - left;
+        assert!((wide - 190.0).abs() <= 2.0, "{width}: the dock {wide} wide");
+        let most = (0.4 * (width - TEST_FRAME)).clamp(190.0, 600.0) as usize;
+        for panel in [mg_ui::Panel::Module, mg_ui::Panel::Resources] {
+            h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
+            settle(&mut h);
+            let mut icons_seen = Vec::new();
+            for dock in 190..=most {
+                left_dock_width(&h, dock as f32);
+                let mut each = Vec::new();
+                for _ in 0..2 {
+                    h.run();
+                    let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
+                    each.push(tab.width() < 40.0);
+                }
+                let at = format!("{width}, {panel:?} at {dock}");
+                assert!(each[0] == each[1], "{at}: words and icons by turns");
+                icons_seen.push(each[0]);
+                let edge = fold_edge(&h);
+                assert!((edge - left - dock as f32).abs() <= 1.5, "{at}: the edge at {edge}");
+                let past: Vec<String> = bar_controls(&h, "Left Dock")
+                    .into_iter()
+                    .filter(|(_, r)| r.right() > edge + 0.5 || r.left() < left - 0.5)
+                    .map(|(n, r)| format!("{n} {r:?}"))
+                    .collect();
+                assert!(past.is_empty(), "{at}: past the dock's edge: {past:?}");
+                let wrong: Vec<String> = bars_wrong(&h, true)
+                    .into_iter()
+                    .filter(|w| w.starts_with("Left Dock"))
+                    .collect();
+                assert!(wrong.is_empty(), "{at}: {wrong:#?}");
+                if panel == mg_ui::Panel::Module {
+                    for name in ["Module Properties", "New Area", "Expand All", "Collapse All"] {
+                        let r = module_tool(&h, name).rect();
+                        assert!(r.left() >= left - 0.5 && r.right() <= edge + 0.5, "{at}: {name}");
+                    }
+                }
+                // The fold button: on the edge, half way down the dock.
+                let fold = h.get_by_label("Fold the Left Dock").rect();
+                let top = h.get_by_label("Left Dock").get_by_label("Module").rect().top();
+                let bottom = h.get_by_label("Status Bar").get_by_label("Log").rect().top();
+                assert!(h.ctx.content_rect().contains_rect(fold), "{at}: {fold:?}");
+                assert!(fold.top() > top && fold.bottom() < bottom, "{at}: {fold:?}");
+                let middle = (top + bottom) / 2.0;
+                assert!((fold.center().y - middle).abs() <= 3.0, "{at}: {fold:?} {middle}");
+            }
+            let words = icons_seen.iter().position(|i| !i).unwrap_or(icons_seen.len());
+            assert!(icons_seen[..words].iter().all(|i| *i), "{width}, {panel:?}: icons below");
+            assert!(icons_seen[words..].iter().all(|i| !i), "{width}, {panel:?}: words above");
+            assert!(icons_seen[0], "{width}, {panel:?}: icons at the least width");
+            if most >= 300 {
+                assert!(words < icons_seen.len(), "{width}, {panel:?}: words where they fit");
+            }
         }
     }
 }

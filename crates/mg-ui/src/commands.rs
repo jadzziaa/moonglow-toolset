@@ -493,7 +493,11 @@ impl Id {
                 "Every placeable, creature and door appearance as a picture, to give to the \
                  selection",
             ),
-            Id::Resources => ("resources", "Resource Browser", ""),
+            Id::Resources => (
+                "resources",
+                "Resource Browser",
+                "Every resource of the load order, in the Left Dock",
+            ),
             Id::NewTileset => ("new-tileset", "New Tileset…", "A new .set file to fill"),
             Id::OpenTileset => ("open-tileset", "Open Tileset…", ""),
             Id::NewHak => ("new-hak", "New Hak", ""),
@@ -814,7 +818,7 @@ impl Id {
             Id::TalkTable => Action::OpenTab(Tab::TalkTable),
             Id::Palettes => Action::OpenTab(Tab::Palette),
             Id::PlaceableGallery => Action::PlaceableGallery,
-            Id::Resources => Action::OpenTab(Tab::Resources),
+            Id::Resources => Action::ShowPanel(crate::Panel::Resources),
             Id::ReloadResources => Action::ReloadResources,
             Id::Options => Action::OptionsDialog,
             Id::CompileAll => Action::CompileScripts,

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:22:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T08:51:04Z }
 ---
 
 # Modules
@@ -1965,7 +1965,8 @@ A 2DA is edited where it lives, and the game's own tables are never
 changed:
 
 - **A table of one of the module's haks:** open the table in the
-  resource browser (Tools › Resource Browser, and its name) and choose
+  resource browser (the Left Dock's Resources tab, or Tools › Resource
+  Browser; its name in the Name field) and choose
   **Edit… › The Table of *name*.hak**: the hak opens in the hak editor
   and its table in the 2DA editor. (Or, with the hak open in the hak
   editor already, right-click the `.2da` there and choose **Edit

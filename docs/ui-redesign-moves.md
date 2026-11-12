@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T04:48:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T08:51:04Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -41,7 +41,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Properties | Module panel header button (Module Properties) | ✓ M3 T2 (named Module Properties in M3 T3) |
 | New Area | Module panel header button | ✓ M3 T2 |
 | Start | Area view, camera button under the compass; also in the View menu | View menu ✓ M3 T2; the compass button is M4's |
-| Resources | Left Dock tab beside Module | M3 T4 (until then Tools › Resource Browser) |
+| Resources | Left Dock tab beside Module | ✓ M3 T4 (Tools › Resource Browser shows it) |
 | Palettes | Right Dock, Palette panel | M3 T5 (until then Tools › Palettes) |
 | Preview | Right Dock, Preview panel | M3 T6 (until then Preview Window in the Command Palette) |
 | Compile, Verify | Top Bar, right end | ✓ M3 T2 |
@@ -468,16 +468,16 @@ Every control of the screens mocked in the second round and its home in the mock
 
 ### Resources
 
-| Today | In the redesign |
-|---|---|
-| Type dropdown, Name filter, Overridden copies | Left Dock, Resources tab, top of the panel |
-| Refresh | Icon in the panel header |
-| "N of M resources; double-click to open" | Count in the panel; the hint in the Status Bar |
-| Export N as Files… | Icon in the panel header |
-| List rows: name, layer, indented overridden copies | Same rows with a kind icon |
-| Up, Down, Page, Home, End, Enter, Esc | Status Bar hints |
-| Read-only tab: Copy to Module, Save As… | Editor header, with a note |
-| Tab title "name (read-only)" | Kept as the document tab's name |
+| Today | In the redesign | Done |
+|---|---|---|
+| Type dropdown, Name filter, Overridden copies | Left Dock, Resources tab, top of the panel | ✓ M3 T4 (Models as text under them, where models are listed) |
+| Refresh | Icon in the panel header | ✓ M3 T4 |
+| "N of M resources; double-click to open" | Count in the panel; the hint in the Status Bar | Count ✓ M3 T4; the hint is the count's tip until the Status Bar's hints (M3 T12) |
+| Export N as Files… | Icon in the panel header | ✓ M3 T4 |
+| List rows: name, layer, indented overridden copies | Same rows with a kind icon | ✓ M3 T4 (cut with an ellipsis at the dock's width, whole in the row's tip) |
+| Up, Down, Page, Home, End, Enter, Esc | Status Bar hints | M3 T12 |
+| Read-only tab: Copy to Module, Save As… | Editor header, with a note | M4 |
+| Tab title "name (read-only)" | Kept as the document tab's name | ✓ (as it was) |
 | Read-only GFF tree | The GFF view's three columns, read-only |
 
 

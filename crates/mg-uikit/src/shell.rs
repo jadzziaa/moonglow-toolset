@@ -11,7 +11,9 @@
 //!   panel's header where it has one tab, [`PanelHeader`];
 //! - a folded dock's strip, [`FoldStrip`] (24 px of its panels' icons
 //!   under a chevron that unfolds it), and the button that folds it,
-//!   [`fold_button`];
+//!   [`fold_button`], or on the dock's inner edge, [`edge_fold_button`];
+//!   a dock's tabs show their icons alone where their words and the tools
+//!   do not fit ([`DockTabs::tools_width`]);
 //! - the document tabs' parts, painted over egui_dock's tabs:
 //!   [`doc_tab_parts`], [`paint_doc_tab_icon`], [`paint_doc_tab_close`],
 //!   with [`crate::paint_modified_dot`];
@@ -478,6 +480,51 @@ pub fn fold_button_tip(ui: &mut Ui, side: Side, dock: &str, tip: &str) -> Respon
     ui.add(button).on_hover_text(tip)
 }
 
+/// The width of a dock's fold button on its inner edge
+/// ([`edge_fold_button`]), across the 1 px edge, half each side.
+pub const EDGE_FOLD_WIDTH: f32 = 12.0;
+/// Its length along the edge.
+pub const EDGE_FOLD_LENGTH: f32 = 44.0;
+
+/// Where a dock's fold button stands on its inner edge (the line at `x`,
+/// the dock's height `along`): across the edge, half on each side of it,
+/// half way down ([`EDGE_FOLD_LENGTH`] long, or the dock's height where
+/// that is less).
+pub fn edge_fold_rect(x: f32, along: egui::Rangef) -> Rect {
+    let length = EDGE_FOLD_LENGTH.min(along.span().max(0.0));
+    Rect::from_center_size(pos2(x, along.center()), vec2(EDGE_FOLD_WIDTH, length))
+}
+
+/// The button that folds an open dock, on its inner edge (issue 10's one
+/// button a pane has, on the edge it faces the middle by), at `rect`
+/// ([`edge_fold_rect`]): a narrow, long button over the edge, its chevron
+/// pointing out of the window, `bar` at rest with a `line` border, lit
+/// (`raised-hover`, the chevron `text`) under the pointer or with the
+/// keyboard's focus. Named "Fold the Left Dock" (`dock`) and said open, as
+/// [`fold_button`]; `tip` under the pointer. Drawn after what lies under
+/// it (the editor area beside the dock), so that it is over the edge and
+/// takes the pointer there; the edge stays the dock's to drag above and
+/// below it.
+pub fn edge_fold_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str) -> Response {
+    let t = ui.tokens();
+    let name = format!("Fold the {dock}");
+    let id = ui.id().with(("mg-uikit-edge-fold", dock));
+    let r = ui.interact(rect, id, Sense::click());
+    r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), &name));
+    crate::say_expanded(&r, true);
+    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+    if ui.is_rect_visible(rect) {
+        let lit = r.hovered() || r.has_focus() || r.is_pointer_button_down_on();
+        let (fill, color) = if lit { (t.raised_hover, t.text) } else { (t.bar, t.text_2) };
+        let p = ui.painter();
+        p.rect(rect, 3.0, fill, Stroke::new(1.0, t.line), egui::StrokeKind::Inside);
+        let side_len = metrics::ICON_SMALL;
+        let icon = Rect::from_center_size(rect.center(), vec2(side_len, side_len));
+        side.outward().paint(p, icon, color);
+    }
+    r
+}
+
 // ------------------------------------------------------------------ dock tabs
 
 /// A dock tab's padding at each side (`.docktab`: `padding: 0 10px`).
@@ -501,12 +548,21 @@ pub struct DockTab {
     text: String,
     badge: Option<Badge>,
     name: Option<String>,
+    icon: Option<Icon>,
 }
 
 impl DockTab {
     /// A tab reading `text`.
     pub fn new(text: impl Into<String>) -> Self {
-        DockTab { text: text.into(), badge: None, name: None }
+        DockTab { text: text.into(), badge: None, name: None, icon: None }
+    }
+
+    /// Its icon, shown alone where the bar is too narrow for every tab's
+    /// words beside its tools ([`DockTabs::tools_width`]): the icon its
+    /// panel has on the folded dock's strip.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     /// With a badge after its words; its accessible value.
@@ -528,13 +584,24 @@ impl DockTab {
         // (And the 1 px line at its right.)
         2.0 * DOCK_TAB_PADDING + words + badge + 1.0
     }
+
+    /// Its width showing its icon alone (and its badge).
+    fn icon_width(&self, ui: &Ui) -> f32 {
+        let badge = self.badge.as_ref().map_or(0.0, |b| DOCK_TAB_BADGE_GAP + b.width(ui));
+        2.0 * DOCK_TAB_ICON_PADDING + metrics::ICON + badge + 1.0
+    }
 }
+
+/// An icon tab's padding at each side ([`DockTab::icon`]).
+pub const DOCK_TAB_ICON_PADDING: f32 = 8.0;
 
 /// What a [`DockTabs`] did.
 #[derive(Debug)]
 pub struct DockTabsOutput<R> {
     /// The bar's response (its whole rectangle).
     pub response: Response,
+    /// The tabs showed their icons alone ([`DockTabs::tools_width`]).
+    pub icons: bool,
     /// A tab was clicked and is now the one selected.
     pub changed: bool,
     /// What the tools gave.
@@ -557,12 +624,34 @@ pub struct DockTabs {
     dock: String,
     tabs: Vec<DockTab>,
     drawn_hovered: Option<usize>,
+    tools_width: Option<f32>,
 }
 
 impl DockTabs {
     /// The tab bar of the dock named `dock` (`"Left Dock"`).
     pub fn new(dock: impl Into<String>) -> Self {
-        DockTabs { dock: dock.into(), tabs: Vec::new(), drawn_hovered: None }
+        DockTabs { dock: dock.into(), tabs: Vec::new(), drawn_hovered: None, tools_width: None }
+    }
+
+    /// The tools' width (`tools` will lay out so much): where the tabs'
+    /// words and the tools do not fit the bar side by side, and every tab
+    /// has an icon ([`DockTab::icon`]), the tabs show their icons alone,
+    /// each its name in its tip (and still named by it). Measured each
+    /// frame from the words and the bar's width alone, so at one width it
+    /// is always the one or the other.
+    pub fn tools_width(mut self, width: f32) -> Self {
+        self.tools_width = Some(width);
+        self
+    }
+
+    /// Whether the tabs show their icons alone in a bar `bar` wide.
+    pub fn icons_in(&self, ui: &Ui, bar: f32) -> bool {
+        let Some(tools) = self.tools_width else { return false };
+        if self.tabs.is_empty() || self.tabs.iter().any(|t| t.icon.is_none()) {
+            return false;
+        }
+        let words: f32 = self.tabs.iter().map(|t| t.width(ui)).sum();
+        words + TOOLS_PADDING.0 + tools + TOOLS_PADDING.1 > bar
     }
 
     /// A tab reading `text`.
@@ -595,6 +684,7 @@ impl DockTabs {
         let t = ui.tokens();
         let (bar, response) = bar_rect(ui);
         paint_bar(ui, &t, bar);
+        let icons = self.icons_in(ui, bar.width());
         let mut changed = false;
         let builder = egui::UiBuilder::new()
             .max_rect(bar)
@@ -607,7 +697,8 @@ impl DockTabs {
                 });
                 ui.spacing_mut().item_spacing.x = 0.0;
                 for (i, tab) in self.tabs.iter().enumerate() {
-                    let size = vec2(tab.width(ui), bar.height());
+                    let wide = if icons { tab.icon_width(ui) } else { tab.width(ui) };
+                    let size = vec2(wide, bar.height());
                     let (rect, r) = ui.allocate_exact_size(size, Sense::click());
                     let on = *selected == i;
                     if r.clicked() && !on {
@@ -626,12 +717,15 @@ impl DockTabs {
                         }
                     });
                     let hovered = self.drawn_hovered == Some(i) || r.hovered() || r.has_focus();
-                    paint_dock_tab(ui, &t, rect, tab, on, hovered, r.has_focus());
+                    paint_dock_tab(ui, &t, rect, tab, on, hovered, r.has_focus(), icons);
+                    if icons {
+                        r.on_hover_text(&name);
+                    }
                 }
                 tools_at_right_end(ui, bar, tools)
             })
             .inner;
-        DockTabsOutput { response, changed, inner }
+        DockTabsOutput { response, icons, changed, inner }
     }
 }
 
@@ -662,6 +756,7 @@ fn paint_bar(ui: &Ui, t: &Tokens, bar: Rect) {
 }
 
 /// Paints a dock tab in `rect` (the bar's height).
+#[allow(clippy::too_many_arguments)]
 fn paint_dock_tab(
     ui: &Ui,
     t: &Tokens,
@@ -670,6 +765,7 @@ fn paint_dock_tab(
     on: bool,
     hovered: bool,
     focused: bool,
+    icon_alone: bool,
 ) {
     let p = ui.painter();
     // (The tab's own part, its line at the right apart.)
@@ -687,12 +783,24 @@ fn paint_dock_tab(
         let ring = body.with_max_y(body.bottom() - 1.0).shrink(1.0);
         p.rect_stroke(ring, 0.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
     }
-    let font = FontId::proportional(metrics::BODY_SIZE);
-    let galley = p.layout_no_wrap(tab.text.clone(), font, color);
-    let y = (rect.center().y - 0.5 - galley.size().y / 2.0).round();
-    let x = rect.left() + DOCK_TAB_PADDING;
-    let words = galley.size().x;
-    p.galley(pos2(x, y), galley, color);
+    let (x, words) = match tab.icon.filter(|_| icon_alone) {
+        Some(icon) => {
+            let x = rect.left() + DOCK_TAB_ICON_PADDING;
+            let side = metrics::ICON;
+            let at = pos2(x, (rect.center().y - 0.5 - side / 2.0).round());
+            icon.paint(p, Rect::from_min_size(at, vec2(side, side)), color);
+            (x, side)
+        }
+        None => {
+            let font = FontId::proportional(metrics::BODY_SIZE);
+            let galley = p.layout_no_wrap(tab.text.clone(), font, color);
+            let y = (rect.center().y - 0.5 - galley.size().y / 2.0).round();
+            let x = rect.left() + DOCK_TAB_PADDING;
+            let words = galley.size().x;
+            p.galley(pos2(x, y), galley, color);
+            (x, words)
+        }
+    };
     if let Some(badge) = &tab.badge {
         let left = x + words + DOCK_TAB_BADGE_GAP;
         let r = Rect::from_min_size(

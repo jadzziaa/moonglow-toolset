@@ -8638,7 +8638,7 @@ fn browser_overridden_copies() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resources));
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
     app.browser.filter = "portraits".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 700.0))
@@ -10435,8 +10435,8 @@ fn theme_read_only_focus_and_tabs() {
 
 /// Windows at the sizes they open at, on a screen with room for them
 /// (`target/test-output/screens-theme-rows/`): a conversation, a script,
-/// the Factions, a creature's blueprint and its raw fields, the Journal,
-/// the Resources and the manual, each alone, to see what each shows at
+/// the Factions, a creature's blueprint and its raw fields, the Journal
+/// and the manual, each alone, to see what each shows at
 /// its height (`Tab::window_size`).
 #[test]
 #[ignore]
@@ -10469,7 +10469,6 @@ fn windows_at_their_sizes() {
         (mg_ui::Tab::Blueprint(*creature), "creature"),
         (mg_ui::Tab::Journal, "journal"),
         (mg_ui::Tab::Gff(*creature), "gff"),
-        (mg_ui::Tab::Resources, "resources"),
         (mg_ui::Tab::Manual, "manual"),
     ] {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -10595,6 +10594,110 @@ fn shell_left_folded() {
     shoot(&mut h, &dir, "shell_left_folded");
 }
 
+/// The Left Dock `width` wide (its outer width, as its edge is dragged to;
+/// kept by egui under the panel's id, `"tree"`).
+fn left_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+    let state = egui::containers::panel::PanelState { outer_rect: rect };
+    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+}
+
+/// The Left Dock on its Resources panel, as the board Resources.png has it:
+/// "nw_c" typed in its Name, `nw_chicken.utc` open read-only in the editor
+/// area and its row the keys', the palettes folded away; the dock `width`
+/// wide where given (else its default, 260).
+fn shell_resources_window(
+    root: &std::path::Path,
+    size: egui::Vec2,
+    width: Option<f32>,
+) -> Harness<'static, Moonglow> {
+    let mut h = shell_with_area(root, size);
+    h.state_mut().actions.push(mg_ui::Action::FoldPalettes);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
+    h.state_mut().browser.filter = "nw_c".into();
+    if let Some(width) = width {
+        left_dock_width(&h, width);
+    }
+    h.run_steps(5);
+    // (Its row brought into sight by the wheel, and clicked: the keys'.)
+    let list = egui::pos2(60.0, size.y * 0.6);
+    for _ in 0..200 {
+        if h.query_by_label("nw_chicken.utc").is_some() {
+            break;
+        }
+        h.hover_at(list);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -300.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    // (The list at rest: the wheel's scroll goes on a while after it.)
+    h.run_steps(30);
+    h.get_by_label("nw_chicken.utc").click();
+    h.run_steps(3);
+    let key = ResKey::parse("nw_chicken", ResType::UTC).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run_steps(5);
+    h
+}
+
+/// The Resources panel at the main board's size and the dock's default
+/// width (Resources.png): Type, Name and Overridden copies on top, the
+/// count, the list's rows with their kinds' icons and layers; Export and
+/// Refresh in the header.
+#[test]
+#[ignore]
+fn shell_resources() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1600.0, 900.0), None);
+    shoot(&mut h, &dir, "shell_resources");
+}
+
+/// The Resources panel at the Left Dock's least width (190): the rows'
+/// names and layers cut with an ellipsis, nothing past the dock's edge;
+/// and at 500, wide enough for every name and layer whole. Overridden
+/// copies listed (the copies of `nw_chicken` under the game's own). Then
+/// the Module tab at the least width.
+#[test]
+#[ignore]
+fn shell_resources_least() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1600.0, 900.0), Some(190.0));
+    shoot(&mut h, &dir, "shell_resources_least");
+    left_dock_width(&h, 500.0);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_resources_500");
+    // (The Module tab at the least width: its tab bar's room beside it.)
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    left_dock_width(&h, 190.0);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_module_least");
+}
+
+/// The Left Dock folded on its Resources panel, at the narrow board's
+/// size: the strip's chevron and the two panels' icons (Module, Resources).
+#[test]
+#[ignore]
+fn shell_resources_folded() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1280.0, 800.0), None);
+    h.state_mut().settings.hide_tree = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_resources_folded");
+}
+
 /// The Module panel with every group of the tree open (Expand All), at the
 /// main board's size: each group's icon and count, the Areas group
 /// scrolling in its own well over the groups below it.
@@ -10667,9 +10770,8 @@ fn shell_tree_narrowed() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
-    let edge = |h: &Harness<'_, Moonglow>| {
-        h.get_by_label("Left Dock").get_by_label("Fold the Left Dock").rect().right() + 3.0
-    };
+    let edge =
+        |h: &Harness<'_, Moonglow>| h.get_by_label("Fold the Left Dock").rect().center().x + 1.0;
     let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
         h.hover_at(from);
         h.run_steps(2);
@@ -10682,7 +10784,8 @@ fn shell_tree_narrowed() {
         h.drop_at(to);
         h.run_steps(5);
     };
-    let y = 400.0;
+    // (Above the fold button, half way down the dock.)
+    let y = 250.0;
     let w = edge(&h);
     drag(&mut h, egui::pos2(w, y), egui::pos2(w + 300.0, y));
     let w = edge(&h);

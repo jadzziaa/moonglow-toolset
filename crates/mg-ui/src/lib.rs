@@ -101,7 +101,7 @@ pub mod trace;
 mod transfer;
 mod tree;
 pub mod updates;
-pub use shell::LEAST_WINDOW_SIZE;
+pub use shell::{LEAST_WINDOW_SIZE, Panel};
 pub use tree::TreeAt;
 pub mod var_sets;
 pub mod widgets;
@@ -225,6 +225,9 @@ impl Side {
 pub enum Action {
     /// Folds the palettes' pane away (as their fold button and View do).
     FoldPalettes,
+    /// Shows a panel of the docks: its dock unfolded on it (Tools ›
+    /// Resource Browser shows the Resources panel).
+    ShowPanel(Panel),
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -806,6 +809,15 @@ pub struct Moonglow {
     /// The Left Dock's fold button as last drawn (its edge is the
     /// dock's, which is resized from there: `shell::left_dock`).
     pub(crate) left_fold: Option<egui::Rect>,
+    /// The Left Dock's panel chosen last (its tab selected), for the run:
+    /// shown where the dock holds it (`shell::left_shown`).
+    pub(crate) left_panel: Panel,
+    /// The Left Dock's panel drawn last (the arrow keys go from one
+    /// panel to the other with its tab: `shell::left_dock`).
+    pub(crate) left_drawn: Option<Panel>,
+    /// The Resources panel was asked for with no module open: from then
+    /// on the Left Dock holds it with no module open too, for the run.
+    pub(crate) resources_alone: bool,
     /// The script whose editor has the keys, or had them when the menu
     /// still open was opened (the click on it takes them): Edit › Undo
     /// and Redo and the Top Bar's are that editor's, as its keys are
@@ -1321,6 +1333,9 @@ impl Moonglow {
             undo_worked: None,
             pressed_side_tab: None,
             left_fold: None,
+            left_panel: Panel::Module,
+            left_drawn: None,
+            resources_alone: false,
             undo_script: None,
             test_checked: None,
             model_views: HashMap::new(),
@@ -1560,7 +1575,9 @@ impl Moonglow {
 
     /// The application with saved settings: their game install (or the
     /// detected one) and recent modules.
-    pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
+    pub fn with_settings(mut settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
+        // (An older Moonglow's, made the shell's: `Settings::shell_migrate`.)
+        settings.shell_migrate();
         let mut app = Moonglow::new(settings.install(), dialogs);
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
         // (From the start, so that it has a module opened at once.)
@@ -1838,6 +1855,9 @@ impl Moonglow {
             self.window_bars(ui);
             self.palettes_edge(ui);
         });
+        // (The Left Dock's fold button, over its edge and the editor
+        // area's beside it.)
+        shell::left_dock_fold(self, ui);
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
@@ -1858,6 +1878,9 @@ impl Moonglow {
         if area_audio::update(self, heard, ui.input(|i| i.time)) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
         }
+        // (The files an Export as Files would write over, asked about:
+        // the resource browser's panel may be folded meanwhile.)
+        browser::exporting_window(self, ui.ctx());
         wizards::ui(self, ui);
         blueprint_wizard::ui(self, ui);
         transfer::ui(self, ui);
@@ -2207,6 +2230,27 @@ impl Moonglow {
         }
     }
 
+    /// Shows the Left Dock's panel `panel` (Tools › Resource Browser, its
+    /// tab or its strip button clicked): the dock unfolded on its tab. The
+    /// Resources panel asked for with no module open is held by the dock
+    /// from then on ([`shell::Panel::available`]).
+    pub(crate) fn show_left_panel(&mut self, panel: Panel) {
+        if panel == Panel::Resources && self.ws.is_none() {
+            self.resources_alone = true;
+        }
+        self.left_panel = panel;
+        self.settings.hide_tree = false;
+    }
+
+    /// The panel the Left Dock shows (its tab selected): `None` where the
+    /// dock is folded, or holds no panel and is not drawn.
+    pub fn left_dock_shows(&self) -> Option<Panel> {
+        if self.settings.hide_tree {
+            return None;
+        }
+        shell::left_shown(self)
+    }
+
     /// Whether every one of them is folded away.
     pub(crate) fn panels_hidden(&self) -> bool {
         use commands::Id::{ViewLog, ViewPalettes, ViewTree};
@@ -2501,46 +2545,37 @@ impl Moonglow {
     }
 
     /// Next Pane and Previous Pane (F6): the arrow keys given to the next
-    /// of the panes shown, round from the last: the module tree (at the
-    /// row they were at, else its first), the middle (an area's view has
-    /// them, as after a click in it), the palettes, the log.
+    /// of the panes shown, round from the last: the Left Dock's panel
+    /// shown (the module tree, at the row they were at, else its first; or
+    /// the resource browser's list), the middle (an area's view has them,
+    /// as after a click in it), the palettes, the log.
     pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
         use palette_view::Keys;
-        // Each pane's keys are what its tab in front has: the middle's (the
-        // tab used last outside the palettes' pane, a window's too) a talk
-        // table's lines, a table's cells or the resource browser's list,
-        // else an area's; the palettes' pane's the palette, or the
-        // resource browser docked there.
+        // Each pane's keys are what its tab in front has: the Left Dock's
+        // its panel's (the tree's rows, the resource browser's list); the
+        // middle's (the tab used last outside the palettes' pane, a
+        // window's too) a talk table's lines or a table's cells, else an
+        // area's; the palettes' pane's the palette.
         let palettes = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
         let in_palettes = |tab: &Tab| {
             let at = self.dock.find_tab(tab).map(|p| (p.surface, p.node));
             at.is_some() && at == palettes
         };
-        let front = |in_pane: bool| {
-            if in_pane {
-                let (s, n) = palettes?;
-                let leaf = self.dock.iter_leaves().find(|(p, _)| p.surface == s && p.node == n)?.1;
-                leaf.tabs.get(leaf.active.0).cloned()
-            } else {
-                self.tabs_recent.iter().find(|t| !in_palettes(t)).cloned()
-            }
-        };
+        let front = self.tabs_recent.iter().find(|t| !in_palettes(t)).cloned();
         let keys_of = |tab: Option<Tab>| match tab {
             Some(Tab::TalkTable) => (Keys::Talk, None),
             Some(Tab::Table(id)) => (Keys::Table, Some(id)),
-            Some(Tab::Resources) => (Keys::Browser, None),
             _ => (Keys::Area, None),
         };
         let mut panes = Vec::new();
-        if self.ws.is_some() && !self.settings.hide_tree {
-            panes.push((Keys::Tree, None));
+        match self.left_dock_shows() {
+            Some(shell::Panel::Module) => panes.push((Keys::Tree, None)),
+            Some(shell::Panel::Resources) => panes.push((Keys::Browser, None)),
+            None => {}
         }
-        panes.push(keys_of(front(false)));
+        panes.push(keys_of(front));
         if palettes.is_some() {
-            panes.push(match front(true) {
-                Some(Tab::Resources) => (Keys::Browser, None),
-                _ => (Keys::Palette, None),
-            });
+            panes.push((Keys::Palette, None));
         }
         // The log last, below them all, where it is shown.
         if !self.settings.hide_log {
@@ -2548,7 +2583,7 @@ impl Moonglow {
         }
         let now = panes.iter().position(|p| palette_view::keys_are(ctx, p.0));
         // (The keys anywhere else, a conversation's lines: as the middle's.)
-        let middle = usize::from(panes[0].0 == Keys::Tree);
+        let middle = usize::from(matches!(panes[0].0, Keys::Tree | Keys::Browser));
         let now = now.unwrap_or(middle.min(panes.len() - 1));
         let (next, table) = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
         palette_view::give_keys(ctx, next);
@@ -2569,6 +2604,10 @@ impl Moonglow {
         }
         if next == Keys::Palette {
             self.palette.to_first = true;
+        }
+        // (At the row they were at in the browser's list, else its first.)
+        if next == Keys::Browser && self.browser.cursor.is_none() {
+            self.browser.go_to(0);
         }
     }
 
@@ -2653,9 +2692,9 @@ impl Moonglow {
             return;
         }
         // The middle's tabs: those of the main surface that are not in
-        // the palettes' pane. (A tab docked beside the palettes there, the
-        // resource browser's, is the side pane's, not the middle's: with
-        // it open the middle was let go all the same. GitHub issue 11.)
+        // the palettes' pane. (A tab docked beside the palettes there is
+        // the side pane's, not the middle's: with it open the middle was
+        // let go all the same. GitHub issue 11.)
         // (The palettes dropped into the middle, among its areas, make it
         // no side pane: taken for one, the middle was found empty and a
         // pane that says so was set beside it, the areas on the right.
@@ -2670,17 +2709,6 @@ impl Moonglow {
                     .is_none_or(|(_, leaf)| !leaf.tabs.iter().any(middle))
             })
             .map(|p| (p.surface, p.node));
-        // (Without the palettes, a pane of the resource browser alone is
-        // the side pane all the same: the palettes closed, it took the
-        // whole window, and nothing could be docked beside it. GitHub
-        // issue 23.)
-        let side = side.or_else(|| {
-            let tools = |t: &Tab| matches!(t, Tab::Resources);
-            (self.dock.iter_leaves())
-                .filter(|(p, _)| p.surface.is_main())
-                .find(|(_, leaf)| !leaf.tabs.is_empty() && leaf.tabs.iter().all(tools))
-                .map(|(p, _)| (p.surface, p.node))
-        });
         let main: Vec<Tab> = (self.dock.iter_all_tabs())
             .filter(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != side)
             .map(|(_, t)| t.clone())
@@ -3967,6 +3995,7 @@ impl Moonglow {
                 }
             }
             Action::FoldPalettes => self.show_panel(commands::Id::ViewPalettes, false),
+            Action::ShowPanel(panel) => self.show_left_panel(panel),
             Action::PackTarget => _ = self.pack_target(),
             Action::TakeInLeftOut => self.take_in_left_out(),
             Action::ExportDialog(keys) => {

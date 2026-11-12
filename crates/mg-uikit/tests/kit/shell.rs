@@ -598,3 +598,105 @@ fn a_joined_arrow_is_framed_beside_its_button() {
         assert!(framed, "{theme:?}: framed at rest");
     }
 }
+
+/// A dock's tabs show their icons alone where their words and the tools
+/// do not fit the bar side by side, each tab still a tab named by its
+/// words, said selected or not, its name in its tip; their words where
+/// they fit. Swept a point at a time across the boundary, each width has
+/// the one or the other on every frame, icons below the boundary and words
+/// above it, and nothing of the bar is past its right end (from the
+/// icons' and the tools' own width up).
+#[test]
+fn a_dock_s_tabs_show_their_icons_where_their_words_do_not_fit() {
+    let width = Cell::new(300.0f32);
+    let icons = Cell::new(false);
+    let ends = Cell::new((0.0f32, 0.0f32));
+    let mut h = Harness::builder().with_size(egui::vec2(400.0, 120.0)).build_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let w = width.get();
+        ui.allocate_ui(egui::vec2(w, 60.0), |ui| {
+            ui.set_width(w);
+            let mut selected = 1;
+            let tools = 4.0 * 22.0;
+            let out = DockTabs::new("Left Dock")
+                .with(DockTab::new("Module").icon(Icon::Module))
+                .with(DockTab::new("Resources").icon(Icon::Folder))
+                .tools_width(tools)
+                .show(ui, &mut selected, |ui| {
+                    let mut last = egui::Rect::NOTHING;
+                    for name in ["A", "B", "C", "D"] {
+                        last = ui.add(IconButton::new(Icon::Plus, name).icon_only(true)).rect;
+                    }
+                    last.right()
+                });
+            icons.set(out.icons);
+            ends.set((out.inner, out.response.rect.right()));
+        });
+    });
+    // Each width: the same on three frames; icons only below a boundary.
+    let mut seen = Vec::new();
+    for w in (165..=320).map(|w| w as f32) {
+        width.set(w);
+        let mut each = Vec::new();
+        for _ in 0..3 {
+            h.run();
+            each.push(icons.get());
+        }
+        assert!(each.iter().all(|i| *i == each[0]), "{w}: {each:?}");
+        let (tools_end, bar_end) = ends.get();
+        assert!(tools_end <= bar_end + 0.5, "{w}: the tools past the bar's end");
+        seen.push((w, each[0]));
+    }
+    let first_words = seen.iter().position(|(_, i)| !i).expect("words somewhere");
+    assert!(first_words > 0, "icons somewhere");
+    assert!(seen[first_words..].iter().all(|(_, i)| !i), "no icons above the boundary");
+    assert!(seen[..first_words].iter().all(|(_, i)| *i), "no words below it");
+    // Icons: still named tabs, said selected; the name in the tip.
+    width.set(170.0);
+    h.run();
+    assert!(icons.get());
+    let tab = h.get_by_label("Left Dock").get_by_label("Resources");
+    assert_eq!(tab.accesskit_node().role(), Role::Tab);
+    assert_eq!(tab.accesskit_node().is_selected(), Some(true));
+    let module = h.get_by_label("Left Dock").get_by_label("Module");
+    assert_eq!(module.accesskit_node().is_selected(), Some(false));
+    module.hover();
+    for _ in 0..30 {
+        h.run();
+    }
+    assert!(h.query_all_by_label("Module").count() >= 2, "its name in its tip");
+}
+
+/// A dock's fold button on its inner edge: across the edge, half on each
+/// side, half way down; named and said open; its click reported.
+#[test]
+fn a_dock_s_fold_button_stands_on_its_inner_edge() {
+    let clicked = Cell::new(0);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Light);
+        let rect = shell::edge_fold_rect(200.0, egui::Rangef::new(40.0, 340.0));
+        if shell::edge_fold_button(
+            ui,
+            rect,
+            Side::Left,
+            "Left Dock",
+            "Fold the Left Dock (Ctrl+Alt+1)",
+        )
+        .clicked()
+        {
+            clicked.set(clicked.get() + 1);
+        }
+    });
+    h.run();
+    let fold = h.get_by_label("Fold the Left Dock");
+    assert_eq!(fold.accesskit_node().data().is_expanded(), Some(true));
+    let r = fold.rect();
+    assert_eq!(r.center(), egui::pos2(200.0, 190.0), "across the edge, half way down");
+    assert_eq!(r.size(), egui::vec2(shell::EDGE_FOLD_WIDTH, shell::EDGE_FOLD_LENGTH));
+    fold.click();
+    h.run();
+    assert_eq!(clicked.get(), 1);
+    // A short dock: as long as the dock.
+    let short = shell::edge_fold_rect(10.0, egui::Rangef::new(0.0, 30.0));
+    assert_eq!(short.height(), 30.0);
+}

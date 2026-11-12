@@ -178,12 +178,15 @@ fn the_module_panel_s_header_buttons_act_on_the_tree_with_tips() {
     // Collapse All.)
     let Some((mut h, _)) = area_harness("module-panel-header") else { return };
     settle(&mut h);
-    // The four, in the board's order, before the fold button.
+    // The four, in the board's order, the last at the tab bar's end (the
+    // fold button is on the dock's edge, not on the bar).
     let names = ["Module Properties", "New Area", "Expand All", "Collapse All"];
     let lefts: Vec<f32> = names.iter().map(|n| module_tool(&h, n).rect().left()).collect();
     assert!(lefts.windows(2).all(|w| w[0] < w[1]), "in order: {lefts:?}");
-    let fold = h.get_by_label("Left Dock").get_by_label("Fold the Left Dock").rect();
-    assert!(lefts[3] < fold.left());
+    assert!(h.get_by_label("Left Dock").query_by_label("Fold the Left Dock").is_none());
+    let fold = h.get_by_label("Fold the Left Dock").rect();
+    let last = module_tool(&h, "Collapse All").rect();
+    assert!(last.right() <= fold.center().x && fold.center().x - last.right() < 6.0, "{last:?}");
     for (name, tip) in [
         ("Module Properties", "Open the module's properties"),
         ("New Area", "Make a new area with the Area Wizard"),
@@ -621,7 +624,7 @@ fn sideways(h: &mut Harness<'_, Moonglow>) -> f32 {
 
 /// The Left Dock's right edge (where it is dragged wider or narrower).
 fn dock_edge(h: &Harness<'_, Moonglow>) -> f32 {
-    h.get_by_label("Left Dock").get_by_label("Fold the Left Dock").rect().right() + 3.0
+    h.get_by_label("Fold the Left Dock").rect().center().x + 1.0
 }
 
 /// The Left Dock widened by 300 points, then narrowed to its least width:
@@ -640,13 +643,15 @@ fn a_narrowed_dock_leaves_the_tree_no_wider_than_its_rows() {
         }
         let rows = areas_open.then(|| well_rows(&h));
         assert_eq!(sideways(&mut h), 0.0, "as it opens");
+        // (Dragged by the edge above its fold button, which is half way
+        // down.)
         let w = dock_edge(&h);
-        drag(&mut h, egui::pos2(w, 400.0), egui::pos2(w + 300.0, 400.0));
+        drag(&mut h, egui::pos2(w, 250.0), egui::pos2(w + 300.0, 250.0));
         settle(&mut h);
         assert!(dock_edge(&h) > w + 250.0, "widened");
         assert_eq!(sideways(&mut h), 0.0, "widened");
         let w = dock_edge(&h);
-        drag(&mut h, egui::pos2(w, 400.0), egui::pos2(w - 600.0, 400.0));
+        drag(&mut h, egui::pos2(w, 250.0), egui::pos2(w - 600.0, 250.0));
         settle(&mut h);
         assert!(dock_edge(&h) < 200.0, "narrowed to its least: {}", dock_edge(&h));
         assert_eq!(sideways(&mut h), 0.0, "narrowed (Areas open: {areas_open})");
@@ -1032,41 +1037,7 @@ fn show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below() {
     let x = group(&h, "Areas").rect().center().x;
     wheel(&mut h, egui::pos2(x, (a + c) / 2.0), 400.0, 12);
     assert!(!in_well(&h, &deep.to_string()));
-    // (The tab's title drawn in its leaf's tab bar, right-clicked: a
-    // press, and its release the next frame.)
-    let menu_of = |h: &mut Harness<'_, Moonglow>, tab: &Tab, title: &str| {
-        let s = h.state();
-        let path = s.dock.find_tab(tab).expect("open");
-        let leaf = s.dock.leaf(path.node_path()).unwrap();
-        let bar = leaf.rect.with_max_y(leaf.viewport.top());
-        let at = (drawn_shapes_text(h).into_iter())
-            .find(|(t, r)| t.to_lowercase().starts_with(title) && bar.contains(r.center()))
-            .map(|(_, r)| r.center())
-            .expect("the tab's title");
-        h.hover_at(at);
-        h.run_steps(2);
-        let button = egui::PointerButton::Secondary;
-        let none = egui::Modifiers::NONE;
-        h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers: none });
-        h.run_steps(1);
-        h.event(egui::Event::PointerButton { pos: at, button, pressed: false, modifiers: none });
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while h.query_by_label("Show in Module Tree").is_none() {
-            assert!(std::time::Instant::now() < deadline, "the tab's menu");
-            h.run_steps(1);
-        }
-        // (The item under the pointer a frame before it is clicked.)
-        let item = popup_item(h, "Show in Module Tree").rect().center();
-        h.hover_at(item);
-        h.run_steps(2);
-        popup_item(h, "Show in Module Tree").click();
-        h.step();
-        h.run_steps(1);
-        assert!(h.query_by_label("Show in Module Tree").is_none(), "the menu closed");
-        h.run_steps(5);
-        settle(h);
-    };
-    menu_of(&mut h, &Tab::Area(deep), &deep.to_string());
+    show_in_tree_from_tab(&mut h, &Tab::Area(deep), &deep.to_string());
     assert_eq!(h.state().tree_marked, Some(ResKey::new(deep, ResType::ARE)));
     assert!(in_well(&h, &deep.to_string()), "the area's row in the well's view");
     let arrow = format!("Placed Objects in {deep}");
@@ -1081,12 +1052,65 @@ fn show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below() {
     settle(&mut h);
     group(&h, "Areas").click();
     settle(&mut h);
-    menu_of(&mut h, &Tab::Script(script), &script.resref.to_string().to_lowercase());
+    show_in_tree_from_tab(&mut h, &Tab::Script(script), &script.resref.to_string().to_lowercase());
     assert_eq!(h.state().tree_marked, Some(script));
     let filter = h.get(egui_kittest::kittest::by().predicate(tree_filter)).rect();
     let bottom = h.ctx.content_rect().bottom() - mg_uikit::metrics::STATUS_BAR;
     let row = h.get_by_label("Module Tree Rows").get_by_label(&script.resref.to_string()).rect();
     assert!(row.top() >= filter.bottom() - 0.5 && row.bottom() <= bottom + 0.5, "{row:?}");
+}
+
+/// Show in Module Tree from the menu of `tab`'s tab (its title `title`,
+/// lowercase, drawn in its leaf's tab bar, right-clicked: a press, and its
+/// release the next frame).
+fn show_in_tree_from_tab(h: &mut Harness<'_, Moonglow>, tab: &Tab, title: &str) {
+    let s = h.state();
+    let path = s.dock.find_tab(tab).expect("open");
+    let leaf = s.dock.leaf(path.node_path()).unwrap();
+    let bar = leaf.rect.with_max_y(leaf.viewport.top());
+    let at = (drawn_shapes_text(h).into_iter())
+        .find(|(t, r)| t.to_lowercase().starts_with(title) && bar.contains(r.center()))
+        .map(|(_, r)| r.center())
+        .expect("the tab's title");
+    h.hover_at(at);
+    h.run_steps(2);
+    let button = egui::PointerButton::Secondary;
+    let none = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers: none });
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: at, button, pressed: false, modifiers: none });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while h.query_by_label("Show in Module Tree").is_none() {
+        assert!(std::time::Instant::now() < deadline, "the tab's menu");
+        h.run_steps(1);
+    }
+    // (The item under the pointer a frame before it is clicked.)
+    let item = popup_item(h, "Show in Module Tree").rect().center();
+    h.hover_at(item);
+    h.run_steps(2);
+    popup_item(h, "Show in Module Tree").click();
+    h.step();
+    h.run_steps(1);
+    assert!(h.query_by_label("Show in Module Tree").is_none(), "the menu closed");
+    h.run_steps(5);
+    settle(h);
+}
+
+/// Show in Module Tree from a tab's menu with the Left Dock on its
+/// Resources panel: the dock goes to its Module tab, the row marked.
+#[test]
+fn show_in_module_tree_with_the_resources_panel_chooses_the_module_tab() {
+    let Some(mut h) = game_harness("show-in-tree-resources") else { return };
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    show_resources(h.state_mut());
+    h.run_steps(5);
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
+    show_in_tree_from_tab(&mut h, &Tab::Script(hello), "hello");
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Module));
+    assert_eq!(h.state().tree_marked, Some(hello));
+    h.get_by_label("Module Tree Rows").get_by_label("hello");
 }
 
 /// The keys at an area deep in the well: F6 gives them to the next pane

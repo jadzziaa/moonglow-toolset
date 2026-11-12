@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T01:38:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T09:14:36Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -958,21 +958,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   for its own menu (a Windows build). (S) (from builders' reports
   after 1.19.1)
 - **The middle with a tab beside the palettes** (issue 11): the middle
-  was let go where another tab (the resource browser) shared the
+  was let go where another tab (the resource browser, then) shared the
   palettes' pane; the pane's tabs no longer count as the middle's. The
   palettes dropped among the middle's areas are the middle's (issue 20:
   they were taken for the side pane, and the areas pushed to the
-  right), and the resource browser's pane alone is a side pane once the
-  palettes are closed (issue 23: it took the whole window). Another
-  tool docked alone on the right (the talk table, a script) is not
-  known as a side pane. Issue 21's drop on a side target is docked
-  there from a pane; from a window of its own, the window was seen to
-  move and not to dock, by the tests' drag (not confirmed either way in
-  the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20, 21 and
-  23 after 1.30.2) (the window's drop waits on a drag by hand in the
-  running program, the owner's or issue 21's reporter's: the UI tests
-  can't make a window of its own, and issue 21 has no answer since
-  2026-10-10)
+  right). Another tool docked alone on the right (the talk table, a
+  script) is not known as a side pane. What is left of it goes with the
+  palettes' pane, which the Right Dock takes the place of (the UI
+  redesign's M3 T5, the owner's ruling R5). A tool window dragged from
+  a window of its own onto a side target of the middle was seen to move
+  and not to dock, by the tests' drag (issue 21's report was the
+  resource browser's; not confirmed either way in the window). Its
+  resource browser's part (the browser dropped on a side, issue 21, or
+  left alone beside the middle, issue 23) is settled by the owner's
+  ruling R5 of 2026-11-11: the browser is the Left Dock's Resources
+  panel since M3 T4 and does not move (a tool's tab dropped on a side is
+  still docked there: `a_tool_tab_dropped_on_a_side_is_docked_there`);
+  what remains is the palettes' part, for T5. (S) (GitHub issues 10 to 24, after 1.20.0; 20 and 21 after 1.30.2)
+  (the window's drop waits on a drag by hand in the running program,
+  the owner's: the UI tests can't make a window of its own)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
   Left and fold the tree): after a click in a list (the module tree, a
@@ -1496,6 +1500,7 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
 
 - **The previews' shadows: the model viewer's alone** (the owner's
   word, 2026-11-02): the model viewer's model casts the sun's shadow on

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use mg_core::ResType;
 use mg_resman::GameInstall;
 use mg_ui::{Action, Moonglow, NoDialogs, Tab};
@@ -264,10 +265,14 @@ fn a_module_with_a_builder_s_haks_stays_within_budget() {
             h.render().unwrap().save(dir.join(format!("{name}-palette.png"))).unwrap();
         }
     }
-    h.state_mut().actions.push(Action::OpenTab(Tab::Resources));
+    // (The Left Dock's Resources panel: loudly, the panel shown.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Resources));
     let ((), took) = time(|| h.run_steps(1));
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "the panel shown");
     check("resource browser, first frame".into(), took, PALETTES);
     let frames: Vec<Duration> = (0..10).map(|_| time(|| h.run_steps(1)).1).collect();
+    // (Drawn: its list there.)
+    h.get_by_label("Filter Resources");
     check("resource browser, frame".into(), median(frames), FRAME);
     let (now, most) = memory();
     println!("  memory: {now} MiB held, {most} MiB at most");

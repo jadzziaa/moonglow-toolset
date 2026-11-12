@@ -412,7 +412,6 @@ fn parse_row(text: &str) -> Option<Row> {
 fn plain_text(tab: &Tab) -> Option<String> {
     Some(match tab {
         Tab::ModuleProperties => "module-properties".into(),
-        Tab::Resources => "resources".into(),
         Tab::Factions => "factions".into(),
         Tab::Journal => "journal".into(),
         Tab::TalkTable => "talk-table".into(),
@@ -451,6 +450,11 @@ fn plain_text(tab: &Tab) -> Option<String> {
     })
 }
 
+/// How the resource browser's tab was kept, before the browser was the
+/// Left Dock's Resources panel (the redesign's M3 T4): a record that has
+/// it shows the panel ([`Moonglow::read_open_tabs`]); nothing writes it.
+const RESOURCES_TAB: &str = "resources";
+
 /// The tab a text names.
 fn parse_tab(text: &str) -> Option<Want> {
     let (kind, rest) = text.split_once(':').unwrap_or((text, ""));
@@ -461,7 +465,6 @@ fn parse_tab(text: &str) -> Option<Want> {
     let file = |rest: &str| (!rest.is_empty()).then(|| PathBuf::from(rest));
     Some(Want::Tab(match kind {
         "module-properties" => Tab::ModuleProperties,
-        "resources" => Tab::Resources,
         "factions" => Tab::Factions,
         "journal" => Tab::Journal,
         "talk-table" => Tab::TalkTable,
@@ -807,7 +810,14 @@ impl Moonglow {
         let kept: BTreeMap<String, Placed> =
             record.objects.into_iter().map(|(k, p)| (object_key(&k), p)).collect();
         let mut objects = Vec::new();
+        // (The resource browser, a tab before it was the Left Dock's
+        // Resources panel: the panel shown, the tab never kept again.)
+        let mut resources = false;
         let mut found = |text: &str| -> Option<(String, Want)> {
+            if text == RESOURCES_TAB {
+                resources = true;
+                return None;
+            }
             let passed = |why: &str| trace::note(format!("open tabs: {text} passed over: {why}"));
             let Some(want) = parse_tab(text) else {
                 passed("not understood");
@@ -859,6 +869,9 @@ impl Moonglow {
                 .map(|[x, y, w, h]| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h)));
             let active = rename(&pane.active);
             panes.push(Kept { place: Place::parse(&pane.place), tabs, active, rect, split });
+        }
+        if resources {
+            self.show_left_panel(crate::Panel::Resources);
         }
         if panes.is_empty() {
             return false;
@@ -1483,6 +1496,9 @@ mod tests {
         assert_eq!(plain_text(&Tab::Palette), None);
         assert_eq!(parse_tab("script:"), None);
         assert_eq!(parse_tab("something-new:x"), None);
+        // (The resource browser's tab of before: not a tab now, the
+        // Resources panel shown by `read_open_tabs`.)
+        assert_eq!(parse_tab(RESOURCES_TAB), None);
         // The side editors' files, and what the tools showed.
         let wants = [
             ("hak:/x/my.hak", Want::Hak("/x/my.hak".into())),
