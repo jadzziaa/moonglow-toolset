@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T07:09:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T07:32:40Z }
 ---
 
 # The main window
@@ -488,7 +488,13 @@ a placed object's name (a waypoint's tag). The area's camera
 keys among the letters (W, A, S, D…) don't move the camera meanwhile;
 with the pointer back in an area's view, they are the camera's again. F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
-as the row's menu does). At a placed object, Delete deletes it as its
+as the row's menu does). What is typed in the window that asks (the
+Rename window's name, Escape, Enter, which is **Delete** in Delete's
+question) is the window's alone: closed, the tree is as it was, the
+keys its own at the same row (at the renamed row's new place once it is
+renamed). Once resources are deleted, the keys are at the row that takes
+their place: the next in the group, else the one before, else the
+group's row. At a placed object, Delete deletes it as its
 menu's **Delete** does (Undo brings it back), and the keys go on to the
 row after it; F2 does nothing there (its name and tag are in its
 Properties). Ctrl+F (**Find**, under Script Editor in **Options › Keyboard**) goes to the

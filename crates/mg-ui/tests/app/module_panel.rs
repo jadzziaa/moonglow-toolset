@@ -862,14 +862,17 @@ fn every_group_is_reached_in_the_least_window() {
 }
 
 /// F2 on an area deep in the well (the keys at it) asks for its new name
-/// in the Rename window (the tree has no field of its own in a row):
-/// Escape leaves it as it was, the row still in the well's view; Enter
-/// renames it, and the well stays where it was.
+/// in the Rename window (the tree has no field of its own in a row). What
+/// is typed there is the window's alone: Escape closes it and leaves the
+/// tree as it was before F2, the keys its own at the same row (Down goes
+/// on from it); Enter renames it, and the keys are at its new row, in the
+/// well's view, and still the tree's.
 #[test]
 fn f2_renames_an_area_in_the_well() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
     let all = areas(&h);
     let deep = all[60];
+    let at = |k: ResRef| Some(TreeAt::Resource(ResKey::new(k, ResType::ARE)));
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
         h.key_press(key);
         h.run_steps(2);
@@ -880,7 +883,7 @@ fn f2_renames_an_area_in_the_well() {
         group(&h, "Conversations").click();
         settle(&mut h);
     }
-    h.state_mut().tree_cursor = Some(TreeAt::Resource(ResKey::new(deep, ResType::ARE)));
+    h.state_mut().tree_cursor = at(deep);
     key(&mut h, egui::Key::ArrowDown);
     key(&mut h, egui::Key::ArrowUp);
     assert!(in_well(&h, &deep.to_string()), "the keys' row in the well's view");
@@ -888,18 +891,21 @@ fn f2_renames_an_area_in_the_well() {
     key(&mut h, egui::Key::F2);
     assert_eq!(h.state().rename.as_ref().map(|r| r.from), Some(ResKey::new(deep, ResType::ARE)));
     h.get_by_label(&format!("Rename {deep}.are"));
+    // Down in the window is not the tree's.
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().tree_cursor, at(deep), "the window's key");
     key(&mut h, egui::Key::Escape);
     assert!(h.state().rename.is_none(), "Escape closes it");
-    assert_eq!(h.state().tree_cursor, None, "and takes the keys from the tree");
     assert!(h.query_by_label(&format!("Rename {deep}.are")).is_none());
+    assert_eq!(h.state().tree_cursor, at(deep), "the keys where they were");
     assert!(in_well(&h, &deep.to_string()), "the row as it was");
     assert_eq!(first_in_well(&h), before);
-    // (Escape there takes the keys from the tree too, as anywhere: a
-    // click on the row gives them back.) F2 again.
-    h.get_by_label(&deep.to_string()).click();
-    h.run_steps(2);
-    settle(&mut h);
-    assert_eq!(first_in_well(&h), before, "the click scrolls nothing");
+    // Down goes on from the row being renamed, and Up back.
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().tree_cursor, at(all[61]), "the keys still the tree's");
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().tree_cursor, at(deep));
+    // F2 again, a new name typed, and Enter.
     key(&mut h, egui::Key::F2);
     assert_eq!(h.state().rename.as_ref().map(|r| r.from), Some(ResKey::new(deep, ResType::ARE)));
     let name = deep.to_string();
@@ -918,17 +924,25 @@ fn f2_renames_an_area_in_the_well() {
     }
     settle(&mut h);
     assert!(h.state().rename.is_none());
-    assert_eq!(first_in_well(&h), before, "the well where it was");
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(renamed)), "at its new row");
+    assert!(in_well(&h, "zz_renamed"), "in the well's view (the last area now)");
+    // Up goes on from it: the keys still the tree's.
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().tree_cursor, at(all[all.len() - 1]));
 }
 
-/// Delete on an area deep in the well (the keys at it) asks; once it is
-/// deleted, the well is as high as before (it holds more than it shows)
-/// and where it was, the row after it in its view.
+/// Delete on an area deep in the well (the keys at it) asks, and Enter
+/// answers Delete; once it is deleted, the keys are at the row that took
+/// its place (the next area), in the well's view and still the tree's (Down
+/// goes on from there), and the well is as high as before (it holds more
+/// than it shows) and where it was. Escape in the question leaves the tree
+/// as it was. Undone, the area is back and the keys stay on a row there.
 #[test]
 fn deleting_an_area_in_the_well_leaves_the_well_in_place() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
     let all = areas(&h);
     let deep = all[60];
+    let at = |k: ResRef| Some(TreeAt::Resource(ResKey::new(k, ResType::ARE)));
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
         h.key_press(key);
         h.run_steps(2);
@@ -938,29 +952,48 @@ fn deleting_an_area_in_the_well_leaves_the_well_in_place() {
         group(&h, "Conversations").click();
         settle(&mut h);
     }
-    h.state_mut().tree_cursor = Some(TreeAt::Resource(ResKey::new(deep, ResType::ARE)));
+    h.state_mut().tree_cursor = at(deep);
     key(&mut h, egui::Key::ArrowDown);
     key(&mut h, egui::Key::ArrowUp);
     assert!(in_well(&h, &deep.to_string()));
     let (rows, before) = (well_rows(&h), first_in_well(&h));
     let groups = groups_at(&h);
+    // Asked, then Escape: nothing deleted, the keys where they were.
     key(&mut h, egui::Key::Delete);
     assert_eq!(h.state().confirm_delete, Some(vec![ResKey::new(deep, ResType::ARE)]));
-    h.get_by_label("Delete").click();
+    h.get_by_label("Delete");
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(h.state().confirm_delete, None, "Escape is Cancel");
+    assert_eq!(h.state().tree_cursor, at(deep), "the keys where they were");
+    // Asked again, and Enter (once it has read what names it).
+    key(&mut h, egui::Key::Delete);
+    assert_eq!(h.state().confirm_delete, Some(vec![ResKey::new(deep, ResType::ARE)]));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.get_by_label("Delete").accesskit_node().is_disabled() {
+        assert!(std::time::Instant::now() < deadline, "Delete enabled");
+        h.run_steps(1);
+    }
+    key(&mut h, egui::Key::Enter);
     while h.state().ws.as_ref().unwrap().module.contains(&ResKey::new(deep, ResType::ARE)) {
         assert!(std::time::Instant::now() < deadline, "deleted");
         h.run_steps(1);
     }
     settle(&mut h);
-    // (The keys stay at the row deleted, as for any resource deleted
-    // from the tree: the tree's keys, unchanged here.)
-    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(ResKey::new(deep, ResType::ARE))));
-    assert!(in_well(&h, &all[61].to_string()), "the row after it in the well's view");
+    assert_eq!(h.state().tree_cursor, at(all[61]), "at the row that took its place");
+    assert!(in_well(&h, &all[61].to_string()), "in the well's view");
     assert_eq!(well_rows(&h), rows, "as high");
     assert_eq!(first_in_well(&h), before, "where it was");
     assert_eq!(h.get_by_label("Module Tree Rows").query_all_by_label("Areas (112)").count(), 1);
     assert_eq!(groups_at(&h), groups, "the groups under it stay");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().tree_cursor, at(all[62]), "Down goes on from there");
+    // Undone: back, and the keys on a row that is there.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&ResKey::new(deep, ResType::ARE)));
+    assert_eq!(h.state().tree_cursor, at(all[62]));
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().tree_cursor, at(all[61]));
 }
 
 /// A tab's menu's Show in Module Tree, for an area deep in the well (its
@@ -1158,4 +1191,68 @@ fn several_are_chosen_across_the_well_s_border() {
         h.get_by_label(n).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
     });
     assert!(marked, "the chosen rows in the well marked");
+}
+
+/// Deleted from the tree by the keys (Delete, then Enter for the
+/// question), resources leave the keys at the row that takes their place,
+/// the keys still the tree's: several chosen together (past them all),
+/// the last of a group (the one before it), the only one of a group (the
+/// group's row).
+#[test]
+fn the_keys_go_on_past_resources_deleted() {
+    let script = |n: usize| ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+    let mut h = small("ui-module-panel-deleted", 1, 1000.0, 800.0);
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(2);
+        settle(h);
+    };
+    let delete = |h: &mut Harness<'_, Moonglow>, gone: &[ResKey]| {
+        // (The pointer off the tree: Delete is then the keys' row's.)
+        h.hover_at(egui::pos2(600.0, 300.0));
+        h.run_steps(2);
+        key(h, egui::Key::Delete);
+        assert!(h.state().confirm_delete.is_some(), "asked");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while h.get_by_label("Delete").accesskit_node().is_disabled() {
+            assert!(std::time::Instant::now() < deadline, "Delete enabled");
+            h.run_steps(1);
+        }
+        key(h, egui::Key::Enter);
+        while gone.iter().any(|k| h.state().ws.as_ref().unwrap().module.contains(k)) {
+            assert!(std::time::Instant::now() < deadline, "deleted");
+            h.run_steps(1);
+        }
+        settle(h);
+    };
+    group(&h, "Scripts").click();
+    settle(&mut h);
+    // Two chosen (a click, Shift and the next), the keys at the second.
+    h.get_by_label("script_05").click();
+    h.run_steps(2);
+    h.get_by_label("script_06").click_modifiers(egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(6))));
+    delete(&mut h, &[script(5), script(6)]);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(7))), "past both");
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(4))), "the keys the tree's");
+    // The last of the group: the one before it, in sight.
+    // (The keys to it: past it, and Up.)
+    h.state_mut().tree_cursor = Some(TreeAt::Group("NUI windows"));
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(39))));
+    delete(&mut h, &[script(39)]);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(script(38))));
+    let row = h.get_by_label("script_38").rect();
+    assert!(row.bottom() <= view_bottom(&h) + 0.5, "in sight: {row:?}");
+    // The only area: the group's row.
+    let only = ResKey::parse("area_000", ResType::ARE).unwrap();
+    key(&mut h, egui::Key::Home);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Resource(only)));
+    delete(&mut h, &[only]);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Group("Areas")));
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().tree_cursor, Some(TreeAt::Group("Conversations")));
 }

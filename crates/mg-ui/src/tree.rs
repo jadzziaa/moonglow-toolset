@@ -763,6 +763,15 @@ fn spacing_gap(ui: &Ui) -> f32 {
     ui.spacing().item_spacing.y
 }
 
+/// Whether the keys typed are the tree's to read: not while a field has
+/// the keyboard, nor while a dialog is open over the tree (the Rename
+/// window F2 opens, Delete's question): what is typed there is the
+/// dialog's alone, its Escape and Enter too, and the tree is as it was
+/// once it closes (its cursor at the same row, the keys still its own).
+fn keys_free(ui: &Ui) -> bool {
+    !ui.ctx().egui_wants_keyboard_input() && !crate::widgets::dialog_open(ui.ctx())
+}
+
 /// Brings a row (`rect`) into view up or down only: the tree scrolled
 /// sideways stays so (egui's own goes to a long row's start).
 /// (In the Areas group's well, [`areas_well`] scrolls the well to it
@@ -872,7 +881,8 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     // (The button that folds the dock away is on its tab bar: GitHub
     // issue 10, `shell::left_dock`.)
     let here = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
-        && app.tree_cursor.is_some();
+        && app.tree_cursor.is_some()
+        && !crate::widgets::dialog_open(ui.ctx());
     // (The mock's `.panel-bar`: 4 px above and below, 8 at the sides.)
     let bar = egui::Margin { left: 8, right: 8, top: 4, bottom: 4 };
     let left = egui::Frame::new()
@@ -915,8 +925,8 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     // Expand All and Collapse All (on the tab bar), and their keys too,
     // while the keys are the tree's.
     let mut fold = fold;
-    let keyed = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
-        && !ui.ctx().egui_wants_keyboard_input();
+    let keyed =
+        crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree) && keys_free(ui);
     if keyed {
         fold = fold.or_else(|| crate::palette_view::fold_keys(ui, &app.keymap));
     }
@@ -1393,6 +1403,28 @@ fn past_deleted(shown: &Shown<'_>, outs: &Outs, cursor: TreeAt, deleted: TreeAt)
     next.or(before).map_or(TreeAt::Kind(area, kind), |r| moved_up(r.0))
 }
 
+/// The groups' rows the tree listed the frame before (`found`: under the
+/// Filter), for where its keys go when a resource they were at is gone.
+#[derive(Clone)]
+struct RowsBefore {
+    lists: Arc<Vec<GroupList>>,
+    found: Option<Arc<Vec<Vec<ResKey>>>>,
+}
+
+/// Where the keys' cursor goes once the resource `gone` is no longer in
+/// its group: the row that took its place, the next of those its group
+/// listed (`was`, with it) that it lists still (`now`), else the one
+/// before (the last was gone); `None` when the group lists none of them
+/// (its row, then).
+fn past_deleted_resource(was: &[ResKey], now: &[ResKey], gone: ResKey) -> Option<ResKey> {
+    let still: std::collections::HashSet<&ResKey> = now.iter().collect();
+    let Some(at) = was.iter().position(|k| *k == gone) else {
+        return now.first().copied();
+    };
+    let next = was[at + 1..].iter().find(|k| still.contains(k));
+    next.or_else(|| was[..at].iter().rev().find(|k| still.contains(k))).copied()
+}
+
 fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool>, view: f32) {
     follow_selection(app);
     // A group the keys opened or closed (the rows shown, for the keys,
@@ -1512,6 +1544,41 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     }
     let (matched, found_rows) =
         (app.area_names.filtered.matched.clone(), app.area_names.filtered.found.clone());
+    // The keys' cursor at a resource gone from the module (deleted, several
+    // together, its making undone): at the row that takes its place, as for
+    // a placed object deleted (`past_deleted`), by the rows its group
+    // listed the frame before, which held it.
+    let before_id = egui::Id::new("tree-rows-before");
+    let before = ui.data(|d| d.get_temp::<RowsBefore>(before_id));
+    let gone = match app.tree_cursor {
+        Some(TreeAt::Resource(k)) => Some(k),
+        // (In an area gone: as the area's row.)
+        Some(TreeAt::Kind(area, _) | TreeAt::Object(area, ..)) => {
+            Some(ResKey::new(area, ResType::ARE))
+        }
+        _ => None,
+    }
+    .filter(|k| !ws.module.contains(k));
+    if let Some(k) = gone
+        && let Some(group) = GROUPS.iter().position(|(_, types)| types.contains(&k.restype))
+    {
+        let now: &[ResKey] = match filter.is_empty() {
+            true => &lists[group].0,
+            false => found_rows.get(group).map_or(&[][..], Vec::as_slice),
+        };
+        let was: Option<&[ResKey]> = before.as_ref().map(|b| match &b.found {
+            None => b.lists[group].0.as_slice(),
+            Some(found) => found.get(group).map_or(&[][..], Vec::as_slice),
+        });
+        let at = past_deleted_resource(was.unwrap_or(&[]), now, k);
+        app.tree_cursor = Some(at.map_or(TreeAt::Group(GROUPS[group].0), TreeAt::Resource));
+        app.tree_cursor_moved = true;
+        ui.ctx().request_repaint();
+    }
+    let found_before = (!filter.is_empty()).then(|| found_rows.clone());
+    ui.data_mut(|d| {
+        d.insert_temp(before_id, RowsBefore { lists: lists.clone(), found: found_before })
+    });
     // (An area's own, for its row and its objects' rows.)
     let found_of = |area: ResRef| -> Option<Arc<Vec<Order>>> {
         if filter.is_empty() {
@@ -1809,7 +1876,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     }
                     if r.hovered()
                         && cursor.is_none()
-                        && !ui.ctx().egui_wants_keyboard_input()
+                        && keys_free(ui)
                         && ui.input(|i| i.key_pressed(egui::Key::Delete))
                     {
                         app.actions.push(delete_asked(&app.tree_selected, k));
@@ -2139,7 +2206,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
     }
     if crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
-        && !ui.ctx().egui_wants_keyboard_input()
+        && keys_free(ui)
         && app.tree_cursor.is_some()
     {
         use egui::Key;
@@ -2948,6 +3015,24 @@ mod tests {
         assert_eq!(past_deleted(&shown, &outs, goblin, bandit), goblin);
         let group = TreeAt::Group("Areas");
         assert_eq!(past_deleted(&shown, &outs, group, goblin), group);
+    }
+
+    /// Gone from its group, a resource the keys were at leaves them at the
+    /// next row its group listed that is there still (past several gone
+    /// together), else the one before (the last was gone), else none (the
+    /// group's row).
+    #[test]
+    fn the_keys_go_past_a_resource_deleted() {
+        let k = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+        let was = [k("a"), k("b"), k("c"), k("d")];
+        assert_eq!(past_deleted_resource(&was, &[k("a"), k("c"), k("d")], k("b")), Some(k("c")));
+        // Two together, the keys at the first: past both.
+        assert_eq!(past_deleted_resource(&was, &[k("a"), k("d")], k("b")), Some(k("d")));
+        // The last: the one before it.
+        assert_eq!(past_deleted_resource(&was, &[k("a"), k("b"), k("c")], k("d")), Some(k("c")));
+        assert_eq!(past_deleted_resource(&was, &[k("a")], k("c")), Some(k("a")));
+        // The only one: none (its group's row).
+        assert_eq!(past_deleted_resource(&[k("a")], &[], k("a")), None);
     }
 
     #[test]

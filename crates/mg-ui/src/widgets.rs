@@ -3297,6 +3297,13 @@ pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -
     centered(ctx, title).open(open_unless_escape(ctx, title, open))
 }
 
+/// Whether a dialog is open (one that Escape closes or a Cancel answers,
+/// shown last frame or this one): the keys typed are its own, not those
+/// of the panes under it (the module tree's).
+pub(crate) fn dialog_open(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| !d.open.is_empty())
+}
+
 /// Escape was pressed with no dialog open (for a window of the dock to
 /// close on it).
 pub(crate) fn escape_past_dialogs(ctx: &egui::Context) -> bool {
