@@ -668,7 +668,9 @@ pub struct Settings {
     /// module, unticked: what nothing else names is deleted at once (what
     /// something names is still asked about, the window saying what).
     pub delete_without_asking: bool,
-    /// View: the module tree, the log and the palettes folded away.
+    /// View: the module tree, the log and the palettes folded away: the
+    /// Left Dock folded to its strip (`hide_tree`), the Bottom Dock closed
+    /// (`hide_log`), the palettes' pane folded (`hide_palettes`).
     pub hide_tree: bool,
     pub hide_log: bool,
     pub hide_palettes: bool,
@@ -737,9 +739,10 @@ pub struct Settings {
     /// changes ([`crate::renderer_check::lit_found`]). Options › General
     /// shows it again.
     pub graphics_notices_hidden: Vec<GraphicsFailure>,
-    /// Options > General: Toolbar buttons, Icons only: the main toolbar's
-    /// and the area view's buttons show their glyphs alone, their names
-    /// in their tips (the default: Icons and text).
+    /// Options > General: Editors' toolbar buttons, Icons only: the area
+    /// view's and the editors' toolbar buttons show their glyphs alone,
+    /// their names in their tips (the default: Icons and text). The Top
+    /// Bar is icons either way.
     pub toolbar_icons_only: bool,
     /// Options › Area › Toolbar: the area view's toolbar's buttons left
     /// out, by name ([`crate::icons::AREA_TOOLS`]; an objects' filter as

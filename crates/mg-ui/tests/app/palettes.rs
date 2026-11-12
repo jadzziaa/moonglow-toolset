@@ -709,9 +709,13 @@ fn the_palette_s_types_fit_a_narrow_pane() {
             assert!(inside(list), "the dropdown at {list:?}, past the pane {body:?}");
             // (Its icon before it, on its row.)
             let icons = mg_uikit::icons_drawn(&h.ctx);
-            let lead = icons.iter().find(|(_, r)| {
-                (r.center().y - list.center().y).abs() < 4.0 && r.right() <= list.left() + 0.5
-            });
+            // (The nearest before it: the Left Dock's own icons are on
+            // the same rows.)
+            let lead = (icons.iter())
+                .filter(|(_, r)| {
+                    (r.center().y - list.center().y).abs() < 4.0 && r.right() <= list.left() + 0.5
+                })
+                .max_by(|(_, a), (_, b)| a.right().total_cmp(&b.right()));
             let lead = lead.expect("the type's icon before the dropdown").1;
             assert!(inside(lead), "its icon at {lead:?}, past the pane {body:?}");
         }
@@ -1793,16 +1797,20 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
         let pane = h.state().dock.iter_leaves().find(|(p, _)| p.node == path.node).unwrap().1;
         pane.rect.width()
     };
-    // The tree's default width, 240 points (give or take the separators).
+    // The Left Dock's default width, 260 points (give or take the
+    // separators).
     let w = palette_width(&h);
-    assert!((w - 240.0).abs() <= 12.0, "the palette is {w} points wide");
+    let tree = mg_uikit::metrics::LEFT_DOCK;
+    assert!((w - tree).abs() <= 12.0, "the palette is {w} points wide, the tree {tree}");
     // On the area's tiles.
     assert!(h.state().palette.tiles);
     // With every tab closed, the palette comes back as the only pane.
     close_tab(h.state_mut(), &Tab::ModuleProperties);
     close_tab(h.state_mut(), &Tab::Palette);
     h.run();
-    tool(&h, "Palettes").click();
+    // (Tools › Palettes, today's toolbar's Palettes until the Right Dock:
+    // the redesign's M3, T5.)
+    menu_command(&mut h, "Tools", "Palettes");
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Palette).is_some());
 }

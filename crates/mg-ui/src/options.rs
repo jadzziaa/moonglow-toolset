@@ -1377,16 +1377,20 @@ fn area_resolution_choice(ui: &mut Ui, resolution: &mut Option<u8>) {
     });
 }
 
-/// Options › General › Toolbar buttons: Icons and text, or Icons only
-/// (the main toolbar's and the area view's, at once).
+/// Options › General › Editors' toolbar buttons: Icons and text, or Icons
+/// only (the area view's toolbar and the editors', at once; the Top Bar
+/// is icons whatever it says). Retired with the editors' headers (the
+/// redesign's M4, ruling R4).
 fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
     let name = |icons_only: &bool| if *icons_only { "Icons only" } else { "Icons and text" };
     ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Toolbar buttons");
+        crate::widgets::field_label(ui, "Editors' toolbar buttons");
         crate::widgets::dropdown("toolbar-buttons")
             .selected_text(name(&draft.toolbar_icons_only))
             .show(ui, &mut draft.toolbar_icons_only, &[false, true], name)
-            .on_hover_text("Each button with its icon and name, or its icon alone to save room");
+            .on_hover_text(
+                "The area view's and the editors' toolbar buttons with their names, or icons alone",
+            );
     });
 }
 

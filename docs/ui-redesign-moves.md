@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-11T07:06:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -26,7 +26,7 @@ How to read it:
 - "Right Dock", "Left Dock", "Bottom Dock", "Top Bar", "Status Bar", "Outliner" and "Quick Open" are the shell's regions and panels, defined in the proposal.
 - The three parts are ordered as the boards are: the first round (main window and the four editors of the first mock, the creature blueprint and the viewer), the second round, and the second round continued. A screen that appears twice (the viewer, the area editor) has a section in each part for the board that mocks it.
 
-Implementation ticks a row when its control has reached the home named here and its test (or picture, compared with the board) says so.
+Implementation ticks a row when its control has reached the home named here and its test (or picture, compared with the board) says so. A table with a **Done** column says which task ticked each row (✓), and where a row's control is until its task.
 
 ## Part 1: Where Things Moved (the first round)
 
@@ -35,21 +35,21 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 ### Main Toolbar and Window
 
-| Today | In the redesign |
-|---|---|
-| New, Open, Save, Undo, Redo | Top Bar, icon buttons after the menus |
-| Properties | Module panel header button (Module Properties) |
-| New Area | Module panel header button |
-| Start | Area view, camera button under the compass; also in the View menu |
-| Resources | Left Dock tab beside Module |
-| Palettes | Right Dock, Palette panel |
-| Preview | Right Dock, Preview panel |
-| Compile, Verify | Top Bar, right end |
-| Test Module (F9) | Top Bar, right end, with Choose Character under its arrow |
-| The eight menus | Top Bar, unchanged |
-| Module tree: Filter, groups, Expand All, Collapse All | Module panel |
-| Log panel | Bottom Dock tab, opened by the Log switch in the Status Bar |
-| Status line: module path, game folder | Status Bar, right |
+| Today | In the redesign | Done |
+|---|---|---|
+| New, Open, Save, Undo, Redo | Top Bar, icon buttons after the menus | ✓ M3 T2 |
+| Properties | Module panel header button (Module Properties) | ✓ M3 T2 |
+| New Area | Module panel header button | ✓ M3 T2 |
+| Start | Area view, camera button under the compass; also in the View menu | View menu ✓ M3 T2; the compass button is M4's |
+| Resources | Left Dock tab beside Module | M3 T4 (until then Tools › Resource Browser) |
+| Palettes | Right Dock, Palette panel | M3 T5 (until then Tools › Palettes) |
+| Preview | Right Dock, Preview panel | M3 T6 (until then Preview Window in the Command Palette) |
+| Compile, Verify | Top Bar, right end | ✓ M3 T2 |
+| Test Module (F9) | Top Bar, right end, with Choose Character under its arrow | ✓ M3 T2 |
+| The eight menus | Top Bar, unchanged | ✓ M3 T2 |
+| Module tree: Filter, groups, Expand All, Collapse All | Module panel | M3 T3 (the tree is in the Left Dock's Module tab) |
+| Log panel | Bottom Dock tab, opened by the Log switch in the Status Bar | ✓ M3 T2 |
+| Status line: module path, game folder | Status Bar, right | ✓ M3 T2 (the module's name, its path in the tip) |
 
 
 ### Area Editor

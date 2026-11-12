@@ -1209,8 +1209,14 @@ fn preview_window_shows_the_chosen_blueprint() {
     let Some((mut h, _area)) = area_harness_with("preview", "ttr01", None, 4, None, &guard) else {
         return;
     };
-    tool(&h, "Preview").click();
+    // (Preview Window from the Command Palette, its home until the
+    // Preview panel: the redesign's M3, T6.)
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    type_into_hint(&mut h, "Type a command's name", "preview window");
+    h.key_press(egui::Key::Enter);
     h.run_steps(2);
+    assert!(h.state().preview_window && h.state().command_palette.is_none());
     h.get_by_label("Choose a blueprint in the palette.");
     // A waypoint: its fields.
     h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);

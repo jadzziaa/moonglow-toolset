@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:32:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 ---
 
 # Areas
@@ -16,7 +16,7 @@ looking straight down at their middle, north up, as in Aurora.
 ## The toolbar
 
 Each button shows an icon and its name. With **Tools › Options ›
-General › Toolbar buttons: Icons only** the buttons that have an icon
+General › Editors' toolbar buttons: Icons only** the buttons that have an icon
 show it alone, and the toolbar takes about half the rows it took: rest
 the pointer on an icon and its tip names it (and gives its key, as
 Select Tiles' and Paint's do). All, None, Together, Onto Objects,
@@ -45,7 +45,7 @@ A palette's List and Gallery switches are icons as well.
   angle; Escape lets go; an object standing on the marker is taken first).
   Selected, **Q** and **E** turn it as they turn an object, and its menu
   (a right click on it) has **Adjust Location…** for its exact X, Y, Z
-  and bearing (0 faces north, as an object's). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
+  and bearing (0 faces north, as an object's). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **View › Go to Start Location** does the same with no area open: move the start location to where you are working, and it is a bookmark.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls, trees'
   crowns; the black caps and strips under and beside them stay, as in

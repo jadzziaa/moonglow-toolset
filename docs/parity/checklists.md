@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T01:45:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -325,7 +325,7 @@ scripts (name, picker, Edit), Comments.
 Aurora's items as `aurora-ui-inventory.md` has them (`mmFrame`, and the
 area viewer's `AreaMenu` merged into it), its keys in brackets, against
 where Moonglow has each (`crates/mg-ui/src/commands.rs` `MENUS` and
-`TOOLBAR`, `keys.rs`; the area view's toolbar is the manual's chapter 4).
+`TOP_BAR`, `keys.rs`; the area view's toolbar is the manual's chapter 4).
 Items Aurora hides are left out but for Save To Savegame and the Module
 Wizard.
 
@@ -339,15 +339,15 @@ Wizard.
 | Edit › Copy (Ctrl+C), Cut (Ctrl+X), Paste (Ctrl+V), the area's too | the same keys wherever there is something to copy (and Ctrl+Insert, Shift+Delete, Shift+Insert); in the area view's and the module tree's context menus, not the Edit menu | ✅ |
 | Edit › Resize Area, Rotate Area | Edit › Resize Area…, Rotate Area… | ✅ |
 | Edit › Find Instance | Edit › Find Instance… | ✅ |
-| Edit › Module Properties | Edit › Module Properties (and the main toolbar's Properties) | ✅ |
+| Edit › Module Properties | Edit › Module Properties (and Properties on the Module panel's tab bar) | ✅ |
 | Edit › Area Properties (the area's Edit too) | the area view's toolbar and the module tree's context menu | ✅ |
 | View › Selection Mode › Select Terrain, Select Objects | the area view's Select Tiles (F10, Aurora's Select Terrain's key) | ✅ |
-| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | one main toolbar and the area view's, always shown; Options › General › Toolbar buttons: Icons only | — |
+| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | the Top Bar (the menus, New, Open, Save, Undo, Redo, Compile, Verify, Test Module) and the area view's toolbar, always shown; Options › General › Editors' toolbar buttons: Icons only (the area view's and the editors' toolbars) | — |
 | View › Interface Panels › Message Log, Module Contents, Palettes | View › Log, Module Tree, Palettes Panel (each ticked while shown), Hide All Panels, Reset Layout | ✅ |
 | View › Interface Panels › Toolbar, Visual Camera Controls | none: the camera's keys and the mouse (the manual's chapter 4) | — |
 | View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area view's toolbar: each kind, All, None, Start, as in Aurora for every area view; View › Go to Start Location | ✅ |
 | View › Full Screen (F11) | Full Screen (F11), from the key and the Command Palette | ✅ |
-| View › Show Preview Window | the main toolbar's Preview | ✅ |
+| View › Show Preview Window | Preview Window, in the Command Palette (and by a key set in Options › Keyboard) | ✅ |
 | Environment (the area's Scene) › Refresh (F5) | none: the view is drawn as it changes; Tools › Reload Resources reads changed haks and folders | — (its key is settled) |
 | Environment › Display Grid, Display Shadows, Fog, Use Area Lighting | the area view's toolbar: Grid, Shadows (with three kinds), Fog, Lighting | ✅ |
 | Environment › Fade Geometry › Never, Object Mode Only, Always | the area view's toolbar: Fade Geometry, the same three | ✅ |

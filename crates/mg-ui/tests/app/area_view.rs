@@ -2512,8 +2512,9 @@ fn the_start_location_shows_on_raised_ground() {
     assert_eq!(stored(&mut h), (area, 0.0), "the module's start is as it was");
 }
 
-/// The main toolbar's Start opens the area the module starts in, with its
-/// view at the start location (as Aurora's Go to Start Location does).
+/// View › Go to Start Location (today's toolbar's Start) opens the area
+/// the module starts in, with its view at the start location (as
+/// Aurora's Go to Start Location does).
 #[test]
 fn go_to_start_location_opens_the_start_s_area() {
     let Some((mut h, area)) = area_harness_on("start-go", "trm02", None) else { return };
@@ -2530,7 +2531,9 @@ fn go_to_start_location_opens_the_start_s_area() {
     close_tab(h.state_mut(), &Tab::Area(area));
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
-    tool(&h, "Start").click();
+    // (Today's toolbar's Start: View › Go to Start Location, the
+    // redesign's M3.)
+    menu_command(&mut h, "View", "Go to Start Location");
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is opened");
     let target = h.state().area_views[&area].orbit.unwrap().target;

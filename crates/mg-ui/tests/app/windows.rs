@@ -317,9 +317,11 @@ fn tabs_by_when_they_were_last_used_with_ctrl_held() {
     hold(&mut h, false);
 }
 
-/// GitHub issue 10: the panes beside the middle fold away and come back
-/// (View, Ctrl+Alt+1, 2, 3 and 0, and each pane's own button, on the edge
-/// it faces the middle by), each as wide as it was.
+/// GitHub issue 10: the docks and the palettes' pane fold away and come
+/// back (View, Ctrl+Alt+1, 2, 3 and 0, and each one's own control: the
+/// Left Dock's fold button and its strip's chevron, the palettes' button
+/// on their inner edge, the Log's switch in the Status Bar), each as wide
+/// as it was.
 #[test]
 fn panels_fold_away_and_come_back() {
     let Some(mut h) = game_harness("panels") else { return };
@@ -335,26 +337,30 @@ fn panels_fold_away_and_come_back() {
         let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
         leaves.find(|l| l.tabs.contains(&Tab::Palette)).map(|l| l.rect.width())
     };
-    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("Fold Module Tree").is_some();
+    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("Fold the Left Dock").is_some();
+    let log_switch = |h: &Harness<'_, Moonglow>| {
+        let node = h.get_by_label("Status Bar").get_by_label("Log");
+        node.click();
+    };
     let was = palette(&h).expect("the palettes' pane");
     assert!(tree(&h));
 
-    // The module tree: folded to a strip, and back by the strip.
+    // The Left Dock: folded to a strip, and back by the strip's chevron.
     key(&mut h, egui::Key::Num1);
     assert!(!tree(&h) && h.state().settings.hide_tree);
-    h.get_by_label("Show Module Tree").click();
+    h.get_by_label("Show the Left Dock").click();
     h.run();
     assert!(tree(&h) && !h.state().settings.hide_tree);
-    // Its own button folds it away too; so does the log's.
-    h.get_by_label("Fold Module Tree").click();
+    // Its own button folds it away too; the Log's switch closes the log.
+    h.get_by_label("Fold the Left Dock").click();
     h.run();
     assert!(!tree(&h) && h.state().settings.hide_tree);
-    h.get_by_label("Show Module Tree").click();
+    h.get_by_label("Show the Left Dock").click();
     h.run();
-    h.get_by_label("Fold Log").click();
+    log_switch(&h);
     h.run();
     assert!(h.state().settings.hide_log);
-    h.get_by_label("Show Log").click();
+    log_switch(&h);
     h.run();
     assert!(!h.state().settings.hide_log && tree(&h));
     // The palettes: their pane goes, and comes back as wide.
@@ -376,7 +382,7 @@ fn panels_fold_away_and_come_back() {
     // The log.
     key(&mut h, egui::Key::Num3);
     assert!(h.state().settings.hide_log);
-    h.get_by_label("Show Log").click();
+    log_switch(&h);
     h.run();
     assert!(!h.state().settings.hide_log);
     // All of them, and all back.
@@ -429,17 +435,21 @@ fn the_palettes_covered_arrow_is_passed_by_the_keyboard() {
     }
 }
 
-/// GitHub issue 10, as its reporter put it on 1.31.0: one button per pane
-/// to fold it away, on the edge the pane faces the middle by (the module
-/// tree's right, the palettes' left, the log's top), centered along it,
-/// and in the same place folded, where it is all the pane leaves, in the
-/// window; the palettes' tab bar has no other (egui_dock's arrow that
-/// folded the pane to its bar).
+/// GitHub issue 10, as its reporter put it on 1.31.0, kept by the shell:
+/// one control per dock or pane to fold it away or close it, on the side
+/// it faces the middle by, and in the same place folded, in the window.
+/// The Left Dock's fold button at the right end of its tab bar, by the
+/// middle (a click at the dock's very edge, where it is resized, is the
+/// button's); folded, its strip's chevron at the window's left, beside
+/// the middle, where the button was. The palettes' on their left edge,
+/// half way down; their tab bar has no other (egui_dock's arrow that
+/// folded the pane to its bar). The Bottom Dock's is the Log's switch in
+/// the Status Bar, which says whether it is on and stays where it is.
 #[test]
 fn each_pane_folds_by_one_button_on_its_inner_edge() {
     let Some(mut h) = game_harness("pane-edges") else { return };
     h.run_steps(3);
-    // A pane's button, folded or not (and that there is one).
+    // A dock's or pane's button, folded or not (and that there is one).
     let button = |h: &Harness<'_, Moonglow>, name: &str| {
         let fold = format!("Fold {name}");
         let show = format!("Show {name}");
@@ -462,36 +472,39 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     let window = h.ctx.content_rect();
     let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 1.5, "{what}: {a} and {b}");
     // (The dock's panes stand 8 points inside the middle's panel, all
-    // round; the panels, as far inside the window.)
+    // round.)
     const MARGIN: f32 = 8.0;
 
-    // The module tree: on its right edge, toward the middle, half way
-    // down it; folded, the same, at the window's left.
-    let (shown, mid) = (button(&h, "Module Tree"), middle(&h));
+    // The Left Dock: at the right end of its tab bar, by the middle, at
+    // the dock's top; folded, the same, at the window's left.
+    let (shown, mid) = (button(&h, "the Left Dock"), middle(&h));
     assert!(shown.left() > window.left() + 150.0, "right of the tree: {shown:?}");
-    near(shown.right() + MARGIN, mid.left(), "beside the middle");
-    let (pane, _) = palettes(&h).unwrap();
-    near(shown.center().y, mid.union(pane).center().y, "half way down");
-    assert!(shown.width() >= 12.0 && shown.height() > 2.0 * shown.width(), "{shown:?}");
-    // (A click at the edge, where the tree is resized, is the button's.)
-    let at = egui::pos2(shown.left() + 2.0, shown.center().y);
+    assert!(shown.right() < mid.left() - MARGIN, "in the dock: {shown:?} {mid:?}");
+    assert!(shown.right() > mid.left() - MARGIN - 6.0, "on its inner edge: {shown:?} {mid:?}");
+    assert!(shown.top() < mid.top(), "at the dock's top: {shown:?} {mid:?}");
+    assert!(shown.width() >= 12.0 && shown.height() >= 12.0, "{shown:?}");
+    // (A click at the edge, where the dock is resized, is the button's.)
+    let at = egui::pos2(shown.right() - 1.0, shown.center().y);
     h.hover_at(at);
     h.run();
     press(&h, at, true, egui::Modifiers::NONE);
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(2);
     assert!(h.state().settings.hide_tree, "folded by the click at its edge");
-    let folded = button(&h, "Module Tree");
-    assert!(h.query_by_label("Fold Module Tree").is_none());
+    let folded = button(&h, "the Left Dock");
+    assert!(h.query_by_label("Fold the Left Dock").is_none());
     assert!(window.contains_rect(folded), "in the window: {folded:?}");
-    near(folded.left(), window.left() + MARGIN, "at the window's edge, in its frame");
-    near(folded.right() + MARGIN, middle(&h).left(), "beside the middle");
+    let edge = folded.left() - (window.left() + MARGIN);
+    assert!((0.0..4.0).contains(&edge), "at the window's edge, in its frame: {folded:?}");
+    let mid = middle(&h);
+    assert!(folded.right() < mid.left(), "beside the middle: {folded:?} {mid:?}");
+    assert!(mid.left() - folded.right() < MARGIN + 4.0, "by the middle: {folded:?} {mid:?}");
     assert_eq!(folded.size(), shown.size());
-    near(folded.center().y, shown.center().y, "where it was");
-    h.get_by_label("Show Module Tree").click();
+    assert!((folded.center().y - shown.center().y).abs() < 4.0, "where it was: {folded:?}");
+    h.get_by_label("Show the Left Dock").click();
     h.run_steps(2);
     assert!(!h.state().settings.hide_tree);
-    assert_eq!(button(&h, "Module Tree"), shown, "back where it was");
+    assert_eq!(button(&h, "the Left Dock"), shown, "back where it was");
 
     // The palettes: on their left edge, half way down.
     let (pane, collapsed) = palettes(&h).unwrap();
@@ -522,39 +535,46 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     assert!(palettes(&h).is_some());
     near(button(&h, "Palettes").center().y, shown.center().y, "back where it was");
 
-    // The log: on its top edge, half way across.
-    let shown = button(&h, "Log");
-    let clear = h.get_by_label("Clear Log").rect();
-    assert!(shown.bottom() <= clear.top(), "over the log: {shown:?} {clear:?}");
-    near(shown.top() - MARGIN, middle(&h).bottom(), "under the middle");
-    near(shown.center().x, window.center().x, "half way across");
-    assert!(shown.height() >= 12.0 && shown.width() > 2.0 * shown.height(), "{shown:?}");
-    h.get_by_label("Fold Log").click();
+    // The Bottom Dock: under the middle, its tab bar over the log's lines;
+    // its one control the Log's switch in the Status Bar, on while it is
+    // open, in the same place closed.
+    let switch = |h: &Harness<'_, Moonglow>| {
+        let node = h.get_by_label("Status Bar").get_by_label("Log");
+        (node.rect(), node.accesskit_node().toggled())
+    };
+    let on = Some(egui::accesskit::Toggled::True);
+    let (at, state) = switch(&h);
+    assert_eq!(state, on);
+    // (The Log's tab: the tab bar's height.)
+    let bar = h.get_by_label("Bottom Dock").get_by_label("Log").rect();
+    let clear = h.get_by_label("Bottom Dock").get_by_label("Clear Log").rect();
+    let on_bar = bar.y_range().contains(clear.center().y) && clear.left() > bar.right();
+    assert!(on_bar, "the log's buttons on its tab bar: {bar:?} {clear:?}");
+    near(bar.top() - MARGIN, middle(&h).bottom(), "under the middle");
+    assert!(at.top() > bar.bottom() && window.contains_rect(at), "under the dock: {at:?}");
+    h.get_by_label("Status Bar").get_by_label("Log").click();
     h.run_steps(2);
     assert!(h.state().settings.hide_log);
-    let folded = button(&h, "Log");
-    assert!(window.contains_rect(folded), "in the window: {folded:?}");
-    near(folded.top() - MARGIN, middle(&h).bottom(), "under the middle");
-    assert_eq!(folded.size(), shown.size());
-    near(folded.center().x, shown.center().x, "where it was");
-    h.get_by_label("Show Log").click();
+    assert!(h.query_by_label("Bottom Dock").is_none() && h.query_by_label("Clear Log").is_none());
+    let (closed, state) = switch(&h);
+    assert_eq!(state, Some(egui::accesskit::Toggled::False));
+    assert_eq!(closed, at, "where it was");
+    h.get_by_label("Status Bar").get_by_label("Log").click();
     h.run_steps(2);
     assert!(!h.state().settings.hide_log);
-    // The panes' edge buttons are the only ones that fold or show them
-    // (the tree's and the palettes' arrows after their types, and the
-    // log's arrow buttons, are gone): every button named for a pane, by
+    // The docks' and panes' controls are the only ones that fold or show
+    // them (the tree's and the palettes' arrows after their types, and the
+    // log's arrow buttons, are gone): every button named for one, by
     // itself or with a verb, is one of the three.
-    let panes = ["Module Tree", "Palettes", "Log"];
-    let verbs = ["", "Fold ", "Show ", "Hide ", "Collapse ", "Expand "];
+    let panes = ["Module Tree", "Palettes", "Log", "the Left Dock", "the Bottom Dock"];
+    let verbs = ["", "Fold ", "Show ", "Hide ", "Close ", "Collapse ", "Expand "];
     let mut named: Vec<String> = h
         .query_all_by(|n| n.role() == egui::accesskit::Role::Button)
-        // (The main toolbar's Palettes opens the palettes' tab: a command.)
-        .filter(|n| !in_toolbar(n))
         .filter_map(|n| n.accesskit_node().label())
         .filter(|l| panes.iter().any(|p| verbs.iter().any(|v| *l == format!("{v}{p}"))))
         .collect();
     named.sort();
-    assert_eq!(named, ["Fold Log", "Fold Module Tree", "Fold Palettes"]);
+    assert_eq!(named, ["Fold Palettes", "Fold the Left Dock", "Log"]);
 }
 
 /// GitHub issue 20: the palettes' tab dragged onto the middle of the
@@ -867,8 +887,8 @@ fn the_log_s_lines_carry_their_time() {
     assert!(h.state().log.times.is_empty());
 }
 
-/// The whole log copied (its corner's Copy, View › Copy Log) and saved
-/// into a text file (Save…, View › Save Log…), each line as it shows,
+/// The whole log copied (its tab bar's Copy, View › Copy Log) and saved
+/// into a text file (its Save, View › Save Log…), each line as it shows,
 /// its time first (Jasperre's report: a line was copied by selecting it,
 /// one at a time).
 #[test]
@@ -1074,9 +1094,10 @@ fn the_log_shrinks_to_one_line() {
     h.run();
     let line = h.ctx.global_style().text_styles[&egui::TextStyle::Monospace].size;
     let entry = |h: &Harness<'_, Moonglow>| h.get_by_label_contains("No Neverwinter Nights").rect();
-    let status = h.get_by_label("No module").rect();
-    // The panel's top edge, just above its first line: drag it far down.
-    let top = entry(&h).top() - 3.0;
+    let status = h.get_by_label("Status Bar").get_by_label("No module open").rect();
+    // The Bottom Dock's top edge, just above its tab bar: drag it far
+    // down.
+    let top = h.get_by_label("Bottom Dock").get_by_label("Log").rect().top() - 1.0;
     let x = 500.0;
     h.event(egui::Event::PointerMoved(egui::pos2(x, top)));
     h.run();
@@ -1096,10 +1117,12 @@ fn the_log_shrinks_to_one_line() {
     let end = egui::pos2(x, status.top() - 2.0);
     h.event(egui::Event::PointerButton { pos: end, button, pressed: false, modifiers });
     h.run();
-    // About a line between the log's first line and the status bar (three
-    // lines' room was the least it would take).
+    // About a line between the log's first line and the Status Bar, under
+    // its tab bar (three lines' room was the least it would take).
     let room = status.top() - entry(&h).top();
     assert!(room < 2.0 * line + 12.0, "the log keeps {room} points (a line is {line})");
+    let bar = h.get_by_label("Bottom Dock").get_by_label("Log").rect();
+    assert!(bar.bottom() <= entry(&h).top(), "its tab bar over its line: {bar:?}");
 }
 
 /// A window of tabs moves by its tab bar, not by a drag on a part of its

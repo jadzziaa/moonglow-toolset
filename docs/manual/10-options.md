@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
+description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 ---
 
 # Options
@@ -252,10 +252,10 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   colors where a Background of your own is set: a dark Background takes
   the dark theme's colors and a light one the light theme's, so its text
   stays readable whichever theme the window wears.
-- **Toolbar buttons** (Icons and text): **Icons only** shows the
-  buttons of the main toolbar, of the area view's toolbar and of the
-  editors' toolbars (the script editor's, the conversation editor's, a
-  model's view and the NUI Creator's) as their icons alone, as Aurora's
+- **Editors' toolbar buttons** (Icons and text): **Icons only** shows
+  the buttons of the area view's toolbar and of the editors' toolbars
+  (the script editor's, the conversation editor's, a model's view and
+  the NUI Creator's) as their icons alone, as Aurora's
   toolbars are, to save room: the area view's toolbar takes about half
   the rows it took. Rest the pointer on an icon and its tip names it,
   with its key and what it does; a screen reader reads the button's
@@ -265,7 +265,10 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   editors' buttons show their words alone with Icons and text, as they
   always have; the palette's tile tools (Select Tiles, Eraser, Refine
   Tile…) are rows of its list, named as in Aurora's palette, and keep
-  their names. It takes effect at once, when you choose OK.
+  their names. It takes effect at once, when you choose OK. The Top
+  Bar's buttons are icons whatever it says (see [The main
+  window](02-main-window.md)). (It was named Toolbar buttons before the
+  Top Bar; it goes when the editors get their one-row headers.)
 - **Graphics backend** (Automatic): what the window, the area view and
   the previews draw with. **Automatic** is the graphics library's
   (wgpu's) choice, except that an AMD GPU on Windows draws through
@@ -287,7 +290,7 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   Or choose one: **Vulkan** or **Direct3D 12** on Windows, **Vulkan**
   on Linux, **Metal** on macOS (the only one there); only the
   platform's are offered. A backend chosen here is kept even where the
-  check finds it drawing nothing: a notice under the toolbar says so and
+  check finds it drawing nothing: a notice under the Top Bar says so and
   offers the other. (Not OpenGL: Moonglow's renderer draws
   particles, the game's shaders and more wrong there.) It takes effect the next time
   Moonglow starts, and the page says what this run draws with. A backend
@@ -658,7 +661,7 @@ Moonglow's own: Aurora has no such page.
   (and as you switch it on) and once a day while it runs, in the
   background, Moonglow asks GitHub for its latest release,
   and when a newer one is out opens the Check for Updates window on it,
-  then a line under the toolbar says so (see
+  then a line under the Top Bar says so (see
   [Help › Check for Updates…](02-main-window.md#menus)). It never holds
   up starting or the window. Offline, or on any error, it says nothing
   (a line in the
@@ -667,7 +670,7 @@ Moonglow's own: Aurora has no such page.
 - **Install updates automatically** (off): a newer release the
   automatic check finds is downloaded and verified in the background,
   and installed when Moonglow closes, so the next start is the new
-  version, without the window asking; the line under the toolbar says
+  version, without the window asking; the line under the Top Bar says
   so and offers **Restart Now**. The window's **Always install updates**
   switches it on. It is greyed where Moonglow doesn't install updates itself
   (see [Installing an update](02-main-window.md#installing-an-update)).

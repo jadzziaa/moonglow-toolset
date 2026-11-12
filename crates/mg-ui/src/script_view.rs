@@ -423,11 +423,11 @@ pub(crate) fn with_keys(app: &Moonglow, ctx: &egui::Context) -> Option<ResKey> {
     app.scripts.keys().find(|k| editor_id(**k) == focused).copied()
 }
 
-/// Notes the script Edit › Undo and Redo and the toolbar's are for this
+/// Notes the script Edit › Undo and Redo and the Top Bar's are for this
 /// frame (`Moonglow::undo_script`): the one whose editor has the keys,
 /// as its Ctrl+Z goes, and while a menu is open the one that had them as
 /// it was opened (the click on the menu takes the keys from the editor).
-/// Drawn before the editor, the toolbar sees the keys where they were
+/// Drawn before the editor, the Top Bar sees the keys where they were
 /// before its own click.
 pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
     // (An editor not drawn the frame its keys were to come back: none.)
@@ -1231,7 +1231,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         convert_indentation(buf, &ctx, key, tabs, selected, indent.width);
         indent = tools::Indent::of_script(buf.indent, style_indent);
     }
-    // Edit › Undo or Redo, or the toolbar's: the editor's step, and the
+    // Edit › Undo or Redo, or the Top Bar's: the editor's step, and the
     // keys back in it after (below, once the click that took them is
     // past), so that Ctrl+Z after it is the editor's too, not the
     // module's.

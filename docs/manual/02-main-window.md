@@ -3,30 +3,39 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 ---
 
 # The main window
 
-From top to bottom: the **menus**, the **toolbar**, then the module tree
-on the left, the **tabs** in the middle and the **palette** on the right,
-the **log**, and the **status bar** (the module's file, "(modified)" while
-there are unsaved changes, and the game's folder).
+From top to bottom: the **Top Bar** (the menus and the common
+commands, in one row), then the **Left Dock** with the module tree, the
+**tabs** in the middle and the **palette** on the right, the **log** in
+the Bottom Dock under the tabs, and the **Status Bar** (the log's
+switch at its left; the module's name, "(modified)" while there are
+unsaved changes, and the game's folder at its right: rest the pointer
+on the name for the module's file, on the folder for its whole path).
 The palette opens with each module, as wide as the module tree. If you
-close it, **Palettes** on the toolbar brings it back.
+close it, **Tools › Palettes** brings it back.
 
-The toolbar's buttons (New, Open, Save, Undo, Redo, Properties, New
-Area, Start, Resources, Palettes, Preview, Compile, Verify) each show an
-icon and a word. To save room, **Tools › Options › General › Toolbar
-buttons: Icons only** shows the icons alone, as Aurora's toolbar does
-(the area view's and the editors' toolbars too): rest the pointer on one
-and its tip names it, with its key. The icons are Moonglow's own
-drawings, one to a command: Properties (Module Properties) shows a box,
-the area view's Area Properties three sliders, and Start a circled arrow
-pointing up, which the area view's Go to Start Location (the same
-command) and its Start filter (the start location's marker) show too.
-Each kind of object has one icon wherever it appears: on the area view's
-toolbar and in the palette's row of types.
+The Top Bar's buttons are icons: **New**, **Open** and **Save** after
+the menus, then **Undo** and **Redo**; at its right end **Compile**,
+**Verify** and **Test Module**, with an arrow beside Test Module whose
+menu has **Test Module, Choose Character**. Rest the pointer on a button
+and its tip names it, with its key. In a window under 1300 points wide
+Compile, Verify and Test Module show their icons alone too. The Top Bar
+is the same whatever **Tools › Options › General › Editors' toolbar
+buttons** says: that setting is the area view's and the editors'
+toolbars'. The icons are Moonglow's own drawings, one to a command. The
+toolbar's other buttons of earlier versions have homes of their own:
+**Properties** (Module Properties, a box) and **New Area** (the Area
+Wizard) are icons on the module tree's tab bar; **Start** is **View ›
+Go to Start Location** (the area view's Go to Start Location and its
+Start filter show its circled arrow); **Resources** and **Palettes** are
+in the Tools menu (Resource Browser, Palettes); **Preview** is Preview
+Window in the Command Palette (**Help › Command Palette…**,
+Ctrl+Shift+P). Each kind of object has one icon wherever it appears: on
+the area view's toolbar and in the palette's row of types.
 
 ## Menus
 
@@ -78,7 +87,7 @@ updates** (Options › Updates › Install updates automatically: this
 release downloaded at once and installed as Moonglow closes, and later
 ones without the window); it opens once for each release while
 Moonglow runs, and once
-it is closed a line under the toolbar says so, with **What's New…** (the
+it is closed a line under the Top Bar says so, with **What's New…** (the
 window again),
 **Install Now**, **Later**, **Don't Remind Me About This Version** (a
 later version is told again) and **Close Update Notice** (its close
@@ -400,20 +409,25 @@ terminal, `mg gff --names` names them the same way (a faction with
 --where` and `mg areas --set` take a row's label or name in place of its
 number.
 
-**The panes beside the middle** (the module tree on the left, the
-palettes on the right, the log below) fold away to give the area's view
-the room: **View** has each, ticked while shown, and **Hide All Panels**.
-Each pane also has one button of its own for it: a small arrow on the
-edge it faces the middle by, halfway along it (the module tree's right
-edge, the palettes' left edge, the log's top edge). It points the way
-the pane goes, and lights up under the pointer.
-A pane folded away leaves a thin strip at that edge, with the same
-button in the same place, pointing the other way: a click brings the
-pane back, as wide as it was. Palettes you moved to the left of the
-middle have their button on their right edge and leave their strip on
-the left. Closing the palettes' pane by its close button folds it away the same.
-What is folded stays so the next time Moonglow starts. **View › Reset
-Layout** shows all three at the sizes they have at first.
+**The docks and the panes beside the middle** (the module tree in the
+Left Dock, the palettes on the right, the log in the Bottom Dock) fold
+away to give the area's view the room: **View** has each (Module Tree,
+Palettes Panel, Log), ticked while shown, and **Hide All Panels**. Each
+also has one control of its own for it. The **Left Dock** has a small
+arrow at the right end of its tab bar, by the middle (**Fold the Left
+Dock**): folded, the dock leaves a thin strip at the window's left with
+an arrow at its top that brings it back (**Show the Left Dock**) and
+the module tree's icon under it, which does the same; it comes back as
+wide as it was. The **palettes** have an arrow on the edge they face
+the middle by, halfway along it, pointing the way the pane goes; folded
+away they leave a thin strip at that edge, with the same button in the
+same place, pointing the other way. Palettes you moved to the left of
+the middle have their button on their right edge and leave their strip
+on the left. Closing the palettes' pane by its close button folds it
+away the same. The **log** opens and closes by its switch, **Log**, at
+the left of the Status Bar, lit while the log is open; it comes back as
+high as it was. What is folded stays so the next time Moonglow starts.
+**View › Reset Layout** shows all three at the sizes they have at first.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -535,7 +549,7 @@ kind of editor has its own, and each type of blueprint: a waypoint's
 Properties opens at the size the last waypoint's was left, not an
 encounter's), and a size dragged at its edge or corner is kept so.
 **Double-click a window's tab** (or the bar beside it) to maximize
-it over the whole of Moonglow's window under the toolbar, and again to
+it over the whole of Moonglow's window under the Top Bar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too, and the button at the
 right of the window's bar, before its close button, does it and shows which it is:
@@ -600,8 +614,10 @@ table) keep their own steps: Undo and Redo, by their keys (Ctrl+Z,
 Ctrl+Y and Ctrl+Shift+Z, or those set in Options › Keyboard), are that
 editor's with the pointer over it (and a 2DA's while the keys are in
 its grid), and never the module's last change there. So are Edit ›
-Undo and Redo and the toolbar's, the pointer gone from the editor
-straight to them: they name the step where the editor names its steps
+Undo and Redo and the Top Bar's, the pointer gone from the editor
+straight to them (or, with the pointer come from elsewhere, the Top
+Bar's while that editor's tab is the one in front of the pane you last
+clicked in): they name the step where the editor names its steps
 ("Undo Add files" over a hak's, "Undo Empty 1 cell" over a 2DA's; a
 tileset's and the talk table's say plain Undo). A text field in one of
 these editors (its Find field) takes back its own typing once you have
@@ -610,7 +626,7 @@ and Undo is the editor's, as a field elsewhere leaves Undo to the
 module's. A script's editor
 keeps its own steps of its text: while it has the keyboard, Ctrl+Z and
 Ctrl+Y, the keys set in Options › Keyboard, Edit › Undo and Redo and
-the toolbar's are all the script's (see [Scripts](07-scripts.md)).
+the Top Bar's are all the script's (see [Scripts](07-scripts.md)).
 
 **Colors.** A color's swatch (an area's lighting, a light, a NUI color,
 the Options' colors) opens a picker. Its copy button copies the color's values
@@ -632,7 +648,7 @@ palette shows the tileset's brushes instead. The row's last three are
 **Prefabs**, **Lights** (the game's invisible lights, one chosen and
 then put where an area is clicked) and **Start Location** (where a
 player's character enters the module: chosen, a click in an area puts
-it there). **Preview** (toolbar) shows
+it there). **Preview Window** (in the Command Palette) shows
 the chosen blueprint in a window of its own (a 3D view is drawn in one
 place at a time: where the same blueprint or model is on screen
 already, the second place says the preview is shown elsewhere). After a
@@ -760,15 +776,18 @@ while the viewer plays): the same switch as the area view's toolbar
 
 ## The log
 
-Messages go to the log at the bottom: what was opened or saved, compiler
-errors, warnings about missing resources. Warnings are yellow, errors red.
-Each line begins with the time it was written (`14:03:27`), as the
-script editor's Compiler messages do; a line selected and copied from
-the log takes its time with it. In its right corner, **Copy** (or View ›
-Copy Log) puts the whole log on the clipboard and **Save…** (View › Save
-Log…) writes it into a text file, each line with its time;
-**Clear** (View › Clear Log) empties it: a second Verify's report isn't
-then mistaken for the first's.
+Messages go to the log, in the Bottom Dock under the tabs: what was
+opened or saved, compiler errors, warnings about missing resources.
+Warnings are yellow, errors red. Each line begins with the time it was
+written (`14:03:27`), as the script editor's Compiler messages do; a
+line selected and copied from the log takes its time with it. On the
+right of its tab bar, **Copy Log** (or View › Copy Log) puts the whole
+log on the clipboard and **Save Log** (View › Save Log…) writes it into
+a text file, each line with its time; **Clear Log** (View › Clear Log)
+empties it: a second Verify's report isn't then mistaken for the
+first's. The **Log** switch at the left of the Status Bar (or View ›
+Log, Ctrl+Alt+3) opens and closes it; drag its top edge to make it
+higher or lower, down to a line.
 
 ## Screen readers and desktop agents
 

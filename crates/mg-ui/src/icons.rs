@@ -1,7 +1,8 @@
 //! The drawn icons (`mg_uikit::Icon`) that label the object types (in the
 //! palette and the area view's toolbar), the area view's toggles and the
 //! toolbars' buttons, and [`Tools`], which labels a toolbar's buttons as
-//! Options › General › Toolbar buttons says.
+//! Options › General › Editors' toolbar buttons says (the Top Bar's, icons
+//! alone, whatever it says).
 
 use mg_area::ObjectKind;
 use mg_uikit::Controls as _;
@@ -158,12 +159,13 @@ pub(crate) mod editor {
     }
 }
 
-/// How a toolbar's buttons are labelled (Options › General › Toolbar
-/// buttons): a glyph and its name, or, with Icons only, the glyph alone
-/// and its name in its tip (and as its name for a screen reader), as
-/// Aurora's toolbars have them. The main toolbar and the area view's take
-/// it from the settings each frame; the editors' toolbars show their
-/// words alone beside them ([`Tools::word`]).
+/// How a toolbar's buttons are labelled (Options › General › Editors'
+/// toolbar buttons): a glyph and its name, or, with Icons only, the glyph
+/// alone and its name in its tip (and as its name for a screen reader),
+/// as Aurora's toolbars have them. The area view's toolbar takes it from
+/// the settings each frame; the editors' toolbars show their words alone
+/// beside them ([`Tools::word`]); the Top Bar's quick actions are icons
+/// alone ([`Tools::icons_alone`]).
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Tools {
     pub(crate) icons_only: bool,
@@ -216,6 +218,13 @@ pub(crate) fn area_tool_kind(label: &str) -> String {
 impl Tools {
     pub(crate) fn of(settings: &crate::Settings) -> Tools {
         Tools { icons_only: settings.toolbar_icons_only, hidden: 0 }
+    }
+
+    /// Icons alone, whatever the settings say (the Top Bar's quick
+    /// actions: Options › General › Editors' toolbar buttons is the
+    /// editors' toolbars' alone), or icons and words.
+    pub(crate) fn icons_alone(only: bool) -> Tools {
+        Tools { icons_only: only, hidden: 0 }
     }
 
     /// The same, with the icons alone where `buttons` with their words
@@ -403,7 +412,7 @@ impl Tools {
     /// ([`ALL`], [`editor::ALL`]).
     #[cfg(test)]
     pub(crate) fn icons() -> Vec<Icon> {
-        let mut all: Vec<Icon> = crate::commands::TOOLBAR.iter().flatten().map(|t| t.1).collect();
+        let mut all: Vec<Icon> = crate::shell::icons();
         all.extend(ObjectKind::ALL.map(object));
         all.extend(ALL);
         all.extend(editor::ALL);
@@ -446,12 +455,12 @@ mod tests {
         assert_eq!(icons.tip("ab", "é").as_deref(), Some("ab\né"));
     }
 
-    /// An icon is one command's across the main toolbar and the area
-    /// view's (Module Properties `module`, Area Properties
-    /// `area-properties`; the area's Grid `grid`, a palette's Gallery
-    /// `gallery`): the one they share is the start location's, which the
-    /// area view's Start shows and Go to Start Location goes to, as the
-    /// design has them. Compared by drawing: the set's aliases (`lightbulb`
+    /// An icon is one command's across the main window's bars (the Top
+    /// Bar, the Module panel's header) and the area view's toolbar (Module
+    /// Properties `module`, Area Properties `area-properties`; the area's
+    /// Grid `grid`, a palette's Gallery `gallery`): they share none (the
+    /// start location's, which the area view's Start shows, left the main
+    /// window's bars for View › Go to Start Location). Compared by drawing: the set's aliases (`lightbulb`
     /// and `light`, `hammer` and `compile`) are one picture.
     #[test]
     fn an_icon_is_one_command_s() {
@@ -461,7 +470,7 @@ mod tests {
             all.sort_unstable();
             all
         };
-        let main: Vec<Icon> = crate::commands::TOOLBAR.iter().flatten().map(|t| t.1).collect();
+        let main: Vec<Icon> = crate::shell::icons();
         let area = [
             START,
             NIGHT,
@@ -498,7 +507,9 @@ mod tests {
         let shared: Vec<Icon> = (area.into_iter())
             .filter(|i| main_drawn.contains(&format!("{:?}", drawing(*i))))
             .collect();
-        assert_eq!(shared, [START]);
+        // (None: Start left the main window's bars for View › Go to Start
+        // Location, the redesign's M3; the area's Start is its own.)
+        assert_eq!(shared, []);
         let mut seen = area.to_vec();
         seen.extend(ObjectKind::ALL.map(object));
         seen.push(GALLERY);

@@ -117,10 +117,33 @@ pub fn bar<L, M, R>(
     })
 }
 
+/// [`bar`] with the right-hand group's width given (`right_width`: its
+/// items' widths, [`StatusItem::width`], [`SEPARATOR_WIDTH`] for each
+/// separator, and [`GAP`] between them), so that it is laid out by it at
+/// once: a module's name changing (its modified dot) asks for no second
+/// pass, which would run without the frame's input (a click on that frame
+/// would be lost).
+pub fn bar_sized<L, M, R>(
+    ui: &mut Ui,
+    right_width: f32,
+    left: impl FnOnce(&mut Ui) -> L,
+    middle: impl FnOnce(&mut Ui, f32) -> M,
+    right: impl FnOnce(&mut Ui) -> R,
+) -> (L, M, R) {
+    let gaps = (GAP, GAP);
+    crate::shell::three_parts_sized(ui, NAME, gaps, Some(right_width), left, right, |ui, room| {
+        middle(ui, room.width())
+    })
+}
+
+/// A separator's width ([`separator`]).
+pub const SEPARATOR_WIDTH: f32 = 1.0;
+
 /// A vertical line between the Status Bar's groups (`.sb-sep`: 1 by 14,
 /// `line-soft`).
 pub fn separator(ui: &mut Ui) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(1.0, SEPARATOR_HEIGHT), Sense::hover());
+    let size = vec2(SEPARATOR_WIDTH, SEPARATOR_HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
     if ui.is_rect_visible(rect) {
         ui.painter().rect_filled(rect, 0.0, ui.tokens().line_soft);
     }

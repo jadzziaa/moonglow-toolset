@@ -3,15 +3,15 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:32:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 ---
 
 # Troubleshooting
 
 ## Moonglow does not find the game
 
-The log says "No Neverwinter Nights installation found" and the status
-bar "No game install". Choose **Tools › Options… › Folders** and set the
+The log says "No Neverwinter Nights installation found" and the Status
+Bar "No game install". Choose **Tools › Options… › Folders** and set the
 game's folder: the one with `data/` and `bin/` in it (for Steam,
 `steamapps/common/Neverwinter Nights` in the library you installed it
 to). Moonglow needs Enhanced Edition; the original 1.69 release is not
@@ -38,7 +38,7 @@ where only a software adapter is there (llvmpipe, Microsoft's Basic
 Render Driver: a virtual machine, a remote desktop, Windows without the
 GPU maker's driver), the 3D views are drawn at a few frames a second.
 Automatic takes either only where nothing else is there, and a notice
-under the toolbar and the log then say what Moonglow draws through and
+under the Top Bar and the log then say what Moonglow draws through and
 what to install. Everything else in Moonglow works
 without one. Update the graphics driver; on Linux, install your
 distribution's Vulkan driver (Mesa's `vulkan-radeon` or `vulkan-intel`,
@@ -77,7 +77,7 @@ and Moonglow looks at what it draws:
 - **As it starts**, before the window opens, it draws a small scene
   offscreen and checks it. Where nothing is drawn, it takes the same
   GPU's other backend (once: if that fails too, it keeps the first and
-  says so in a notice under the toolbar). The backend that failed is
+  says so in a notice under the Top Bar). The backend that failed is
   remembered for this GPU and driver; Automatic passes over it until a
   driver update, or an update of Moonglow (a new version tries it
   again: what failed may be mended). It is remembered only where the
@@ -113,7 +113,7 @@ and Moonglow looks at what it draws:
   of the area's ground the GPU drew against what the camera should see
   (the game's shaders included, once they are compiled; tiles whose
   models failed included). Where less than a fifth of it has been drawn
-  for five seconds, a notice under the toolbar names the GPU and the
+  for five seconds, a notice under the Top Bar names the GPU and the
   backend and offers **Restart with …** the other one. It closes
   Moonglow as File › Exit does (asking about unsaved work first) and
   starts it again with the same module; on Automatic the failing

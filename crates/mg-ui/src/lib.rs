@@ -83,6 +83,7 @@ mod script_view;
 pub mod script_wizard;
 pub mod search;
 pub mod settings;
+mod shell;
 mod side_doc;
 pub mod store_wizard;
 pub mod table_view;
@@ -789,14 +790,17 @@ pub struct Moonglow {
     /// The 2DA grid that has the keys, as drawn this frame: Undo and Redo
     /// are its, the pointer over no side editor.
     pub(crate) undo_keys: Option<Tab>,
-    /// The side editor the pointer was over before it went onto the menu
-    /// bar or the toolbar (or a menu opened): Edit › Undo and the
-    /// toolbar's are its while the pointer is there (`pointer_on_bars`).
+    /// The side editor the pointer was over before it went onto the Top
+    /// Bar (or a menu opened): Edit › Undo and the Top Bar's are its
+    /// while the pointer is there (`pointer_on_bars`).
     pub(crate) undo_before_bars: Option<Tab>,
     pub(crate) pointer_on_bars: bool,
+    /// The Left Dock's fold button as last drawn (its edge is the
+    /// dock's, which is resized from there: `shell::left_dock`).
+    pub(crate) left_fold: Option<egui::Rect>,
     /// The script whose editor has the keys, or had them when the menu
     /// still open was opened (the click on it takes them): Edit › Undo
-    /// and Redo and the toolbar's are that editor's, as its keys are
+    /// and Redo and the Top Bar's are that editor's, as its keys are
     /// (`script_view::undo_target`).
     pub(crate) undo_script: Option<ResKey>,
     /// The module Test Module looked for running games on before its save
@@ -1303,6 +1307,7 @@ impl Moonglow {
             undo_keys: None,
             undo_before_bars: None,
             pointer_on_bars: false,
+            left_fold: None,
             undo_script: None,
             test_checked: None,
             model_views: HashMap::new(),
@@ -1693,8 +1698,8 @@ impl Moonglow {
         updates::frame(self, ui.ctx());
         self.next_plugin_event();
         self.panels_frame(ui.ctx());
-        // (Before the menus and the toolbar, which are drawn before the
-        // editor: they see the keys it had.)
+        // (Before the Top Bar's menus and buttons, which are drawn before
+        // the editor: they see the keys it had.)
         script_view::undo_target(self, ui.ctx());
         // (A running job has the window to itself.)
         if !self.busy() {
@@ -1703,54 +1708,33 @@ impl Moonglow {
         // (A menu open as the frame began: one of its entries may be
         // chosen in it, and close it.)
         let menu_was_open = egui::Popup::is_any_open(ui.ctx());
-        let bars = egui::Panel::top("menu").show(ui, |ui| {
-            commands::menu_bar(self, ui);
-            // Buttons for the common commands, below the menu as in Aurora.
-            commands::toolbar(self, ui);
-        });
-        // (On the way from a side editor to Edit › Undo or the toolbar's,
+        // The Top Bar: the menus, the quick actions and the build actions
+        // in one row (the shell, `shell.rs`).
+        let bars = shell::top_bar(self, ui);
+        // (On the way from a side editor to Edit › Undo or the Top Bar's,
         // or with a menu open, Undo stays the editor's the pointer left.)
-        self.pointer_on_bars = ui.rect_contains_pointer(bars.response.rect)
-            || menu_was_open
-            || egui::Popup::is_any_open(ui.ctx());
+        self.pointer_on_bars =
+            ui.rect_contains_pointer(bars) || menu_was_open || egui::Popup::is_any_open(ui.ctx());
         if !self.pointer_on_bars {
             self.undo_before_bars = self.undo_under_pointer.clone();
         }
-        // A newer release, told under the toolbar until dismissed.
+        // A newer release, told under the Top Bar until dismissed.
         updates::notice_bar(self, ui);
         // A renderer that draws nothing (the startup check, the area
         // view's watch).
         renderer_check::notice_bar(self, ui);
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        // The log shrinks to a single line if the user wants it that small.
-        let line = ui.text_style_height(&egui::TextStyle::Monospace);
-        // The side panes leave the middle its room, however they were left
-        // (their sizes are remembered between runs) and whatever is in
-        // them: the log at most half the window's height, the module tree
-        // at most two fifths of its width.
-        let window = ui.ctx().content_rect().size();
-        // Each pane beside the middle has a strip along the edge it faces
-        // the middle by, with its button to fold it away (GitHub issue
-        // 10); folded away (the button, View), the strip is all it leaves,
-        // with the same button, in the same place, to bring it back.
-        if !self.settings.hide_log {
-            egui::Panel::bottom("log")
-                .resizable(true)
-                .default_size(120.0)
-                .size_range((line + 6.0)..=(window.y * 0.5).max(line + 6.0))
-                .show(ui, |ui| self.log_ui(ui));
-        }
-        self.pane_edge(ui, commands::Id::ViewLog, Side::Below);
+        // The Status Bar, the Left Dock the whole height between the bars,
+        // and the Bottom Dock under the editor area. Each dock leaves the
+        // middle its room, however it was left (their sizes are kept
+        // between runs): the log at most half the window's height, the
+        // module tree at most two fifths of its width. Each has one control
+        // that folds or closes it (GitHub issue 10): the Left Dock's button
+        // on its inner edge (folded, its strip's chevron), the Bottom
+        // Dock's switch in the Status Bar.
+        shell::status_bar(self, ui);
+        shell::left_dock(self, ui);
+        shell::bottom_dock(self, ui);
         if self.ws.is_some() {
-            if !self.settings.hide_tree {
-                let tree = egui::Panel::left("tree")
-                    .resizable(true)
-                    .default_size(240.0)
-                    .size_range(150.0..=(window.x * 0.4).max(150.0))
-                    .show(ui, |ui| tree::module_tree(self, ui));
-                self.tree_width = Some(tree.response.rect.width());
-            }
-            self.pane_edge(ui, commands::Id::ViewTree, Side::Left);
             // The palette beside a newly opened module, as in Aurora (not
             // when it was folded away).
             if std::mem::take(&mut self.open_palette)
@@ -3036,37 +3020,9 @@ impl Moonglow {
         commands::keys_pressed(self, ui);
     }
 
-    fn status_bar(&mut self, ui: &mut egui::Ui) {
-        let module = match (self.module_path(), &self.ws) {
-            (Some(p), _) => p.display().to_string(),
-            (None, Some(_)) => "New module, not saved yet".to_string(),
-            (None, None) => "No module".to_string(),
-        };
-        let modified = self.ws.as_ref().is_some_and(Workspace::is_modified);
-        let install = match &self.install {
-            Some(gi) => gi.root.display().to_string(),
-            None => "No game install".to_string(),
-        };
-        // The game's folder on the right, the module's on the left; each
-        // shortened (with the whole path on hover) rather than overlapping.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.scope(|ui| {
-                ui.set_max_width(ui.available_width() * 0.4);
-                ui.add(egui::Label::new(&install).truncate()).on_hover_text(&install);
-            });
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                if let Some(note) = self.looking_note() {
-                    ui.label(note);
-                }
-                if modified {
-                    ui.label("(modified)");
-                }
-                ui.add(egui::Label::new(&module).truncate()).on_hover_text(&module);
-            });
-        });
-    }
-
-    fn log_ui(&mut self, ui: &mut egui::Ui) {
+    /// The log's lines (in the Bottom Dock, under its tab bar:
+    /// `shell::bottom_dock`).
+    pub(crate) fn log_ui(&mut self, ui: &mut egui::Ui) {
         use palette_view::Keys;
         let pane = ui.max_rect();
         // The keys (from a click in it, or Next Pane, F6) scroll it: a
@@ -3219,42 +3175,6 @@ impl Moonglow {
             palette_view::give_keys(ui.ctx(), Keys::Log);
         }
         palette_view::keys_outline(ui, shown.inner_rect, Keys::Log);
-        // Buttons in its corner: the whole log copied or saved (a line
-        // selected is copied alone: Jasperre's report), and emptied, so
-        // that a second Verify's report isn't mistaken for the first's.
-        // (The one that folds it away is on its edge: `pane_edge`.)
-        let mut right = ui.max_rect().right() - 4.0;
-        let top = ui.max_rect().top() + 2.0;
-        let buttons = [
-            ("Clear", "Clear Log", "Empty the log (View › Clear Log)"),
-            ("Save…", "Save Log", "The whole log into a text file (View › Save Log…)"),
-            ("Copy", "Copy Log", "The whole log to the clipboard (View › Copy Log)"),
-        ];
-        // (Each as wide as its word and the theme's padding, and as high
-        // as the theme's controls.)
-        let font = egui::TextStyle::Button.resolve(ui.style());
-        let (pad, height) = (ui.spacing().button_padding.x, ui.spacing().interact_size.y);
-        for (text, name, tip) in buttons {
-            let words = ui.fonts_mut(|f| {
-                f.layout_no_wrap(text.into(), font.clone(), egui::Color32::PLACEHOLDER)
-            });
-            let width = (words.size().x + 2.0 * pad).ceil();
-            let at = egui::Rect::from_min_size(
-                egui::pos2(right - width, top),
-                egui::vec2(width, height),
-            );
-            right -= width + 4.0;
-            let enabled = !self.log.entries.is_empty();
-            let b = ui.put(at, egui::Button::new(text));
-            b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
-            if b.on_hover_text(tip).clicked() && enabled {
-                match name {
-                    "Clear Log" => self.log.clear(),
-                    "Save Log" => self.save_log(),
-                    _ => self.copy_log(ui.ctx()),
-                }
-            }
-        }
     }
 
     /// Copy Log: the whole log to the clipboard, each line with its time.

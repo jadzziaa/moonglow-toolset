@@ -717,18 +717,29 @@ fn the_graphics_backend_is_chosen_in_options() {
     assert_eq!(back.graphics_backend, last);
 }
 
-/// Options › General › Toolbar buttons, Icons only: the toolbar's buttons
-/// show their icons alone at once, each named in its tip (with its key),
-/// and the toolbar takes less room; kept in the settings, and back to
-/// icons and text.
+/// The Top Bar draws its quick actions as icons alone, each with a tip
+/// that names it (with its key, disabled or not), whatever Options ›
+/// General › Editors' toolbar buttons says: that setting (Icons only,
+/// kept in the settings) is the editors' toolbars', and the area view's
+/// still honors it, its buttons icons alone at once.
 #[test]
-fn the_toolbar_shows_icons_only_when_asked() {
+fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
-    let width = |h: &Harness<'_, Moonglow>, first: &str, last: &str| {
-        tool(h, last).rect().right() - tool(h, first).rect().left()
-    };
-    let wide = width(&h, "New", "Verify");
+    let quick = [
+        ("New", mg_uikit::Icon::New),
+        ("Open", mg_uikit::Icon::Open),
+        ("Save", mg_uikit::Icon::Save),
+        ("Undo", mg_uikit::Icon::Undo),
+        ("Redo", mg_uikit::Icon::Redo),
+    ];
+    let rects = |h: &Harness<'_, Moonglow>| quick.map(|(n, _)| tool(h, n).rect());
+    let before = rects(&h);
+    for ((name, icon), r) in quick.iter().zip(before) {
+        assert!(icon_drawn(&h, *icon, r), "{name}'s icon");
+        // (An icon button, 22 square: no words.)
+        assert!(r.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{name} {r:?}");
+    }
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
     h.get_by_label("General").click();
@@ -737,7 +748,7 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let both = |n: &egui_kittest::Node<'_>| {
         n.accesskit_node().value().as_deref() == Some("Icons and text")
     };
-    h.query_all(combo).find(both).expect("the toolbar buttons' dropdown").click();
+    h.query_all(combo).find(both).expect("the editors' toolbar buttons' dropdown").click();
     h.run();
     h.get_by_label("Icons only").click();
     h.run();
@@ -750,19 +761,16 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
     assert!(!old.toolbar_icons_only, "icons and text in settings from before");
     h.run();
-    // The icons alone (named by their words for a screen reader, the words
-    // in their tips).
-    let (save, palettes) = (tool(&h, "Save").rect(), tool(&h, "Palettes").rect());
-    assert!(icon_drawn(&h, mg_uikit::Icon::Save, save), "Save's icon");
-    assert!(icon_drawn(&h, mg_uikit::Icon::Palette, palettes), "Palettes' icon");
-    let narrow = width(&h, "New", "Verify");
-    assert!(narrow < wide * 0.6, "the toolbar narrower: {narrow} of {wide}");
-    // A tip named for the button: first where it doesn't begin so.
-    let palettes = tool(&h, "Palettes").rect().center();
-    h.hover_at(palettes);
+    // The Top Bar as it was: the setting is not its.
+    assert_eq!(rects(&h), before, "the Top Bar's quick actions where they were");
+    // A tip named for the button, with its key.
+    let new = tool(&h, "New").rect().center();
+    h.hover_at(new);
     // (A tooltip waits a moment.)
     h.run_steps(60);
-    h.get_by_label("Palettes\nBlueprint palettes");
+    let tip = h.get_by_label_contains("New module").accesskit_node();
+    let tip = tip.label().or(tip.value()).unwrap_or_default();
+    assert!(tip.starts_with("New module ("), "named, with its key: {tip}");
     // Save (disabled without a module): its tip too, with its key.
     let save = tool(&h, "Save").rect().center();
     h.hover_at(save);
@@ -770,10 +778,22 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let tip = h.get_by_label_contains("Save module").accesskit_node();
     let tip = tip.label().or(tip.value()).unwrap_or_default();
     assert!(tip.starts_with("Save module ("), "named, with its key: {tip}");
-    // Back to icons and text.
     h.state_mut().settings.toolbar_icons_only = false;
     h.run();
-    assert!((width(&h, "New", "Verify") - wide).abs() < 1.0, "the toolbar as wide as it was");
+    assert_eq!(rects(&h), before, "and back");
+
+    // The area view's toolbar honors it: its words go, and come back.
+    let Some((mut h, _)) = area_harness("top-bar-area-icons") else { return };
+    let wide = area_tool(&h, "Reorient Camera").rect().width();
+    let top_bar = rects(&h);
+    h.state_mut().settings.toolbar_icons_only = true;
+    h.run_steps(2);
+    let now = area_tool(&h, "Reorient Camera").rect().width();
+    assert!(now < wide && now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{wide} -> {now}");
+    assert_eq!(rects(&h), top_bar, "the Top Bar as it was");
+    h.state_mut().settings.toolbar_icons_only = false;
+    h.run_steps(2);
+    assert_eq!(area_tool(&h, "Reorient Camera").rect().width(), wide);
 }
 
 /// Options › General › Light theme: the window's theme follows the
@@ -823,7 +843,7 @@ fn the_theme_is_set_in_options() {
     assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
 }
 
-/// Options › General › Toolbar buttons, Icons only, in the editors'
+/// Options › General › Editors' toolbar buttons, Icons only, in the editors'
 /// toolbars too (ShadowM's request): the script editor's and the
 /// conversation editor's buttons show their glyphs alone and take less
 /// room, each named in its tip and by its name for a screen reader; with

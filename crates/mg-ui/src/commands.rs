@@ -4,7 +4,7 @@
 //! named, enabled and run the same wherever it is chosen, and every one of
 //! them can be given a key.
 //!
-//! [`MENUS`] and [`TOOLBAR`] say where the commands show. Commands that act
+//! [`MENUS`] and [`TOP_BAR`] say where the commands show. Commands that act
 //! on one thing (an object's or a resource's context menu) are not here:
 //! they belong to what they act on.
 
@@ -100,7 +100,8 @@ pub enum Id {
     /// Asks GitHub whether a newer Moonglow is out (`updates`).
     CheckUpdates,
     About,
-    /// The toolbar's Preview: the window showing the palette's blueprint.
+    /// Preview Window: the window showing the palette's blueprint (from
+    /// the Command Palette or its key until the Preview panel, M3's T6).
     PreviewWindow,
     FullScreen,
     /// The tab in front: closed, the next or the one before brought to the
@@ -281,36 +282,58 @@ pub const MENUS: [(&str, &[Item]); 8] = [
     ),
 ];
 
-/// The toolbar: each command with its button's icon, its name and its tip
-/// (`None`: a gap).
-pub const TOOLBAR: [Option<(Id, crate::icons::Icon, &str, &str)>; 16] = [
-    Some((Id::NewModule, Icon::New, "New", "New module")),
-    Some((Id::OpenModule, Icon::Open, "Open", "Open module")),
-    Some((Id::Save, Icon::Save, "Save", "Save module")),
-    None,
-    Some((Id::Undo, Icon::Undo, "Undo", "Undo")),
-    Some((Id::Redo, Icon::Redo, "Redo", "Redo")),
-    None,
-    Some((Id::ModuleProperties, Icon::Module, "Properties", "Module properties")),
-    Some((Id::AreaWizard, Icon::Area, "New Area", "Area Wizard")),
-    Some((
-        Id::GoToStart,
-        crate::icons::START,
-        "Start",
-        "Open the area the module starts in, at the start location",
-    )),
-    Some((Id::Resources, Icon::Find, "Resources", "Resource browser")),
-    Some((Id::Palettes, Icon::Palette, "Palettes", "Blueprint palettes")),
-    Some((
-        Id::PreviewWindow,
-        Icon::PanelRight,
-        "Preview",
-        "Show the blueprint chosen in the palette",
-    )),
-    None,
-    Some((Id::CompileAll, Icon::Compile, "Compile", "Compile all scripts")),
-    Some((Id::Verify, Icon::Verify, "Verify", "Verify the module")),
-];
+/// A button of the Top Bar: its command, its icon, its name (its
+/// accessible name and the first line of its tip) and its tip.
+pub type TopBarButton = (Id, Icon, &'static str, &'static str);
+
+/// The Top Bar's buttons ([`crate::shell::top_bar`]): the quick actions
+/// after the menus (`None`: a line between their groups), and the build
+/// actions at the right end. Test Module's arrow offers
+/// [`TOP_BAR_TEST_MENU`].
+#[derive(Debug)]
+pub struct TopBar {
+    /// After the menus: New, Open, Save; Undo, Redo.
+    pub quick: [Option<TopBarButton>; 6],
+    /// At the right end: Compile, Verify, Test Module.
+    pub build: [TopBarButton; 3],
+}
+
+impl TopBar {
+    /// Every command the Top Bar offers, its arrow's included.
+    pub fn commands(&self) -> impl Iterator<Item = Id> + '_ {
+        let quick = self.quick.iter().flatten().map(|b| b.0);
+        quick.chain(self.build.iter().map(|b| b.0)).chain(TOP_BAR_TEST_MENU)
+    }
+
+    /// Every button's icon.
+    pub fn icons(&self) -> impl Iterator<Item = Icon> + '_ {
+        self.quick.iter().flatten().chain(self.build.iter()).map(|b| b.1)
+    }
+}
+
+/// The Top Bar, today's menu bar and toolbar in one row (proposal
+/// section 5). Today's other toolbar buttons have their homes elsewhere:
+/// Properties and New Area in the Module panel's header, Start in View ›
+/// Go to Start Location, Resources and Palettes in the Tools menu, Preview
+/// in the Command Palette (Preview Window).
+pub const TOP_BAR: TopBar = TopBar {
+    quick: [
+        Some((Id::NewModule, Icon::New, "New", "New module")),
+        Some((Id::OpenModule, Icon::Open, "Open", "Open module")),
+        Some((Id::Save, Icon::Save, "Save", "Save module")),
+        None,
+        Some((Id::Undo, Icon::Undo, "Undo", "Undo")),
+        Some((Id::Redo, Icon::Redo, "Redo", "Redo")),
+    ],
+    build: [
+        (Id::CompileAll, Icon::Compile, "Compile", "Compile all scripts"),
+        (Id::Verify, Icon::Verify, "Verify", "Verify the module"),
+        (Id::TestModule, Icon::Test, "Test Module", "Test the module in the game"),
+    ],
+};
+
+/// What Test Module's arrow on the Top Bar offers.
+pub const TOP_BAR_TEST_MENU: [Id; 1] = [Id::TestChoose];
 
 impl Id {
     /// The Wizards menu's command that makes a new blueprint of `kind`:
@@ -547,7 +570,9 @@ impl Id {
                 "Ask GitHub whether a newer Moonglow is out (nothing is downloaded)",
             ),
             Id::About => ("about", "About Moonglow Toolset", ""),
-            Id::PreviewWindow => ("preview-window", "Preview Window", ""),
+            Id::PreviewWindow => {
+                ("preview-window", "Preview Window", "Show the blueprint chosen in the palette")
+            }
             Id::FullScreen => ("full-screen", "Full Screen", ""),
             Id::CloseTab => ("close-tab", "Close Tab", "The tab in front"),
             Id::MaximizeWindow => (
@@ -590,6 +615,11 @@ impl Id {
         (id.into(), label.into(), hint)
     }
 
+    /// What its tip says beside its name (empty where it has none).
+    pub(crate) fn hint(self) -> &'static str {
+        self.text().2
+    }
+
     /// Its name, as Options › Keyboard lists it.
     pub fn name(self) -> String {
         self.text().1.trim_end_matches('…').to_string()
@@ -602,7 +632,7 @@ impl Id {
 
     /// Its name in a menu as things are: Undo names what it would undo, a
     /// project's Pack its file.
-    fn label(self, app: &Moonglow) -> String {
+    pub(crate) fn label(self, app: &Moonglow) -> String {
         let ws = app.ws.as_ref();
         match self {
             // (A script's step, with the keys in its editor: not the
@@ -1327,27 +1357,44 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     // (The suite's menus: titles hovered `raised`, open and rows hovered
     // `accent-fill`.)
     let config = egui::containers::menu::MenuConfig::new().style(mg_uikit::menu_style);
-    egui::MenuBar::new().style(mg_uikit::menu_bar_style).config(config).ui(ui, |ui| {
-        for (name, items) in MENUS {
-            // (Its first letter underlined: Alt and the letter opens it.)
-            let mut job = egui::text::LayoutJob::default();
-            let font = egui::TextStyle::Button.resolve(ui.style());
-            // (The button's own text color, which its state gives: on the
-            // open menu's `accent-fill`, `on-fill`.)
-            let color = egui::Color32::PLACEHOLDER;
-            let plain = egui::TextFormat { font_id: font, color, ..Default::default() };
-            let under =
-                egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() };
-            let split = name.chars().next().map_or(0, char::len_utf8);
-            job.append(&name[..split], 0.0, under);
-            job.append(&name[split..], 0.0, plain);
-            let (response, _) = egui::containers::menu::MenuButton::new(job).ui(ui, |ui| {
-                app.menu_row = vec![0];
-                menu(app, ui, items, 0);
-            });
-            tops.push((Popup::default_response_id(&response), response));
-        }
+    // (egui's menu bar takes the width it is given: given the menus' own,
+    // as they took it in the last frame, the Top Bar's buttons follow
+    // them. When that changes, the frame is drawn again.)
+    let width_id = ui.id().with("menu-bar-width");
+    let start = ui.cursor().min.x;
+    let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(ui.available_width());
+    let size = egui::vec2(width.min(ui.available_width()), ui.available_height());
+    let layout = egui::Layout::left_to_right(egui::Align::Center);
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        egui::MenuBar::new().style(mg_uikit::menu_bar_style).config(config).ui(ui, |ui| {
+            for (name, items) in MENUS {
+                // (Its first letter underlined: Alt and the letter opens it.)
+                let mut job = egui::text::LayoutJob::default();
+                let font = egui::TextStyle::Button.resolve(ui.style());
+                // (The button's own text color, which its state gives: on the
+                // open menu's `accent-fill`, `on-fill`.)
+                let color = egui::Color32::PLACEHOLDER;
+                let plain = egui::TextFormat { font_id: font, color, ..Default::default() };
+                let under =
+                    egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() };
+                let split = name.chars().next().map_or(0, char::len_utf8);
+                job.append(&name[..split], 0.0, under);
+                job.append(&name[split..], 0.0, plain);
+                let (response, _) = egui::containers::menu::MenuButton::new(job).ui(ui, |ui| {
+                    app.menu_row = vec![0];
+                    menu(app, ui, items, 0);
+                });
+                tops.push((Popup::default_response_id(&response), response));
+            }
+        });
     });
+    if let Some((_, last)) = tops.last() {
+        let measured = (last.rect.right() - start).ceil();
+        if (measured - width).abs() > 0.5 {
+            ui.data_mut(|d| d.insert_temp(width_id, measured));
+            ui.ctx().request_discard("the menu bar's width changed");
+        }
+    }
 
     let open = tops.iter().position(|(id, _)| Popup::is_id_open(&ctx, *id));
     let n = tops.len() as isize;
@@ -1686,6 +1733,48 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
         if chosen {
             egui::Popup::close_all(ui.ctx());
         }
+    }
+}
+
+/// A command's row in a menu outside the menu bar (Test Module's arrow on
+/// the Top Bar), read from the window before the menu is drawn: named as
+/// the menus name it, with its keys and its tip, enabled as it is.
+pub(crate) struct CommandRow {
+    pub(crate) id: Id,
+    label: String,
+    keys: String,
+    enabled: bool,
+}
+
+impl CommandRow {
+    pub(crate) fn of(app: &Moonglow, ctx: &egui::Context, id: Id) -> CommandRow {
+        let keys = app.keymap.label_of(&id.id(), ctx);
+        CommandRow { id, label: id.label(app), keys, enabled: id.enabled(app) }
+    }
+
+    /// Whether it can be chosen now.
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Draws it; whether it was chosen (the menu is closed then: the
+    /// caller runs it).
+    pub(crate) fn show(&self, ui: &mut Ui) -> bool {
+        let mut entry = egui::Button::new(&self.label);
+        let keys = keys_of(ui, self.keys.clone());
+        if let Some(keys) = &keys {
+            entry = entry.shortcut_text(keys.atom());
+        }
+        let (mut r, _) = add_entry(ui, self.enabled, entry, keys.as_ref(), false);
+        let hint = self.id.hint();
+        if !hint.is_empty() {
+            r = r.on_hover_text(hint);
+        }
+        let chosen = r.clicked();
+        if chosen {
+            ui.close();
+        }
+        chosen
     }
 }
 
@@ -2057,48 +2146,6 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
-/// The toolbar, from [`TOOLBAR`]: each command's button, its key in its
-/// tip (with Icons only, its icon alone: [`crate::icons::Tools`]).
-pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
-    let tools = crate::icons::Tools::of(&app.settings);
-    // (A second row where the window is too narrow for one: the theme's
-    // buttons are wider than egui's were, and the last were cut off.)
-    ui.horizontal_wrapped(|ui| {
-        // (Its buttons found within it: the editors have a Save, an Undo.)
-        mg_uikit::name_group(ui, "Toolbar");
-        // (A button whole on the next row, never its word broken up.)
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        for tool in TOOLBAR {
-            let Some((id, icon, name, tip)) = tool else {
-                ui.separator();
-                continue;
-            };
-            // (Undo and Redo say the step they take, as the Edit menu does.)
-            let tip =
-                if matches!(id, Id::Undo | Id::Redo) { id.label(app) } else { tip.to_string() };
-            let tip = match app.keymap.label_of(&id.id(), ui.ctx()) {
-                k if k.is_empty() => tip,
-                k => format!("{tip} ({k})"),
-            };
-            let clicked = if id == Id::PreviewWindow {
-                // A window that is shown or not: its button stays down.
-                let mut on = app.preview_window;
-                tools.toggle(ui, &mut on, icon, name, &tip);
-                on != app.preview_window
-            } else {
-                let button = tools.widget(icon, name).small();
-                let enabled = id.enabled(app);
-                // (Added as itself, not in a scope of its own: the row
-                // wraps before a button it has no room for.)
-                tools.named(ui.add_enabled(enabled, button), name, &tip).clicked()
-            };
-            if clicked {
-                id.run(app, ui.ctx());
-            }
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -2145,12 +2192,15 @@ mod tests {
     }
 
     #[test]
-    fn the_toolbar_and_menus_name_commands_once() {
+    fn the_top_bar_and_menus_name_commands_once() {
         let all = Id::all();
         let unique: HashSet<Id> = all.iter().copied().collect();
         assert_eq!(unique.len(), all.len(), "a command is in the menus twice");
-        for (id, ..) in TOOLBAR.into_iter().flatten() {
-            assert!(all.contains(&id));
+        let mut on_bar = HashSet::new();
+        for id in TOP_BAR.commands() {
+            assert!(all.contains(&id), "{id:?} is a command of the menus");
+            assert!(on_bar.insert(id), "{id:?} is on the Top Bar twice");
         }
+        assert!(on_bar.contains(&Id::TestModule) && on_bar.contains(&Id::TestChoose));
     }
 }

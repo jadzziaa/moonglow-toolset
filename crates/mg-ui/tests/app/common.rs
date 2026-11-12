@@ -317,17 +317,58 @@ pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, name: &str) {
     settle(h);
 }
 
-/// The main toolbar's button `name` (found within it: the editors have a
+/// The Top Bar's button `name` (found within it: the editors have a
 /// Save, an Undo, a Compile of their own).
 #[track_caller]
 pub(crate) fn tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
-    h.get_by_label("Toolbar").get_by_label(name)
+    h.get_by_label("Top Bar").get_by_label(name)
 }
 
-/// The buttons `name` that are not the main toolbar's or the area
-/// view's (an editor's own Save, Undo or Compile, a dialog's Open, a
-/// page's Properties, the palette's Grass): the nodes of that name that
-/// have no "Toolbar" or "Area toolbar" group above them.
+/// Chooses `row` in the Top Bar's menu `menu` ("View", "Go to Start
+/// Location"): the menu opened by its title, the row clicked (a button or
+/// a ticked row, named by its words, or by its words and its keys: of
+/// those that begin so, the shortest; not a bar's control of that name,
+/// the Log's switch say).
+#[track_caller]
+pub(crate) fn menu_command(h: &mut Harness<'_, Moonglow>, menu: &str, row: &str) {
+    h.get_by_label("Top Bar").get_by_label(menu).click();
+    settle(h);
+    let rect = menu_row(h, row).expect("the menu's row").1;
+    click_pos(h, rect.center());
+    settle(h);
+}
+
+/// The row `row` of the menu that is open ([`menu_command`]'s): its
+/// label and where it is.
+pub(crate) fn menu_row(h: &Harness<'_, Moonglow>, row: &str) -> Option<(String, egui::Rect)> {
+    use egui::accesskit::Role;
+    let keyed = format!("{row} ");
+    let is_row = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        matches!(n.role(), Role::Button | Role::CheckBox)
+            && n.label().is_some_and(|l| l == row || l.starts_with(&keyed))
+    };
+    let bars = ["Top Bar", "Status Bar", "Left Dock", "Bottom Dock"];
+    h.query_all_by(is_row)
+        .filter(|n| !bars.iter().any(|b| in_group(n, b)))
+        .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
+        .min_by_key(|(l, _)| l.len())
+}
+
+/// The Module panel's header button `name` (today's toolbar's Properties
+/// and New Area), found within the Left Dock's tab bar.
+#[track_caller]
+pub(crate) fn module_tool<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    h.get_by_label("Left Dock").get_by_label(name)
+}
+
+/// The buttons `name` that are not the Top Bar's, the Module panel
+/// header's or the area view's (an editor's own Save, Undo or Compile, a
+/// dialog's Open, a page's Properties, the palette's Grass): the nodes of
+/// that name that have no "Top Bar", "Left Dock" or "Area toolbar" group
+/// above them.
 pub(crate) fn apart_all<'t>(
     h: &'t Harness<'_, Moonglow>,
     name: &'t str,
@@ -347,11 +388,12 @@ pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
     false
 }
 
-/// Whether `n` is in the main toolbar or the area view's.
+/// Whether `n` is on the Top Bar, the Left Dock's tab bar (the Module
+/// panel's header buttons) or the area view's toolbar.
 pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Toolbar" | "Area toolbar")) {
+        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area toolbar")) {
             return true;
         }
         up = p.parent();
@@ -364,7 +406,7 @@ pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
 #[track_caller]
 pub(crate) fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
     let mut found = apart_all(h, name);
-    let Some(first) = found.next() else { panic!("no {name} apart from the toolbars") };
+    let Some(first) = found.next() else { panic!("no {name} apart from the bars") };
     let more = found.count();
     assert!(more == 0, "{} named {name:?} apart from the toolbars, not one", more + 1);
     first

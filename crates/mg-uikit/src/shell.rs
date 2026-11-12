@@ -249,10 +249,31 @@ pub(crate) fn three_parts<L, M, R>(
     right: impl FnOnce(&mut Ui) -> R,
     middle: impl FnOnce(&mut Ui, Rect) -> M,
 ) -> (L, M, R) {
+    three_parts_sized(ui, name, gaps, None, left, right, middle)
+}
+
+/// [`three_parts`], the right group's width given where the caller knows
+/// it (`Some`): laid out by it at once, never by the last frame's, so a
+/// change of it (a module's name, its modified dot) asks for no second
+/// pass. (A pass asked for again runs without the frame's input: on the
+/// frame of a click, the click would be lost.)
+pub(crate) fn three_parts_sized<L, M, R>(
+    ui: &mut Ui,
+    name: &str,
+    gaps: (f32, f32),
+    right_width: Option<f32>,
+    left: impl FnOnce(&mut Ui) -> L,
+    right: impl FnOnce(&mut Ui) -> R,
+    middle: impl FnOnce(&mut Ui, Rect) -> M,
+) -> (L, M, R) {
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.with_layout(layout, |ui| {
         crate::icons::name_group(ui, name);
         let id = ui.unique_id().with("mg-uikit-right-group");
+        let given = right_width.is_some();
+        if let Some(width) = right_width {
+            ui.data_mut(|d| d.insert_temp(id, width));
+        }
         let right_width = last_width(ui, id);
         ui.spacing_mut().item_spacing.x = gaps.0;
         let l = left(ui);
@@ -264,7 +285,7 @@ pub(crate) fn three_parts<L, M, R>(
         let room = Rect::from_x_y_ranges(start..=end, full.y_range());
         let builder = egui::UiBuilder::new().max_rect(room).layout(layout);
         let m = ui.scope_builder(builder, |ui| middle(ui, room)).inner;
-        let r = at_right_end(ui, id, full, gaps.1, right);
+        let r = at_right_end(ui, id, full, gaps.1, !given, right);
         (l, m, r)
     })
     .inner
@@ -285,6 +306,7 @@ fn at_right_end<R>(
     id: egui::Id,
     full: Rect,
     gap: f32,
+    measured_again: bool,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     let width = last_width(ui, id);
@@ -292,14 +314,14 @@ fn at_right_end<R>(
     let place = Rect::from_x_y_ranges(left..=full.right(), full.y_range());
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     let builder = egui::UiBuilder::new().max_rect(place).layout(layout);
-    let (r, measured) = ui
-        .scope_builder(builder, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let r = add(ui);
-            (r, ui.min_rect().width())
-        })
-        .inner;
-    if (measured - width).abs() > 0.5 {
+    // (A child that takes no room of `ui`'s: before its width is known it
+    // stands past the end, and would widen what holds it, a dock's panel
+    // for good.)
+    let mut child = ui.new_child(builder);
+    child.spacing_mut().item_spacing.x = gap;
+    let r = add(&mut child);
+    let measured = child.min_rect().width();
+    if measured_again && (measured - width).abs() > 0.5 {
         ui.data_mut(|d| d.insert_temp(id, measured));
         ui.ctx().request_discard("a bar's right-hand group changed width");
     }
@@ -445,9 +467,15 @@ impl FoldStrip {
 /// dock has, issue 10's rule): a chevron pointing out of the window,
 /// named "Fold the Left Dock" (`dock`) and said open.
 pub fn fold_button(ui: &mut Ui, side: Side, dock: &str) -> Response {
+    fold_button_tip(ui, side, dock, &format!("Fold the {dock}"))
+}
+
+/// [`fold_button`] with `tip` as its tooltip in place of its name (its
+/// name and the keys that do it, say: "Fold the Left Dock (Ctrl+Alt+1)").
+pub fn fold_button_tip(ui: &mut Ui, side: Side, dock: &str, tip: &str) -> Response {
     let name = format!("Fold the {dock}");
     let button = IconButton::new(side.outward(), name.as_str()).icon_only(true).expanded(true);
-    ui.add(button).on_hover_text(name)
+    ui.add(button).on_hover_text(tip)
 }
 
 // ------------------------------------------------------------------ dock tabs
@@ -615,7 +643,7 @@ fn tools_at_right_end<R>(ui: &mut Ui, bar: Rect, tools: impl FnOnce(&mut Ui) -> 
     let full = bar.with_max_x(bar.right() - TOOLS_PADDING.1);
     let full =
         full.with_min_x(full.left().max(ui.cursor().min.x + TOOLS_PADDING.0).min(full.right()));
-    at_right_end(ui, id, full, 0.0, tools)
+    at_right_end(ui, id, full, 0.0, true, tools)
 }
 
 /// The bar's rectangle: `ui`'s width, [`metrics::DOCK_TABS`] high, taken

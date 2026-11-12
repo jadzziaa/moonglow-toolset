@@ -97,11 +97,12 @@ fn at_rest(h: &mut Harness<'_, Moonglow>, rect: impl Fn(&Harness<'_, Moonglow>) 
     }
 }
 
-/// Whether `n` is in the main toolbar or the area view's.
+/// Whether `n` is on the Top Bar, the Left Dock's tab bar (the Module
+/// panel's header buttons) or the area view's toolbar.
 fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Toolbar" | "Area toolbar")) {
+        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area toolbar")) {
             return true;
         }
         up = p.parent();
@@ -5267,9 +5268,10 @@ fn view_menu() {
 #[test]
 #[ignore]
 fn toolbar_icons_only() {
-    // Options › General › Toolbar buttons: the main toolbar and an area's,
+    // Options › General › Editors' toolbar buttons: an area's toolbar
     // with icons and text, then icons only (in the same tab, and in a
-    // narrow one), and a glyph's tip.
+    // narrow one), and a glyph's tip; the Top Bar, icons either way, and
+    // one of its tips.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
@@ -5301,7 +5303,8 @@ fn toolbar_icons_only() {
     h.hover_at(center(&h, "Shaders"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-tip");
-    h.hover_at(center(&h, "Palettes"));
+    let save = h.get_by_label("Top Bar").get_by_label("Save").rect().center();
+    h.hover_at(save);
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-main-tip");
     h.set_size(egui::vec2(1000.0, 700.0));
@@ -8652,10 +8655,10 @@ fn browser_overridden_copies() {
 #[test]
 #[ignore]
 fn panes_folded() {
-    // GitHub issue 10: each pane beside the area (the module tree, the
-    // palettes, the log) shown and folded away (View's keys: Ctrl+Alt+1, 2
-    // and 3; 0 for all), in a wide window, a narrow one and at a high-DPI
-    // scale.
+    // GitHub issue 10: each dock and pane beside the area (the Left
+    // Dock, the palettes, the Bottom Dock's log) shown and folded away
+    // (View's keys: Ctrl+Alt+1, 2 and 3; 0 for all), in a wide window, a
+    // narrow one and at a high-DPI scale.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
@@ -8686,8 +8689,8 @@ fn panes_folded() {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
         h.run_steps(10);
         shoot(&mut h, &dir, &format!("panes{name}-shown"));
-        // (The tree's button under the pointer, lit.)
-        h.get_by_label("Fold Module Tree").hover();
+        // (The Left Dock's fold button under the pointer, lit.)
+        h.get_by_label("Fold the Left Dock").hover();
         h.run_steps(30);
         shoot(&mut h, &dir, &format!("panes{name}-hover"));
         for (key, pane) in
@@ -9198,11 +9201,12 @@ fn area_shadows_menu() {
 }
 
 /// The main window's log and module tree as the deferred sprint's third
-/// package left them (`w3-` pictures): the log's corner buttons; the tree
-/// following a script far down the list (brought up from below), Module
-/// Properties' tab, a tab of several blueprints and a script the Filter
-/// hides; the Filter finding placed objects in areas not opened out; rows
-/// chosen with Shift and Ctrl, and their menu.
+/// package left them (`w3-` pictures): the log's buttons on the Bottom
+/// Dock's tab bar; the tree following a script far down the list
+/// (brought up from below), Module Properties' tab, a tab of several
+/// blueprints and a script the Filter hides; the Filter finding placed
+/// objects in areas not opened out; rows chosen with Shift and Ctrl, and
+/// their menu.
 #[test]
 #[ignore]
 fn main_window_log_and_tree() {
@@ -10567,6 +10571,19 @@ fn shell_floating() {
     place(&mut h, &script, (420.0, 120.0), (820.0, 560.0));
     h.run_steps(10);
     shoot(&mut h, &dir, "shell_floating");
+}
+
+/// The frame at 760 by 600 with a module and its area open: the Top Bar's
+/// build actions icons alone, nothing overlapping.
+#[test]
+#[ignore]
+fn shell_760() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(760.0, 600.0));
+    shoot(&mut h, &dir, "shell_760");
 }
 
 #[test]

@@ -36,7 +36,7 @@ mod world;
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT as _, Queryable};
 use mg_core::{ResRef, ResType};
 use mg_module::palette::BlueprintKind;
 use mg_resman::{GameInstall, ResKey};
@@ -590,6 +590,25 @@ fn open(h: &mut App<'_>, tab: Tab) {
 fn click(h: &mut App<'_>, label: &str) {
     let found = h.query_all_by_label(label).next().map(|node| node.click()).is_some();
     assert!(found, "no {label:?} to click: was the control renamed?");
+    h.run_steps(2);
+}
+
+/// [`click`] on the first thing labelled `label` that is not in the group
+/// `group` (the Module panel's Properties, in the "Left Dock", beside a
+/// blueprint's Properties page).
+fn click_outside(h: &mut App<'_>, label: &str, group: &str) {
+    let inside = |n: &egui_kittest::Node<'_>| {
+        let mut up = n.accesskit_node().parent();
+        while let Some(p) = up {
+            if p.label().as_deref() == Some(group) {
+                return true;
+            }
+            up = p.parent();
+        }
+        false
+    };
+    let found = h.query_all_by_label(label).find(|n| !inside(n)).map(|n| n.click()).is_some();
+    assert!(found, "no {label:?} outside {group:?} to click: was the control renamed?");
     h.run_steps(2);
 }
 
@@ -1672,7 +1691,7 @@ fn frames_at_144_in_a_persistent_world() {
     // An item's Properties page: every property it may take, by kind.
     let item = Tab::Blueprint(ResKey::parse("pw_i00001", ResType::UTI).unwrap());
     open(&mut h, item.clone());
-    click(&mut h, "Properties");
+    click_outside(&mut h, "Properties", "Left Dock");
     view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
     close(&mut h, &item);
     // The same store in the Preview window (its stock by page).

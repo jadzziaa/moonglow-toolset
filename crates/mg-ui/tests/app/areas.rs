@@ -374,7 +374,7 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     assert_eq!(saved.unwrap().get(row, "LABEL"), Some("Evening"));
 }
 
-/// Options › General › Toolbar buttons, Icons only: the area view's
+/// Options › General › Editors' toolbar buttons, Icons only: the area view's
 /// toolbar too, at once: icons alone, named in their tips (a button with
 /// no tip of its own: its name) and by their words for a screen reader;
 /// the toggles still toggling. All, None, Together, To Scratch and Save

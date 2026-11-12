@@ -1,7 +1,7 @@
 //! Every control drawn as an icon alone says what it is: a name for a
 //! screen reader and a tooltip under the pointer (the redesign's rule,
 //! `docs/ui-redesign-proposal.md` section 7), in the main windows with
-//! Options › General › Toolbar buttons at Icons only.
+//! Options › General › Editors' toolbar buttons at Icons only.
 
 use crate::common::*;
 

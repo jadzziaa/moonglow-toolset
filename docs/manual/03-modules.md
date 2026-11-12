@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
 ---
 
 # Modules
@@ -111,7 +111,7 @@ a directory), nasher projects (see below) and the game's campaign files
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
   are the scripts that include it, a few at a time while you go on
-  working, however many a checkout changed (the status bar says
+  working, however many a checkout changed (the Status Bar says
   *Compiling scripts changed outside Moonglow…*; with an external
   compiler, which is run once for them all, they are compiled as Compile
   All is, and the log says so). A module that had no unsaved
@@ -1736,7 +1736,7 @@ module's talk table:
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do
   Ctrl+Z and Ctrl+Y with the pointer over the editor. (The table is a
-  file of its own: elsewhere, and in the main toolbar, Undo is the
+  file of its own: elsewhere, and on the Top Bar, Undo is the
   module's.)
 - **Export CSV…** writes the lines to a file for a spreadsheet or a
   translator: each line's StrRef, text (and feminine text), sound and

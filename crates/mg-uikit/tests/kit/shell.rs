@@ -141,6 +141,30 @@ fn the_fold_strip_s_chevron_unfolds() {
     assert_eq!(strip.width(), 22.0);
 }
 
+/// The fold button with a tooltip of its own (its keys, say): still named
+/// for what it folds and said open, the tooltip shown under the pointer.
+#[test]
+fn a_fold_button_shows_the_tip_it_is_given() {
+    let clicked = Cell::new(false);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let tip = "Fold the Left Dock (Ctrl+Alt+1)";
+        if shell::fold_button_tip(ui, Side::Left, "Left Dock", tip).clicked() {
+            clicked.set(true);
+        }
+    });
+    h.run();
+    let fold = h.get_by_label("Fold the Left Dock");
+    assert_eq!(fold.accesskit_node().data().is_expanded(), Some(true));
+    fold.hover();
+    // (A tooltip waits a moment.)
+    h.run_steps(60);
+    h.get_by_label("Fold the Left Dock (Ctrl+Alt+1)");
+    h.get_by_label("Fold the Left Dock").click();
+    h.run();
+    assert!(clicked.get());
+}
+
 /// A Status Bar switch: named by its words in the Status Bar's group, said
 /// on or off; a click toggles what the caller keeps; its count is its
 /// value, shown in its badge; with its icon alone, still named so, and its
@@ -186,6 +210,40 @@ fn a_status_switch_toggles_and_shows_its_count() {
     h.get_by_label("Log").click();
     h.run();
     assert!(!log.get());
+}
+
+/// A Status Bar given its right-hand group's width lays the group out
+/// against its right end at once, and asks for no second pass when the
+/// group's width changes (a module's name and its modified dot): a pass
+/// asked for again runs without the frame's input.
+#[test]
+fn a_status_bar_given_its_right_width_needs_no_second_pass() {
+    let name = RefCell::new(String::from("Chapter1"));
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let item = StatusItem::new(name.borrow().as_str()).modified(name.borrow().len() > 8);
+        let width = item.width(ui);
+        status::bar_sized(
+            ui,
+            width,
+            |ui| ui.add(StatusSwitch::new(Icon::Log, "Log", true)),
+            |_, _| {},
+            |ui| ui.add(item),
+        );
+    });
+    let passes = |h: &Harness<'_>| h.ctx.cumulative_pass_nr();
+    h.step();
+    let right = |h: &Harness<'_>, n: &str| h.get_by_label("Status Bar").get_by_label(n).rect();
+    let edge = h.ctx.content_rect().right();
+    let first = right(&h, "Chapter1");
+    assert!(edge - first.right() < 12.0, "at the right end at once: {first:?}, {edge}");
+    let before = passes(&h);
+    *name.borrow_mut() = "Chapter1 (modified)".into();
+    h.step();
+    assert_eq!(passes(&h), before + 1, "one pass for the frame");
+    let now = right(&h, "Chapter1 (modified)");
+    assert!((now.right() - first.right()).abs() < 0.5, "{now:?} ends where {first:?} did");
+    assert!(now.left() < first.left());
 }
 
 /// A switch that is on draws the accent line along its bottom; off, no
@@ -432,4 +490,68 @@ fn a_menu_s_rows_are_24_apart() {
         assert_eq!(pair[1] - pair[0], mg_uikit::metrics::MENU_ROW, "{tops:?}");
     }
     assert_eq!(h.get_by_label("Undo").rect().height(), mg_uikit::metrics::MENU_ROW);
+}
+
+/// A button and its arrow joined (the mock's `.join`: Test Module and
+/// Choose Character's arrow on the Top Bar): the button's right corners
+/// square, the arrow's left ones; the arrow framed as the button is
+/// (`raised` at rest), 24 wide (its icon 4 px from each side), as high as
+/// a control, named by its name.
+#[test]
+fn a_joined_arrow_is_framed_beside_its_button() {
+    use mg_uikit::Join;
+    for theme in Theme::ALL {
+        let mut h = Harness::new_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), theme);
+            ui.horizontal(|ui| {
+                // (egui puts the spacing after a widget as it adds it.)
+                ui.spacing_mut().item_spacing.x = mg_uikit::joined_spacing(ui);
+                ui.add(IconButton::new(Icon::Test, "Test Module").joined(Join::Next));
+                ui.add(
+                    IconButton::new(Icon::ChevronDown, "More")
+                        .icon_only(true)
+                        .joined(Join::Previous),
+                );
+            });
+        });
+        h.run();
+        let t = mg_uikit::tokens(&h.ctx);
+        let main = h.get_by_label("Test Module").rect();
+        let arrow = h.get_by_label("More").rect();
+        assert_eq!(arrow.width(), 24.0, "{theme:?}");
+        assert_eq!(arrow.height(), mg_uikit::metrics::CONTROL_HEIGHT);
+        let fills = rects(&h);
+        // (A frame drawn over the widget's place: egui's button frame may
+        // stand half a point in or out of it.)
+        let at = |r: egui::Rect| {
+            let near = |s: &&egui::epaint::RectShape| {
+                s.fill != egui::Color32::TRANSPARENT
+                    && (s.rect.center() - r.center()).length() < 1.0
+                    && (s.rect.width() - r.width()).abs() <= 2.0
+            };
+            fills.iter().find(near).cloned()
+        };
+        let arrow_fill = at(arrow).expect("the arrow's frame");
+        assert_eq!(arrow_fill.fill, t.raised, "{theme:?}: raised at rest");
+        let c = arrow_fill.corner_radius;
+        assert!(c.nw == 0 && c.sw == 0 && c.ne > 0 && c.se > 0, "{c:?}");
+        let main_fill = at(main).expect("the button's frame");
+        let c = main_fill.corner_radius;
+        assert!(c.ne == 0 && c.se == 0 && c.nw > 0 && c.sw > 0, "{c:?}");
+        // (Their frames 1 px apart, and as high as each other.)
+        let gap = arrow_fill.rect.left() - main_fill.rect.right();
+        assert!((gap - 1.0).abs() < 0.01, "1 px apart: {main_fill:?} {arrow_fill:?}");
+        assert_eq!(arrow_fill.rect.y_range(), main_fill.rect.y_range());
+        // An icon alone framed: `raised` at rest, an icon button's size.
+        let mut h = Harness::new_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), theme);
+            ui.add(IconButton::new(Icon::Compile, "Compile").icon_only(true).framed(true));
+        });
+        h.run();
+        let at = h.get_by_label("Compile").rect();
+        assert_eq!(at.size(), egui::Vec2::splat(mg_uikit::metrics::ICON_BUTTON));
+        let fills = rects(&h);
+        let framed = fills.iter().any(|s| s.fill == t.raised && s.rect.contains_rect(at));
+        assert!(framed, "{theme:?}: framed at rest");
+    }
 }
