@@ -16,7 +16,7 @@ use mg_gff::{Struct, Value};
 use mg_module::Module;
 use mg_module::doctor::Finding;
 use mg_module::tags::{TagIndex, Tagged};
-use mg_resman::ResKey;
+use mg_resman::{ResKey, ResMan};
 
 use crate::{Command, Edit, GffPath, Step, Workspace};
 
@@ -84,8 +84,20 @@ impl From<Finding> for Found {
 /// the finding, which their checks made), and the doctor's fixes where it
 /// has one ([`doctor_fix`]), worked out on `module` as the findings were.
 pub fn attach(module: &Module, findings: Vec<Finding>, plugins: &[Found]) -> Vec<Found> {
+    attach_on(module, None, findings, plugins)
+}
+
+/// [`attach`], the game's resources `rm` at hand for the fixes that read
+/// them (`transition-hidden` puts an outline back on the area's ground,
+/// its tiles' walkmeshes; without them, only in order).
+pub fn attach_on(
+    module: &Module,
+    rm: Option<&ResMan>,
+    findings: Vec<Finding>,
+    plugins: &[Found],
+) -> Vec<Found> {
     let mut used = vec![false; plugins.len()];
-    let mut seen = Seen::default();
+    let mut seen = Seen { rm, ..Seen::default() };
     findings
         .into_iter()
         .map(|finding| {
@@ -121,12 +133,18 @@ pub fn doctor_fix(module: &Module, finding: &Finding) -> Option<Fix> {
 /// variables of one name in one `VarTable` are two findings of one
 /// place, each the fix of one of them).
 #[derive(Default)]
-struct Seen {
+struct Seen<'a> {
     tags: Option<TagIndex>,
     said: HashMap<(String, ResKey, String), usize>,
+    /// The game's resources, where the caller has them.
+    rm: Option<&'a ResMan>,
+    grounds: mg_module::ground::Grounds,
+    /// `transition-hidden`'s findings of the order made fixes of with no
+    /// ground, by place.
+    ordered: HashMap<(ResKey, String), usize>,
 }
 
-fn doctor_fix_with(module: &Module, f: &Finding, seen: &mut Seen) -> Option<Fix> {
+fn doctor_fix_with(module: &Module, f: &Finding, seen: &mut Seen<'_>) -> Option<Fix> {
     if f.source != "module" {
         return None;
     }
@@ -141,9 +159,13 @@ fn doctor_fix_with(module: &Module, f: &Finding, seen: &mut Seen) -> Option<Fix>
         "area-variables" => move_variables_fix(module, f.resource),
         "var-runtime" => remove_variable_fix(module, f, nth),
         "static-transform" => untransform_fix(module, f, nth),
+        "transition-hidden" => outline_fix(module, f, nth, seen),
         _ => None,
     }
 }
+
+/// The label of `transition-hidden`'s fix.
+pub const PUT_OUTLINE_RIGHT: &str = "Put the outline in order on the ground";
 
 /// The label of `var-runtime`'s fix.
 pub const REMOVE_VARIABLE: &str = "Remove the variable";
@@ -193,6 +215,58 @@ fn untransform_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
         })
         .collect();
     (!edits.is_empty()).then(|| Fix { label: TAKE_TRANSFORM_OFF.into(), edits, asks: None })
+}
+
+/// `transition-hidden`: the area transition's outline in Aurora's order
+/// (counterclockwise from its point of smallest X) and on the area's
+/// ground (its tiles' walkmeshes, read from `seen.rm`) as Redraw Polygon
+/// draws it: the trigger at height 0, each point 0.025 above the ground
+/// under it ([`mg_module::ground::outline_put_right`]); its `ZPosition`
+/// and its `Geometry` set whole, in one step. The trigger is the `nth`
+/// of the transitions the finding's place names that the game hides (as
+/// Verify found them: transitions of one tag are said alike). Without
+/// the game's resources (or the area's tileset) only the order, and only
+/// for a finding of the order (the others' heights can't be judged so).
+/// None when it would change nothing.
+fn outline_fix(module: &Module, f: &Finding, nth: usize, seen: &mut Seen<'_>) -> Option<Fix> {
+    if f.resource.restype != ResType::GIT {
+        return None;
+    }
+    let ground = seen.rm.and_then(|rm| seen.grounds.of(rm, module, f.resource.resref));
+    // (Without the ground, the findings of the order alone are counted.)
+    let nth = match ground {
+        Some(_) => nth,
+        None if f.message.contains("its points run clockwise") => {
+            let counted = seen.ordered.entry((f.resource, f.at.clone())).or_default();
+            *counted += 1;
+            *counted - 1
+        }
+        None => return None,
+    };
+    let gff = module.gff(&f.resource)?.ok()?;
+    let list = gff.root.list("TriggerList")?;
+    let at = (0..list.len())
+        .filter(|&i| {
+            let path = GffPath::root().item("TriggerList", i).field("Geometry");
+            mg_module::rename::describe(f.resource, Some(&gff), &path) == f.at
+                && list[i].integer("Type") == Some(1)
+                && mg_module::doctor::hidden_transition(&list[i], ground.as_ref()).is_some()
+        })
+        .nth(nth)?;
+    let t = &list[at];
+    let (points, z) = mg_module::ground::outline_put_right(t, ground.as_ref());
+    let path = GffPath::root().item("TriggerList", at);
+    let mut edits = Vec::new();
+    if t.float("ZPosition").is_some_and(|was| was != z) {
+        let (key, path) = (f.resource, path.clone());
+        let value = Some(Value::Float(z));
+        edits.push(Edit::SetField { key, path, label: "ZPosition".into(), value });
+    }
+    if t.list("Geometry") != Some(&points[..]) {
+        let value = Some(Value::List(points));
+        edits.push(Edit::SetField { key: f.resource, path, label: "Geometry".into(), value });
+    }
+    (!edits.is_empty()).then(|| Fix { label: PUT_OUTLINE_RIGHT.into(), edits, asks: None })
 }
 
 /// `tag-unique`: the places of the tag the finding is about (found as the
@@ -835,6 +909,105 @@ mod tests {
             names(g.root.list("Placeable List").unwrap()[0].list("VarTable").unwrap_or(&[])),
             Vec::<String>::new()
         );
+    }
+
+    /// `transition-hidden`: a clockwise area transition 2 m below its
+    /// ground (a tile raised two 1 m steps; its `ZPosition` -1) is put in
+    /// Aurora's order on the ground in one step that undoes whole; with
+    /// no game resources at hand, only in order. A generic trigger has
+    /// no finding and no fix.
+    #[test]
+    fn a_hidden_transition_is_put_in_order_on_the_ground() {
+        use mg_resman::{LayerClass, MemContainer, priority};
+        let set = b"[GENERAL]\nName=TST\nTransition=1\n[TILES]\nCount=1\n[TILE0]\nModel=tst_a01\n\
+[GROUPS]\nCount=0\n";
+        let wok = b"beginwalkmeshgeom tst_a01\nnode aabb tst_a01_wg\nparent tst_a01\nverts 4\n\
+-5 -5 0\n5 -5 0\n5 5 0\n-5 5 0\nfaces 2\n0 1 2 1 0 0 0 1\n0 2 3 1 0 0 0 1\nendnode\n\
+endwalkmeshgeom tst_a01\n";
+        let mut hak = MemContainer::new();
+        hak.insert(key("tst.set"), set.to_vec());
+        hak.insert(key("tst_a01.wok"), wok.to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "tst.hak", LayerClass::Erf, hak);
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tileset", Value::resref(mg_core::ResRef::from_str("tst").unwrap()));
+        are.root.set("Width", Value::Int(1));
+        are.root.set("Height", Value::Int(1));
+        let mut tile = Struct::new(1);
+        tile.set("Tile_ID", Value::Int(0));
+        tile.set("Tile_Height", Value::Int(2));
+        are.root.set("Tile_List", Value::List(vec![tile]));
+        let lift = mg_module::instances::OUTLINE_LIFT;
+        let trigger = |tag: &str, kind: i32| {
+            let mut t = tagged(tag);
+            t.set("Type", Value::Int(kind));
+            for (l, v) in [("XPosition", 2.0), ("YPosition", 2.0), ("ZPosition", -1.0)] {
+                t.set(l, Value::Float(v));
+            }
+            // Clockwise, at -1 + 1.025: 2 m below the ground.
+            let corners = [(0.0, 0.0), (0.0, 4.0), (4.0, 4.0), (4.0, 0.0)];
+            let points = corners
+                .iter()
+                .map(|&(x, y)| {
+                    let mut p = Struct::new(3);
+                    for (l, v) in [("PointX", x), ("PointY", y), ("PointZ", 1.0 + lift)] {
+                        p.set(l, Value::Float(v));
+                    }
+                    p
+                })
+                .collect();
+            t.set("Geometry", Value::List(points));
+            t
+        };
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("TriggerList", Value::List(vec![trigger("GENERIC", 0), trigger("GATE", 1)]));
+        let mut m = Module::new();
+        m.set_gff(key("yard.are"), &are).unwrap();
+        m.set_gff(key("yard.git"), &git).unwrap();
+        let findings =
+            mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables::default());
+        let ours: Vec<Finding> =
+            findings.into_iter().filter(|f| f.check == "transition-hidden").collect();
+        assert_eq!(ours.len(), 1, "{ours:#?}");
+        assert_eq!(ours[0].at, "yard › trigger GATE › Geometry");
+        assert!(ours[0].message.contains("clockwise"), "{}", ours[0].message);
+        assert!(ours[0].message.contains("1.98 m below"), "{}", ours[0].message);
+
+        let found = attach_on(&m, Some(&rm), ours.clone(), &[]);
+        let fix = found[0].fix.clone().expect("a fix");
+        // (Its ZPosition to 0 and its points, as Redraw Polygon puts them.)
+        assert_eq!((fix.label.as_str(), fix.edits.len()), (PUT_OUTLINE_RIGHT, 2));
+        let mut ws = Workspace::new(m.clone());
+        let before = ws.doc(&key("yard.git")).unwrap().root.clone();
+        ws.apply(fix.command()).unwrap();
+        let outline = |ws: &mut Workspace| -> Vec<[f32; 3]> {
+            let g = ws.doc(&key("yard.git")).unwrap();
+            let t = &g.root.list("TriggerList").unwrap()[1];
+            let z = t.float("ZPosition").unwrap();
+            let f = |p: &Struct, l: &str| p.float(l).unwrap();
+            let geometry = t.list("Geometry").unwrap();
+            geometry.iter().map(|p| [f(p, "PointX"), f(p, "PointY"), z + f(p, "PointZ")]).collect()
+        };
+        let after = outline(&mut ws);
+        let xy: Vec<[f32; 2]> = after.iter().map(|p| [p[0], p[1]]).collect();
+        assert_eq!(xy, [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]], "counterclockwise");
+        assert!(after.iter().all(|p| (p[2] - 2.0 - lift).abs() < 1e-5), "{after:?}");
+        // Verify finds nothing more.
+        ws.flush().unwrap();
+        let again =
+            mg_module::doctor::examine(&ws.module, &rm, mg_module::doctor::TalkTables::default());
+        assert!(again.iter().all(|f| f.check != "transition-hidden"), "{again:#?}");
+        ws.undo().unwrap();
+        assert_eq!(ws.doc(&key("yard.git")).unwrap().root, before, "one step undone");
+        ws.redo().unwrap();
+        assert_eq!(outline(&mut ws), after);
+        // No game resources: in order, at the heights it had.
+        let fix = attach(&m, ours, &[])[0].fix.clone().expect("a fix");
+        let mut ws = Workspace::new(m);
+        ws.apply(fix.command()).unwrap();
+        let kept = outline(&mut ws);
+        assert_eq!(kept[1][..2], [4.0, 0.0]);
+        assert!(kept.iter().all(|p| (p[2] - lift).abs() < 1e-5), "{kept:?}");
     }
 
     /// `static-transform`: the transform off, as ticking Static takes it

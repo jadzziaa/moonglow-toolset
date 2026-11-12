@@ -92,6 +92,8 @@ mod readings;
 mod shadows;
 #[path = "client_render/soft_particles.rs"]
 mod soft_particles;
+#[path = "client_render/transition_outlines.rs"]
+mod transition_outlines;
 #[path = "client_render/upright.rs"]
 mod upright;
 #[path = "client_render/uv_sets.rs"]

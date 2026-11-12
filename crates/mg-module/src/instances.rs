@@ -67,6 +67,14 @@ pub fn git_list(restype: ResType) -> Option<(&'static str, u32)> {
 /// points, metres.
 pub const OUTLINE_LIFT: f32 = 0.025;
 
+/// A trigger's `PointZ` that puts the point on ground of height `ground`
+/// (plus [`OUTLINE_LIFT`]) where the trigger's `ZPosition` is
+/// `z_position`: the game takes the point's height as `ZPosition` +
+/// `PointZ` (read in the client: `transition_outlines.rs`).
+pub fn outline_point_z(ground: f32, z_position: f32) -> f32 {
+    ground + OUTLINE_LIFT - z_position
+}
+
 /// A default value (a field Aurora writes when the blueprint lacks it).
 enum D {
     Byte(u8),
@@ -881,8 +889,11 @@ fn held_list(p: &Placing<'_>, s: &mut Struct, list: &str, depth: u32) {
 /// The instance of a blueprint of `restype` at `at`, as Aurora places it.
 /// Triggers and encounters take their outline from `outline`: points
 /// relative to the position in X and Y, and at their own height (the
-/// ground under them plus [`OUTLINE_LIFT`]); Aurora stands them at their
-/// first point, at height 0.
+/// ground under them plus [`OUTLINE_LIFT`]), in the order given. Aurora
+/// stands a trigger at its first click, at height 0, and saves its points
+/// in its own order ([`outline_order`]: counterclockwise, from the point
+/// of smallest X), so the stand point (0, 0) is not always the first;
+/// the area view orders a drawn outline so before it comes here.
 pub fn instance(
     p: &Placing<'_>,
     restype: ResType,
@@ -1421,6 +1432,69 @@ fn points(outline: &[[f32; 3]], id: u32, labels: [&str; 3]) -> Vec<Struct> {
         .collect()
 }
 
+/// The signed area of an outline's X and Y: positive when its points run
+/// counterclockwise seen from above (X east, Y north), negative when
+/// clockwise, 0 for fewer than three points or all on one line.
+pub fn signed_area(xy: &[[f32; 2]]) -> f32 {
+    let n = xy.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let twice: f64 = (0..n)
+        .map(|i| {
+            let (a, b) = (xy[i], xy[(i + 1) % n]);
+            f64::from(a[0]) * f64::from(b[1]) - f64::from(b[0]) * f64::from(a[1])
+        })
+        .sum();
+    (twice / 2.0) as f32
+}
+
+/// The order Aurora saves a trigger's outline in, as indices into `xy`
+/// (the points' X and Y, relative to the trigger's position, in the
+/// order clicked): counterclockwise (a clockwise drawing is reversed),
+/// starting at the point of smallest X, of those the one of smallest Y.
+/// Measured in Aurora (`transition-triggers/04-base.mod` and
+/// `05-concave.mod`, `docs/findings.md`): a concave outline is kept as
+/// drawn, and the comparison is exact (a corner clicked 2e-6 west of the
+/// first is first). The game draws an area transition only when its
+/// points run counterclockwise. An outline of fewer than three points, or
+/// with no area (all on one line), keeps the order given. Encounters' are
+/// not ordered: Aurora's was not measured, and the game draws none.
+pub fn outline_order(xy: &[[f32; 2]]) -> Vec<usize> {
+    let n = xy.len();
+    let area = signed_area(xy);
+    if n < 3 || area == 0.0 || !area.is_finite() {
+        return (0..n).collect();
+    }
+    let mut order: Vec<usize> = (0..n).collect();
+    if area < 0.0 {
+        order.reverse();
+    }
+    let first = (0..n)
+        .min_by(|&a, &b| {
+            let (p, q) = (xy[order[a]], xy[order[b]]);
+            p[0].total_cmp(&q[0]).then(p[1].total_cmp(&q[1]))
+        })
+        .unwrap_or(0);
+    order.rotate_left(first);
+    order
+}
+
+/// Whether a trigger's outline (its `Geometry`) is in [`outline_order`]
+/// already: counterclockwise from its point of smallest X. One that
+/// keeps the order given (fewer than three points, no area) is.
+pub fn in_outline_order(points: &[Struct]) -> bool {
+    let xy = trigger_xy(points);
+    outline_order(&xy).iter().enumerate().all(|(i, &k)| i == k)
+}
+
+/// A trigger's outline points' X and Y (`PointX`, `PointY`; 0 where one
+/// lacks them).
+pub fn trigger_xy(points: &[Struct]) -> Vec<[f32; 2]> {
+    let f = |p: &Struct, l: &str| p.float(l).unwrap_or(0.0);
+    points.iter().map(|p| [f(p, "PointX"), f(p, "PointY")]).collect()
+}
+
 /// Whether a creature's appearance is part-based (appearance.2da
 /// `MODELTYPE` P).
 fn part_based(game: &GameData, s: &Struct) -> bool {
@@ -1470,6 +1544,98 @@ mod tests {
         assert!(w.float("XOrientation").unwrap().abs() < 1e-6);
         assert_eq!(w.float("YOrientation"), Some(1.0));
         assert_eq!(w.get("MapNoteEnabled"), Some(&Value::Byte(1)));
+    }
+
+    /// Aurora's eight measured drawings (`docs/findings.md`, from
+    /// `transition-triggers/04-base.mod`, `05-concave.mod`, `01-painted.mod`):
+    /// the clicks relative to the first, and the order Aurora saved them in.
+    #[test]
+    fn an_outline_is_saved_in_aurora_s_order() {
+        type Case<'a> = (&'a str, &'a [[f32; 2]], &'a [usize]);
+        let cases: [Case<'_>; 8] = [
+            (
+                "clockwise, from the first",
+                &[[0.0, 0.0], [1.0, 5.0], [6.0, 4.0], [5.0, 0.0]],
+                &[0, 3, 2, 1],
+            ),
+            ("counterclockwise", &[[0.0, 0.0], [5.0, 0.0], [6.0, 4.0], [1.0, 5.0]], &[0, 1, 2, 3]),
+            // (Reversed, which no rotation of the clicks gives; P2 is
+            // 1.9e-6 east of P1, so P1 stays first.)
+            (
+                "five corners, clockwise",
+                &[[0.0, 0.0], [1.9e-6, 4.0], [3.0, 6.0], [6.0, 4.0], [5.0, 0.0]],
+                &[0, 4, 3, 2, 1],
+            ),
+            // (P2 is 1.9e-6 west of the first click: first.)
+            (
+                "clockwise, P2 west",
+                &[[0.0, 0.0], [-1.9e-6, 4.0], [5.0, 4.0], [4.0, 0.0]],
+                &[1, 0, 3, 2],
+            ),
+            // (P4 is 0.019 west of the first click: first.)
+            (
+                "counterclockwise, P4 west",
+                &[[0.0, 0.0], [6.0, 0.0], [6.0, 5.0], [-0.019, 5.0]],
+                &[3, 0, 1, 2],
+            ),
+            // (P1 and P4 at X 0: the smaller Y, P1.)
+            ("a tie in X", &[[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]], &[0, 1, 2, 3]),
+            ("a big quad", &[[0.0, 0.0], [7.776, 0.5], [7.0, 5.61], [0.3, 5.0]], &[0, 1, 2, 3]),
+            (
+                "concave, kept as drawn",
+                &[[0.0, 0.0], [8.0, 0.0], [8.0, 4.5], [4.0, 1.5], [0.0, 4.5]],
+                &[0, 1, 2, 3, 4],
+            ),
+        ];
+        for (what, clicks, saved) in cases {
+            assert_eq!(outline_order(clicks), saved, "{what}");
+            let ordered: Vec<[f32; 2]> = saved.iter().map(|&i| clicks[i]).collect();
+            assert!(signed_area(&ordered) > 0.0, "{what}: counterclockwise");
+            // In order already: ordered again, the same.
+            assert_eq!(outline_order(&ordered), (0..clicks.len()).collect::<Vec<_>>(), "{what}");
+        }
+        // A tie in X and Y alike (a corner clicked twice): the earlier.
+        let twice = [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 0.0]];
+        assert_eq!(outline_order(&twice)[0], 0);
+    }
+
+    /// A point's height is `ZPosition` + `PointZ`: on ground 5 m up, a
+    /// trigger at height 0 has its points at 5.025, one at height -5 at
+    /// 10.025 and one at 2 at 3.025.
+    #[test]
+    fn an_outline_point_stands_on_the_ground_against_its_trigger_s_height() {
+        for (z, point) in [(0.0, 5.025), (-5.0, 10.025), (2.0, 3.025)] {
+            let got = outline_point_z(5.0, z);
+            assert!((got - point).abs() < 1e-5, "{z}: {got}");
+            assert!((z + got - 5.025).abs() < 1e-5);
+        }
+    }
+
+    /// Fewer than three points, points on one line and points that aren't
+    /// numbers keep the order given, and nothing panics.
+    #[test]
+    fn a_degenerate_outline_keeps_its_order() {
+        let keeps = |xy: &[[f32; 2]]| outline_order(xy) == (0..xy.len()).collect::<Vec<_>>();
+        assert!(keeps(&[]));
+        assert!(keeps(&[[3.0, 1.0]]));
+        assert!(keeps(&[[3.0, 1.0], [0.0, 0.0]]));
+        assert!(keeps(&[[3.0, 3.0], [2.0, 2.0], [1.0, 1.0], [0.0, 0.0]]), "on one line");
+        assert!(keeps(&[[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]]), "one point thrice");
+        assert!(keeps(&[[f32::NAN, 0.0], [4.0, 0.0], [4.0, 4.0]]));
+        assert!(keeps(&[[f32::INFINITY, 0.0], [4.0, 0.0], [4.0, 4.0]]));
+        assert_eq!(signed_area(&[[0.0, 0.0], [2.0, 0.0], [0.0, 2.0]]), 2.0);
+        assert_eq!(signed_area(&[[0.0, 0.0], [0.0, 2.0], [2.0, 0.0]]), -2.0);
+        let points: Vec<Struct> = [[0.0, 0.0], [0.0, 2.0], [2.0, 0.0]]
+            .iter()
+            .map(|[x, y]| {
+                let mut p = Struct::new(3);
+                p.set("PointX", Value::Float(*x));
+                p.set("PointY", Value::Float(*y));
+                p
+            })
+            .collect();
+        assert!(!in_outline_order(&points), "clockwise");
+        assert!(in_outline_order(&[points[0].clone(), points[2].clone(), points[1].clone()]));
     }
 
     #[test]

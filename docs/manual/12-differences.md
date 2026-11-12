@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T05:12:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:34:27Z }
 ---
 
 # Differences from Aurora
@@ -125,6 +125,35 @@ it differs, it is on purpose:
   back. The game draws a static placeable without it either way, and
   Adjust Location and Verify say so. (**Make Static** in the area view
   takes it off, as Aurora does.)
+- **A pasted trigger lands on the ground.** Aurora's paste sets the
+  copy's height to the ground's where it is put down and keeps its
+  corners' heights, which already were the ground's: the copy stands as
+  high again in the air (5 m on a tileset whose ground is 5 m up), and
+  an area transition so is never shown nor clickable in the game.
+  Moonglow puts each corner on the ground under it, as Aurora's drag
+  does; and a trigger dragged at a height other than 0 keeps its
+  corners on the ground too (Aurora's drag leaves them off by that
+  height).
+
+- **Setup Area Transition** ([Blueprints](05-blueprints.md#placeables-and-doors))
+  writes what Aurora's writes, but:
+  - **A trigger's waypoint is used again.** Aurora makes another
+    `WP_<tag>` waypoint every time a trigger is linked (three stacked
+    after three runs); Moonglow uses a waypoint of that tag already
+    standing inside the trigger's outline, and makes one only where there
+    is none. (Two triggers of one tag in one area still get one each.)
+  - **Target To Current writes the target.** Aurora loses the target's
+    half unless the target's area is saved later for another reason;
+    Moonglow writes it.
+  - **One step, on the window's OK.** Aurora writes the current object's
+    link only on its Properties' OK, so its Cancel leaves the target
+    leading to an object that leads nowhere. Moonglow writes both ends and
+    the waypoints on the window's OK, one step to undo, which the
+    Properties' Cancel leaves whole.
+  - **Lines, not questions.** Aurora asks before going on when a tag is
+    still its blueprint's, to save the current area, and before replacing
+    a link. Moonglow needs no save, and says the rest in the window, under
+    its lists, before OK is pressed.
 
 Not done yet: the Conversation Editor's Scrap tab (the clipboard holds one
 copied or cut branch), and the Sound Wizard's category filter (the sound

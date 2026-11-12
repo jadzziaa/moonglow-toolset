@@ -22,6 +22,7 @@ pub mod factions;
 pub mod folder;
 pub mod game_data;
 pub mod grass;
+pub mod ground;
 pub mod hak_edit;
 pub mod haks;
 pub mod instances;

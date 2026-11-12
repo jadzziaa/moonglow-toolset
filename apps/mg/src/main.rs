@@ -5762,7 +5762,7 @@ fn verify(
     findings.extend(theirs.iter().map(|f| f.finding.clone()));
     skip.leave_out(&mut missing, &mut findings);
     // Each finding with its fix, if it has one.
-    let found = mg_edit::fix::attach(&m, findings, &theirs);
+    let found = mg_edit::fix::attach_on(&m, Some(&rm), findings, &theirs);
     let codepage = game_codepage;
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())

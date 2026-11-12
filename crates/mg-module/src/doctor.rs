@@ -74,6 +74,7 @@ pub enum Check {
     TileReplace,
     TileSeam,
     SoundSilent,
+    TransitionHidden,
     TagUnique,
     NuiSources,
     VarType,
@@ -95,7 +96,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 54] = [
+    pub const ALL: [Check; 55] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -132,6 +133,7 @@ impl Check {
         Check::TileReplace,
         Check::TileSeam,
         Check::SoundSilent,
+        Check::TransitionHidden,
         Check::TagUnique,
         Check::NuiSources,
         Check::VarType,
@@ -190,6 +192,7 @@ impl Check {
             Check::TileReplace => "tile-replace",
             Check::TileSeam => "tile-seam",
             Check::SoundSilent => "sound-silent",
+            Check::TransitionHidden => "transition-hidden",
             Check::TagUnique => "tag-unique",
             Check::NuiSources => "nui-sources",
             Check::VarType => "var-type",
@@ -311,6 +314,12 @@ impl Check {
                  .wav holding a WAVE (mono where the sound is positional) or MP3 behind the BMU \
                  V1.0 header"
             }
+            Check::TransitionHidden => {
+                "an area transition trigger's points run counterclockwise (seen from above), as \
+                 the game needs to show it under the pointer and take a click on it, and they are \
+                 not all more than 1 m off the ground (their ZPosition + PointZ), left at another \
+                 level, where the game may not"
+            }
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
                  object only, or on one of each area (unique_in_area)"
@@ -427,6 +436,7 @@ impl Check {
             | Check::TileReplace
             | Check::TileSeam
             | Check::SoundSilent
+            | Check::TransitionHidden
             | Check::TagUnique
             | Check::VarType
             | Check::VarValue
@@ -3140,6 +3150,7 @@ enum Once {
     TileReplacements,
     TileSeams,
     AreaSounds,
+    Transitions,
     /// The tags of the areas and their objects, for `tag-unique`.
     Tags,
     Described,
@@ -3147,7 +3158,7 @@ enum Once {
 }
 
 impl Once {
-    const ALL: [Once; 13] = [
+    const ALL: [Once; 14] = [
         Once::Objects,
         Once::PcFaction,
         Once::StaticTransforms,
@@ -3158,6 +3169,7 @@ impl Once {
         Once::TileReplacements,
         Once::TileSeams,
         Once::AreaSounds,
+        Once::Transitions,
         Once::Tags,
         Once::Described,
         Once::Read,
@@ -3176,6 +3188,7 @@ impl Once {
             Once::TileReplacements => "tiles' replacement textures",
             Once::TileSeams => "tiles' seams",
             Once::AreaSounds => "music, ambient and placed sounds",
+            Once::Transitions => "area transitions' outlines",
             Once::Tags => "areas' and objects' tags",
             Once::Described => "described variables",
             Once::Read => "variables the scripts read",
@@ -3196,6 +3209,7 @@ impl Once {
             Once::TileReplacements => &[TileReplace],
             Once::TileSeams => &[TileSeam],
             Once::AreaSounds => &[SoundSilent],
+            Once::Transitions => &[TransitionHidden],
             Once::Tags => &[TagUnique],
             Once::Described => &[VarType, VarValue, VarObject, VarName, VarRuntime, VarRequires],
             Once::Read => &[VarScript],
@@ -3210,7 +3224,7 @@ impl Once {
                 matches!(t, T::UTC | T::UTP | T::UTI | T::UTD | T::UTM | T::UTW | T::GIT)
             }
             Once::PcFaction => matches!(t, T::UTC | T::UTP | T::UTD | T::UTE | T::GIT),
-            Once::StaticTransforms => t == T::GIT,
+            Once::StaticTransforms | Once::Transitions => t == T::GIT,
             Once::AreaSounds => matches!(t, T::GIT | T::UTS),
             Once::StaticTints | Once::TintsStored | Once::AppearanceRange => {
                 matches!(t, T::GIT | T::UTP)
@@ -3263,6 +3277,8 @@ struct KeptOnce<'a> {
     replaced: HashMap<String, bool>,
     choices: HashMap<String, crate::var_desc::Choices>,
     lookup: Option<crate::var_desc::ModuleLookup<'a>>,
+    /// Tile models' walkmeshes and tilesets, for the transitions' heights.
+    ground: crate::ground::Grounds,
 }
 
 /// Each tileset's tiles by the cells they fit, made once a run for the
@@ -3358,6 +3374,9 @@ fn resources_once(
             });
             run(Once::TileSeams, &mut || tile_seams(&mut w, key, &gff, &indexes));
             run(Once::AreaSounds, &mut || area_sounds(&mut w, key, &gff, &judged));
+            run(Once::Transitions, &mut || {
+                transitions_hidden(&mut w, module, key, &gff, &mut kept.ground)
+            });
             let mut tags = None;
             run(Once::Tags, &mut || {
                 let index = tags.insert(crate::tags::TagIndex::default());
@@ -3512,6 +3531,122 @@ fn static_transforms(d: &mut Doctor, key: ResKey, gff: &mg_gff::Gff) {
             .to_string();
         d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
     }
+}
+
+/// How far off the walkable ground an area transition's whole outline
+/// must be (its point nearest the ground, by `ZPosition` + `PointZ`)
+/// before Verify says the game may not show it, metres. Nearer than this
+/// the client's answer depends on the place, and what decides it was not
+/// found (`client_render/transition_outlines.rs`, 2026-11-12): on flat
+/// authored ground 0.1 off hides it either way
+/// (`transition_outlines_by_size_off_the_ground`,
+/// `transition_outlines_fix_clicked_and_raised_by_position`); on a slope
+/// of Darkness over Daggerford's `c1ar1900_lizard` it is still shown 0.6
+/// above, not 1.0 above nor 0.6 below, and at `c1ar0900_wildhil`'s
+/// `AR0900_AR0700_EXIT` shown 0.2 below and hidden 0.3 below
+/// (`shipped_transitions_on_the_walkmesh`,
+/// `shipped_transitions_far_off_the_walkmesh`); the game's own
+/// transitions 0.23 to 0.31 off are shown
+/// (`shipped_transitions_off_the_walkmesh_are_shown`). The drawn tile surface
+/// is within 0.04 of the walkmesh there: it is no explanation. A trigger
+/// left at another level (the ground raised or lowered under it, lifted
+/// by the Raise arrow or Adjust Location's Z, moved across levels by an
+/// older Moonglow, pasted by Aurora) is off by more.
+pub const TRANSITION_OFF_GROUND: f32 = 1.0;
+
+/// Area transitions (triggers of `Type` 1) the game hides: an outline
+/// whose points run clockwise, which the client neither shows under the
+/// pointer nor lets be clicked (every reading, `transition_outlines.rs`);
+/// and, said as a possibility, one left at another level, all its points
+/// more than [`TRANSITION_OFF_GROUND`] off the walkable ground (their
+/// `ZPosition` + `PointZ`). A corner alone off it is not said: the client
+/// shows such an outline in part and takes a click on it
+/// (`transition_outlines_with_a_lone_corner`); nor a point over no
+/// walkable ground ([`crate::ground::walkable_materials`]). Aurora saves
+/// every outline counterclockwise; older Moonglows kept the order clicked
+/// (and an Alt rectangle dragged north-west or south-east ran clockwise),
+/// and kept the points' heights when a trigger was moved or pasted. A
+/// point off the area's walkmeshes, or an area whose tileset isn't found,
+/// says nothing of the heights. Generic and trap triggers are left out:
+/// only transitions were read.
+fn transitions_hidden(
+    d: &mut Doctor,
+    module: &Module,
+    key: ResKey,
+    gff: &mg_gff::Gff,
+    grounds: &mut crate::ground::Grounds,
+) {
+    let list = gff.root.list("TriggerList").unwrap_or(&[]);
+    let mut ground = None;
+    for (i, t) in list.iter().enumerate() {
+        if t.integer("Type") != Some(1) {
+            continue;
+        }
+        let ground = ground.get_or_insert_with(|| grounds.of(d.rm, module, key.resref));
+        let Some(HiddenTransition { clockwise, off }) = hidden_transition(t, ground.as_ref())
+        else {
+            continue;
+        };
+        // (Said from the ground, not from Aurora's height above it.)
+        let level = off.map(|(point, by)| {
+            let by = by + crate::instances::OUTLINE_LIFT;
+            let side = if by > 0.0 { "above" } else { "below" };
+            format!(
+                "none of its points is within {TRANSITION_OFF_GROUND:.0} m of the ground (the \
+                 nearest, point {}, is {:.2} m {side} it by its ZPosition + PointZ)",
+                point + 1,
+                by.abs()
+            )
+        });
+        let said = match (clockwise, level) {
+            (true, None) => "an area transition the game neither shows under the pointer nor \
+                             lets be clicked: its points run clockwise"
+                .to_string(),
+            (true, Some(level)) => format!(
+                "an area transition the game neither shows under the pointer nor lets be \
+                 clicked: its points run clockwise; it is also left at another level: {level}"
+            ),
+            (false, Some(level)) => format!(
+                "an area transition left at another level, which the game may neither show under \
+                 the pointer nor take a click on: {level}"
+            ),
+            (false, None) => continue,
+        };
+        let at = GffPath::root().item("TriggerList", i).field("Geometry");
+        let place = crate::rename::describe(key, Some(gff), &at);
+        let message = format!(
+            "{said}; the fix puts its outline in Aurora's order (counterclockwise) on the ground, \
+             as Redraw Polygon (the area view's right-click menu) draws it"
+        );
+        d.push(Severity::Warning, Check::TransitionHidden, "module", key, place, message);
+    }
+}
+
+/// Why the game hides an area transition ([`hidden_transition`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HiddenTransition {
+    /// Its points run clockwise.
+    pub clockwise: bool,
+    /// Left at another level, none of its points within
+    /// [`TRANSITION_OFF_GROUND`] of the ground: the nearest (its index) and
+    /// how far from where Aurora puts it, above (positive) or below.
+    pub off: Option<(usize, f32)>,
+}
+
+/// Why the game would (or may) hide trigger `t` (its GIT struct) if it is
+/// an area transition, by `transition-hidden`'s rules: its points
+/// clockwise, or all more than [`TRANSITION_OFF_GROUND`] off the walkable
+/// `ground` (the height not judged without it); `None` where neither.
+pub fn hidden_transition(
+    t: &Struct,
+    ground: Option<&crate::ground::AreaGround>,
+) -> Option<HiddenTransition> {
+    let points = t.list("Geometry").unwrap_or(&[]);
+    let clockwise = crate::instances::signed_area(&crate::instances::trigger_xy(points)) < 0.0;
+    let off = ground.and_then(|g| crate::ground::nearest_off(g, t));
+    let off =
+        off.filter(|(_, by)| (by + crate::instances::OUTLINE_LIFT).abs() > TRANSITION_OFF_GROUND);
+    (clockwise || off.is_some()).then_some(HiddenTransition { clockwise, off })
 }
 
 /// Static placeables with a tint's local (The Domains of Dread's
@@ -7153,6 +7288,123 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(found[0].severity, Severity::Warning);
         assert!(found[0].message.contains("untick Static"), "{found:?}");
         assert_eq!(Check::StaticTransform.group(), Group::Objects);
+    }
+
+    /// A hak with tileset `tst` (one tile, `tst_a01`, its walkmesh a
+    /// flat 10 m floor at its model's height 0; a step of 1 m) and the area
+    /// `area` of two of its tiles, the east one raised two steps.
+    fn two_level_area() -> (Module, ResMan) {
+        let set = b"[GENERAL]\nName=TST\nTransition=1\n[TILES]\nCount=1\n[TILE0]\nModel=tst_a01\n\
+[GROUPS]\nCount=0\n";
+        let wok = b"beginwalkmeshgeom tst_a01\nnode aabb tst_a01_wg\nparent tst_a01\nverts 4\n\
+-5 -5 0\n5 -5 0\n5 5 0\n-5 5 0\nfaces 2\n0 1 2 1 0 0 0 1\n0 2 3 1 0 0 0 1\nendnode\n\
+endwalkmeshgeom tst_a01\n";
+        let rm = resman(&[("tst", ResType::SET, set), ("tst_a01", ResType::WOK, wok)]);
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Tileset", Value::resref(ResRef::from_str("tst").unwrap()));
+        are.root.set("Width", Value::Int(2));
+        are.root.set("Height", Value::Int(1));
+        let tile = |height: i32| {
+            let mut t = Struct::new(1);
+            t.set("Tile_ID", Value::Int(0));
+            t.set("Tile_Orientation", Value::Int(0));
+            t.set("Tile_Height", Value::Int(height));
+            t
+        };
+        are.root.set("Tile_List", Value::List(vec![tile(0), tile(2)]));
+        let mut m = Module::new();
+        m.set_gff(key("area", ResType::ARE), &are).unwrap();
+        (m, rm)
+    }
+
+    /// A trigger of `Type` `kind` tagged `tag` at `at`, its points relative
+    /// X and Y with `PointZ`.
+    fn trigger(tag: &str, kind: i32, at: [f32; 3], points: &[[f32; 3]]) -> Struct {
+        let mut t = Struct::new(1);
+        t.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        t.set("Type", Value::Int(kind));
+        for (l, v) in ["XPosition", "YPosition", "ZPosition"].iter().zip(at) {
+            t.set(l, Value::Float(v));
+        }
+        let list = points
+            .iter()
+            .map(|c| {
+                let mut p = Struct::new(3);
+                for (l, v) in ["PointX", "PointY", "PointZ"].iter().zip(c) {
+                    p.set(l, Value::Float(*v));
+                }
+                p
+            })
+            .collect();
+        t.set("Geometry", Value::List(list));
+        t
+    }
+
+    /// Area transitions the game hides (`transition-hidden`): one whose
+    /// points run clockwise, and one left at another level, all its points
+    /// more than 1 m off the ground either way (its `ZPosition` +
+    /// `PointZ`); one on the ground counterclockwise is not said, nor one
+    /// 0.3 m up, nor one whose `ZPosition` makes up its `PointZ`, nor a
+    /// generic trigger, nor an outline with no area.
+    #[test]
+    fn area_transitions_the_game_hides_are_found() {
+        let lift = crate::instances::OUTLINE_LIFT;
+        let (mut m, rm) = two_level_area();
+        let ccw = |z: f32| [[0.0, 0.0, z], [4.0, 0.0, z], [4.0, 4.0, z], [0.0, 4.0, z]];
+        let cw = |z: f32| {
+            let mut c = ccw(z);
+            c.reverse();
+            c
+        };
+        let triggers = vec![
+            trigger("ON", 1, [2.0, 2.0, 0.0], &ccw(lift)),
+            trigger("CW", 1, [2.0, 2.0, 0.0], &cw(lift)),
+            // (On the east tile, 2 m up: 2 m below it.)
+            trigger("LOW", 1, [12.0, 2.0, 0.0], &ccw(lift)),
+            trigger("RAISED", 1, [2.0, 2.0, 1.3], &ccw(lift)),
+            // (0.3 m up: within 1 m, where the client's answer depends on
+            // the place: not said.)
+            trigger("UP", 1, [2.0, 2.0, 0.3], &ccw(lift)),
+            trigger("ZPOS", 1, [12.0, 2.0, -1.0], &ccw(3.0 + lift)),
+            trigger("NEAR", 1, [2.0, 2.0, 0.0], &ccw(0.03)),
+            trigger("GENERIC", 0, [2.0, 2.0, 0.0], &cw(9.0)),
+            trigger("FLAT", 1, [2.0, 2.0, 0.0], &[[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]]),
+        ];
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("TriggerList", Value::List(triggers));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let found: Vec<_> = f.iter().filter(|f| f.check == "transition-hidden").collect();
+        let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(
+            at,
+            [
+                "area › trigger CW › Geometry",
+                "area › trigger LOW › Geometry",
+                "area › trigger RAISED › Geometry"
+            ]
+        );
+        assert!(found.iter().all(|f| f.severity == Severity::Warning));
+        let said: Vec<&str> = found.iter().map(|f| f.message.as_str()).collect();
+        assert!(said[0].contains("its points run clockwise"), "{}", said[0]);
+        assert!(!said[0].contains("ground (ZPosition"), "{}", said[0]);
+        // (Its points 0.025 above 0, the ground 2 m up; and 0.325 above.)
+        assert!(said[1].contains("the nearest, point 1, is 1.98 m below it"), "{}", said[1]);
+        assert!(said[1].contains("left at another level, which the game may"), "{}", said[1]);
+        assert!(said[2].contains("the nearest, point 1, is 1.3"), "{}", said[2]);
+        assert!(said[2].contains("m above it"), "{}", said[2]);
+        assert!(said[2].contains("Redraw Polygon"), "{}", said[2]);
+        assert_eq!(Check::from_id("transition-hidden").map(Check::group), Some(Group::Objects));
+        // Without the tileset: the winding alone.
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let at: Vec<&str> =
+            f.iter().filter(|f| f.check == "transition-hidden").map(|f| f.at.as_str()).collect();
+        assert_eq!(at, ["area › trigger CW › Geometry"]);
+        // Left out with --skip.
+        let skip = Skip::parse(&["transition-hidden"]).unwrap();
+        let mut left = examine(&m, &rm, TalkTables::default());
+        skip.leave_out(&mut Vec::new(), &mut left);
+        assert!(left.iter().all(|f| f.check != "transition-hidden"));
     }
 
     /// A static placeable with a tint's local is warned of (the client

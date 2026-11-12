@@ -2204,7 +2204,10 @@ pub(crate) fn look_only(
     let mut tried = false;
     let mut i = pending;
     while i < app.actions.len() {
-        let changing = matches!(&app.actions[i], Action::Apply(cmd) | Action::ApplyTyped(cmd)
+        // (And what a window's own dialog makes there: Setup Area
+        // Transition's waypoints.)
+        let changing = matches!(&app.actions[i],
+            Action::Apply(cmd) | Action::ApplyTyped(cmd) | Action::ApplyMade(cmd, _)
             if cmd.edits.iter().any(|e| changes(e.key())));
         if changing {
             app.actions.remove(i);

@@ -41,11 +41,23 @@ impl Place {
 /// A field that moving an object changes.
 type Change = (Place, &'static str, Value);
 
+/// The ground's height at a point (X and Y in the area) nearest a height
+/// (bridges and floors above others have several), where there is ground:
+/// an area's [`crate::walk::Ground::height`], for moving triggers onto it.
+pub type GroundAt<'a> = &'a dyn Fn(glam::Vec2, f32) -> Option<f32>;
+
 /// What moving object `o` (its GIT struct `s`) to `position`, turned by
 /// `rotation`, changes; only fields whose value changes. A trigger or an
 /// encounter turns by its outline: the points turn about its position (and
 /// an encounter's spawn points with them).
-fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Change> {
+fn changes(
+    o: &AreaObject,
+    s: &Struct,
+    position: Vec3,
+    rotation: f32,
+    ground: Option<GroundAt<'_>>,
+    always: bool,
+) -> Vec<Change> {
     let at = mg_module::placement::Placement { position: position.to_array(), rotation };
     let mut fields = at.fields(o.kind);
     // (An orientation is written again only when it turned: its cosine and
@@ -68,6 +80,29 @@ fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Cha
             let to = round.rotate(was);
             out.push((Place::Point(i), x, Value::Float(to.x)));
             out.push((Place::Point(i), y, Value::Float(to.y)));
+        }
+    }
+    // A trigger moved across the ground (or turned, its points with it) is
+    // put back on it: each point at the ground under its new place plus
+    // Aurora's lift, as placing puts it (the game shows an area transition
+    // and lets it be clicked only with its points on the ground, at
+    // `ZPosition` + `PointZ`). Against the `ZPosition` it had, so a height
+    // changed at once (Adjust Location's Z) still lifts it as far; a height
+    // changed alone (the Raise arrow, a tile raised) writes no point.
+    // (A copy goes on the ground wherever it is put: in another area, at
+    // the place it was copied from too.)
+    let across = always || (position - o.position).truncate() != glam::Vec2::ZERO || turned;
+    if let (Some(ground), true, ObjectKind::Trigger) = (ground, across, o.kind) {
+        let z = s.float("ZPosition").unwrap_or(o.position.z);
+        for (i, p) in s.list("Geometry").unwrap_or(&[]).iter().enumerate() {
+            let f = |label: &str| p.float(label).unwrap_or(0.0);
+            let was = glam::Vec2::new(f("PointX"), f("PointY"));
+            let to = if turned { round.rotate(was) } else { was };
+            let Some(under) = ground(position.truncate() + to, z + f("PointZ")) else { continue };
+            let height = mg_module::instances::outline_point_z(under, z);
+            if p.float("PointZ") != Some(height) {
+                out.push((Place::Point(i), "PointZ", Value::Float(height)));
+            }
         }
     }
     let delta = position - o.position;
@@ -103,8 +138,25 @@ pub fn move_edits(
     position: Vec3,
     rotation: f32,
 ) -> Vec<Edit> {
+    move_edits_on(git, o, s, position, rotation, None)
+}
+
+/// [`move_edits`], with a trigger moved across the ground or turned put
+/// back on `ground`: each point of its outline at the ground under its new
+/// place plus [`mg_module::instances::OUTLINE_LIFT`] (`PointZ` against its
+/// `ZPosition`, [`mg_module::instances::outline_point_z`]), in the same
+/// edits. A point with no ground under it keeps its height; so do all
+/// with no `ground` (and encounters, whose outline the game draws not).
+pub fn move_edits_on(
+    git: ResKey,
+    o: &AreaObject,
+    s: &Struct,
+    position: Vec3,
+    rotation: f32,
+    ground: Option<GroundAt<'_>>,
+) -> Vec<Edit> {
     let path = GffPath::root().item(o.kind.list(), o.index);
-    changes(o, s, position, rotation)
+    changes(o, s, position, rotation, ground, false)
         .into_iter()
         .map(|(place, label, value)| Edit::SetField {
             key: git,
@@ -118,8 +170,21 @@ pub fn move_edits(
 /// A copy of object `o` (its GIT struct `s`) standing at `position`,
 /// turned by `rotation` (for pasting).
 pub fn moved(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Struct {
+    moved_on(o, s, position, rotation, None)
+}
+
+/// [`moved`], a trigger's outline put on `ground` as [`move_edits_on`]
+/// puts it, wherever it stands (a paste into another area at the place
+/// it was copied from too).
+pub fn moved_on(
+    o: &AreaObject,
+    s: &Struct,
+    position: Vec3,
+    rotation: f32,
+    ground: Option<GroundAt<'_>>,
+) -> Struct {
     let mut copy = s.clone();
-    for (place, label, value) in changes(o, s, position, rotation) {
+    for (place, label, value) in changes(o, s, position, rotation, ground, true) {
         if let Some(at) = place.of(&mut copy) {
             at.set(label, value);
         }
@@ -674,6 +739,89 @@ mod tests {
         let (x, y) = (s.float("X").unwrap(), s.float("Y").unwrap());
         assert!((x - 1.0).abs() < 1e-5 && (y - 3.0).abs() < 1e-5, "{x}, {y}");
         assert!((s.float("Orientation").unwrap() - 0.5 - FRAC_PI_2).abs() < 1e-5);
+    }
+
+    /// A trigger moved across ground of another height, by the edits
+    /// (a drag, Adjust Location) and as a copy (a paste), has each point at
+    /// the ground under it plus the lift, against its `ZPosition` (here 2);
+    /// one moved up alone, or turned and moved with no ground to read,
+    /// keeps its points' heights. An encounter keeps its points.
+    #[test]
+    fn a_trigger_moved_across_the_ground_is_put_back_on_it() {
+        let lift = mg_module::instances::OUTLINE_LIFT;
+        // Ground 0 west of x 10, 4 east of it, 7 at y 20 and above; none
+        // past x 40.
+        let at = |p: glam::Vec2, _near: f32| -> Option<f32> {
+            (p.x < 40.0).then_some(if p.y >= 20.0 {
+                7.0
+            } else if p.x < 10.0 {
+                0.0
+            } else {
+                4.0
+            })
+        };
+        let ground: GroundAt<'_> = &at;
+        let point = |x: f32, y: f32, z: f32| {
+            let mut p = Struct::new(3);
+            for (l, v) in [("PointX", x), ("PointY", y), ("PointZ", z)] {
+                p.set(l, Value::Float(v));
+            }
+            p
+        };
+        let mut t = Struct::new(1);
+        for (l, v) in [("XPosition", 2.0), ("YPosition", 2.0), ("ZPosition", 2.0)] {
+            t.set(l, Value::Float(v));
+        }
+        // On ground 0 at height 2: the points at -2 + 0.025.
+        let on = -2.0 + lift;
+        let corners = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)];
+        let points = corners.iter().map(|&(x, y)| point(x, y, on)).collect();
+        t.set("Geometry", Value::List(points));
+        let o = object(ObjectKind::Trigger, Vec3::new(2.0, 2.0, 2.0), 0.0);
+        let heights = |s: &Struct| -> Vec<f32> {
+            let z = s.float("ZPosition").unwrap();
+            let g = s.list("Geometry").unwrap();
+            g.iter().map(|p| z + p.float("PointZ").unwrap()).collect()
+        };
+        // Moved east: two corners over ground 4, two still over 0.
+        let copy = moved_on(&o, &t, Vec3::new(7.0, 2.0, 2.0), 0.0, Some(ground));
+        for (h, want) in heights(&copy).iter().zip([0.0, 4.0, 4.0, 0.0]) {
+            assert!((h - want - lift).abs() < 1e-5, "{:?}", heights(&copy));
+        }
+        // As edits: the position and the two points that change.
+        let edits = move_edits_on(git(), &o, &t, Vec3::new(7.0, 2.0, 2.0), 0.0, Some(ground));
+        assert_eq!(labels(&edits), ["1XPosition", "2PointZ", "2PointZ"], "{edits:?}");
+        // Moved north and raised 1 at once: on ground 7, 1 above it.
+        let copy = moved_on(&o, &t, Vec3::new(2.0, 20.0, 3.0), 0.0, Some(ground));
+        assert!(heights(&copy).iter().all(|h| (h - 8.0 - lift).abs() < 1e-5));
+        // Up alone: no point written.
+        let up = move_edits_on(git(), &o, &t, Vec3::new(2.0, 2.0, 3.0), 0.0, Some(ground));
+        assert_eq!(labels(&up), ["1ZPosition"]);
+        // A copy put where the original stands (pasted into another
+        // area there) is put on that ground too: the copy, not the edits.
+        let other = |_: glam::Vec2, _: f32| Some(1.0);
+        let copy = moved_on(&o, &t, o.position, 0.0, Some(&other));
+        assert!(heights(&copy).iter().all(|h| (h - 1.0 - lift).abs() < 1e-5));
+        let edits = move_edits_on(git(), &o, &t, o.position, 0.0, Some(&other));
+        assert!(edits.is_empty(), "{edits:?}");
+        // Turned in place: the points turn and are put on the ground.
+        let copy = moved_on(&o, &t, o.position, FRAC_PI_2, Some(ground));
+        assert!(heights(&copy).iter().all(|h| (h - lift).abs() < 1e-5));
+        // Past the ground's end: those points keep their heights.
+        let copy = moved_on(&o, &t, Vec3::new(37.0, 2.0, 2.0), 0.0, Some(ground));
+        assert_eq!(
+            heights(&copy).iter().map(|h| (h - lift).round()).collect::<Vec<_>>(),
+            [4.0, 0.0, 0.0, 4.0]
+        );
+        // No ground: nothing of the outline written, moved or not.
+        let unturned = move_edits(git(), &o, &t, Vec3::new(9.0, 9.0, 2.0), 0.0);
+        assert_eq!(labels(&unturned), ["1XPosition", "1YPosition"]);
+        // An encounter's points are left as they are.
+        let mut e = t.clone();
+        e.id = 7;
+        let o = object(ObjectKind::Encounter, Vec3::new(2.0, 2.0, 2.0), 0.0);
+        let edits = move_edits_on(git(), &o, &e, Vec3::new(7.0, 2.0, 2.0), 0.0, Some(ground));
+        assert_eq!(labels(&edits), ["1XPosition"]);
     }
 
     #[test]

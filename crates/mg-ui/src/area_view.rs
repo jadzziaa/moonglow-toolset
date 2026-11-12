@@ -6314,7 +6314,9 @@ fn brush(app: &Moonglow) -> Option<ResKey> {
 }
 
 /// Places blueprint `key` at `at` (a trigger or encounter along `outline`,
-/// standing at its first point), as Aurora does, and selects it.
+/// standing at its first point; a trigger's points in Aurora's order,
+/// [`mg_module::instances::outline_order`]), as Aurora does, and selects
+/// it.
 fn place(
     app: &mut Moonglow,
     view: &mut AreaView,
@@ -6329,10 +6331,13 @@ fn place(
     // Doors go on their hooks; outlines are drawn point by point.)
     let ground = |p: Vec3| view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
     let position = at + Vec3::Z * lift(kind);
-    let relative: Vec<[f32; 3]> = outline
+    let mut relative: Vec<[f32; 3]> = outline
         .iter()
         .map(|p| [p.x - at.x, p.y - at.y, ground(*p).unwrap_or(p.z) + OUTLINE_LIFT])
         .collect();
+    if kind == ObjectKind::Trigger {
+        relative = in_aurora_order(&relative);
+    }
     let placement = Placement { position: position.to_array(), rotation };
     let item = match instance_of(app, key, placement, &relative) {
         Ok(Some(item)) => item,
@@ -6569,10 +6574,12 @@ fn moves_command(
     let git = view.git();
     let doc = ws.doc(&git).ok()?;
     let mut edits = Vec::new();
+    // (A trigger moved across the ground goes back on it.)
+    let on = |p: Vec2, near: f32| view.ground.as_ref().and_then(|g| g.height(p, near));
     for &(i, position, rotation) in moved {
         let o = &model.objects[i];
         let Some(s) = doc.root.list(o.kind.list()).and_then(|l| l.get(o.index)) else { continue };
-        edits.extend(mg_area::edit::move_edits(git, o, s, position, rotation));
+        edits.extend(mg_area::edit::move_edits_on(git, o, s, position, rotation, Some(&on)));
     }
     (!edits.is_empty()).then(|| Command::new(label, edits))
 }
@@ -6904,6 +6911,10 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
         .collect();
     let mut edits = Vec::new();
     let mut selection = Vec::new();
+    // (A trigger goes on this area's ground, the floor nearest the
+    // pointer's; where the view has read no ground yet, its points keep
+    // their heights.)
+    let on = |p: Vec2, _: f32| view.ground.as_ref().and_then(|g| g.height(p, at.z));
     for ((o, s, _), (position, rotation)) in clip.objects.iter().zip(pasted_places(view, &clip, at))
     {
         let count = counts.get_mut(&o.kind).expect("every kind");
@@ -6912,7 +6923,7 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
             mg_edit::GffPath::root(),
             o.kind.list(),
             *count,
-            mg_area::edit::moved(o, s, position, rotation),
+            mg_area::edit::moved_on(o, s, position, rotation, Some(&on)),
         ));
         selection.push((o.kind, *count));
         *count += 1;
@@ -8277,8 +8288,21 @@ fn add_spawn_point(app: &mut Moonglow, view: &AreaView, index: usize, at: Vec3) 
     app.actions.push(Action::Apply(Command::new("Add Spawn Point", vec![edit])));
 }
 
+/// An outline's points (X and Y relative to where the trigger stands) in
+/// the order Aurora saves a trigger's: counterclockwise from the point of
+/// smallest X ([`mg_module::instances::outline_order`]); the game draws an
+/// area transition whose points run clockwise not at all.
+fn in_aurora_order(points: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    let xy: Vec<[f32; 2]> = points.iter().map(|p| [p[0], p[1]]).collect();
+    mg_module::instances::outline_order(&xy).into_iter().map(|i| points[i]).collect()
+}
+
 /// Replaces a trigger's or encounter's outline with `outline` (relative to
-/// where the object stands; each point on the ground plus Aurora's lift).
+/// where the object stands; each point on the ground plus Aurora's lift),
+/// as Aurora's Redraw Polygon does: a trigger's points in Aurora's order
+/// ([`in_aurora_order`]) and the trigger put at height 0 (its `ZPosition`,
+/// which the game adds to the points': a trigger lifted or pasted off the
+/// ground comes back down onto it), in the same step.
 fn redraw_outline(
     app: &mut Moonglow,
     view: &AreaView,
@@ -8292,25 +8316,36 @@ fn redraw_outline(
         _ => (1, ["X", "Y", "Z"]),
     };
     let lift = mg_module::instances::OUTLINE_LIFT;
-    let points = outline
+    let mut relative: Vec<[f32; 3]> = outline
         .iter()
         .map(|p| {
             let ground = view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
+            [p.x - o.position.x, p.y - o.position.y, ground.unwrap_or(p.z) + lift]
+        })
+        .collect();
+    if kind == ObjectKind::Trigger {
+        relative = in_aurora_order(&relative);
+    }
+    let points = relative
+        .into_iter()
+        .map(|c| {
             let mut s = mg_gff::Struct::new(id);
-            let c = [p.x - o.position.x, p.y - o.position.y, ground.unwrap_or(p.z) + lift];
             for (label, v) in labels.iter().zip(c) {
                 s.set(label, Value::Float(v));
             }
             s
         })
         .collect();
-    let edit = mg_edit::Edit::SetField {
-        key: view.git(),
-        path: mg_edit::GffPath::root().item(kind.list(), index),
-        label: "Geometry".into(),
-        value: Some(Value::List(points)),
-    };
-    app.actions.push(Action::Apply(Command::new("Redraw Polygon", vec![edit])));
+    let path = mg_edit::GffPath::root().item(kind.list(), index);
+    let mut edits = Vec::new();
+    if kind == ObjectKind::Trigger && o.position.z != 0.0 {
+        let (key, path) = (view.git(), path.clone());
+        let value = Some(Value::Float(0.0));
+        edits.push(mg_edit::Edit::SetField { key, path, label: "ZPosition".into(), value });
+    }
+    let value = Some(Value::List(points));
+    edits.push(mg_edit::Edit::SetField { key: view.git(), path, label: "Geometry".into(), value });
+    app.actions.push(Action::Apply(Command::new("Redraw Polygon", edits)));
 }
 
 /// The waypoints' tags of the module's areas, kept area by area: an area

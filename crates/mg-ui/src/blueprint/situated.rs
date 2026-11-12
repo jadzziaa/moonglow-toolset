@@ -11,8 +11,11 @@ use mg_rules::Choice;
 use mg_uikit::Controls as _;
 
 use super::Form;
-use crate::text::{decode, encode};
+use crate::text::decode;
 use crate::widgets::spin_number;
+use crate::{Action, Moonglow};
+use mg_edit::transition::{Connection, Current, Placed, PlanError, Refused};
+use mg_rules::ObjectKind;
 
 /// The most Aurora takes in the fields the files keep as bytes (DCs,
 /// hardness, an object's saves): measured in Aurora, whose forms' own
@@ -409,20 +412,39 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     }
 }
 
-/// A door or waypoint an area transition may lead to.
+/// A door, area transition trigger or waypoint an area transition may
+/// lead to.
 #[derive(Debug, Clone, PartialEq)]
 struct Destination {
+    /// Which object it is (two of one tag are two).
+    object: Placed,
     area: mg_core::ResRef,
     tag: String,
     /// Its name, as the module tree shows it (empty without one).
     name: String,
-    /// As `LinkedToFlags`: 1 a door, 2 a waypoint.
+    /// As `LinkedToFlags` names it: 1 a door, 2 a waypoint or a trigger
+    /// (its waypoint).
     flags: i64,
-    /// Where it stands in its area, metres.
+    /// Where it is drawn on the map, meters: a trigger at the middle of
+    /// its box, where its waypoint goes.
     at: glam::Vec2,
 }
 
-/// Doors and waypoints with tags in the module's areas, by area.
+/// The kinds a transition leads to: each one's list on the window, its
+/// name in the map's hover text, its name in the filter.
+const LEADS_TO: [(ObjectKind, &str, &str, &str); 3] = [
+    (ObjectKind::Door, "Available Doors:", "door", "Doors"),
+    (ObjectKind::Trigger, "Available Triggers:", "trigger", "Triggers"),
+    (ObjectKind::Waypoint, "Available Waypoints:", "waypoint", "Waypoints"),
+];
+
+/// The name of a kind a transition leads to (`door`).
+fn kind_name(kind: ObjectKind) -> &'static str {
+    LEADS_TO.iter().find(|k| k.0 == kind).map_or("object", |k| k.2)
+}
+
+/// Doors, area transition triggers and waypoints with tags in the
+/// module's areas, by area.
 fn destinations(f: &mut Form<'_>) -> Vec<Destination> {
     let game = f.app.game.clone();
     let Some(ws) = f.app.ws.as_ref() else { return Vec::new() };
@@ -434,21 +456,26 @@ fn destinations(f: &mut Form<'_>) -> Vec<Destination> {
 /// the module's bytes, on every core, and not kept: read through the
 /// workspace, a click parsed every area's objects on the window's thread
 /// and left them all in memory for the session (a thousand areas, in a
-/// persistent world's module).
+/// persistent world's module). Triggers of Type 1 (area transition)
+/// alone, as Aurora's: a generic or a trap trigger leads nowhere.
 fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -> Vec<Destination> {
     let of = |key: &ResKey, root: &mg_gff::Struct| -> Vec<Destination> {
         let mut out = Vec::new();
-        for (list, restype, flags) in
-            [("Door List", ResType::UTD, 1), ("WaypointList", ResType::UTW, 2)]
-        {
-            for s in root.list(list).unwrap_or(&[]) {
+        for (kind, ..) in LEADS_TO {
+            for (index, s) in root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let tag = decode(s.string("Tag").unwrap_or_default());
-                if !tag.is_empty() {
-                    let p = mg_module::instances::placement_of(restype, s).0.position;
-                    let at = glam::Vec2::new(p[0], p[1]);
-                    let name = crate::tree::blueprint_name(game, s).trim().to_string();
-                    out.push(Destination { area: key.resref, tag, name, flags, at });
+                if tag.is_empty() || (kind == ObjectKind::Trigger && s.integer("Type") != Some(1)) {
+                    continue;
                 }
+                let at = match kind {
+                    ObjectKind::Trigger => mg_edit::transition::waypoint_position(s),
+                    _ => mg_module::instances::placement_of(kind.restype(), s).0.position,
+                };
+                let at = glam::Vec2::new(at[0], at[1]);
+                let name = crate::tree::blueprint_name(game, s).trim().to_string();
+                let flags = if kind == ObjectKind::Door { 1 } else { 2 };
+                let object = Placed::new(key.resref, kind, index);
+                out.push(Destination { object, area: key.resref, tag, name, flags, at });
             }
         }
         out
@@ -482,41 +509,202 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
         readers.into_iter().map(|r| r.join().unwrap_or_default()).collect()
     });
     out.extend(read.into_iter().flatten());
-    out.sort_by(|a, b| (a.area, &a.tag, a.flags).cmp(&(b.area, &b.tag, b.flags)));
+    out.sort_by(|a, b| (a.area, &a.tag, a.object).cmp(&(b.area, &b.tag, b.object)));
     out
 }
 
+/// A line under Setup Area Transition's lists: what OK will do, or why
+/// it can't.
+#[derive(Debug, Clone, PartialEq)]
+enum Said {
+    /// What it does.
+    Does(String),
+    /// Worth a look before OK (a tag shared, a link replaced).
+    Warns(String),
+    /// Why OK can't be pressed.
+    Refuses(String),
+}
+
+/// What OK would do for one destination and connection, worked out once
+/// for each (and again once the module changes).
+#[derive(Debug, Clone)]
+struct Worked {
+    /// What it is for: the destination, the connection and the
+    /// workspace's revision.
+    of: (Placed, Connection, u64),
+    plan: Option<mg_edit::transition::Plan>,
+    said: Vec<Said>,
+}
+
 /// The Setup Area Transition window's state (Aurora's
-/// `TdlgAreaTransition`): the doors and waypoints gathered as it opened,
-/// the area shown and its map, and the one chosen (its tag and
-/// `LinkedToFlags`).
+/// `TdlgAreaTransition`): the doors, triggers and waypoints gathered as it
+/// opened, the area shown and its map, the one chosen, the connection.
 #[derive(Debug, Clone, Default)]
 struct TransitionPick {
     open: bool,
     destinations: Vec<Destination>,
     area: Option<mg_core::ResRef>,
     map: Option<crate::minimap::Map>,
-    chosen: Option<(String, i64)>,
-    /// Which the map and lists show: doors (1), waypoints (2), or both (0).
-    showing: i64,
+    chosen: Option<Placed>,
+    /// Which kind the map and lists show (`None`: all).
+    showing: Option<ObjectKind>,
+    connection: Connection,
+    /// The placed objects the window edits (left out of the lists: a
+    /// trigger can't lead to itself, nor one of several to one of them).
+    editing: Vec<Placed>,
+    worked: Option<Worked>,
+    /// OK asked for by a double click before what it chose was worked out.
+    confirm: bool,
 }
 
 /// The side of Setup Area Transition's map, points.
 const TRANSITION_MAP: f32 = 320.0;
 
-/// How near the pointer must be to a door or waypoint on the map to take
-/// it, points.
+/// How near the pointer must be to a door, trigger or waypoint on the
+/// map to take it, points.
 const MARKER_REACH: f32 = 9.0;
 
+/// The object a form sets up a transition from: the one placed object
+/// it edits, else each of its blueprints or objects.
+fn current_of(f: &Form<'_>) -> Current {
+    match Placed::of(&f.key, &f.path) {
+        Some(p) if f.also.is_empty() => Current::Placed(p),
+        _ => Current::Fields(f.targets().map(|(k, p)| (k, p.clone())).collect()),
+    }
+}
+
+/// Why a connection can't be chosen, as the window says it.
+fn refused_text(r: Refused) -> &'static str {
+    match r {
+        Refused::WaypointTarget => "A waypoint leads nowhere: Current To Target only",
+        Refused::NotOnePlaced => {
+            "A blueprint or several objects can't be led back to: Current To Target only"
+        }
+        Refused::NoCurrentTag => "This object has no tag for the target to lead back to",
+        Refused::NoTargetTag => "The target has no tag to lead to",
+        Refused::Itself => "An object can't lead to itself",
+        Refused::Missing => "That object is no longer there: pick it again",
+    }
+}
+
+/// Whether placed object `s` (of `kind`) still has its blueprint's tag:
+/// the blueprint its `TemplateResRef` names, the module's, else the
+/// game's.
+fn tag_is_blueprints(app: &mut Moonglow, kind: ObjectKind, s: &mg_gff::Struct) -> bool {
+    let Some(r) = s.resref("TemplateResRef").filter(|r| !r.is_empty()) else { return false };
+    let key = ResKey::new(r, kind.restype());
+    let tag = s.string("Tag").unwrap_or_default();
+    let of = |g: &mg_gff::Gff| g.root.string("Tag") == Some(tag);
+    if let Some(ws) = app.ws.as_mut()
+        && ws.module.contains(&key)
+    {
+        return ws.doc(&key).ok().is_some_and(of);
+    }
+    let Some(data) = app.game.as_ref().and_then(|g| g.resman.get(&key).ok()) else { return false };
+    mg_gff::Gff::read(&data).ok().is_some_and(|g| of(&g))
+}
+
+/// What OK would do from `current` to `to` by `connection`, and the
+/// window's lines of it.
+fn work_out(app: &mut Moonglow, current: &Current, to: Placed, connection: Connection) -> Worked {
+    let revision = app.ws.as_ref().map_or(0, |ws| ws.revision());
+    let of = (to, connection, revision);
+    let Some(ws) = app.ws.as_mut() else { return Worked { of, plan: None, said: Vec::new() } };
+    let plan = match mg_edit::transition::plan(ws, current, to, connection) {
+        Ok(plan) => plan,
+        Err(PlanError::Refused(r)) => {
+            return Worked { of, plan: None, said: vec![Said::Refuses(refused_text(r).into())] };
+        }
+        Err(PlanError::Edit(e)) => {
+            return Worked { of, plan: None, said: vec![Said::Refuses(e.to_string())] };
+        }
+    };
+    let object = |ws: &mut mg_edit::Workspace, p: Placed| {
+        ws.doc(&p.git()).ok().and_then(|g| p.path().get(&g.root).cloned())
+    };
+    let target = object(ws, to);
+    let here = match current {
+        Current::Placed(p) => object(ws, *p).map(|s| (p.kind, s)),
+        Current::Fields(_) => None,
+    };
+    let mut said = Vec::new();
+    let area = |app: &mut Moonglow, a| crate::tabs::area_label(app, a);
+    for (w, tag) in &plan.made {
+        let name = area(app, w.area);
+        said.push(Said::Does(format!("Makes the waypoint {} in {name}", decode(tag))));
+    }
+    for (w, tag) in &plan.reused {
+        let name = area(app, w.area);
+        said.push(Said::Does(format!("Uses the waypoint {} already in {name}", decode(tag))));
+    }
+    // A tag that names a link, still its blueprint's.
+    if connection.links_target()
+        && let Some((kind, s)) = &here
+        && tag_is_blueprints(app, *kind, s)
+    {
+        let tag = decode(s.string("Tag").unwrap_or_default());
+        said.push(Said::Warns(format!(
+            "This object's tag ({tag}) is still its blueprint's: other objects may share it"
+        )));
+    }
+    if connection.links_current()
+        && to.kind != ObjectKind::Waypoint
+        && let Some(s) = &target
+        && tag_is_blueprints(app, to.kind, s)
+    {
+        let tag = decode(s.string("Tag").unwrap_or_default());
+        said.push(Said::Warns(format!(
+            "The target's tag ({tag}) is still its blueprint's: other objects may share it"
+        )));
+    }
+    const SHOWN: usize = 3;
+    for r in plan.replaced.iter().take(SHOWN) {
+        let who = if r.tag.is_empty() { "This blueprint".to_string() } else { decode(&r.tag) };
+        said.push(Said::Warns(format!(
+            "{who} already leads to {}: OK replaces that link",
+            decode(&r.was)
+        )));
+    }
+    if plan.replaced.len() > SHOWN {
+        let more = plan.replaced.len() - SHOWN;
+        let links = if more == 1 { "link" } else { "links" };
+        said.push(Said::Warns(format!("And {more} more {links} replaced")));
+    }
+    for a in &plan.writes {
+        if let Some(why) = crate::claims::read_only(app, *a) {
+            let name = area(app, *a);
+            said.push(Said::Refuses(format!(
+                "{name} is read-only here ({why}): this connection would change it"
+            )));
+        }
+    }
+    Worked { of, plan: Some(plan), said }
+}
+
+/// A trigger's marker on the map: a diamond.
+fn diamond(painter: &egui::Painter, at: egui::Pos2, fill: egui::Color32, stroke: egui::Stroke) {
+    let r = 5.5;
+    let points = vec![
+        at + egui::vec2(0.0, -r),
+        at + egui::vec2(r, 0.0),
+        at + egui::vec2(0.0, r),
+        at + egui::vec2(-r, 0.0),
+    ];
+    painter.add(egui::Shape::convex_polygon(points, fill, stroke));
+}
+
 /// Setup Area Transition (Aurora's `TdlgAreaTransition`): the target
-/// area, its map with its doors (squares) and waypoints (dots) to click,
-/// and their lists beside. What OK says the transition leads to, or
-/// `None`.
-fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<(String, i64)> {
+/// area, its map with its doors (squares), area transition triggers
+/// (diamonds) and waypoints (dots) to click, their lists beside, and the
+/// Connection Type. OK applies the links (and the waypoints a trigger is
+/// given) as one step.
+fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
     let mut state: TransitionPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
     if !state.open {
-        return None;
+        return;
     }
+    let current = current_of(f);
+    let current_tag = f.root.string("Tag").unwrap_or_default().to_vec();
     let mut areas: Vec<mg_core::ResRef> = state.destinations.iter().map(|d| d.area).collect();
     areas.dedup();
     let names: std::collections::HashMap<mg_core::ResRef, String> =
@@ -527,18 +715,79 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
     let name = |a: &Option<mg_core::ResRef>| {
         a.map_or_else(String::new, |a| names.get(&a).cloned().unwrap_or_else(|| a.to_string()))
     };
+    let chosen_kind = state.chosen.map(|p| p.kind);
+    // (A connection the target can't take gives way to Current To Target,
+    // as Aurora's choosing a waypoint does.)
+    let refusal =
+        |c| chosen_kind.and_then(|k| mg_edit::transition::refusal(&current, &current_tag, k, c));
+    if refusal(state.connection).is_some() {
+        state.connection = Connection::CurrentToTarget;
+    }
+    // What OK does, worked out again when the choice or the module changes.
+    let revision = f.app.ws.as_ref().map_or(0, |ws| ws.revision());
+    state.worked = match state.chosen {
+        Some(to) => match state.worked.take() {
+            Some(w) if w.of == (to, state.connection, revision) => Some(w),
+            _ => Some(work_out(f.app, &current, to, state.connection)),
+        },
+        None => None,
+    };
     let ctx = ui.ctx().clone();
-    let (mut ok, mut cancel) = (false, false);
+    // (A double click in the frame before, on a row or the map: OK, now
+    // that what it chose is worked out.)
+    let (mut ok, mut cancel) = (std::mem::take(&mut state.confirm), false);
     // (Sized as the builder drags its edges: the lists take what the map
     // leaves.)
     let window = crate::widgets::modal(&ctx, "Setup Area Transition")
         .id(pick_id.with("modal"))
         .resizable(true)
-        .default_size([TRANSITION_MAP + 360.0, TRANSITION_MAP + 140.0])
-        .min_size([TRANSITION_MAP + 200.0, TRANSITION_MAP + 100.0]);
+        .default_size([TRANSITION_MAP + 380.0, TRANSITION_MAP + 230.0])
+        .min_size([TRANSITION_MAP + 220.0, TRANSITION_MAP + 190.0]);
     window.show(&ctx, |ui| {
+        // What it leads to, what OK does, and OK: at the window's foot,
+        // the map and the lists taking the room above.
+        egui::Panel::bottom(pick_id.with("foot")).frame(egui::Frame::NONE).show(ui, |ui| {
+            ui.add_space(4.0);
+            let chosen = state.chosen.and_then(|p| state.destinations.iter().find(|d| d.object == p));
+            match chosen {
+                Some(d) => {
+                    ui.label(format!("Leads to the {} tagged {}", kind_name(d.object.kind), d.tag));
+                }
+                None => {
+                    ui.weak(
+                        "Click a door (a square), a trigger (a diamond) or a waypoint (a dot) on the \
+                         map, or in a list",
+                    );
+                }
+            }
+            let worked = state.worked.as_ref().filter(|w| Some(w.of.0) == state.chosen);
+            for said in worked.map_or(&[][..], |w| &w.said) {
+                match said {
+                    Said::Does(t) => {
+                        ui.weak(t);
+                    }
+                    Said::Warns(t) => {
+                        ui.colored_label(ui.visuals().warn_fg_color, t);
+                    }
+                    Said::Refuses(t) => {
+                        ui.colored_label(ui.visuals().error_fg_color, t);
+                    }
+                }
+            }
+            let can = worked.is_some_and(|w| {
+                w.plan.is_some() && !w.said.iter().any(|s| matches!(s, Said::Refuses(_)))
+            });
+            ui.horizontal(|ui| {
+                ok |= ui
+                    .add_enabled(can, egui::Button::new("OK"))
+                    .on_hover_text("Set up the transition, one step to undo")
+                    .clicked()
+                    || (can && crate::widgets::enter(ui));
+                cancel = crate::widgets::cancel_discard(ui);
+            });
+        });
         if areas.is_empty() {
-            ui.weak("No doors or waypoints with tags in the module's areas");
+            ui.weak("No doors, triggers or waypoints with tags in the module's areas");
         }
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "Target Area");
@@ -548,40 +797,75 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                 .width(260.0)
                 .show(ui, &mut state.area, &options, name);
             ui.separator();
-            // Doors, waypoints, or both, on the map and in the lists (a
-            // group named for them: the area toolbar's and the palette's
-            // Doors are others).
+            // Doors, triggers, waypoints, or all, on the map and in the
+            // lists (a group named for them: the area toolbar's and the
+            // palette's Doors are others).
             ui.horizontal(|ui| {
                 mg_uikit::name_group(ui, "Destinations Shown");
-                for (showing, label) in [(0, "Both"), (1, "Doors"), (2, "Waypoints")] {
-                    ui.selectable_value(&mut state.showing, showing, label);
+                ui.selectable_value(&mut state.showing, None, "All");
+                for (kind, .., label) in [LEADS_TO[0], LEADS_TO[2], LEADS_TO[1]] {
+                    ui.selectable_value(&mut state.showing, Some(kind), label);
                 }
             });
         });
+        // Aurora's Connection Type: which ends are linked.
+        ui.horizontal(|ui| {
+            mg_uikit::name_group(ui, "Connection Type");
+            crate::widgets::field_label(ui, "Connection Type");
+            for c in Connection::ALL {
+                let why = refusal(c);
+                let r = ui
+                    .add_enabled(
+                        why.is_none(),
+                        egui::RadioButton::new(state.connection == c, c.label()),
+                    )
+                    .on_hover_text(match c {
+                        Connection::BothWays => "Each leads to the other",
+                        Connection::CurrentToTarget => {
+                            "This object leads there, the target is unchanged"
+                        }
+                        Connection::TargetToCurrent => {
+                            "The target leads here, this object is unchanged"
+                        }
+                    });
+                if let Some(why) = why {
+                    r.clone().on_disabled_hover_text(refused_text(why));
+                }
+                if r.clicked() {
+                    state.connection = c;
+                }
+            }
+        });
+        if let Current::Fields(_) = current {
+            ui.weak(refused_text(Refused::NotOnePlaced));
+        } else if current_tag.is_empty() {
+            ui.weak(refused_text(Refused::NoCurrentTag));
+        }
         let showing = state.showing;
         let here: Vec<Destination> = (state.destinations.iter())
-            .filter(|d| Some(d.area) == state.area && (showing == 0 || d.flags == showing))
+            .filter(|d| Some(d.area) == state.area && showing.is_none_or(|k| d.object.kind == k))
+            .filter(|d| !state.editing.contains(&d.object))
             .cloned()
             .collect();
-        let is = |d: &Destination, chosen: &Option<(String, i64)>| {
-            chosen.as_ref().is_some_and(|(t, k)| *t == d.tag && *k == d.flags)
-        };
+        let is = |d: &Destination, chosen: &Option<Placed>| *chosen == Some(d.object);
         ui.horizontal_top(|ui| {
-            // The map: a click on a door or waypoint takes it.
+            // The map: a click on a door, trigger or waypoint takes it.
             let shown = state.area.and_then(|a| crate::minimap::of(f.app, &ctx, a, &mut state.map));
+            // (Smaller where the window is: the lines under it keep
+            // their room.)
+            let side = ui.available_height().clamp(TRANSITION_MAP / 2.0, TRANSITION_MAP);
             if let Some(map) = shown.cloned() {
-                let (rect, r) =
-                    ui.allocate_exact_size(egui::Vec2::splat(TRANSITION_MAP), egui::Sense::click());
+                let (rect, r) = ui.allocate_exact_size(egui::Vec2::splat(side), egui::Sense::click());
                 r.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "The area's map")
                 });
                 // (In the middle of its square, a long area's.)
-                let placed = map.placed(rect.right_top(), TRANSITION_MAP);
+                let placed = map.placed(rect.right_top(), side);
                 let rect = placed.translate(egui::vec2(
                     (placed.width() - rect.width()) / 2.0,
                     (rect.height() - placed.height()) / 2.0,
                 ));
-                let painter = ui.painter_at(rect.expand(3.0));
+                let painter = ui.painter_at(rect.expand(6.0));
                 map.draw(&painter, rect);
                 let near = r.hover_pos().and_then(|p| {
                     let d = |x: &Destination| map.to_map(rect, x.at).distance(p);
@@ -592,51 +876,52 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                 for d in &here {
                     let at = map.to_map(rect, d.at);
                     let lit = is(d, &state.chosen) || near == Some(d);
-                    let (fill, edge) = if lit {
-                        (egui::Color32::YELLOW, egui::Color32::BLACK)
-                    } else if d.flags == 1 {
-                        (egui::Color32::from_rgb(90, 160, 255), egui::Color32::BLACK)
-                    } else {
-                        (egui::Color32::from_rgb(90, 220, 120), egui::Color32::BLACK)
+                    let fill = match d.object.kind {
+                        _ if lit => egui::Color32::YELLOW,
+                        ObjectKind::Door => egui::Color32::from_rgb(90, 160, 255),
+                        ObjectKind::Trigger => egui::Color32::from_rgb(230, 140, 60),
+                        _ => egui::Color32::from_rgb(90, 220, 120),
                     };
-                    let stroke = egui::Stroke::new(1.0, edge);
-                    if d.flags == 1 {
-                        let square = egui::Rect::from_center_size(at, egui::Vec2::splat(8.0));
-                        painter.rect_filled(square, 1.0, fill);
-                        painter.rect_stroke(square, 1.0, stroke, egui::StrokeKind::Outside);
-                    } else {
-                        painter.circle_filled(at, 4.0, fill);
-                        painter.circle_stroke(at, 4.0, stroke);
+                    let stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
+                    match d.object.kind {
+                        ObjectKind::Door => {
+                            let square = egui::Rect::from_center_size(at, egui::Vec2::splat(8.0));
+                            painter.rect_filled(square, 1.0, fill);
+                            painter.rect_stroke(square, 1.0, stroke, egui::StrokeKind::Outside);
+                        }
+                        ObjectKind::Trigger => diamond(&painter, at, fill, stroke),
+                        _ => {
+                            painter.circle_filled(at, 4.0, fill);
+                            painter.circle_stroke(at, 4.0, stroke);
+                        }
                     }
                 }
                 if let Some(d) = near {
-                    let kind = if d.flags == 1 { "door" } else { "waypoint" };
-                    r.clone().on_hover_text(format!("{} ({kind})", d.tag));
+                    r.clone().on_hover_text(format!("{} ({})", d.tag, kind_name(d.object.kind)));
                 }
                 if r.clicked()
                     && let Some(d) = near
                 {
-                    state.chosen = Some((d.tag.clone(), d.flags));
+                    state.chosen = Some(d.object);
                 }
                 if r.double_clicked() && near.is_some() {
                     ok = true;
                 }
             }
-            // The lists: the area's doors, then its waypoints.
+            // The lists: the area's doors, triggers, then its waypoints.
             ui.vertical(|ui| {
                 egui::ScrollArea::vertical()
                     .id_salt(pick_id.with("lists"))
-                    .max_height(ui.available_height().max(TRANSITION_MAP) - 60.0)
+                    .max_height(ui.available_height())
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         mg_uikit::list_rows(ui);
-                        for (flags, title) in [(1, "Available Doors:"), (2, "Available Waypoints:")]
-                        {
-                            if showing != 0 && showing != flags {
+                        for (kind, title, ..) in LEADS_TO {
+                            if showing.is_some_and(|k| k != kind) {
                                 continue;
                             }
                             ui.strong(title);
-                            for d in here.iter().filter(|d| d.flags == flags) {
+                            for d in here.iter().filter(|d| d.object.kind == kind) {
                                 // (Its tag, which the transition names,
                                 // and its name beside.)
                                 let mut text = egui::text::LayoutJob::default();
@@ -665,7 +950,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                                     .selectable_label(is(d, &state.chosen), text)
                                     .on_hover_text(format!("Tag {}", d.tag));
                                 if r.clicked() {
-                                    state.chosen = Some((d.tag.clone(), d.flags));
+                                    state.chosen = Some(d.object);
                                 }
                                 if r.double_clicked() {
                                     ok = true;
@@ -676,30 +961,48 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
                     });
             });
         });
-        match &state.chosen {
-            Some((tag, flags)) => {
-                let kind = if *flags == 1 { "door" } else { "waypoint" };
-                ui.label(format!("Leads to the {kind} tagged {tag}"));
-            }
-            None => {
-                ui.weak("Click a door (a square) or a waypoint (a dot) on the map, or in a list");
-            }
-        }
-        ui.horizontal(|ui| {
-            ok |= ui
-                .add_enabled(state.chosen.is_some(), egui::Button::new("OK"))
-                .on_hover_text("Lead the transition there")
-                .clicked()
-                || (state.chosen.is_some() && crate::widgets::enter(ui));
-            cancel = crate::widgets::cancel_discard(ui);
-        });
     });
-    let chosen = if ok { state.chosen.clone() } else { None };
-    if ok || cancel {
+    // (A double click on a row or the map: as OK, where OK can be pressed.)
+    let plan = state.worked.as_ref().filter(|w| Some(w.of.0) == state.chosen);
+    let plan = plan
+        .filter(|w| !w.said.iter().any(|s| matches!(s, Said::Refuses(_))))
+        .and_then(|w| w.plan.clone());
+    // (A double click picks first: worked out in the next frame, OK then.)
+    let ok_now = ok && plan.is_some();
+    if ok && !ok_now && state.worked.as_ref().is_none_or(|w| Some(w.of.0) != state.chosen) {
+        state.confirm = true;
+        ctx.request_repaint();
+    }
+    if let Some(plan) = plan.filter(|_| ok_now) {
+        apply_transition(f, plan);
+    }
+    if ok_now || cancel {
         state = TransitionPick::default();
     }
     ui.data_mut(|d| d.insert_temp(pick_id, state));
-    chosen
+}
+
+/// Applies a transition set up, as one step: the links, and the
+/// waypoints made announced as Create Waypoint's are (their tags weighed
+/// for Duplicate Tags, the plugins told). The Properties window's Cancel
+/// leaves it (Undo takes it back whole): set back on the current object
+/// alone, it would leave the target leading to an object that leads
+/// elsewhere.
+fn apply_transition(f: &mut Form<'_>, plan: mg_edit::transition::Plan) {
+    let made: Vec<mg_plugin::Selected> = (plan.made.iter())
+        .map(|(w, _)| mg_plugin::Selected::Object { area: w.area, kind: w.kind, index: w.index })
+        .collect();
+    let made = crate::plugin_events::Made::objects("setup-area-transition", made, false);
+    f.app.actions.push(Action::ApplyMade(plan.command, made));
+    let targets: Vec<(ResKey, mg_edit::GffPath)> =
+        f.targets().map(|(k, p)| (k, p.clone())).collect();
+    if let Some(changes) = f.app.properties_changed.get_mut(&targets[0]) {
+        changes.was.retain(|w| {
+            !matches!(w, super::Was::Field(k, p, l, _)
+                if targets.iter().any(|(tk, tp)| tk == k && tp == p)
+                    && (l == "LinkedTo" || l == "LinkedToFlags"))
+        });
+    }
 }
 
 /// The Area Transition page of doors and transition triggers: the
@@ -722,45 +1025,62 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        // Aurora's Setup Area Transition: a door or waypoint in an area,
-        // picked on its map or from its lists (gathered as the window
-        // opens: from every area's objects).
+        // Aurora's Setup Area Transition: a door, trigger or waypoint in
+        // an area, picked on its map or from its lists (gathered as the
+        // window opens: from every area's objects).
         let pick_id = f.id("transition-setup");
         if ui
             .button("Setup Area Transition…")
-            .on_hover_text("Pick the door or waypoint it leads to, on its area's map or in a list")
+            .on_hover_text("Pick the door, trigger or waypoint it leads to, and how")
             .clicked()
         {
             let destinations = destinations(f);
-            let linked = decode(f.root.string("LinkedTo").unwrap_or_default());
-            let now = destinations.iter().find(|d| d.tag == linked).cloned();
+            let editing: Vec<Placed> = f.targets().filter_map(|(k, p)| Placed::of(&k, p)).collect();
+            let now = now_leads_to(f, &destinations, &editing);
+            let here = editing.first().and_then(|c| destinations.iter().find(|d| d.area == c.area));
             let state = TransitionPick {
                 open: true,
-                area: now.as_ref().or(destinations.first()).map(|d| d.area),
-                chosen: now.map(|d| (d.tag, d.flags)),
+                area: now.or(here).or(destinations.first()).map(|d| d.area),
+                chosen: now.map(|d| d.object),
                 destinations,
-                map: None,
-                showing: 0,
+                editing,
+                ..Default::default()
             };
             ui.data_mut(|d| d.insert_temp(pick_id, state));
         }
-        if let Some((tag, flags)) = setup_transition(f, ui, pick_id) {
-            f.set_fields(
-                "Area transition",
-                vec![
-                    ("LinkedTo", Value::String(encode(&tag))),
-                    (
-                        "LinkedToFlags",
-                        super::integer(f.root.get("LinkedToFlags"), flags, FieldType::Byte),
-                    ),
-                ],
-            );
-        }
+        setup_transition(f, ui, pick_id);
         ui.end_row();
         crate::widgets::field_label(ui, "Loading Screen");
         f.load_screen(ui, &loadscreens);
         ui.end_row();
     });
+}
+
+/// The destination the object leads to now, to open the window on: a
+/// door of its `LinkedTo` (flags 1); a trigger whose waypoint it names
+/// (flags 2, `WP_` and the trigger's tag), else a waypoint of that tag.
+fn now_leads_to<'d>(
+    f: &Form<'_>,
+    destinations: &'d [Destination],
+    editing: &[Placed],
+) -> Option<&'d Destination> {
+    let linked = decode(f.root.string("LinkedTo").unwrap_or_default());
+    if linked.is_empty() {
+        return None;
+    }
+    let flags = f.root.integer("LinkedToFlags").unwrap_or(0);
+    let of = |kind: ObjectKind, tag: &str| {
+        destinations
+            .iter()
+            .find(|d| d.object.kind == kind && d.tag == tag && !editing.contains(&d.object))
+    };
+    match flags {
+        1 => of(ObjectKind::Door, &linked),
+        _ => linked
+            .strip_prefix("WP_")
+            .and_then(|t| of(ObjectKind::Trigger, t))
+            .or_else(|| of(ObjectKind::Waypoint, &linked)),
+    }
 }
 
 /// The Lock page (`TfraSituatedLock`).
@@ -1036,6 +1356,12 @@ mod tests {
             for (list, tag) in tags {
                 let mut s = Struct::new(0);
                 s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+                // (A trigger's Type by its tag: TT_GO a transition, TT_TRAP
+                // a trap, the others generic.)
+                if *list == "TriggerList" {
+                    let kind = [("TT_GO", 1), ("TT_TRAP", 2)].iter().find(|(t, _)| t == tag);
+                    s.set("Type", Value::Int(kind.map_or(0, |k| k.1)));
+                }
                 let mut all = g.root.list(list).unwrap_or(&[]).to_vec();
                 all.push(s);
                 g.root.set(list, Value::List(all));
@@ -1043,7 +1369,15 @@ mod tests {
             g.to_bytes().unwrap()
         };
         let mut m = mg_module::Module::new();
-        m.set(git("inn"), area(&[("WaypointList", "WP_INN"), ("Door List", "DR_INN")]));
+        let inn = [
+            ("WaypointList", "WP_INN"),
+            ("Door List", "DR_INN"),
+            ("TriggerList", "TT_GENERIC"),
+            ("TriggerList", "TT_GO"),
+            ("TriggerList", "TT_TRAP"),
+            ("TriggerList", "TT_GO"),
+        ];
+        m.set(git("inn"), area(&inn));
         m.set(git("road"), area(&[("WaypointList", "WP_ROAD"), ("WaypointList", "")]));
         for i in 0..40 {
             let tag = format!("WP_{i:02}");
@@ -1065,9 +1399,16 @@ mod tests {
             let area = git(area).resref;
             found.iter().filter(|d| d.area == area).map(|d| (d.tag.clone(), d.flags)).collect()
         };
-        assert_eq!(of("inn"), [("DR_INN".to_string(), 1), ("WP_CELLAR".to_string(), 2)]);
+        // Area transition triggers alone (generic and trap ones lead
+        // nowhere), two of one tag as two, each its own object.
+        let inn = |t: &str| (t.to_string(), if t.starts_with("DR") { 1 } else { 2 });
+        assert_eq!(of("inn"), [inn("DR_INN"), inn("TT_GO"), inn("TT_GO"), inn("WP_CELLAR")]);
+        let gos: Vec<Placed> =
+            found.iter().filter(|d| d.tag == "TT_GO").map(|d| d.object).collect();
+        let tt = |i| Placed::new(git("inn").resref, ObjectKind::Trigger, i);
+        assert_eq!(gos, [tt(1), tt(3)]);
         assert_eq!(of("road"), [("WP_ROAD".to_string(), 2)], "one without a tag left out");
-        assert_eq!(found.len(), 3 + 40);
+        assert_eq!(found.len(), 5 + 40);
         assert!(found.windows(2).all(|w| (w[0].area, &w[0].tag) <= (w[1].area, &w[1].tag)));
         assert!(ws.loaded(&git("inn")).is_some());
         assert!(ws.loaded(&git("road")).is_none(), "read, and not kept");

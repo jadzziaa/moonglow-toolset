@@ -36,6 +36,8 @@ mod sounds;
 mod tables;
 mod tile_edges;
 mod tiles;
+mod transition_setup;
+mod transition_triggers;
 mod tree;
 mod typed_text;
 mod updates;

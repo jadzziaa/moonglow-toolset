@@ -48,5 +48,9 @@ mod aurora_spell_warnings;
 mod aurora_store_setup;
 #[path = "../aurora_terrain.rs"]
 mod aurora_terrain;
+#[path = "../aurora_transitions.rs"]
+mod aurora_transitions;
+#[path = "../aurora_trigger_order.rs"]
+mod aurora_trigger_order;
 #[path = "../aurora_update_instances.rs"]
 mod aurora_update_instances;

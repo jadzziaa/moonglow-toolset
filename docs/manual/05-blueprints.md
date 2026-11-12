@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T19:00:00Z }
 ---
 
 # Blueprints
@@ -974,24 +974,58 @@ Moonglow keeps the ones an armor already has.
 
 Basic (name, appearance, initial state, hit points, saves, plot, static,
 usable, has inventory), **Lock** (locked, key, DCs), **Trap**, **Area
-Transition** (doors: to a door or waypoint in another area), Scripts,
+Transition** (where a door leads: a door, area transition trigger or
+waypoint), Scripts,
 Advanced, Visuals, Description, Comments. A placeable with an inventory
 has an **Inventory** page. It can have one without being usable: players
 can't open it, but scripts can reach what it holds.
 
 **Setup Area Transition…**, on a door's or an area transition trigger's
-Area Transition page, picks where it leads, as Aurora's does: choose the
-**Target Area**, then click a door (a blue square) or a waypoint (a green
-dot) on its map ([Minimaps](04-areas.md#minimaps); the one under the
-pointer named beside it), or in the lists of its doors and waypoints
-with tags beside the map, each by its tag (which the transition names)
-with its name beside it. The areas are listed by name; **Both**,
-**Doors** and **Waypoints** choose what the map and the lists show; and
-the window's edges are dragged to size it, the lists taking the room.
-**OK** (or a double click) sets **Destination Tag** to its tag and
-**Destination is a** to Door or Waypoint, one step to undo; Cancel
-changes nothing. The window opens on the area of the destination set,
-where there is one.
+Area Transition page, sets up where it leads, as Aurora's does: choose
+the **Target Area**, then click a door (a blue square), an area
+transition trigger (an orange diamond, at the middle of its outline) or a
+waypoint (a green dot) on its map ([Minimaps](04-areas.md#minimaps); the
+one under the pointer named beside it), or in the lists of its doors,
+triggers and waypoints with tags beside the map, each by its tag (which
+the transition names) with its name beside it. Every area transition
+trigger is listed, linked or not, but the object itself; generic and
+trap triggers lead nowhere and aren't. Two objects of one tag are two
+rows, and the row picked is the one linked. The areas are listed by name;
+**All**, **Doors**, **Waypoints** and **Triggers** choose what the map
+and the lists show; the window's edges are dragged to size it, the lists
+taking the room. It opens on the destination set, where there is one
+(for a trigger, the one whose waypoint it names).
+
+**Connection Type** chooses which ends are linked:
+
+- **Both Ways** (the default): each leads to the other.
+- **Current To Target**: this door or trigger leads there; the target is
+  left as it is.
+- **Target To Current**: the target leads here; this one is left as it
+  is.
+
+What leads to a door names the door's tag (**Destination is a** Door).
+What leads to a trigger leads to that trigger's **waypoint**, tagged
+`WP_` and the trigger's tag, standing at the middle of the trigger's
+outline, facing north (Destination is a Waypoint): OK makes it in the
+trigger's area, as Aurora does, unless a waypoint of that tag already
+stands inside the trigger's outline (from an earlier run), which is used
+again. A door is given no waypoint. A waypoint as the target is led to
+from this end alone: Both Ways and Target To Current are grayed. So are
+they for a blueprint, or several objects edited together, which have no
+one place to be led back to, and for an object without a tag.
+
+Under the lists the window says what OK will do: the waypoints it makes
+or uses again, a tag that is still its blueprint's (other objects may
+share it, and the transition would lead to whichever the game finds
+first), a link OK replaces (the object it led to is left as it was), and
+an area that is read-only in a project that keeps others' areas so (OK
+is grayed while the connection chosen would change it; one that leaves
+it alone can still be chosen). **OK** (or a double click) writes both
+ends and the waypoints at once, one step to undo; Cancel changes
+nothing. Closing the Properties window with Cancel afterwards leaves the
+transition as set up: Undo takes it back whole. The waypoints made are
+weighed for duplicate tags as any object placed is.
 
 Ticking **Static** on a placed placeable takes its visual transform off
 (its scale, rotations and offsets from Adjust Location or the rings), as
