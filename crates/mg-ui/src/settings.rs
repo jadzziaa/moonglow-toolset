@@ -1038,6 +1038,17 @@ pub const AUTOSAVE_MINUTES: u32 = 5;
 pub const DIALOG_BACKUP_MINUTES: u32 = 5;
 
 impl Settings {
+    /// The settings of a new installation (no settings file yet: the
+    /// desktop app's first start, [`Settings::read_eframe`]): the shell as
+    /// the redesign has it, the Bottom Dock closed (the log's last line in
+    /// the Status Bar). [`Settings::default`] keeps the meaning it had
+    /// before the shell (the log open), which an existing file that does
+    /// not name a setting, or does not read, takes: an existing user's
+    /// window stays as it was.
+    pub fn new_installation() -> Settings {
+        Settings { hide_log: true, ..Settings::default() }
+    }
+
     /// The minutes between recovery copies ([`AUTOSAVE_MINUTES`] unset).
     pub fn autosave_every(&self) -> u32 {
         self.autosave_minutes.unwrap_or(AUTOSAVE_MINUTES)
@@ -1158,15 +1169,21 @@ impl Settings {
     /// The settings the desktop app starts with: those kept under `key`
     /// in eframe's settings file (`app.ron`: a RON map of keys to RON
     /// text), read before eframe opens it (the graphics backend is needed
-    /// before the window has a device). Without the file or the key, the
-    /// defaults. Where the file is there and does not read, or some of
+    /// before the window has a device). Without the file, a new
+    /// installation's ([`Settings::new_installation`]); with the file and
+    /// without the key, the defaults (an existing user's). Where the file is there and does not read, or some of
     /// its settings do not ([`Settings::read_fields`]), the file as it is
     /// is kept beside it first (`app.ron.unreadable-<time>`): eframe saves
     /// over it half a minute on, and what could not be read would be gone.
     pub fn read_eframe(path: &Path, key: &str) -> SettingsRead {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return SettingsRead::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return SettingsRead {
+                    settings: Settings::new_installation(),
+                    ..Default::default()
+                };
+            }
             Err(e) => {
                 let (unreadable, kept) = (Some(e.to_string()), keep_aside(path));
                 return SettingsRead { unreadable, kept, ..Default::default() };
@@ -1672,6 +1689,60 @@ mod tests {
         assert!(Settings::read_fields("not ron").is_err());
     }
 
+    /// A new installation's settings differ from the defaults (an existing
+    /// user's, before the shell) only in the Bottom Dock closed. (M3's T10
+    /// adds the Open editors switch, As Tabs, as their second difference.)
+    #[test]
+    fn a_new_installation_differs_from_the_defaults_only_in_the_log_closed() {
+        let new = Settings::new_installation();
+        assert!(new.hide_log && !Settings::default().hide_log);
+        assert_eq!(Settings { hide_log: false, ..new }, Settings::default());
+    }
+
+    /// The settings 4.1.0 kept (before the shell's dock sizes), as RON and
+    /// as JSON, read as the defaults with the log open, nothing unread and
+    /// nothing put aside; a setting this version no longer has (or never
+    /// had) reads the same, with no warning.
+    #[test]
+    fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
+        // (The fields the shell added since 4.1.0: whatever their values,
+        // a 4.1.0 file has none of them.)
+        const ADDED: [&str; 3] = ["left_dock_width", "right_dock_width", "bottom_dock_height"];
+        let saved = Settings { light_theme: true, ..Default::default() };
+        let mut ron_text = saved.saved_text();
+        for field in ADDED {
+            let at = ron_text.find(&format!("{field}:")).expect(field);
+            let end = at + ron_text[at..].find(',').expect("a field after it") + 1;
+            ron_text.replace_range(at..end, "");
+        }
+        let mut json: serde_json::Value = serde_json::to_value(&saved).unwrap();
+        for field in ADDED {
+            assert!(json.as_object_mut().unwrap().remove(field).is_some(), "{field}");
+        }
+        let dir = mg_testkit::scratch_dir("settings-from-4-1");
+        let path = dir.join("app.ron");
+        let key = "moonglow-settings";
+        let retired = ron_text.replacen("(", "(a_retired_setting:true,", 1);
+        for text in [&ron_text, &retired] {
+            assert!(ADDED.iter().all(|f| !text.contains(f)), "{text}");
+            let kv = std::collections::HashMap::from([(key.to_string(), text.clone())]);
+            std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+            let read = Settings::read_eframe(&path, key);
+            assert_eq!(read.settings, saved, "{text}");
+            assert!(!read.settings.hide_log, "the log open");
+            assert!(read.unread.is_empty() && read.problem().is_none(), "{read:?}");
+            assert!(read.kept.is_none(), "nothing put aside");
+            let copies: Vec<_> = (std::fs::read_dir(&dir).unwrap().flatten())
+                .filter(|e| e.file_name().to_string_lossy().starts_with("app.ron.unreadable-"))
+                .collect();
+            assert!(copies.is_empty(), "no copy: {copies:?}");
+        }
+        let read: Settings = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(read, saved);
+        json.as_object_mut().unwrap().insert("a_retired_setting".into(), true.into());
+        assert_eq!(serde_json::from_value::<Settings>(json).unwrap(), saved);
+    }
+
     /// Where the saved settings do not read, the file as it was is kept
     /// beside it before eframe saves over it, once, and the log is told;
     /// settings that read (and no file at all) keep nothing aside.
@@ -1695,8 +1766,11 @@ mod tests {
             all.sort();
             all
         };
-        // No file, and a file without the settings: the defaults, quietly.
-        assert_eq!(Settings::read_eframe(&path, key), SettingsRead::default());
+        // No file: a new installation's, quietly; a file without the
+        // settings: the defaults (an existing user's), quietly.
+        let new = SettingsRead { settings: Settings::new_installation(), ..Default::default() };
+        assert_eq!(Settings::read_eframe(&path, key), new);
+        assert!(copies().is_empty());
         write("(light_theme:true)");
         assert_eq!(Settings::read_eframe(&path, "another-key"), SettingsRead::default());
         // Settings that read; a newer version's name among them too.

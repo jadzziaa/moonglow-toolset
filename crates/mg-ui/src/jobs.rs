@@ -103,6 +103,16 @@ impl std::fmt::Debug for Job {
     }
 }
 
+/// A job under way as the Status Bar shows it ([`Moonglow::job_shown`]).
+pub(crate) struct JobShown {
+    /// What the log calls it.
+    pub title: String,
+    /// The steps done and their total, where the total is known.
+    pub steps: Option<(usize, usize)>,
+    /// What it is doing now (empty where it has not said).
+    pub note: String,
+}
+
 /// Asks for a frame from a thread of the window's whose work is done (a
 /// look at the module's files, a watch that heard a change, the game's
 /// programs made): at once where the window keeps going (`at_once`:
@@ -289,6 +299,37 @@ impl Moonglow {
         if !self.background_jobs {
             self.finish_job();
         }
+    }
+
+    /// The job under way as the Status Bar shows it.
+    pub(crate) fn job_shown(&self) -> Option<JobShown> {
+        let job = self.job.as_ref()?;
+        let p = &job.progress;
+        let (done, total) = (p.done.load(Ordering::Relaxed), p.total.load(Ordering::Relaxed));
+        let steps = (total > 0).then_some((done.min(total), total));
+        Some(JobShown { title: job.title.clone(), steps, note: p.note() })
+    }
+
+    /// Starts `work` as a job titled `title` on a thread of its own, run in
+    /// the background whatever [`Moonglow::background_jobs`] says (a test
+    /// holds it there with a channel of its own, says how far it is with
+    /// [`Progress::step`], and lets it end, fail by a panic or be called
+    /// off); done, the log says "`title`: done". For the window's tests
+    /// and pictures of a job under way, a job's timing being the machine's.
+    #[doc(hidden)]
+    pub fn start_job_for_tests(
+        &mut self,
+        title: &str,
+        work: impl FnOnce(&Progress) + Send + 'static,
+    ) {
+        let was = std::mem::replace(&mut self.background_jobs, true);
+        let done = format!("{title}: done");
+        self.start_job_anywhere(
+            title,
+            move |cx| work(&cx.progress),
+            move |app, ()| app.log.info(done),
+        );
+        self.background_jobs = was;
     }
 
     /// Each frame: hands a finished job's work over; else asks to be drawn

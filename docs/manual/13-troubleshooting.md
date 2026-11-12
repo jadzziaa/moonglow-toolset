@@ -3,15 +3,17 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
 ---
 
 # Troubleshooting
 
 ## Moonglow does not find the game
 
-The log says "No Neverwinter Nights installation found" and the Status
-Bar "No game install". Choose **Tools › Options… › Folders** and set the
+The log says "No Neverwinter Nights installation found" (with the log
+closed, as a new installation starts, that is its last line in the
+Status Bar, beside the Log switch) and the Status Bar "No game
+install". Choose **Tools › Options… › Folders** and set the
 game's folder: the one with `data/` and `bin/` in it (for Steam,
 `steamapps/common/Neverwinter Nights` in the library you installed it
 to). Moonglow needs Enhanced Edition; the original 1.69 release is not

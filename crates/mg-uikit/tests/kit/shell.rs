@@ -8,7 +8,7 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::shell::{self, DockTab, DockTabs, FoldStrip, PanelHeader, Side, StripClick};
-use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusSwitch};
+use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch};
 use mg_uikit::{Badge, BadgeKind, Icon, IconButton, KeyCap, Theme};
 
 /// A dock's tabs: found within the dock's tab list by their words, said
@@ -835,4 +835,123 @@ fn the_arrow_keys_go_between_a_dock_s_tabs() {
     let said = h.get_by_label("Left Dock").get_by_label("Outliner").accesskit_node().is_selected();
     assert_eq!(said, Some(true));
     assert_eq!(after.get(), 0, "the keys the tabs'");
+}
+
+/// How soon the harness's window asks to be drawn again.
+fn again(h: &Harness<'_>) -> std::time::Duration {
+    let out = &h.output().viewport_output;
+    out.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay)
+}
+
+/// A job whose progress is not known draws a moving mark along its bar
+/// (`accent`, a quarter of the bar), which moves from frame to frame and
+/// asks for a frame each [`status::JOB_MARK_FRAME`]; a job whose part done
+/// is known draws that part, still, and asks for none. Its accessible
+/// name is the one given it, its words cut short to its width at most,
+/// its bar never.
+#[test]
+fn a_job_of_unknown_progress_has_a_moving_mark() {
+    let known = Cell::new(None::<f32>);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let job = StatusJob::new("Verify Module", known.get()).name("Verify Module, under way");
+        ui.add(job);
+    });
+    h.run_steps(1);
+    let t = Theme::Dark.tokens();
+    let mark = |h: &Harness<'_>| {
+        let all: Vec<_> = rects(h).into_iter().filter(|r| r.fill == t.accent).collect();
+        assert_eq!(all.len(), 1, "one mark");
+        all[0].rect
+    };
+    let first = mark(&h);
+    assert_eq!(first.width(), status::JOB_MARK);
+    h.step();
+    assert_ne!(mark(&h).left(), first.left(), "it moves");
+    // (Read after a frame of its own: a harness's first frame may report
+    // none.)
+    assert!(again(&h) <= status::JOB_MARK_FRAME, "{:?}", again(&h));
+    let node = h.get_by_label("Verify Module, under way");
+    assert_eq!(node.accesskit_node().numeric_value(), None);
+    known.set(Some(0.5));
+    h.run_steps(1);
+    assert_eq!(mark(&h).width(), status::JOB_BAR.x * 0.5);
+    assert!(again(&h) > std::time::Duration::from_secs(1), "still: {:?}", again(&h));
+    // The mark goes to the bar's end and back once each period.
+    let end = status::JOB_BAR.x - status::JOB_MARK;
+    assert_eq!(StatusJob::mark_offset(0.0, status::JOB_BAR.x), 0.0);
+    let half = StatusJob::mark_offset(status::JOB_MARK_PERIOD / 2.0, status::JOB_BAR.x);
+    assert!((half - end).abs() < 0.01, "{half}");
+    let whole = StatusJob::mark_offset(status::JOB_MARK_PERIOD * 0.999, status::JOB_BAR.x);
+    assert!(whole < 1.0, "{whole}");
+    // Cut short: its words, never its bar.
+    let found = RefCell::new(Vec::new());
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let job = || StatusJob::new("Compile All Scripts", Some(0.1));
+        let whole = job().width(ui);
+        let cut = job().max_width(100.0);
+        *found.borrow_mut() = vec![(whole, job().is_cut(ui)), (cut.width(ui), cut.is_cut(ui))];
+        ui.add(cut);
+    });
+    h.run();
+    let found = found.borrow();
+    assert!(!found[0].1 && found[0].0 > 100.0, "{found:?}");
+    assert!(found[1].1 && found[1].0 <= 100.0, "{found:?}");
+    let words: Vec<String> = (h.output().shapes.iter())
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => {
+                Some(t.galley.rows.iter().flat_map(|r| r.glyphs.iter()).map(|g| g.chr).collect())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(words.iter().any(|w| w.starts_with("Co") && w.ends_with('…')), "{words:?}");
+    let bar = rects(&h).into_iter().find(|r| r.fill == t.inset).expect("the bar");
+    assert_eq!(bar.rect.width(), status::JOB_BAR.x);
+}
+
+/// The log's last line: in `text-3`, or the color given it; cut short
+/// with an ellipsis to its width at most (named by its whole words, its
+/// first line alone shown); a button, which reports its click.
+#[test]
+fn the_log_s_last_line_is_cut_short_and_pressed() {
+    let long = "Verify Module found 12 problems in the module's scripts and areas\nand more";
+    let clicks = Cell::new(0);
+    let color = Cell::new(None::<egui::Color32>);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Light);
+        let mut line = StatusLog::new(long).max_width(160.0);
+        if let Some(c) = color.get() {
+            line = line.color(c);
+        }
+        assert!(line.is_cut(ui) && line.width(ui) <= 160.0);
+        assert!(line.shown(ui).starts_with("Verify") && line.shown(ui).ends_with('…'));
+        assert!(!StatusLog::new("Short").max_width(160.0).is_cut(ui));
+        if ui.add(line).clicked() {
+            clicks.set(clicks.get() + 1);
+        }
+    });
+    h.run();
+    let t = Theme::Light.tokens();
+    let painted = |h: &Harness<'_>| {
+        let mut out = Vec::new();
+        for s in &h.output().shapes {
+            if let egui::Shape::Text(text) = &s.shape {
+                out.push(text.fallback_color);
+            }
+        }
+        out
+    };
+    assert_eq!(painted(&h), [t.text_3]);
+    let node = h.get_by_label(long);
+    assert_eq!(node.accesskit_node().role(), Role::Button);
+    assert!(node.rect().width() <= 160.0);
+    node.click();
+    h.run();
+    assert_eq!(clicks.get(), 1);
+    color.set(Some(t.error));
+    h.hover_at(egui::pos2(300.0, 300.0));
+    h.run();
+    assert_eq!(painted(&h), [t.error]);
 }

@@ -49,15 +49,14 @@
 //! is "the Left Dock folded", `Settings::hide_palettes` "the Right Dock
 //! folded" and `Settings::hide_log` "the Bottom Dock closed".
 //!
-//! Later tasks fill it: the Log's last line and the jobs in the Status
-//! Bar (T7), Quick Open in the Top Bar's middle (T8), hints (T12), the
+//! Later tasks fill it: Quick Open in the Top Bar's middle (T8), hints (T12), the
 //! Left Dock's Outliner (T13, which the area brings as it brings the Right
 //! Dock's panels) and the widths the shell yields at (T14; T2 takes only
 //! the build actions' words, below 1300).
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
-use mg_uikit::status::{self, StatusItem, StatusSwitch};
+use mg_uikit::status::{self, StatusItem, StatusJob, StatusLog, StatusSwitch};
 use mg_uikit::{Icon, IconButton, Join, metrics};
 
 use crate::commands::{self, CommandRow, Id, TOP_BAR, TOP_BAR_TEST_MENU, TopBarButton};
@@ -527,10 +526,14 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// The Status Bar (`Panel::bottom("status")`): the Log's switch at the
-/// left; the module's name (with "(modified)", its path in the tip) and
-/// the game folder at the right, the folder left out where both do not
-/// fit beside the switch, and then the name cut short with an ellipsis
-/// ("(modified)" kept whole).
+/// left and, while the Bottom Dock is closed, the log's last line after it
+/// (pressed, it opens the log); at the right a running job (its name and
+/// bar), the module's name (with "(modified)", its path in the tip) and
+/// the game folder. As the window narrows they yield in that order: the
+/// last line is cut short with an ellipsis, then goes; the game folder
+/// goes; the job's name is cut short (its bar kept); then the module's
+/// name is cut short ("(modified)" kept whole), shared with the note of a
+/// look under way as before ([`share`]).
 pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(ui.ctx());
     let size = metrics::STATUS_BAR + panel_line(ui);
@@ -552,7 +555,32 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         }
         None => ("No game install".to_string(), None),
     };
-    let clicked = egui::Panel::bottom("status")
+    // The log's last line, while the dock that shows the log is closed:
+    // its message (the board's, with no time), in the log's color for a
+    // warning or an error; the whole of it, its time first, in the tip.
+    let last = (!log_on).then(|| app.log.entries.len().checked_sub(1)).flatten().map(|i| {
+        let (level, text) = &app.log.entries[i];
+        let color = match level {
+            crate::Level::Info => None,
+            crate::Level::Warning => Some(t.warn),
+            crate::Level::Error => Some(t.error),
+        };
+        (text.clone(), color, app.log.shown(i))
+    });
+    let job = app.job_shown().map(|crate::jobs::JobShown { title, steps, note }| {
+        let (name, mut tip) = match steps {
+            Some((done, total)) => {
+                (format!("{title}, {done} of {total}"), format!("{title}: {done} of {total}"))
+            }
+            None => (format!("{title}, under way"), format!("{title}: under way")),
+        };
+        if !note.is_empty() {
+            tip = format!("{tip}\n{note}");
+        }
+        let done = steps.map(|(d, n)| d as f32 / n as f32);
+        StatusJob::new(title, done).name(name).tooltip(tip)
+    });
+    let (clicked, last_clicked) = egui::Panel::bottom("status")
         .exact_size(size)
         .resizable(false)
         .frame(status::frame(&t))
@@ -572,41 +600,76 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 folder_item = folder_item.tooltip(tip);
             }
             // (Its whole words in its tip, where it is cut short.)
-            let note = looking.map(|n| StatusItem::new(n).tooltip(n));
+            let mut note = looking.map(|n| StatusItem::new(n).tooltip(n));
+            let mut job = job;
             // The right-hand items share the room left after the switch
             // and the gap before them by one rule: the game folder goes
-            // first; then the note and the name are cut short with an
+            // first; then the job's name is cut short, down to its bar;
+            // then the note and the module's name are cut short with an
             // ellipsis (`share`), each to half the room where both are
             // wider, or to what the other leaves (the name's path in its
-            // tip, "(modified)" kept whole).
+            // tip, "(modified)" kept whole). The last line has what they
+            // leave (the bar's middle), and so yields before them all.
             let between = 2.0 * status::GAP + status::SEPARATOR_WIDTH;
             let left = switch.width(ui) + 2.0 * status::GAP;
             let room = ui.available_width() - left;
             let note_gap = if note.is_some() { between } else { 0.0 };
+            let job_gap = if job.is_some() { between } else { 0.0 };
             let note_width = note.as_ref().map_or(0.0, |n| n.width(ui));
-            let with_folder =
-                item.width(ui) + note_width + note_gap + between + folder_item.width(ui);
-            let show_folder = with_folder <= room;
-            let mut note = note;
-            if !show_folder {
-                let (name_max, note_max) = share(room - note_gap, item.width(ui), note_width);
+            let job_width = job.as_ref().map_or(0.0, |j| j.width(ui));
+            let without_folder = item.width(ui) + note_width + note_gap + job_width + job_gap;
+            // (With a last line to show, the folder stays only where the
+            // line keeps its least room beside it: the line yields first.)
+            let line_room = match last {
+                Some(_) => LAST_LINE_LEAST + 2.0 * status::GAP + status::SEPARATOR_WIDTH,
+                None => 0.0,
+            };
+            let with_folder = without_folder + between + folder_item.width(ui);
+            let show_folder = with_folder + line_room <= room;
+            if !show_folder && without_folder > room {
+                let others = item.width(ui) + note_width + note_gap + job_gap;
+                job = job.map(|j| j.max_width(room - others));
+                let job_width = job.as_ref().map_or(0.0, |j| j.width(ui));
+                let rest = room - note_gap - job_width - job_gap;
+                let (name_max, note_max) = share(rest, item.width(ui), note_width);
                 item = item.max_width(name_max);
                 note = note.map(|n| n.max_width(note_max));
             }
-            let right = if show_folder {
-                with_folder
-            } else {
-                item.width(ui) + note.as_ref().map_or(0.0, |n| n.width(ui)) + note_gap
-            };
-            let (clicked, (), ()) = status::bar_sized(
+            let mut right = item.width(ui)
+                + note.as_ref().map_or(0.0, |n| n.width(ui))
+                + note_gap
+                + job.as_ref().map_or(0.0, |j| j.width(ui))
+                + job_gap;
+            if show_folder {
+                right += between + folder_item.width(ui);
+            }
+            let (clicked, last_clicked, ()) = status::bar_sized(
                 ui,
                 right,
                 |ui| ui.add(switch).clicked(),
-                // (The hints and the log's last line: T12 and T7.)
-                |_, _| {},
+                // (The hints: T12's.)
+                |ui, room| {
+                    let (text, color, tip) = last?;
+                    // (After a separator, as the board has it; too narrow
+                    // for a word and its ellipsis, not shown.)
+                    let room = room - status::SEPARATOR_WIDTH - status::GAP;
+                    if room < LAST_LINE_LEAST {
+                        return None;
+                    }
+                    let mut line = StatusLog::new(text).max_width(room).tooltip(tip);
+                    if let Some(color) = color {
+                        line = line.color(color);
+                    }
+                    status::separator(ui);
+                    Some(ui.add(line).clicked())
+                },
                 |ui| {
                     if let Some(note) = note {
                         ui.add(note);
+                        status::separator(ui);
+                    }
+                    if let Some(job) = job {
+                        ui.add(job);
                         status::separator(ui);
                     }
                     ui.add(item);
@@ -616,13 +679,19 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 },
             );
-            clicked
+            (clicked, last_clicked == Some(true))
         })
         .inner;
     if clicked {
         app.show_panel(Id::ViewLog, !log_on);
+    } else if last_clicked {
+        app.show_panel(Id::ViewLog, true);
     }
 }
+
+/// The least room the log's last line is shown in (a short word and its
+/// ellipsis); in less, it is not shown.
+pub(crate) const LAST_LINE_LEAST: f32 = 48.0;
 
 /// The widths at most of the Status Bar's module name and its note (the
 /// game folder left out), `name` and `note` wide as they are, in `room`:
@@ -1105,9 +1174,12 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
 
 /// The Bottom Dock (`Panel::bottom("log")`), unless closed
 /// (`Settings::hide_log`): its tab bar (the Log's tab; Copy, Save… and
-/// Clear at its right), the log under it, as low as the tab bar and a
+/// Clear at its right, which yield whole from the end where the dock is
+/// too narrow for them beside the tab, the tab its icon alone), the log
+/// under it, as low as the tab bar and a
 /// line and at most half the window.
 pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
+    app.bottom_rect = None;
     if app.settings.hide_log {
         return;
     }
@@ -1140,18 +1212,46 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
         .show(ui, |ui| {
             dock_pane(ui);
             let mut tab = 0;
-            let bar =
-                DockTabs::new(BOTTOM_DOCK).with(DockTab::new("Log")).show(ui, &mut tab, |ui| {
-                    let mut chosen = None;
-                    for ((id, icon, name, _), tip) in buttons.iter().zip(&tips) {
-                        let button = IconButton::new(*icon, *name).icon_only(true);
-                        let r = ui.add_enabled(enabled, button);
-                        if r.on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
-                            chosen = Some(*id);
-                        }
+            // The Log's tab turns to its icon where its words and the
+            // tools do not fit side by side; narrower still, the tools
+            // yield whole from the end (Clear Log first), each still in
+            // View's menu: the tab and the tools never overlap.
+            let button = IconButton::new(Icon::Copy, "").icon_only(true).width(ui);
+            let mut tabs = DockTabs::new(BOTTOM_DOCK)
+                .tools_width(button * buttons.len() as f32)
+                .with(DockTab::new("Log").icon(Icon::Log));
+            let bar_width = ui.available_width();
+            // (Narrower than its tab's icon, in a window too narrow for
+            // the docks beside the editor area, the bar is drawn empty,
+            // its tools gone first: the log under it, the Status Bar's
+            // switch closing it.)
+            let tab_fits = tabs.tabs_width(ui, true) <= bar_width;
+            if !tab_fits {
+                tabs = DockTabs::new(BOTTOM_DOCK);
+            }
+            let icons = tabs.icons_in(ui, bar_width);
+            let room = bar_width
+                - tabs.tabs_width(ui, icons)
+                - kit::TOOLS_PADDING.0
+                - kit::TOOLS_PADDING.1;
+            // (The tools go before the tab does: none without it.)
+            let fitting = if tab_fits {
+                ((room / button).floor().max(0.0) as usize).min(buttons.len())
+            } else {
+                0
+            };
+            let bar = tabs.show(ui, &mut tab, |ui| {
+                let mut chosen = None;
+                for ((id, icon, name, _), tip) in buttons.iter().zip(&tips).take(fitting) {
+                    let button = IconButton::new(*icon, *name).icon_only(true);
+                    let r = ui.add_enabled(enabled, button);
+                    if r.on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
+                        chosen = Some(*id);
                     }
-                    chosen
-                });
+                }
+                chosen
+            });
+            app.bottom_rect = Some(ui.max_rect());
             let margin = Margin { left: 8, right: 8, top: 4, bottom: 4 };
             egui::Frame::new().inner_margin(margin).show(ui, |ui| app.log_ui(ui));
             bar.inner

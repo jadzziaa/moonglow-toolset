@@ -828,6 +828,9 @@ pub struct Moonglow {
     /// (`shell::right_dock`; `None` from the start of each frame until it
     /// is drawn).
     pub(crate) right_rect: Option<egui::Rect>,
+    /// Where the Bottom Dock was drawn at the last frame
+    /// ([`Moonglow::bottom_dock_rect`]).
+    pub(crate) bottom_rect: Option<egui::Rect>,
     /// Where the Right Dock's Preview panel's body was drawn at this
     /// frame, under the dock's tab bar (`shell::right_dock`; `None` from
     /// the start of each frame until it is drawn, and while the Palette's
@@ -1357,6 +1360,7 @@ impl Moonglow {
             resources_alone: false,
             right_fold: None,
             right_rect: None,
+            bottom_rect: None,
             preview_rect: None,
             right_panel: Panel::Palette,
             preview_slot: None,
@@ -2269,6 +2273,12 @@ impl Moonglow {
     /// where it was folded, or not drawn.
     pub fn right_dock_rect(&self) -> Option<egui::Rect> {
         self.right_rect
+    }
+
+    /// Where the Bottom Dock was drawn at the last frame, its tab bar and
+    /// the log under it: `None` where it was closed.
+    pub fn bottom_dock_rect(&self) -> Option<egui::Rect> {
+        self.bottom_rect
     }
 
     /// The panel the Right Dock shows (its tab selected): `None` where the

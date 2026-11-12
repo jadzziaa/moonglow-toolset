@@ -10,7 +10,7 @@ use egui_kittest::Harness;
 use mg_uikit::Controls as _;
 use mg_uikit::icons::{ButtonState, paint_icon_button};
 use mg_uikit::shell::{self, DockTab, DockTabs, FoldStrip, PanelHeader, Side};
-use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusSwitch};
+use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch};
 use mg_uikit::{Badge, BadgeKind, Icon, IconButton, KeyCap, Theme, TokensExt as _, metrics};
 
 /// The sheet's size.
@@ -600,9 +600,23 @@ fn status_bar(ui: &mut Ui) {
                     }
                     status::separator(ui);
                 },
-                |ui, room| Hints::new(&hints).show(ui, room),
+                |ui, room| {
+                    if narrow {
+                        Hints::new(&hints).show(ui, room)
+                    } else {
+                        // (The log's last line, the log closed, cut short
+                        // to its room: the hints have the rest.)
+                        let line = StatusLog::new("m1q3_formosa_9.nss: compiled").max_width(110.0);
+                        let used = line.width(ui) + status::GAP;
+                        ui.add(line);
+                        Hints::new(&hints).show(ui, room - used)
+                    }
+                },
                 |ui| {
                     if narrow {
+                        // (A job whose progress is not known: its mark.)
+                        ui.add(StatusJob::new("Build Module", None));
+                        status::separator(ui);
                         ui.add(StatusItem::new("192 objects"));
                     } else {
                         ui.add(StatusJob::new("Verify Module", Some(0.4)));

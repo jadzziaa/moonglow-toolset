@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:10:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
 ---
 
 # The main window
@@ -15,9 +15,10 @@ resource browser), the
 **tabs** in the middle and the **Right Dock** on the right, with the
 **Palette** and **Preview** panels on two tabs, the **log** in the Bottom Dock under the tabs, and the
 **Status Bar** (the log's
-switch at its left; the module's name, "(modified)" while there are
-unsaved changes, and the game's folder at its right: rest the pointer
-on the name for the module's file, on the folder for its whole path).
+switch at its left and, while the log is closed, its last line; at its
+right a job while one runs, the module's name, "(modified)" while there
+are unsaved changes, and the game's folder: rest the pointer on the
+name for the module's file, on the folder for its whole path).
 The palette comes with each module, in the Right Dock, 320 points wide
 at first. The docks follow the tab you work in: the Right Dock holds
 the panels of an area, so it is there while an area's tab (or, with no
@@ -44,10 +45,11 @@ actions (New, Open, Save, Undo and Redo): each is in the menus as well
 (File, Edit, Build). The window can't be made narrower than the menus
 (420 by 320 points, which grow with Options › General › Interface size
 and follow it as soon as it changes); one left smaller opens at that
-size. Where the Status Bar is short of room, the game folder goes
-first, then the module's name and the note of files being read are cut
-short with an ellipsis ("(modified)" kept; rest the pointer on them for
-the whole). The Top Bar
+size. Where the Status Bar is short of room, the log's last line is
+cut short with an ellipsis and then goes, then the game folder goes,
+then a running job's name is cut short (its bar kept), and last the
+module's name and the note of files being read are cut short ("(modified)"
+kept; rest the pointer on any of them for the whole). The Top Bar
 is the same whatever **Tools › Options › General › Editors' toolbar
 buttons** says: that setting is the area view's and the editors'
 toolbars'. The icons are Moonglow's own drawings, one to a command. The
@@ -923,9 +925,27 @@ right of its tab bar, **Copy Log** (or View › Copy Log) puts the whole
 log on the clipboard and **Save Log** (View › Save Log…) writes it into
 a text file, each line with its time; **Clear Log** (View › Clear Log)
 empties it: a second Verify's report isn't then mistaken for the
-first's. The **Log** switch at the left of the Status Bar (or View ›
-Log, Ctrl+Alt+3) opens and closes it; drag its top edge to make it
-higher or lower, down to a line.
+first's. Where the Bottom Dock is narrow (in a narrow window, beside
+both side docks), its tab shows the log's icon alone, and narrower
+still the three buttons give way from the end (Clear Log first): they
+are in the View menu too. The **Log** switch at the left of the Status
+Bar (or View › Log, Ctrl+Alt+3) opens and closes it; drag its top edge
+to make it higher or lower, down to a line. A new installation of
+Moonglow starts with the log closed; one that has run before keeps it
+as you left it.
+
+While the log is closed, its last line follows the Log switch in the
+Status Bar, without its time: a warning in yellow, an error in red, cut
+short with an ellipsis where the bar is short of room. Rest the pointer
+on it for the whole line and its time; click it to open the log.
+
+While long work runs as a job (Build Module, Compile All Scripts,
+Verify Module, a hak saved, an NWSync publish, a project's or a
+plugin's command, among others), the right of the Status Bar shows its name and a bar: how much is done
+where the job says, a mark going to and fro where it does not. Rest the
+pointer on it for how far it is. One job runs at a time, in a window of
+its own with **Cancel**, which is how it is stopped; work asked for
+meanwhile waits (the log says so).
 
 ## Screen readers and desktop agents
 

@@ -967,7 +967,7 @@ fn the_view_menu_s_rows_fold_the_docks_and_say_so() {
 
 /// The named controls of the bar `bar` (buttons, tabs, labels: named, or
 /// a label's words) and their rectangles.
-fn bar_controls(h: &Harness<'_, Moonglow>, bar: &str) -> Vec<(String, egui::Rect)> {
+pub(crate) fn bar_controls(h: &Harness<'_, Moonglow>, bar: &str) -> Vec<(String, egui::Rect)> {
     let Some(group) = h.query_by_label(bar) else { return Vec::new() };
     let words = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.label().or(n.value());
     group
@@ -979,7 +979,7 @@ fn bar_controls(h: &Harness<'_, Moonglow>, bar: &str) -> Vec<(String, egui::Rect
 
 /// What is wrong with the bars' controls: two that overlap, and (where
 /// `inside`) one that leaves the window.
-fn bars_wrong(h: &Harness<'_, Moonglow>, inside: bool) -> Vec<String> {
+pub(crate) fn bars_wrong(h: &Harness<'_, Moonglow>, inside: bool) -> Vec<String> {
     let window = h.ctx.content_rect();
     let mut wrong = Vec::new();
     for bar in ["Top Bar", "Status Bar", "Left Dock", "Bottom Dock"] {
@@ -1210,7 +1210,7 @@ fn a_long_module_name_is_cut_short_in_the_status_bar() {
 
 /// The words drawn inside `rect` in the last frame, one string for each
 /// line of text, the galleys that follow each other on one line joined.
-fn drawn_texts(h: &Harness<'_, Moonglow>, rect: egui::Rect) -> Vec<String> {
+pub(crate) fn drawn_texts(h: &Harness<'_, Moonglow>, rect: egui::Rect) -> Vec<String> {
     let mut pieces: Vec<(f32, f32, String)> = Vec::new();
     for shape in drawn(h) {
         if let egui::Shape::Text(t) = shape {

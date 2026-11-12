@@ -631,7 +631,10 @@ fn main() -> eframe::Result<()> {
     // Without the file, or where it can't be read: Automatic. They are
     // read here once, for the app too: where they do not all read, what
     // does is kept, the file as it was is put aside before eframe saves
-    // over it, and the log says so (`Settings::read_eframe`).
+    // over it, and the log says so (`Settings::read_eframe`). With no
+    // file at all (Moonglow's first start here), a new installation's
+    // settings (`Settings::new_installation`: the log closed); a file
+    // that does not name a setting gives it its default, as before.
     let settings_file = eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron"));
     let read = settings_file
         .as_deref()

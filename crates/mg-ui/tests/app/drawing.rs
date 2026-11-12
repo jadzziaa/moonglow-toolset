@@ -2037,3 +2037,48 @@ fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     assert!(h.state().model_views[&source].holds_targets());
     h.render().expect("render").save(dir.join("once.png")).unwrap();
 }
+
+/// The same with the blueprint's own editor on its Appearance page (a
+/// creature's), which shows the model the palette's chosen blueprint has
+/// (the same source): docked in the editor area and as a floating window,
+/// the tab keeps its view and the Preview panel says the model is shown
+/// elsewhere (the Preview's body is drawn after the editor area while an
+/// open tab may show its model, `model_view::a_tab_may_show`).
+#[test]
+fn a_blueprint_s_appearance_page_keeps_its_view_beside_the_preview() {
+    const ELSEWHERE: &str = "The preview is shown elsewhere in the window.";
+    for docked in [true, false] {
+        let name = if docked { "preview-page-docked" } else { "preview-page-floating" };
+        let Some((mut h, _area)) = area_harness(name) else { return };
+        let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+        if docked {
+            // (Creatures' editors dock in the middle, in front of the area.)
+            let middle = ("creature".to_string(), "middle".to_string());
+            h.state_mut().settings.window_places = vec![middle];
+        }
+        {
+            let app = h.state_mut();
+            let data = app.game.as_ref().unwrap().resman.get(&bandit).unwrap();
+            app.ws.as_mut().unwrap().view(bandit, mg_gff::Gff::read(&data).unwrap());
+            app.blueprint_pages.insert((bandit, mg_edit::GffPath::root()), "Appearance");
+            app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(bandit)));
+            app.palette.selected = Some(bandit);
+            app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+        }
+        settle(&mut h);
+        let at = h.state().dock.find_tab(&Tab::Blueprint(bandit)).expect("the editor");
+        assert_eq!(at.surface.is_main(), docked, "{name}: where the editor is");
+        let source = mg_ui::model_view::Source::Resource(bandit);
+        let view = h.state().model_views.get(&source).expect("a view of the bandit");
+        assert!(view.holds_targets(), "{name}: drawn in the one place");
+        let said: Vec<egui::Rect> = h.query_all_by_label(ELSEWHERE).map(|n| n.rect()).collect();
+        assert_eq!(said.len(), 1, "{name}: said in the other place");
+        let preview = h.state().preview_panel_rect().expect("the Preview panel");
+        assert!(preview.contains(said[0].center()), "{name}: said in the Preview: {said:?}");
+        // The editor closed: the Preview panel draws the model.
+        close_tab(h.state_mut(), &Tab::Blueprint(bandit));
+        settle(&mut h);
+        assert!(h.query_by_label(ELSEWHERE).is_none(), "{name}: the Preview draws it");
+        assert!(h.state().model_views[&source].holds_targets());
+    }
+}

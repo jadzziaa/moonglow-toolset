@@ -5,7 +5,8 @@
 //! [`Hints`] (the active tool's keys as key caps with a word, dropping
 //! whole from the end where there is no room), [`StatusItem`] (the
 //! right-hand items: counts, the module's name with its modified dot, the
-//! game folder) and [`StatusJob`] (a running job with its bar).
+//! game folder), [`StatusJob`] (a running job with its bar) and
+//! [`StatusLog`] (the log's last line, while the log is closed).
 //!
 //! ```
 //! # egui::__run_test_ui(|ui| {
@@ -710,33 +711,103 @@ impl egui::Widget for StatusItem {
     }
 }
 
+/// The width of [`StatusJob`]'s moving mark, where how far the job is is
+/// not known: a quarter of its bar.
+pub const JOB_MARK: f32 = 16.0;
+/// How long [`StatusJob`]'s moving mark takes to cross its bar and come
+/// back, in seconds.
+pub const JOB_MARK_PERIOD: f64 = 1.6;
+/// How often a frame is asked for while [`StatusJob`]'s moving mark is
+/// drawn (20 a second: no more than a job's own window asks for).
+pub const JOB_MARK_FRAME: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// A running job in the Status Bar (`.sb-job`): its words in `text-2`, a
-/// 60 by 4 bar in an `inset` well with the part done in `accent`. A
-/// progress indicator named by its words, the part done its value (none
-/// where it is not known: the bar then empty).
+/// 60 by 4 bar in an `inset` well with the part done in `accent`; where
+/// how far it is is not known, a [`JOB_MARK`] wide `accent` mark going to
+/// and fro along the bar (a frame asked for every [`JOB_MARK_FRAME`]
+/// while it is drawn, and none once it is not). A progress indicator
+/// named by its words (or the name given it, [`StatusJob::name`]), the
+/// part done its value (none where it is not known). Given a
+/// [`max_width`](StatusJob::max_width), its words are cut short with an
+/// ellipsis to fit; its bar is never cut.
 #[derive(Clone, Debug)]
 #[must_use = "add it with ui.add"]
 pub struct StatusJob {
     text: String,
     done: Option<f32>,
+    name: Option<String>,
+    tooltip: Option<String>,
+    max_width: Option<f32>,
 }
 
 impl StatusJob {
     /// A job named `text`, `done` of it done (0 to 1) where known.
     pub fn new(text: impl Into<String>, done: Option<f32>) -> Self {
-        StatusJob { text: text.into(), done }
+        StatusJob { text: text.into(), done, name: None, tooltip: None, max_width: None }
+    }
+
+    /// Named `name` for a screen reader (and tests) in place of its words
+    /// (the job and how far it is: "Verify Module, 12 of 30").
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Shown on hover.
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// At most `width` wide: its words cut short with an ellipsis where
+    /// they and the bar are wider (the bar is never cut, so it is wider
+    /// than `width` only where the bar and the ellipsis alone are).
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width.max(0.0));
+        self
+    }
+
+    /// Its words as laid out in `ui` (`color`), cut short to their room.
+    fn galley(&self, ui: &Ui, color: Color32) -> Arc<egui::Galley> {
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(self.text.clone(), body_font(), color);
+        if let Some(max) = self.max_width {
+            let room = (max - JOB_GAP - JOB_BAR.x).max(0.0);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        }
+        ui.painter().layout_job(job)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.galley(ui, Color32::WHITE).size().x + JOB_GAP + JOB_BAR.x
+    }
+
+    /// Whether its words are cut short in `ui`.
+    pub fn is_cut(&self, ui: &Ui) -> bool {
+        self.galley(ui, Color32::WHITE).elided
+    }
+
+    /// Where the moving mark's left end is along a bar `bar` wide, at
+    /// `time` seconds: from the bar's left end to its right and back,
+    /// once each [`JOB_MARK_PERIOD`].
+    pub fn mark_offset(time: f64, bar: f32) -> f32 {
+        let phase = (time / JOB_MARK_PERIOD).fract() as f32;
+        let to_and_fro = 1.0 - (2.0 * phase - 1.0).abs();
+        to_and_fro * (bar - JOB_MARK).max(0.0)
     }
 }
 
 impl egui::Widget for StatusJob {
     fn ui(self, ui: &mut Ui) -> Response {
         let t = ui.tokens();
-        let galley = ui.painter().layout_no_wrap(self.text.clone(), body_font(), t.text_2);
+        let galley = self.galley(ui, t.text_2);
         let size = vec2(galley.size().x + JOB_GAP + JOB_BAR.x, galley.size().y);
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-        let (text, done) = (self.text.clone(), self.done);
+        let done = self.done;
+        let name = self.name.clone().unwrap_or_else(|| self.text.clone());
         response.widget_info(|| {
-            let mut info = WidgetInfo::labeled(WidgetType::ProgressIndicator, true, &text);
+            let mut info = WidgetInfo::labeled(WidgetType::ProgressIndicator, true, &name);
             info.value = done.map(f64::from);
             info
         });
@@ -750,13 +821,131 @@ impl egui::Widget for StatusJob {
                 JOB_BAR,
             );
             p.rect_filled(bar, 2, t.inset);
-            if let Some(done) = self.done {
-                let part =
-                    Rect::from_min_size(bar.min, vec2(JOB_BAR.x * done.clamp(0.0, 1.0), 4.0));
-                p.rect_filled(part, 2, t.accent);
+            match self.done {
+                Some(done) => {
+                    let part =
+                        Rect::from_min_size(bar.min, vec2(JOB_BAR.x * done.clamp(0.0, 1.0), 4.0));
+                    p.rect_filled(part, 2, t.accent);
+                }
+                None => {
+                    let time = ui.input(|i| i.time);
+                    let left = bar.left() + StatusJob::mark_offset(time, JOB_BAR.x);
+                    let mark = Rect::from_min_size(pos2(left, bar.top()), vec2(JOB_MARK, 4.0));
+                    p.rect_filled(mark, 2, t.accent);
+                    ui.ctx().request_repaint_after(JOB_MARK_FRAME);
+                }
             }
         }
-        response
+        match self.tooltip {
+            Some(tip) => response.on_hover_text(tip),
+            None => response,
+        }
+    }
+}
+
+/// The log's last line in the Status Bar (`.sb-log`), while the panel that
+/// shows it is closed: in 11 px, `text-3` (or the color given it, a
+/// warning's or an error's), cut short with an ellipsis to the room given
+/// it ([`StatusLog::max_width`]); pressed, it opens the log (the caller's
+/// to do). A button named by its words (the whole line, however it is cut
+/// short), its tooltip the whole line where given.
+#[derive(Clone, Debug)]
+#[must_use = "add it with ui.add"]
+pub struct StatusLog {
+    text: String,
+    color: Option<Color32>,
+    max_width: Option<f32>,
+    tooltip: Option<String>,
+}
+
+impl StatusLog {
+    /// The line `text` (its first line, where it has several).
+    pub fn new(text: impl Into<String>) -> Self {
+        StatusLog { text: text.into(), color: None, max_width: None, tooltip: None }
+    }
+
+    /// Drawn in `color` (a warning's, an error's) in place of `text-3`.
+    pub fn color(mut self, color: Color32) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// At most `width` wide: cut short with an ellipsis where wider.
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width.max(0.0));
+        self
+    }
+
+    /// Shown on hover (the whole line).
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// Its first line.
+    fn line(&self) -> &str {
+        self.text.lines().next().unwrap_or("")
+    }
+
+    fn galley(&self, ui: &Ui, color: Color32) -> Arc<egui::Galley> {
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(self.line().to_owned(), small_font(), color);
+        if let Some(max) = self.max_width {
+            job.wrap = egui::text::TextWrapping::truncate_at_width(max);
+        }
+        ui.painter().layout_job(job)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.galley(ui, Color32::WHITE).size().x
+    }
+
+    /// The words it shows in `ui`, cut short with an ellipsis where they
+    /// do not fit.
+    pub fn shown(&self, ui: &Ui) -> String {
+        let galley = self.galley(ui, Color32::WHITE);
+        galley.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect()
+    }
+
+    /// Whether it is cut short in `ui`.
+    pub fn is_cut(&self, ui: &Ui) -> bool {
+        self.galley(ui, Color32::WHITE).elided
+    }
+}
+
+impl egui::Widget for StatusLog {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let t = ui.tokens();
+        let rest = self.color.unwrap_or(t.text_3);
+        // (Laid out with no color of its own: painted in the color of the
+        // moment, hovered or not.)
+        let galley = self.galley(ui, Color32::PLACEHOLDER);
+        let size = vec2(galley.size().x, SWITCH_HEIGHT);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let enabled = ui.is_enabled();
+        let name = self.text.clone();
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &name));
+        if ui.is_rect_visible(rect) {
+            let p = ui.painter();
+            let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
+            // (Hovered, a plain line brightens; a warning's or an error's
+            // color stays: it is what says what it is.)
+            let color = if response.hovered() && self.color.is_none() { t.text_2 } else { rest };
+            p.galley(pos, galley, color);
+            if response.has_focus() {
+                p.rect_stroke(
+                    rect.expand(1.0),
+                    metrics::RADIUS,
+                    Stroke::new(1.0, t.accent),
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
+        match self.tooltip {
+            Some(tip) => response.on_hover_text(tip),
+            None => response,
+        }
     }
 }
 

@@ -710,6 +710,15 @@ impl DockTabs {
         self
     }
 
+    /// The width its tabs take side by side: with their words, or (where
+    /// `icons`) their icons alone. (What is left of a bar for its tools,
+    /// with [`TOOLS_PADDING`]: a caller whose tools can yield lays out
+    /// those that fit.)
+    pub fn tabs_width(&self, ui: &Ui, icons: bool) -> f32 {
+        let each = |t: &DockTab| if icons { t.icon_width(ui) } else { t.width(ui) };
+        self.tabs.iter().map(each).sum()
+    }
+
     /// Whether the tabs show their icons alone in a bar `bar` wide.
     pub fn icons_in(&self, ui: &Ui, bar: f32) -> bool {
         let Some(tools) = self.tools_width else { return false };

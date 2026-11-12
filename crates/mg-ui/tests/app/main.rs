@@ -39,6 +39,7 @@ mod scripts;
 mod search;
 mod shell;
 mod sounds;
+mod status_bar;
 mod tables;
 mod tiles;
 mod tree;

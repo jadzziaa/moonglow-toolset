@@ -11094,6 +11094,163 @@ fn shell_long_name() {
     }
 }
 
+/// A job held on its thread for a picture (`start_job_for_tests`): it
+/// says it is `done` of `total` (unknown where `total` is 0), and ends
+/// when the sender returned is dropped or sent to.
+fn held_job(
+    h: &mut Harness<'_, Moonglow>,
+    title: &str,
+    done: usize,
+    total: usize,
+) -> std::sync::mpsc::Sender<()> {
+    let (tell, told) = std::sync::mpsc::channel::<()>();
+    h.state_mut().start_job_for_tests(title, move |p| {
+        p.step(done, total);
+        _ = told.recv();
+    });
+    // (Until the Status Bar shows it: the job's thread says how far.)
+    let started = std::time::Instant::now();
+    let wanted = if total > 0 { format!("{title}, {done} of {total}") } else { title.to_string() };
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by(|n| n.role() == egui::accesskit::Role::ProgressIndicator)
+            .any(|n| n.accesskit_node().label().is_some_and(|l| l.starts_with(&wanted)))
+    };
+    while !shown(h) {
+        assert!(started.elapsed().as_secs() < 30, "the job never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    tell
+}
+
+/// The Status Bar completed (M3's T7), against the board's bottom row
+/// (Main.png, Main-status.png): the area open with the log closed, its
+/// last line beside the Log switch (`shell_status_last_line`), a warning
+/// as the last line (`shell_status_warning`), a job running with its
+/// progress (`shell_status_job`) and one whose progress is not known
+/// (`shell_status_job_unknown`), its window over the window as it is
+/// while a job runs.
+#[test]
+#[ignore]
+fn shell_status() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.hide_log = true;
+    h.state_mut().log.info("Opened map_m1q1a, 192 objects");
+    shoot(&mut h, &dir, "shell_status_last_line");
+    h.state_mut().log.warn("m1q1a_guard.nss: 2 warnings (see the log)");
+    shoot(&mut h, &dir, "shell_status_warning");
+    let tell = held_job(&mut h, "Compile All Scripts", 40, 312);
+    shoot(&mut h, &dir, "shell_status_job");
+    tell.send(()).unwrap();
+    while h.state().busy() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    let tell = held_job(&mut h, "Build Module", 0, 0);
+    shoot(&mut h, &dir, "shell_status_job_unknown");
+    tell.send(()).unwrap();
+    while h.state().busy() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+}
+
+/// The Status Bar at 420 and 640 points with long texts: a long module
+/// name (modified), a long last line, a job running and a long game
+/// folder (`shell_status_420.png`, `shell_status_640.png`): the last line
+/// goes first, then the folder, then the job's name is cut short, the
+/// module's name last.
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn shell_status_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-shell-status-narrow");
+    let long = scratch.join("a_module_with_a_rather_long_file_name_for_the_status_bar_check.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &long).unwrap();
+    // (The game read through a folder of a long name.)
+    let game = scratch.join("Neverwinter Nights Enhanced Edition on the second drive");
+    std::os::unix::fs::symlink(&root, &game).unwrap();
+    for width in [420.0, 640.0, 1000.0] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&game, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.settings.no_last_area = true;
+        app.settings.hide_log = true;
+        app.open_module(&long);
+        let key = ResKey::parse("mg_long_name", ResType::NSS).unwrap();
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(width, 600.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        themed(&mut h);
+        settle(&mut h);
+        h.state_mut().log.info(
+            "Compiled 312 scripts of the module and its haks, with 4 warnings about functions \
+             declared one way and defined another",
+        );
+        let tell = held_job(&mut h, "Compile All Scripts", 40, 312);
+        shoot(&mut h, &dir, &format!("shell_status_{width}"));
+        tell.send(()).unwrap();
+        while h.state().busy() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.step();
+        }
+    }
+}
+
+/// The Bottom Dock open beside the area with both side docks, in windows
+/// 420, 560 and 640 points wide (`shell_bottom_dock_420.png` and the
+/// others): its tab its icon alone, its tools giving way from the end,
+/// the bar empty where the dock is narrower than the tab's icon; the
+/// tab and the tools never over each other.
+#[test]
+#[ignore]
+fn shell_bottom_dock_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for width in [420.0, 560.0, 640.0] {
+        let mut h = shell_with_area(&root, egui::vec2(width, 760.0));
+        h.state_mut().settings.hide_log = false;
+        shoot(&mut h, &dir, &format!("shell_bottom_dock_{width}"));
+    }
+}
+
+/// A new installation's first window (no settings file:
+/// `Settings::new_installation`): the Welcome page, the Bottom Dock
+/// closed and the log's last line beside the Log switch.
+#[test]
+#[ignore]
+fn shell_new_installation() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.hide_log = mg_ui::Settings::new_installation().hide_log;
+    app.settings.recent = Vec::new();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_new_installation");
+}
+
 #[test]
 #[ignore]
 fn shell_welcome() {

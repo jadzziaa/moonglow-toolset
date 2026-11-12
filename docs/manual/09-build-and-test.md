@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T21:14:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
 ---
 
 # Build, verify and test
@@ -258,8 +258,8 @@ is missing and what is wrong with the module's custom content. To leave
 some of it out (a hak's tileset errors you are not going to fix),
 untick its group, or one check of it, in **Options › Verify**, or name
 the hak or the tileset there; the summary line says what was left out,
-not checked. **Clear**, in the log's
-corner, empties the log before a second run.
+not checked. **Clear Log**, on the log's
+tab bar (or View › Clear Log), empties the log before a second run.
 
 A [project](03-modules.md)'s compiled scripts are build output, so its
 tree holds its scripts as sources: Verify compiles those its build

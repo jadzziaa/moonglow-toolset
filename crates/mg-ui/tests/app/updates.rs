@@ -176,6 +176,13 @@ fn the_update_notice_appears_and_is_dismissed() {
     h.get_by_label(&told);
     close_window(&mut h);
     h.get_by_label(&told);
+    // A strip under the Top Bar, over the docks (the M3 shell, T7).
+    let notice = h.get_by_label(&told).rect();
+    let menus = h.get_by_label("Top Bar").get_by_label("File").rect();
+    assert!(notice.top() >= menus.bottom(), "under the Top Bar: {notice:?} {menus:?}");
+    // (The docks and the editor area start where the strip ends.)
+    let area = h.state().editor_area_rect().expect("the editor area");
+    assert!(notice.bottom() <= area.top(), "over the docks: {notice:?} {area:?}");
     h.get_by_label("Release Page");
     assert_eq!(asked.load(Ordering::SeqCst), 1);
     let checked = h.state().settings.update_checked.expect("the check's time is kept");
