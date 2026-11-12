@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T12:45:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:25:03Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -360,9 +360,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
 - **A preview shown twice in a frame, the owner's call:** a 3D view
-  shown in two places in one frame (the Preview window over the
-  model's tab) is drawn in the first, and the second says "The preview
-  is shown elsewhere in the window." (the review's B19), rather than
+  shown in two places in one frame (the Right Dock's Preview panel and
+  the model's tab, which keeps it: the panel's body is drawn after the
+  editor area since M3 T6, as the Preview window was) is drawn in the
+  first, and the second says "The preview is shown elsewhere in the
+  window." (the review's B19), rather than
   getting targets of its own. The wording, and whether the second
   should draw too, are asked. (S) (the review of November 2026, B19)
 

@@ -100,8 +100,9 @@ pub enum Id {
     /// Asks GitHub whether a newer Moonglow is out (`updates`).
     CheckUpdates,
     About,
-    /// Preview Window: the window showing the palette's blueprint (from
-    /// the Command Palette or its key until the Preview panel, M3's T6).
+    /// Tools › Preview: the Right Dock shown on its Preview panel, as
+    /// Tools › Palettes shows it on the Palette (the Preview window's
+    /// command until M3's T6: its id, and so a key given it, as before).
     PreviewWindow,
     FullScreen,
     /// The tab in front: closed, the next or the one before brought to the
@@ -247,6 +248,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::NewNui),
             Separator,
             Do(Id::Palettes),
+            Do(Id::PreviewWindow),
             Do(Id::PlaceableGallery),
             Do(Id::Resources),
             Sub("Tilesets", &[Do(Id::NewTileset), Do(Id::OpenTileset)]),
@@ -367,7 +369,7 @@ impl Id {
         for (_, items) in MENUS {
             walk(items, &mut out);
         }
-        out.extend([Id::PreviewWindow, Id::FullScreen]);
+        out.push(Id::FullScreen);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
         out.push(Id::MaximizeWindow);
         out.extend([Id::NextPane, Id::PreviousPane]);
@@ -577,9 +579,12 @@ impl Id {
                 "Ask GitHub whether a newer Moonglow is out (nothing is downloaded)",
             ),
             Id::About => ("about", "About Moonglow Toolset", ""),
-            Id::PreviewWindow => {
-                ("preview-window", "Preview Window", "Show the blueprint chosen in the palette")
-            }
+            // (The Preview window's id, and so a key given it, as before.)
+            Id::PreviewWindow => (
+                "preview-window",
+                "Preview",
+                "The blueprint chosen in the palette, in the Right Dock",
+            ),
             Id::FullScreen => ("full-screen", "Full Screen", ""),
             Id::CloseTab => ("close-tab", "Close Tab", "The tab in front"),
             Id::MaximizeWindow => (
@@ -834,6 +839,7 @@ impl Id {
             Id::Journal => Action::OpenTab(Tab::Journal),
             Id::TalkTable => Action::OpenTab(Tab::TalkTable),
             Id::Palettes => Action::ShowPanel(crate::Panel::Palette),
+            Id::PreviewWindow => Action::ShowPanel(crate::Panel::Preview),
             Id::PlaceableGallery => Action::PlaceableGallery,
             Id::Resources => Action::ShowPanel(crate::Panel::Resources),
             Id::ReloadResources => Action::ReloadResources,
@@ -949,10 +955,6 @@ impl Id {
                 return;
             }
             Id::CheckUpdates => return crate::updates::check_now(app),
-            Id::PreviewWindow => {
-                app.preview_window = !app.preview_window;
-                return;
-            }
             Id::GoToStart => {
                 crate::area_view::go_to_start(app);
                 return;

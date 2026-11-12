@@ -752,6 +752,13 @@ fn a_tool_tab_dropped_on_a_side_is_docked_there() {
     let (tool, area_pane) = (main(&Tab::Factions), main(&Tab::Area(area)));
     assert_eq!((tool.0, tool.1), (true, 1), "{:?}", layout(&h));
     assert!(tool.2 < area_pane.2, "left of the area: {:?}", layout(&h));
+    // The Right Dock follows the pane with the focus: the area's brings
+    // the palettes, as they were, the tool's none.
+    let area_front = matches!(h.state().active_editor(), Some(Tab::Area(_)));
+    assert_eq!(palette_shown(h.state()), area_front, "{:?}", h.state().active_editor());
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
     assert!(palette_shown(h.state()), "the palettes where they were");
 }
 
@@ -1417,7 +1424,12 @@ fn the_talk_table_opens_again_on_its_line() {
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "open again");
     assert_eq!(h.state().talk_view.selected, Some(2), "on its line");
+    // (No area in front, the Right Dock is not drawn; Tools › Palettes
+    // shows it beside the tabs.)
+    show_palette(h.state_mut());
+    settle(&mut h);
     assert!(palette_shown(h.state()), "the Right Dock beside it");
+    assert_eq!(h.state().talk_view.selected, Some(2), "still on its line");
 }
 
 /// Tile Properties kept with a module, still waiting for its area's view

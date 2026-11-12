@@ -781,56 +781,89 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
-/// Aurora's Preview window (`TfrmPreview`): the blueprint chosen in the
-/// palette, in 3D for creatures, items, placeables and doors, with its
-/// name, tag, resref and comments and a few fields of its type.
-pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
-    if !app.preview_window {
+/// The Right Dock's Preview panel's body (Aurora's Preview window,
+/// `TfrmPreview`, and Moonglow's until M3's T6): the blueprint chosen in
+/// the palette, its name, tag, resref and comments and a few fields of its
+/// type (an item's inventory icon beside them), in 3D under them for
+/// creatures, items, placeables and doors, a store's stock by page. Drawn
+/// after the editor area, in the room `shell::right_dock` kept for it this
+/// frame ([`Moonglow::preview_slot`]), so that an editor's tab showing the
+/// same model keeps its view (as it did beside the Preview window: a model
+/// is drawn in one place a frame, `model_view`), this one saying so. Its
+/// widgets are the Right Dock's (under its pane), cut at the panel's edges.
+pub(crate) fn preview_panel(app: &mut Moonglow, ui: &mut Ui) {
+    let Some(slot) = app.preview_slot.take() else { return };
+    let builder = egui::UiBuilder::new()
+        .id_salt("preview-panel")
+        .max_rect(slot.rect)
+        .layer_id(slot.layer)
+        .accessibility_parent(slot.pane);
+    let mut body = ui.new_child(builder);
+    body.set_clip_rect(slot.rect);
+    let ui = &mut body;
+    let Some(key) = app.palette.selected else {
+        ui.weak("Choose a blueprint in the palette.");
         return;
+    };
+    let Some(gff) = blueprint(app, key) else {
+        ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
+        return;
+    };
+    let model = crate::model_view::previewable(key.restype);
+    let store = key.restype == ResType::UTM;
+    // (Its fields take at most a quarter of the panel where its model or
+    // its stock is under them, scrolled where they are more: the model has
+    // the room.)
+    let most = if model || store { (slot.rect.height() / 4.0).max(40.0) } else { f32::INFINITY };
+    // (An item's icon beside its fields where the panel is wide enough for
+    // both, else over them: the fields' names and values have the width.)
+    let beside = slot.rect.width() >= 300.0;
+    let fields = |app: &mut Moonglow, ui: &mut Ui| {
+        if key.restype == ResType::UTI {
+            let layers = app.item_icon(ui.ctx(), &gff.root);
+            crate::images::stacked(ui, &layers, 1.0, "Item icon");
+        }
+        egui::Grid::new("preview-fields").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+            for (label, value) in summary(app, key.restype, &gff.root) {
+                crate::widgets::field_label(ui, label);
+                ui.add(egui::Label::new(value).truncate());
+                ui.end_row();
+            }
+        });
+    };
+    egui::ScrollArea::vertical()
+        .id_salt("preview-fields-list")
+        .max_height(most)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            if beside {
+                ui.horizontal_top(|ui| fields(app, ui));
+            } else {
+                fields(app, ui);
+            }
+        });
+    // (What is under the fields in the room left, never wider than the
+    // panel: what is in it may not widen it.)
+    let under = |ui: &mut Ui| {
+        let room = ui.available_rect_before_wrap().intersect(slot.rect);
+        ui.advance_cursor_after_rect(room);
+        let mut under = ui.new_child(egui::UiBuilder::new().max_rect(room));
+        under.set_clip_rect(room);
+        under
+    };
+    if model {
+        ui.separator();
+        let mut view = under(ui);
+        crate::model_view::ui(app, &mut view, crate::model_view::Source::Resource(key));
     }
-    let mut open = true;
-    let key = app.palette.selected;
-    crate::widgets::dialog(ui.ctx(), "Preview", &mut open).default_size([360.0, 460.0]).show(
-        ui.ctx(),
-        |ui| {
-            let Some(key) = key else {
-                ui.weak("Choose a blueprint in the palette.");
-                return;
-            };
-            let gff = blueprint(app, key);
-            let Some(gff) = gff else {
-                ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
-                return;
-            };
-            ui.horizontal_top(|ui| {
-                // Items also in 2D: the inventory icon.
-                if key.restype == ResType::UTI {
-                    let layers = app.item_icon(ui.ctx(), &gff.root);
-                    crate::images::stacked(ui, &layers, 1.0, "Item icon");
-                }
-                egui::Grid::new("preview-fields").num_columns(2).spacing([12.0, 4.0]).show(
-                    ui,
-                    |ui| {
-                        for (label, value) in summary(app, key.restype, &gff.root) {
-                            crate::widgets::field_label(ui, label);
-                            ui.add(egui::Label::new(value).truncate());
-                            ui.end_row();
-                        }
-                    },
-                );
-            });
-            if crate::model_view::previewable(key.restype) {
-                ui.separator();
-                ui.allocate_ui(egui::vec2(ui.available_width(), 300.0), |ui| {
-                    crate::model_view::ui(app, ui, crate::model_view::Source::Resource(key));
-                });
-            }
-            if key.restype == ResType::UTM {
-                egui::ScrollArea::vertical().show(ui, |ui| store_stock(app, ui, &gff.root));
-            }
-        },
-    );
-    app.preview_window = open;
+    if store {
+        ui.separator();
+        let mut stock = under(ui);
+        egui::ScrollArea::vertical()
+            .id_salt("preview-stock-list")
+            .auto_shrink([false, false])
+            .show(&mut stock, |ui| store_stock(app, ui, &gff.root));
+    }
 }
 
 /// A blueprint without a model (a store, a sound, a trigger, a waypoint,

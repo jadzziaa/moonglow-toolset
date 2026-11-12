@@ -118,6 +118,21 @@ pub(crate) fn show_palette(app: &mut Moonglow) {
     app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
 }
 
+/// The palette's row (or other widget) named `label`: the one in the
+/// Right Dock's Palette panel (where the Preview's tab is in front, the
+/// palette is not drawn: none).
+#[track_caller]
+pub(crate) fn palette_row<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    label: &'t str,
+) -> egui_kittest::Node<'t> {
+    let palette = right_dock_rect(h);
+    let mut found = h.query_all_by_label(label).filter(|n| palette.contains(n.rect().center()));
+    let Some(first) = found.next() else { panic!("no {label} in the palette") };
+    assert!(found.next().is_none(), "two or more {label} in the palette");
+    first
+}
+
 /// Whether the palettes are shown: the Right Dock unfolded on its Palette
 /// panel.
 pub(crate) fn palette_shown(app: &Moonglow) -> bool {
@@ -412,7 +427,7 @@ pub(crate) fn menu_row(h: &Harness<'_, Moonglow>, row: &str) -> Option<(String, 
         matches!(n.role(), Role::Button | Role::CheckBox)
             && n.label().is_some_and(|l| l == row || l.starts_with(&keyed))
     };
-    let bars = ["Top Bar", "Status Bar", "Left Dock", "Bottom Dock"];
+    let bars = ["Top Bar", "Status Bar", "Left Dock", mg_ui::RIGHT_DOCK, "Bottom Dock"];
     h.query_all_by(is_row)
         .filter(|n| !bars.iter().any(|b| in_group(n, b)))
         .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
@@ -453,12 +468,14 @@ pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
     false
 }
 
-/// Whether `n` is on the Top Bar, the Left Dock's tab bar (the Module
-/// panel's header buttons) or the area view's toolbar.
+/// Whether `n` is on the Top Bar, a dock's tab bar (the Left Dock's, with
+/// the Module panel's header buttons; the Right Dock's Palette and Preview
+/// tabs) or the area view's toolbar.
 pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area toolbar")) {
+        let bars = ["Top Bar", "Left Dock", "Area toolbar", mg_ui::RIGHT_DOCK];
+        if p.label().is_some_and(|l| bars.contains(&l.as_str())) {
             return true;
         }
         up = p.parent();
@@ -916,6 +933,34 @@ pub(crate) fn close_tab(app: &mut Moonglow, tab: &Tab) {
 /// right end of its tab, the tabs being what can be clicked and dragged
 /// in their pane's tab bar, in their order.)
 pub(crate) fn click_tab_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
+    let (own, squares) = tab_rects(h, tab);
+    let close = squares.iter().find(|r| own.contains_rect(**r) && r.right() >= own.right() - 0.5);
+    let at = close.expect("its close button").center();
+    h.hover_at(at);
+    h.run_steps(1);
+    press(h, at, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    press(h, at, false, egui::Modifiers::NONE);
+    h.run_steps(1);
+}
+
+/// Clicks a tab as the pointer does, left of its close button (pressed,
+/// then let go a frame on): brought to the front of its pane, the pane
+/// given the focus.
+pub(crate) fn click_tab(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
+    let (own, _) = tab_rects(h, tab);
+    let at = egui::pos2(own.left() + 12.0, own.center().y);
+    h.hover_at(at);
+    h.run_steps(1);
+    press(h, at, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    press(h, at, false, egui::Modifiers::NONE);
+    h.run_steps(1);
+}
+
+/// Where `tab`'s tab is drawn in its pane's tab bar, and the squares that
+/// can be clicked in that bar (the tabs' close buttons among them).
+fn tab_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> (egui::Rect, Vec<egui::Rect>) {
     let (band, index) = h
         .state()
         .dock
@@ -941,15 +986,7 @@ pub(crate) fn click_tab_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
         }
     });
     tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
-    let own = tabs.get(index).expect("its tab");
-    let close = squares.iter().find(|r| own.contains_rect(**r) && r.right() >= own.right() - 0.5);
-    let at = close.expect("its close button").center();
-    h.hover_at(at);
-    h.run_steps(1);
-    press(h, at, true, egui::Modifiers::NONE);
-    h.run_steps(1);
-    press(h, at, false, egui::Modifiers::NONE);
-    h.run_steps(1);
+    (*tabs.get(index).expect("its tab"), squares)
 }
 
 /// Clicks the close button of the window `tab` is in (egui_dock's, at

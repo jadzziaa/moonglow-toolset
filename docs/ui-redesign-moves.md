@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:25:03Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -43,14 +43,14 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Start | Area view, camera button under the compass; also in the View menu | View menu ✓ M3 T2; the compass button is M4's |
 | Resources | Left Dock tab beside Module | ✓ M3 T4 (Tools › Resource Browser shows it) |
 | Palettes | Right Dock, Palette panel | ✓ M3 T5 (also Tools › Palettes, which shows the dock on it) |
-| Preview | Right Dock, Preview panel | M3 T6 (until then Preview Window in the Command Palette) |
+| Preview | Right Dock, Preview panel | ✓ M3 T6 (the tab beside the Palette's; Tools › Preview brings it to the front, by the Preview Window command's id) |
 | Compile, Verify | Top Bar, right end | ✓ M3 T2 |
 | Test Module (F9) | Top Bar, right end, with Choose Character under its arrow | ✓ M3 T2 |
 | The eight menus | Top Bar, unchanged | ✓ M3 T2 |
 | Module tree: Filter, groups, Expand All, Collapse All | Module panel | ✓ M3 T3 (Expand All and Collapse All on its tab bar; each group's icon and count; the Areas group scrolls in its own well) |
 | Log panel | Bottom Dock tab, opened by the Log switch in the Status Bar | ✓ M3 T2 |
 | View › Module Tree | View › Left Dock: it folds the dock on whichever panel it shows (Module or Resources), its key (Ctrl+Alt+1) as before | ✓ M3 T4 (its review: the boards name no row; the dock holds both panels) |
-| View › Palettes Panel | View › Right Dock: it folds the Right Dock, its key (Ctrl+Alt+2) as before | ✓ M3 T5 (the boards name no row; the dock will hold Preview too, T6) |
+| View › Palettes Panel | View › Right Dock: it folds the Right Dock, its key (Ctrl+Alt+2) as before | ✓ M3 T5 (the boards name no row; the dock holds the Preview's tab too since T6, and is drawn beside an area's tab alone) |
 | Status line: module path, game folder | Status Bar, right | ✓ M3 T2 (the module's name, its path in the tip) |
 
 

@@ -2450,7 +2450,8 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     // area, let go there.
     h.get_by_label(&tavern).click();
     h.run_steps(1);
-    let from = h.get_by_label(&tavern).rect().center();
+    // (Chosen, the Preview panel names it too.)
+    let from = palette_row(&h, &tavern).rect().center();
     let to = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.0));
     let modifiers = egui::Modifiers::NONE;
     h.event(egui::Event::PointerMoved(from));

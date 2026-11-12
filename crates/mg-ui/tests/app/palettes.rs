@@ -377,7 +377,7 @@ fn palette_edit_copy_and_delete() {
     close_windows(&mut h);
     h.state_mut().palette.filter = "wp_tavern001".into();
     h.run();
-    h.get_by_label(&name).click_secondary();
+    palette_row(&h, &name).click_secondary();
     h.run();
     h.get_by_label("Delete").click();
     h.run();
@@ -414,7 +414,7 @@ fn edit_copy_s_cancel_takes_the_copy_back() {
         h.state_mut().palette.custom = false;
         h.state_mut().palette.filter = "nw_wp_tavern".into();
         h.run();
-        h.get_by_label(&tavern).click_secondary();
+        palette_row(h, &tavern).click_secondary();
         h.run();
         h.get_by_label("Edit Copy…").click();
         h.run();
@@ -1529,7 +1529,7 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     // With the pointer elsewhere (the log, under the area), the keys are
     // the palette's still: they are until the pointer is in an area's
     // view (GitHub issue 12).
-    let palette_at = h.get_by_label(&tavern).rect().center();
+    let palette_at = palette_row(&h, &tavern).rect().center();
     h.hover_at(egui::pos2(300.0, 700.0));
     h.run_steps(2);
     press(&mut h, egui::Key::ArrowDown);

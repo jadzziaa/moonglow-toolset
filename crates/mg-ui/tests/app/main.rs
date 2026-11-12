@@ -29,6 +29,7 @@ mod palettes;
 mod part_emitters;
 mod plugin_kinds;
 mod plugins;
+mod preview_panel;
 mod projects;
 mod renderer_check;
 mod resources;

@@ -19,11 +19,15 @@
 //!   with a button for each panel, and beside its edge, where the fold
 //!   button was, the button that brings it back. Which panels a dock
 //!   holds is the registry's, [`Panel`];
-//! - the **Right Dock** ([`right_dock`]): its tab bar (the Palette tab),
-//!   the Palette panel under it (the blueprint and tile palettes,
-//!   `palette_view`: M3's T5); its fold button beside its inner edge, half
-//!   way down, as the Left Dock's, mirrored; folded, a strip with a button
-//!   for each panel and the button that brings it back beside its edge;
+//! - the **Right Dock** ([`right_dock`]): the active docked editor's
+//!   panels on the tabs of one bar: the Palette panel (the blueprint and
+//!   tile palettes, `palette_view`: M3's T5) and the Preview panel (the
+//!   blueprint chosen in the palette: `area_tools::preview_panel`, T6);
+//!   drawn only where the active editor brings them (an area's tab, or the
+//!   placeholder in its place) or the Palette was asked for by name; its
+//!   fold button beside its inner edge, half way down, as the Left Dock's,
+//!   mirrored; folded, a strip with a button for each panel and the button
+//!   that brings it back beside its edge;
 //! - the **Bottom Dock** ([`bottom_dock`]): its tab bar (the Log's tab,
 //!   with the log's Copy, Save… and Clear), the log under it; opened and
 //!   closed by the Log's switch in the Status Bar (issue 10's one control
@@ -45,11 +49,11 @@
 //! is "the Left Dock folded", `Settings::hide_palettes` "the Right Dock
 //! folded" and `Settings::hide_log` "the Bottom Dock closed".
 //!
-//! Later tasks fill it: the Right Dock's Preview panel and the rule that
-//! its panels follow the active editor (T6), the Log's last line and
-//! the jobs in the Status Bar (T7), Quick Open in the Top Bar's middle
-//! (T8), hints (T12) and the widths the shell yields at (T14; T2 takes
-//! only the build actions' words, below 1300).
+//! Later tasks fill it: the Log's last line and the jobs in the Status
+//! Bar (T7), Quick Open in the Top Bar's middle (T8), hints (T12), the
+//! Left Dock's Outliner (T13, which the area brings as it brings the Right
+//! Dock's panels) and the widths the shell yields at (T14; T2 takes only
+//! the build actions' words, below 1300).
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
@@ -104,11 +108,12 @@ pub(crate) fn keep_least_size(app: &mut Moonglow, ctx: &egui::Context) {
 /// A panel of the docks (the plan's decision 2: a registry of the panels
 /// and the dock each lives in, fixed there by the owner's ruling R5). The
 /// Left Dock holds Module and Resources, in that order ([`Panel::LEFT`]);
-/// the Right Dock Palette ([`Panel::RIGHT`]). The Right Dock's Preview and
-/// the Left Dock's Outliner are added by the tasks that make them (T6,
-/// T13), each in its dock's list, with its dock in [`Panel::dock`] and a
-/// rule in [`Panel::available`] (T6: the Right Dock's panels follow the
-/// active editor). A dock whose panels none is available is not drawn.
+/// the Right Dock Palette and Preview, as tabs of one bar
+/// ([`Panel::RIGHT`]), the panels the active docked editor brings ([`Panel::available`]: an
+/// area's, or the placeholder that says none is open). The Left Dock's
+/// Outliner is added by the task that makes it (T13), in its dock's list,
+/// with its dock in [`Panel::dock`] and a rule in [`Panel::available`]. A
+/// dock whose panels none is available is not drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Panel {
     /// The module tree, its Filter and its header buttons (T3).
@@ -119,6 +124,10 @@ pub enum Panel {
     /// The blueprint and tile palettes, prefabs, lights and the start
     /// location (T5).
     Palette,
+    /// The blueprint chosen in the palette: its fields, and its model in
+    /// 3D (Aurora's Preview window, Moonglow's until T6), the Palette's
+    /// neighbor on the Right Dock's tab bar.
+    Preview,
 }
 
 /// A dock that holds panels ([`Panel::dock`]).
@@ -131,15 +140,14 @@ pub(crate) enum Dock {
 impl Panel {
     /// The Left Dock's panels, in the order of its tabs.
     pub(crate) const LEFT: [Panel; 2] = [Panel::Module, Panel::Resources];
-    /// The Right Dock's panels, in the order of its tabs (T6 adds Preview
-    /// after the Palette).
-    pub(crate) const RIGHT: [Panel; 1] = [Panel::Palette];
+    /// The Right Dock's panels, in the order of its tabs.
+    pub(crate) const RIGHT: [Panel; 2] = [Panel::Palette, Panel::Preview];
 
     /// The dock it lives in.
     pub(crate) fn dock(self) -> Dock {
         match self {
             Panel::Module | Panel::Resources => Dock::Left,
-            Panel::Palette => Dock::Right,
+            Panel::Palette | Panel::Preview => Dock::Right,
         }
     }
 
@@ -149,6 +157,7 @@ impl Panel {
             Panel::Module => "Module",
             Panel::Resources => "Resources",
             Panel::Palette => "Palette",
+            Panel::Preview => "Preview",
         }
     }
 
@@ -159,18 +168,20 @@ impl Panel {
             Panel::Module => Icon::Module,
             Panel::Resources => Icon::Folder,
             Panel::Palette => Icon::Palette,
+            Panel::Preview => Icon::Eye,
         }
     }
 
     /// How many header buttons it has on its dock's tab bar: the Module
     /// panel's Module Properties, New Area, Expand All and Collapse All;
     /// the Resources panel's Export and Refresh; none of the Palette
-    /// panel's (its tools are its own rows, as the boards draw them).
+    /// panel's and the Preview panel's (their tools are their own rows,
+    /// as the boards draw them).
     fn tools(self) -> usize {
         match self {
             Panel::Module => 4,
             Panel::Resources => 2,
-            Panel::Palette => 0,
+            Panel::Palette | Panel::Preview => 0,
         }
     }
 
@@ -180,24 +191,28 @@ impl Panel {
             Panel::Module => "Module: the module tree",
             Panel::Resources => "Resources: the resource browser",
             Panel::Palette => "Palette: the blueprint and tile palettes",
+            Panel::Preview => "Preview: the blueprint chosen in the palette",
         }
     }
 
     /// Whether it has something to show now: the module tree a module
     /// open; the resource browser a module open, or (without one) once it
     /// was asked for (Tools › Resource Browser), for the run; the palettes
-    /// the game's data read and a module open (as the palettes' pane came
-    /// with a module), or (without either) once asked for (Tools ›
-    /// Palettes: the game's standard palettes, or with no game data read
-    /// the panel saying so, as the palettes' pane did), for the run, unless
-    /// a test turned it off (`Moonglow::palette_dock`).
+    /// where the active editor brings them ([`editor_brings_palette`]: an
+    /// area's tab or the placeholder in front, the game's data read), or
+    /// where they were asked for by name ([`Moonglow::palettes_asked`]:
+    /// the game's standard palettes without a module, or with no game data
+    /// read the panel saying so, beside any tab), unless a test turned
+    /// them off (`Moonglow::palette_dock`); the Preview with the palettes,
+    /// on the tab beside theirs.
     pub(crate) fn available(self, app: &Moonglow) -> bool {
         match self {
             Panel::Module => app.ws.is_some(),
             Panel::Resources => app.ws.is_some() || app.resources_alone,
             Panel::Palette => {
-                app.palette_dock && ((app.game.is_some() && app.ws.is_some()) || app.palettes_alone)
+                app.palette_dock && (app.palettes_asked || editor_brings_palette(app))
             }
+            Panel::Preview => Panel::Palette.available(app),
         }
     }
 
@@ -207,8 +222,32 @@ impl Panel {
         match self {
             Panel::Module => Keys::Tree,
             Panel::Resources => Keys::Browser,
-            Panel::Palette => Keys::Palette,
+            // (The Right Dock's one stop: the palette's.)
+            Panel::Palette | Panel::Preview => Keys::Palette,
         }
+    }
+}
+
+/// Whether the active docked editor ([`Moonglow::active_editor`]) brings
+/// the Right Dock's panels, the Palette and the Preview: an area's tab, or
+/// the placeholder that stands in its place where none is open, with the
+/// game's data read (the palettes are its). Any other tab in front (Module
+/// Properties, a script, a blueprint, the manual) brings none: the Right
+/// Dock is then not drawn, folded or not, its sizes kept.
+pub(crate) fn editor_brings_palette(app: &Moonglow) -> bool {
+    app.game.is_some()
+        && app.ws.is_some()
+        && matches!(app.active_editor(), Some(crate::Tab::Area(_) | crate::Tab::NoArea))
+}
+
+/// The docks follow the active editor: the Palette asked for by name
+/// (Tools › Palettes beside a tab that brings none, or with no module) is
+/// held until the active editor brings it itself; from then on the plain
+/// rule has it ([`editor_brings_palette`]), and a tab that brings none
+/// takes the Right Dock away again.
+pub(crate) fn follow_editor(app: &mut Moonglow) {
+    if app.palettes_asked && editor_brings_palette(app) {
+        app.palettes_asked = false;
     }
 }
 
@@ -222,9 +261,9 @@ pub(crate) fn panels(app: &Moonglow, dock: Dock) -> Vec<Panel> {
     all.iter().copied().filter(|p| p.dock() == dock && p.available(app)).collect()
 }
 
-/// The panel the Right Dock shows (its tab selected), of those it holds:
-/// the one chosen last, else its first. `None` where it holds none (and
-/// is not drawn).
+/// The panel the Right Dock shows (its tab in front), of those it holds:
+/// the one chosen last (`Moonglow::right_panel`), else its first. `None`
+/// where it holds none (and is not drawn).
 pub(crate) fn right_shown(app: &Moonglow) -> Option<Panel> {
     let held = panels(app, Dock::Right);
     held.contains(&app.right_panel).then_some(app.right_panel).or(held.first().copied())
@@ -248,6 +287,16 @@ pub(crate) const RIGHT_DOCK_ID: &str = "right-dock";
 /// The Right Dock's least width (`Narrow.png`'s 280): the palette's type
 /// strip in two rows, its list's toolbar on one.
 pub const RIGHT_DOCK_LEAST: f32 = kit::RIGHT_DOCK_NARROW;
+/// Where the Preview panel's body is drawn in this frame
+/// ([`crate::area_tools::preview_panel`], after the editor area): its
+/// rectangle in the Right Dock, the dock's layer, and the dock's panel
+/// (its pane in the accessibility tree) that its widgets are under.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PreviewSlot {
+    pub(crate) rect: egui::Rect,
+    pub(crate) layer: egui::LayerId,
+    pub(crate) pane: egui::Id,
+}
 /// The Bottom Dock's name: its tab bar's group.
 pub(crate) const BOTTOM_DOCK: &str = "Bottom Dock";
 /// The Test Module arrow's name (it opens the menu of the other ways to
@@ -792,7 +841,7 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 Panel::Resources => crate::browser::ui(app, ui, pane),
                 // (Not the Left Dock's.)
-                Panel::Palette => {}
+                Panel::Palette | Panel::Preview => {}
             }
             (bar.inner, chosen)
         });
@@ -870,21 +919,33 @@ fn edge_fold(app: &Moonglow, ui: &mut Ui, rect: egui::Rect, side: Side, open: bo
     shown.inner
 }
 
-/// The Right Dock (`Panel::right(RIGHT_DOCK_ID)`), where it holds a panel
-/// (the Palette, with the game's data read and a module open): its tab
-/// bar (the Palette tab; T6 adds Preview), the Palette panel under it
-/// (`palette_view::ui`, everything the palettes' pane held), 320 px at
+/// The Right Dock (`Panel::right(RIGHT_DOCK_ID)`), where the active
+/// docked editor brings panels (an area's tab or the placeholder in front:
+/// the Palette and the Preview) or the Palette was asked for by name
+/// ([`Panel::available`]); not drawn at all where it holds none (no strip,
+/// no fold button: its fold and its width kept for the next area). Its tab
+/// bar (the kit's `DockTabs`: Palette and Preview, as the Main board draws
+/// them; their icons alone where the dock is too narrow for their words,
+/// by its width alone, as the Left Dock's) and under it the panel in
+/// front, filling the dock: the Palette (`palette_view::ui`) or the
+/// Preview (its body drawn after the editor area,
+/// `area_tools::preview_panel`, in the room kept for it here). 320 px at
 /// first, at least [`RIGHT_DOCK_LEAST`], at most two fifths of the window
 /// (as the Left Dock), resized by its inner edge; its fold button beside
 /// that edge, half way down, as the Left Dock's, mirrored. Folded
-/// (`Settings::hide_palettes`), the strip of its panels' icons, and the
-/// button that unfolds it beside the strip's edge, where the one that
-/// folded it was. A press in the panel makes it the plugins' "pane last
-/// clicked in" (`plugins::Pane::Palette`), as a press in the palettes'
-/// tab did.
+/// (`Settings::hide_palettes`), the strip of its panels' icons, each
+/// unfolding it on its panel, and the button that unfolds it beside the
+/// strip's edge, where the one that folded it was. A press in the dock
+/// makes the palette the plugins' "pane last clicked in"
+/// (`plugins::Pane::Palette`), as a press in the palettes' tab did.
 pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
-    let held = panels(app, Dock::Right);
+    follow_editor(app);
+    // (Where it and the Preview's body are drawn, this frame's alone: a
+    // dock that folds or goes leaves none behind.)
     app.right_rect = None;
+    app.preview_rect = None;
+    app.preview_slot = None;
+    let held = panels(app, Dock::Right);
     let Some(front) = right_shown(app) else {
         app.right_fold = None;
         return;
@@ -892,17 +953,24 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let t = mg_uikit::tokens(&ctx);
     let line = panel_line(ui);
-    let fold_key = key_note(app, &ctx, Id::ViewPalettes);
     if app.settings.hide_palettes {
+        // (Each panel's button with the key that shows it: View › Right
+        // Dock's for the one in front, which unfolds the dock as it was;
+        // Tools › Palettes' and Tools › Preview's.)
+        let keys: Vec<String> = (held.iter())
+            .map(|p| match *p {
+                p if p == front => key_note(app, &ctx, Id::ViewPalettes),
+                Panel::Preview => key_note(app, &ctx, Id::PreviewWindow),
+                _ => key_note(app, &ctx, Id::Palettes),
+            })
+            .collect();
         let shown = egui::Panel::right("right-dock-strip")
             .exact_size(kit::STRIP + line)
             .resizable(false)
             .frame(egui::Frame::new().fill(t.bar))
             .show(ui, |ui| {
                 let mut strip = FoldStrip::new(RIGHT_DOCK, Side::Right).chevron(false);
-                for p in &held {
-                    // (The key unfolds the dock as it was, on the panel shown.)
-                    let key = if *p == front { fold_key.as_str() } else { "" };
+                for (p, key) in held.iter().zip(&keys) {
                     strip = strip.panel(p.icon(), p.name(), format!("{}{key}", p.strip_tip()));
                 }
                 strip.show(ui)
@@ -928,6 +996,10 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
             _ => i.pointer.hover_pos().is_some_and(|p| fold.contains(p)),
         })
     });
+    // (The tools' width the tabs are laid out beside: the widest of the
+    // panels' it holds, whichever is in front, so that the tabs keep
+    // their form by the dock's width alone. Neither has any: the tabs'
+    // words go only where the bar is narrower than they are.)
     let tools_width = {
         let button = IconButton::new(Icon::Plus, "").icon_only(true).width(ui);
         button * held.iter().map(|p| p.tools()).max().unwrap_or(0) as f32
@@ -960,13 +1032,12 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         .show(ui, |ui| {
             dock_pane(ui);
             let pane = ui.max_rect();
+            let pane_id = ui.unique_id();
             // (The pane last clicked in, whose selection a plugin's
-            // command from the Plugins menu or a key runs on.)
+            // command from the Plugins menu or a key runs on: the palette's,
+            // the Preview's being the palette's chosen blueprint.)
             if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(pane) {
-                app.plugins.pane = Some(match front {
-                    Panel::Palette => crate::plugins::Pane::Palette,
-                    _ => crate::plugins::Pane::Tree,
-                });
+                app.plugins.pane = Some(crate::plugins::Pane::Palette);
             }
             let mut tab = held.iter().position(|p| *p == front).unwrap_or(0);
             let mut tabs = DockTabs::new(RIGHT_DOCK).tools_width(tools_width);
@@ -974,7 +1045,8 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
             }
             let bar = tabs.show(ui, &mut tab, |_| ());
-            // (A tab chosen shows its panel from the next frame.)
+            // (A tab chosen shows its panel from the next frame: this one
+            // draws the panel in front as the frame began.)
             let chosen = bar.changed.then(|| held[tab]);
             // The panel's body (`.panel-body`: 8 px round it).
             let margin = Margin { left: 8, right: 8, top: 6, bottom: 4 };
@@ -985,12 +1057,21 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 // push its edge past the window's and draw the editor area
                 // over it.)
                 let room = ui.available_rect_before_wrap();
-                let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room));
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
                 match front {
-                    Panel::Palette => crate::palette_view::ui(app, &mut body),
+                    Panel::Palette => {
+                        let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room));
+                        body.set_clip_rect(room.intersect(ui.clip_rect()));
+                        crate::palette_view::ui(app, &mut body);
+                    }
+                    // (Drawn after the editor area, in this room: an
+                    // editor's tab showing the same model keeps its view.)
+                    Panel::Preview if room.is_positive() => {
+                        let layer = ui.layer_id();
+                        app.preview_rect = Some(room);
+                        app.preview_slot = Some(PreviewSlot { rect: room, layer, pane: pane_id });
+                    }
                     // (Not the Right Dock's.)
-                    Panel::Module | Panel::Resources => {}
+                    _ => {}
                 }
             });
             chosen
@@ -1006,7 +1087,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         app.show_panel(Id::ViewPalettes, false);
     }
     if let Some(panel) = shown.inner {
-        app.show_dock_panel(panel);
+        app.right_panel = panel;
     }
 }
 

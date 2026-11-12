@@ -672,6 +672,15 @@ fn show_palette(h: &mut App<'_>) {
     assert!(palette_rect(h).is_some(), "the Right Dock is not drawn");
 }
 
+/// Shows the Preview: the Right Dock unfolded on its Preview panel, as
+/// Tools › Preview shows it. Loudly: it must be drawn.
+fn show_preview(h: &mut App<'_>) {
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
+    h.run_steps(3);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
+    assert!(h.state().preview_panel_rect().is_some(), "the Preview panel is not drawn");
+}
+
 /// Folds the palettes away: the Right Dock folded, as View › Right Dock
 /// folds it.
 fn fold_palette(h: &mut App<'_>) {
@@ -1591,6 +1600,16 @@ fn frames_at_144() {
     fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     view(&mut h, &mut r, "module with its area, nothing else", None);
+    // The area beside the Right Dock with a creature chosen in the palette:
+    // the Preview's tab in front (its 3D view drawn again as it moves),
+    // then the Palette's: what the Preview costs.
+    h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    show_preview(&mut h);
+    view(&mut h, &mut r, "area, a creature in the Preview tab", None);
+    show_palette(&mut h);
+    view(&mut h, &mut r, "area, a creature, the Palette tab in front", None);
+    h.state_mut().palette.selected = None;
+    fold_palette(&mut h);
     let shown: Vec<Tab> = h
         .state()
         .dock
@@ -1765,12 +1784,13 @@ fn frames_at_144_in_a_persistent_world() {
     click_outside(&mut h, "Properties", "Left Dock");
     view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
     close(&mut h, &item);
-    // The same store in the Preview window (its stock by page).
+    // The same store in the Right Dock's Preview panel (its stock by
+    // page), under the palette.
     h.state_mut().palette.selected = ResKey::parse("pw_store", ResType::UTM);
-    h.state_mut().preview_window = true;
-    h.run_steps(3);
-    view(&mut h, &mut r, "Preview window, a store of 1,000 items", None);
-    h.state_mut().preview_window = false;
+    show_preview(&mut h);
+    view(&mut h, &mut r, "Preview panel, a store of 1,000 items", None);
+    show_palette(&mut h);
+    fold_palette(&mut h);
     resources_panel(&mut h, &mut r, "resource browser (300,000)");
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));

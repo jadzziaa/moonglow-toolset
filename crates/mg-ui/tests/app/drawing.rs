@@ -1195,54 +1195,6 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
 }
 
 #[test]
-fn preview_window_shows_the_chosen_blueprint() {
-    // (A creature of the module's with a first and a last name.)
-    let guard = |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
-        let text = |t: &str| {
-            mg_gff::Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, t))
-        };
-        let mut guard = Gff::new(*b"UTC ");
-        guard.root.set("FirstName", text("Hent"));
-        guard.root.set("LastName", text("Fynolds"));
-        m.set(ResKey::parse("guard001", ResType::UTC).unwrap(), guard.to_bytes().unwrap());
-    };
-    let Some((mut h, _area)) = area_harness_with("preview", "ttr01", None, 4, None, &guard) else {
-        return;
-    };
-    // (Preview Window from the Command Palette, its home until the
-    // Preview panel: the redesign's M3, T6.)
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "preview window");
-    h.key_press(egui::Key::Enter);
-    h.run_steps(2);
-    assert!(h.state().preview_window && h.state().command_palette.is_none());
-    h.get_by_label("Choose a blueprint in the palette.");
-    // A waypoint: its fields.
-    h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
-    h.run_steps(2);
-    h.get_by_label("Blueprint ResRef");
-    h.get_by_label("nw_waypoint001");
-    // A chest: also in 3D.
-    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
-    h.state_mut().palette.selected = Some(chest);
-    h.run_steps(3);
-    h.get_by_label("plc_chest1");
-    assert!(
-        h.state().model_views.contains_key(&mg_ui::model_view::Source::Resource(chest)),
-        "the 3D view"
-    );
-    // An item: also its inventory icon.
-    h.state_mut().palette.selected = ResKey::parse("nw_wswls001", ResType::UTI);
-    h.run_steps(3);
-    h.get_by_label("Item icon");
-    // A creature: by its first and last names, as the module tree names it.
-    h.state_mut().palette.selected = ResKey::parse("guard001", ResType::UTC);
-    h.run_steps(3);
-    h.get_by_label("Hent Fynolds");
-}
-
-#[test]
 fn a_preview_follows_its_blueprint_s_editor() {
     let root = mg_testkit::corpus!();
     let Some(rs) = gpu() else { return };
@@ -2053,30 +2005,34 @@ fn a_tint_being_picked_draws_on_the_rug() {
     assert!(differ > 15.0, "drawn as picked: {before:?} then {picking:?}");
 }
 
-/// One source shown in two places in a frame (the Preview window's
+/// One source shown in two places in a frame (the Preview panel's
 /// blueprint, and its model's own tab) shared one view and one set of
 /// targets, made twice a frame at two sizes, both pictures sampling the
 /// last (the review's B19): the second place says where the preview is.
+/// The tab keeps its view (the Preview panel is drawn after the editor
+/// area, as the Preview window was), the Preview panel saying so.
 #[test]
 fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     let Some((mut h, _area)) = area_harness("preview-twice") else { return };
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(chest)));
     h.state_mut().palette.selected = Some(chest);
-    h.state_mut().preview_window = true;
-    h.run_steps(12);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    settle(&mut h);
     let dir = mg_testkit::scratch_dir("ui-preview-twice");
     h.render().expect("render").save(dir.join("twice.png")).unwrap();
     let source = mg_ui::model_view::Source::Resource(chest);
     assert!(h.state().model_views[&source].holds_targets(), "drawn in the one place");
-    assert_eq!(
-        h.query_all_by_label("The preview is shown elsewhere in the window.").count(),
-        1,
-        "and said in the other"
-    );
-    // Its tab closed: the Preview window draws it.
+    let said: Vec<egui::Rect> = (h
+        .query_all_by_label("The preview is shown elsewhere in the window."))
+    .map(|n| n.rect())
+    .collect();
+    assert_eq!(said.len(), 1, "and said in the other");
+    let preview = h.state().preview_panel_rect().expect("the Preview panel");
+    assert!(preview.contains(said[0].center()), "said in the Preview panel: {said:?} {preview:?}");
+    // Its tab closed: the Preview panel draws it.
     close_tab(h.state_mut(), &Tab::Model(chest));
-    h.run_steps(6);
+    settle(&mut h);
     assert!(h.query_by_label("The preview is shown elsewhere in the window.").is_none());
     assert!(h.state().model_views[&source].holds_targets());
     h.render().expect("render").save(dir.join("once.png")).unwrap();

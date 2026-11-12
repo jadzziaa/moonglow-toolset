@@ -1,8 +1,13 @@
 //! The Right Dock and its Palette panel (the redesign's M3, T5): shown
 //! and folded by Tools › Palettes, View › Right Dock, their keys, its fold
-//! button and its strip; the palette laid out inside it at every width;
-//! F6 through the docks; settings and records of the palettes' pane read;
-//! the plugins' pane; the palettes' lists' own scroll places.
+//! button and its strip; the palette and the Preview panel, each on its
+//! tab, laid out inside it at every width; F6 through the docks; settings and
+//! records of the palettes' pane read; the plugins' pane; the palettes'
+//! lists' own scroll places. And (T6) the dock following the active
+//! docked editor: drawn beside an area's tab or the placeholder, not at
+//! all beside any other tab, a floating window leaving it as it is;
+//! Tools › Palettes beside a tab that brings none; nothing of it left the
+//! frame after it goes. (The Preview panel itself: `preview_panel.rs`.)
 
 use crate::common::*;
 use mg_module::palette::BlueprintKind;
@@ -252,11 +257,12 @@ fn dock_nodes(h: &Harness<'_, Moonglow>) -> DockNodes {
 /// What is wrong in and over the Right Dock: a node of the dock's outside
 /// it (left or right of it, or above it: the lists are at their tops,
 /// and rows below the dock's foot are the lists' scrolled out of sight),
-/// or over its fold button; another node reaching into the dock (but
+/// or over its fold button (the Preview panel's among them: its body is
+/// drawn under the dock's pane); another node reaching into the dock (but
 /// the fold button, beside its edge); two of its named widgets over each
-/// other (their visible rects, clipped by their scroll areas, overlapping
-/// by more than a quarter of the smaller, in any layers). `at` names the
-/// case. The dock's nodes are counted into `seen`.
+/// other (their visible rects, clipped by their scroll areas,
+/// overlapping by more than a quarter of the smaller, in any layers). `at`
+/// names the case. The dock's nodes are counted into `seen`.
 fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<String> {
     let dock = right_dock_rect(h);
     let fold = h.get_by_label("Fold the Right Dock").rect();
@@ -351,11 +357,30 @@ fn every_kind() -> Vec<Kind> {
     kinds
 }
 
+/// The blueprint the Preview panel shows after the palette of `kind` in
+/// the sweeps: none beside the tiles (the panel's words), a creature (its
+/// fields and its model under its toolbar), an item (its icon too), a
+/// placeable, a waypoint (its fields alone).
+fn previewed(kind: Kind) -> Option<ResKey> {
+    use BlueprintKind as K;
+    let (name, t) = match kind {
+        Kind::Tiles => return None,
+        Kind::Blueprint(K::Creature, _) | Kind::Prefabs => ("nw_bandit001", ResType::UTC),
+        Kind::Blueprint(K::Item, _) | Kind::Lights => ("nw_wswls001", ResType::UTI),
+        Kind::Blueprint(K::Placeable, _) | Kind::Start => ("plc_chest1", ResType::UTP),
+        Kind::Blueprint(..) => ("nw_waypoint001", ResType::UTW),
+    };
+    ResKey::parse(name, t)
+}
+
 /// Shows the palette of `kind`, its categories all open where it has
-/// them (rows to look at).
-fn show_kind(h: &mut Harness<'_, Moonglow>, kind: Kind) {
+/// them (rows to look at), a blueprint chosen for the Preview
+/// ([`previewed`]), and then the tab `front` in front.
+fn show_kind(h: &mut Harness<'_, Moonglow>, kind: Kind, front: mg_ui::Panel) {
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
     {
         let app = h.state_mut();
+        app.palette.selected = previewed(kind);
         let p = &mut app.palette;
         (p.tiles, p.prefabs, p.lights, p.start) = (false, false, false, false);
         app.settings.palette_gallery = false;
@@ -374,6 +399,9 @@ fn show_kind(h: &mut Harness<'_, Moonglow>, kind: Kind) {
     if matches!(kind, Kind::Blueprint(..)) {
         expand_all_in_the_dock(h);
     }
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(front));
+    settle(h);
+    assert_eq!(h.state().right_dock_shows(), Some(front));
 }
 
 /// The dock's nodes below its header (the type strip, the type's name and
@@ -387,37 +415,55 @@ fn body_nodes(h: &Harness<'_, Moonglow>) -> usize {
     own.iter().filter(|(name, r, _)| !name.ends_with("\"\"") && r.top() > header).count()
 }
 
-/// The fewest body nodes ([`body_nodes`]) each type shows in the sweeps
-/// (at the narrowest, the most in its rows): a list's toolbar and rows,
-/// the Gallery's pictures, the tiles' brushes, prefabs' and lights' and
-/// the start location's controls.
-fn least_body(kind: Kind) -> usize {
-    match kind {
-        Kind::Tiles | Kind::Blueprint(..) => 10,
-        Kind::Prefabs | Kind::Lights => 3,
-        Kind::Start => 1,
+/// The Preview's named nodes in its body: its words with no blueprint
+/// chosen, or the blueprint's fields and what is under them.
+fn preview_nodes(h: &Harness<'_, Moonglow>) -> usize {
+    let body = h.state().preview_panel_rect().expect("the Preview's body");
+    let own = dock_nodes(h).own;
+    own.iter().filter(|(name, r, _)| !name.ends_with("\"\"") && body.intersects(*r)).count()
+}
+
+/// The fewest body nodes each type shows in the sweeps (at the narrowest,
+/// the most in its rows), with the Palette in front ([`body_nodes`]): a
+/// list's toolbar and rows, the Gallery's pictures, the tiles' brushes,
+/// prefabs' and lights' and the start location's controls; with the
+/// Preview ([`preview_nodes`]): its words with no blueprint chosen, or a
+/// blueprint's names and values.
+fn least_body(kind: Kind, front: mg_ui::Panel) -> usize {
+    match (front, kind) {
+        (mg_ui::Panel::Preview, Kind::Tiles) => 1,
+        (mg_ui::Panel::Preview, _) => 6,
+        (_, Kind::Tiles | Kind::Blueprint(..)) => 10,
+        (_, Kind::Prefabs | Kind::Lights) => 3,
+        (_, Kind::Start) => 1,
     }
 }
 
 /// The sweep: each type of palette at each of `widths` (given by `set`,
-/// the dock's width then measured): nothing wrong ([`dock_wrong`]), and
-/// on each its body ([`least_body`]).
+/// the dock's width then measured), once with each tab in front (the
+/// Palette's, then the Preview's showing [`previewed`]): nothing wrong
+/// ([`dock_wrong`]), and on each the panel's body ([`least_body`]).
 fn sweep(
     h: &mut Harness<'_, Moonglow>,
     widths: &[f32],
     set: &dyn Fn(&mut Harness<'_, Moonglow>, f32),
 ) -> (Vec<String>, usize) {
     let (mut wrong, mut seen) = (Vec::new(), 0);
-    for kind in every_kind() {
-        show_kind(h, kind);
-        for &width in widths {
-            set(h, width);
-            settle(h);
-            let at = format!("{kind:?} at {:.0}", right_dock_rect(h).width());
-            wrong.extend(dock_wrong(h, &at, &mut seen));
-            let body = body_nodes(h);
-            if body < least_body(kind) {
-                wrong.push(format!("{at}: {body} nodes under the header: an empty palette"));
+    for front in [mg_ui::Panel::Palette, mg_ui::Panel::Preview] {
+        for kind in every_kind() {
+            show_kind(h, kind, front);
+            for &width in widths {
+                set(h, width);
+                settle(h);
+                let at = format!("{front:?}: {kind:?} at {:.0}", right_dock_rect(h).width());
+                wrong.extend(dock_wrong(h, &at, &mut seen));
+                let body = match front {
+                    mg_ui::Panel::Preview => preview_nodes(h),
+                    _ => body_nodes(h),
+                };
+                if body < least_body(kind, front) {
+                    wrong.push(format!("{at}: {body} nodes in its body: an empty panel"));
+                }
             }
         }
     }
@@ -428,7 +474,8 @@ fn sweep(
 /// to 600, 8 points apart, on every type of palette (the tiles' with an
 /// area open, each blueprint type, in the Gallery too where it has
 /// pictures, prefabs, lights, the start location), each with something
-/// in it: nothing of the panel lies outside the dock, under its fold
+/// in it, and again with the Preview's tab in front showing a blueprint
+/// ([`previewed`]): nothing of either panel lies outside the dock, under its fold
 /// button or over another of its widgets, and nothing else lies over the
 /// dock ([`dock_wrong`]). (With the palettes' pane dragged to about 135
 /// px, a blueprint type's list toolbar spilled left under its fold
@@ -455,7 +502,8 @@ fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
 /// least width beside the Left Dock (both unfolded): from the least
 /// window, 420 points, where the dock is 190 wide, a window 8 points
 /// wider at a time to where the dock has its 280, on every type of
-/// palette as `the_palette_fits_the_right_dock_from_its_least_width_to_600`.
+/// palette, with each tab in front, as
+/// `the_palette_fits_the_right_dock_from_its_least_width_to_600`.
 /// (The editor area is then left little: the shell's yields, M3 T14,
 /// fold the Left Dock.)
 #[test]
@@ -1007,4 +1055,303 @@ fn tools_palettes_without_game_data_says_so() {
         settle(&mut h);
         assert!(palette_shown(h.state()), "{module}: the button beside the strip");
     }
+}
+
+/// The area harness with tools that dock as tabs in the editor area's
+/// middle (Module Properties, scripts, the manual: `window_places`), Module
+/// Properties (which the module opened in a window) closed.
+fn follow_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (mut h, area) = area_harness(name)?;
+    close_windows(&mut h);
+    let middle = |kind: &str| (kind.to_string(), "middle".to_string());
+    h.state_mut().settings.window_places =
+        vec![middle("module-properties"), middle("script"), middle("manual")];
+    settle(&mut h);
+    Some((h, area))
+}
+
+/// Whether the Right Dock is drawn, and if not, that nothing of it is
+/// left: no fold button, no strip, no tab bar, no edge to drag, nothing
+/// recorded of where it was.
+fn right_dock_drawn(h: &Harness<'_, Moonglow>) -> bool {
+    let drawn = h.state().right_dock_rect().is_some();
+    let folded = h.query_by_label("Show the Right Dock").is_some();
+    if drawn || folded {
+        return true;
+    }
+    assert!(h.query_by_label("Fold the Right Dock").is_none(), "a fold button with no dock");
+    assert!(h.query_by_label(mg_ui::RIGHT_DOCK).is_none(), "a tab bar or strip with no dock");
+    assert!(h.state().preview_panel_rect().is_none(), "a Preview's place kept");
+    let handles =
+        ["right-dock", "right-dock-strip"].map(|id| egui::Id::new(id).with("__resize").value());
+    let fold = egui::Id::new("right-dock-fold").value();
+    h.ctx.viewport(|v| {
+        for (_, widgets) in v.prev_pass.widgets.layers() {
+            for w in widgets {
+                let id = w.id.value();
+                assert!(
+                    !handles.contains(&id) && id != fold,
+                    "{:?} at {:?}",
+                    w.id,
+                    w.interact_rect
+                );
+            }
+        }
+    });
+    false
+}
+
+/// The Right Dock's tabs, by name, in their order: Palette and Preview.
+fn right_tabs(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    let bar = h.get_by_label(mg_ui::RIGHT_DOCK);
+    let tab = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.role() == egui::accesskit::Role::Tab;
+    let mut tabs: Vec<(f32, String)> = (bar.query_all(egui_kittest::kittest::by().predicate(tab)))
+        .map(|n| (n.rect().left(), n.accesskit_node().label().unwrap_or_default()))
+        .collect();
+    tabs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    tabs.into_iter().map(|(_, name)| name).collect()
+}
+
+/// The editor area's right edge: where the Right Dock is drawn, beside it;
+/// else the window's.
+fn editor_right(h: &Harness<'_, Moonglow>) -> f32 {
+    h.state().editor_area_rect().expect("the editor area").right()
+}
+
+/// The Right Dock follows the active docked editor: with the area's tab in
+/// front it holds the Palette and the Preview; with Module Properties, a
+/// script or the manual docked in front of it, it is not drawn at all (no
+/// strip, no fold button, nothing of it left), the editor area takes its
+/// room, View › Right Dock is grayed and F6 passes over it; with the
+/// area's tab in front again it is back as it was: as wide, and folded
+/// where it was folded.
+#[test]
+fn the_right_dock_follows_the_active_editor() {
+    let Some((mut h, area)) = follow_harness("right-dock-follows") else { return };
+    h.state_mut().settings.hide_log = false;
+    right_dock_width(&mut h, 400.0);
+    settle(&mut h);
+    let window = h.ctx.content_rect();
+    assert!(right_dock_drawn(&h));
+    assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
+    let width = right_dock_rect(&h).width();
+    assert!((width - 400.0).abs() < 1.0);
+    let beside = editor_right(&h);
+    assert!(beside < window.right() - 390.0);
+    let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    let others = [Tab::ModuleProperties, script, Tab::Manual];
+    // (The script: one of the module's, made for the test.)
+    {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let key = ResKey::parse("hello", ResType::NSS).unwrap();
+        ws.module.set(key, b"void main() { }\n".to_vec());
+    }
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    for (i, tab) in others.iter().enumerate() {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        settle(&mut h);
+        let at = h.state().dock.find_tab(tab).expect("open");
+        assert!(at.surface.is_main(), "{tab:?} docked");
+        assert_eq!(h.state().active_editor(), Some(tab));
+        assert!(!right_dock_drawn(&h), "{tab:?} in front: no Right Dock");
+        let wider = editor_right(&h) >= beside + width - 1.0;
+        assert!(wider, "{tab:?}: the editor area takes the dock's room");
+        // View › Right Dock grayed.
+        h.get_by_label("Top Bar").get_by_label("View").click();
+        settle(&mut h);
+        let row = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::CheckBox
+                && n.label().as_deref() == Some("Right Dock")
+        };
+        let grayed =
+            h.get(egui_kittest::kittest::by().predicate(row)).accesskit_node().is_disabled();
+        assert!(grayed, "{tab:?}: View › Right Dock grayed");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        // F6 and Shift+F6 pass over it.
+        if i == 0 {
+            let mut seen = Vec::new();
+            for back in [false, false, false, true, true, true] {
+                let m = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+                h.key_press_modifiers(m, egui::Key::F6);
+                settle(&mut h);
+                seen.push(keys(&h));
+            }
+            assert!(!seen.contains(&"Palette".to_string()), "F6 passed over it: {seen:?}");
+            assert!(seen.contains(&"Log".to_string()), "{seen:?}");
+        }
+        // The area's tab in front again: the dock as it was.
+        click_tab(&mut h, &Tab::Area(area));
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
+        assert!(right_dock_drawn(&h), "back with the area");
+        assert!((right_dock_rect(&h).width() - width).abs() < 1.0, "as wide");
+        assert_eq!(right_tabs(&h), ["Palette", "Preview"], "with both its tabs");
+    }
+    // Folded, it stays folded through a tab that takes it away.
+    fold_palette(h.state_mut());
+    settle(&mut h);
+    click_tab(&mut h, &Tab::ModuleProperties);
+    settle(&mut h);
+    assert!(!right_dock_drawn(&h), "not even its strip");
+    assert!(h.state().settings.hide_palettes, "its fold kept");
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert!(h.query_by_label("Show the Right Dock").is_some(), "folded, as it was");
+    assert_eq!(h.state().settings.right_dock_width, Some(400), "its width kept");
+}
+
+/// A floating window with the focus (a script's, in a window of its own)
+/// leaves the docks as the area under it has them: floating editors keep
+/// their own panes (the plan's decision 3).
+#[test]
+fn a_floating_window_leaves_the_right_dock_as_it_is() {
+    let Some((mut h, area)) = area_harness("right-dock-floating") else { return };
+    let script = Tab::Script(ResKey::parse("floating", ResType::NSS).unwrap());
+    {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.module
+            .set(ResKey::parse("floating", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    }
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    settle(&mut h);
+    let at = h.state().dock.find_tab(&script).expect("open");
+    assert!(!at.surface.is_main(), "a window of its own");
+    // (A click in it: its pane has the focus.)
+    let pane = h.state().dock.iter_leaves().find(|(p, _)| p.surface == at.surface).unwrap().1;
+    click_pos(&h, pane.rect.center());
+    settle(&mut h);
+    let focused = h.state().dock.focused_leaf().expect("a pane with the focus");
+    assert!(!focused.surface.is_main(), "the window's");
+    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
+    assert!(palette_shown(h.state()));
+    assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
+}
+
+/// Two panes in the editor area's middle, the area's on the left and a
+/// tool's (the Faction Editor's) on the right: the Right Dock follows the
+/// one with the focus, its tab in front; the area opened again (from the
+/// module tree, a link) while the tool's has the focus gives its pane the
+/// focus.
+#[test]
+fn the_right_dock_follows_the_pane_with_the_focus() {
+    let Some((mut h, area)) = area_harness("right-dock-two-panes") else { return };
+    {
+        let dock = &mut h.state_mut().dock;
+        let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
+        dock.main_surface_mut().split_right(node, 0.6, vec![Tab::Factions]);
+    }
+    settle(&mut h);
+    click_tab(&mut h, &Tab::Factions);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
+    assert!(!right_dock_drawn(&h), "the tool's pane: no Right Dock");
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
+    assert!(palette_shown(h.state()), "the area's pane: the Right Dock");
+    click_tab(&mut h, &Tab::Factions);
+    settle(&mut h);
+    assert!(!right_dock_drawn(&h));
+    // The area opened again (from the module tree, say: it is open in the
+    // other pane) is the active editor, its pane given the focus.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
+    assert!(palette_shown(h.state()), "the area opened: the Right Dock");
+}
+
+/// With the last area closed, the placeholder that says none is open
+/// stands in the area's place and keeps the Right Dock, the Palette and
+/// the Preview in it.
+#[test]
+fn the_placeholder_keeps_the_right_dock() {
+    let Some((mut h, area)) = follow_harness("right-dock-placeholder") else { return };
+    // (Module Properties, which the module opened with, closed too.)
+    if h.state().dock.find_tab(&Tab::ModuleProperties).is_some() {
+        click_tab_close(&mut h, &Tab::ModuleProperties);
+        settle(&mut h);
+    }
+    click_tab_close(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::NoArea));
+    assert!(palette_shown(h.state()));
+    assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
+    h.get_by_label("Fold the Right Dock");
+}
+
+/// Tools › Palettes and Tools › Preview beside a tab that brings no
+/// panels show the Right Dock all the same, on the panel asked for, both
+/// tabs in it (asked for by name, they never lead nowhere), and View ›
+/// Right Dock is enabled then; the area's tab brought to the front and
+/// that tab again, the plain rule has it again: no Right Dock.
+#[test]
+fn tools_palettes_beside_a_tab_that_brings_none() {
+    let Some((mut h, area)) = follow_harness("right-dock-asked") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    settle(&mut h);
+    assert!(!right_dock_drawn(&h));
+    for (row, panel) in [("Palettes", mg_ui::Panel::Palette), ("Preview", mg_ui::Panel::Preview)] {
+        menu_command(&mut h, "Tools", row);
+        assert_eq!(h.state().active_editor(), Some(&Tab::ModuleProperties), "{row}");
+        assert_eq!(h.state().right_dock_shows(), Some(panel), "{row}: beside Module Properties");
+        assert_eq!(right_tabs(&h), ["Palette", "Preview"], "{row}: both tabs");
+        h.get_by_label("Top Bar").get_by_label("View").click();
+        settle(&mut h);
+        let row_of = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::CheckBox
+                && n.label().as_deref() == Some("Right Dock")
+        };
+        let node = h.get(egui_kittest::kittest::by().predicate(row_of));
+        assert!(!node.accesskit_node().is_disabled(), "{row}: View › Right Dock enabled");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        click_tab(&mut h, &Tab::Area(area));
+        settle(&mut h);
+        assert!(right_dock_drawn(&h));
+        click_tab(&mut h, &Tab::ModuleProperties);
+        settle(&mut h);
+        assert!(!right_dock_drawn(&h), "{row}: gone again");
+    }
+}
+
+/// The frame the Right Dock goes (a tab that brings no panels brought to
+/// the front by a click) and the frame it comes back, step by step:
+/// nothing of it is left the frame after it goes (its fold button, its
+/// edge, the place of its Preview), the editor area reaching the window's
+/// edge; and the frame it is drawn again its fold button stands beside
+/// its edge, half way down, and the editor area ends at its edge.
+#[test]
+fn nothing_of_the_right_dock_is_left_the_frame_after_it_goes() {
+    let Some((mut h, area)) = follow_harness("right-dock-leftovers") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    settle(&mut h);
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    let beside = editor_right(&h);
+    let width = right_dock_rect(&h).width();
+    // (Frame by frame: the click lands, and the dock follows at a frame.)
+    let mut frames = 0;
+    click_tab(&mut h, &Tab::ModuleProperties);
+    while h.state().right_dock_rect().is_some() {
+        // (One frame at a time: what is drawn is looked at each.)
+        h.step();
+        frames += 1;
+        assert!(frames < 10, "the Right Dock never went");
+    }
+    assert!(!right_dock_drawn(&h));
+    assert!(editor_right(&h) >= beside + width - 1.0, "the editor area takes the dock's room");
+    click_tab(&mut h, &Tab::Area(area));
+    let mut frames = 0;
+    while h.state().right_dock_rect().is_none() {
+        h.step();
+        frames += 1;
+        assert!(frames < 10, "the Right Dock never came back");
+    }
+    let dock = right_dock_rect(&h);
+    let fold = h.get_by_label("Fold the Right Dock").rect();
+    assert!((fold.right() - dock.left()).abs() < 1.5, "beside its edge: {fold:?} {dock:?}");
+    assert!((fold.center().y - dock.center().y).abs() < 1.5, "half way down: {fold:?} {dock:?}");
+    assert!(editor_right(&h) <= dock.left() + 0.5, "the editor area beside it");
+    assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
 }

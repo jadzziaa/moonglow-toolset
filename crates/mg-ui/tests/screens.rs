@@ -10973,6 +10973,74 @@ fn shell_right_dock_no_game() {
     shoot(&mut h, &dir, "shell_right_no_game");
 }
 
+/// The Right Dock's Preview tab in front (M3 T6), the Palette's beside
+/// it: a creature chosen in the palette at the dock's default 320 and
+/// least 280 (`shell_preview_320`, `_280`) and in the least window, 420
+/// wide, where the dock is 190 (`_420`); an item and a placeable at 320
+/// (`_item`, `_placeable`); folded, its strip with both panels' buttons
+/// (`_folded`); Module Properties in front, no Right Dock (`_no_dock`); and
+/// Tools › Preview beside it (`_asked`).
+#[test]
+#[ignore]
+fn shell_preview() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, mg_module::palette::BlueprintKind::Placeable, false);
+        p.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    }
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    // (The model's textures read, its view drawn.)
+    let wait = |h: &mut Harness<'_, Moonglow>| {
+        for _ in 0..20 {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    };
+    wait(&mut h);
+    let body = h.state().preview_panel_rect().expect("the Preview in front");
+    eprintln!("the Preview's body at 320 in 1600 by 900: {body:?}");
+    shoot(&mut h, &dir, "shell_preview_320");
+    for (name, key) in
+        [("item", ("nw_wswls001", ResType::UTI)), ("placeable", ("plc_chest1", ResType::UTP))]
+    {
+        h.state_mut().palette.selected = ResKey::parse(key.0, key.1);
+        wait(&mut h);
+        shoot(&mut h, &dir, &format!("shell_preview_{name}"));
+    }
+    h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    right_dock_width(&mut h, 280.0);
+    wait(&mut h);
+    shoot(&mut h, &dir, "shell_preview_280");
+    h.set_size(egui::vec2(420.0, 760.0));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_preview_420");
+    right_dock_width(&mut h, 320.0);
+    h.set_size(egui::vec2(1280.0, 800.0));
+    h.state_mut().settings.hide_palettes = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_preview_folded");
+    h.state_mut().settings.hide_palettes = false;
+    // (Module Properties docked as a tab in front of the area's.)
+    let props = mg_ui::Tab::ModuleProperties;
+    if let Some(at) = h.state().dock.find_tab(&props) {
+        h.state_mut().dock.remove_tab(at);
+    }
+    h.state_mut().settings.window_places = vec![("module-properties".into(), "middle".into())];
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props));
+    h.run_steps(5);
+    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside Module Properties");
+    shoot(&mut h, &dir, "shell_preview_no_dock");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    h.run_steps(5);
+    assert!(h.state().preview_panel_rect().is_some(), "asked for, the Preview in front");
+    shoot(&mut h, &dir, "shell_preview_asked");
+}
+
 /// The frame at 760 by 600 with a module and its area open: the Top Bar's
 /// build actions icons alone, nothing overlapping.
 #[test]

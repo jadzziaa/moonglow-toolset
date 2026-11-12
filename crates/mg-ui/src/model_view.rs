@@ -1176,6 +1176,22 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             .chain(anims.iter().map(|(name, ..)| Some(name.clone())))
             .collect();
         let was = view.animation.clone();
+        // (The box and its label are one widget, which the row does not
+        // wrap: on a row of its own where the two do not fit beside what
+        // is before them, else it reaches past a narrow view's side, the
+        // Right Dock's Preview panel's.)
+        let label = egui::WidgetText::from("Animation").into_galley(
+            ui,
+            Some(egui::TextWrapMode::Extend),
+            f32::INFINITY,
+            egui::TextStyle::Button,
+        );
+        let both = ui.spacing().combo_width + ui.spacing().item_spacing.x + label.size().x;
+        // (A wrapping row's available width is the whole row's.)
+        let left = ui.max_rect().right() - ui.cursor().min.x;
+        if left < both && ui.cursor().min.x > ui.max_rect().left() + 0.5 {
+            ui.end_row();
+        }
         crate::widgets::dropdown_labelled(("anim", &key), "Animation").selected_text(current).show(
             ui,
             &mut view.animation,

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T12:45:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:25:03Z }
 ---
 
 # The main window
@@ -12,16 +12,25 @@ From top to bottom: the **Top Bar** (the menus and the common
 commands, in one row), then the **Left Dock** with its two panels, each
 on a tab of its own (**Module**, the module tree, and **Resources**, the
 resource browser), the
-**tabs** in the middle and the **Right Dock** with the **Palette** panel
-on the right, the **log** in the Bottom Dock under the tabs, and the
+**tabs** in the middle and the **Right Dock** on the right, with the
+**Palette** and **Preview** panels on two tabs, the **log** in the Bottom Dock under the tabs, and the
 **Status Bar** (the log's
 switch at its left; the module's name, "(modified)" while there are
 unsaved changes, and the game's folder at its right: rest the pointer
 on the name for the module's file, on the folder for its whole path).
 The palette comes with each module, in the Right Dock, 320 points wide
-at first. If you fold the dock away, **Tools › Palettes** brings it
-back. With no game data read (no game folder found), Tools › Palettes
-still shows the dock, its panel saying "No game data.".
+at first. The docks follow the tab you work in: the Right Dock holds
+the panels of an area, so it is there while an area's tab (or, with no
+area open, the tab saying so) is in front of the middle, and not at all
+while another tab is (Module Properties, a script, a blueprint, the
+manual: the middle then has the room); a tool in a window of its own
+leaves it as the area under it has it. Where you
+work in two panes side by side, it follows the one you last clicked in.
+If you fold the dock away, **Tools › Palettes** brings it back; beside a
+tab that brings no panels, it shows the dock all the same until an
+area's tab is in front again. With no game data read (no game folder
+found), Tools › Palettes still shows the dock, its panel saying "No
+game data.".
 
 The Top Bar's buttons are icons: **New**, **Open** and **Save** after
 the menus, then **Undo** and **Redo**; at its right end **Compile**,
@@ -49,9 +58,9 @@ plus) are icons on the Module panel's tab bar, beside **Expand All** and
 Go to Start Location** (the area view's Go to Start Location and its
 Start filter show its circled arrow); **Resources** is the Left Dock's
 Resources tab (also Tools › Resource Browser); **Palettes** is the
-Right Dock's Palette panel (also Tools › Palettes); **Preview** is Preview
-Window in the Command Palette (**Help › Command Palette…**,
-Ctrl+Shift+P). Each kind of object has one icon wherever it appears: on
+Right Dock's Palette panel (also Tools › Palettes); **Preview** is the
+Right Dock's Preview panel, on the tab beside the palette's (also
+**Tools › Preview**). Each kind of object has one icon wherever it appears: on
 the area view's toolbar and in the palette's row of types.
 
 ## Menus
@@ -60,9 +69,9 @@ the area view's toolbar and in the palette's row of types.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Left Dock (the Module and Resources panels), Right Dock (the Palette panel), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
+| View | Left Dock (the Module and Resources panels), Right Dock (the Palette and Preview panels), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
-| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
+| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, Check for Updates…, About Moonglow Toolset |
@@ -202,8 +211,8 @@ changes them; the menus show the current keys.
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's palette, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
-| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes), the log |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's palette where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
+| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
 
@@ -459,8 +468,8 @@ terminal, `mg gff --names` names them the same way (a faction with
 number.
 
 **The docks beside the middle** (the module tree and the resource
-browser in the Left Dock, the palettes in the Right Dock, the log in
-the Bottom Dock) fold
+browser in the Left Dock, the palettes and the Preview in the Right
+Dock, the log in the Bottom Dock) fold
 away to give the area's view the room: **View** has each (Left Dock,
 whichever of its panels it shows; Right Dock; Log), ticked while
 shown, and **Hide All Panels**. Each also has one control of its own for
@@ -480,9 +489,18 @@ same, mirrored: its arrow beside its inner (left) edge, half way down
 (**Fold the Right Dock**), its edge dragged above or below it to make it
 wider (at least 280 points, at most two fifths of the window); folded,
 a thin strip at the window's right with **Show the Right Dock** beside
-its edge and a button for its panel (**Palette**). It holds the
-palettes, which stay there: they can no longer be dragged into the
-middle, to the left or into a window of their own. The **log** opens and closes by its switch, **Log**, at
+its edge and a button for each of its panels (**Palette**, and
+**Preview**, an eye), which brings it back on that panel. It holds the
+palettes and the Preview, each on a tab of its tab bar, the one in
+front filling the dock (their words, or their icons alone where the
+dock is too narrow for the words; Left and Right on a tab go to the
+other); they stay there: they can no longer be dragged into the
+middle, to the left or into a window of their own. The tab in front
+stays so while Moonglow runs; each module opens on the palette. The
+Right Dock is there only
+beside an area (see the start of this chapter): with another tab in
+front it is not drawn at all, and comes back as it was, folded or not,
+as wide. The **log** opens and closes by its switch, **Log**, at
 the left of the Status Bar, lit while the log is open; it comes back as
 high as it was. What is folded stays so the next time Moonglow starts,
 and so do the docks' sizes. In a window too small for a dock's size it
@@ -727,11 +745,19 @@ palette shows the tileset's brushes instead. The row's last three are
 **Prefabs**, **Lights** (the game's invisible lights, one chosen and
 then put where an area is clicked) and **Start Location** (where a
 player's character enters the module: chosen, a click in an area puts
-it there). **Preview Window** (in the Command Palette) shows
-the chosen blueprint in a window of its own (a 3D view is drawn in one
-place at a time: where the same blueprint or model is on screen
-already, the second place says the preview is shown elsewhere). After a
-click in it, the
+it there). The **Preview** tab beside it shows the chosen blueprint
+(Aurora's Preview window): its name, tag, resref, comments and a few
+fields of its type, an item's inventory icon, a store's stock by page,
+and creatures, doors, items and placeables in 3D under their fields,
+with the model viewer's controls. A 3D view is drawn in one place at a
+time: where the same blueprint or model is in a tab already, the tab
+keeps it and the Preview says the preview is shown elsewhere. The
+Preview is drawn only while its tab is in front (behind the palette's
+it reads and draws nothing), and then shows whatever is chosen in the
+palette at that moment; choosing a blueprint does not change the tab.
+**Tools › Preview** (or the strip's Preview button, the dock folded)
+brings it to the front, with the dock, beside any tab. After a click
+in the palette, the
 arrow keys move through its rows and open and close its categories (see
 [Blueprints](05-blueprints.md)). Tools › Options › General › **Hide
 empty categories in the palettes** leaves out the categories with no
