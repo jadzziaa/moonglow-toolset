@@ -1199,6 +1199,10 @@ pub struct Moonglow {
     /// The tab being dragged this frame (its parts drawn where it is
     /// dragged, not in its place: `TabViewer::on_tab_dragged`).
     pub(crate) dragged_tab: Option<Tab>,
+    /// A test's hold on the 2DA editor's looks for a table's description:
+    /// while set, a look stays under way (as one walking a large folder).
+    #[doc(hidden)]
+    pub hold_description_looks: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The tabs closed, the last one last: Reopen Closed Tab's.
     pub(crate) closed_tabs: Vec<Tab>,
     /// Where each window (by its first tab) is.
@@ -1522,6 +1526,7 @@ impl Moonglow {
             fronts_before: Default::default(),
             tab_rects: HashMap::new(),
             dragged_tab: None,
+            hold_description_looks: Default::default(),
             closed_tabs: Vec::new(),
             windows: HashMap::new(),
             window_frame: 1.0,
@@ -1847,6 +1852,7 @@ impl Moonglow {
             _ => {}
         }
         self.keep_middle();
+        table_view::follow_looks(self, ui.ctx());
         self.tab_number_keys(ui.ctx());
         egui::CentralPanel::default().show(ui, |ui| {
             self.dock_width = Some(ui.available_width());
@@ -2272,15 +2278,11 @@ impl Moonglow {
                 self.dock.push_to_focused_leaf(tab.clone());
             }
             None => {
-                let [_, new] =
-                    self.dock.main_surface_mut().split_right(from.node, 0.5, vec![tab.clone()]);
-                self.dock.set_focused_node_and_surface(egui_dock::NodePath::new(
-                    egui_dock::SurfaceIndex::main(),
-                    new,
-                ));
+                self.dock.main_surface_mut().split_right(from.node, 0.5, vec![tab.clone()]);
             }
         }
-        // (In front of it, and the module tree going to it, as a click.)
+        // (In front of it, its group given the focus, and the module tree
+        // going to it, as a click.)
         self.show_tab(tab.clone());
         tree::reveal_tab(self, &tab);
     }
@@ -2417,6 +2419,14 @@ impl Moonglow {
     /// Palette's tab in front, the dock folded or not drawn).
     pub fn preview_panel_rect(&self) -> Option<egui::Rect> {
         self.preview_rect
+    }
+
+    /// How many times a tab's document was compared with its saved copy for
+    /// its modified dot (for tests: none while it changes, one once it
+    /// rests).
+    #[doc(hidden)]
+    pub fn dot_comparisons(&self) -> u64 {
+        self.look_cache.comparisons
     }
 
     /// Where a tab of the editor area (a group's, or a floating window's)

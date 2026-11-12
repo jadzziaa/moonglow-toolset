@@ -46,9 +46,9 @@ pub use controls::{
 pub use fonts::install_fonts;
 pub use form::{field_label, palette_swatches, section_heading, swatch, table_heading};
 pub use icons::{
-    Icon, IconButton, Join, Label, form_menu_button, icon, icon_button, icon_label,
-    icon_text_button, icon_text_toggle, icon_toggle, icons_drawn, joined_spacing, menu_button,
-    name_group, record_icons, say_expanded, submenu_button,
+    Icon, IconButton, Join, Label, form_menu_button, front_lines_drawn, icon, icon_button,
+    icon_label, icon_text_button, icon_text_toggle, icon_toggle, icons_drawn, joined_spacing,
+    menu_button, name_group, record_icons, say_expanded, submenu_button,
 };
 pub use marks::{Badge, BadgeKind, KeyCap, modified_dot, paint_modified_dot};
 pub use menu::{

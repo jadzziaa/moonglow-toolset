@@ -167,9 +167,17 @@ pub struct Workspace {
     last_touched: HashMap<ResKey, u64>,
     outside: u64,
     /// The saved copies [`Workspace::differs_from_saved`] has read, by
-    /// resource and the saved data's place (saving puts new data there).
-    saved_read: std::sync::Mutex<HashMap<ResKey, (usize, std::sync::Arc<Gff>)>>,
+    /// resource, each with the saved data it was read from (held, so that
+    /// it is told from data saved later by what it is, never by an address
+    /// freed and given again). Dropped as the resource is taken out, or
+    /// the module saved; [`Workspace::forget_saved_copies`] drops those of
+    /// resources no longer shown.
+    saved_read: std::sync::Mutex<HashMap<ResKey, SavedCopy>>,
 }
+
+/// A saved resource's data and the document read from it
+/// ([`Workspace::differs_from_saved`]).
+type SavedCopy = (std::sync::Arc<[u8]>, std::sync::Arc<Gff>);
 
 /// What an edit touched ([`Workspace::touched_since`]): the resource, the
 /// struct in it (a field set there, an item put into or taken out of one
@@ -556,6 +564,9 @@ impl Workspace {
                 // the undo copy must include them.
                 self.write_back(key)?;
                 self.docs.remove(key);
+                if data.is_none() {
+                    self.forget_saved_copies(|k| k != key);
+                }
                 self.touch(key, &GffPath::root(), "", true);
                 let old = self.module.get(key).map(<[u8]>::to_vec);
                 match data {
@@ -770,36 +781,62 @@ impl Workspace {
     /// saved ([`Workspace::saved`]): a document edited and not yet flushed
     /// is compared by what it holds (an edit and its undo, or a field set
     /// back by hand, leave it as saved), anything else by the module's
-    /// bytes. A document edited is written out to be compared (and the
-    /// saved copy read where the bytes differ): what a view asks after each
-    /// change of the resource ([`Workspace::changed_at`]), not every frame.
-    /// The saved copy is read once and kept until the resource is saved
-    /// again: a change then costs the comparison alone, which stops at the
-    /// first difference (the game's largest GIT, Tyrants of the Moonsea's
-    /// 1.3 MB `zhentkeepwar`, in release: 1.1 ms for a change to its last
-    /// placeable, under a microsecond for one to its root, where writing
-    /// it out and reading the saved copy each time took 3.2 ms).
+    /// data. The saved copy is read once and kept until the resource is
+    /// saved again or taken out ([`Workspace::forget_saved_copies`] lets go
+    /// of others): a change then costs the comparison alone, which stops at
+    /// the first difference (the game's largest GIT, Tyrants of the
+    /// Moonsea's 1.3 MB `zhentkeepwar`, in release: 1.1 ms for a change to
+    /// its last placeable, under a microsecond for one to its root, where
+    /// writing it out and reading the saved copy each time took 3.2 ms). A
+    /// view that asks after each change asks
+    /// [`Workspace::differs_from_saved_at_once`] first, and this only once
+    /// the resource has rested.
     pub fn differs_from_saved(&self, key: &ResKey) -> bool {
-        if self.edited.contains(key)
-            && let Some(gff) = self.docs.get(key)
-        {
-            let Some(saved) = self.saved.shared(key) else { return true };
-            let at = std::sync::Arc::as_ptr(saved).cast::<u8>() as usize;
-            let Ok(mut read) = self.saved_read.lock() else { return true };
-            let parsed = match read.get(key) {
-                Some((was, g)) if *was == at => g.clone(),
-                _ => match Gff::read(saved) {
-                    Ok(g) => {
-                        let g = std::sync::Arc::new(g);
-                        read.insert(*key, (at, g.clone()));
-                        g
-                    }
-                    Err(_) => return true,
-                },
-            };
-            return *parsed != *gff;
+        if let Some(differs) = self.differs_from_saved_at_once(key) {
+            return differs;
         }
-        resource_differs(&self.saved, &self.module, key)
+        let (Some(gff), Some(saved)) = (self.docs.get(key), self.saved.shared(key)) else {
+            return true;
+        };
+        let Ok(mut read) = self.saved_read.lock() else { return true };
+        let parsed = match read.get(key) {
+            Some((was, g)) if std::sync::Arc::ptr_eq(was, saved) => g.clone(),
+            _ => match Gff::read(saved) {
+                Ok(g) => {
+                    let g = std::sync::Arc::new(g);
+                    read.insert(*key, (saved.clone(), g.clone()));
+                    g
+                }
+                Err(_) => return true,
+            },
+        };
+        *parsed != *gff
+    }
+
+    /// [`Workspace::differs_from_saved`] where it is told without comparing
+    /// a document with its saved copy (by the module's data, or a resource
+    /// new since the save): `None` where only that comparison tells (a
+    /// document edited and not flushed).
+    pub fn differs_from_saved_at_once(&self, key: &ResKey) -> Option<bool> {
+        if !(self.edited.contains(key) && self.docs.contains_key(key)) {
+            return Some(resource_differs(&self.saved, &self.module, key));
+        }
+        self.saved.shared(key).is_none().then_some(true)
+    }
+
+    /// Lets go of the saved copies read for [`Workspace::differs_from_saved`]
+    /// of the resources `keep` turns down (a view no longer showing them).
+    pub fn forget_saved_copies(&self, keep: impl Fn(&ResKey) -> bool) {
+        if let Ok(mut read) = self.saved_read.lock() {
+            read.retain(|k, _| keep(k));
+        }
+    }
+
+    /// How many saved copies [`Workspace::differs_from_saved`] holds (for
+    /// tests).
+    #[doc(hidden)]
+    pub fn saved_copies(&self) -> usize {
+        self.saved_read.lock().map_or(0, |r| r.len())
     }
 
     /// How many documents hold edits [`Workspace::flush`] has not yet
@@ -815,6 +852,7 @@ impl Workspace {
         self.saved_at = self.top_step();
         self.unsaved = false;
         self.saved = resources_of(&self.module);
+        self.forget_saved_copies(|_| false);
         Ok(())
     }
 
@@ -826,6 +864,7 @@ impl Workspace {
         self.saved_at = self.top_step();
         self.unsaved = false;
         self.saved = resources_of(&self.module);
+        self.forget_saved_copies(|_| false);
         Ok(())
     }
 
@@ -1728,6 +1767,58 @@ mod tests {
         assert!(ws.differs_from_saved(&script));
         ws.apply(Command::new("Gone", vec![Edit::SetResource { key: k, data: None }])).unwrap();
         assert!(ws.differs_from_saved(&k), "taken out");
+    }
+
+    /// The saved copies read for the comparison are let go of as the
+    /// module is saved and as their resource is taken out, or let go of by
+    /// the view; and one read before a save is never taken for the saved
+    /// data after it, whatever its address (taken out and saved, made anew
+    /// and saved, edited and undone: as saved).
+    #[test]
+    fn the_saved_copies_go_with_a_save_or_their_resource() {
+        let dir = std::env::temp_dir().join(format!("mg-edit-saved-copies-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("m.mod");
+        let mut m = Module::new();
+        m.set_gff(key("area", ResType::GIT), &Gff::new(*b"GIT ")).unwrap();
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        let mut ws = Workspace::new(Module::open(&path).unwrap());
+        let k = key("area", ResType::GIT);
+        let set = |v: i32| {
+            Command::new(
+                "Extra",
+                vec![Edit::SetField {
+                    key: k,
+                    path: GffPath::root(),
+                    label: "Extra".into(),
+                    value: Some(Value::Int(v)),
+                }],
+            )
+        };
+        ws.apply(set(1)).unwrap();
+        assert!(ws.differs_from_saved(&k));
+        assert_eq!(ws.saved_copies(), 1, "read once");
+        ws.save().unwrap();
+        assert_eq!(ws.saved_copies(), 0, "let go of with the save");
+        ws.apply(set(2)).unwrap();
+        assert!(ws.differs_from_saved(&k));
+        ws.forget_saved_copies(|_| false);
+        assert_eq!(ws.saved_copies(), 0, "let go of by the view");
+        assert!(ws.differs_from_saved(&k));
+        // Taken out: its copy goes.
+        ws.apply(Command::new("Gone", vec![Edit::SetResource { key: k, data: None }])).unwrap();
+        assert_eq!(ws.saved_copies(), 0, "let go of with its resource");
+        // Saved without it, made anew and saved, edited and undone.
+        ws.save().unwrap();
+        let fresh = Gff::new(*b"GIT ").to_bytes().unwrap();
+        ws.apply(Command::new("New", vec![Edit::SetResource { key: k, data: Some(fresh) }]))
+            .unwrap();
+        ws.save().unwrap();
+        ws.apply(set(3)).unwrap();
+        assert!(ws.differs_from_saved(&k));
+        ws.undo().unwrap();
+        assert!(!ws.differs_from_saved(&k), "as saved");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

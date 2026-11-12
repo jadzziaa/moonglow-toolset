@@ -15,7 +15,7 @@ use mg_uikit::icons::ButtonState;
 use crate::{Action, Moonglow, Tab, tabs};
 
 /// The Split Editor button's tip.
-pub(crate) const SPLIT_TIP: &str = "Move the tab in front to an editor group of its own";
+pub(crate) const SPLIT_TIP: &str = "Move the tab in front to another editor group";
 
 impl Moonglow {
     /// After the dock is drawn: each tab's parts painted, its close button

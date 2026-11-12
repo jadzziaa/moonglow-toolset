@@ -10634,6 +10634,21 @@ fn shell_narrow() {
 /// modified dot), Faribeth's blueprint in the area's group, and the script
 /// `m1q3_formosa_9` in a second group at its right (Split Editor), the
 /// focus back in the area's group.
+/// Frames until `done` says so, for 30 seconds at most, failing with
+/// `what` (an area's view asks for frames as it animates, so `settle`
+/// never ends beside one).
+fn frames_until(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    done: impl Fn(&Harness<'_, Moonglow>) -> bool,
+) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 30, "never: {what}");
+        h.step();
+    }
+}
+
 fn board_tabs(h: &mut Harness<'_, Moonglow>) {
     let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
     let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
@@ -10641,11 +10656,13 @@ fn board_tabs(h: &mut Harness<'_, Moonglow>) {
     h.state_mut().settings.window_places =
         ["script", "creature"].iter().map(|k| (k.to_string(), "middle".to_string())).collect();
     for tab in [utc, script] {
-        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
-        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(h, "the tab drawn", |h| h.state().tab_rect(&tab).is_some());
     }
     h.state_mut().actions.push(mg_ui::Action::SplitEditor);
-    h.run_steps(3);
+    frames_until(h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
     // (The area changed: its tab's dot.)
     let are = ResKey::parse("map_m1q1a", ResType::ARE).unwrap();
     let edit = mg_edit::Edit::SetField {
@@ -10655,8 +10672,8 @@ fn board_tabs(h: &mut Harness<'_, Moonglow>) {
         value: Some(mg_gff::Value::String("MAP_M1Q1A_X".into())),
     };
     h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Tag", vec![edit])).unwrap();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(area));
-    h.run_steps(5);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
+    frames_until(h, "the area's group focused", |h| h.state().active_editor() == Some(&area));
 }
 
 #[test]
@@ -10691,6 +10708,7 @@ fn shell_doc_tabs() {
     let tab_rect =
         |h: &Harness<'_, Moonglow>, tab: &mg_ui::Tab| h.state().tab_rect(tab).expect("drawn");
     let at = tab_rect(&h, &script).center();
+    // (The press and the release in frames of their own, as a click.)
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
             pos: at,
@@ -10698,36 +10716,53 @@ fn shell_doc_tabs() {
             pressed,
             modifiers: egui::Modifiers::NONE,
         });
-        h.run_steps(2);
+        h.step();
     }
+    frames_until(&mut h, "the script's group focused", |h| {
+        h.state().active_editor() == Some(&script)
+    });
     shoot(&mut h, &dir, "shell_groups_right");
     // The script typed in: its dot too.
     let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
     h.state_mut().script_tools.jump = Some((key, 0));
-    h.run_steps(3);
+    let editor = egui::Id::new(("script", key));
+    let started = std::time::Instant::now();
+    while !h.ctx.memory(|m| m.has_focus(editor)) {
+        assert!(started.elapsed().as_secs() < 10, "the script's editor never had the keys");
+        h.step();
+    }
     h.event(egui::Event::Text("// ".into()));
-    h.run_steps(3);
+    frames_until(&mut h, "the script's dot", |h| {
+        h.get_all_by_role(egui::accesskit::Role::Tab).any(|n| {
+            let node = n.accesskit_node();
+            node.label().as_deref() == Some("m1q3_formosa_9.nss")
+                && node.description().as_deref() == Some("Modified")
+        })
+    });
     shoot(&mut h, &dir, "shell_tabs_modified");
     // Module Properties under the pointer.
     let module = tab_rect(&h, &mg_ui::Tab::ModuleProperties);
     h.hover_at(module.center());
-    h.run_steps(3);
+    frames_until(&mut h, "its close button", |h| {
+        h.query_by_label("Close Module Properties").is_some()
+    });
     shoot(&mut h, &dir, "shell_tabs_hover");
     // Faribeth's tab held and dragged down over the area's view.
     let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
     let from = tab_rect(&h, &utc).center();
     h.hover_at(from);
-    h.run_steps(1);
+    h.step();
+    // (A frame for each event of the drag: the press, then each move.)
     h.event(egui::Event::PointerButton {
         pos: from,
         button: egui::PointerButton::Primary,
         pressed: true,
         modifiers: egui::Modifiers::NONE,
     });
-    h.run_steps(1);
+    h.step();
     for i in 1..=12 {
         h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
-        h.run_steps(1);
+        h.step();
     }
     shoot(&mut h, &dir, "shell_tab_dragged");
     h.event(egui::Event::PointerButton {
@@ -10736,7 +10771,7 @@ fn shell_doc_tabs() {
         pressed: false,
         modifiers: egui::Modifiers::NONE,
     });
-    h.run_steps(2);
+    frames_until(&mut h, "the drag over", |h| h.ctx.dragged_id().is_none());
     // Thirty tabs in 800 points.
     let mut h = shell_window(&root, egui::vec2(800.0, 600.0));
     h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
@@ -10744,9 +10779,8 @@ fn shell_doc_tabs() {
         (h.state().ws.as_ref().unwrap().module.keys_of(ResType::NSS)).take(30).copied().collect();
     for key in scripts {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
-        h.run_steps(1);
     }
-    h.run_steps(5);
+    settle(&mut h);
     shoot(&mut h, &dir, "shell_tabs_30");
 }
 
@@ -11754,4 +11788,65 @@ fn menus_color_picker_at_a_larger_text() {
     h.run_steps(3);
     let image = h.render().expect("render");
     image.save(picture_dir(&dir).join("menu-color-picker-font-20.png")).unwrap();
+}
+
+/// A tab held and dragged down over the area's view (Faribeth's blueprint
+/// beside the area in one group), the drop's targets drawn: egui_dock's
+/// overlay (`shell_tab_dragged_alone`).
+#[test]
+#[ignore]
+fn shell_tab_dragged_alone() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_places = vec![("creature".to_string(), "middle".to_string())];
+    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(utc.clone()));
+    frames_until(&mut h, "the tab drawn", |h| h.state().tab_rect(&utc).is_some());
+    // (Where egui_dock put the tab: the third of the group's bar.)
+    let leaf = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(&utc)).unwrap().1.rect;
+    let index = (h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(&utc)).unwrap().1)
+        .tabs
+        .iter()
+        .position(|t| *t == utc)
+        .unwrap();
+    let mut x = leaf.left();
+    let mut from = egui::pos2(x, leaf.top() + 14.0);
+    h.ctx.viewport(|v| {
+        let mut tabs: Vec<egui::Rect> = Vec::new();
+        for (_, widgets) in v.prev_pass.widgets.layers() {
+            for w in widgets.iter() {
+                let r = w.interact_rect;
+                if w.sense.senses_click()
+                    && w.sense.senses_drag()
+                    && (r.center().y - (leaf.top() + 14.0)).abs() < 3.0
+                {
+                    tabs.push(r);
+                }
+            }
+        }
+        tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        if let Some(r) = tabs.get(index) {
+            x = r.center().x;
+            from = r.center();
+        }
+    });
+    let _ = x;
+    h.hover_at(from);
+    h.step();
+    // (A frame for each event of the drag: the press, then each move.)
+    h.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    for i in 1..=12 {
+        h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_tab_dragged_alone");
 }

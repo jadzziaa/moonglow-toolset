@@ -918,6 +918,9 @@ fn recording_id() -> egui::Id {
 #[derive(Default)]
 struct Drawn {
     icons: Vec<(Icon, Rect)>,
+    /// The lines along the top of the panes' tabs in front, and their
+    /// colors ([`front_lines_drawn`]).
+    lines: Vec<(Rect, egui::Color32)>,
 }
 
 type Recording = std::sync::Arc<std::sync::Mutex<Drawn>>;
@@ -934,6 +937,7 @@ pub fn record_icons(ctx: &egui::Context) {
                 && let Ok(mut drawn) = recording.lock()
             {
                 drawn.icons.clear();
+                drawn.lines.clear();
             }
         };
         ctx.on_begin_pass("mg-uikit-icons-drawn", std::sync::Arc::new(forget));
@@ -945,6 +949,27 @@ pub fn record_icons(ctx: &egui::Context) {
 pub fn icons_drawn(ctx: &egui::Context) -> Vec<(Icon, Rect)> {
     let recording = ctx.data(|d| d.get_temp::<Recording>(recording_id()));
     recording.map(|r| r.lock().map(|d| d.icons.clone()).unwrap_or_default()).unwrap_or_default()
+}
+
+/// The lines the last pass of `ctx` drew along the top of the panes'
+/// tabs in front ([`crate::dock::marks`], with the `dock` feature), each
+/// with its color (`accent` in the pane with the focus, `line-soft` in the
+/// others), while the icons are recorded ([`record_icons`]; else none).
+pub fn front_lines_drawn(ctx: &egui::Context) -> Vec<(Rect, egui::Color32)> {
+    let recording = ctx.data(|d| d.get_temp::<Recording>(recording_id()));
+    recording.map(|r| r.lock().map(|d| d.lines.clone()).unwrap_or_default()).unwrap_or_default()
+}
+
+/// Keeps a front tab's line, drawn in `rect` in `color`, where `ctx`
+/// records the icons.
+#[cfg_attr(not(feature = "dock"), allow(dead_code))]
+pub(crate) fn record_line(ctx: &egui::Context, rect: Rect, color: egui::Color32) {
+    let Some(recording) = ctx.data(|d| d.get_temp::<Recording>(recording_id())) else {
+        return;
+    };
+    if let Ok(mut drawn) = recording.lock() {
+        drawn.lines.push((rect, color));
+    }
 }
 
 /// Keeps `icon`, painted in `rect`, where `ctx` records them.

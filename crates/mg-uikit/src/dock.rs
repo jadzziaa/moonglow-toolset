@@ -143,6 +143,7 @@ fn marks_with<T: PartialEq>(
             egui::vec2(rect.width() - 1.0, metrics::ACTIVE_TAB_LINE),
         );
         ctx.layer_painter(*layer).with_clip_rect(*shown).rect_filled(line, 0.0, color);
+        crate::icons::record_line(ctx, line, color);
     }
 }
 
@@ -159,15 +160,19 @@ pub fn front_line(t: &Tokens, focused: bool) -> egui::Color32 {
 /// with more tabs than it holds (egui_dock's, in egui's colors, took 7.5
 /// points of the editor under it; the bar scrolls by the wheel, and the
 /// application keeps the tab in front in sight), and the drop targets of
-/// a tab being dragged in the theme's colors (`raised` buttons ringed in
-/// `line-soft`, the place it would go `accent` tinted and lined).
+/// a tab being dragged in the theme's colors (their window shapes drawn in
+/// `text-2`, as egui_dock draws them in egui's text color, and ringed in
+/// `text-3`; the place it would go `accent` tinted and lined).
 pub fn doc_tabs_style(ui: &egui::Ui) -> Style {
     let t = ui.tokens();
     let mut s = style(ui);
     s.tab_bar.show_scroll_bar_on_overflow = false;
     let o = &mut s.overlay;
-    o.button_color = t.raised;
-    o.button_border_stroke = egui::Stroke::new(1.0, t.line_soft);
+    // (The targets' shapes are lines and a filled strip over whatever lies
+    // under them, a toolbar's words too: drawn in `raised` they read as a
+    // dark box over those words, and the shapes were lost.)
+    o.button_color = t.text_2;
+    o.button_border_stroke = egui::Stroke::new(1.0, t.text_3);
     o.hovered_leaf_highlight.color = t.accent.gamma_multiply(0.12);
     o.hovered_leaf_highlight.stroke = egui::Stroke::new(1.0, t.accent);
     s
@@ -343,6 +348,10 @@ mod tests {
                 assert_eq!(s.tab.tab_body.bg_fill, t.panel);
                 assert_eq!(s.separator.color_idle, t.line);
                 assert_eq!(s.buttons.close_tab_color, t.text_2);
+                // The drop targets read against the editors under them.
+                let d = doc_tabs_style(ui);
+                let against = crate::tokens::contrast(d.overlay.button_color, t.panel);
+                assert!(against >= 4.5, "{theme:?}: drop targets {against}");
             });
             out.textures_delta.clear();
         }

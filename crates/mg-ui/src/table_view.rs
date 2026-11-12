@@ -833,7 +833,12 @@ fn look_for_description(
     at: Option<TableAt>,
     had: Option<(PathBuf, Option<std::time::SystemTime>)>,
     walking: &std::sync::atomic::AtomicBool,
+    hold: &std::sync::atomic::AtomicBool,
 ) -> Looked {
+    // (A test's hold: the look kept under way, as a large folder keeps it.)
+    while hold.load(std::sync::atomic::Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     let Some(path) = at.and_then(|at| at.description()).filter(|p| p.is_file()) else {
         return Looked::None;
     };
@@ -943,12 +948,49 @@ fn read_again(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
 /// from, are on a thread of their own ([`look_for_description`]), the
 /// window going on meanwhile.
 fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    if take_look(app, ctx, at) {
+        return;
+    }
+    let now = ctx.input(|i| i.time);
+    if now - app.tables[at].described_at < 1.0 {
+        return;
+    }
+    app.tables[at].described_at = now;
+    let table = TableAt::of(app, &app.tables[at]);
+    let doc = &mut app.tables[at];
+    let had = (doc.described.as_ref()).and_then(|d| Some((d.path.clone()?, d.modified)));
+    let walking = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hold = app.hold_description_looks.clone();
+    let doc = &mut app.tables[at];
+    let look = {
+        let walking = walking.clone();
+        std::thread::spawn(move || look_for_description(table, had, &walking, &hold))
+    };
+    doc.walking = Some((walking, look));
+    ctx.request_repaint_after(std::time::Duration::from_millis(30));
+}
+
+/// Each frame, for every table: a look for its description that has
+/// ended is taken in, whether its tab is drawn or not. (Taken in only as
+/// its tab was drawn, a look started before the tab went behind another
+/// was never taken in, and the window's work never ended: `under_way`
+/// said "a table's description's folder being read" for good.)
+pub(crate) fn follow_looks(app: &mut Moonglow, ctx: &egui::Context) {
+    for at in 0..app.tables.len() {
+        take_look(app, ctx, at);
+    }
+}
+
+/// Takes in table `at`'s look for its description where it has ended;
+/// where one is under way, asks for a frame soon. Whether one was under
+/// way (ended now or not).
+fn take_look(app: &mut Moonglow, ctx: &egui::Context, at: usize) -> bool {
     use mg_module::table_desc::game_description;
     // (A look under way is looked at every frame.)
     if let Some((_, look)) = &app.tables[at].walking {
         if !look.is_finished() {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
-            return;
+            return true;
         }
         let (_, look) = app.tables[at].walking.take().expect("looking");
         match look.join().unwrap_or(Looked::Same) {
@@ -970,23 +1012,9 @@ fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
                 }
             }
         }
-        return;
+        return true;
     }
-    let now = ctx.input(|i| i.time);
-    if now - app.tables[at].described_at < 1.0 {
-        return;
-    }
-    app.tables[at].described_at = now;
-    let table = TableAt::of(app, &app.tables[at]);
-    let doc = &mut app.tables[at];
-    let had = (doc.described.as_ref()).and_then(|d| Some((d.path.clone()?, d.modified)));
-    let walking = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let look = {
-        let walking = walking.clone();
-        std::thread::spawn(move || look_for_description(table, had, &walking))
-    };
-    doc.walking = Some((walking, look));
-    ctx.request_repaint_after(std::time::Duration::from_millis(30));
+    false
 }
 
 /// Reads a description (`path`'s file; `None`: Moonglow's of the game's
@@ -3735,12 +3763,13 @@ mod tests {
         std::fs::write(&family, "tables = [\"loot_*\"]\n").unwrap();
         let file = |name: &str| TableAt::File(src.join(name));
         let walked = std::sync::atomic::AtomicBool::new(false);
+        let no_hold = std::sync::atomic::AtomicBool::new(false);
         assert!(matches!(
-            look_for_description(Some(file("other.2da")), None, &walked),
+            look_for_description(Some(file("other.2da")), None, &walked, &no_hold),
             Looked::None
         ));
         assert!(!walked.load(std::sync::atomic::Ordering::Relaxed), "no folder walked for none");
-        let found = |at: TableAt| match look_for_description(Some(at), None, &walked) {
+        let found = |at: TableAt| match look_for_description(Some(at), None, &walked, &no_hold) {
             Looked::New(path, modified, _) => Some((path, modified)),
             _ => None,
         };
@@ -3749,22 +3778,25 @@ mod tests {
         assert!(modified.is_some());
         assert_eq!(found(file("loot_gems.2da")).map(|f| f.0), Some(family.clone()));
         assert!(matches!(
-            look_for_description(Some(file("other.2da")), None, &walked),
+            look_for_description(Some(file("other.2da")), None, &walked, &no_hold),
             Looked::None
         ));
-        assert!(matches!(look_for_description(None, None, &walked), Looked::None));
+        assert!(matches!(look_for_description(None, None, &walked, &no_hold), Looked::None));
         // The one in hand, as it was: not read again; changed, it is.
         let had = Some((own.clone(), modified));
-        assert!(matches!(look_for_description(Some(file("mg_t.2da")), had, &walked), Looked::Same));
+        assert!(matches!(
+            look_for_description(Some(file("mg_t.2da")), had, &walked, &no_hold),
+            Looked::Same
+        ));
         let earlier = modified.map(|m| m - std::time::Duration::from_secs(60));
         let had = Some((own.clone(), earlier));
         assert!(matches!(
-            look_for_description(Some(file("mg_t.2da")), had, &walked),
+            look_for_description(Some(file("mg_t.2da")), had, &walked, &no_hold),
             Looked::New(..)
         ));
         let had = Some((family.clone(), modified));
         assert!(matches!(
-            look_for_description(Some(file("mg_t.2da")), had, &walked),
+            look_for_description(Some(file("mg_t.2da")), had, &walked, &no_hold),
             Looked::New(..)
         ));
         // A hak's table: in the folder it is built from, beside the

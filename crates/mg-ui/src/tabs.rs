@@ -868,8 +868,28 @@ pub(crate) struct Look {
 #[derive(Debug, Default)]
 pub(crate) struct LookCache {
     titles: HashMap<TitleKey, mg_uikit::dock::DocTabTitle>,
-    resources: HashMap<ResKey, (ResourceStamp, bool)>,
+    resources: HashMap<ResKey, Watched>,
+    /// How many times a document was compared with its saved copy (for
+    /// tests: `Moonglow::dot_comparisons`).
+    pub(crate) comparisons: u64,
 }
+
+/// What a tab's module resource was last seen as: its stamp, whether it
+/// differs from the saved module, whether that is known (`exact`) or only
+/// taken for so as it changed, and when it last changed (the window's
+/// time).
+#[derive(Debug)]
+struct Watched {
+    stamp: ResourceStamp,
+    differs: bool,
+    exact: bool,
+    since: f64,
+}
+
+/// How long a document must rest (no change, no pointer button held)
+/// before it is compared with its saved copy: an edit frame, a drag's
+/// frames, never pay for it.
+const REST: f64 = 0.2;
 
 /// A title laid out from: its name, the widest it may be (the bits of the
 /// cap, `u32::MAX` for none), its dot, and the font, the display's scale
@@ -879,9 +899,25 @@ pub(crate) struct LookCache {
 struct TitleKey(String, u32, bool, u32, u32, u64);
 
 /// When a module resource last changed ([`mg_edit::Workspace::changed_at`])
-/// and which data the module and the saved module hold for it (by where
-/// it is: saving puts the module's in the saved).
-type ResourceStamp = (u64, usize, usize);
+/// and which data the module and the saved module hold for it. The data
+/// are held, and told apart by what they are (`Arc::ptr_eq`), never by an
+/// address: one freed (a resource taken out and saved) could be given to
+/// data made later. (`changed_at` alone moves with every edit of the
+/// resource, but not with a save, which changes the saved data only.)
+#[derive(Debug, Clone)]
+struct ResourceStamp(u64, Option<std::sync::Arc<[u8]>>, Option<std::sync::Arc<[u8]>>);
+
+impl PartialEq for ResourceStamp {
+    fn eq(&self, other: &Self) -> bool {
+        let same = |a: &Option<std::sync::Arc<[u8]>>, b: &Option<std::sync::Arc<[u8]>>| match (a, b)
+        {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        self.0 == other.0 && same(&self.1, &other.1) && same(&self.2, &other.2)
+    }
+}
 
 /// Every tab's kind icon: the drawn icon of the resource type it shows
 /// (the Resources panel's and Quick Open's for the type), or the editor's
@@ -976,21 +1012,67 @@ fn own_unsaved(app: &Moonglow, tab: &Tab) -> Option<bool> {
 /// state ([`own_unsaved`]), else whether any of its module resources
 /// differs from the module as saved ([`resources_of`]; asked of the
 /// workspace only after the resource changed, `cache`).
-fn modified(app: &Moonglow, tab: &Tab, cache: &mut HashMap<ResKey, (ResourceStamp, bool)>) -> bool {
+/// The resources' watch over a frame: the window's time, whether the
+/// pointer is free (no button held: no drag going on), the comparisons
+/// run, and when a resource still waiting to be compared rests long
+/// enough (seconds from now).
+struct Watch<'a> {
+    resources: &'a mut HashMap<ResKey, Watched>,
+    now: f64,
+    free: bool,
+    comparisons: &'a mut u64,
+    wake: Option<f64>,
+}
+
+/// Whether a tab's own document has unsaved changes: its editor's own
+/// state ([`own_unsaved`]), else whether any of its module resources
+/// differs from the module as saved ([`resources_of`]). A resource is
+/// asked about only when it changed: at once where the workspace tells it
+/// without comparing (its data, a save); else (a document edited) it is
+/// taken to differ as it changes, and compared with its saved copy only
+/// once it has rested [`REST`] with no button held, so that an edit's
+/// frame and a drag's never pay for the comparison (up to a millisecond on
+/// a large area), and an edit undone back to what is saved loses its dot
+/// a moment later (the window asks for that frame: `Watch::wake`).
+fn modified(app: &Moonglow, tab: &Tab, watch: &mut Watch<'_>) -> bool {
     if let Some(own) = own_unsaved(app, tab) {
         return own;
     }
     let Some(ws) = &app.ws else { return false };
-    let at = |m: &mg_module::Module, k: &ResKey| {
-        m.shared(k).map_or(0, |a| std::sync::Arc::as_ptr(a).cast::<u8>() as usize)
-    };
     resources_of(app, tab).iter().fold(false, |any, key| {
-        let stamp = (ws.changed_at(key), at(&ws.module, key), at(ws.saved(), key));
-        let differs = match cache.get(key) {
-            Some((was, differs)) if *was == stamp => *differs,
-            _ => {
-                let differs = ws.differs_from_saved(key);
-                cache.insert(*key, (stamp, differs));
+        let stamp = ResourceStamp(
+            ws.changed_at(key),
+            ws.module.shared(key).cloned(),
+            ws.saved().shared(key).cloned(),
+        );
+        let seen = watch.resources.get_mut(key).filter(|w| w.stamp == stamp);
+        let differs = match seen {
+            Some(w) if w.exact => w.differs,
+            Some(w) => {
+                let rested = watch.now - w.since;
+                if watch.free && rested >= REST {
+                    *watch.comparisons += 1;
+                    w.differs = ws.differs_from_saved(key);
+                    w.exact = true;
+                } else {
+                    let left = (REST - rested).max(0.02);
+                    watch.wake = Some(watch.wake.map_or(left, |w| w.min(left)));
+                }
+                w.differs
+            }
+            None => {
+                let at_once = ws.differs_from_saved_at_once(key);
+                if at_once.is_none() {
+                    watch.wake = Some(watch.wake.map_or(REST, |w| w.min(REST)));
+                }
+                let w = Watched {
+                    stamp,
+                    differs: at_once.unwrap_or(true),
+                    exact: at_once.is_some(),
+                    since: watch.now,
+                };
+                let differs = w.differs;
+                watch.resources.insert(*key, w);
                 differs
             }
         };
@@ -1047,15 +1129,31 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
         titles.insert(key, title.clone());
         title
     };
+    let mut watch = Watch {
+        resources: &mut cache.resources,
+        now: ctx.input(|i| i.time),
+        free: !ctx.input(|i| i.pointer.any_down()),
+        comparisons: &mut cache.comparisons,
+        wake: None,
+    };
+    let mut named_panes = Vec::new();
     for (main, width, tabs) in panes {
         let named: Vec<(Tab, String, bool)> = tabs
             .into_iter()
             .map(|t| {
                 let name = name(app, &t);
-                let modified = modified(app, &t, &mut cache.resources);
+                let modified = modified(app, &t, &mut watch);
                 (t, name, modified)
             })
             .collect();
+        named_panes.push((main, width, named));
+    }
+    // (A resource changed and not yet compared: a frame once it has
+    // rested, which compares it.)
+    if let Some(wake) = watch.wake {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(wake));
+    }
+    for (main, width, named) in named_panes {
         let whole: Vec<(f32, bool)> =
             named.iter().map(|(_, n, m)| (lay(n, None, *m).width, *m)).collect();
         // (A pane not drawn yet, a group or window just made, has no width
@@ -1074,6 +1172,10 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
     let open: std::collections::HashSet<ResKey> =
         looks.keys().flat_map(|t| resources_of(app, t)).collect();
     cache.resources.retain(|k, _| open.contains(k));
+    // (And the saved copies read to compare them.)
+    if let Some(ws) = &app.ws {
+        ws.forget_saved_copies(|k| open.contains(k));
+    }
     app.look_cache = cache;
     app.doc_tabs = looks;
 }

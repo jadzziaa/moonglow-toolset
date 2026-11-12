@@ -39,6 +39,26 @@ fn said_modified(h: &Harness<'_, Moonglow>, name: &str) -> bool {
     doc_tab(h, name).accesskit_node().description().as_deref() == Some("Modified")
 }
 
+/// The color of the line drawn along the top of `tab` at the last frame
+/// (the front tab of its pane: `accent` in the pane with the focus,
+/// `line-soft` in the others), while the icons are recorded.
+fn line_over(h: &Harness<'_, Moonglow>, tab: &Tab) -> Option<egui::Color32> {
+    let rect = h.state().tab_rect(tab)?;
+    let lines = mg_uikit::front_lines_drawn(&h.ctx);
+    lines.iter().find(|(r, _)| (r.min - rect.min).length() < 0.5).map(|l| l.1)
+}
+
+/// Frames until `done` says so, for ten seconds at most (the window's
+/// frames as they come: a dot compared once its document has rested, a
+/// tip after its delay), failing with `what`.
+fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 10, "never: {what}");
+        h.step();
+    }
+}
+
 /// A script's tab, an area's and a side editor's (a 2DA's) and the talk
 /// table's show the modified dot where their document has unsaved
 /// changes, said "Modified" to a screen reader, never as a star in the
@@ -60,10 +80,10 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
 
     // A script typed in: its tab, named without a star.
     h.state_mut().script_tools.jump = Some((script, 0));
-    h.run_steps(3);
+    let editor = egui::Id::new(("script", script));
+    until(&mut h, "the script's editor has the keys", |h| h.ctx.memory(|m| m.has_focus(editor)));
     h.event(egui::Event::Text("// one\n".into()));
-    h.run_steps(3);
-    assert!(said_modified(&h, "hello.nss"));
+    until(&mut h, "the script's dot", |h| said_modified(h, "hello.nss"));
     assert!(h.query_by_label("hello.nss *").is_none(), "no star in its name");
     let starred = h
         .get_all_by_role(Role::Tab)
@@ -72,8 +92,7 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
     assert_eq!(starred, 0, "no tab named with a star");
     // Saved into the module (the editor's Ctrl+S): the dot goes.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
-    h.run_steps(3);
-    assert!(!said_modified(&h, "hello.nss"), "saved");
+    until(&mut h, "the dot gone with the save", |h| !said_modified(h, "hello.nss"));
 
     // An area's own files changed: its tab, until undone.
     let are = ResKey::parse("start", ResType::ARE).unwrap();
@@ -85,16 +104,13 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
     };
     let ws = h.state_mut().ws.as_mut().unwrap();
     ws.apply(mg_edit::Command::new("Tag", vec![tag("MOVED")])).unwrap();
-    h.run_steps(2);
-    assert!(said_modified(&h, "start"));
+    until(&mut h, "the area's dot", |h| said_modified(h, "start"));
     assert!(h.state().title().ends_with(" *"), "the window's title keeps its star");
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-    h.run_steps(2);
-    assert!(!said_modified(&h, "start"), "undone back to what is saved");
+    until(&mut h, "undone back to what is saved", |h| !said_modified(h, "start"));
     // Changed and saved with the module.
     h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Tag", vec![tag("X")])).unwrap();
-    h.run_steps(2);
-    assert!(said_modified(&h, "start"));
+    until(&mut h, "the area's dot again", |h| said_modified(h, "start"));
     h.state_mut().actions.push(mg_ui::Action::Save);
     settle(&mut h);
     assert!(!said_modified(&h, "start"), "saved with the module");
@@ -108,11 +124,9 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
     settle(&mut h);
     assert!(!said_modified(&h, "mytable.2da"));
     h.state_mut().tables.iter_mut().find(|t| t.id == id).unwrap().edit.add_rows(1);
-    h.run_steps(2);
-    assert!(said_modified(&h, "mytable.2da"));
+    until(&mut h, "the 2DA's dot", |h| said_modified(h, "mytable.2da"));
     assert!(mg_ui::table_view::save(h.state_mut(), id));
-    h.run_steps(2);
-    assert!(!said_modified(&h, "mytable.2da"));
+    until(&mut h, "the 2DA saved", |h| !said_modified(h, "mytable.2da"));
 
     // The talk table, until saved.
     let mut table =
@@ -128,8 +142,7 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
     settle(&mut h);
     assert!(said_modified(&h, "Talk Table"));
     h.state_mut().talk.as_mut().unwrap().save().unwrap();
-    h.run_steps(2);
-    assert!(!said_modified(&h, "Talk Table"));
+    until(&mut h, "the talk table saved", |h| !said_modified(h, "Talk Table"));
 }
 
 /// Each tab is drawn with its kind's icon, in the tab's room before its
@@ -153,7 +166,7 @@ fn each_tab_shows_its_kind_s_icon() {
     let mut h = harness(app, 1400.0, 900.0);
     settle(&mut h);
     mg_uikit::record_icons(&h.ctx);
-    h.run_steps(2);
+    until(&mut h, "the tabs' icons recorded", |h| !mg_uikit::icons_drawn(&h.ctx).is_empty());
     let drawn = mg_uikit::icons_drawn(&h.ctx);
     for (name, icon) in [
         ("start", mg_uikit::Icon::Area),
@@ -194,7 +207,9 @@ fn a_tab_s_close_button_shows_on_the_front_tab_and_under_the_pointer() {
     assert!(h.query_by_label("Close Module Properties").is_none(), "not under the pointer");
     let before = doc_tab(&h, "Module Properties").rect();
     h.hover_at(egui::pos2(before.left() + 20.0, before.center().y));
-    h.run_steps(2);
+    until(&mut h, "its close button under the pointer", |h| {
+        h.query_by_label("Close Module Properties").is_some()
+    });
     let close = h.get_by_label("Close Module Properties").rect();
     assert!(before.contains_rect(close), "in its tab: {close:?} {before:?}");
     assert_eq!(doc_tab(&h, "Module Properties").rect(), before, "the tab as it was");
@@ -217,7 +232,11 @@ fn a_tab_s_close_button_shows_on_the_front_tab_and_under_the_pointer() {
     }
     let manual = doc_tab(&h, "User Manual").rect();
     h.hover_at(manual.center());
-    h.run_steps(1);
+    until(&mut h, "the manual's tab under the pointer", |h| {
+        h.query_by_label("Close User Manual").is_some()
+    });
+    // (A step for each event: the press and the release in frames of their
+    // own, as a click.)
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
             pos: manual.center(),
@@ -230,7 +249,7 @@ fn a_tab_s_close_button_shows_on_the_front_tab_and_under_the_pointer() {
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Manual).is_none(), "middle click");
     doc_tab(&h, "Journal").click_secondary();
-    h.run_steps(2);
+    until(&mut h, "the tab's menu", |h| h.query_by_label("Close Others").is_some());
     h.get_by_label("Close").click();
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Journal).is_none(), "its menu's Close");
@@ -338,15 +357,29 @@ fn the_docks_follow_the_focused_editor_group() {
     settle(&mut h);
     h.get_by_label("Split Editor").click();
     settle(&mut h);
+    mg_uikit::record_icons(&h.ctx);
+    let t = mg_uikit::tokens(&h.ctx);
+    let area = Tab::Area(area);
+    // The front tabs' lines: the accent over the focused group's, `line-soft`
+    // over the other's.
+    let lines = |h: &mut Harness<'_, Moonglow>, focused: &Tab, other: &Tab| {
+        let (f, o) = (focused.clone(), other.clone());
+        until(h, "the front tabs' lines", move |h| {
+            line_over(h, &f) == Some(t.accent) && line_over(h, &o) == Some(t.line_soft)
+        });
+    };
     assert_eq!(h.state().active_editor(), Some(&script));
     assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the script");
-    click_tab(&mut h, &Tab::Area(area));
+    lines(&mut h, &script, &area);
+    click_tab(&mut h, &area);
     settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
+    assert_eq!(h.state().active_editor(), Some(&area));
     assert!(palette_shown(h.state()), "the palettes beside the area");
+    lines(&mut h, &area, &script);
     click_tab(&mut h, &script);
     settle(&mut h);
     assert!(h.state().right_dock_rect().is_none());
+    lines(&mut h, &script, &area);
 }
 
 /// The tab keys act on the focused group: Ctrl+Tab and Ctrl+Shift+Tab go
@@ -397,11 +430,14 @@ fn the_tab_keys_act_on_the_focused_group() {
 }
 
 /// Two editor groups are kept in the module's open-tabs record and come
-/// back as they were; the record says each group's place as Moonglow
-/// 4.1.0 reads it (`split right 500`), and read without the groups' tree
-/// (as 4.1.0 does), the two groups still come back.
+/// back as they were. The record gives each group its place in the form
+/// Moonglow 4.1.0 reads (`split right 500`) beside the groups' tree on
+/// the middle's pane, which 4.1.0's reader passes over (its `place_pane`
+/// reads a pane's `split` only for a window). Read with that tree taken
+/// out, by this version's reader (4.1.0 itself is not run here), the two
+/// groups come back as they were from their places alone.
 #[test]
-fn editor_groups_are_kept_with_the_module_s_tabs() {
+fn editor_groups_are_kept_and_come_back_from_their_places_alone() {
     let dir = mg_testkit::scratch_dir("ui-doc-tab-kept");
     let path = module_with(&dir, 0);
     let kept = dir.join("open-tabs");
@@ -441,8 +477,8 @@ fn editor_groups_are_kept_with_the_module_s_tabs() {
     let h = open(&kept);
     assert_eq!(groups(&h), laid);
     drop(h);
-    // Read as 4.1.0 reads it: the groups' tree (its `split` on the
-    // middle's pane) left out.
+    // The groups' tree (the middle's pane's `split`) taken out: their
+    // places alone, what 4.1.0's reader uses.
     let mut old = record.clone();
     for pane in old["panes"].as_array_mut().unwrap() {
         if pane["place"] == "middle" {
@@ -451,7 +487,7 @@ fn editor_groups_are_kept_with_the_module_s_tabs() {
     }
     std::fs::write(&file, serde_json::to_string(&old).unwrap()).unwrap();
     let h = open(&kept);
-    assert_eq!(groups(&h), laid, "the oldest form");
+    assert_eq!(groups(&h), laid, "from their places alone");
 }
 
 /// Three groups in a row come back in their order (the groups' tree on
@@ -539,10 +575,11 @@ fn bar_nodes(h: &Harness<'_, Moonglow>, bar: egui::Rect) -> Vec<(String, egui::R
     out
 }
 
-/// Thirty tabs in an 800 point window: the titles are cut alike to their
-/// least, each one's whole name in its tip; the bar scrolls to the tab in
-/// front as another comes to the front, keeps Split Editor in reach, and
-/// draws nothing past its ends.
+/// Thirty tabs in an 800 point window: no tab wider than one cut to the
+/// least (these names are shorter; a long one cut, its whole name in its
+/// tip: `a_title_cut_short_shows_whole_in_its_tip`); the bar scrolls to
+/// the tab in front as another comes to the front, keeps Split Editor in
+/// reach, and nothing of it takes the pointer past its ends.
 #[test]
 fn thirty_tabs_in_a_narrow_window() {
     let s = |n: usize| Tab::Script(ResKey::parse(&format!("s{n:02}"), ResType::NSS).unwrap());
@@ -555,12 +592,10 @@ fn thirty_tabs_in_a_narrow_window() {
     let split = h.get_by_label("Split Editor").rect();
     assert!(bar.contains_rect(split), "{split:?} {bar:?}");
     assert!(front.right() <= split.left() && front.left() >= bar.left(), "{front:?} {split:?}");
-    // Cut: a tab at its least, its whole name in its tip.
+    // No wider than a tab cut to its least.
     let width = front.width();
     let least = mg_uikit::shell::doc_tab_width(mg_uikit::dock::DOC_TAB_LEAST_TITLE, false);
     assert!(width <= least + 0.5, "cut: {width} at most {least}");
-    // (A tab's tip is its whole name: these names are short, so a long
-    // one is given and its tab's tip read.)
     // The first tab clicked to the front by its number: the bar scrolls.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
     settle(&mut h);
@@ -687,14 +722,20 @@ fn the_tab_bar_holds_at_every_width() {
             }
             let nodes = bar_nodes(&h, bar);
             for (name, r) in &nodes {
-                let shown = r.intersect(bar);
-                // (Cut by the bar's ends where it scrolls; never past its
-                // top or foot.)
+                // (A tab's node is its whole button, cut by the bar's ends
+                // where it scrolls: `tab_hits` holds what takes the pointer
+                // to the bar. Every node is within the bar's height.)
                 assert!(
                     r.top() >= bar.top() - 0.5 && r.bottom() <= bar.bottom() + 0.5,
                     "{count} at {width}: {name} {r:?} {bar:?}"
                 );
-                assert!(!shown.is_positive() || shown.width() <= bar.width(), "{name}");
+                // A button (a close, Split Editor) wholly inside the bar.
+                if name.starts_with("Close ") || name == "Split Editor" {
+                    assert!(
+                        r.left() >= bar.left() - 0.5 && r.right() <= bar.right() + 0.5,
+                        "{count} at {width}: {name} {r:?} past the bar {bar:?}"
+                    );
+                }
             }
             // (The buttons among themselves: the tabs' nodes are their
             // whole buttons, cut where the bar cuts them, which `tab_hits`
@@ -749,8 +790,8 @@ fn a_floating_window_s_tabs_look_as_the_groups() {
     let mut h = harness(app, 1400.0, 900.0);
     settle(&mut h);
     mg_uikit::record_icons(&h.ctx);
-    h.run_steps(2);
     let script = Tab::Script(ResKey::parse("s01", ResType::NSS).unwrap());
+    until(&mut h, "the window's tab drawn and its line", |h| line_over(h, &script).is_some());
     let path = h.state().dock.find_tab(&script).unwrap();
     assert!(!path.surface.is_main(), "in a window of its own");
     let tab = doc_tab(&h, "s01.nss");
@@ -759,6 +800,11 @@ fn a_floating_window_s_tabs_look_as_the_groups() {
     assert!(rect.contains_rect(h.get_by_label("Close s01.nss").rect()));
     let drawn = mg_uikit::icons_drawn(&h.ctx);
     assert!(drawn.iter().any(|(i, r)| *i == mg_uikit::Icon::Script && rect.contains_rect(*r)));
+    // The window has the focus: its front tab's line the accent, the main
+    // group's front tab's `line-soft` (the Floating board).
+    let t = mg_uikit::tokens(&h.ctx);
+    assert_eq!(line_over(&h, &script), Some(t.accent));
+    assert_eq!(line_over(&h, &Tab::ModuleProperties), Some(t.line_soft));
     let bar = bar_of(&h, &script);
     let maximize = h.get_by_label("Maximize").rect();
     assert!(bar.contains_rect(maximize));
@@ -898,4 +944,187 @@ fn an_area_s_dot_cost() {
          GIT's root {root:.1} us, ARE {are:.1} us",
         path.display()
     );
+}
+
+/// A 2DA's look for its description, under way as its tab goes behind
+/// another, is taken in all the same: the window's work ends. (It was
+/// taken in only while the tab was drawn, so `settle` waited for "a
+/// table's description's folder being read" for good: what made
+/// `a_tab_that_asks_comes_to_the_front_when_closed_from_behind` fail now
+/// and then, where the folder's walk was slow on a first run.)
+#[test]
+fn a_table_s_look_ends_with_its_tab_behind_another() {
+    let mut h = one_group("ui-doc-tab-look", 0, &[], egui::vec2(1400.0, 900.0));
+    h.state_mut().settings.window_places = vec![("table".into(), "middle".into())];
+    let hold = h.state().hold_description_looks.clone();
+    hold.store(true, std::sync::atomic::Ordering::Relaxed);
+    let key = ResKey::parse("mytable", ResType::TWODA).unwrap();
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    let walking = |h: &Harness<'_, Moonglow>| h.state().tables.iter().any(|t| t.walking());
+    let started = std::time::Instant::now();
+    while !walking(&h) && started.elapsed().as_secs() < 10 {
+        h.step();
+    }
+    assert!(walking(&h), "its look under way");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(start()));
+    let started = std::time::Instant::now();
+    while h.state().active_editor() != Some(&start()) && started.elapsed().as_secs() < 10 {
+        h.step();
+    }
+    assert_ne!(h.state().active_editor(), Some(&Tab::Table(id)), "the table behind the area");
+    hold.store(false, std::sync::atomic::Ordering::Relaxed);
+    settle(&mut h);
+    assert!(!walking(&h));
+}
+
+/// The sample module with its area `start`'s placed objects (a GIT with a
+/// placeable) and their comments (a GIC with the placeable's), open with
+/// the area's tab in front.
+fn area_with_objects(name: &str) -> Harness<'static, Moonglow> {
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir(name);
+    let path = module_with(&dir, 0);
+    let mut m = Module::open(&path).unwrap();
+    let placeable = |fields: &[(&str, Value)]| {
+        let mut s = Struct::new(9);
+        for (label, value) in fields {
+            s.set(label, value.clone());
+        }
+        s
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let at = [("XPosition", Value::Float(1.0)), ("Tag", Value::String("CHEST".into()))];
+    git.root.set("Placeable List", Value::List(vec![placeable(&at)]));
+    m.set(ResKey::parse("start", ResType::GIT).unwrap(), git.to_bytes().unwrap());
+    let mut gic = Gff::new(*b"GIC ");
+    let comment = [("Comment", Value::String("a chest".into()))];
+    gic.root.set("Placeable List", Value::List(vec![placeable(&comment)]));
+    m.set(ResKey::parse("start", ResType::GIC).unwrap(), gic.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(start()));
+    let mut h = harness(app, 1400.0, 900.0);
+    settle(&mut h);
+    h
+}
+
+/// An area's dot covers its placed objects and their comments, not its
+/// ARE alone: an object moved (the GIT), an object added (the GIT), a
+/// comment changed (the GIC alone); each undone back to what is saved,
+/// and each saved with the module.
+#[test]
+fn an_area_s_dot_covers_its_objects_and_their_comments() {
+    use mg_edit::{Command, Edit, GffPath};
+    let mut h = area_with_objects("ui-doc-tab-area-objects");
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    let gic = ResKey::parse("start", ResType::GIC).unwrap();
+    let first = GffPath::root().item("Placeable List", 0);
+    let set = |key, path: &GffPath, label: &str, value| Edit::SetField {
+        key,
+        path: path.clone(),
+        label: label.into(),
+        value: Some(value),
+    };
+    let edits = [
+        ("an object moved", set(git, &first, "XPosition", mg_gff::Value::Float(5.0))),
+        (
+            "an object added",
+            Edit::InsertItem {
+                key: git,
+                path: GffPath::root(),
+                list: "Placeable List".into(),
+                index: 1,
+                item: mg_gff::Struct::new(9),
+            },
+        ),
+        ("a comment changed", set(gic, &first, "Comment", mg_gff::Value::String("x".into()))),
+    ];
+    assert!(!said_modified(&h, "start"));
+    for (what, edit) in edits {
+        let apply = |h: &mut Harness<'_, Moonglow>| {
+            let ws = h.state_mut().ws.as_mut().unwrap();
+            ws.apply(Command::new(what, vec![edit.clone()])).unwrap();
+        };
+        apply(&mut h);
+        until(&mut h, &format!("{what}: the dot"), |h| said_modified(h, "start"));
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        until(&mut h, &format!("{what}, undone: no dot"), |h| !said_modified(h, "start"));
+        apply(&mut h);
+        until(&mut h, &format!("{what} again: the dot"), |h| said_modified(h, "start"));
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        settle(&mut h);
+        assert!(!said_modified(&h, "start"), "{what}, saved: no dot");
+    }
+}
+
+/// The dot shows at once as its document changes, and the comparison with
+/// the saved copy (up to a millisecond on a large area) waits until the
+/// document has rested with no button held: none across a drag of many
+/// frames, one after it; and an edit undone back to what is saved loses
+/// its dot with no input after (the window asks for that frame itself).
+#[test]
+fn the_dot_s_comparison_waits_for_the_document_to_rest() {
+    use mg_edit::{Command, Edit, GffPath};
+    let mut h = area_with_objects("ui-doc-tab-area-rest");
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    let first = GffPath::root().item("Placeable List", 0);
+    let move_to = |h: &mut Harness<'_, Moonglow>, x: f32| {
+        let edit = Edit::SetField {
+            key: git,
+            path: first.clone(),
+            label: "XPosition".into(),
+            value: Some(mg_gff::Value::Float(x)),
+        };
+        h.state_mut().ws.as_mut().unwrap().apply(Command::new("Move", vec![edit])).unwrap();
+    };
+    let compared = |h: &Harness<'_, Moonglow>| h.state().dot_comparisons();
+    let before = compared(&h);
+    // A drag: the button held over the area's view, the object moved a
+    // frame at a time.
+    let view = h.state().editor_area_rect().unwrap().center();
+    h.hover_at(view);
+    h.event(egui::Event::PointerButton {
+        pos: view,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    for i in 0..40 {
+        move_to(&mut h, 2.0 + i as f32);
+        h.event(egui::Event::PointerMoved(view + egui::vec2(i as f32, 0.0)));
+        // (One frame for each step of the drag.)
+        h.step();
+        assert!(said_modified(&h, "start"), "the dot at once, frame {i}");
+    }
+    assert_eq!(compared(&h), before, "no comparison during the drag");
+    // Held still, the button down (a drag paused): still none.
+    // (Frames for a second of the window's clock, past the rest asked.)
+    let paused = h.ctx.input(|i| i.time);
+    while h.ctx.input(|i| i.time) < paused + 1.0 {
+        h.step();
+    }
+    assert_eq!(compared(&h), before, "none while the button is held");
+    h.event(egui::Event::PointerButton {
+        pos: view + egui::vec2(40.0, 0.0),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
+    assert_eq!(compared(&h), before + 1, "one comparison once it rested");
+    assert!(said_modified(&h, "start"));
+    // Back to what is saved: the dot goes by itself (the frames are the
+    // window's own: `settle` gives no input).
+    move_to(&mut h, 1.0);
+    // (Two frames: the change seen, then the frame it asked for, made for
+    // the dot's sake.)
+    h.step();
+    h.step();
+    let asked = h.ctx.repaint_causes();
+    assert!(asked.iter().any(|c| c.file.ends_with("tabs.rs")), "a frame asked for: {asked:?}");
+    settle(&mut h);
+    assert!(!said_modified(&h, "start"), "the dot gone once compared");
+    assert_eq!(compared(&h), before + 2);
 }

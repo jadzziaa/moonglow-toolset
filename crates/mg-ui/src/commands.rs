@@ -119,7 +119,8 @@ pub enum Id {
     /// The window of the tab in front made to fill Moonglow's window, or
     /// put back (as its bar's button, a double click on it, its menu).
     MaximizeWindow,
-    /// The tab in front to an editor group of its own (the Split Editor
+    /// The tab in front to another editor group, a new one with one group
+    /// (the Split Editor
     /// button at the right end of the focused group's tab bar).
     SplitEditor,
     /// The arrow keys given to the next pane, or the one before.
@@ -608,11 +609,9 @@ impl Id {
                 "Maximize Window",
                 "Fill Moonglow's window with the tab in front, or restore it",
             ),
-            Id::SplitEditor => (
-                "split-editor",
-                "Split Editor",
-                "Move the tab in front to an editor group of its own",
-            ),
+            Id::SplitEditor => {
+                ("split-editor", "Split Editor", "Move the tab in front to another editor group")
+            }
             Id::NextTab => ("next-tab", "Next Tab", ""),
             Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
             Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),

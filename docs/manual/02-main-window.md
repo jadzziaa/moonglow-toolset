@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T21:50:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T23:02:12Z }
 ---
 
 # The main window
@@ -296,7 +296,7 @@ changes them; the menus show the current keys.
 | Ctrl+Tab, Ctrl+Page Down | Next tab (of the group with the focus) |
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+1 to Ctrl+9 | The group's tab of that number (Ctrl+9: its last) |
-| Ctrl+\ | Split Editor: the tab in front to an editor group of its own |
+| Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
 | F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
@@ -651,7 +651,9 @@ changes not saved (a script typed in and not saved into the module, a hak,
 2DA, tileset or the talk table not saved to its file, an area,
 conversation, blueprint or Module Properties changed since the module was
 last saved; the dot goes when it is saved, or undone back to what was
-saved), and a **close button**: on the tab in front of its group always,
+saved: for the module's resources a moment after the change rests, as
+the dot comes at once with a change and the resource is compared with
+what was saved only once it is no longer changing), and a **close button**: on the tab in front of its group always,
 on another while the pointer is over it (its room is kept, so the name
 does not move as it comes). A screen reader says the tab's name and, with
 the dot, "modified". The window's title keeps its star for the module's
@@ -673,7 +675,9 @@ follow its tab in front (an area brings the Palette and Preview), and the
 tab keys act in it. A group whose last tab closes goes, its neighbor
 taking its room; with every tab closed the main pane says no area is
 open. The groups are kept with the module's open tabs and come back as
-they lay. **F6** gives the arrow keys to the editor area as one pane, the
+they lay. Moonglow 4.1.0 reading them brings two groups back as they
+were, and three or more as groups split off the main pane's sides, with
+every tab. **F6** gives the arrow keys to the editor area as one pane, the
 tab in front of the focused group.
 
 Areas open as tabs in the main pane. Everything else (blueprint and object
