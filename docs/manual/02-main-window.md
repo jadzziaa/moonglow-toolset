@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:25:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:10:21Z }
 ---
 
 # The main window
@@ -211,7 +211,7 @@ changes them; the menus show the current keys.
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's palette where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
@@ -472,7 +472,10 @@ browser in the Left Dock, the palettes and the Preview in the Right
 Dock, the log in the Bottom Dock) fold
 away to give the area's view the room: **View** has each (Left Dock,
 whichever of its panels it shows; Right Dock; Log), ticked while
-shown, and **Hide All Panels**. Each also has one control of its own for
+shown, and **Hide All Panels** (beside a tab that brings no Right Dock,
+it hides and shows the other two and leaves the Right Dock folded or
+not as it was, for the next area; View › Right Dock is grayed and not
+ticked then). Each also has one control of its own for
 it. The **Left Dock** has a small arrow beside its inner edge, by the
 middle, half way down (**Fold the Left Dock**), clear of the dock's
 lists and their scroll bars; drag the edge above or below it to make
@@ -755,6 +758,12 @@ keeps it and the Preview says the preview is shown elsewhere. The
 Preview is drawn only while its tab is in front (behind the palette's
 it reads and draws nothing), and then shows whatever is chosen in the
 palette at that moment; choosing a blueprint does not change the tab.
+While a blueprint stays chosen, its preview keeps its camera, the
+animation chosen, Pause or Play and its Lights switch, behind the
+palette's tab or beside another tab, however long; another blueprint
+chosen, they start afresh. Escape with the pointer over the Preview
+(or the palette) leaves a blueprint in hand to place: only over the
+area does it let go of it.
 **Tools › Preview** (or the strip's Preview button, the dock folded)
 brings it to the front, with the dock, beside any tab. After a click
 in the palette, the

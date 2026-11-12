@@ -676,9 +676,14 @@ fn show_palette(h: &mut App<'_>) {
 /// Tools › Preview shows it. Loudly: it must be drawn.
 fn show_preview(h: &mut App<'_>) {
     h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
-    h.run_steps(3);
+    // (Until its body is drawn: an area's view keeps the window asking
+    // for frames, so not until it stops.)
+    let started = std::time::Instant::now();
+    while h.state().preview_panel_rect().is_none() {
+        h.step();
+        assert!(started.elapsed().as_secs() < 30, "the Preview panel is not drawn");
+    }
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
-    assert!(h.state().preview_panel_rect().is_some(), "the Preview panel is not drawn");
 }
 
 /// Folds the palettes away: the Right Dock folded, as View › Right Dock

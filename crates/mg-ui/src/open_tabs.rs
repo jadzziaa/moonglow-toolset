@@ -885,8 +885,11 @@ impl Moonglow {
         if resources {
             self.show_dock_panel(crate::Panel::Resources);
         }
+        // (The Right Dock unfolded on the Palette, not asked for by name:
+        // it is drawn as the active editor has it, beside an area.)
         if palette {
-            self.show_dock_panel(crate::Panel::Palette);
+            self.right_panel = crate::Panel::Palette;
+            self.settings.hide_palettes = false;
         }
         if panes.is_empty() {
             return false;
@@ -1402,6 +1405,13 @@ impl Moonglow {
                 }
                 tab => _ = self.open_tabs.views.insert(tab.clone(), view),
             }
+        }
+        // (The main surface's pane with the focus, whose tab in front is the
+        // active editor that the docks follow: the middle's, not the pane
+        // made last; the tab in front, where it is in the main surface,
+        // takes it to its own.)
+        if let Some(middle) = self.middle_pane() {
+            self.dock.main_surface_mut().set_focused_node(middle.node);
         }
         if let Some(front) = front.and_then(|t| opened.get(&t).cloned()) {
             self.show_tab(front);

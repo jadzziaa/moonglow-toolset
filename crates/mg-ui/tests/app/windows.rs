@@ -406,53 +406,80 @@ fn panels_fold_away_and_come_back() {
 }
 
 /// Tab reaches the Right Dock's fold button after the dock's own controls
-/// (the palettes' types, search and list) and goes on round the window:
-/// the button is drawn right after the dock, in a layer of its own over
-/// the editor area. (In place of
-/// `the_palettes_covered_arrow_is_passed_by_the_keyboard`: the palettes'
-/// pane and egui_dock's arrow on its tab bar, which the keyboard was moved
-/// past, are gone with the pane, M3 T5.)
+/// and goes on round the window: the button is drawn right after the
+/// dock, in a layer of its own over the editor area. With each tab in
+/// front: the palettes' types, search and list; the Preview's body (a
+/// creature chosen: its model viewer's controls), drawn in the dock in
+/// its place. Shift+Tab from the button goes back into the panel's body.
+/// (In place of `the_palettes_covered_arrow_is_passed_by_the_keyboard`:
+/// the palettes' pane and egui_dock's arrow on its tab bar, which the
+/// keyboard was moved past, are gone with the pane, M3 T5.)
 #[test]
 fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
-    let Some(mut h) = game_harness("right-dock-tab-order") else { return };
-    settle(&mut h);
-    let dock = right_dock_rect(&h);
-    let fold = h.get_by_label("Fold the Right Dock").rect();
-    // From the Palette tab, Tab by Tab: each control in the dock until the
-    // fold button.
-    h.get_by_label("Right Dock").get_by_label("Palette").focus();
-    settle(&mut h);
-    let fold_is_focused = |h: &Harness<'_, Moonglow>| {
-        h.query_by_label("Fold the Right Dock").is_some_and(|n| n.accesskit_node().is_focused())
-    };
-    let mut steps = 0;
-    while !fold_is_focused(&h) {
+    let Some((mut h, _)) = area_harness("right-dock-tab-order") else { return };
+    h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    for (name, panel) in [("Palette", mg_ui::Panel::Palette), ("Preview", mg_ui::Panel::Preview)] {
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
+        settle(&mut h);
+        let dock = right_dock_rect(&h);
+        let fold = h.get_by_label("Fold the Right Dock").rect();
+        // (Under the tab bar: the panel's body.)
+        let body = h.get_by_label("Right Dock").get_by_label(name).rect().bottom();
+        // From the panel's tab, Tab by Tab: each control in the dock until
+        // the fold button.
+        h.get_by_label("Right Dock").get_by_label(name).focus();
+        settle(&mut h);
+        let fold_is_focused = |h: &Harness<'_, Moonglow>| {
+            h.query_by_label("Fold the Right Dock").is_some_and(|n| n.accesskit_node().is_focused())
+        };
+        let focused = |h: &Harness<'_, Moonglow>| {
+            h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id))
+        };
+        let (mut steps, mut in_body) = (0, 0);
+        while !fold_is_focused(&h) {
+            h.key_press(egui::Key::Tab);
+            settle(&mut h);
+            steps += 1;
+            assert!(steps < 200, "{name}: never reached the fold button");
+            // (The dock's own: its controls, and the edge it is resized by.)
+            if let Some(r) = focused(&h).filter(|_| !fold_is_focused(&h)) {
+                assert!(
+                    r.rect.right() >= dock.left() - 1.0,
+                    "{name}: {steps}: left the dock first: {:?}",
+                    r.rect
+                );
+                in_body += usize::from(r.rect.top() >= body - 0.5 && dock.contains_rect(r.rect));
+            }
+        }
+        assert!(steps > 3 && in_body > 2, "{name}: the panel's controls first: {steps}, {in_body}");
+        // On from it, out of the dock; Shift+Tab back to it, and on into
+        // the panel's body.
         h.key_press(egui::Key::Tab);
         settle(&mut h);
-        steps += 1;
-        assert!(steps < 200, "never reached the fold button");
-        let focused = h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id));
-        // (The dock's own: its controls, and the edge it is resized by.)
-        if let Some(r) = focused.filter(|_| !fold_is_focused(&h)) {
-            assert!(
-                r.rect.right() >= dock.left() - 1.0,
-                "{steps}: left the dock first: {:?}",
-                r.rect
-            );
+        assert!(focused(&h).is_some_and(|r| r.rect != fold), "{name}: Tab goes on past it");
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+        settle(&mut h);
+        assert!(fold_is_focused(&h), "{name}: Shift+Tab back to it");
+        // (Past the dock's edge, which it is resized by, registered after
+        // its panel's controls.)
+        for step in 0..3 {
+            h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+            settle(&mut h);
+            let back = focused(&h).expect("a control");
+            let edge = back.rect.width() < 8.0 && (back.rect.center().x - dock.left()).abs() < 4.0;
+            assert!(edge || dock.contains_rect(back.rect), "{name}: {step}: {back:?}");
+            if !edge {
+                assert!(back.rect.top() >= body - 0.5, "{name}: into the body: {back:?}");
+                break;
+            }
+            assert!(step < 2, "{name}: never back into the body");
         }
     }
-    assert!(steps > 3, "the dock's controls first: {steps}");
-    // On from it, out of the dock, and Enter on it folds the dock.
-    h.key_press(egui::Key::Tab);
+    h.get_by_label("Fold the Right Dock").focus();
     settle(&mut h);
-    let next = h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id));
-    assert!(next.is_some_and(|r| r.rect != fold), "Tab goes on past it");
-    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
-    settle(&mut h);
-    assert!(fold_is_focused(&h), "Shift+Tab back to it");
     h.key_press(egui::Key::Enter);
     settle(&mut h);
-    assert!(h.state().settings.hide_palettes, "folded by Enter");
+    assert!(h.state().settings.hide_palettes, "folded by Enter on the button");
 }
 
 /// GitHub issue 10, as its reporter put it on 1.31.0, kept by the shell:
@@ -752,10 +779,12 @@ fn a_tool_tab_dropped_on_a_side_is_docked_there() {
     let (tool, area_pane) = (main(&Tab::Factions), main(&Tab::Area(area)));
     assert_eq!((tool.0, tool.1), (true, 1), "{:?}", layout(&h));
     assert!(tool.2 < area_pane.2, "left of the area: {:?}", layout(&h));
-    // The Right Dock follows the pane with the focus: the area's brings
-    // the palettes, as they were, the tool's none.
-    let area_front = matches!(h.state().active_editor(), Some(Tab::Area(_)));
-    assert_eq!(palette_shown(h.state()), area_front, "{:?}", h.state().active_editor());
+    // The Right Dock follows the pane with the focus: the tool's brings
+    // none; the area's the palettes, as they were.
+    click_tab(&mut h, &Tab::Factions);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
+    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the tool");
     click_tab(&mut h, &Tab::Area(area));
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
@@ -1542,7 +1571,7 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     ]}}"#
     );
     std::fs::write(&file, record).unwrap();
-    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
     settle(&mut h);
     let app = h.state();
     assert!(app.dock.find_tab(&Tab::Area(area)).is_some());
@@ -1555,6 +1584,31 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     assert!(text.contains("factions"), "{text}");
     assert!(!text.contains("\"palettes\""), "no palettes' pane: {text}");
     assert!(!text.contains("\"palette\""), "no palettes' tab: {text}");
+    // The palettes' tab in a record whose tab in front is not an area's
+    // (the Faction Editor, docked in the middle): the dock unfolded on the
+    // Palette but not asked for by name, so not drawn beside the Faction
+    // Editor; the area's tab in front, it is, on the Palette.
+    fold_palette(h.state_mut());
+    settle(&mut h);
+    h.state_mut().settings.window_places = vec![("factions".into(), "middle".into())];
+    let record = format!(
+        r#"{{"panes":[
+        {{"place":"middle","tabs":["area:{area}","factions"],"active":"factions"}},
+        {{"place":"palettes","tabs":["palette"]}}
+    ],"front":"factions"}}"#
+    );
+    std::fs::write(&file, record).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    settle(&mut h);
+    let factions = h.state().dock.find_tab(&Tab::Factions).expect("the Faction Editor open");
+    assert!(factions.surface.is_main(), "docked in the middle");
+    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
+    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the Faction Editor");
+    assert!(h.query_by_label("Show the Right Dock").is_none(), "nor its strip");
+    assert!(!h.state().settings.hide_palettes, "unfolded for the next area");
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Palette), "beside the area");
 }
 
 /// A module's open tabs kept by an older Moonglow with the resource

@@ -119,13 +119,14 @@ pub(crate) fn show_palette(app: &mut Moonglow) {
 }
 
 /// The palette's row (or other widget) named `label`: the one in the
-/// Right Dock's Palette panel (where the Preview's tab is in front, the
-/// palette is not drawn: none).
+/// Right Dock's Palette panel, which must be in front (the Preview's tab,
+/// which names the blueprint chosen too, behind it).
 #[track_caller]
 pub(crate) fn palette_row<'t>(
     h: &'t Harness<'_, Moonglow>,
     label: &'t str,
 ) -> egui_kittest::Node<'t> {
+    assert!(palette_shown(h.state()), "the Palette's tab in front");
     let palette = right_dock_rect(h);
     let mut found = h.query_all_by_label(label).filter(|n| palette.contains(n.rect().center()));
     let Some(first) = found.next() else { panic!("no {label} in the palette") };

@@ -842,18 +842,14 @@ pub struct Moonglow {
     /// showing the same model keeps its view, as it did beside the
     /// Preview window). Set by `shell::right_dock`, taken when drawn.
     pub(crate) preview_slot: Option<shell::PreviewSlot>,
-    /// The Palette panel was asked for (Tools › Palettes, View › Preview
-    /// Panel, a strip button) where the active editor brings none: no
+    /// The Palette panel was asked for (Tools › Palettes, Tools ›
+    /// Preview, a strip button) where the active editor brings none: no
     /// module open, no game data read, or a tab other than an area's in
     /// front. The Right Dock holds it (the game's standard palettes in it
     /// without a module, or without the game's data the words saying so)
     /// until the active editor brings the Palette itself
     /// (`shell::follow_editor`).
     pub(crate) palettes_asked: bool,
-    /// The main surface's pane that had the focus last: the active
-    /// editor is its tab in front while a floating window has the focus
-    /// ([`Moonglow::active_editor`]).
-    pub(crate) main_leaf: Option<egui_dock::NodePath>,
     /// Whether the Right Dock may hold the Palette panel (true). Tests of
     /// other windows turn it off, so that the dock is not drawn beside
     /// what they look at.
@@ -1365,7 +1361,6 @@ impl Moonglow {
             right_panel: Panel::Palette,
             preview_slot: None,
             palettes_asked: false,
-            main_leaf: None,
             palette_dock: true,
             undo_script: None,
             test_checked: None,
@@ -1860,11 +1855,6 @@ impl Moonglow {
                     .show_inside(ui, &mut viewer);
             }
             self.dock = dock;
-            // (The main surface's pane with the focus, kept while a
-            // floating window has it: the active editor's.)
-            if let Some(p) = self.dock.focused_leaf().filter(|p| p.surface.is_main()) {
-                self.main_leaf = Some(p);
-            }
             dock_look::marks(ui.ctx(), &self.dock, &self.tab_buttons);
             self.window_bars(ui);
         });
@@ -2243,17 +2233,20 @@ impl Moonglow {
     }
 
     /// The active docked editor (the plan's decision 2): the tab in front
-    /// of the main surface's pane with the focus, else of the one that
-    /// had it last, else of the middle's (the areas'). A floating window
-    /// never counts (it keeps its own panes), so one with the focus leaves
-    /// the docks as the editor under it has them. Read before the editor
-    /// area is drawn: a tab brought to the front is the active editor from
-    /// the next frame.
+    /// of the main surface's pane with the focus, or that had it last (the
+    /// main surface's own record, which egui_dock keeps while a floating
+    /// window has the focus, moves as panes close and starts anew with the
+    /// dock), else of the middle's (the areas'). A floating window never
+    /// counts (it keeps its own panes), so one with the focus leaves the
+    /// docks as the editor under it has them. Read before the editor area
+    /// is drawn: a tab brought to the front is the active editor from the
+    /// next frame.
     pub fn active_editor(&self) -> Option<&Tab> {
-        let main_leaf = |p: &egui_dock::NodePath| p.surface.is_main() && self.dock.leaf(*p).is_ok();
-        let path = (self.dock.focused_leaf().filter(main_leaf))
-            .or(self.main_leaf.filter(main_leaf))
-            .or_else(|| self.middle_pane())?;
+        let main = egui_dock::SurfaceIndex::main();
+        let focused = (self.dock.main_surface().focused_leaf())
+            .map(|node| egui_dock::NodePath { surface: main, node })
+            .filter(|p| self.dock.leaf(*p).is_ok());
+        let path = focused.or_else(|| self.middle_pane())?;
         let leaf = self.dock.leaf(path).ok()?;
         leaf.tabs.get(leaf.active.0)
     }
@@ -2297,9 +2290,12 @@ impl Moonglow {
     }
 
     /// Whether every one of them is folded away.
+    /// (A Right Dock not drawn, the tab in front bringing no panels,
+    /// counts as hidden, whatever its fold.)
     pub(crate) fn panels_hidden(&self) -> bool {
         use commands::Id::{ViewLog, ViewPalettes, ViewTree};
-        ![ViewTree, ViewPalettes, ViewLog].into_iter().any(|p| self.panel_shown(p))
+        let right = shell::right_shown(self).is_some() && self.panel_shown(ViewPalettes);
+        !right && !self.panel_shown(ViewTree) && !self.panel_shown(ViewLog)
     }
 
     /// Shows a dock, or folds it away (a side dock leaves a strip at its
@@ -2463,8 +2459,10 @@ impl Moonglow {
             panes.push((panel.keys(), None));
         }
         panes.push(keys_of(front));
-        if self.right_dock_shows() == Some(Panel::Palette) {
-            panes.push((Keys::Palette, None));
+        // (The Right Dock's one stop: its panel in front's, the palette's
+        // rows or the Preview's model.)
+        if let Some(panel) = self.right_dock_shows() {
+            panes.push((panel.keys(), None));
         }
         // The log last, below them all, where it is shown.
         if !self.settings.hide_log {

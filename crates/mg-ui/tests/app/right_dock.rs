@@ -1355,3 +1355,98 @@ fn nothing_of_the_right_dock_is_left_the_frame_after_it_goes() {
     assert!(editor_right(&h) <= dock.left() + 0.5, "the editor area beside it");
     assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
 }
+
+/// View › Hide All Panels and Show All Panels beside a tab that brings no
+/// panels (the Right Dock not drawn) leave the Right Dock's fold as it
+/// was, folded or not: an absent dock counts as hidden, so the Left Dock
+/// and the log hidden are all hidden; and View › Right Dock, grayed then,
+/// is not ticked. The area's tab in front again, the dock is as it was.
+#[test]
+fn hide_all_panels_leaves_an_absent_right_dock_as_it_was() {
+    let Some((mut h, area)) = follow_harness("right-dock-hide-all") else { return };
+    let right_row = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Top Bar").get_by_label("View").click();
+        settle(h);
+        let row = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::CheckBox
+                && n.label().as_deref() == Some("Right Dock")
+        };
+        let node = h.get(egui_kittest::kittest::by().predicate(row)).accesskit_node();
+        let state = (node.is_disabled(), node.toggled() == Some(egui::accesskit::Toggled::True));
+        h.key_press(egui::Key::Escape);
+        settle(h);
+        state
+    };
+    for folded in [false, true] {
+        click_tab(&mut h, &Tab::Area(area));
+        settle(&mut h);
+        h.state_mut().settings.hide_palettes = folded;
+        settle(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+        settle(&mut h);
+        assert!(!right_dock_drawn(&h), "{folded}: no Right Dock beside Module Properties");
+        assert_eq!(right_row(&mut h), (true, false), "{folded}: grayed and not ticked");
+        // Hide All Panels: the Left Dock and the log, the Right Dock's fold
+        // left alone.
+        let s = &h.state().settings;
+        assert!(!s.hide_tree && !s.hide_log);
+        menu_command(&mut h, "View", "Hide All Panels");
+        let s = &h.state().settings;
+        assert!(s.hide_tree && s.hide_log, "{folded}: hidden");
+        assert_eq!(s.hide_palettes, folded, "{folded}: the Right Dock's fold as it was");
+        // All hidden now (the Right Dock not drawn): Show All Panels.
+        menu_command(&mut h, "View", "Show All Panels");
+        let s = &h.state().settings;
+        assert!(!s.hide_tree && !s.hide_log, "{folded}: shown");
+        assert_eq!(s.hide_palettes, folded, "{folded}: the Right Dock's fold as it was");
+        // The area's tab: the dock as it was.
+        click_tab(&mut h, &Tab::Area(area));
+        settle(&mut h);
+        assert_eq!(h.query_by_label("Show the Right Dock").is_some(), folded, "{folded}");
+        assert_eq!(h.state().right_dock_rect().is_some(), !folded, "{folded}");
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
+        settle(&mut h);
+    }
+}
+
+/// The active editor is the new module's after a module with two panes
+/// and a tool's (the second) with the focus is closed and another opened
+/// whose kept tabs have their tab in front in a floating window: its
+/// area's (the pane of the closed module's tool is not carried over to
+/// the new one's, though the new one has a pane of that number too).
+#[test]
+fn the_active_editor_is_the_new_module_s_after_another_opens() {
+    let Some((mut h, area)) = area_harness("right-dock-two-modules") else { return };
+    {
+        let dock = &mut h.state_mut().dock;
+        let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
+        dock.main_surface_mut().split_right(node, 0.6, vec![Tab::Factions]);
+    }
+    settle(&mut h);
+    click_tab(&mut h, &Tab::Factions);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
+    // The other module: the sample's, its record with its area in the
+    // middle, its script split off at the right (a pane of the same
+    // number as the tool's) and the Faction Editor in a window, in front.
+    let dir = mg_testkit::scratch_dir("ui-right-dock-two-modules-b");
+    let path = sample_module(&dir);
+    let kept = dir.join("open-tabs");
+    std::fs::create_dir_all(&kept).unwrap();
+    let record = r#"{"panes":[
+        {"place":"middle","tabs":["area:start"]},
+        {"place":"split right 400","tabs":["script:hello.nss"]},
+        {"place":"window","tabs":["factions"]}
+    ],"front":"factions"}"#;
+    std::fs::write(mg_ui::open_tabs::file(&kept, &path), record).unwrap();
+    h.state_mut().open_tabs_dir = Some(kept);
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    settle(&mut h);
+    let start = ResRef::from_str("start").unwrap();
+    let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    let at = |h: &Harness<'_, Moonglow>, t: &Tab| h.state().dock.find_tab(t);
+    assert!(at(&h, &Tab::Area(start)).is_some_and(|p| p.surface.is_main()), "its area");
+    assert!(at(&h, &hello).is_some_and(|p| p.surface.is_main()), "its script beside it");
+    assert!(at(&h, &Tab::Factions).is_some_and(|p| !p.surface.is_main()), "in a window");
+    assert_eq!(h.state().active_editor(), Some(&Tab::Area(start)));
+}

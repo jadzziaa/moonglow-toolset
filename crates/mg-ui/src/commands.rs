@@ -684,7 +684,11 @@ impl Id {
     /// that can be.
     fn ticked(self, app: &Moonglow) -> Option<bool> {
         match self {
-            Id::ViewTree | Id::ViewPalettes | Id::ViewLog => Some(app.panel_shown(self)),
+            // (The Right Dock not drawn, its row grayed: not ticked.)
+            Id::ViewPalettes => {
+                Some(app.panel_shown(self) && crate::shell::right_shown(app).is_some())
+            }
+            Id::ViewTree | Id::ViewLog => Some(app.panel_shown(self)),
             _ => None,
         }
     }
@@ -983,8 +987,12 @@ impl Id {
             }
             Id::HidePanels => {
                 let show = app.panels_hidden();
+                // (A Right Dock not drawn keeps its fold for the next area.)
+                let right = crate::shell::right_shown(app).is_some();
                 for panel in [Id::ViewTree, Id::ViewPalettes, Id::ViewLog] {
-                    app.show_panel(panel, show);
+                    if panel != Id::ViewPalettes || right {
+                        app.show_panel(panel, show);
+                    }
                 }
                 return;
             }

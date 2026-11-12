@@ -299,10 +299,9 @@ fn the_arrow_keys_on_a_right_dock_tab_choose_the_other() {
     }
 }
 
-/// Which tab is in front is kept as the Left Dock's is, for the run (not
-/// in the settings: a restart begins on the Palette, as the Left Dock on
-/// the Module panel), and a module opened brings the Palette to the
-/// front.
+/// Which tab is in front is kept as the Left Dock's is, for the run
+/// (nothing of it in the settings), and a module opened brings the
+/// Palette to the front.
 #[test]
 fn the_palette_is_in_front_as_a_module_opens() {
     let Some(mut h) = preview_harness("ui-preview-front", 1400.0, 800.0) else { return };
@@ -316,41 +315,142 @@ fn the_palette_is_in_front_as_a_module_opens() {
     h.state_mut().open_module(&sample_module(&dir));
     settle(&mut h);
     assert_eq!(h.state().right_dock_shows(), Some(Panel::Palette));
-    // A restart (the settings saved and read back): the Palette, as the
-    // Left Dock begins on the Module panel.
-    show(&mut h, Panel::Preview);
-    h.state_mut().actions.push(mg_ui::Action::ShowPanel(Panel::Resources));
-    settle(&mut h);
-    let read: mg_ui::Settings = ron::from_str(&h.state().settings.saved_text()).unwrap();
-    let migrated = Moonglow::with_settings(read, Box::new(NoDialogs::default()));
-    let mut app = game_app(mg_testkit::nwn_root().unwrap(), None);
-    app.settings = migrated.settings;
-    app.open_module(&sample_module(&dir));
-    let mut h = harness(app, 1400.0, 800.0);
-    settle(&mut h);
-    assert_eq!(h.state().right_dock_shows(), Some(Panel::Palette));
-    assert_eq!(h.state().left_dock_shows(), Some(Panel::Module));
 }
 
-/// Escape with the pointer over the Preview does what it does with the
-/// pointer over the Palette: the Preview has no window to close, and what
-/// Escape stops in the area view (placing the blueprint chosen) it stops
-/// the same over either.
+/// Escape with the pointer over the Preview does what it does over the
+/// Palette, as the manual says for both: the Preview has no window to
+/// close, and a blueprint in hand to place in the area is let go of only
+/// with the pointer over the area's view. Over either panel it stays in
+/// hand (the area's view still says it is placing it); over the view,
+/// Escape lets go of it.
 #[test]
 fn escape_over_the_preview_does_as_over_the_palette() {
-    let Some((mut h, _area)) = area_harness("preview-escape") else { return };
-    let mut after = Vec::new();
+    let Some((mut h, area)) = area_harness("preview-escape") else { return };
+    let waypoint = ResKey::parse("nw_waypoint001", ResType::UTW);
+    let placing = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by(|n| n.label().or(n.value()).is_some_and(|l| l.starts_with("Placing ")))
+            .count()
+            > 0
+    };
     for panel in [Panel::Palette, Panel::Preview] {
         show(&mut h, panel);
-        h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
+        h.state_mut().palette.selected = waypoint;
         settle(&mut h);
+        assert!(placing(&h), "{panel:?}: placing it");
         let dock = right_dock_rect(&h);
         h.hover_at(egui::pos2(dock.center().x, dock.bottom() - 60.0));
         settle(&mut h);
         h.key_press(egui::Key::Escape);
         settle(&mut h);
-        after.push((h.state().palette.selected, h.state().right_dock_shows()));
+        assert_eq!(h.state().palette.selected, waypoint, "{panel:?}: still in hand");
+        assert!(placing(&h), "{panel:?}: the area still placing it");
+        assert_eq!(h.state().right_dock_shows(), Some(panel), "{panel:?}: still in front");
+        // Over the area's view: let go of.
+        let centre = h.state().area_views[&area].rect.center();
+        h.hover_at(centre);
+        settle(&mut h);
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        assert_eq!(h.state().palette.selected, None, "{panel:?}: let go of over the view");
+        assert!(!placing(&h), "{panel:?}: no longer placing");
     }
-    assert_eq!(after[0].0, after[1].0, "the blueprint chosen: {after:?}");
-    assert_eq!(after[1].1, Some(Panel::Preview), "the Preview still in front");
+}
+
+/// F6 reaches the Right Dock with either tab in front, between the
+/// editor area and the log, and Shift+F6 the other way: with the
+/// Palette's, the arrow keys are its rows'; with the Preview's, they turn
+/// its model as a drag does (Left and Right about it, Up and Down over
+/// it), a creature chosen.
+#[test]
+fn f6_reaches_the_right_dock_with_either_tab_in_front() {
+    let Some((mut h, area)) = area_harness("preview-f6") else { return };
+    h.state_mut().settings.hide_log = false;
+    let creature = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    h.state_mut().palette.selected = Some(creature);
+    settle(&mut h);
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    let step = |h: &mut Harness<'_, Moonglow>, back: bool| {
+        let m = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        h.key_press_modifiers(m, egui::Key::F6);
+        settle(h);
+        keys(h)
+    };
+    for (panel, name) in [(Panel::Palette, "Palette"), (Panel::Preview, "Preview")] {
+        show(&mut h, panel);
+        // (The pointer in the area's view: the keys its; then away.)
+        let centre = h.state().area_views[&area].rect.center();
+        h.hover_at(centre);
+        settle(&mut h);
+        assert_eq!(keys(&h), "Area");
+        h.hover_at(egui::pos2(centre.x, 20.0));
+        settle(&mut h);
+        let forward: Vec<String> = (0..4).map(|_| step(&mut h, false)).collect();
+        assert_eq!(forward, [name, "Log", "Tree", "Area"], "{name}: F6");
+        let back: Vec<String> = (0..4).map(|_| step(&mut h, true)).collect();
+        assert_eq!(back, ["Tree", "Log", name, "Area"], "{name}: Shift+F6");
+    }
+    // The Preview's keys turn its model.
+    assert_eq!(step(&mut h, false), "Preview");
+    let source = mg_ui::model_view::Source::Resource(creature);
+    let orbit = |h: &Harness<'_, Moonglow>| {
+        let o = h.state().model_views[&source].orbit;
+        (o.yaw, o.pitch)
+    };
+    let (yaw, pitch) = orbit(&h);
+    h.key_press(egui::Key::ArrowRight);
+    settle(&mut h);
+    assert!((orbit(&h).0 - yaw).abs() > 0.2, "turned about it: {yaw} -> {:?}", orbit(&h));
+    h.key_press(egui::Key::ArrowUp);
+    settle(&mut h);
+    assert!((orbit(&h).1 - pitch).abs() > 0.1, "turned over it: {pitch} -> {:?}", orbit(&h));
+    assert_eq!(h.state().palette.selected, Some(creature), "the palette's choice left alone");
+}
+
+/// The Preview's view of the blueprint chosen is kept while it stays
+/// chosen: its animation and camera as left after its tab has been behind
+/// the Palette's for longer than an unseen view is kept (its targets let
+/// go of meanwhile); another blueprint chosen, it goes.
+#[test]
+fn the_preview_keeps_its_view_while_its_blueprint_is_chosen() {
+    let Some((mut h, _area)) = area_harness("preview-kept") else { return };
+    let creature = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    let source = mg_ui::model_view::Source::Resource(creature);
+    h.state_mut().palette.selected = Some(creature);
+    show(&mut h, Panel::Preview);
+    assert!(model_view_of(&h, creature));
+    {
+        let view = h.state_mut().model_views.get_mut(&source).unwrap();
+        view.animation = Some("pause1".into());
+        view.orbit.yaw += 1.0;
+        view.model_lights = !view.model_lights;
+    }
+    settle(&mut h);
+    let left = {
+        let v = &h.state().model_views[&source];
+        (v.animation.clone(), v.orbit.yaw, v.model_lights)
+    };
+    show(&mut h, Panel::Palette);
+    // (Longer than a view unseen is kept, by the window's clock.)
+    let from = h.ctx.input(|i| i.time);
+    let started = std::time::Instant::now();
+    while h.ctx.input(|i| i.time) < from + 3.0 {
+        h.step();
+        assert!(started.elapsed().as_secs() < 60, "the window's clock stands still");
+    }
+    settle(&mut h);
+    let view = h.state().model_views.get(&source).expect("its view kept");
+    assert!(!view.holds_targets(), "its targets let go of");
+    show(&mut h, Panel::Preview);
+    let v = &h.state().model_views[&source];
+    assert_eq!((v.animation.clone(), v.orbit.yaw, v.model_lights), left, "as left");
+    // Another chosen (behind the Palette's tab): the creature's goes.
+    show(&mut h, Panel::Palette);
+    h.state_mut().palette.selected = ResKey::parse("plc_chest1", ResType::UTP);
+    let from = h.ctx.input(|i| i.time);
+    while h.ctx.input(|i| i.time) < from + 3.0 {
+        h.step();
+        assert!(started.elapsed().as_secs() < 120, "the window's clock stands still");
+    }
+    settle(&mut h);
+    assert!(!model_view_of(&h, creature), "dropped, no longer chosen");
 }

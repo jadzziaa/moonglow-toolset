@@ -203,11 +203,14 @@ pub(crate) const UNSEEN_AFTER: f64 = 2.0;
 
 /// After a frame: the model views not drawn for [`UNSEEN_AFTER`] let go
 /// of their targets; and those no open tab shows (a Model tab closed, a
-/// Properties window closed, the Preview window's of a blueprint no longer
-/// chosen) go whole, with their models on the GPU and the supermodels
-/// they read. (Kept, every blueprint chosen in the palette with the
-/// Preview window open added a view for the session.) One whose tab is
-/// behind another keeps its models and its camera.
+/// Properties window closed) go whole, with their models on the GPU and
+/// the supermodels they read. (Kept, every blueprint chosen in the palette
+/// with the Preview open added a view for the session.) One whose tab is
+/// behind another keeps its models and its camera, and so does the Right
+/// Dock's Preview's of the blueprint chosen in the palette while it stays
+/// chosen (its tab behind the Palette's, or a tab in front that brings no
+/// panels): its camera, animation, play and lights as left, its targets
+/// let go of as every unseen view's.
 pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
     let Some(vp) = app.viewport.as_mut() else { return };
     let mut unseen = Vec::new();
@@ -227,10 +230,24 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
     if unseen.is_empty() {
         return;
     }
-    // (A Properties window's page shows its object, the first of several;
-    // a tile's tab its tile's model, whichever that is.)
+    let (mut shown, tiles) = shown_by_tabs(app);
+    // (The Preview's, kept while its blueprint is the palette's choice.)
+    shown.extend(app.palette.selected.map(Source::Resource));
+    let a_tile_s = |s: &Source| tiles && matches!(s, Source::Resource(_)) && s.is_model();
+    for source in unseen.into_iter().filter(|s| !shown.contains(s) && !a_tile_s(s)) {
+        app.model_views.remove(&source);
+    }
+}
+
+/// What the open tabs show in a model view (a Properties window's page
+/// shows its object, the first of several; a Model tab its model), and
+/// whether a tile's tab is open (it shows its tile's model, whichever that
+/// is); a hak's tab shows its resources' models, by the hak's own
+/// sources, and its blueprints' (`Source::Resource`): those are not
+/// listed, a hak's tab told by [`a_tab_may_show`].
+pub(crate) fn shown_by_tabs(app: &Moonglow) -> (Vec<Source>, bool) {
     let mut tiles = false;
-    let shown: Vec<Source> = (app.dock.iter_all_tabs())
+    let shown = (app.dock.iter_all_tabs())
         .filter_map(|(_, tab)| match tab {
             crate::Tab::Blueprint(key) => Some(Source::Resource(*key)),
             crate::Tab::Blueprints(keys) => keys.first().map(|key| Source::Resource(*key)),
@@ -247,10 +264,17 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
             tab => Source::of_tab(tab),
         })
         .collect();
-    let a_tile_s = |s: &Source| tiles && matches!(s, Source::Resource(_)) && s.is_model();
-    for source in unseen.into_iter().filter(|s| !shown.contains(s) && !a_tile_s(s)) {
-        app.model_views.remove(&source);
-    }
+    (shown, tiles)
+}
+
+/// Whether an open tab may show `source` in a model view this frame: one
+/// of [`shown_by_tabs`], or with a hak's tab open, any blueprint (a hak's
+/// own blueprints are shown by their resource), or with a tile's tab open,
+/// a model.
+pub(crate) fn a_tab_may_show(app: &Moonglow, source: &Source) -> bool {
+    let (shown, tiles) = shown_by_tabs(app);
+    let haks = app.dock.iter_all_tabs().any(|(_, t)| matches!(t, crate::Tab::Hak(_)));
+    shown.contains(source) || haks || (tiles && source.is_model())
 }
 
 /// What a model's view was read for: the load order

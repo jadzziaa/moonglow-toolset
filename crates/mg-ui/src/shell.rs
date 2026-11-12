@@ -222,8 +222,8 @@ impl Panel {
         match self {
             Panel::Module => Keys::Tree,
             Panel::Resources => Keys::Browser,
-            // (The Right Dock's one stop: the palette's.)
-            Panel::Palette | Panel::Preview => Keys::Palette,
+            Panel::Palette => Keys::Palette,
+            Panel::Preview => Keys::Preview,
         }
     }
 }
@@ -1063,12 +1063,24 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                         body.set_clip_rect(room.intersect(ui.clip_rect()));
                         crate::palette_view::ui(app, &mut body);
                     }
-                    // (Drawn after the editor area, in this room: an
-                    // editor's tab showing the same model keeps its view.)
+                    // (Drawn here, where it comes in Tab's order after the
+                    // tab bar; where an editor's tab may show the same
+                    // model, after the editor area in this room, so that
+                    // the tab keeps its view.)
                     Panel::Preview if room.is_positive() => {
-                        let layer = ui.layer_id();
                         app.preview_rect = Some(room);
-                        app.preview_slot = Some(PreviewSlot { rect: room, layer, pane: pane_id });
+                        let chosen = app.palette.selected.map(crate::model_view::Source::Resource);
+                        if chosen.is_some_and(|s| crate::model_view::a_tab_may_show(app, &s)) {
+                            let layer = ui.layer_id();
+                            app.preview_slot =
+                                Some(PreviewSlot { rect: room, layer, pane: pane_id });
+                        } else {
+                            let builder =
+                                egui::UiBuilder::new().id_salt("preview-panel").max_rect(room);
+                            let mut body = ui.new_child(builder);
+                            body.set_clip_rect(room.intersect(ui.clip_rect()));
+                            crate::area_tools::preview_body(app, &mut body, room);
+                        }
                     }
                     // (Not the Right Dock's.)
                     _ => {}

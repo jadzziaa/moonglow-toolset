@@ -392,6 +392,9 @@ pub(crate) enum Keys {
     Dialog,
     /// The log, scrolled by them (its lines are text to select and copy).
     Log,
+    /// The Right Dock's Preview: they turn its model
+    /// (`area_tools::preview_body`).
+    Preview,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

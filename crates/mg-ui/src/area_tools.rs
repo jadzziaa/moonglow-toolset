@@ -781,16 +781,14 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
-/// The Right Dock's Preview panel's body (Aurora's Preview window,
-/// `TfrmPreview`, and Moonglow's until M3's T6): the blueprint chosen in
-/// the palette, its name, tag, resref and comments and a few fields of its
-/// type (an item's inventory icon beside them), in 3D under them for
-/// creatures, items, placeables and doors, a store's stock by page. Drawn
-/// after the editor area, in the room `shell::right_dock` kept for it this
-/// frame ([`Moonglow::preview_slot`]), so that an editor's tab showing the
-/// same model keeps its view (as it did beside the Preview window: a model
-/// is drawn in one place a frame, `model_view`), this one saying so. Its
-/// widgets are the Right Dock's (under its pane), cut at the panel's edges.
+/// The Right Dock's Preview panel's body drawn late, after the editor
+/// area, in the room `shell::right_dock` kept for it this frame
+/// ([`Moonglow::preview_slot`]): where an editor's tab may show the same
+/// model, so that the tab keeps its view (as it did beside the Preview
+/// window: a model is drawn in one place a frame, `model_view`), this one
+/// saying so. Its widgets are the Right Dock's (under its pane), cut at
+/// the panel's edges. (Else the body is drawn in the dock in its place:
+/// [`preview_body`], so that Tab goes from the dock's tab bar into it.)
 pub(crate) fn preview_panel(app: &mut Moonglow, ui: &mut Ui) {
     let Some(slot) = app.preview_slot.take() else { return };
     let builder = egui::UiBuilder::new()
@@ -800,11 +798,42 @@ pub(crate) fn preview_panel(app: &mut Moonglow, ui: &mut Ui) {
         .accessibility_parent(slot.pane);
     let mut body = ui.new_child(builder);
     body.set_clip_rect(slot.rect);
-    let ui = &mut body;
+    preview_body(app, &mut body, slot.rect);
+}
+
+/// How far an arrow key turns the Preview's model, about it and up or
+/// down (radians: 15° and 10°).
+const PREVIEW_TURN: (f32, f32) = (0.2618, 0.1745);
+
+/// The Right Dock's Preview panel's body (Aurora's Preview window,
+/// `TfrmPreview`, and Moonglow's until M3's T6), in `ui`, `rect`: the
+/// blueprint chosen in the palette, its name, tag, resref and comments and
+/// a few fields of its type (an item's inventory icon beside them), in 3D
+/// under them for creatures, items, placeables and doors, a store's stock
+/// by page. With the arrow keys its own (F6 to the Right Dock with the
+/// Preview's tab in front), they turn its model as a drag does: Left and
+/// Right about it, Up and Down over or under it; a thin outline says so.
+pub(crate) fn preview_body(app: &mut Moonglow, ui: &mut Ui, rect: egui::Rect) {
+    use crate::palette_view::{Keys, keys_are, keys_outline};
+    keys_outline(ui, rect, Keys::Preview);
     let Some(key) = app.palette.selected else {
         ui.weak("Choose a blueprint in the palette.");
         return;
     };
+    let source = crate::model_view::Source::Resource(key);
+    if keys_are(ui.ctx(), Keys::Preview)
+        && !ui.ctx().egui_wants_keyboard_input()
+        && let Some(view) = app.model_views.get_mut(&source)
+    {
+        let (yaw, pitch) = ui.input(|i| {
+            let k = |key| f32::from(u8::from(i.key_pressed(key)));
+            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+            (k(ArrowRight) - k(ArrowLeft), k(ArrowUp) - k(ArrowDown))
+        });
+        let o = &mut view.orbit;
+        o.yaw -= yaw * PREVIEW_TURN.0;
+        o.pitch = (o.pitch + pitch * PREVIEW_TURN.1).clamp(-1.45, 1.45);
+    }
     let Some(gff) = blueprint(app, key) else {
         ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
         return;
@@ -814,10 +843,10 @@ pub(crate) fn preview_panel(app: &mut Moonglow, ui: &mut Ui) {
     // (Its fields take at most a quarter of the panel where its model or
     // its stock is under them, scrolled where they are more: the model has
     // the room.)
-    let most = if model || store { (slot.rect.height() / 4.0).max(40.0) } else { f32::INFINITY };
+    let most = if model || store { (rect.height() / 4.0).max(40.0) } else { f32::INFINITY };
     // (An item's icon beside its fields where the panel is wide enough for
     // both, else over them: the fields' names and values have the width.)
-    let beside = slot.rect.width() >= 300.0;
+    let beside = rect.width() >= 300.0;
     let fields = |app: &mut Moonglow, ui: &mut Ui| {
         if key.restype == ResType::UTI {
             let layers = app.item_icon(ui.ctx(), &gff.root);
@@ -845,7 +874,7 @@ pub(crate) fn preview_panel(app: &mut Moonglow, ui: &mut Ui) {
     // (What is under the fields in the room left, never wider than the
     // panel: what is in it may not widen it.)
     let under = |ui: &mut Ui| {
-        let room = ui.available_rect_before_wrap().intersect(slot.rect);
+        let room = ui.available_rect_before_wrap().intersect(rect);
         ui.advance_cursor_after_rect(room);
         let mut under = ui.new_child(egui::UiBuilder::new().max_rect(room));
         under.set_clip_rect(room);
