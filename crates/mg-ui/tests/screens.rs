@@ -10586,6 +10586,46 @@ fn shell_760() {
     shoot(&mut h, &dir, "shell_760");
 }
 
+/// The Status Bar with a long module name, modified, at 420, 600 and
+/// 1000 px: the name cut short with an ellipsis before "(modified)",
+/// clear of the Log switch and inside the window
+/// (`shell_long_name_420.png` and the others); and at 420 with the note of
+/// a look under way beside it, both cut short
+/// (`shell_long_name_note_420.png`).
+#[test]
+#[ignore]
+fn shell_long_name() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-shell-long-name");
+    let long = scratch.join("a_module_with_a_rather_long_file_name_for_the_status_bar_check.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &long).unwrap();
+    let note = "Reading files changed outside Moonglow…";
+    let cases = [(420.0, false), (600.0, false), (1000.0, false), (420.0, true)];
+    for (width, with_note) in cases {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.settings.no_last_area = true;
+        app.open_module(&long);
+        app.show_looking_note(with_note.then_some(note));
+        let key = ResKey::parse("mg_long_name", ResType::NSS).unwrap();
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(width, 600.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        themed(&mut h);
+        settle(&mut h);
+        let note = if with_note { "_note" } else { "" };
+        shoot(&mut h, &dir, &format!("shell_long_name{note}_{width}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn shell_welcome() {

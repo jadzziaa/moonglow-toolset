@@ -46,6 +46,43 @@ use crate::{Moonglow, tree};
 /// (`kit::vsep`).
 const VSEP: f32 = 9.0;
 
+/// The least size of the main window (its inside, in points): the Top
+/// Bar's eight menus fit (Help ends about 395 points from the left), and
+/// the bars and a line of the editor area beside the docks. In points, so
+/// at every interface size: the menus are as many points wide at 150% as
+/// at 100%, and a point is then 1.5 pixels ([`keep_least_size`]). A
+/// window kept smaller opens at this size (`apps/moonglow`).
+pub const LEAST_WINDOW_SIZE: egui::Vec2 = egui::Vec2::new(420.0, 320.0);
+
+/// Keeps the window at least [`LEAST_WINDOW_SIZE`] points inside, at any
+/// interface size: each time the scale from points to pixels changes
+/// (Options › General › Interface size, Ctrl with + and -, a screen of
+/// another scale; the first frame too), the least size is given again
+/// (egui-winit turns it into pixels at the scale of that frame), and a
+/// window smaller than it in points is made as large. The scale read is
+/// the frame's input's, which a zoom set this frame reaches the next: it
+/// waits for the interface size to be in effect (on the first frame the
+/// setting's zoom is not yet), so a window is never grown for a size it
+/// is not drawn at.
+pub(crate) fn keep_least_size(app: &mut Moonglow, ctx: &egui::Context) {
+    let scale = ctx.input(|i| i.pixels_per_point);
+    // (Not while the interface size is on its way: its zoom set, or set
+    // this frame, and the frame's scale still the old one.)
+    let wanted = app.settings.ui_scale.map_or(ctx.zoom_factor(), |s| f32::from(s) / 100.0);
+    let settled = (ctx.zoom_factor() - wanted).abs() < 0.001
+        && (ctx.pixels_per_point() - scale).abs() < 0.001;
+    if !settled || app.least_size_for == Some(scale) {
+        return;
+    }
+    app.least_size_for = Some(scale);
+    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(LEAST_WINDOW_SIZE));
+    let inside = ctx.input(|i| i.viewport().inner_rect).unwrap_or_else(|| ctx.content_rect());
+    let size = inside.size();
+    if size.x < LEAST_WINDOW_SIZE.x || size.y < LEAST_WINDOW_SIZE.y {
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size.max(LEAST_WINDOW_SIZE)));
+    }
+}
+
 /// The Left Dock's name: its tab bar's and, folded, its strip's group.
 pub(crate) const LEFT_DOCK: &str = "Left Dock";
 /// The Bottom Dock's name: its tab bar's group.
@@ -151,8 +188,9 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
         TOP_BAR_TEST_MENU.iter().map(|id| CommandRow::of(app, &ctx, *id)).collect();
     let words = Tools::icons_alone(!yields.build_words);
     // In a window too narrow for them all, the build actions go, then the
-    // quick actions (each whole), rather than overlap or leave the
-    // window: every one of them is in the menus too (File, Edit, Build).
+    // quick actions (each group whole, in that order as the window
+    // narrows), rather than overlap or leave the window: every one of
+    // them is in the menus too (File, Edit, Build).
     let side = IconButton::new(Icon::New, "").icon_only(true).width(ui);
     let quick_width: f32 = (quick.iter())
         .map(|b| if b.is_some() { side } else { VSEP })
@@ -166,14 +204,21 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
         .sum::<f32>()
         + mg_uikit::joined_spacing(ui)
         + arrow_width;
-    let left_end = std::cell::Cell::new(0.0);
+    // (Decided once the menus are laid out, for both groups: the quick
+    // actions where they fit after the menus, the build actions only where
+    // both fit, so a window that narrows loses the build actions first.)
+    let show_build = std::cell::Cell::new(false);
     let (quick_clicked, (), build_clicked) = kit::top_bar(
         ui,
         yields.quick_open_cap,
         |ui| {
             commands::menu_bar(app, ui);
             let mut clicked = None;
-            if ui.cursor().min.x + kit::TOP_BAR_GAP + quick_width <= ui.max_rect().right() {
+            let menus_end = ui.cursor().min.x + kit::TOP_BAR_GAP;
+            let right = ui.max_rect().right();
+            let show_quick = menus_end + quick_width <= right;
+            show_build.set(show_quick && menus_end + quick_width + build_width <= right);
+            if show_quick {
                 kit::vsep(ui);
                 for b in &quick {
                     match b {
@@ -188,14 +233,13 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 }
             }
-            left_end.set(ui.cursor().min.x);
             clicked
         },
         // (Quick Open's place, M3's T8: nothing until then.)
         |_, _| {},
         |ui| {
             let mut clicked = None;
-            if left_end.get() + build_width > ui.max_rect().right() {
+            if !show_build.get() {
                 return None;
             }
             for (i, b) in build.iter().enumerate() {
@@ -245,7 +289,8 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
 /// The Status Bar (`Panel::bottom("status")`): the Log's switch at the
 /// left; the module's name (with "(modified)", its path in the tip) and
 /// the game folder at the right, the folder left out where both do not
-/// fit beside the switch.
+/// fit beside the switch, and then the name cut short with an ellipsis
+/// ("(modified)" kept whole).
 pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(ui.ctx());
     let size = metrics::STATUS_BAR + panel_line(ui);
@@ -259,7 +304,6 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         (None, Some(_)) => ("New module, not saved yet".to_string(), None),
         (None, None) => ("No module open".to_string(), None),
     };
-    let module = if modified { format!("{module} (modified)") } else { module };
     let (folder, folder_tip) = match &app.install {
         Some(gi) => {
             let name = gi.root.file_name().map(|n| n.to_string_lossy().into_owned());
@@ -274,7 +318,12 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         .frame(status::frame(&t))
         .show(ui, |ui| {
             let switch = StatusSwitch::new(Icon::Log, "Log", log_on).tooltip(log_tip);
+            // ("(modified)" is kept whole where the name is cut short: it
+            // is the part that matters.)
             let mut item = StatusItem::new(&module).modified(modified);
+            if modified {
+                item = item.kept(" (modified)");
+            }
             if let Some(tip) = &module_tip {
                 item = item.tooltip(tip);
             }
@@ -282,19 +331,33 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             if let Some(tip) = &folder_tip {
                 folder_item = folder_item.tooltip(tip);
             }
-            let note = looking.map(StatusItem::new);
-            // (The right-hand group's width, the items' and a separator
-            // and two gaps between each two; the folder only where it
-            // fits beside the rest.)
+            // (Its whole words in its tip, where it is cut short.)
+            let note = looking.map(|n| StatusItem::new(n).tooltip(n));
+            // The right-hand items share the room left after the switch
+            // and the gap before them by one rule: the game folder goes
+            // first; then the note and the name are cut short with an
+            // ellipsis (`share`), each to half the room where both are
+            // wider, or to what the other leaves (the name's path in its
+            // tip, "(modified)" kept whole).
             let between = 2.0 * status::GAP + status::SEPARATOR_WIDTH;
-            let left = switch.width(ui) + status::GAP;
-            let mut right = item.width(ui);
-            if let Some(n) = &note {
-                right += n.width(ui) + between;
+            let left = switch.width(ui) + 2.0 * status::GAP;
+            let room = ui.available_width() - left;
+            let note_gap = if note.is_some() { between } else { 0.0 };
+            let note_width = note.as_ref().map_or(0.0, |n| n.width(ui));
+            let with_folder =
+                item.width(ui) + note_width + note_gap + between + folder_item.width(ui);
+            let show_folder = with_folder <= room;
+            let mut note = note;
+            if !show_folder {
+                let (name_max, note_max) = share(room - note_gap, item.width(ui), note_width);
+                item = item.max_width(name_max);
+                note = note.map(|n| n.max_width(note_max));
             }
-            let with_folder = right + between + folder_item.width(ui);
-            let show_folder = left + with_folder <= ui.available_width();
-            let right = if show_folder { with_folder } else { right };
+            let right = if show_folder {
+                with_folder
+            } else {
+                item.width(ui) + note.as_ref().map_or(0.0, |n| n.width(ui)) + note_gap
+            };
             let (clicked, (), ()) = status::bar_sized(
                 ui,
                 right,
@@ -318,6 +381,24 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         .inner;
     if clicked {
         app.show_panel(Id::ViewLog, !log_on);
+    }
+}
+
+/// The widths at most of the Status Bar's module name and its note (the
+/// game folder left out), `name` and `note` wide as they are, in `room`:
+/// both whole where they fit; else the one narrower than half the room
+/// whole and the other cut to what it leaves; else each cut to half.
+fn share(room: f32, name: f32, note: f32) -> (f32, f32) {
+    let room = room.max(0.0);
+    let half = room / 2.0;
+    if name + note <= room {
+        (name, note)
+    } else if note <= half {
+        (room - note, note)
+    } else if name <= half {
+        (name, room - name)
+    } else {
+        (half, half)
     }
 }
 
@@ -458,5 +539,23 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
         .inner;
     if let Some(id) = chosen {
         id.run(app, &ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::share;
+
+    /// The Status Bar's name and note share the room: whole where both
+    /// fit; the narrower whole and the other cut where it is under half;
+    /// each cut to half where both are wider; never more than the room.
+    #[test]
+    fn the_name_and_the_note_share_the_room() {
+        assert_eq!(share(300.0, 100.0, 150.0), (100.0, 150.0));
+        assert_eq!(share(300.0, 400.0, 100.0), (200.0, 100.0));
+        assert_eq!(share(300.0, 100.0, 400.0), (100.0, 200.0));
+        assert_eq!(share(300.0, 400.0, 400.0), (150.0, 150.0));
+        assert_eq!(share(300.0, 400.0, 0.0), (300.0, 0.0), "no note: the name has it all");
+        assert_eq!(share(-20.0, 400.0, 400.0), (0.0, 0.0));
     }
 }

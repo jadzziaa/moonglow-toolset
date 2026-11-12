@@ -571,21 +571,33 @@ impl<'a> Hints<'a> {
 /// One of the Status Bar's right-hand items (`.sb-item`): the editor's
 /// counts (`11 by 11 tiles`), the module's name with the modified dot
 /// before it, in 13 px `text-2`; weak ([`StatusItem::weak`], the game
-/// folder), 11 px `text-3`. A label named by its words, with a tooltip
-/// where given (the module's full path).
+/// folder), 11 px `text-3`. A label named by its words (all of them, its
+/// [`kept`](StatusItem::kept) words too, however it is cut short), with a
+/// tooltip where given (the module's full path). Given a
+/// [`max_width`](StatusItem::max_width), its text is cut short with an
+/// ellipsis to fit, its kept words (" (modified)") drawn whole after it.
 #[derive(Clone, Debug)]
 #[must_use = "add it with ui.add"]
 pub struct StatusItem {
     text: String,
+    kept: String,
     weak: bool,
     modified: bool,
+    max_width: Option<f32>,
     tooltip: Option<String>,
 }
 
 impl StatusItem {
     /// An item reading `text`.
     pub fn new(text: impl Into<String>) -> Self {
-        StatusItem { text: text.into(), weak: false, modified: false, tooltip: None }
+        StatusItem {
+            text: text.into(),
+            kept: String::new(),
+            weak: false,
+            modified: false,
+            max_width: None,
+            tooltip: None,
+        }
     }
 
     /// Weak: 11 px `text-3` (`.sb-item.weak`).
@@ -600,6 +612,23 @@ impl StatusItem {
         self
     }
 
+    /// Words after its text that are never cut short (" (modified)"):
+    /// where it does not fit its [`max_width`](StatusItem::max_width), its
+    /// text is cut, not these.
+    pub fn kept(mut self, kept: impl Into<String>) -> Self {
+        self.kept = kept.into();
+        self
+    }
+
+    /// At most `width` wide: its text cut short with an ellipsis where the
+    /// whole of it (the dot and its kept words with it) is wider. Its kept
+    /// words and the dot are never cut, so it is wider than `width` only
+    /// where they and the ellipsis alone are.
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width.max(0.0));
+        self
+    }
+
     /// Shown on hover.
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
@@ -610,11 +639,42 @@ impl StatusItem {
         if self.weak { small_font() } else { body_font() }
     }
 
+    fn dot(&self) -> f32 {
+        if self.modified { marks::DOT + ITEM_GAP } else { 0.0 }
+    }
+
+    /// Its text and its kept words as laid out in `ui` (`color`), the text
+    /// cut short to its room.
+    fn galleys(&self, ui: &Ui, color: Color32) -> (Arc<egui::Galley>, Arc<egui::Galley>) {
+        let p = ui.painter();
+        let kept = p.layout_no_wrap(self.kept.clone(), self.font(), color);
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(self.text.clone(), self.font(), color);
+        if let Some(max) = self.max_width {
+            let room = (max - self.dot() - kept.size().x).max(0.0);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        }
+        (p.layout_job(job), kept)
+    }
+
     /// The width it takes in `ui`.
     pub fn width(&self, ui: &Ui) -> f32 {
-        let galley = ui.painter().layout_no_wrap(self.text.clone(), self.font(), Color32::WHITE);
-        let dot = if self.modified { marks::DOT + ITEM_GAP } else { 0.0 };
-        dot + galley.size().x
+        let (text, kept) = self.galleys(ui, Color32::WHITE);
+        self.dot() + text.size().x + kept.size().x
+    }
+
+    /// The words it shows in `ui`: its text, cut short with an ellipsis
+    /// where it does not fit, and its kept words.
+    pub fn shown(&self, ui: &Ui) -> String {
+        let (text, kept) = self.galleys(ui, Color32::WHITE);
+        // (A galley's `text` is the whole of it: its glyphs, what is drawn.)
+        let drawn: String = text.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect();
+        format!("{drawn}{}", kept.text())
+    }
+
+    /// Whether its text is cut short in `ui`.
+    pub fn is_cut(&self, ui: &Ui) -> bool {
+        self.galleys(ui, Color32::WHITE).0.elided
     }
 }
 
@@ -622,10 +682,11 @@ impl egui::Widget for StatusItem {
     fn ui(self, ui: &mut Ui) -> Response {
         let t = ui.tokens();
         let color = if self.weak { t.text_3 } else { t.text_2 };
-        let galley = ui.painter().layout_no_wrap(self.text.clone(), self.font(), color);
-        let size = vec2(self.width(ui), galley.size().y.max(marks::MARK_HEIGHT));
+        let (galley, kept) = self.galleys(ui, color);
+        let height = galley.size().y.max(kept.size().y).max(marks::MARK_HEIGHT);
+        let size = vec2(self.width(ui), height);
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-        let text = self.text.clone();
+        let text = format!("{}{}", self.text, self.kept);
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
         if ui.is_rect_visible(rect) {
             let mut x = rect.left();
@@ -634,8 +695,13 @@ impl egui::Widget for StatusItem {
                 marks::paint_modified_dot(ui.painter(), &t, center);
                 x += marks::DOT + ITEM_GAP;
             }
-            let pos = Pos2::new(x, (rect.center().y - galley.size().y / 2.0).round());
-            ui.painter().galley(pos, galley, color);
+            let y = (rect.center().y - galley.size().y / 2.0).round();
+            let after = x + galley.size().x;
+            ui.painter().galley(Pos2::new(x, y), galley, color);
+            if !kept.is_empty() {
+                let y = (rect.center().y - kept.size().y / 2.0).round();
+                ui.painter().galley(Pos2::new(after, y), kept, color);
+            }
         }
         match self.tooltip {
             Some(tip) => response.on_hover_text(tip),

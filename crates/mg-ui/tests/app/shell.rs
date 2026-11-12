@@ -208,13 +208,22 @@ fn verify_and_the_module_panel_s_buttons_run_their_commands() {
     );
 }
 
-/// Undo on the Top Bar is the side editor's the pointer came from (a
-/// hak's), and, with the pointer come from none, the side editor's in
-/// front of the pane with the focus (the active editor); with the focus
-/// on the middle, the module's.
-#[test]
-fn undo_on_the_top_bar_falls_back_to_the_active_side_editor() {
-    let dir = mg_testkit::scratch_dir("ui-top-bar-undo-active");
+/// The module's step Undo takes back, if one.
+fn module_step(h: &Harness<'_, Moonglow>) -> Option<String> {
+    h.state().ws.as_ref().unwrap().can_undo().map(str::to_string)
+}
+
+/// The module's step Redo takes again, if one.
+fn module_redo(h: &Harness<'_, Moonglow>) -> Option<String> {
+    h.state().ws.as_ref().unwrap().can_redo().map(str::to_string)
+}
+
+/// The sample module open in a 1800 by 1000 window with one step of its
+/// own ("A table"), and a new hak beside it (its tab in front and
+/// focused), with one step of its own ("Add files") where `hak_steps`.
+/// Nothing pressed yet.
+fn undo_harness(name: &str, hak_steps: bool) -> Harness<'static, Moonglow> {
+    let dir = mg_testkit::scratch_dir(name);
     let file = dir.join("mg_one.2da");
     std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
     let path = sample_module(&dir);
@@ -227,41 +236,421 @@ fn undo_on_the_top_bar_falls_back_to_the_active_side_editor() {
         vec![mg_edit::Edit::SetResource { key, data: Some(b"2DA V2.0\n\n   A\n".to_vec()) }],
     )));
     let mut h = harness(app, 1800.0, 1000.0);
-    h.run();
-    mg_ui::hak_view::new_hak(h.state_mut());
-    h.run();
-    h.state_mut().haks[0].hak.add_files(std::slice::from_ref(&file));
     settle(&mut h);
-    let items = |h: &Harness<'_, Moonglow>| h.state().haks[0].hak.items().len();
-    let module_step =
-        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
-    assert_eq!((items(&h), module_step(&h).as_deref()), (1, Some("A table")));
-    let hak = h.state().dock.find_tab(&Tab::Hak(h.state().haks[0].id)).expect("the hak's tab");
-    let hak = egui_dock::NodePath { surface: hak.surface, node: hak.node };
-    // The pointer over the module tree (no side editor), then straight to
-    // the Top Bar's Undo, the hak's window having the focus: the hak's.
-    h.state_mut().dock.set_focused_node_and_surface(hak);
-    let tree = h.get_by_label("Areas (1)").rect().center();
+    mg_ui::hak_view::new_hak(h.state_mut());
+    settle(&mut h);
+    if hak_steps {
+        h.state_mut().haks[0].hak.add_files(std::slice::from_ref(&file));
+        settle(&mut h);
+    }
+    let hak = hak_tab(&h);
+    let at = h.state().dock.find_tab(&hak).expect("the hak's tab");
+    let pane = egui_dock::NodePath { surface: at.surface, node: at.node };
+    h.state_mut().dock.set_focused_node_and_surface(pane);
+    settle(&mut h);
+    assert_eq!(module_step(&h).as_deref(), Some("A table"));
+    assert_eq!(hak_items(&h), usize::from(hak_steps));
+    h
+}
+
+fn hak_tab(h: &Harness<'_, Moonglow>) -> Tab {
+    Tab::Hak(h.state().haks[0].id)
+}
+
+fn hak_items(h: &Harness<'_, Moonglow>) -> usize {
+    h.state().haks[0].hak.items().len()
+}
+
+/// A point inside the pane that shows `tab` (low in it, clear of its
+/// buttons and rows), where a press is work in it.
+fn inside(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Pos2 {
+    let at = h.state().dock.find_tab(tab).expect("the tab");
+    let pane = egui_dock::NodePath { surface: at.surface, node: at.node };
+    let view = h.state().dock.leaf(pane).unwrap().viewport;
+    egui::pos2(view.center().x, view.bottom() - 40.0)
+}
+
+/// A point on `tab`'s tab, clear of its close button (egui_dock's tabs
+/// are what can be clicked and dragged in their pane's tab bar, in their
+/// order: `click_tab_close`'s way).
+fn tab_title(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Pos2 {
+    let (band, index) = (h.state().dock.iter_leaves())
+        .find_map(|(_, l)| {
+            let index = l.tabs.iter().position(|t| t == tab)?;
+            let band =
+                egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top());
+            Some((band, index))
+        })
+        .expect("the tab is open");
+    let mut tabs = Vec::new();
+    h.ctx.viewport(|v| {
+        for (_, widgets) in v.prev_pass.widgets.layers() {
+            for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
+                if w.sense.senses_click() && w.sense.senses_drag() {
+                    tabs.push(w.interact_rect);
+                }
+            }
+        }
+    });
+    tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
+    let own = tabs.get(index).expect("its tab");
+    egui::pos2(own.left() + 12.0, own.center().y)
+}
+
+/// The module tree's Areas row: a place in the Left Dock.
+fn tree_row(h: &Harness<'_, Moonglow>) -> egui::Pos2 {
+    h.get_by_label("Areas (1)").rect().center()
+}
+
+/// Works at `at`: the pointer pressed and let go there.
+fn work_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    settle(h);
+    click_pos(h, at);
+    settle(h);
+}
+
+/// The pointer from `from` (no press) onto the Top Bar's Undo.
+fn to_top_bar(h: &mut Harness<'_, Moonglow>, from: egui::Pos2) {
+    h.hover_at(from);
+    settle(h);
+    h.hover_at(tool(h, "Undo").rect().center());
+    settle(h);
+}
+
+/// One of the three ways of asking for Undo (or Redo) with the pointer
+/// on the Top Bar.
+#[derive(Clone, Copy, Debug)]
+enum Way {
+    Button,
+    Menu,
+    Key,
+}
+
+/// What Undo (`redo`: Redo) is with the pointer come from `from` onto the
+/// Top Bar: the button's words (its tip, without its key) where it is
+/// enabled, after checking that Edit's row says the same and is enabled
+/// as the button is. None: both disabled.
+fn undo_said(h: &mut Harness<'_, Moonglow>, redo: bool, from: egui::Pos2) -> Option<String> {
+    let name = if redo { "Redo" } else { "Undo" };
+    to_top_bar(h, from);
+    let rect = tool(h, name).rect();
+    let enabled = !disabled(&tool(h, name));
+    let tip = tip_at(h, rect).unwrap_or_default();
+    let key = if redo { " (Ctrl+Shift+Z)" } else { " (Ctrl+Z)" };
+    let words = tip.strip_suffix(key).unwrap_or_else(|| panic!("{name}'s tip: {tip}")).to_string();
+    to_top_bar(h, from);
+    h.get_by_label("Top Bar").get_by_label("Edit").click();
+    settle(h);
+    let (label, row_enabled) = edit_row(h, name);
+    h.key_press(egui::Key::Escape);
+    settle(h);
+    let row_words = label.strip_suffix(key.trim_start_matches(" (").trim_end_matches(')'));
+    let row_words = row_words.map(str::trim_end).unwrap_or(&label).to_string();
+    assert_eq!(row_words, words, "Edit › {name} and the button say one step");
+    assert_eq!(row_enabled, enabled, "Edit › {name} enabled as the button: {words}");
+    enabled.then_some(words)
+}
+
+/// The open Edit menu's row `name` (Undo, Redo): the button whose words
+/// begin so and go on with its step or its key, outside the bars (not an
+/// editor's own Undo button, named "Undo" alone).
+fn edit_row_node<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t> {
+    let begins = format!("{name} ");
+    let bars = ["Top Bar", "Status Bar", "Left Dock", "Bottom Dock"];
+    h.query_all_by(move |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button
+            && n.label().is_some_and(|l| l.starts_with(&begins))
+    })
+    .filter(|n| !bars.iter().any(|b| in_group(n, b)))
+    .min_by_key(|n| n.accesskit_node().label().unwrap_or_default().len())
+    .unwrap_or_else(|| panic!("Edit › {name}"))
+}
+
+/// The open Edit menu's row `name`: its words (and key), and whether it
+/// is enabled.
+fn edit_row(h: &Harness<'_, Moonglow>, name: &str) -> (String, bool) {
+    let n = edit_row_node(h, name);
+    (n.accesskit_node().label().unwrap_or_default(), !disabled(&n))
+}
+
+fn edit_row_at(h: &Harness<'_, Moonglow>, name: &str) -> egui::Pos2 {
+    edit_row_node(h, name).rect().center()
+}
+
+/// Undo (`redo`: Redo) asked for `way`, with the pointer come from `from`
+/// onto the Top Bar.
+fn undo_by(h: &mut Harness<'_, Moonglow>, way: Way, redo: bool, from: egui::Pos2) {
+    let name = if redo { "Redo" } else { "Undo" };
+    to_top_bar(h, from);
+    match way {
+        Way::Button => {
+            let at = tool(h, name).rect().center();
+            click_pos(h, at);
+        }
+        Way::Menu => {
+            h.get_by_label("Top Bar").get_by_label("Edit").click();
+            settle(h);
+            let at = edit_row_at(h, name);
+            click_pos(h, at);
+        }
+        Way::Key => {
+            let shift = if redo { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+            h.key_press_modifiers(egui::Modifiers::COMMAND | shift, egui::Key::Z);
+        }
+    }
+    settle(h);
+}
+
+/// With the pointer come from `from` onto the Top Bar, Undo and Redo are
+/// the module's (its step "A table"), however asked for: the button, Edit
+/// › Undo and Ctrl+Z say it and do it, and Redo does it again; the hak's
+/// `items` stay.
+#[track_caller]
+fn undo_is_the_module_s(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, items: Option<usize>) {
+    for way in [Way::Button, Way::Menu, Way::Key] {
+        assert_eq!(undo_said(h, false, from).as_deref(), Some("Undo A table"), "{way:?}");
+        undo_by(h, way, false, from);
+        assert_eq!(module_step(h), None, "{way:?}: the module's step undone");
+        assert_eq!(items.map(|_| hak_items(h)), items, "{way:?}: the hak's stays");
+        assert_eq!(undo_said(h, true, from).as_deref(), Some("Redo A table"), "{way:?}");
+        undo_by(h, way, true, from);
+        assert_eq!(module_step(h).as_deref(), Some("A table"), "{way:?}: done again");
+        assert_eq!(module_redo(h), None);
+        assert_eq!(items.map(|_| hak_items(h)), items);
+    }
+}
+
+/// With the pointer come from `from` onto the Top Bar, Undo and Redo are
+/// the hak's (its step "Add files"), however asked for, and the module's
+/// step stays.
+#[track_caller]
+fn undo_is_the_hak_s(h: &mut Harness<'_, Moonglow>, from: egui::Pos2) {
+    for way in [Way::Button, Way::Menu, Way::Key] {
+        assert_eq!(undo_said(h, false, from).as_deref(), Some("Undo Add files"), "{way:?}");
+        undo_by(h, way, false, from);
+        assert_eq!(hak_items(h), 0, "{way:?}: the hak's step undone");
+        assert_eq!(module_step(h).as_deref(), Some("A table"), "{way:?}: not the module's");
+        assert_eq!(undo_said(h, true, from).as_deref(), Some("Redo Add files"), "{way:?}");
+        undo_by(h, way, true, from);
+        assert_eq!(hak_items(h), 1, "{way:?}: done again");
+        assert_eq!(module_step(h).as_deref(), Some("A table"));
+    }
+}
+
+/// The Top Bar's Undo (and Edit › Undo, and Ctrl+Z with the pointer on
+/// the Top Bar) acts on the active editor, the one the user last worked
+/// in: after a press in the module tree, the module's, even with an
+/// empty hak's window in front and focused (not disabled, its tip naming
+/// the module's step) and with a hak that has a step of its own (that
+/// step stays); after a press in the hak's editor, the hak's, the pointer
+/// come to the Top Bar over the tree without a press there (moving over a
+/// view is not working in it); after a press in the tree again, the
+/// module's.
+#[test]
+fn undo_on_the_top_bar_is_the_active_editor_s() {
+    // An empty hak in front and focused, nothing pressed yet: the module's.
+    let mut h = undo_harness("ui-top-bar-undo-empty-hak", false);
+    let tree = tree_row(&h);
+    undo_is_the_module_s(&mut h, tree, None);
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, None);
+    // Worked in the empty hak: its Undo, with nothing to take back, grayed
+    // (the side editors' rule: never the module's step instead), however
+    // asked for; the module's step stays.
+    let empty = inside(&h, &hak_tab(&h));
+    work_at(&mut h, empty);
+    for way in [Way::Button, Way::Menu, Way::Key] {
+        assert_eq!(undo_said(&mut h, false, tree), None, "{way:?}: grayed");
+        if !matches!(way, Way::Menu) {
+            undo_by(&mut h, way, false, tree);
+        }
+        assert_eq!(module_step(&h).as_deref(), Some("A table"), "{way:?}: the module's stays");
+    }
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, None);
+    // A hak with a step: the module's after the tree, the hak's after it.
+    let mut h = undo_harness("ui-top-bar-undo-active", true);
+    let tree = tree_row(&h);
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, Some(1));
+    let hak = inside(&h, &hak_tab(&h));
+    work_at(&mut h, hak);
+    assert_eq!((hak_items(&h), module_step(&h).as_deref()), (1, Some("A table")), "a press");
+    undo_is_the_hak_s(&mut h, tree);
+    // (Pressed on its tab, the same.)
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, Some(1));
+    let tab = tab_title(&h, &hak_tab(&h));
+    work_at(&mut h, tab);
+    undo_is_the_hak_s(&mut h, tree);
+    // Over the hak's editor, Ctrl+Z is the hak's; over the tree, the
+    // module's (the pointer's own rule), and the Top Bar's then too.
+    h.hover_at(hak);
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!((hak_items(&h), module_step(&h).as_deref()), (0, Some("A table")));
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    settle(&mut h);
     h.hover_at(tree);
-    h.run();
-    let undo = tool(&h, "Undo").rect().center();
-    h.hover_at(undo);
-    h.run();
-    click_pos(&h, undo);
-    h.run_steps(2);
-    assert_eq!(items(&h), 0, "the active hak's step undone");
-    assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
-    // The focus on the middle: the module's.
-    let middle = h.state().dock.iter_leaves().find(|(p, _)| p.surface.is_main()).unwrap().0;
-    h.state_mut().dock.set_focused_node_and_surface(middle);
-    h.hover_at(tree);
-    h.run();
-    h.hover_at(undo);
-    h.run();
-    click_pos(&h, undo);
-    h.run_steps(2);
-    assert_eq!(items(&h), 0);
-    assert_ne!(module_step(&h).as_deref(), Some("A table"), "the module's step undone");
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!((hak_items(&h), module_step(&h)), (1, None), "the module's, over the tree");
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    settle(&mut h);
+    undo_is_the_module_s(&mut h, tree, Some(1));
+    // Worked in the hak, then another tab put in front of its pane: not an
+    // editor out of sight, the module's.
+    work_at(&mut h, hak);
+    undo_is_the_hak_s(&mut h, tree);
+    let at = h.state().dock.find_tab(&hak_tab(&h)).unwrap();
+    let pane = egui_dock::NodePath { surface: at.surface, node: at.node };
+    let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    assert!(h.state().dock.find_tab(&script).is_none());
+    h.state_mut().dock.leaf_mut(pane).unwrap().append_tab(script.clone());
+    settle(&mut h);
+    let leaf = h.state().dock.leaf(pane).unwrap();
+    assert_eq!(leaf.tabs[leaf.active.0], script, "in front of the hak's");
+    undo_is_the_module_s(&mut h, tree, Some(1));
+}
+
+/// After work in an area's view the Top Bar's Undo is the module's, with
+/// a 2DA's window open beside it; after work in the 2DA's editor, the
+/// 2DA's; with no side editor open at all, the module's.
+#[test]
+fn undo_on_the_top_bar_after_an_area_is_the_module_s() {
+    let dir = mg_testkit::scratch_dir("ui-top-bar-undo-area");
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, SMALL_TABLE).unwrap();
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(b"2DA V2.0\n\n   A\n".to_vec()) }],
+    )));
+    let area = Tab::Area(ResRef::from_str("start").unwrap());
+    app.actions.push(mg_ui::Action::OpenTab(area.clone()));
+    let mut h = harness(app, 1800.0, 1000.0);
+    settle(&mut h);
+    let tree = tree_row(&h);
+    // No side editor at all: the module's, before and after a press.
+    let in_area = inside(&h, &area);
+    undo_is_the_module_s(&mut h, tree, None);
+    work_at(&mut h, in_area);
+    undo_is_the_module_s(&mut h, in_area, None);
+    // A 2DA's window open (in front, focused): the area's work is the
+    // module's still.
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    settle(&mut h);
+    let table = Tab::Table(id);
+    own_window(&mut h, &table, egui::pos2(900.0, 300.0), egui::vec2(600.0, 400.0));
+    settle(&mut h);
+    let in_area = inside(&h, &area);
+    work_at(&mut h, in_area);
+    undo_is_the_module_s(&mut h, in_area, None);
+    // Worked in the 2DA (a row added, as its editor does): its own, and
+    // the module's step stays.
+    let in_table = inside(&h, &table);
+    work_at(&mut h, in_table);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().edit.add_rows(1);
+    settle(&mut h);
+    let rows = |h: &Harness<'_, Moonglow>| table_of(h, id).len();
+    let before = rows(&h);
+    for way in [Way::Button, Way::Menu, Way::Key] {
+        let said = undo_said(&mut h, false, tree);
+        assert_eq!(said, Some(format!("Undo Add row {}", before - 1)), "{way:?}: the 2DA's");
+        undo_by(&mut h, way, false, tree);
+        assert_eq!(rows(&h), before - 1, "{way:?}: the 2DA's step undone");
+        assert_eq!(module_step(&h).as_deref(), Some("A table"), "{way:?}");
+        undo_by(&mut h, way, true, tree);
+        assert_eq!(rows(&h), before, "{way:?}: and done again");
+    }
+    // Back in the area: the module's.
+    work_at(&mut h, in_area);
+    undo_is_the_module_s(&mut h, tree, None);
+    // A cell clicked (the grid has the keys): the 2DA's; a press in the
+    // area after it, or in the tree, the module's again.
+    let cell = h.get_by_label("Bread").rect().center();
+    work_at(&mut h, cell);
+    let said = undo_said(&mut h, false, tree);
+    assert_eq!(said, Some(format!("Undo Add row {}", before - 1)), "the grid's keys");
+    work_at(&mut h, in_area);
+    undo_is_the_module_s(&mut h, tree, None);
+    work_at(&mut h, cell);
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, None);
+}
+
+/// The talk table's editor (a file of its own): after work in it (a line
+/// added by its Add Line), the Top Bar's Undo, Edit › Undo and Ctrl+Z on
+/// the Top Bar all say plain Undo (its steps have no names) and take its
+/// step back, Redo gives it again, and the module's step stays; after a
+/// press in the tree, they are the module's.
+#[test]
+fn undo_on_the_top_bar_after_the_talk_table_is_its() {
+    use mg_module::talk::{Source, Table};
+    let dir = mg_testkit::scratch_dir("ui-top-bar-undo-talk");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(b"2DA V2.0\n\n   A\n".to_vec()) }],
+    )));
+    let mut h = harness(app, 1800.0, 1000.0);
+    settle(&mut h);
+    let mut table = Table::create("words", &dir, Language::ENGLISH, false);
+    table.source = Source::File(dir.join("words.tlk"));
+    table.save().unwrap();
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    settle(&mut h);
+    let lines = |h: &Harness<'_, Moonglow>| h.state().talk.as_ref().unwrap().len();
+    let tree = tree_row(&h);
+    // Nothing worked in yet: the module's.
+    undo_is_the_module_s(&mut h, tree, None);
+    let before = lines(&h);
+    let add = h.get_by_label("Add Line").rect().center();
+    work_at(&mut h, add);
+    assert_eq!(lines(&h), before + 1, "a line added");
+    for way in [Way::Button, Way::Menu, Way::Key] {
+        assert_eq!(undo_said(&mut h, false, tree).as_deref(), Some("Undo"), "{way:?}");
+        undo_by(&mut h, way, false, tree);
+        assert_eq!(lines(&h), before, "{way:?}: the talk table's step undone");
+        assert_eq!(module_step(&h).as_deref(), Some("A table"), "{way:?}: not the module's");
+        assert_eq!(undo_said(&mut h, true, tree).as_deref(), Some("Redo"), "{way:?}");
+        undo_by(&mut h, way, true, tree);
+        assert_eq!(lines(&h), before + 1, "{way:?}: given again");
+    }
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, None);
+    assert_eq!(lines(&h), before + 1, "the talk table's line stays");
+}
+
+/// A hak's editor in a floating window: worked in, the Top Bar's Undo is
+/// the hak's; after the tree, the module's, the window still in front.
+#[test]
+fn undo_on_the_top_bar_with_a_floating_editor() {
+    let mut h = undo_harness("ui-top-bar-undo-floating", true);
+    let hak = hak_tab(&h);
+    own_window(&mut h, &hak, egui::pos2(900.0, 300.0), egui::vec2(700.0, 500.0));
+    settle(&mut h);
+    assert!(!h.state().dock.find_tab(&hak).unwrap().surface.is_main(), "a window of its own");
+    let tree = tree_row(&h);
+    undo_is_the_module_s(&mut h, tree, Some(1));
+    let in_hak = inside(&h, &hak);
+    work_at(&mut h, in_hak);
+    undo_is_the_hak_s(&mut h, tree);
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, Some(1));
 }
 
 /// The fold button's right edge, which follows the Left Dock's width.
@@ -486,6 +875,274 @@ fn the_view_menu_s_rows_fold_the_docks_and_say_so() {
     menu_command(&mut h, "View", "Log");
     assert!(ticked(&mut h, "Module Tree") && ticked(&mut h, "Log"));
     assert!(h.query_by_label("Fold the Left Dock").is_some());
+}
+
+/// The named controls of the bar `bar` (buttons, tabs, labels: named, or
+/// a label's words) and their rectangles.
+fn bar_controls(h: &Harness<'_, Moonglow>, bar: &str) -> Vec<(String, egui::Rect)> {
+    let Some(group) = h.query_by_label(bar) else { return Vec::new() };
+    let words = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.label().or(n.value());
+    group
+        .query_all_by(|n| n.bounding_box().is_some() && words(n).is_some())
+        .map(|n| (words(&n.accesskit_node()).unwrap_or_default(), n.rect()))
+        .filter(|(_, r)| r.area() > 0.0)
+        .collect()
+}
+
+/// What is wrong with the bars' controls: two that overlap, and (where
+/// `inside`) one that leaves the window.
+fn bars_wrong(h: &Harness<'_, Moonglow>, inside: bool) -> Vec<String> {
+    let window = h.ctx.content_rect();
+    let mut wrong = Vec::new();
+    for bar in ["Top Bar", "Status Bar", "Left Dock", "Bottom Dock"] {
+        let rects = bar_controls(h, bar);
+        for (i, (a, ra)) in rects.iter().enumerate() {
+            if inside && !window.contains_rect(*ra) {
+                wrong.push(format!("{bar}: {a} {ra:?} leaves the window"));
+            }
+            for (b, rb) in &rects[i + 1..] {
+                let both = ra.intersect(*rb);
+                if both.is_positive() && both.area() > 1.0 {
+                    wrong.push(format!("{bar}: {a} {ra:?} and {b} {rb:?} overlap"));
+                }
+            }
+        }
+    }
+    wrong
+}
+
+/// (The window's frame round the application in a test, 8 points a side:
+/// a test's window this much wider than the application's.)
+const TEST_FRAME: f32 = 16.0;
+
+/// As a window narrows from 1400 to 300 points, the Top Bar loses its
+/// build actions first and then its quick actions, each group whole and
+/// in that order (never the build actions without the quick ones), and
+/// nothing of the bars overlaps; from the least window size on, nothing
+/// leaves the window either. Every one of them is in the menus.
+#[test]
+fn the_top_bar_drops_its_build_then_its_quick_actions_as_the_window_narrows() {
+    let dir = mg_testkit::scratch_dir("ui-top-bar-sweep");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1400.0, 700.0);
+    settle(&mut h);
+    let least = mg_ui::LEAST_WINDOW_SIZE.x + TEST_FRAME;
+    // 2: everything; 1: the quick actions, no build actions; 0: neither.
+    let mut was = 2;
+    let mut seen = Vec::new();
+    for step in (0..=55).rev() {
+        let width = 300.0 + 20.0 * step as f32;
+        h.set_size(egui::vec2(width, 700.0));
+        settle(&mut h);
+        let shown = |name: &str| h.get_by_label("Top Bar").query_by_label(name).is_some();
+        let quick = QUICK.iter().map(|n| shown(n)).collect::<Vec<_>>();
+        let build = BUILD.iter().chain(&[TEST_MENU]).map(|n| shown(n)).collect::<Vec<_>>();
+        let whole = |all: &[bool]| all.iter().all(|s| *s) || all.iter().all(|s| !*s);
+        assert!(whole(&quick) && whole(&build), "{width}: each group whole: {quick:?} {build:?}");
+        let state = match (quick[0], build[0]) {
+            (true, true) => 2,
+            (true, false) => 1,
+            (false, false) => 0,
+            (false, true) => panic!("{width}: the build actions without the quick actions"),
+        };
+        assert!(state <= was, "{width}: {state} after {was}: the order is build, then quick");
+        was = state;
+        seen.push(state);
+        let wrong = bars_wrong(&h, width >= least);
+        assert!(wrong.is_empty(), "{width}: {wrong:#?}");
+        for menu in ["File", "Edit", "Build", "Help"] {
+            assert!(shown(menu), "{width}: {menu}");
+        }
+    }
+    assert_eq!(seen.first(), Some(&2), "everything at 1400");
+    assert!(seen.contains(&1), "the quick actions alone at some width: {seen:?}");
+    assert_eq!(seen.last(), Some(&0), "neither at 300");
+}
+
+/// At the least window size (`LEAST_WINDOW_SIZE`, in points) the menus
+/// fit at every interface size Options offers (90% to 200%): none of the
+/// bars' controls leaves the window, none overlaps, with a module open
+/// and with none. (A test's window is given in pixels: the least size
+/// and the test's frame times the interface size.)
+#[test]
+fn at_the_least_window_size_the_menus_fit() {
+    let dir = mg_testkit::scratch_dir("ui-least-window");
+    let path = sample_module(&dir);
+    let least = mg_ui::LEAST_WINDOW_SIZE + egui::Vec2::splat(TEST_FRAME);
+    for scale in mg_ui::UI_SCALES {
+        for module in [true, false] {
+            let mut app = app_with(Vec::new());
+            app.settings.no_last_area = true;
+            if module {
+                app.open_module(&path);
+            }
+            let mut h = harness(app, least.x, least.y);
+            settle(&mut h);
+            // The interface size chosen, then the window made the least
+            // size in points at it (the harness's size brought to it).
+            h.state_mut().settings.ui_scale = (scale != 100).then_some(scale);
+            settle(&mut h);
+            let mut raw = least;
+            for _ in 0..6 {
+                let content = h.ctx.content_rect().size();
+                if (content - least).abs().max_elem() < 0.5 {
+                    break;
+                }
+                raw = raw * least / content;
+                h.set_size(raw);
+                settle(&mut h);
+            }
+            let at = format!("{scale}%, module {module}");
+            let zoom = h.ctx.zoom_factor();
+            assert!((zoom - f32::from(scale) / 100.0).abs() < 0.001, "{at}: zoom {zoom}");
+            let window = h.ctx.content_rect();
+            assert!((window.width() - least.x).abs() < 1.0, "{at}: {window:?} in points");
+            assert!((window.height() - least.y).abs() < 1.0, "{at}: {window:?} in points");
+            let wrong = bars_wrong(&h, true);
+            assert!(wrong.is_empty(), "{at}: {wrong:#?}");
+            let help = h.get_by_label("Top Bar").get_by_label("Help").rect();
+            let plugins = h.get_by_label("Top Bar").get_by_label("Plugins").rect();
+            let right = window.right() - TEST_FRAME / 2.0;
+            assert!(help.right() <= right && plugins.right() <= help.left(), "{at}: {help:?}");
+        }
+    }
+}
+
+/// The viewport commands of the frames run until `seen` finds what it
+/// looks for (or two seconds go by): whether it did.
+fn sent(h: &mut Harness<'_, Moonglow>, seen: impl Fn(&egui::ViewportCommand) -> bool) -> bool {
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_secs(2) {
+        h.step();
+        let out = h.output().viewport_output.get(&egui::ViewportId::ROOT);
+        if out.is_some_and(|o| o.commands.iter().any(&seen)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The window's least size is given in points as the window opens and
+/// again each time the interface size changes while Moonglow runs
+/// (egui-winit turns points into pixels at the new size), and a window
+/// smaller than it in points at the new size is made as large.
+#[test]
+fn the_least_size_follows_the_interface_size() {
+    use egui::ViewportCommand as C;
+    let least = mg_ui::LEAST_WINDOW_SIZE;
+    let min = |c: &C| matches!(c, C::MinInnerSize(s) if *s == least);
+    // (The frames of the harness's making are not seen: from a size
+    // set before it, the first is given as the window opens.)
+    let mut h = harness(app_with(Vec::new()), 1000.0, 700.0);
+    settle(&mut h);
+    assert!(!sent(&mut h, min), "once, while nothing changes");
+    for scale in [150, 90, 200] {
+        h.state_mut().settings.ui_scale = Some(scale);
+        assert!(sent(&mut h, min), "{scale}%: given again");
+        settle(&mut h);
+    }
+    // At 200% a window of 1000 by 700 pixels is 500 by 350 points: large
+    // enough. At 300% (a size set in the settings file), 333 by 233: made
+    // as large as the least size.
+    h.state_mut().settings.ui_scale = Some(300);
+    let grown = |c: &C| matches!(c, C::InnerSize(s) if s.x >= least.x && s.y >= least.y);
+    assert!(sent(&mut h, grown), "a window smaller than the least size made as large");
+    h.state_mut().settings.ui_scale = None;
+    assert!(sent(&mut h, min), "back at the usual size");
+}
+
+/// A long module name, modified, in the Status Bar at 420, 600 and 1000
+/// points, alone and with the note of a look under way ("Reading files
+/// changed outside Moonglow…"): the game folder goes first, then the name
+/// and the note are cut short with an ellipsis where they do not fit (at
+/// 420), never over the Log switch, each other, nor out of the window,
+/// "(modified)" whole in sight at the name's end; named by their whole
+/// words still, the name's path and the note's words in their tips.
+#[test]
+fn a_long_module_name_is_cut_short_in_the_status_bar() {
+    let dir = mg_testkit::scratch_dir("ui-status-long-name");
+    let path = sample_module(&dir);
+    let long = dir.join("a_module_with_a_rather_long_file_name_for_the_status_bar_check.mod");
+    std::fs::copy(&path, &long).unwrap();
+    let name = "a_module_with_a_rather_long_file_name_for_the_status_bar_check (modified)";
+    let note = "Reading files changed outside Moonglow…";
+    for with_note in [false, true] {
+        for width in [420.0, 600.0, 1000.0] {
+            let mut app = app_with(Vec::new());
+            app.settings.no_last_area = true;
+            app.open_module(&long);
+            app.show_looking_note(with_note.then_some(note));
+            let edit = mg_edit::Edit::SetResource {
+                key: ResKey::parse("added", ResType::NSS).unwrap(),
+                data: Some(b"void main() { }\n".to_vec()),
+            };
+            app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+            let mut h = harness(app, width, 600.0);
+            settle(&mut h);
+            let at = format!("{width}, note {with_note}");
+            let wrong = bars_wrong(&h, true);
+            assert!(wrong.is_empty(), "{at}: {wrong:#?}");
+            let item = h.get_by_label("Status Bar").get_by_label(name).rect();
+            let switch = h.get_by_label("Status Bar").get_by_label("Log").rect();
+            let right = h.ctx.content_rect().right() - TEST_FRAME / 2.0;
+            let mut left = switch.right() + 8.0;
+            if with_note {
+                let shown = h.get_by_label("Status Bar").get_by_label(note).rect();
+                assert!(shown.left() >= left, "{at}: the note {shown:?} clear of {switch:?}");
+                left = shown.right() + 8.0;
+                let words = drawn_texts(&h, shown);
+                assert!(words.iter().any(|t| t.starts_with("Reading")), "{at}: {words:?}");
+                let cut = words.iter().any(|t| t.ends_with('…') && t.len() < note.len());
+                assert!(cut || width > 420.0, "{at}: the note cut short: {words:?}");
+                assert!(!cut || width < 1000.0, "{at}: the note whole: {words:?}");
+                let tip = tip_at(&mut h, shown).unwrap_or_default();
+                assert_eq!(tip, note, "{at}: the note's words in its tip");
+            }
+            assert!(item.left() >= left, "{at}: {item:?} clear of what is before it");
+            assert!(item.right() <= right, "{at}: {item:?} in the window ({right})");
+            // (Drawn: the words whose end is "(modified)", inside its rect.)
+            let texts = drawn_texts(&h, item);
+            assert!(
+                texts.iter().any(|t| t.ends_with(" (modified)") && t.len() > 12),
+                "{at}: {texts:?}"
+            );
+            // (Cut short at 420, where it can't fit beside the switch; whole
+            // at 1000, the game folder left out at 600 or both whole.)
+            let cut = texts.iter().any(|t| t.contains('…'));
+            assert!(cut || width > 420.0, "{at}: cut short where it does not fit: {texts:?}");
+            assert!(!cut || width < 1000.0, "{at}: whole where it fits: {texts:?}");
+            let tip = tip_at(&mut h, item).unwrap_or_default();
+            assert_eq!(tip, long.display().to_string(), "{at}: its path in the tip");
+        }
+    }
+}
+
+/// The words drawn inside `rect` in the last frame, one string for each
+/// line of text, the galleys that follow each other on one line joined.
+fn drawn_texts(h: &Harness<'_, Moonglow>, rect: egui::Rect) -> Vec<String> {
+    let mut pieces: Vec<(f32, f32, String)> = Vec::new();
+    for shape in drawn(h) {
+        if let egui::Shape::Text(t) = shape {
+            let r = t.visual_bounding_rect();
+            if rect.expand(1.0).contains_rect(r) {
+                let shown: String =
+                    t.galley.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect();
+                pieces.push((r.center().y.round(), r.left(), shown));
+            }
+        }
+    }
+    pieces.sort_by(|a, b| (a.0, a.1).partial_cmp(&(b.0, b.1)).unwrap());
+    let mut lines: Vec<(f32, String)> = Vec::new();
+    for (y, _, text) in pieces {
+        match lines.last_mut() {
+            Some((at, line)) if (*at - y).abs() <= 2.0 => line.push_str(&text),
+            _ => lines.push((y, text)),
+        }
+    }
+    lines.into_iter().map(|(_, l)| l).collect()
 }
 
 /// At 760 points wide no control of the Top Bar, the Status Bar or the

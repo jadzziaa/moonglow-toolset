@@ -598,7 +598,7 @@ impl OptionsDraft {
 }
 
 /// Options › General › Interface size: the sizes offered, per cent.
-pub(crate) const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
+pub const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
 
 /// The Options window's size when first opened.
 pub(crate) const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];

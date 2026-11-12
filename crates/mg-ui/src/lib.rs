@@ -101,6 +101,7 @@ pub mod trace;
 mod transfer;
 mod tree;
 pub mod updates;
+pub use shell::LEAST_WINDOW_SIZE;
 pub use tree::TreeAt;
 pub mod var_sets;
 pub mod widgets;
@@ -128,7 +129,7 @@ pub use mg_render::backend as graphics;
 pub use mg_render::dx12;
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
-pub use options::{OptionsDraft, OptionsPage};
+pub use options::{OptionsDraft, OptionsPage, UI_SCALES};
 pub use settings::{GraphicsBackend, Settings};
 pub use tabs::Tab;
 pub use text::set_edit_language;
@@ -795,6 +796,13 @@ pub struct Moonglow {
     /// while the pointer is there (`pointer_on_bars`).
     pub(crate) undo_before_bars: Option<Tab>,
     pub(crate) pointer_on_bars: bool,
+    /// The side editor (or the talk table's) the user last worked in, by
+    /// a pointer press or a key (`Moonglow::note_worked`); None, the
+    /// module (the tree, an area, the log): with the pointer on the Top
+    /// Bar come from no side editor, Undo and Redo are its.
+    pub(crate) undo_worked: Option<Tab>,
+    /// The side editor whose tab the pointer was pressed on this frame.
+    pub(crate) pressed_side_tab: Option<Tab>,
     /// The Left Dock's fold button as last drawn (its edge is the
     /// dock's, which is resized from there: `shell::left_dock`).
     pub(crate) left_fold: Option<egui::Rect>,
@@ -928,6 +936,9 @@ pub struct Moonglow {
     pub(crate) lights_kept: std::cell::RefCell<Option<area_view::LightsKept>>,
     /// The interface size was set from the settings (to set it back).
     scaled: bool,
+    /// The scale (points to pixels) the window's least size was last
+    /// given for (`shell::keep_least_size`).
+    least_size_for: Option<f32>,
     /// The models' windows open as the frame began.
     pub(crate) open_models: Vec<Tab>,
     /// The folder Export as Files last wrote to (offered again).
@@ -1307,6 +1318,8 @@ impl Moonglow {
             undo_keys: None,
             undo_before_bars: None,
             pointer_on_bars: false,
+            undo_worked: None,
+            pressed_side_tab: None,
             left_fold: None,
             undo_script: None,
             test_checked: None,
@@ -1348,6 +1361,7 @@ impl Moonglow {
             model_export: None,
             open_models: Vec::new(),
             scaled: false,
+            least_size_for: None,
             area_chooser: None,
             text_replace: None,
             advanced_search: Default::default(),
@@ -1690,6 +1704,9 @@ impl Moonglow {
             None if std::mem::take(&mut self.scaled) => ui.ctx().set_zoom_factor(1.0),
             None => {}
         }
+        // The window's least size, in points: in pixels it follows the
+        // interface size (and Ctrl with + and -).
+        shell::keep_least_size(self, ui.ctx());
         self.screen = Some(ui.ctx().content_rect());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -1790,6 +1807,7 @@ impl Moonglow {
             // are drawn.)
             self.undo_under_pointer = None;
             self.undo_keys = None;
+            self.pressed_side_tab = None;
             self.open_models = self
                 .dock
                 .iter_all_tabs()
@@ -1820,6 +1838,9 @@ impl Moonglow {
             self.window_bars(ui);
             self.palettes_edge(ui);
         });
+        // (Where the user worked, as the dock was drawn: the active editor
+        // the Top Bar's Undo falls back to.)
+        self.note_worked(ui.ctx());
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
         self.remember_window_places();

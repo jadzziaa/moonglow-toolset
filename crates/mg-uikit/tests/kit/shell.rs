@@ -246,6 +246,49 @@ fn a_status_bar_given_its_right_width_needs_no_second_pass() {
     assert!(now.left() < first.left());
 }
 
+/// An item given a width at most cuts its text short with an ellipsis to
+/// fit, its kept words (" (modified)") and the modified dot whole; named
+/// by all its words still. With room, it is shown whole; with none, the
+/// ellipsis and its kept words are left.
+#[test]
+fn a_status_item_cut_short_keeps_its_kept_words() {
+    let long = "a_module_with_a_rather_long_file_name_for_the_status_bar_check";
+    let item = || StatusItem::new(long).kept(" (modified)").modified(true);
+    let found = RefCell::new(Vec::new());
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let whole = item().width(ui);
+        let mut seen = Vec::new();
+        for max in [10_000.0, 200.0, 120.0, 0.0] {
+            let cut = item().max_width(max);
+            seen.push((max, whole, cut.width(ui), cut.shown(ui), cut.is_cut(ui)));
+        }
+        *found.borrow_mut() = seen;
+        ui.add(item().max_width(200.0));
+    });
+    h.run();
+    for (max, whole, width, shown, cut) in found.borrow().iter() {
+        assert!(shown.ends_with(" (modified)"), "{max}: {shown}");
+        if *max >= *whole {
+            assert_eq!((shown.as_str(), *cut), (format!("{long} (modified)").as_str(), false));
+            assert_eq!(width, whole);
+        } else {
+            assert!(cut, "{max}: cut short");
+            assert!(shown.contains('…'), "{max}: {shown}");
+            assert!(shown.len() < long.len(), "{max}: {shown}");
+            if *max > 0.0 {
+                assert!(*width <= *max, "{max}: {width}");
+                assert!(shown.starts_with("a_m"), "{max}: the start of it: {shown}");
+            } else {
+                assert_eq!(shown, "… (modified)", "no room: the ellipsis and its kept words");
+            }
+        }
+    }
+    let name = format!("{long} (modified)");
+    let node = h.get_by_label(&name);
+    assert!(node.rect().width() <= 200.0, "{:?}", node.rect());
+}
+
 /// A switch that is on draws the accent line along its bottom; off, no
 /// fill and no line.
 #[test]

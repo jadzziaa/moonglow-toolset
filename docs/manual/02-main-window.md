@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:44:06Z }
 ---
 
 # The main window
@@ -23,7 +23,17 @@ the menus, then **Undo** and **Redo**; at its right end **Compile**,
 **Verify** and **Test Module**, with an arrow beside Test Module whose
 menu has **Test Module, Choose Character**. Rest the pointer on a button
 and its tip names it, with its key. In a window under 1300 points wide
-Compile, Verify and Test Module show their icons alone too. The Top Bar
+Compile, Verify and Test Module show their icons alone too. A window
+too narrow for the whole Top Bar leaves out the build actions first
+(Compile, Verify and Test Module) and, narrower still, the quick
+actions (New, Open, Save, Undo and Redo): each is in the menus as well
+(File, Edit, Build). The window can't be made narrower than the menus
+(420 by 320 points, which grow with Options › General › Interface size
+and follow it as soon as it changes); one left smaller opens at that
+size. Where the Status Bar is short of room, the game folder goes
+first, then the module's name and the note of files being read are cut
+short with an ellipsis ("(modified)" kept; rest the pointer on them for
+the whole). The Top Bar
 is the same whatever **Tools › Options › General › Editors' toolbar
 buttons** says: that setting is the area view's and the editors'
 toolbars'. The icons are Moonglow's own drawings, one to a command. The
@@ -613,13 +623,20 @@ The editors of files of their own (a hak, a 2DA, a tileset, the talk
 table) keep their own steps: Undo and Redo, by their keys (Ctrl+Z,
 Ctrl+Y and Ctrl+Shift+Z, or those set in Options › Keyboard), are that
 editor's with the pointer over it (and a 2DA's while the keys are in
-its grid), and never the module's last change there. So are Edit ›
-Undo and Redo and the Top Bar's, the pointer gone from the editor
-straight to them (or, with the pointer come from elsewhere, the Top
-Bar's while that editor's tab is the one in front of the pane you last
-clicked in): they name the step where the editor names its steps
-("Undo Add files" over a hak's, "Undo Empty 1 cell" over a 2DA's; a
-tileset's and the talk table's say plain Undo). A text field in one of
+its grid), and never the module's last change there. Edit › Undo and
+Redo and the Top Bar's act on the editor you are working in: the one
+the pointer went from straight to them, else the one you last clicked
+in or typed in (its tab in front, docked or in a window of its own).
+After a click in the module tree, an area, the log or the Status Bar,
+they are the module's again, whatever editor's tab is in front;
+passing over a view on the way to the Top Bar is not working in it.
+With the pointer on the Top Bar, Ctrl+Z does what its Undo and Edit ›
+Undo say; elsewhere it follows the pointer, so over the module tree it
+is the module's even while the Top Bar's is still the editor's you
+last clicked in (its Find field clicked, say, and not typed in). They name the step where the editor names its steps ("Undo
+Add files" in a hak's, "Undo Empty 1 cell" in a 2DA's; a tileset's and
+the talk table's say plain Undo), and an editor with nothing of its
+own to take back leaves them grayed, not the module's. A text field in one of
 these editors (its Find field) takes back its own typing once you have
 typed in it; clicked into and not typed in, it has nothing of its own,
 and Undo is the editor's, as a field elsewhere leaves Undo to the

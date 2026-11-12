@@ -510,27 +510,64 @@ impl Moonglow {
     /// pointer, else the 2DA grid that has the keys, else, with the
     /// pointer on the Top Bar (or a menu open), the one it was over before
     /// (Edit › Undo and the Top Bar's Undo are its), or where it came from
-    /// none, the side editor in front of the pane with the focus (the
-    /// active editor).
+    /// none, the active editor: the side editor the user last worked in
+    /// (`undo_worked`), where it is still open and in front of its pane;
+    /// None, the module's (last worked in the tree, an area, the log...).
     fn local_undo_target(&self) -> Option<Tab> {
         self.undo_under_pointer
             .clone()
             .or_else(|| self.undo_keys.clone())
             .or_else(|| self.undo_before_bars.clone().filter(|_| self.pointer_on_bars))
-            .or_else(|| self.pointer_on_bars.then(|| self.focused_side_editor()).flatten())
+            .or_else(|| self.pointer_on_bars.then(|| self.worked_side_editor()).flatten())
     }
 
-    /// The tab in front of the pane with the focus where it is a side
-    /// editor's (a hak's, a 2DA's, a tileset's) or the talk table's.
-    fn focused_side_editor(&self) -> Option<Tab> {
-        let pane = self.dock.focused_leaf()?;
-        let leaf = self.dock.leaf(pane).ok()?;
-        let tab = leaf.tabs.get(leaf.active.0)?;
-        let side = match tab {
+    /// The side editor (or the talk table's) the user last worked in
+    /// (`undo_worked`), while it is open and in front of its pane: Undo
+    /// is not taken from an editor out of sight.
+    fn worked_side_editor(&self) -> Option<Tab> {
+        let tab = self.undo_worked.as_ref()?;
+        let open = match tab {
             Tab::TalkTable => self.talk.is_some(),
             _ => self.side_doc(tab).is_some(),
         };
-        side.then(|| tab.clone())
+        let at = self.dock.find_tab(tab)?;
+        let leaf =
+            self.dock.leaf(egui_dock::NodePath { surface: at.surface, node: at.node }).ok()?;
+        (open && leaf.active == at.tab).then(|| tab.clone())
+    }
+
+    /// Notes where the user worked this frame (after the dock is drawn,
+    /// whose side editors note the pointer): a pointer pressed, or a key
+    /// pressed or text typed, away from the Top Bar and its menus (a press
+    /// there, on Undo itself, changes nothing). A press on a side editor
+    /// (or on its tab) makes it the active editor; anywhere else (the
+    /// Left Dock, an area, the log, the Status Bar) the module. A key is
+    /// the 2DA grid's that has the keys; with a text field focused (typed
+    /// in), the press that focused it decided; else it is where the
+    /// pointer is (Ctrl+Z over the tree is the module's, and so is the
+    /// Top Bar's after it).
+    pub(crate) fn note_worked(&mut self, ctx: &egui::Context) {
+        if self.pointer_on_bars {
+            return;
+        }
+        // (The frame's raw events: the keymap has taken its keys, Ctrl+Z
+        // among them, from `events` by now.)
+        let (pressed, keyed) = ctx.input(|i| {
+            let keyed = i.raw.events.iter().any(|e| {
+                matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::Text(_))
+            });
+            (i.pointer.any_pressed(), keyed)
+        });
+        if pressed {
+            self.undo_worked =
+                self.undo_under_pointer.clone().or_else(|| self.pressed_side_tab.clone());
+        } else if keyed {
+            if self.undo_keys.is_some() {
+                self.undo_worked = self.undo_keys.clone();
+            } else if !ctx.text_edit_focused() {
+                self.undo_worked = self.undo_under_pointer.clone();
+            }
+        }
     }
 
     /// Whether Undo (or, `redo`, Redo) is a side editor's or the talk

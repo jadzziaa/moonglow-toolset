@@ -759,6 +759,12 @@ impl TabViewer for Viewer<'_> {
         // still gives each tab out of sight its button.)
         let shown = response.rect.intersect(response.interact_rect);
         self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id, shown));
+        // (A press on a side editor's tab is work in it: the active
+        // editor, `Moonglow::note_worked`.)
+        let side = crate::side_doc::is_side(tab) || *tab == Tab::TalkTable;
+        if side && response.contains_pointer() && response.ctx.input(|i| i.pointer.any_pressed()) {
+            self.app.pressed_side_tab = Some(tab.clone());
+        }
         // A tab chosen (the one in front too): the module tree goes to
         // what it shows.
         if response.clicked() {

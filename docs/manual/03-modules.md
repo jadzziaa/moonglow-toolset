@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:22:33Z }
 ---
 
 # Modules
@@ -1735,9 +1735,10 @@ module's talk table:
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do
-  Ctrl+Z and Ctrl+Y with the pointer over the editor. (The table is a
-  file of its own: elsewhere, and on the Top Bar, Undo is the
-  module's.)
+  Ctrl+Z and Ctrl+Y with the pointer over the editor, and the Top Bar's
+  and Edit › Undo after you last worked in it. (The table is a file of
+  its own: elsewhere, Undo is the module's: see Undo and redo in
+  [The main window](02-main-window.md#tabs-and-windows).)
 - **Export CSV…** writes the lines to a file for a spreadsheet or a
   translator: each line's StrRef, text (and feminine text), sound and
   sound length. **Import CSV…** reads such a file back: each row sets

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:22:33Z }
 ---
 
 # Scripts
@@ -98,7 +98,9 @@ again in the script they do nothing (they are not grayed). With the
 keyboard anywhere else (after a click in the module tree, say), even
 with the pointer over the script, Edit › Undo and the Top Bar's are
 the module's and name its step, as the Save key saves the module
-there (Ctrl+Z in a field typed in is that field's). **Replace** and
+there (Ctrl+Z in a field typed in is that field's; after work in a
+hak's or a 2DA's editor they are that editor's: see Undo and redo in
+[The main window](02-main-window.md#tabs-and-windows)). **Replace** and
 **Replace All** are each a step of the script's history, and while the
 Replace (or Find) window is where you are at work (the keyboard in one
 of its fields, or its button just clicked) Edit › Undo and Redo are
