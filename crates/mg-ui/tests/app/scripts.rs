@@ -314,11 +314,17 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     };
     let type_in_wizard = |h: &mut Harness<'_, Moonglow>, text: &str| {
         let w = h.get_all_by_label("Script Wizard").find(window).unwrap();
-        let field = w.get_all_by_role(egui::accesskit::Role::TextInput).next().expect("a field");
+        let field = w
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .expect("a field");
         field.click();
         h.run();
         let w = h.get_all_by_label("Script Wizard").find(window).unwrap();
-        w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text(text);
+        w.get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .unwrap()
+            .type_text(text);
         h.run();
     };
 
@@ -1483,7 +1489,10 @@ fn the_script_editor_s_openers_go_to_the_external_editor_too() {
     let window =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
     let w = h.get_all_by_label("Save Script As").find(window).expect("the window");
-    w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("fresh_copy");
+    w.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("fresh_copy");
     h.run_steps(1);
     let w = h.get_all_by_label("Save Script As").find(window).unwrap();
     w.get_by_label("Save").click();
@@ -2453,10 +2462,11 @@ fn open_script_opens_the_scripts_selected_together() {
     assert_eq!(selected(&h), all);
     // While a name is typed in its field, they are the field's: Ctrl+A
     // selects its text, not the scripts.
-    (h.get_all_by_role(egui::accesskit::Role::TextInput))
-        .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
-        .expect("the name field")
-        .click();
+    (h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open")))
+    .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
+    .expect("the name field")
+    .click();
     h.run_steps(2);
     h.event(egui::Event::Text("s".into()));
     h.run_steps(2);

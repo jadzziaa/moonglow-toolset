@@ -233,6 +233,8 @@ fn options_leave_the_module_open() {
     assert!(!h.state().has_unsaved_work());
 }
 
+/// The Command Palette is Quick Open among the commands: Ctrl+Shift+P
+/// opens the Top Bar's field with `>` typed.
 #[test]
 fn the_command_palette_finds_a_command_and_runs_it() {
     let dir = mg_testkit::scratch_dir("ui-command-palette");
@@ -241,65 +243,71 @@ fn the_command_palette_finds_a_command_and_runs_it() {
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
-    let open = |h: &mut Harness<'_, Moonglow>| {
-        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-        h.run();
-        assert!(h.state().command_palette.is_some(), "Ctrl+Shift+P opens it");
-    };
-    let hint = "Type a command's name";
 
-    // Every command is there until something is typed; then those whose
-    // name or menu has every word.
-    open(&mut h);
-    h.get_by_label("Verify Module");
-    type_into_hint(&mut h, hint, "mod build");
+    // The commands in the menus' order until something is typed (the
+    // first 50, and how many more); then those whose name or menu has
+    // every word.
+    command_palette(&mut h, "");
+    let rows = quick_open_rows(&h);
+    assert_eq!(rows.first().map(String::as_str), Some("New Module…"), "{rows:?}");
+    h.get_by_label_contains("more: type more to narrow them");
+    h.get_by_label(mg_ui::quick_open::NAME).type_text(" mod build");
+    settle(&mut h);
     assert!(h.query_by_label("Open Module…").is_none());
     // (By name first; then the Build menu's other commands with "mod".)
-    h.get_by_label("Build Module…");
-    h.get_by_label("Verify Module");
-    // Enter runs the one chosen, and the palette closes.
+    let rows = quick_open_rows(&h);
+    assert_eq!(rows.first().map(String::as_str), Some("Build Module…"), "{rows:?}");
+    assert!(rows.iter().any(|r| r == "Verify Module"), "{rows:?}");
+    // Enter runs the one chosen, and Quick Open closes.
     h.key_press(egui::Key::Enter);
-    h.run();
-    assert!(h.state().build.is_some() && h.state().command_palette.is_none());
+    settle(&mut h);
+    assert!(h.state().build.is_some() && !h.state().quick_open.is_open());
     h.state_mut().build = None;
-    h.run();
+    settle(&mut h);
 
     // The arrows choose among several: the second of the two editors.
-    open(&mut h);
-    type_into_hint(&mut h, hint, "editor");
-    h.get_by_label("Faction Editor");
+    command_palette(&mut h, "editor");
+    assert_eq!(quick_open_rows(&h), ["Faction Editor", "Journal Editor"]);
     h.key_press(egui::Key::ArrowDown);
-    h.run();
+    settle(&mut h);
     h.key_press(egui::Key::Enter);
-    h.run();
+    settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Journal).is_some());
     assert!(h.state().dock.find_tab(&Tab::Factions).is_none());
 
     // A command that can't be chosen now is listed, and Enter leaves it.
-    open(&mut h);
-    type_into_hint(&mut h, hint, "redo");
+    command_palette(&mut h, "redo");
     h.key_press(egui::Key::Enter);
-    h.run();
-    assert!(h.state().command_palette.is_some(), "nothing to redo: nothing done");
-    // A click runs one; Escape clears what is typed (the palette stays),
-    // and Escape again closes without running anything.
+    settle(&mut h);
+    assert!(h.state().quick_open.is_open(), "nothing to redo: nothing done");
+    // Escape closes without running anything (it cleared what was typed
+    // first in the Command Palette's window).
     h.key_press(egui::Key::Escape);
-    h.run();
-    assert_eq!(h.state().command_palette.as_ref().map(|f| f.filter.as_str()), Some(""));
-    h.key_press(egui::Key::Escape);
-    h.run();
-    assert!(h.state().command_palette.is_none());
-    open(&mut h);
-    type_into_hint(&mut h, hint, "about");
-    h.get_by_label("About Moonglow Toolset").click();
-    h.run();
-    assert!(h.state().command_palette.is_none());
+    settle(&mut h);
+    assert!(!h.state().quick_open.is_open());
+    assert!(h.state().quick_open.text.is_empty());
+    // A click runs one.
+    command_palette(&mut h, "about");
+    quick_open_row(&h, "About Moonglow Toolset").click();
+    settle(&mut h);
+    assert!(!h.state().quick_open.is_open());
     h.get_by_label_contains("GNU General Public License");
-    // While it is open, keys are its own: Ctrl+N starts no module.
-    open(&mut h);
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
-    h.run();
-    assert!(h.state().command_palette.is_some() && h.state().ws.is_some());
+    h.state_mut().about = false;
+    settle(&mut h);
+    // While it is open, a key that types is its own: an A given to About
+    // types (as in any text field); with Ctrl, a key still runs its
+    // command (the Command Palette's window had held every key back), and
+    // Quick Open closes.
+    let about = vec!["A".to_string(), "Ctrl+B".to_string()];
+    h.state_mut().settings.key_bindings.insert("about".into(), about);
+    settle(&mut h);
+    command_palette(&mut h, "a");
+    assert_eq!(h.state().quick_open.text, ">a");
+    assert!(h.state().quick_open.is_open() && !h.state().about);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::B);
+    settle(&mut h);
+    assert!(h.state().about, "Ctrl+B runs About");
+    assert!(!h.state().quick_open.is_open(), "a command by its key closes it");
 }
 
 #[test]

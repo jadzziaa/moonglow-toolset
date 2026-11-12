@@ -119,7 +119,7 @@ fn tools_palettes_and_view_right_dock_show_and_fold_it() {
         settle(&mut h);
         assert!(!folded(&h));
     }
-    // (The Command Palette finds the row by the dock's name.)
+    // (Quick Open finds the row by the dock's name.)
     assert!(
         mg_ui::commands::Id::all().into_iter().any(|id| id.name() == "Right Dock"),
         "View's row named Right Dock"

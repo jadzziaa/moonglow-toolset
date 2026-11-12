@@ -185,18 +185,23 @@ fn conversation_script_parameters_are_saved_in_the_game_s_codepage() {
     h.get_by_label("Add Parameter").click();
     h.run_steps(3);
     let fields = |h: &Harness<'_, Moonglow>| -> Vec<egui::Rect> {
-        h.get_all_by_role(egui::accesskit::Role::TextInput).map(|n| n.rect()).collect()
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .map(|n| n.rect())
+            .collect()
     };
     // The new parameter's name and value: the last two fields.
     let at = fields(&h);
     let (name, value) = (at[at.len() - 2], at[at.len() - 1]);
     for (rect, text) in [(name, "who"), (value, "café")] {
         h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
             .find(|n| n.rect() == rect)
             .unwrap()
             .click();
         h.run();
         h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
             .find(|n| n.rect() == rect)
             .unwrap()
             .type_text(text);
@@ -212,6 +217,7 @@ fn conversation_script_parameters_are_saved_in_the_game_s_codepage() {
     // Shown back as typed.
     let shown: Vec<String> = h
         .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .filter_map(|n| n.accesskit_node().value())
         .collect();
     assert!(shown.iter().any(|v| v == "café"), "{shown:?}");
@@ -2329,6 +2335,7 @@ fn action(h: &mut Harness<'_, Moonglow>, key: &ResKey, i: u32) -> (String, Vec<(
 /// The text fields' values, as shown.
 fn shown_fields(h: &Harness<'_, Moonglow>) -> Vec<String> {
     h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .filter_map(|n| n.accesskit_node().value())
         .collect()
 }
@@ -2353,7 +2360,10 @@ fn parameter_sets_are_saved_and_added_to_another_line() {
     h.get_by_label("Save Set…").click();
     settle(&mut h);
     let before = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Skill check");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Skill check");
     h.run();
     assert!(h.query_by_label("A set of that name is replaced.").is_none(), "none kept yet");
     // (A set of the name kept: said, as the variable sets' row says it.
@@ -2406,11 +2416,15 @@ fn parameter_sets_are_saved_and_added_to_another_line() {
     // stays, and the set's step takes back only what the set did.
     let mine = h
         .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .find(|n| n.accesskit_node().value().as_deref() == Some("7"))
         .unwrap()
         .rect();
     for typing in [false, true] {
-        let field = h.get_all_by_role(egui::accesskit::Role::TextInput).find(|n| n.rect() == mine);
+        let field = h
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .find(|n| n.rect() == mine);
         match typing {
             false => field.unwrap().click(),
             true => field.unwrap().type_text("5"),

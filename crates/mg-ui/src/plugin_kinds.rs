@@ -36,7 +36,7 @@ pub enum Added {
 }
 
 /// An exporter, importer, wizard or panel of an enabled plugin, as the
-/// menus and the Command Palette list it.
+/// menus and Quick Open list it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginEntry {
     pub kind: Added,

@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -52,6 +52,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | View › Module Tree | View › Left Dock: it folds the dock on whichever panel it shows (Module or Resources), its key (Ctrl+Alt+1) as before | ✓ M3 T4 (its review: the boards name no row; the dock holds both panels) |
 | View › Palettes Panel | View › Right Dock: it folds the Right Dock, its key (Ctrl+Alt+2) as before | ✓ M3 T5 (the boards name no row; the dock holds the Preview's tab too since T6, and is drawn beside an area's tab alone) |
 | Status line: module path, game folder | Status Bar, right | ✓ M3 T2 (the module's name, its path in the tip); T7: a running job, its name and bar, before the module's name |
+| Help › Command Palette… (Ctrl+Shift+P), a window over the toolset (no board draws it: the proposal's section 6.1 and the second rulings' third make it Quick Open) | Quick Open, the Top Bar's field "Go to resource or command" (Ctrl+P): resources and commands; Ctrl+Shift+P and Help › Command Palette… open it among the commands | ✓ M3 T8 (the window is gone) |
 
 
 ### Area Editor
@@ -387,19 +388,19 @@ Every control of the screens mocked in the second round and its home in the mock
 
 ### Window at 1280 by 800
 
-| Today | In the redesign |
-|---|---|
-| Compile, Verify, Test Module with words | Icon buttons with tooltips; Quick Open at 300 px |
-| Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge |
-| The ten kind toggles and All, None | Show popover, "5 of 10" |
-| Day \| Night | One moon toggle |
-| Lighting, Overlays, Audio, Area Properties | Icon buttons |
-| Palette type strip | Combo, "Placeables" |
-| Expand All, Collapse All | End of the Group By row |
-| Palette, Preview, Properties | Three tabs of one Right Dock panel |
-| Log, Problems, Search Results switches | Icons only |
-| Game folder in the Status Bar | Dropped at this width |
-| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged |
+| Today | In the redesign | Done |
+|---|---|---|
+| Compile, Verify, Test Module with words | Icon buttons with tooltips; Quick Open at 300 px | ✓ the icons M3 T2; Quick Open at 300 px, and its icon where it would be under 240, M3 T8 |
+| Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge |  |
+| The ten kind toggles and All, None | Show popover, "5 of 10" |  |
+| Day \| Night | One moon toggle |  |
+| Lighting, Overlays, Audio, Area Properties | Icon buttons |  |
+| Palette type strip | Combo, "Placeables" |  |
+| Expand All, Collapse All | End of the Group By row |  |
+| Palette, Preview, Properties | Three tabs of one Right Dock panel |  |
+| Log, Problems, Search Results switches | Icons only |  |
+| Game folder in the Status Bar | Dropped at this width |  |
+| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged |  |
 
 
 #### How the Shell Yields

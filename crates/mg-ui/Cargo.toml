@@ -41,6 +41,7 @@ mg-tiles.workspace = true
 mg-tlk.workspace = true
 mg-uikit = { workspace = true, features = ["dock"] }
 mg-update.workspace = true
+memchr.workspace = true
 notify.workspace = true
 ron.workspace = true
 serde.workspace = true

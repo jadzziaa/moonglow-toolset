@@ -242,7 +242,7 @@ pub(crate) fn run_tools(app: &mut Moonglow, asked: Asked) {
 }
 
 /// A resource's kind as its row's icon shows it.
-fn kind_icon(t: ResType) -> mg_uikit::Icon {
+pub(crate) fn kind_icon(t: ResType) -> mg_uikit::Icon {
     use mg_uikit::Icon;
     if let Some(kind) = mg_area::ObjectKind::from_restype(t) {
         return crate::icons::object(kind);
@@ -631,12 +631,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                 // layer's (opened as that layer has it).
                 let r = list_row(ui, row, at_cursor, &fonts);
                 let copy = over.as_ref().map(|_| layer.clone());
-                let tab = || match (&copy, Tab::for_resource(*k)) {
-                    (Some(layer), _) => Tab::ResourceCopy { key: *k, layer: layer.clone() },
-                    (None, Some(t @ Tab::Model(_))) => t,
-                    (None, Some(t)) if in_module(k) => t,
-                    _ => Tab::Resource(*k),
-                };
+                let tab = || tab_of(*k, copy.clone(), in_module(k));
                 if r.clicked() {
                     clicked = Some(at);
                 }
@@ -679,6 +674,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         give_keys(ui.ctx(), Keys::Browser);
     }
     crate::palette_view::keys_outline(ui, out.inner_rect, Keys::Browser);
+}
+
+/// The tab a resource of the load order opens in from the Resources
+/// panel (and Quick Open): an overridden copy (`copy`, its layer's label)
+/// as that layer has it, a model in the model viewer, a resource the
+/// module has in its editor, else read-only (`Tab::Resource`).
+fn tab_of(key: ResKey, copy: Option<String>, in_module: bool) -> Tab {
+    match (copy, Tab::for_resource(key)) {
+        (Some(layer), _) => Tab::ResourceCopy { key, layer },
+        (None, Some(t @ Tab::Model(_))) => t,
+        (None, Some(t)) if in_module => t,
+        _ => Tab::Resource(key),
+    }
+}
+
+/// [`tab_of`] for the window's module.
+pub(crate) fn tab_for(app: &Moonglow, key: ResKey, copy: Option<String>) -> Tab {
+    let in_module = app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
+    tab_of(key, copy, in_module)
 }
 
 /// Where a table shown in the browser is to be edited.

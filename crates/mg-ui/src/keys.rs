@@ -82,6 +82,9 @@ pub enum Cmd {
     ItemWizard,
     FullScreen,
     CommandPalette,
+    /// Quick Open: the Top Bar's field (Ctrl+P, where no command the user
+    /// gave keys has it: [`Keymap::give_way`]).
+    QuickOpen,
     SelectTiles,
     /// The area view's placeable brush, on or off (its toolbar's Paint).
     PaintPlaceables,
@@ -163,7 +166,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 81] = [
+    pub const ALL: [Cmd; 82] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -183,6 +186,7 @@ impl Cmd {
         Cmd::ItemWizard,
         Cmd::FullScreen,
         Cmd::CommandPalette,
+        Cmd::QuickOpen,
         Cmd::SelectTiles,
         Cmd::PaintPlaceables,
         Cmd::Eraser,
@@ -274,6 +278,7 @@ impl Cmd {
             Cmd::ItemWizard => ("item-wizard", None, General),
             Cmd::FullScreen => ("full-screen", None, General),
             Cmd::CommandPalette => ("command-palette", None, General),
+            Cmd::QuickOpen => ("quick-open", None, General),
             Cmd::SelectTiles => ("select-tiles", Some("Select Tiles or Objects"), Area),
             Cmd::PaintPlaceables => ("paint-placeables", Some("Paint Placeables"), Area),
             Cmd::Eraser => ("tile-eraser", Some("Eraser (Tiles)"), Area),
@@ -380,6 +385,9 @@ impl Cmd {
             Cmd::ItemWizard => vec![k(CTRL | Modifiers::ALT, Key::I)],
             Cmd::FullScreen => vec![k(NONE, Key::F11)],
             Cmd::CommandPalette => vec![k(CTRL | SHIFT, Key::P)],
+            // (Given its key after builders had given keys of their own:
+            // it gives way to one given another command, `Keymap::give_way`.)
+            Cmd::QuickOpen => vec![k(CTRL, Key::P)],
             Cmd::SelectTiles => vec![k(NONE, Key::F10)],
             Cmd::PaintPlaceables => vec![k(NONE, Key::B)],
             // (Moonglow's tools: Aurora has none of them but the Eraser,
@@ -547,12 +555,33 @@ pub fn defaults_of(id: &str) -> Vec<KeyboardShortcut> {
 /// The keys of every command: Moonglow's, but where the settings choose
 /// others. Kept by command id: the key commands here ([`Cmd`]), and any
 /// other command (the window's, which have no keys until given some).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Keymap {
     keys: HashMap<String, Vec<KeyboardShortcut>>,
-    /// The own keys of commands that are no key commands (a plugin's).
+    /// The own keys of commands that are no key commands (a plugin's), and
+    /// those a command that gives way was left ([`Keymap::give_way`]).
     defaults: HashMap<String, Vec<KeyboardShortcut>>,
+    /// The commands whose keys the user chose (the settings', or Options ›
+    /// Keyboard's since): theirs, whatever gives way.
+    chosen_ids: std::collections::HashSet<String>,
 }
+
+/// Two key maps are one where every command has the same keys (and the
+/// same own keys): which of them the user chose is no part of it.
+impl PartialEq for Keymap {
+    fn eq(&self, other: &Keymap) -> bool {
+        self.keys == other.keys && self.defaults == other.defaults
+    }
+}
+
+impl Eq for Keymap {}
+
+/// The key commands whose own keys came after builders could give those
+/// keys to other commands: where a command that works at the same moment
+/// was given one of them (by the user, a plugin's manifest or a project's
+/// file), the key stays that command's and this one goes without it
+/// ([`Keymap::give_way`]). Quick Open's Ctrl+P.
+const GIVES_WAY: [Cmd; 1] = [Cmd::QuickOpen];
 
 impl Default for Keymap {
     fn default() -> Keymap {
@@ -600,7 +629,40 @@ impl Keymap {
         for (id, list) in chosen {
             keys.insert(id.clone(), list.iter().filter_map(|t| from_text(t)).collect());
         }
-        Keymap { keys, defaults: HashMap::new() }
+        let chosen_ids = chosen.keys().cloned().collect();
+        let mut map = Keymap { keys, defaults: HashMap::new(), chosen_ids };
+        map.give_way();
+        map
+    }
+
+    /// The commands that give way ([`GIVES_WAY`]) without each of their
+    /// own keys another command that works at the same moment has: unless
+    /// the user chose their keys, they are left the rest (none, where
+    /// that was all), as their own keys for now, so that the settings
+    /// don't keep it (the key comes back once the other command lets it
+    /// go). To be called again after a plugin's or a project's keys are
+    /// taken in ([`Keymap::set_default`]).
+    pub fn give_way(&mut self) {
+        let group = |id: &str| Cmd::from_id(id).map_or(Group::General, Cmd::group);
+        for cmd in GIVES_WAY {
+            let id = cmd.id();
+            if self.chosen_ids.contains(id) {
+                continue;
+            }
+            let own = cmd.defaults();
+            let taken = |k: &KeyboardShortcut| {
+                self.keys.iter().any(|(other, keys)| {
+                    other != id && group(other).overlaps(cmd.group()) && keys.contains(k)
+                })
+            };
+            let left: Vec<KeyboardShortcut> = own.iter().filter(|k| !taken(k)).copied().collect();
+            if left.len() == own.len() {
+                self.defaults.remove(id);
+            } else {
+                self.defaults.insert(id.to_string(), left.clone());
+            }
+            self.keys.insert(id.to_string(), left);
+        }
     }
 
     /// The own keys of a command that is no key command (a plugin's, from
@@ -624,6 +686,7 @@ impl Keymap {
             let own = self.defaults_of(&id);
             self.keys.insert(id, own);
         }
+        self.chosen_ids.clear();
     }
 
     /// The keys as a file to hand on: the commands whose keys aren't
@@ -651,6 +714,8 @@ impl Keymap {
         for (id, list) in &chosen {
             self.keys.insert(id.clone(), list.iter().filter_map(|t| from_text(t)).collect());
         }
+        self.chosen_ids = chosen.keys().cloned().collect();
+        self.give_way();
         Ok(chosen.len())
     }
 
@@ -673,6 +738,7 @@ impl Keymap {
     }
 
     pub fn set_of(&mut self, id: &str, keys: Vec<KeyboardShortcut>) {
+        self.chosen_ids.insert(id.to_string());
         self.keys.insert(id.to_string(), keys);
     }
 
@@ -861,6 +927,51 @@ mod tests {
         // Taken away again: nothing kept for it.
         map.set_of("build-module", Vec::new());
         assert!(!map.chosen().contains_key("build-module"));
+    }
+
+    /// Quick Open's Ctrl+P gives way to a command the user, a plugin or a
+    /// project gave it: Quick Open is then without a key, and the settings
+    /// don't keep that (it has Ctrl+P back once the other lets it go).
+    /// Given by the user to Quick Open too, both keep it: a conflict.
+    #[test]
+    fn quick_open_gives_ctrl_p_to_a_command_given_it() {
+        let ctrl_p = KeyboardShortcut::new(Modifiers::COMMAND, Key::P);
+        assert_eq!(Keymap::default().keys(Cmd::QuickOpen), [ctrl_p]);
+        let mut chosen = BTreeMap::new();
+        chosen.insert("build-module".to_string(), vec!["Ctrl+P".to_string()]);
+        let map = Keymap::new(&chosen);
+        assert_eq!(map.keys_of("build-module"), [ctrl_p]);
+        assert!(map.keys(Cmd::QuickOpen).is_empty(), "the user's key wins");
+        assert!(map.conflicts().is_empty(), "{:?}", map.conflicts());
+        assert_eq!(map.chosen(), chosen, "nothing kept for Quick Open");
+        // Let go of, Quick Open has it again.
+        assert_eq!(Keymap::new(&BTreeMap::new()).keys(Cmd::QuickOpen), [ctrl_p]);
+        let mut reset = map.clone();
+        reset.reset_all();
+        reset.give_way();
+        assert_eq!(reset.keys(Cmd::QuickOpen), [ctrl_p]);
+        // (An area's command too: the window's keys work over the area.)
+        let mut area = BTreeMap::new();
+        area.insert("camera-up".to_string(), vec!["Ctrl+P".to_string()]);
+        assert!(Keymap::new(&area).keys(Cmd::QuickOpen).is_empty());
+        // A plugin's own key, and a project's, win too.
+        let mut map = Keymap::default();
+        map.set_default("some-plugin.go", vec![ctrl_p]);
+        map.give_way();
+        assert!(map.keys(Cmd::QuickOpen).is_empty());
+        assert!(map.chosen().is_empty(), "{:?}", map.chosen());
+        // Chosen for Quick Open by the user as well: both have it, said.
+        chosen.insert("quick-open".to_string(), vec!["Ctrl+P".to_string()]);
+        let map = Keymap::new(&chosen);
+        assert_eq!(map.keys(Cmd::QuickOpen), [ctrl_p]);
+        assert_eq!(map.conflicts().len(), 1);
+        // Another key the user gives it is kept.
+        let mut map = Keymap::default();
+        let f1 = KeyboardShortcut::new(Modifiers::COMMAND, Key::F1);
+        map.set(Cmd::QuickOpen, vec![f1]);
+        map.set_of("build-module", vec![ctrl_p]);
+        map.give_way();
+        assert_eq!(map.keys(Cmd::QuickOpen), [f1]);
     }
 
     /// A letter given to a command of the window stays a letter while a

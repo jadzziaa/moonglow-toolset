@@ -533,7 +533,10 @@ fn undo_in_a_text_field_is_the_field_s() {
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
     // Typing in a field (the module tree's Filter), then Ctrl+Z and
     // Ctrl+Y: the module's history is as it was.
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().focus();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .focus();
     h.run();
     filter_type(&mut h, "ab");
     assert!(h.ctx.egui_wants_keyboard_input());

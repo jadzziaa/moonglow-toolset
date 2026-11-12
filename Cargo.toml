@@ -97,6 +97,8 @@ rayon = "1"
 rars = { version = "0.12", default-features = false }
 rfd = "0.17"
 regex-lite = "0.1"
+# (Quick Open's search of the load order: already in the tree, by aho-corasick.)
+memchr = "2"
 # (eframe's settings file, read before the window opens: the version
 # eframe writes it with.)
 ron = "0.12"

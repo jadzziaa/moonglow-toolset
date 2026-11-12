@@ -860,10 +860,8 @@ fn view_left_dock_folds_the_dock_on_whichever_panel() {
     h.key_press_modifiers(key.modifiers, key.logical_key);
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(Panel::Resources));
-    // The Command Palette.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "left dock");
+    // The Command Palette (Quick Open among the commands).
+    command_palette(&mut h, "left dock");
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     assert!(h.state().settings.hide_tree, "run from the Command Palette");

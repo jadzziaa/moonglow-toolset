@@ -845,13 +845,15 @@ fn a_list_resized_on_the_canvas_is_one_undo_step_and_escape_calls_it_off() {
 #[test]
 fn new_nui_window_asks_for_its_name() {
     let mut h = harness();
-    // (From the command palette, as Tools › New NUI Window… gives it.)
+    // (From the Command Palette, Quick Open among the commands, as Tools ›
+    // New NUI Window… gives it.)
     h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
     h.run();
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.placeholder() == Some("Type a command's name")
+    let field = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.label().as_deref() == Some(mg_ui::quick_open::NAME)
+            && n.role() != egui::accesskit::Role::Button
     };
-    h.get(egui_kittest::kittest::by().predicate(hint)).type_text("New NUI Window");
+    h.get(egui_kittest::kittest::by().predicate(field)).type_text("New NUI Window");
     h.run();
     h.key_press(egui::Key::Enter);
     h.run();
@@ -869,6 +871,7 @@ fn new_nui_window_asks_for_its_name() {
     assert!(h.state().log.entries.iter().any(|(_, line)| line.contains("fifteen_letters")));
     assert!(name(&h).is_some(), "the window stays, for the name to be mended");
     h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .find(|n| n.accesskit_node().value().as_deref() == Some("fifteen_letters"))
         .expect("the name, as it was typed")
         .click();
@@ -1396,6 +1399,7 @@ fn an_empty_option_and_picture_name_say_what_goes_in_them() {
     h.run();
     let hinted = |h: &Harness<'_, Moonglow>, hint: &str| {
         h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
             .any(|n| n.accesskit_node().placeholder() == Some(hint))
     };
     h.get_by_label_contains("Canvas Image").click();

@@ -70,17 +70,20 @@ fn the_nui_designer_s_properties_menu_is_a_form_whose_parts_keep_apart() {
     // Working: the label typed is the button's.
     let value = |h: &Harness<'_, Moonglow>| {
         h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
             .find(|n| n.rect() == label_field)
             .and_then(|n| n.accesskit_node().value())
     };
     assert_eq!(value(&h).as_deref(), Some("Agree"));
     h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .find(|n| n.rect() == label_field)
         .unwrap()
         .click();
     settle(&mut h);
     h.key_press(egui::Key::End);
     h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .find(|n| n.rect() == label_field)
         .unwrap()
         .type_text("d");

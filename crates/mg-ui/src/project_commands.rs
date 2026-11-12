@@ -19,7 +19,7 @@
 //! what the command changed is in the module, and the claims table and
 //! the project file are read anew.
 //!
-//! A command is in File › Project, the Command Palette and Options ›
+//! A command is in File › Project, Quick Open and Options ›
 //! Keyboard (the keys it asks for, `key`, until the builder chooses
 //! others), and runs the same way from each.
 //!
@@ -197,7 +197,8 @@ pub(crate) fn register_keys(keymap: &mut crate::keys::Keymap, commands: &[Projec
     for c in commands {
         let keys = c.key.as_deref().and_then(crate::keys::from_text).into_iter().collect();
         keymap.set_default(&key_id(&c.name), keys);
-    }
+    } // (Quick Open's Ctrl+P is theirs where they have it.)
+    keymap.give_way();
 }
 
 /// The open project's commands as Options › Keyboard lists them: the id

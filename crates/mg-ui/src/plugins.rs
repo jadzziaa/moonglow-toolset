@@ -133,7 +133,7 @@ pub struct Plugins {
     /// (each file's path, size and time), to see that it changed.
     project_stamp: Option<u64>,
     /// The pane last clicked in, whose selection a command from the
-    /// Plugins menu, the Command Palette or a key runs on.
+    /// Plugins menu, Quick Open or a key runs on.
     pub pane: Option<Pane>,
     /// The open panels (API 0.6), by plugin and panel id: what each
     /// showed last, and its render under way.
@@ -302,7 +302,7 @@ pub struct Replace {
     pub installed: String,
 }
 
-/// A command a plugin adds, as the menus, the keys and the Command Palette
+/// A command a plugin adds, as the menus, the keys and Quick Open
 /// show it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginCommand {
@@ -332,7 +332,7 @@ impl PluginCommand {
     }
 
     /// Its title after the submenus it is in (`Make › Crafting ›
-    /// Workbench…`): how the Command Palette and Options › Keyboard name
+    /// Workbench…`): how Quick Open and Options › Keyboard name
     /// it, where it is found by name.
     pub fn path_title(&self) -> String {
         mg_plugin::path_title(&self.menu, &self.title)
@@ -1220,7 +1220,7 @@ impl Moonglow {
     }
 
     /// What is selected in the window, for a command chosen from the
-    /// Plugins menu, the Command Palette or a key: the objects selected in
+    /// Plugins menu, Quick Open or a key: the objects selected in
     /// the area view shown last, else the blueprints selected in the
     /// palette.
     pub fn plugin_selection(&self) -> Vec<mg_plugin::Selected> {
@@ -1925,7 +1925,8 @@ pub(crate) fn register_keys(keymap: &mut crate::keys::Keymap, commands: &[Plugin
     for c in commands {
         let keys = c.key.as_deref().and_then(crate::keys::from_text).into_iter().collect();
         keymap.set_default(&c.key_id, keys);
-    }
+    } // (Quick Open's Ctrl+P is theirs where they have it.)
+    keymap.give_way();
 }
 
 /// A running plugin's question, in the job's window: something to read, a

@@ -5,8 +5,9 @@
 //! - the **Top Bar** ([`top_bar`]): the eight menus, the quick actions
 //!   (New, Open, Save; Undo, Redo) as icons, and at the right end the
 //!   build actions (Compile, Verify, Test Module with Choose Character
-//!   under its arrow), from [`commands::TOP_BAR`]; the middle is kept for
-//!   Quick Open (M3's T8);
+//!   under its arrow), from [`commands::TOP_BAR`]; in the middle Quick
+//!   Open's field (M3's T8, `quick_open`), an icon button where the
+//!   bar's middle is narrow;
 //! - the **Status Bar** ([`status_bar`]): the Bottom Dock's switches at
 //!   the left (the Log's), the module's name and the game folder at the
 //!   right (hints and counts are T7 and T12's);
@@ -49,10 +50,10 @@
 //! is "the Left Dock folded", `Settings::hide_palettes` "the Right Dock
 //! folded" and `Settings::hide_log` "the Bottom Dock closed".
 //!
-//! Later tasks fill it: Quick Open in the Top Bar's middle (T8), hints (T12), the
-//! Left Dock's Outliner (T13, which the area brings as it brings the Right
-//! Dock's panels) and the widths the shell yields at (T14; T2 takes only
-//! the build actions' words, below 1300).
+//! Later tasks fill it: hints (T12), the Left Dock's Outliner (T13, which
+//! the area brings as it brings the Right Dock's panels) and the widths
+//! the shell yields at (T14; T2 took the build actions' words, below 1300,
+//! and T8 Quick Open's field, capped and an icon).
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
@@ -443,10 +444,24 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
         .sum::<f32>()
         + mg_uikit::joined_spacing(ui)
         + arrow_width;
+    // Quick Open in the middle: the field, at most 440 (300 under 1300),
+    // as wide as the room left; an icon button where that is under 240.
+    // Its icon needs this much room, beside the groups' gaps.
+    let quick_open_least = mg_uikit::metrics::ICON_BUTTON + 2.0 * kit::TOP_BAR_MID_PADDING;
+    let key = app.keymap.label(crate::keys::Cmd::QuickOpen, &ctx);
+    let busy = app.busy();
+    let mut qo = std::mem::take(&mut app.quick_open);
     // (Decided once the menus are laid out, for both groups: the quick
     // actions where they fit after the menus, the build actions only where
-    // both fit, so a window that narrows loses the build actions first.)
+    // both fit and Quick Open's icon too. As the window narrows: Quick
+    // Open's field narrows to 240 and becomes its icon (it is the one way
+    // to it by the pointer but Help's Command Palette, which opens it
+    // among the commands); then the build actions go (each is in the Build
+    // menu); then the icon (Ctrl+P and Help › Command Palette… still open
+    // it, over the bar); last the quick actions, which New, Open, Save,
+    // Undo and Redo are used more often than the rest.)
     let show_build = std::cell::Cell::new(false);
+    let quick_shown = std::cell::Cell::new(false);
     let (quick_clicked, (), build_clicked) = kit::top_bar(
         ui,
         yields.quick_open_cap,
@@ -456,7 +471,9 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
             let menus_end = ui.cursor().min.x + kit::TOP_BAR_GAP;
             let right = ui.max_rect().right();
             let show_quick = menus_end + quick_width <= right;
-            show_build.set(show_quick && menus_end + quick_width + build_width <= right);
+            quick_shown.set(show_quick);
+            let with_icon = menus_end + quick_width + quick_open_least;
+            show_build.set(show_quick && with_icon + build_width <= right);
             if show_quick {
                 kit::vsep(ui);
                 for b in &quick {
@@ -474,8 +491,11 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
             }
             clicked
         },
-        // (Quick Open's place, M3's T8: nothing until then.)
-        |_, _| {},
+        // (Nothing where the quick actions went: the icon goes first.)
+        |ui, width| {
+            let width = if quick_shown.get() { width } else { 0.0 };
+            crate::quick_open::middle(ui, width, &mut qo, &key, !busy);
+        },
         |ui| {
             let mut clicked = None;
             if !show_build.get() {
@@ -517,6 +537,14 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
             clicked
         },
     );
+    // (A menu's row run while the state was out: Help › Command
+    // Palette… opened the one left in its place.)
+    let asked = std::mem::replace(&mut app.quick_open, qo);
+    if asked.open {
+        let prefix =
+            if crate::quick_open::parse(&asked.text).0 { crate::quick_open::COMMANDS } else { "" };
+        app.quick_open.open_with(prefix);
+    }
     if let Some(id) = quick_clicked {
         id.run(app, &ctx);
     }

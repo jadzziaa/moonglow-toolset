@@ -241,16 +241,12 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("changed nothing")));
 
-    // The Command Palette finds it, under its plugin's name.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "tag conv");
-    h.get_by_label("Promote the Guards");
-    // (Escape clears the name typed, and closes the palette next.)
+    // The Command Palette (Quick Open among the commands) finds it, under
+    // its plugin's name.
+    command_palette(&mut h, "tag conv");
+    quick_open_row(&h, "Promote the Guards");
     h.key_press(egui::Key::Escape);
-    h.run();
-    h.key_press(egui::Key::Escape);
-    h.run();
+    settle(&mut h);
     // And it takes a key like any command: listed with the plugins'.
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
@@ -508,12 +504,10 @@ fn a_plugin_s_commands_are_grouped_into_submenus() {
     assert_eq!(ran(&h).as_deref(), Some("workbench"));
 
     // The Command Palette: by the whole path, found by a submenu's name.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "crafting workbench");
-    h.get_by_label("Make › Crafting › Workbench…");
+    command_palette(&mut h, "crafting workbench");
+    quick_open_row(&h, "Make › Crafting › Workbench…");
     h.key_press(egui::Key::Escape);
-    h.run();
+    settle(&mut h);
 
     // The Plugins window says where each is.
     h.state_mut().plugins.window = true;

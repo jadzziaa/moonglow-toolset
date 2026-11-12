@@ -2642,11 +2642,10 @@ fn a_project_s_command_is_in_the_palette_and_takes_keys() {
     app.open_module(&dir);
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    // The palette finds them, under Project, and runs one.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "submit");
-    h.get_by_label("Submit for Review…").click();
+    // The palette (Quick Open among the commands) finds them, under
+    // Project, and runs one.
+    command_palette(&mut h, "submit");
+    quick_open_row(&h, "Submit for Review…").click();
     h.run();
     h.run();
     h.get_by_label("Run a Project Command?");

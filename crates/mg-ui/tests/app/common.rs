@@ -1380,6 +1380,7 @@ pub(crate) fn drag_picker(h: &mut Harness<'_, Moonglow>, well: egui::Rect, from:
     let pastes: Vec<egui::Rect> = h.query_all_by_label("Paste Color").map(|n| n.rect()).collect();
     let hex = h
         .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .filter(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with('#')))
         .map(|n| n.rect())
         // (The picker's own, with Paste Color beside it: a variable's
@@ -1436,4 +1437,73 @@ pub(crate) fn drawn(h: &Harness<'_, Moonglow>) -> Vec<egui::Shape> {
     let mut out = Vec::new();
     h.output().shapes.iter().for_each(|c| add(&c.shape, &mut out));
     out
+}
+
+/// Opens Quick Open by its key (Ctrl+P) and types `text` into its field
+/// (nothing typed for an empty `text`).
+pub(crate) fn quick_open(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
+    settle(h);
+    assert!(h.state().quick_open.is_open(), "Ctrl+P opens Quick Open");
+    if !text.is_empty() {
+        quick_open_field(h).type_text(text);
+        settle(h);
+    }
+}
+
+/// Quick Open's field (in the Top Bar, or over it where the bar shows
+/// its icon: not the icon, of the same name).
+#[track_caller]
+pub(crate) fn quick_open_field<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
+    use egui::accesskit::Role;
+    let mut fields = h
+        .query_all_by_label(mg_ui::quick_open::NAME)
+        .filter(|n| n.accesskit_node().role() != Role::Button);
+    fields.next().expect("Quick Open's field")
+}
+
+/// Opens Quick Open among the commands (Ctrl+Shift+P, the Command
+/// Palette's key) and types `text` after its `>`.
+pub(crate) fn command_palette(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    settle(h);
+    assert!(h.state().quick_open.is_open(), "Ctrl+Shift+P opens Quick Open");
+    assert_eq!(h.state().quick_open.text, ">", "among the commands");
+    if !text.is_empty() {
+        quick_open_field(h).type_text(text);
+        settle(h);
+    }
+}
+
+/// Quick Open's row `name` (found in its popover).
+#[track_caller]
+pub(crate) fn quick_open_row<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    h.get_by_label(mg_ui::quick_open::RESULTS).get_by_label(name)
+}
+
+/// Quick Open's rows as shown, top to bottom: each one's name.
+pub(crate) fn quick_open_rows(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    use egui::accesskit::Role;
+    let Some(group) = h.query_by_label(mg_ui::quick_open::RESULTS) else { return Vec::new() };
+    let mut rows: Vec<(f32, String)> = group
+        .query_all(egui_kittest::kittest::by().role(Role::Button))
+        .map(|n| (n.rect().top(), n.accesskit_node().label().unwrap_or_default()))
+        .collect();
+    rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    rows.into_iter().map(|(_, l)| l).collect()
+}
+
+/// The row Enter would run in Quick Open: its name.
+pub(crate) fn quick_open_chosen(h: &Harness<'_, Moonglow>) -> Option<String> {
+    let group = h.query_by_label(mg_ui::quick_open::RESULTS)?;
+    let chosen = group
+        .query_all(
+            egui_kittest::kittest::by()
+                .predicate(|n| n.toggled() == Some(egui::accesskit::Toggled::True)),
+        )
+        .next()?;
+    chosen.accesskit_node().label()
 }

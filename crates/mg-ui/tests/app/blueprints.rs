@@ -2712,7 +2712,10 @@ fn the_variables_page_edits_them_in_place() {
     h.run();
     // (The row's name, then its value: the last two fields.)
     let field_from_end = |h: &Harness<'_, Moonglow>, back: usize| {
-        let all: Vec<_> = h.get_all_by_role(egui::accesskit::Role::TextInput).collect();
+        let all: Vec<_> = h
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .collect();
         all[all.len() - back].click();
     };
     field_from_end(&h, 2);
@@ -2782,7 +2785,10 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     h.run();
     h.get_by_label("Save Set…").click();
     h.run();
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Loot");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Loot");
     h.run();
     apart(&h, "Save").click();
     h.run();
@@ -4203,7 +4209,11 @@ fn the_gallery_opens_at_a_far_appearance() {
     h.run_steps(4);
     let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 60.0;
     let chosen = h.get_all_by_label(&far.text).find(tile).expect("its picture, in sight").rect();
-    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect();
+    let find = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .rect();
     let below = chosen.top() - find.bottom();
     assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
 }

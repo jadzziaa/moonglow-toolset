@@ -785,12 +785,12 @@ fn widgets_keys_searches_and_arrows() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
 
-    let mut finder = mg_ui::commands::Finder::default();
-    finder.filter = "module".into();
-    h.state_mut().command_palette = Some(finder);
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run_steps(3);
+    h.event(egui::Event::Text("module".into()));
     h.run_steps(3);
     shoot(&mut h, &dir, "command-palette-typed");
-    h.state_mut().command_palette = None;
+    h.key_press(egui::Key::Escape);
     h.run_steps(2);
 
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(script)));
@@ -976,7 +976,12 @@ fn table_take_cells_and_strings() {
     h.run_steps(4);
     h.get_by_label("Choose String…").click();
     h.run_steps(3);
-    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .rect()
+        .center();
     h.hover_at(field);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
@@ -1070,7 +1075,10 @@ fn table_read_only_and_column_widths() {
     h.key_press(egui::Key::ArrowRight);
     h.run_steps(3);
     shoot(&mut h, &dir, "2da-read-only-selected");
-    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     let field = field.rect().center();
     h.hover_at(field);
     for pressed in [true, false] {
@@ -1398,7 +1406,10 @@ fn dialog_parameter_sets() {
     h.run_steps(3);
     h.get_by_label("Save Set…").click();
     h.run_steps(3);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Strength check");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Strength check");
     shoot(&mut h, &dir, "dialog-parameter-sets-save");
     // (The name's Cancel, in its row: the editor has one too.)
     let row = h.get_by_label("Set name").rect().center().y;
@@ -1742,6 +1753,7 @@ fn project_commands_and_team_prefix() {
     h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
     h.run();
     h.event(egui::Event::Text("pro".into()));
+    h.run();
     shoot(&mut h, &dir, "project-commands-palette");
     h.key_press(egui::Key::Escape);
     h.run();
@@ -6849,27 +6861,6 @@ fn narrow(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab) {
     h.run_steps(4);
 }
 
-/// The Command Palette over the window, something typed
-/// (`target/test-output/screens/command-palette.png`).
-#[test]
-#[ignore]
-fn command_palette() {
-    mg_testkit::gpu::hold();
-    let dir = mg_testkit::scratch_dir("screens-command-palette");
-    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    let mut finder = mg_ui::commands::Finder::default();
-    finder.filter = "mod".into();
-    app.command_palette = Some(finder);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
-    h.key_press(egui::Key::ArrowDown);
-    h.run();
-    shoot(&mut h, &dir, "command-palette");
-}
-
 /// The Plugins window with the plugin host's fixture plugins installed and
 /// one enabled, the console open (`target/test-output/screens-plugins/`).
 #[test]
@@ -9243,7 +9234,10 @@ fn main_window_log_and_tree() {
     // The Filter typed: placed objects found, then a script it hides
     // chosen.
     // (The tree's Filter is the first text field.)
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
     h.run_steps(2);
     h.event(egui::Event::Text("gangleader".into()));
     h.run_steps(8);
@@ -10525,6 +10519,103 @@ fn shell_main() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
     shoot(&mut h, &dir, "shell_main");
+}
+
+/// Quick Open (M3's T8) opened by Ctrl+P and `typed` typed (nothing for
+/// an empty one), settled.
+fn quick_open_typed(h: &mut Harness<'_, Moonglow>, typed: &str) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
+    h.run_steps(3);
+    if !typed.is_empty() {
+        h.event(egui::Event::Text(typed.into()));
+        h.run_steps(3);
+    }
+}
+
+/// Quick Open in the main window (`Main.png`'s Top Bar, the field at
+/// rest in `shell_main`): the areas opened lately with nothing typed;
+/// what "start" finds (the module's resources, a command, the game's
+/// resources); the commands after `>` with their key caps; the line of
+/// how many more (`target/test-output/screens/shell/quick_open*.png`).
+#[test]
+#[ignore]
+fn quick_open() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let module = h.state().module_path().unwrap();
+    let areas: Vec<String> = (h.state().ws.as_ref().unwrap().module.keys_of(ResType::ARE))
+        .take(3)
+        .map(|k| k.resref.to_string())
+        .collect();
+    for area in &areas {
+        h.state_mut().settings.remember_area(&module, area);
+    }
+    quick_open_typed(&mut h, "");
+    shoot(&mut h, &dir, "quick_open_recent");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    quick_open_typed(&mut h, "start");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    shoot(&mut h, &dir, "quick_open");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "quick_open_commands");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    quick_open_typed(&mut h, "m1q");
+    shoot(&mut h, &dir, "quick_open_more");
+}
+
+/// Quick Open with no module open: the recent modules, then the commands
+/// that work without one (`quick_open_no_module.png`).
+#[test]
+#[ignore]
+fn quick_open_no_module() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    for name in ["Chapter1.nwm", "Prelude.nwm"] {
+        app.settings.remember(&root.join("data/nwm").join(name));
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    quick_open_typed(&mut h, "");
+    shoot(&mut h, &dir, "quick_open_no_module");
+}
+
+/// Quick Open as the window narrows: capped at 300 in a 1280 window (at
+/// rest and open), its icon at 760 and 420 with the field over the Top
+/// Bar and the popover inside the window, and the popover in a 3440 by
+/// 1440 window (`quick_open_1280*.png`, `_760`, `_420`, `_3440`).
+#[test]
+#[ignore]
+fn quick_open_widths() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (w, h_) in [(1280.0, 800.0), (760.0, 700.0), (420.0, 600.0), (3440.0, 1440.0)] {
+        let mut h = shell_window(&root, egui::vec2(w, h_));
+        h.run_steps(3);
+        if w == 1280.0 || w == 760.0 {
+            shoot(&mut h, &dir, &format!("quick_open_{w}_rest"));
+        }
+        quick_open_typed(&mut h, "formosa");
+        shoot(&mut h, &dir, &format!("quick_open_{w}"));
+    }
 }
 
 #[test]

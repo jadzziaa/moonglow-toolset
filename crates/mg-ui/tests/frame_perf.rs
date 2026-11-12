@@ -1747,7 +1747,10 @@ fn frames_at_144_in_a_persistent_world() {
     // A word in the tree's Filter: every area's placed objects are read
     // for it (over some frames), and what it finds is then kept, not
     // looked for each frame (the review's S19).
-    let field = h.query_all_by_role(egui::accesskit::Role::TextInput).next().map(|n| n.click());
+    let field = h
+        .query_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .map(|n| n.click());
     assert!(field.is_some(), "the tree's Filter field");
     h.run_steps(2);
     h.event(egui::Event::Text("door".into()));

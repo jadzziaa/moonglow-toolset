@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
 ---
 
 # Writing plugins
@@ -89,7 +89,7 @@ mg.command("stamp", function(ctx)
 end)
 ```
 
-**Reload**, and run it (Plugins menu, the Command Palette, or
+**Reload**, and run it (Plugins menu, Quick Open, or
 Ctrl+Alt+H). It asks, shows its progress, and the log says what it
 changed. **Edit › Undo Stamp creature comments** takes all of it back at
 once.
@@ -249,7 +249,7 @@ running the plugin, to list what it adds.
 | `hint` | What its tip says. |
 | `key` | A key it has until the user chooses another: `Ctrl+Alt+T` (`Ctrl`, `Alt`, `Shift` and a key's name; Ctrl is Cmd on macOS). A key something else has already is reported as a conflict in Options › Keyboard, so choose an unusual one, or none. |
 | `for` | What it is for (since API 0.4): kinds of object, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, and `area`, as a list (`"placeable, creature"`) or one to a line; since API 0.5 also a kind's placed objects alone (`"placed creature"`) or its blueprints alone (`"creature blueprint"`), `tile`, and another resource's type (`nss`, `dlg`, `ifo`, `fac`, `jrl`, `2da`, `gui`, `jui`). It is then in their right-click menus too, and runs on what was clicked ([Commands on what is selected](#commands-on-what-is-selected)). |
-| `menu` | The submenu it is in (since API 0.7), in every menu it is in (the right-click menus and the Plugins menu): `"Make"`, or nested with `›` (or `>`) between the names, `"Make › Crafting"`. Each submenu is made once, where the first command naming it is, and holds the commands that name it in the manifest's order; the title is then the command's name within it (`Workbench…`). The Command Palette, Options › Keyboard and `mg plugin list` name it by the whole path, `Make › Crafting › Workbench…`, so it is still found by name. Left out, the command is in the menu itself, as before. |
+| `menu` | The submenu it is in (since API 0.7), in every menu it is in (the right-click menus and the Plugins menu): `"Make"`, or nested with `›` (or `>`) between the names, `"Make › Crafting"`. Each submenu is made once, where the first command naming it is, and holds the commands that name it in the manifest's order; the title is then the command's name within it (`Workbench…`). Quick Open, Options › Keyboard and `mg plugin list` name it by the whole path, `Make › Crafting › Workbench…`, so it is still found by name. Left out, the command is in the menu itself, as before. |
 
 `[check]`, once for each check:
 
@@ -406,7 +406,7 @@ for = "creature, door, encounter, item, placeable, sound, store, trigger, waypoi
 - The handler gets what the menu was opened on as `ctx.selection`: every
   object selected in the area view, every blueprint chosen in a palette
   (Ctrl+click chooses several), or the one row. Chosen from the Plugins
-  menu, the Command Palette or a key, it gets what is chosen in the
+  menu, Quick Open or a key, it gets what is chosen in the
   pane last clicked in (the module tree, a palette, an area's view),
   else the objects selected in the area view, else the blueprints
   selected in the palette; it should say so when that is nothing.

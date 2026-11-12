@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
 ---
 
 # Modules
@@ -1363,7 +1363,7 @@ the file, `run_tests` as Run tests), `key` (the keys it asks for, as
 Options › Keyboard writes them), `writes = false` (it writes none of
 the module's files, as a submit: the haks stay open while it runs) and
 `input = true` (it reads what you type: see step 4 below). The
-commands are in the **Command Palette** too, under Project, and in
+commands are in **Quick Open** too, under Project, and in
 **Options › Keyboard** under Project Commands, where the keys you choose
 take the place of `key` (kept by the command's name, so a team's
 `update` keeps its key from one project to the next; since Moonglow

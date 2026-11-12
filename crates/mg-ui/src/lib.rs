@@ -72,6 +72,7 @@ pub mod plugin_kinds;
 pub mod plugins;
 pub mod prefabs;
 mod project_commands;
+pub mod quick_open;
 pub mod recovery;
 pub mod references;
 pub mod renderer_check;
@@ -1250,8 +1251,9 @@ pub struct Moonglow {
     pub no_plugins: bool,
     /// The keys are to be worked out again (the plugins changed).
     keymap_stale: bool,
-    /// The Command Palette, while it is open.
-    pub command_palette: Option<commands::Finder>,
+    /// Quick Open: the Top Bar's field, what is typed in it and its index
+    /// (`quick_open`). The Command Palette is Quick Open among the commands.
+    pub quick_open: quick_open::QuickOpen,
     /// The job under way, if one is (`jobs`).
     pub(crate) job: Option<jobs::Job>,
     /// Jobs run while the window keeps drawing (the application turns
@@ -1523,7 +1525,7 @@ impl Moonglow {
             plugin_values: None,
             no_plugins: false,
             keymap_stale: false,
-            command_palette: None,
+            quick_open: Default::default(),
             job: None,
             background_jobs: false,
         }
@@ -1773,6 +1775,9 @@ impl Moonglow {
         // The Top Bar: the menus, the quick actions and the build actions
         // in one row (the shell, `shell.rs`).
         let bars = shell::top_bar(self, ui);
+        // Quick Open's popover under its field (and the field over the bar
+        // where the bar's middle had room for its icon alone).
+        quick_open::after_bar(self, ui, bars);
         // (On the way from a side editor to Edit › Undo or the Top Bar's,
         // or with a menu open, Undo stays the editor's the pointer left.)
         self.pointer_on_bars =
@@ -1975,7 +1980,6 @@ impl Moonglow {
         plugins::project_window(self, ui.ctx());
         plugins::settings_window(self, ui.ctx());
         plugins::remove_window(self, ui.ctx());
-        commands::palette_window(self, ui.ctx());
         jobs::window(self, ui.ctx());
         // The pictures the frame's views asked for and lack: a few now.
         model_view::make_thumbnails(self, ui.ctx());
@@ -2927,11 +2931,11 @@ impl Moonglow {
         }
         // (Find's keys, for the search fields.)
         self.keymap.share_find(ui.ctx());
-        // Options › Keyboard takes the next key itself, and the Command
-        // Palette what is typed into it.
-        if self.options.as_ref().is_some_and(|o| o.recording.is_some())
-            || self.command_palette.is_some()
-        {
+        // Options › Keyboard takes the next key itself. (While Quick Open's
+        // field has the keys, it is a text field as any: the keys that type
+        // are its, and the window's keys with Ctrl or a function key still
+        // run their commands, which close it: `commands::keys_pressed`.)
+        if self.options.as_ref().is_some_and(|o| o.recording.is_some()) {
             return;
         }
         commands::keys_pressed(self, ui);

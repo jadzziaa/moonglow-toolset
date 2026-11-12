@@ -2538,7 +2538,7 @@ fn go_to_start_location_opens_the_start_s_area() {
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is opened");
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!(target.truncate().distance(start) < 0.01, "{target} is not at {start}");
-    // (The command is in the View menu and the command palette too.)
+    // (The command is in the View menu and Quick Open too.)
     assert!(mg_ui::commands::Id::all().contains(&mg_ui::commands::Id::GoToStart));
 }
 
@@ -4318,10 +4318,16 @@ fn delete_typed_in_a_field_deletes_no_object_under_the_pointer() {
     assert_eq!(count(&mut h), 2);
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     // The module tree's filter takes the keyboard, with text to delete.
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("ab");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("ab");
     h.run_steps(2);
     h.key_press(egui::Key::Home);
     h.run_steps(1);
@@ -5264,7 +5270,10 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     assert!(h.get_by_label("Write and Place").accesskit_node().is_disabled());
     h.get_by_label("A new hak:").click();
     h.run_steps(2);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("mg_lights");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("mg_lights");
     h.run_steps(3);
     let hak = user.join("hak/mg_lights.hak");
     let said = format!("Writes into {}", hak.display());

@@ -3264,7 +3264,7 @@ fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui
 /// boxes, pickers and wizards. An `egui::Modal`, the rest of the window
 /// dimmed and out of reach, is kept for what stops the work until it is
 /// answered: a job's progress, a plugin's question, a save a plugin
-/// refuses, the Command Palette. Opened over a Properties window, it
+/// refuses, Quick Open. Opened over a Properties window, it
 /// took its Escape too: Escape in Select Portrait closed the blueprint's
 /// window, as its Cancel.)
 pub(crate) fn modal<'a>(

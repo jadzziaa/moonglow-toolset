@@ -13,9 +13,15 @@ fn filtering_the_tree_opens_its_groups() {
     // Scripts start closed.
     assert!(h.query_by_label("hello").is_none());
     // The tree's filter, the first text field.
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
     h.run();
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("hel");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("hel");
     h.run();
     h.get_by_label("hello");
 }
@@ -572,10 +578,16 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     h.run_steps(4);
     // (A waypoint shows its tag; its name is found too.)
     assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2);
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("ferry");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("ferry");
     h.run_steps(4);
     h.get_by_label("Waypoints (1 of 2)");
     assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 1);
@@ -628,9 +640,15 @@ fn areas_are_listed_by_name_when_asked() {
     h.run();
     assert!(y(&h, "A Quay") < y(&h, "Apple Inn"));
     // The filter finds the name.
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
     h.run();
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("apple");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("apple");
     h.run();
     h.get_by_label("Apple Inn");
     assert!(h.query_by_label("A Quay").is_none());
@@ -657,10 +675,16 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
     h.run();
     h.get_by_label("Übelwald");
     for typed in ["Übel", "ÜBEL", "übel"] {
-        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .unwrap()
+            .click();
         h.run();
         h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text(typed);
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .unwrap()
+            .type_text(typed);
         h.run();
         assert!(h.query_by_label("Übelwald").is_some(), "{typed}");
         assert!(h.query_by_label("start").is_none(), "{typed}");
@@ -692,9 +716,15 @@ fn blueprints_are_listed_by_name_when_asked() {
     let mut h = window_harness(app);
     h.run();
     // Open the groups (the filter opens every group with a match).
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
     h.run();
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("e");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("e");
     h.run();
     h.get_by_label("creature007.utc");
     h.state_mut().settings.area_names = true;
@@ -1382,7 +1412,10 @@ fn placed_objects_are_chosen_together_and_found_in_areas_not_opened_out() {
     let Some((mut h, area)) = area_harness("tree-objects-several") else { return };
     assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "not opened out");
     // The Filter: what is placed there, without opening the area out.
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
     filter_type(&mut h, "nw_waypoint001");
@@ -1649,7 +1682,10 @@ fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
 #[test]
 fn the_kinds_the_filter_opens_close_again() {
     let Some((mut h, _)) = area_harness("tree-filter-kinds") else { return };
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
     filter_type(&mut h, "nw_waypoint001");
@@ -1666,7 +1702,10 @@ fn the_kinds_the_filter_opens_close_again() {
     // The Filter cleared and typed again: opened once more.
     h.get_by_label("Clear Filter").click();
     h.run_steps(4);
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
     filter_type(&mut h, "nw_waypoint001");
@@ -1683,7 +1722,10 @@ fn the_kinds_the_filter_opens_close_again() {
 fn an_area_the_filter_opens_out_closes_again() {
     let Some((mut h, _)) = area_harness("tree-filter-area") else { return };
     let typed = |h: &mut Harness<'_, Moonglow>, text: &str| {
-        let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+        let filter = h
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .unwrap();
         filter.click();
         h.run_steps(2);
         filter_type(h, text);
@@ -1721,7 +1763,10 @@ fn an_area_the_filter_opens_out_closes_again() {
 #[test]
 fn the_filter_follows_what_is_placed_as_it_changes() {
     let Some((mut h, _)) = area_harness("tree-filter-follows") else { return };
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
     filter_type(&mut h, "nw_waypoint001");

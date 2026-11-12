@@ -1,15 +1,15 @@
 ---
 type: Manual Page
 title: The main window
-description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
+description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T16:51:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
 ---
 
 # The main window
 
-From top to bottom: the **Top Bar** (the menus and the common
-commands, in one row), then the **Left Dock** with its two panels, each
+From top to bottom: the **Top Bar** (the menus, the common
+commands and the **Quick Open** field, in one row), then the **Left Dock** with its two panels, each
 on a tab of its own (**Module**, the module tree, and **Resources**, the
 resource browser), the
 **tabs** in the middle and the **Right Dock** on the right, with the
@@ -34,15 +34,21 @@ found), Tools › Palettes still shows the dock, its panel saying "No
 game data.".
 
 The Top Bar's buttons are icons: **New**, **Open** and **Save** after
-the menus, then **Undo** and **Redo**; at its right end **Compile**,
+the menus, then **Undo** and **Redo**; in its middle the **Quick Open**
+field ("Go to resource or command", with its key, Ctrl+P, at its right
+end: see [Quick Open](#quick-open)); at its right end **Compile**,
 **Verify** and **Test Module**, with an arrow beside Test Module whose
 menu has **Test Module, Choose Character**. Rest the pointer on a button
 and its tip names it, with its key. In a window under 1300 points wide
-Compile, Verify and Test Module show their icons alone too. A window
-too narrow for the whole Top Bar leaves out the build actions first
-(Compile, Verify and Test Module) and, narrower still, the quick
-actions (New, Open, Save, Undo and Redo): each is in the menus as well
-(File, Edit, Build). The window can't be made narrower than the menus
+Compile, Verify and Test Module show their icons alone too, and the
+Quick Open field is at most 300 points wide (440 in a wider one). As the
+window narrows, the field narrows with the room the bar leaves it, then
+becomes its icon (a magnifying glass, its key in its tip); narrower
+still the build actions go (Compile, Verify and Test Module), then the
+Quick Open icon, and last the quick actions (New, Open, Save, Undo and
+Redo): each is in the menus as well (File, Edit, Build), and Quick Open
+still opens by its key and by Help › Command Palette…, its field then
+drawn over the bar's middle. The window can't be made narrower than the menus
 (420 by 320 points, which grow with Options › General › Interface size
 and follow it as soon as it changes); one left smaller opens at that
 size. Where the Status Bar is short of room, the log's last line is
@@ -95,12 +101,66 @@ begins with it. A command given Alt and a menu's letter in Options ›
 Keyboard has that key instead of the menu; AltGr and a letter (another
 layout's character) opens none.
 
-**Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
-type part of it (or of its menu's name), choose with the arrow keys, and
-Enter runs it; Escape closes. Each command shows its menu and its key. A
-command that can't be chosen now is listed dimmed. The enabled plugins'
-commands are among them, and the open project's (File › Project, under
-Project). Any command can be given a key in Tools › Options › Keyboard.
+## Quick Open
+
+**Quick Open** (the Top Bar's field, or **Ctrl+P**) goes to a resource
+or a command by its name: click the field or press its key, type part
+of a name, choose with the arrow keys, and Enter opens or runs it (a
+click on a row does too). Under the field a list shows what it finds,
+best first, at most 50 at a time; a last line says how many more there
+are, and typing more narrows them. In three groups:
+
+- **the module's resources**, by their ResRef and, for an area or a
+  blueprint, by its name (as the Module panel's Filter finds them; the
+  objects placed in an area are not looked through). One opens as a
+  double-click in the module tree opens it: an area's tab, a script's
+  editor, a blueprint's Properties; one already open is brought to the
+  front of its window;
+- **the commands**: those of the menus, the enabled plugins' commands,
+  exporters, importers, wizards and panels, and the open project's
+  commands (File › Project), each with its menu and its key. One that
+  can't be used now is dimmed, its tip says why, and Enter leaves it;
+- **the load order's resources** (the game's, your haks', override's),
+  which open read-only, as the Resources panel opens them, each with
+  where the game reads it from.
+
+Within a group: a name equal to what you typed first, then one that
+begins with it, then one where it begins a word (`formosa` in
+`m1q3_formosa_9`), then one that has it anywhere, then one that has
+every word you typed apart (`sword iron` finds "Iron Sword"), and last
+a command found only with its menu's name (`mod build` finds Verify
+Module, in the Build menu). At each step a match on the name comes
+before one on the ResRef, then the shorter name, then the alphabetical
+order (and, of a script's two files, its source first). Case and
+accents don't count: `arbol` finds "Árbol".
+
+With nothing typed it offers the areas of this module you opened last,
+most recent first (an area of another module needs its module opened:
+File › Recent Modules). With no module open, it offers the recent
+modules (choosing one opens it, asking first about unsaved work as File ›
+Open does) and the commands that work without a module.
+
+**Help › Command Palette…** (Ctrl+Shift+P) is Quick Open among the
+commands alone: it opens the field with `>` typed, and whatever follows
+a `>` is looked for among the commands only.
+
+In the field, Down and Up move the choice (from the last back to the
+first), Page Down and Page Up by a page; Tab stays in the field while
+the list is open; **Escape** closes it and gives the keys back to what
+had them (an area's view keeps its keys: W moves its camera again; a
+field you were typing in takes your typing again). A click outside
+closes it without running anything. While you type in it, a key that
+types is the field's (a command given a plain letter waits); a key
+with Ctrl, or a function key, runs its command as in any text field
+(Ctrl+S saves the module) and closes Quick Open. While a job has the
+window, Quick Open is dimmed.
+
+Ctrl+P is Quick Open's key unless you gave Ctrl+P to another command
+(in Tools › Options › Keyboard, or a plugin or a project gave it to
+one of theirs): that command keeps it, and Quick Open is then without a
+key (its field shows none) until Ctrl+P is free again, or until you
+give Quick Open a key of your own, which its field then shows. Any
+command can be given a key in Tools › Options › Keyboard.
 
 **Help › Check for Updates…** (also a button in Help › About) asks
 GitHub for Moonglow's latest release and says either that yours is the
@@ -218,7 +278,8 @@ changes them; the menus show the current keys.
 | F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
-| Ctrl+Shift+P | Command Palette |
+| Ctrl+P | Quick Open: go to a resource or a command |
+| Ctrl+Shift+P | Command Palette (Quick Open among the commands) |
 
 **Ctrl and a digit** goes to the main pane's tab of that number (Ctrl+9:
 its last), except while you type in a text field (in the script editor
@@ -864,7 +925,7 @@ in any one of the row's fields; what those are differs by list:
 
 Down leaves the field for its list where the list has keys of its own
 (the module tree, the palettes, the resource browser; in Open Script
-and the Command Palette, Up and Down choose while you type); elsewhere
+and Quick Open, Up and Down choose while you type); elsewhere
 Down is the field's.
 
 A 2DA shows the copy the game reads, read-only, with its StrRef columns

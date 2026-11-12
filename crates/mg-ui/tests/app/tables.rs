@@ -2172,7 +2172,12 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     h.get_by_label("no model of this name in the game, its haks or the module");
     h.get_by_label("Choose Model…").click();
     h.run_steps(3);
-    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .rect()
+        .center();
     click_pos(&h, field);
     h.run_steps(2);
     h.event(egui::Event::Text("plc_c0".into()));
@@ -2213,8 +2218,11 @@ fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
     });
     assert_eq!(copied, Some(format!("{}\n{}", label(1), label(2))));
     // Nothing is typed into or emptied.
-    let fields =
-        |h: &Harness<'_, Moonglow>| h.get_all_by_role(egui::accesskit::Role::TextInput).count();
+    let fields = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .count()
+    };
     let typing = fields(&h);
     h.key_press(egui::Key::Delete);
     h.key_press(egui::Key::Enter);
@@ -2226,7 +2234,10 @@ fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
     assert_eq!(fields(&h), typing, "no cell is typed in");
     assert!(h.query_all_by_label(&label(1)).count() > 0, "not emptied");
     // Find narrows the rows; Escape clears it.
-    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let find = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     click_pos(&h, find.rect().center());
     h.run_steps(2);
     h.event(egui::Event::Text("fireball".into()));

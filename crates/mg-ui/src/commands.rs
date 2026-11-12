@@ -96,7 +96,12 @@ pub enum Id {
     /// Install a plugin from its archive.
     InstallPlugin,
     Manual,
+    /// Help › Command Palette… (Ctrl+Shift+P): Quick Open among the
+    /// commands alone (its field opened with `>`).
     CommandPalette,
+    /// Quick Open (Ctrl+P): the Top Bar's field, to go to a resource or a
+    /// command (`quick_open`).
+    QuickOpen,
     /// Asks GitHub whether a newer Moonglow is out (`updates`).
     CheckUpdates,
     About,
@@ -317,7 +322,7 @@ impl TopBar {
 /// section 5). Today's other toolbar buttons have their homes elsewhere:
 /// Properties and New Area in the Module panel's header, Start in View ›
 /// Go to Start Location, Resources and Palettes in the Tools menu (each
-/// showing its dock's panel), Preview in the Command Palette (Preview
+/// showing its dock's panel), Preview in Quick Open (Preview
 /// Window).
 pub const TOP_BAR: TopBar = TopBar {
     quick: [
@@ -370,6 +375,7 @@ impl Id {
             walk(items, &mut out);
         }
         out.push(Id::FullScreen);
+        out.push(Id::QuickOpen);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
         out.push(Id::MaximizeWindow);
         out.extend([Id::NextPane, Id::PreviousPane]);
@@ -570,8 +576,13 @@ impl Id {
                 "Install a plugin from its zip archive. It stays off until you enable it.",
             ),
             Id::Manual => ("manual", "User Manual", ""),
-            Id::CommandPalette => {
-                ("command-palette", "Command Palette…", "Find a command by its name and run it")
+            Id::CommandPalette => (
+                "command-palette",
+                "Command Palette…",
+                "Find a command by its name and run it, in Quick Open",
+            ),
+            Id::QuickOpen => {
+                ("quick-open", "Quick Open", "Go to a resource or a command by typing its name")
             }
             Id::CheckUpdates => (
                 "check-updates",
@@ -727,6 +738,7 @@ impl Id {
             | Id::Plugins
             | Id::Manual
             | Id::CommandPalette
+            | Id::QuickOpen
             | Id::CheckUpdates
             | Id::About
             | Id::PreviewWindow
@@ -809,6 +821,34 @@ impl Id {
             | Id::GoToStart
             | Id::TestModule
             | Id::TestChoose => open,
+        }
+    }
+
+    /// Why it cannot be chosen now, in a few words (a grayed row's tip in
+    /// Quick Open); empty where it can.
+    pub(crate) fn why_disabled(self, app: &Moonglow) -> &'static str {
+        if self.enabled(app) {
+            return "";
+        }
+        let open = app.ws.is_some();
+        match self {
+            Id::Undo => "Nothing to undo",
+            Id::Redo => "Nothing to redo",
+            Id::CopyLog | Id::SaveLog | Id::ClearLog => "The log is empty",
+            Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics if open => {
+                "Open an area first"
+            }
+            Id::IndentToTabs | Id::IndentToSpaces => "Open a script first",
+            Id::CloseTab | Id::MaximizeWindow => "No tab is open",
+            Id::ReopenTab => "No tab was closed",
+            Id::InstallPlugin => "Moonglow has no plugin folder",
+            Id::BuilderCode => "Open a module in a folder or a nasher project first",
+            Id::ClaimsTable => "The project keeps no claims table",
+            Id::TakeInLeftOut => "nasher.cfg leaves no files out",
+            Id::ViewTree | Id::ViewPalettes => "The dock holds no panel now",
+            Id::NextPane | Id::PreviousPane => "No pane is open",
+            _ if !open => "Open a module first",
+            _ => "It cannot be used now",
         }
     }
 
@@ -950,10 +990,8 @@ impl Id {
                 return;
             }
             Id::InstallPlugin => return app.install_plugin(),
-            Id::CommandPalette => {
-                app.command_palette = Some(Finder::default());
-                return;
-            }
+            Id::CommandPalette => return app.quick_open.open_with(crate::quick_open::COMMANDS),
+            Id::QuickOpen => return app.quick_open.open_with(""),
             Id::About => {
                 app.about = true;
                 return;
@@ -1156,6 +1194,17 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
             continue;
         }
         if pressed && id.enabled(app) {
+            // Quick Open by its keys: the keys go back, at its Escape, to
+            // the widget that has them now (before a field typed in gives
+            // them up for the command below). Any other command closes it.
+            if matches!(id, Id::QuickOpen | Id::CommandPalette) {
+                if !app.quick_open.open {
+                    app.quick_open.return_to =
+                        focused.filter(|f| *f != crate::quick_open::field_id());
+                }
+            } else {
+                app.quick_open.close(ui.ctx(), false);
+            }
             // With a text field typed in that sets its text when the
             // keyboard leaves it, the keyboard leaves it first and the
             // command is run a frame on: one that closes the field's tab,
@@ -1170,6 +1219,7 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     for c in app.plugin_commands() {
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &c.key_id, typing));
         if pressed && app.ws.is_some() {
+            app.quick_open.close(ui.ctx(), false);
             let after = AfterText::Plugin { plugin: c.plugin, command: c.command };
             run_after_text(app, ui, after);
         }
@@ -1180,6 +1230,7 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
         let id = crate::project_commands::key_id(&c.name);
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id, typing));
         if pressed && c.run.is_some() {
+            app.quick_open.close(ui.ctx(), false);
             run_after_text(app, ui, AfterText::Project(c.name));
         }
     }
@@ -1863,16 +1914,6 @@ fn paint_tick(
     }
 }
 
-/// The Command Palette: the commands found by what is typed.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Finder {
-    pub filter: String,
-    /// Which of those found Enter runs.
-    pub selected: usize,
-    /// Its field has taken the keyboard (once, when it opens).
-    focused: bool,
-}
-
 /// A plugin's commands in the Plugins menu at `depth` of their submenus
 /// (API 0.7's `menu`): each without a submenu there a row, each submenu
 /// once, where its first command is, holding those that name it.
@@ -1985,7 +2026,7 @@ fn menu_of(id: Id) -> Option<&'static str> {
     MENUS.iter().find(|(_, items)| has(items, id)).map(|(name, _)| *name)
 }
 
-/// What a row of the palette runs.
+/// What a command row of Quick Open runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Choice {
     Window(Id),
@@ -1997,7 +2038,7 @@ pub(crate) enum Choice {
     Project(String),
 }
 
-/// A command as the palette lists it.
+/// A command as Quick Open lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Row {
     pub(crate) choice: Choice,
@@ -2009,14 +2050,11 @@ pub(crate) struct Row {
     pub(crate) enabled: bool,
 }
 
-/// The commands the palette offers for what is typed: those whose name (as
-/// its menu shows it now) holds every word, in the menus' order, then
-/// those that need their menu's name for it (`build` finds Build Module,
-/// then the rest of the Build menu). The enabled plugins' commands are
-/// among them.
-pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
-    let needle = mg_core::text::Needle::new(filter);
-    let has_all = |text: &str| needle.finds(text);
+/// Every command Quick Open offers, in the menus' order (`quick_open`
+/// ranks them for what is typed): the window's own (Quick Open and the
+/// Command Palette aside there), the enabled plugins' commands and
+/// entries, and the open project's commands.
+pub(crate) fn found(app: &Moonglow) -> Vec<Row> {
     let window =
         Id::all().into_iter().filter(|id| *id != Id::CommandPalette && id.shown(app)).map(|id| {
             Row {
@@ -2063,117 +2101,19 @@ pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
         enabled: c.run.is_some(),
         choice: Choice::Project(c.name),
     });
-    let mut found: Vec<(bool, Row)> = window
-        .chain(plugins)
-        .chain(entries)
-        .chain(project)
-        .filter_map(|row| {
-            let name = row.label.to_lowercase();
-            let with_menu = format!("{} {name}", row.menu.to_lowercase());
-            let by_name = has_all(&name);
-            (by_name || has_all(&with_menu)).then_some((!by_name, row))
-        })
-        .collect();
-    found.sort_by_key(|(by_menu, _)| *by_menu);
-    found.into_iter().map(|(_, row)| row).collect()
+    window.chain(plugins).chain(entries).chain(project).collect()
 }
 
-/// The Command Palette's window: type part of a command's name, choose
-/// with the arrows, Enter runs it; Escape or a click outside closes it.
-pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(mut finder) = app.command_palette.take() else { return };
-    let matches = found(app, &finder.filter);
-    finder.selected = finder.selected.min(matches.len().saturating_sub(1));
-    let mut run = None;
-    let modal = egui::Modal::new(egui::Id::new("command-palette")).show(ctx, |ui| {
-        ui.set_width(440.0);
-        // The arrows and Enter choose; the rest is the field's.
-        let none = egui::Modifiers::NONE;
-        let (up, down, enter) = ui.input_mut(|i| {
-            (
-                i.consume_key(none, egui::Key::ArrowUp),
-                i.consume_key(none, egui::Key::ArrowDown),
-                i.consume_key(none, egui::Key::Enter),
-            )
-        });
-        if !matches.is_empty() {
-            let n = matches.len();
-            finder.selected = (finder.selected + usize::from(down) + (n - usize::from(up))) % n;
-        }
-        // (Escape clears the name typed, then closes the palette.)
-        let before = finder.filter.len();
-        let searched = crate::widgets::SearchField::new(
-            egui::Id::new("command-palette-find"),
-            &mut finder.filter,
-        )
-        .hint("Type a command's name")
-        .show(ui);
-        let field = searched.response;
-        if !std::mem::replace(&mut finder.focused, true) {
-            field.request_focus();
-        }
-        if field.changed() || finder.filter.len() != before {
-            finder.selected = 0;
-        }
-        if searched.left == Some(crate::widgets::FilterLeft::Escape) {
-            ui.close();
-        }
-        ui.separator();
-        if matches.is_empty() {
-            ui.weak("No command has that name.");
-        }
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                mg_uikit::list_rows(ui);
-                for (i, row) in matches.iter().enumerate() {
-                    // Its menu and its key, at the right.
-                    let key = app.keymap.label_of(&row.key_id, ui.ctx());
-                    let beside = match (row.menu.is_empty(), key.is_empty()) {
-                        (false, true) => row.menu.clone(),
-                        (false, false) => format!("{}   {key}", row.menu),
-                        (true, _) => key,
-                    };
-                    // (Beside the row chosen, on the selection's fill: in the
-                    // fill's color, `on-fill`, not the weak text's.)
-                    let mut beside = egui::RichText::new(beside);
-                    if i == finder.selected {
-                        beside = beside.color(mg_uikit::tokens(ui.ctx()).on_fill);
-                    }
-                    let entry = egui::Button::selectable(i == finder.selected, &row.label)
-                        .shortcut_text(beside);
-                    let entry = ui.add_enabled(row.enabled, entry);
-                    // (Named by the command alone, not with what is beside it.)
-                    entry.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::WidgetType::Button,
-                            row.enabled,
-                            i == finder.selected,
-                            &row.label,
-                        )
-                    });
-                    if (up || down) && i == finder.selected {
-                        entry.scroll_to_me(None);
-                    }
-                    if entry.clicked() {
-                        run = Some(row.choice.clone());
-                    }
-                }
-            });
-        });
-        if enter && let Some(row) = matches.get(finder.selected).filter(|row| row.enabled) {
-            run = Some(row.choice.clone());
-        }
-    });
-    match run {
-        Some(Choice::Window(id)) => id.run(app, ctx),
-        Some(Choice::Plugin(plugin, command)) => app.run_plugin_command(&plugin, &command),
-        Some(Choice::Entry(kind, plugin, id)) => {
+/// Runs a command as its menu row does (Quick Open's rows).
+pub(crate) fn run_choice(app: &mut Moonglow, ctx: &egui::Context, choice: Choice) {
+    match choice {
+        Choice::Window(id) => id.run(app, ctx),
+        Choice::Plugin(plugin, command) => app.run_plugin_command(&plugin, &command),
+        Choice::Entry(kind, plugin, id) => {
             app.actions.push(Action::RunPluginEntry { kind, plugin, id })
         }
         // (Saved first, asked as from File › Project.)
-        Some(Choice::Project(name)) => app.actions.push(Action::ProjectCommand(name)),
-        None if modal.should_close() => {}
-        None => app.command_palette = Some(finder),
+        Choice::Project(name) => app.actions.push(Action::ProjectCommand(name)),
     }
 }
 

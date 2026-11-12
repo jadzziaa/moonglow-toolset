@@ -1466,3 +1466,34 @@ fn the_bottom_dock_keeps_its_height_through_a_low_window() {
     let h = module_window("ui-bottom-dock-height-next", read, 1000.0, 900.0);
     assert!((high(&h) - dragged).abs() < 1.0, "{dragged} in the next run, not {}", high(&h));
 }
+
+/// A press on Quick Open's popover over a hak's editor is no work in the
+/// editor (the popover is on a layer of its own, in front): Undo stays
+/// the module's.
+#[test]
+fn a_press_on_quick_open_over_an_editor_leaves_undo_where_it_was() {
+    let mut h = undo_harness("ui-top-bar-undo-quick-open", true);
+    let tree = tree_row(&h);
+    work_at(&mut h, tree);
+    undo_is_the_module_s(&mut h, tree, Some(1));
+    // (The hak's window under where the popover opens.)
+    let hak = hak_tab(&h);
+    own_window(&mut h, &hak, egui::pos2(500.0, 40.0), egui::vec2(900.0, 900.0));
+    settle(&mut h);
+    // (Every command: Redo, grayed, among them, further down.)
+    command_palette(&mut h, "");
+    let row = quick_open_row(&h, "Redo").rect();
+    let at = h.state().dock.find_tab(&hak).unwrap();
+    let pane = egui_dock::NodePath { surface: at.surface, node: at.node };
+    let view = h.state().dock.leaf(pane).unwrap().viewport;
+    assert!(view.contains(row.center()), "the row {row:?} over the hak's editor {view:?}");
+    // (A grayed row: the press runs nothing, and Quick Open stays.)
+    work_at(&mut h, row.center());
+    assert!(h.state().quick_open.is_open());
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    undo_is_the_module_s(&mut h, tree, Some(1));
+    // (The same press with Quick Open closed is work in the hak.)
+    work_at(&mut h, row.center());
+    undo_is_the_hak_s(&mut h, tree);
+}

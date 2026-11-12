@@ -283,7 +283,10 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.get_by_label("None saved yet");
     h.get_by_label("Save This Lighting…").click();
     h.run_steps(3);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Dusk");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Dusk");
     h.run_steps(2);
     apart(&h, "Save").click();
     h.run_steps(2);
@@ -331,11 +334,17 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     open_menu(&mut h, "Rename");
     h.get_all_by_label("Dusk").last().unwrap().click();
     h.run_steps(3);
-    let input = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap();
+    let input = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     input.focus();
     h.run_steps(1);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Evening");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Evening");
     h.run_steps(2);
     h.get_by_label("Rename").click();
     h.run_steps(2);
