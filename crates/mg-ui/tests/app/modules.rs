@@ -1654,7 +1654,7 @@ fn turkish_harness(name: &str, table: bool) -> Option<(Harness<'static, Moonglow
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let h = harness(app, 1000.0, 800.0);
     Some((h, key))
 }

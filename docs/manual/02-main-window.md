@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T10:40:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
 ---
 
 # The main window
@@ -12,13 +12,15 @@ From top to bottom: the **Top Bar** (the menus and the common
 commands, in one row), then the **Left Dock** with its two panels, each
 on a tab of its own (**Module**, the module tree, and **Resources**, the
 resource browser), the
-**tabs** in the middle and the **palette** on the right, the **log** in
-the Bottom Dock under the tabs, and the **Status Bar** (the log's
+**tabs** in the middle and the **Right Dock** with the **Palette** panel
+on the right, the **log** in the Bottom Dock under the tabs, and the
+**Status Bar** (the log's
 switch at its left; the module's name, "(modified)" while there are
 unsaved changes, and the game's folder at its right: rest the pointer
 on the name for the module's file, on the folder for its whole path).
-The palette opens with each module, as wide as the module tree. If you
-close it, **Tools › Palettes** brings it back.
+The palette comes with each module, in the Right Dock, 320 points wide
+at first. If you fold the dock away, **Tools › Palettes** brings it
+back.
 
 The Top Bar's buttons are icons: **New**, **Open** and **Save** after
 the menus, then **Undo** and **Redo**; at its right end **Compile**,
@@ -45,8 +47,8 @@ plus) are icons on the Module panel's tab bar, beside **Expand All** and
 **Collapse All**; **Start** is **View ›
 Go to Start Location** (the area view's Go to Start Location and its
 Start filter show its circled arrow); **Resources** is the Left Dock's
-Resources tab (also Tools › Resource Browser); **Palettes** is in the
-Tools menu; **Preview** is Preview
+Resources tab (also Tools › Resource Browser); **Palettes** is the
+Right Dock's Palette panel (also Tools › Palettes); **Preview** is Preview
 Window in the Command Palette (**Help › Command Palette…**,
 Ctrl+Shift+P). Each kind of object has one icon wherever it appears: on
 the area view's toolbar and in the palette's row of types.
@@ -57,7 +59,7 @@ the area view's toolbar and in the palette's row of types.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Left Dock (the Module and Resources panels), Palettes Panel, Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
+| View | Left Dock (the Module and Resources panels), Right Dock (the Palette panel), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
@@ -199,8 +201,8 @@ changes them; the menus show the current keys.
 | Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane (the Left Dock's panel shown, the middle, the palettes, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
-| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the palettes, the log |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's palette, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
+| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
 
@@ -455,11 +457,11 @@ terminal, `mg gff --names` names them the same way (a faction with
 --where` and `mg areas --set` take a row's label or name in place of its
 number.
 
-**The docks and the panes beside the middle** (the module tree and the
-resource browser in the Left Dock, the palettes on the right, the log
-in the Bottom Dock) fold
+**The docks beside the middle** (the module tree and the resource
+browser in the Left Dock, the palettes in the Right Dock, the log in
+the Bottom Dock) fold
 away to give the area's view the room: **View** has each (Left Dock,
-whichever of its panels it shows; Palettes Panel; Log), ticked while
+whichever of its panels it shows; Right Dock; Log), ticked while
 shown, and **Hide All Panels**. Each also has one control of its own for
 it. The **Left Dock** has a small arrow beside its inner edge, by the
 middle, half way down (**Fold the Left Dock**), clear of the dock's
@@ -472,16 +474,18 @@ brings the dock back on the panel it showed. At the strip's top is a
 button for each of its panels (**Module**, a box; **Resources**, a
 folder), which brings it back on that panel. It comes back as wide as
 it was. Its panels stay in it: neither can be
-dragged to another side or into the middle. The **palettes** have an arrow on the edge they face
-the middle by, halfway along it, pointing the way the pane goes; folded
-away they leave a thin strip at that edge, with the same button in the
-same place, pointing the other way. Palettes you moved to the left of
-the middle have their button on their right edge and leave their strip
-on the left. Closing the palettes' pane by its close button folds it
-away the same. The **log** opens and closes by its switch, **Log**, at
+dragged to another side or into the middle. The **Right Dock** is the
+same, mirrored: its arrow beside its inner (left) edge, half way down
+(**Fold the Right Dock**), its edge dragged above or below it to make it
+wider (at least 280 points, at most two fifths of the window); folded,
+a thin strip at the window's right with **Show the Right Dock** beside
+its edge and a button for its panel (**Palette**). It holds the
+palettes, which stay there: they can no longer be dragged into the
+middle, to the left or into a window of their own. The **log** opens and closes by its switch, **Log**, at
 the left of the Status Bar, lit while the log is open; it comes back as
 high as it was. What is folded stays so the next time Moonglow starts.
-**View › Reset Layout** shows all three at the sizes they have at first.
+**View › Reset Layout** shows all three docks at the sizes they have at
+first.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -528,8 +532,8 @@ editors, scripts, conversations, previews, Module Properties, the Faction
 and Journal Editors, a resource opened read-only, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
 put. Drag a window by its tab into the main pane, or beside another, to
-dock it; drag a tab out to float it again. The palettes keep their pane on
-the right. A dialog (a question, a picker such as Select Portrait, a
+dock it; drag a tab out to float it again. The palettes are not a tab:
+they are the Right Dock's panel. A dialog (a question, a picker such as Select Portrait, a
 wizard) opens in the middle of the main window and is moved by its
 title. **Escape** closes the window in front: a dialog (as its Cancel
 or close button does; a picker opened from a Properties window closes
@@ -583,14 +587,15 @@ place that can't be written), it is asked again, saying why. A hak,
 2DA or tileset open when another module is opened stays open.
 
 **A window opens where one of its kind was last dragged to.** Drag a
-window by its tab into the main pane (beside the areas' tabs) or into
-the palettes' pane, and the next window of that kind (the next script,
+window by its tab into the main pane (beside the areas' tabs), and the
+next window of that kind (the next script,
 the next conversation, the Faction Editor again) opens there as a tab,
 not as a window over the area. Dropped on a side of the main pane (a
 pane of its own split off its left, right, top or bottom), the next
-opens in a pane split off that side again, as large as it was; the
-palettes, split off another side than their right, come back there when
-they are shown again. Drag one out to a window of its own and the next
+opens in a pane split off that side again, as large as it was. (A kind
+kept in the palettes' pane, before the palettes were the Right Dock's
+panel, opens where its kind opens, a window of its own at first.) Drag
+one out to a window of its own and the next
 opens as a window again. This is kept between runs; **View › Reset
 Layout** forgets it.
 
@@ -706,8 +711,9 @@ The swatch's right-click menu has **Copy Color** and **Paste Color** too.
 
 ## The palette
 
-The right-hand pane is Aurora's palette: choose a blueprint type (the
-row of icons at its top),
+The Right Dock's **Palette** panel is Aurora's palette: choose a
+blueprint type (the row of icons at its top, in two rows where the dock
+is narrow),
 **Standard** (the game's blueprints) or **Custom** (the module's), and a
 blueprint from the categories. Click in an area to place the chosen
 blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the

@@ -663,6 +663,43 @@ fn resources_panel(h: &mut App<'_>, r: &mut Report, what: &str) {
 }
 
 /// Opens `tab`, times it and closes it.
+/// Shows the palettes: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it. Loudly: they must be shown.
+fn show_palette(h: &mut App<'_>) {
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Palette));
+    h.run_steps(3);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Palette), "palettes not shown");
+    assert!(palette_rect(h).is_some(), "the Right Dock is not drawn");
+}
+
+/// Folds the palettes away: the Right Dock folded, as View › Right Dock
+/// folds it.
+fn fold_palette(h: &mut App<'_>) {
+    h.state_mut().actions.push(Action::FoldPalettes);
+    h.run_steps(2);
+}
+
+/// Where the palettes are drawn, while they are shown: the Right Dock's
+/// panel, under its tab bar (loudly: its fold button and tab must be
+/// there).
+fn palette_rect(h: &App<'_>) -> Option<egui::Rect> {
+    let dock = h.state().right_dock_rect()?;
+    h.query_by_label("Fold the Right Dock")?;
+    // (Under its tab bar: the Palette tab's.)
+    let tab =
+        (h.query_all_by_label("Palette")).map(|n| n.rect()).find(|r| dock.contains(r.center()))?;
+    Some(dock.with_min_y(tab.bottom()))
+}
+
+/// Times the palettes with the pointer and the wheel over them: shown,
+/// timed, folded away again.
+fn palette_view(h: &mut App<'_>, r: &mut Report, what: &str) {
+    show_palette(h);
+    let rect = palette_rect(h);
+    view_in(h, r, what, rect, |_, _| {});
+    fold_palette(h);
+}
+
 fn tab(h: &mut App<'_>, r: &mut Report, what: &str, tab: Tab) {
     open(h, tab.clone());
     view(h, r, what, Some(&tab));
@@ -902,8 +939,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     });
     // The tiles palette beside it with a search being typed: a letter
     // more each frame (the tileset searched again as each is).
-    h.state_mut().actions.push(Action::OpenTab(Tab::Palette));
-    h.run_steps(2);
+    show_palette(h);
     view_with(h, r, &format!("{name}, tiles palette searched as typed"), None, |app, n| {
         const TYPED: &str = "corner wall";
         let p = &mut app.palette;
@@ -914,7 +950,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         let p = &mut h.state_mut().palette;
         (p.tiles, p.filter) = (false, String::new());
     }
-    close(h, &Tab::Palette);
+    fold_palette(h);
     // Every object selected (Ctrl+A) and the ground's walkmesh shown,
     // turning: the overlays drawn for each, each frame.
     if let Some(v) = h.state_mut().area_views.get_mut(&area)
@@ -1552,7 +1588,7 @@ fn frames_at_144() {
     // frame, whatever is worked on in front of it), for each view's own
     // cost.
     view(&mut h, &mut r, "module as it opens (an area, the palettes)", None);
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     view(&mut h, &mut r, "module with its area, nothing else", None);
     let shown: Vec<Tab> = h
@@ -1588,14 +1624,14 @@ fn frames_at_144() {
         for custom in [false, true] {
             palette(&mut h, kind, custom, "");
             let which = if custom { "custom" } else { "standard" };
-            tab(&mut h, &mut r, &format!("{which} {name} palette"), Tab::Palette);
+            palette_view(&mut h, &mut r, &format!("{which} {name} palette"));
         }
     }
     // (A search opens every category with a find in it.)
     palette(&mut h, BlueprintKind::Placeable, false, "a");
-    tab(&mut h, &mut r, "standard placeable palette, searched for \"a\"", Tab::Palette);
+    palette_view(&mut h, &mut r, "standard placeable palette, searched for \"a\"");
     palette(&mut h, BlueprintKind::Item, false, "e");
-    tab(&mut h, &mut r, "standard item palette, searched for \"e\"", Tab::Palette);
+    palette_view(&mut h, &mut r, "standard item palette, searched for \"e\"");
     // The Gallery: its pictures are made a few a frame, then kept; their
     // models and textures read apart, as the desktop app reads them.
     let background = h.state().background_jobs;
@@ -1604,10 +1640,11 @@ fn frames_at_144() {
     for (side, what) in [(128, "Gallery"), (64, "Gallery, smallest pictures")] {
         h.state_mut().settings.gallery_tile = Some(side);
         palette(&mut h, BlueprintKind::Placeable, false, "a");
-        open(&mut h, Tab::Palette);
+        show_palette(&mut h);
         h.run_steps(300);
-        view(&mut h, &mut r, &format!("standard placeable palette, {what}"), Some(&Tab::Palette));
-        close(&mut h, &Tab::Palette);
+        let rect = palette_rect(&h);
+        view_in(&mut h, &mut r, &format!("standard placeable palette, {what}"), rect, |_, _| {});
+        fold_palette(&mut h);
     }
     h.state_mut().settings.palette_gallery = false;
     h.state_mut().settings.gallery_tile = None;
@@ -1667,7 +1704,7 @@ fn frames_at_144_in_a_persistent_world() {
     app.open_module(&w.module);
     let mut h = harness(app, rs);
     h.run_steps(3);
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     let shown: Vec<Tab> = h
         .state()
@@ -1699,11 +1736,11 @@ fn frames_at_144_in_a_persistent_world() {
     click(&mut h, "Collapse All");
 
     palette(&mut h, BlueprintKind::Item, true, "");
-    tab(&mut h, &mut r, "custom item palette (8,000)", Tab::Palette);
+    palette_view(&mut h, &mut r, "custom item palette (8,000)");
     palette(&mut h, BlueprintKind::Item, true, "pw_i");
-    tab(&mut h, &mut r, "custom item palette, all 8,000 shown", Tab::Palette);
+    palette_view(&mut h, &mut r, "custom item palette, all 8,000 shown");
     palette(&mut h, BlueprintKind::Placeable, false, "pw placeable");
-    tab(&mut h, &mut r, "standard placeable palette (+10,000)", Tab::Palette);
+    palette_view(&mut h, &mut r, "standard placeable palette (+10,000)");
     h.state_mut().palette.filter.clear();
 
     let store = Tab::Blueprint(ResKey::parse("pw_store", ResType::UTM).unwrap());
@@ -1905,7 +1942,7 @@ fn reload_frames_at_144() {
     println!("a large nasher project: opened in {:.1?}", t.elapsed());
     let mut h = harness(app, rs);
     h.run_steps(3);
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     view(&mut h, &mut r, "large nasher project open (21,000 files)", None);
 
@@ -2474,7 +2511,7 @@ fn shaders_opening(
 /// then taken apart, off and on.
 fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
     h.run_steps(3);
-    close(h, &Tab::Palette);
+    fold_palette(h);
     close(h, &Tab::ModuleProperties);
     let shown: Vec<Tab> = h
         .state()

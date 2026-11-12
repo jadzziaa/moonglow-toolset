@@ -2,8 +2,8 @@
 //! Open a module with the tabs it had): the areas, scripts, blueprints,
 //! conversations, side editors and tools that were open when it was
 //! closed open again with it, in their order and their places (the
-//! middle, the palettes' pane, a pane split off the middle, a window of
-//! their own where it was, split as it was), each pane's tab in front in
+//! middle, a pane split off the middle, a window of their own where it
+//! was, split as it was), each pane's tab in front in
 //! front, and each view as it was left: an area's camera, a model view's,
 //! a script's scroll and cursor, a conversation's selected line,
 //! bookmarks and folded branches, a Properties window's page, a hak's
@@ -59,8 +59,10 @@ struct Record {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 struct Pane {
-    /// `middle`, `palettes`, `split left 300` (the side of the middle, and
-    /// thousandths of the two) or `window`.
+    /// `middle`, `split left 300` (the side of the middle, and thousandths
+    /// of the two) or `window`. (`palettes`, the palettes' pane's, written
+    /// before they were the Right Dock's panel, is read as "where its kind
+    /// opens".)
     place: String,
     tabs: Vec<String>,
     /// The tab in front.
@@ -228,7 +230,7 @@ struct TilesWaiting {
 #[derive(Debug, Default)]
 pub(crate) struct OpenTabs {
     /// The tabs kept, to open once the module's first frame has drawn
-    /// its panes (the palettes' among them), the one in front, and what
+    /// its panes, the one in front, and what
     /// the views showed and the placed objects were.
     pending: Option<Pending>,
     /// What the views opened again showed, until each is first drawn and
@@ -405,9 +407,8 @@ fn parse_row(text: &str) -> Option<Row> {
 }
 
 /// How a tab that is a [`Tab`] as it is, is kept; `None` for those that
-/// are not: the start page, the pane that says no area is open, the
-/// palettes (shown or folded away as they were left, for every module),
-/// what shows the result of a search, and those whose text needs the app
+/// are not: the start page, the pane that says no area is open, what
+/// shows the result of a search, and those whose text needs the app
 /// ([`Moonglow::tab_text`]).
 fn plain_text(tab: &Tab) -> Option<String> {
     Some(match tab {
@@ -441,7 +442,6 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::PluginPanel { plugin, panel } => format!("plugin-panel:{plugin}/{panel}"),
         Tab::Welcome
         | Tab::NoArea
-        | Tab::Palette
         | Tab::TileProperties
         | Tab::References
         | Tab::Hak(_)
@@ -454,6 +454,12 @@ fn plain_text(tab: &Tab) -> Option<String> {
 /// Left Dock's Resources panel (the redesign's M3 T4): a record that has
 /// it shows the panel ([`Moonglow::read_open_tabs`]); nothing writes it.
 const RESOURCES_TAB: &str = "resources";
+
+/// The palettes' tab, before the palettes were the Right Dock's Palette
+/// panel (M3 T5). No Moonglow wrote it (the palettes were shown or folded
+/// for every module, not kept with a module's tabs); a record that has it
+/// shows the panel all the same, and nothing writes it.
+const PALETTE_TAB: &str = "palette";
 
 /// The tab a text names.
 fn parse_tab(text: &str) -> Option<Want> {
@@ -813,9 +819,15 @@ impl Moonglow {
         // (The resource browser, a tab before it was the Left Dock's
         // Resources panel: the panel shown, the tab never kept again.)
         let mut resources = false;
+        // (And the palettes', the Palette panel.)
+        let mut palette = false;
         let mut found = |text: &str| -> Option<(String, Want)> {
             if text == RESOURCES_TAB {
                 resources = true;
+                return None;
+            }
+            if text == PALETTE_TAB {
+                palette = true;
                 return None;
             }
             let passed = |why: &str| trace::note(format!("open tabs: {text} passed over: {why}"));
@@ -871,7 +883,10 @@ impl Moonglow {
             panes.push(Kept { place: Place::parse(&pane.place), tabs, active, rect, split });
         }
         if resources {
-            self.show_left_panel(crate::Panel::Resources);
+            self.show_dock_panel(crate::Panel::Resources);
+        }
+        if palette {
+            self.show_dock_panel(crate::Panel::Palette);
         }
         if panes.is_empty() {
             return false;
@@ -1052,11 +1067,7 @@ impl Moonglow {
                 panes.push(Pane { place: Place::Window.text(), tabs, active, rect, split });
                 continue;
             }
-            let place = if leaf.tabs.contains(&Tab::Palette) {
-                Place::Palettes
-            } else {
-                self.split_of(path.node).unwrap_or(Place::Middle)
-            };
+            let place = self.split_of(path.node).unwrap_or(Place::Middle);
             panes.push(Pane { place: place.text(), tabs, active, ..Default::default() });
         }
         // Tile Properties still waiting for its area's view (its tab not
@@ -1118,12 +1129,6 @@ impl Moonglow {
     /// first; then, the tabs written whenever they change, and a second
     /// after the windows were last moved or resized.
     pub(crate) fn open_tabs_frame(&mut self, ctx: &egui::Context) {
-        // (Not in the frame a module was opened in from a menu: its
-        // palettes' pane opens at the next, as the module tree shows.)
-        if self.open_tabs.pending.is_some() && self.open_palette && self.ws.is_some() {
-            ctx.request_repaint();
-            return;
-        }
         if let Some(Pending { panes, front, views }) = self.open_tabs.pending.take() {
             if self.ws.is_some() {
                 self.restore_tabs(panes, front, views);
@@ -1232,7 +1237,6 @@ impl Moonglow {
             Some(Place::Middle) => (self.dock.find_tab(&Tab::NoArea))
                 .map(|p| NodePath { surface: p.surface, node: p.node })
                 .or_else(|| middle(self)),
-            Some(Place::Palettes) => pane_of(self, &Tab::Palette),
             Some(Place::Split(side, share)) => self.split_middle(side, share, &first),
             Some(Place::Window) => {
                 // (Its panes as they were, if all their tabs are to come.)
@@ -1493,12 +1497,13 @@ mod tests {
             let text = plain_text(&tab).unwrap();
             assert_eq!(parse_tab(&text), Some(Want::Tab(tab)), "{text}");
         }
-        assert_eq!(plain_text(&Tab::Palette), None);
         assert_eq!(parse_tab("script:"), None);
         assert_eq!(parse_tab("something-new:x"), None);
         // (The resource browser's tab of before: not a tab now, the
         // Resources panel shown by `read_open_tabs`.)
         assert_eq!(parse_tab(RESOURCES_TAB), None);
+        // (Nor the palettes': the Palette panel shown.)
+        assert_eq!(parse_tab(PALETTE_TAB), None);
         // The side editors' files, and what the tools showed.
         let wants = [
             ("hak:/x/my.hak", Want::Hak("/x/my.hak".into())),
@@ -1522,10 +1527,12 @@ mod tests {
 
     #[test]
     fn places_are_named_and_read_back() {
-        for place in [Place::Window, Place::Middle, Place::Palettes, Place::Split(Side::Above, 300)]
-        {
+        for place in [Place::Window, Place::Middle, Place::Split(Side::Above, 300)] {
             assert_eq!(Place::parse(&place.text()), Some(place));
         }
+        // (The palettes' pane, a place before the palettes were the Right
+        // Dock's panel: no place now, "where its kind opens".)
+        assert_eq!(Place::parse("palettes"), None);
         assert_eq!(Place::parse("split sideways 300"), None);
         assert_eq!(Place::parse("split left 2000"), Some(Place::Split(Side::Left, 950)));
     }

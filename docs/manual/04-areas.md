@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
 ---
 
 # Areas
@@ -1008,7 +1008,7 @@ laid than are drawn.
 
 ## Painting terrain
 
-Choose **Tiles** in the palette pane to paint the area with its tileset,
+Choose **Tiles** in the palette (the Right Dock) to paint the area with its tileset,
 as Aurora's Terrain tab does:
 
 - **Terrain brushes** (grass, water, cliffs… whatever the tileset has)

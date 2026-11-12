@@ -2438,7 +2438,7 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     h.state_mut().palette.tiles = false;
     h.state_mut().palette.filter = "nw_wp_tavern".into();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     let count = |h: &mut Harness<'_, Moonglow>| {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -2703,10 +2703,22 @@ fn w_a_s_d_drive_the_camera_like_the_arrows() {
     hold(&mut h, egui::Key::W, none);
     let by_w = target(&h) - start;
     assert!((by_w - by_arrow).length() < 0.05 * by_arrow.length(), "{by_w} like {by_arrow}");
-    // Ctrl+W is not a move.
+    // Ctrl+W is not a move. (It is Close Tab: the area's, in front of the
+    // middle, which is opened again. Before the palettes were the Right
+    // Dock's panel, M3 T5, it closed the palettes' tab, the one with the
+    // focus.)
     let start = target(&h);
     hold(&mut h, egui::Key::W, egui::Modifiers::COMMAND);
     assert_eq!(target(&h), start);
+    if h.state().dock.find_tab(&Tab::Area(area)).is_none() {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        h.run_steps(3);
+        h.hover_at(centre);
+        h.run_steps(2);
+    }
+    let start = target(&h);
+    hold(&mut h, egui::Key::W, none);
+    let by_w = target(&h) - start;
     // The pointer gone to the module tree: the keys still drive the view.
     h.hover_at(egui::pos2(60.0, 300.0));
     h.run_steps(2);
@@ -4376,7 +4388,7 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
     let Some((mut h, area)) = area_harness("wheel-window") else { return };
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = BlueprintKind::Placeable;
         app.palette.tiles = false;
     }
@@ -6554,12 +6566,13 @@ fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
 fn what_follows_the_pointer_stops_under_a_window() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness_on("under-window", "tic01", None) else { return };
-    // The palette in a window of its own, out of the way for now (the
-    // view as wide as it will be).
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    // A window of its own (the Faction Editor's: the palettes, the window
+    // of before, are the Right Dock's panel and have none), out of the way
+    // for now (the view as wide as it will be).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     h.run_steps(3);
     let size = egui::vec2(300.0, 260.0);
-    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // A tile copied and about to be pasted.
     area_tool(&h, "Select Tiles").click();
@@ -6592,7 +6605,7 @@ fn what_follows_the_pointer_stops_under_a_window() {
     assert!(h.state().area_views[&area].pointer.is_some(), "the coordinates over the view");
     // The window moved over the view, the pointer on it near its left
     // edge: the tile under the pointer lies partly outside the window.
-    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    own_window(&mut h, &Tab::Factions, centre - egui::vec2(20.0, size.y / 2.0), size);
     h.run();
     h.hover_at(centre + egui::vec2(10.0, 0.0));
     h.run_steps(3);
@@ -7827,10 +7840,12 @@ fn a_paste_s_outlines_stop_under_a_window_as_its_copies_do() {
     use glam::Vec3;
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("paste-under-window") else { return };
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    // (A window of its own: the Faction Editor's, the palettes' of before
+    // being the Right Dock's panel.)
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     h.run_steps(3);
     let size = egui::vec2(300.0, 260.0);
-    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // The two waypoints copied, about to be pasted.
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
@@ -7859,7 +7874,7 @@ fn a_paste_s_outlines_stop_under_a_window_as_its_copies_do() {
     assert!(over > 50, "the outlines over the view: {over}");
     assert_eq!(h.state().area_views[&area].pasted_shown, 2, "and the copies");
     // The window over the view, the pointer on it near its left edge.
-    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    own_window(&mut h, &Tab::Factions, centre - egui::vec2(20.0, size.y / 2.0), size);
     h.run();
     h.hover_at(centre + egui::vec2(10.0, 0.0));
     h.run_steps(3);

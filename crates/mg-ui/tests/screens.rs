@@ -331,7 +331,7 @@ fn module_properties_haks() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -375,7 +375,7 @@ fn window_bar_maximize_and_an_older_hak() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -443,7 +443,7 @@ fn nwsync_publish_and_prune() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.background_jobs = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 640.0))
@@ -680,7 +680,7 @@ fn add_hak_filtered() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))
         .wgpu()
@@ -750,7 +750,7 @@ fn widgets_keys_searches_and_arrows() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 700.0))
         .wgpu()
@@ -1523,7 +1523,7 @@ fn talk_table_new_in_a_project() {
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 600.0))
         .wgpu()
@@ -2041,7 +2041,7 @@ fn area_creatures_game_shaders() {
         app.settings.game_shaders = Some(on);
         app.set_render_state(rs.clone());
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1400.0, 900.0))
@@ -2108,7 +2108,7 @@ fn palette_hover_preview() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     app.palette.tiles = false;
     app.palette.filter = "plc_chest1".into();
@@ -2198,7 +2198,7 @@ fn palettes() {
     let dir = mg_testkit::output_dir("screens");
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.filter = "bear".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
@@ -2227,7 +2227,7 @@ fn gallery_framed() {
     app.set_render_state(rs.clone());
     app.settings.palette_gallery = true;
     app.settings.game_shaders = Some(false);
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -2293,7 +2293,7 @@ fn palette_blueprint_copied_in() {
     app.settings.no_mod_beside_folder = true;
     app.settings.palette_gallery = false;
     app.open_module(&folder);
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Item;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -2679,7 +2679,7 @@ fn dds_only_icon() {
         );
         app.set_render_state(rs.clone());
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         let key = ResKey::parse(&format!("mg_icon_{n}"), ResType::UTI).unwrap();
         app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
@@ -2798,7 +2798,7 @@ fn pictured_blueprint(
     let path = dir.join(format!("{name}-pictured.mod"));
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let key = ResKey::parse(name, t).unwrap();
     app.blueprint_pages.insert((key, GffPath::root()), page);
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
@@ -3034,7 +3034,7 @@ fn shown_on_a_woman() {
         app.palette.kind = mg_module::palette::BlueprintKind::Item;
         (app.palette.tiles, app.palette.custom) = (false, false);
         app.palette.filter = "nw_aarcl0".into();
-        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+        show_palette(app);
     }
     for woman in [false, true] {
         h.state_mut().settings.armor_on_woman = woman;
@@ -3055,7 +3055,7 @@ fn appearance_list_opened() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
-    app.open_palette = false;
+    app.palette_dock = false;
     let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
     let mut h = Harness::builder()
@@ -3105,7 +3105,7 @@ fn cast_spell_subtypes_opened() {
     let path = dir.join(format!("{name}.mod"));
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let key = ResKey::parse(name, t).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
     let mut h = Harness::builder()
@@ -3427,7 +3427,7 @@ fn inventory_pages_narrow() {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.settings.no_inventory_warning = true;
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         let (key, at) = match &tab {
             mg_ui::Tab::Instance { path, .. } => (git, path.clone()),
             _ => (bandit, GffPath::root()),
@@ -3464,7 +3464,7 @@ fn classes_narrow() {
     let path = mg_testkit::scratch_dir("screens-classes-narrow").join("classes.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.blueprint_pages.insert((key, GffPath::root()), "Classes");
     let tab = mg_ui::Tab::Blueprint(key);
     app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -3504,7 +3504,7 @@ fn gallery_far_appearance() {
     let path = mg_testkit::scratch_dir("screens-gallery-far").join("gallery.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
@@ -3536,7 +3536,7 @@ fn viewed_blueprint_typing() {
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
         .wgpu()
@@ -3627,7 +3627,7 @@ fn mixed_marks() {
         let path = mg_testkit::scratch_dir("screens-mixed-marks").join(format!("{name}.mod"));
         m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1000.0, 760.0))
@@ -3806,7 +3806,7 @@ fn lists_together() {
         let path = mg_testkit::scratch_dir("screens-lists-together").join(format!("{slug}.mod"));
         m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
         app.blueprint_pages.insert((keys[0], GffPath::root()), page);
         let mut h = Harness::builder()
@@ -4132,11 +4132,11 @@ fn script_beside_the_palette_pane() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    for tab in [
-        mg_ui::Tab::Palette,
-        mg_ui::Tab::Manual,
-        mg_ui::Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap()),
-    ] {
+    show_palette(h.state_mut());
+    h.run();
+    for tab in
+        [mg_ui::Tab::Manual, mg_ui::Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap())]
+    {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
         h.run();
     }
@@ -4967,7 +4967,7 @@ fn conversation_and_factions_in_both_themes() {
         app.settings.no_last_area = true;
         app.settings.light_theme = light;
         app.open_module(&root.join("data/nwm/Prelude.nwm"));
-        app.open_palette = false;
+        app.palette_dock = false;
         let dlg = ResKey::parse("m0q01a02olge", ResType::DLG).unwrap();
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(dlg)));
         let mut h = Harness::builder()
@@ -5135,7 +5135,7 @@ fn exact_tiles_and_tile_height() {
     h.run_steps(3);
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(5);
     if let Some(row) = h.query_by_label("Palette types") {
         row.get_by_label("Tiles").click();
@@ -5603,7 +5603,7 @@ fn palette_categories_window() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -5788,7 +5788,7 @@ fn creature_appearance_inline() {
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
-    app.open_palette = false;
+    app.palette_dock = false;
     let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
     app.blueprint_pages.insert((utc, mg_edit::GffPath::root()), "Appearance");
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
@@ -6087,7 +6087,7 @@ fn area_properties_advanced() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Advanced");
     // (A loading screen with a picture, to see it under the choice.)
@@ -6139,7 +6139,7 @@ fn area_properties_grass() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Grass");
     let git = ResKey::new(area, ResType::GIT);
@@ -6750,7 +6750,7 @@ fn readme_screenshots() {
         app.open_module(&chapter);
         // (The area's shot opens the palette beside it; the others are
         // windows alone.)
-        app.open_palette = false;
+        app.palette_dock = false;
         let mut h = Harness::builder()
             .with_size(egui::vec2(1600.0, 960.0))
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -6765,7 +6765,7 @@ fn readme_screenshots() {
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.run_steps(3);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(h.state_mut());
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
     h.state_mut().palette.tiles = false;
     h.run_steps(5);
@@ -6959,7 +6959,7 @@ fn plugin_kinds() {
         app.enable_plugin(id, true);
     }
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -7074,7 +7074,7 @@ fn project_plugins() {
         Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
     app.load_plugins();
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))
         .wgpu()
@@ -7990,7 +7990,7 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
     for (name, folder) in [("aurora", &plain), ("project", &project)] {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.open_module(folder);
-        app.open_palette = false;
+        app.palette_dock = false;
         mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
         if name == "aurora" {
             app.store_wizard.as_mut().unwrap().store =
@@ -8132,7 +8132,7 @@ fn variable_sets() {
     let path = scratch.join("sets.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.var_set_dir = Some(sets.clone());
     let mut edit = VarTableEdit::new(FieldTarget::new(key, GffPath::root(), "VarTable"), &[]);
     edit.rows = vec![row("MG_LOOT", 1, "9"), row("MG_GREETING", 3, "Well met")];
@@ -8230,7 +8230,7 @@ fn described_variables_and_the_builder_code() {
     for (name, folder) in [("plain", &plain), ("described", &project)] {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.open_module(folder);
-        app.open_palette = false;
+        app.palette_dock = false;
         let path = GffPath::root().item("Placeable List", 0);
         let mut edit = VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]);
         edit.rows = rows();
@@ -8329,7 +8329,7 @@ fn claims_and_project_commands() {
     app.settings.game_shaders = Some(false);
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(areas[0])));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 760.0))
@@ -8428,7 +8428,7 @@ fn plugin_save_warning() {
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.plugin_dir =
         Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples"));
     app.load_plugins();
@@ -8495,7 +8495,7 @@ fn armor_part_none() {
     let path = dir.join("armor.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
     app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
     let mut h = Harness::builder()
@@ -8584,7 +8584,7 @@ fn pictures_a_hak_and_the_module_both_have() {
     );
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
         .wgpu()
@@ -8637,7 +8637,7 @@ fn browser_overridden_copies() {
     );
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
     app.browser.filter = "portraits".into();
     let mut h = Harness::builder()
@@ -8714,23 +8714,9 @@ fn panes_folded() {
         shoot(&mut h, &dir, &format!("panes{name}-all-folded"));
         h.key_press_modifiers(keys, egui::Key::Num0);
         h.run_steps(4);
-        if !name.is_empty() {
-            continue;
-        }
-        // The palettes split off the middle's left: their button on their
-        // right edge, and their strip at the left.
-        {
-            let dock = &mut h.state_mut().dock;
-            let palettes = dock.find_tab(&mg_ui::Tab::Palette).unwrap();
-            dock.remove_tab(palettes);
-            let node = dock.find_tab(&mg_ui::Tab::Area(area)).unwrap().node;
-            dock.main_surface_mut().split_left(node, 0.25, vec![mg_ui::Tab::Palette]);
-        }
-        h.run_steps(4);
-        shoot(&mut h, &dir, "panes-palettes-left-shown");
-        h.key_press_modifiers(keys, egui::Key::Num2);
-        h.run_steps(4);
-        shoot(&mut h, &dir, "panes-palettes-left-folded");
+        // (The palettes split off the middle's left, the pictures
+        // `panes-palettes-left-*` of before: the palettes are the Right
+        // Dock's panel since M3 T5, fixed there by ruling R5.)
     }
 }
 
@@ -8964,7 +8950,7 @@ fn talk_table_kept_in_a_project() {
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -9013,7 +8999,7 @@ fn area_properties_audio_dropdown() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Audio");
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
@@ -9104,7 +9090,7 @@ fn appearance_dropdown_frames() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let data = app.game.as_deref().unwrap().resman.get_named("plc_chest1", ResType::UTP).unwrap();
     let key = ResKey::parse("chest_width", ResType::UTP).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(data.into_owned()) };
@@ -9182,7 +9168,7 @@ fn area_shadows_menu() {
         app.settings.toolbar_icons_only = icons_only;
         app.set_render_state(rs.clone());
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1400.0, 700.0))
@@ -9223,7 +9209,7 @@ fn main_window_log_and_tree() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
-    app.open_palette = false;
+    app.palette_dock = false;
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     for n in 0..30 {
         app.log.info(format!("Line {n} of what was said"));
@@ -9396,7 +9382,7 @@ fn open_script_menu() {
     app.settings.no_last_area = true;
     app.settings.tree_stays = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(hello)));
     let mut h = Harness::builder()
@@ -9437,7 +9423,7 @@ fn script_selection_menu() {
     app.settings.no_last_area = true;
     app.settings.tree_stays = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 600.0))
@@ -9567,7 +9553,7 @@ fn setup_store_project_blueprint_far_down() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
@@ -9707,7 +9693,7 @@ fn dialog_windows() {
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&folder);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -9850,7 +9836,7 @@ fn editors_ok_and_cancel() {
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .wgpu()
@@ -9925,7 +9911,7 @@ fn properties_window_at_125_percent() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let tab = mg_ui::Tab::AreaProperties(area);
     app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
     let mut h = Harness::builder()
@@ -10114,7 +10100,7 @@ fn typed_text_talk_table() {
     app.settings.no_last_area = true;
     app.settings.talk_typed = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -10191,7 +10177,7 @@ fn script_editor_large() {
     let install = mg_testkit::nwn_root().map(|root| GameInstall::new(&root, None, "en"));
     let mut app = Moonglow::new(install, Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
@@ -10306,8 +10292,8 @@ names = ["bed", "beds", "cot", "bedroll"]
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = true;
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette_dock = true;
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     (app.palette.tiles, app.palette.custom) = (false, false);
     app.palette.filter.clear();
@@ -10356,7 +10342,7 @@ fn theme_read_only_focus_and_tabs() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
         .wgpu()
@@ -10453,7 +10439,7 @@ fn windows_at_their_sizes() {
     app.set_render_state(rs.clone());
     app.settings.no_last_area = true;
     app.open_module(&root.join("data/nwm/Prelude.nwm"));
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1700.0, 1300.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -10517,7 +10503,7 @@ fn shell_with_area(root: &std::path::Path, size: egui::Vec2) -> Harness<'static,
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.run_steps(5);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(5);
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Creature, 0)];
@@ -10592,6 +10578,12 @@ fn shell_left_folded() {
     h.state_mut().settings.hide_tree = true;
     h.run_steps(5);
     shoot(&mut h, &dir, "shell_left_folded");
+}
+
+/// The palettes shown: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it (at the next frame).
+fn show_palette(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
 }
 
 /// The Left Dock `width` wide (its outer width, as its edge is dragged to;
@@ -10871,6 +10863,63 @@ fn shell_tree_filter() {
     shoot(&mut h, &dir, "shell_tree_filter");
 }
 
+/// The Right Dock's width kept by egui under its panel's id, from the
+/// next frame.
+fn right_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+    let state = egui::containers::panel::PanelState { outer_rect: rect };
+    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
+}
+
+/// The Right Dock at its least width (280) on the tiles palette (the area
+/// open), then on the standard placeables, every category open (the
+/// list's toolbar and its rows inside the dock: the palettes' pane dragged
+/// to about 135 px spilled the toolbar under its fold button), then in
+/// the Gallery at the default 320 and wider (440, where three pictures go
+/// a row); and folded to its strip, at the narrow board's size.
+#[test]
+#[ignore]
+fn shell_right_dock() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    right_dock_width(&h, 280.0);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_least_tiles");
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, mg_module::palette::BlueprintKind::Placeable, false);
+    }
+    h.run_steps(5);
+    // (The palette's Expand All, not the Module panel's.)
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let expand = h.get_all_by_label("Expand All").find(|n| dock.contains(n.rect().center()));
+    expand.expect("the palette's Expand All").click();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_least_placeables");
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().background_jobs = true;
+    right_dock_width(&h, 320.0);
+    for _ in 0..60 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    shoot(&mut h, &dir, "shell_right_gallery");
+    right_dock_width(&h, 440.0);
+    for _ in 0..30 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    shoot(&mut h, &dir, "shell_right_gallery_440");
+    h.state_mut().settings.palette_gallery = false;
+    h.set_size(egui::vec2(1280.0, 800.0));
+    h.state_mut().settings.hide_palettes = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_folded");
+}
+
 /// The frame at 760 by 600 with a module and its area open: the Top Bar's
 /// build actions icons alone, nothing overlapping.
 #[test]
@@ -11015,7 +11064,7 @@ fn menus_area_harness(
     app.settings.game_shaders = Some(false);
     app.lighting_dir = Some(lighting.to_path_buf());
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))

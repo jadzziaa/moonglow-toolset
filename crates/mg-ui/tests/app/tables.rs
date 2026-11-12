@@ -369,7 +369,7 @@ fn a_talk_table_that_cannot_be_read_is_tried_once() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run_steps(8);
@@ -398,7 +398,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -557,7 +557,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // category named by the new line, to be translated there.
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
         app.palette.tiles = false;
         app.palette.custom = true;
@@ -829,7 +829,7 @@ fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
     let mut app = game_app(&root, Some(user.clone()));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -2432,7 +2432,7 @@ fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1280.0, 1300.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();

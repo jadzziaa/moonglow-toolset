@@ -788,7 +788,7 @@ fn an_item_s_and_a_body_s_parts_without_models_are_said() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(blade)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1100.0, 700.0);
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-part-no-model-shot");
@@ -843,7 +843,7 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = gpu_harness(app, rs, 1100.0, 700.0);
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
@@ -2555,7 +2555,7 @@ fn several_blueprints_are_edited_together() {
         })
         .collect();
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -2612,7 +2612,7 @@ fn fields_that_differ_among_blueprints_edited_together_are_marked() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
     let keys: Vec<ResKey> =
@@ -3346,7 +3346,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
 
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
@@ -3526,7 +3526,7 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 900.0);
     h.run();
     h.get_by_label("Wizards").click();
@@ -4114,7 +4114,7 @@ fn the_creature_wizard_offers_real_races_and_monsters_portraits() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.creature_wizard = Some(Default::default());
     let mut h = harness(app, 1000.0, 900.0);
     h.run();

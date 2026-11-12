@@ -649,7 +649,7 @@ fn a_plugin_s_command_is_in_a_palette_s_menu() {
     let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
         app.palette.tiles = false;
         app.palette.filter = "nw_wp_tavern".into();
@@ -1331,7 +1331,7 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
     let dialogs = NoDialogs { folders: vec![export], ..Default::default() };
     let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.background_jobs = true;
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
@@ -1434,7 +1434,7 @@ fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static,
     app.plugin_answers = Some(dir.with_extension("answers.toml"));
     app.load_plugins();
     app.open_module(dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     Some(harness(app, 1200.0, 900.0))
 }
 
@@ -2150,7 +2150,7 @@ fn house_rules_harness(name: &str) -> Harness<'static, Moonglow> {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.plugin_dir = Some(example_plugins());
     app.load_plugins();
     app.enable_plugin("example.house-rules", true);

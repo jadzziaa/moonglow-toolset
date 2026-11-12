@@ -562,7 +562,7 @@ fn an_older_module_s_single_hak_is_layered_and_said() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "the hak is layered");
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
@@ -605,7 +605,7 @@ fn a_hak_s_name_is_its_file_s_bytes() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
@@ -660,7 +660,7 @@ fn a_hak_named_in_another_case_is_not_found_on_linux() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let said = (app.log.entries.iter()).find(|(_, m)| m.starts_with("Hak MG_PLAIN not found"));
     let said = said.map(|(_, m)| m.clone()).unwrap_or_default();
     assert!(said.contains("exact name") && said.contains("mg_plain.hak"), "{said}");
@@ -699,7 +699,7 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -867,7 +867,7 @@ fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
     let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -944,7 +944,7 @@ fn add_hak_takes_the_arrow_keys() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -1006,7 +1006,7 @@ fn add_hak_filters_a_long_list() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -1106,7 +1106,7 @@ fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -1959,7 +1959,7 @@ fn a_model_of_a_hak_the_game_doesn_t_read_is_drawn() {
     let dialogs = NoDialogs { open: vec![hak], open_many: vec![vec![file]], ..Default::default() };
     let mut app = game_app_with(&root, None, dialogs);
     app.set_render_state(rs.clone());
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::hak_view::open_hak(&mut app);
     let mut h = gpu_harness(app, rs, 1100.0, 800.0);
     h.run_steps(2);

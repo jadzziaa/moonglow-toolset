@@ -1356,7 +1356,7 @@ fn a_store_s_preview_lists_what_it_sells() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     // The thieves' store of Hordes of the Underdark (its jewelry page has
     // rings and amulets), as the palette's double click opens it.
     let key = ResKey::parse("x2_storethief001", ResType::UTM).unwrap();

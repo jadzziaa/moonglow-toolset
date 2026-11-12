@@ -41,7 +41,7 @@ type Tags = Arc<HashMap<ResRef, String>>;
 /// groupings as read, the grouping and whether by category within.
 type GroupedFor = (Arc<Palette>, u64, String, bool);
 
-/// The palette pane's state.
+/// The Palette panel's state (the Right Dock's).
 #[derive(Debug)]
 pub struct PaletteView {
     pub kind: BlueprintKind,
@@ -393,6 +393,18 @@ pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
 #[doc(hidden)]
 pub fn keys_are_the_logs(ctx: &egui::Context) -> bool {
     keys_are(ctx, Keys::Log)
+}
+
+/// Which pane the arrow keys are, by name (`Area`, `Tree`, `Palette`,
+/// `Log`, `Browser`...: the area's view where no list took them). For
+/// the window's tests (F6's order).
+#[doc(hidden)]
+pub fn arrow_keys_are(ctx: &egui::Context) -> String {
+    let of = ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of")));
+    match of {
+        Some(keys) if has_arrows(ctx) => format!("{keys:?}"),
+        _ => format!("{:?}", Keys::Area),
+    }
 }
 
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
@@ -1131,16 +1143,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "Click in an area to put the start location there",
         ));
         let mut chosen = None;
-        // Icon buttons (22 px), in rows where the pane is narrower than the
-        // twelve of them. (Named by their types within the row, a group
-        // of its own: the area view's toolbar names its filters so too.)
-        let each = mg_uikit::metrics::ICON_BUTTON + 2.0;
-        // (The button that folds the pane away is on its edge, not among
-        // these: GitHub issue 10, `Moonglow::palettes_edge`.)
+        // Icon buttons (22 px, 1 apart: the board's `.seg.icons`, all
+        // thirteen on one row in the Right Dock's 320 px), in rows where the
+        // panel is narrower than them (two at its least width, 280). (Named
+        // by their types within the row, a group of its own: the area
+        // view's toolbar names its filters so too.)
+        let each = mg_uikit::metrics::ICON_BUTTON + 1.0;
+        // (The button that folds the Right Dock away is beside its edge,
+        // not among these: GitHub issue 10, `shell::right_dock`.)
         if ui.available_width() >= each * 4.0 {
             ui.horizontal_wrapped(|ui| {
                 mg_uikit::name_group(ui, "Palette types");
-                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                ui.spacing_mut().item_spacing = egui::vec2(1.0, 2.0);
                 for (t, icon, name, tip) in &types {
                     let tip =
                         if tip.is_empty() { name.to_string() } else { format!("{name}\n{tip}") };
@@ -1595,7 +1609,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if find.is_in_order() {
         ui.weak("No exact matches: close ones");
     }
-    let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // (A scroll place of its own: not the tiles palette's, nor another
+    // panel's.)
+    let scroll = egui::ScrollArea::vertical().id_salt("palette-list").auto_shrink([false, false]);
+    let mut list = scroll.show(ui, |ui| {
         // A row is one line: a name too long for the pane is cut short
         // (the pointer over it shows it whole, and its ResRef, tag and
         // challenge rating), as in the module tree. A wider pane shows

@@ -125,7 +125,9 @@ fn a_nui_window_s_scripts_go_into_a_nasher_project() {
     h.run();
     assert!(project.join("nasher.cfg").is_file(), "{:?}", h.state().log.entries);
     h.state_mut().actions.push(mg_ui::Action::NewNui("zz_win".into()));
-    h.run();
+    // (The Right Dock's palettes beside it, their groups opening: settled,
+    // not a count of frames.)
+    settle(&mut h);
     h.get_by_label("Build & compile").click();
     h.run();
     let log = format!("{:?}", h.state().log.entries);
@@ -268,7 +270,7 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     let mut app = game_app(&root, Some(user.clone()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -335,7 +337,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -464,7 +466,7 @@ fn the_project_file_is_read_again_with_reloading_off() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_auto_reload = true;
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     // (Changed before the window's first frame, which looks at it.)
     std::fs::write(
@@ -492,7 +494,7 @@ fn setup_store_follows_the_project_file() {
     };
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     assert!(app.log.entries.iter().any(|e| e.1.contains("read from moonglow.toml")));
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = harness(app, 1000.0, 800.0);
@@ -579,7 +581,7 @@ fn setup_store_s_list_shows_the_project_s_blueprint_far_down() {
         .unwrap();
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
@@ -1333,7 +1335,7 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     let dir = project_folder("ui-builder-code", &[]);
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
     h.get_by_label("Edit").click();
@@ -1497,7 +1499,7 @@ fn a_resref_typed_in_a_wizard_is_offered_the_builder_code() {
     mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 900.0);
     h.run();
     h.state_mut().blueprint_wizard =
@@ -1576,7 +1578,7 @@ fn a_team_s_prefix_by_kind_begins_the_resrefs_proposed() {
     let dir = project_folder("ui-team-prefix", &[("moonglow.toml", rules)]);
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
     h.get_by_label("Edit").click();

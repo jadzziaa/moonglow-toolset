@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T08:51:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
 ---
 
 # Modules
@@ -23,8 +23,7 @@ a directory), nasher projects (see below) and the game's campaign files
   their own (a hak, a 2DA, a tileset: by their files), the Options,
   References (its search made again), the Placeable Gallery, Tile
   Properties, a tile's view and a hak's copy of a resource, in the same
-  order and places (the main pane, the palettes' pane, a pane split off
-  the main pane, the windows, each where it was, with the same tabs,
+  order and places (the main pane, a pane split off the main pane, the windows, each where it was, with the same tabs,
   and split into the same panes), each pane's tab in front in front,
   and the one that had the keys has them again. Each shows what it
   showed: an area's view its camera where it was, a script its scroll,
@@ -944,7 +943,7 @@ module's own (only a hak's, or the override's).
 
 A **grouping** shows a palette's blueprints under groups of the team's
 own, beside their categories: TDoD's placeables by what each one is
-(Tables, Seats, Food) as well as by theme. The palette pane's
+(Tables, Seats, Food) as well as by theme. The palette's
 [Group by](05-blueprints.md#grouped-another-way-group-by) offers each
 grouping in the palettes it is for. Nothing is copied and no palette
 file changes: the game, the DM's Creator and Aurora show the categories

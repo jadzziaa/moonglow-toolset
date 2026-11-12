@@ -604,8 +604,10 @@ pub struct Settings {
     /// `Tab::kind`, width and height in points): the next one opens so.
     pub window_sizes: Vec<(String, [u32; 2])>,
     /// Where each kind of window was last dragged to, when not a window
-    /// of its own: `middle` (a tab of the main pane) or `palettes` (a tab
-    /// of the palettes' pane). The next of its kind opens there.
+    /// of its own: `middle` (a tab of the main pane) or `split left 300`
+    /// (a pane split off a side of the middle). The next of its kind opens
+    /// there. (`palettes`, a tab of the palettes' pane before they were
+    /// the Right Dock's panel, is dropped by [`Settings::shell_migrate`].)
     pub window_places: Vec<(String, String)>,
     /// The 2DA columns given a width of their own by dragging the edge of
     /// their name: each table's (by name, lowercase; the last changed
@@ -668,9 +670,9 @@ pub struct Settings {
     /// module, unticked: what nothing else names is deleted at once (what
     /// something names is still asked about, the window saying what).
     pub delete_without_asking: bool,
-    /// View: the module tree, the log and the palettes folded away: the
-    /// Left Dock folded to its strip (`hide_tree`), the Bottom Dock closed
-    /// (`hide_log`), the palettes' pane folded (`hide_palettes`).
+    /// View: the docks folded away: the Left Dock folded to its strip
+    /// (`hide_tree`), the Bottom Dock closed (`hide_log`), the Right Dock
+    /// (the palettes) folded to its strip (`hide_palettes`).
     pub hide_tree: bool,
     pub hide_log: bool,
     pub hide_palettes: bool,
@@ -1077,14 +1079,18 @@ impl Settings {
     /// Settings an older Moonglow kept, made the shell's (the redesign's
     /// M3): what a panel of the docks took the place of is dropped, the
     /// place and size kept for the resource browser's window (kind
-    /// `resources`), now the Left Dock's Resources panel, which neither
-    /// moves nor has a window. Nothing else changes, and run again it
-    /// changes nothing more. ([`crate::Moonglow::with_settings`] runs it.)
+    /// `resources`), now the Left Dock's Resources panel, and for the
+    /// palettes' (kind `palette`: `split left 300` where their pane was
+    /// split off the middle's left), now the Right Dock's Palette panel,
+    /// which neither moves nor has a window; and every kind kept in the
+    /// palettes' pane (place `palettes`), which then opens where its kind
+    /// opens. Nothing else changes, and run again it changes nothing
+    /// more. ([`crate::Moonglow::with_settings`] runs it.)
     pub fn shell_migrate(&mut self) {
-        // (The kinds of window that are panels now; T5 adds the palettes'.)
-        const PANELS: [&str; 1] = ["resources"];
+        // (The kinds of window that are panels now.)
+        const PANELS: [&str; 2] = ["resources", "palette"];
         let panel = |kind: &String| PANELS.contains(&kind.as_str());
-        self.window_places.retain(|(kind, _)| !panel(kind));
+        self.window_places.retain(|(kind, place)| !panel(kind) && place.trim() != "palettes");
         self.window_sizes.retain(|(kind, _)| !panel(kind));
     }
 
@@ -1331,7 +1337,8 @@ mod tests {
             ..Default::default()
         };
         let mut want = s.clone();
-        want.window_places.remove(0);
+        // (The palettes' own place goes too, since M3 T5.)
+        want.window_places = vec![("script".into(), "middle".into())];
         want.window_sizes.remove(0);
         s.shell_migrate();
         assert_eq!(s, want);
@@ -1340,6 +1347,41 @@ mod tests {
         let mut new = Settings::default();
         new.shell_migrate();
         assert_eq!(new, Settings::default());
+    }
+
+    /// The palettes' settings of before the Right Dock (M3 T5): their own
+    /// place and size, and every kind kept in their pane (place
+    /// `palettes`), dropped; other places and sizes, and the palettes
+    /// folded (`hide_palettes`, now the Right Dock folded), kept. Run
+    /// again, nothing more; a file of today's is left as it is.
+    #[test]
+    fn shell_migrate_drops_the_palettes_places_once() {
+        let mut s = Settings {
+            window_places: vec![
+                ("palette".into(), "split left 300".into()),
+                ("factions".into(), "palettes".into()),
+                ("manual".into(), "split below 330".into()),
+                ("journal".into(), "palettes".into()),
+                ("script".into(), "window".into()),
+            ],
+            window_sizes: vec![("palette".into(), [400, 700]), ("factions".into(), [900, 680])],
+            hide_palettes: true,
+            ..Default::default()
+        };
+        let mut want = s.clone();
+        want.window_places =
+            vec![("manual".into(), "split below 330".into()), ("script".into(), "window".into())];
+        want.window_sizes = vec![("factions".into(), [900, 680])];
+        s.shell_migrate();
+        assert_eq!(s, want);
+        assert!(s.hide_palettes, "the Right Dock folded, as the palettes were");
+        s.shell_migrate();
+        assert_eq!(s, want, "run again: nothing more");
+        // (Read from an older file's text, the same.)
+        let old = r#"(window_places:[("palette","split left 300"),("factions","palettes")],hide_palettes:true)"#;
+        let mut read: Settings = ron::from_str(old).unwrap();
+        read.shell_migrate();
+        assert!(read.window_places.is_empty() && read.hide_palettes);
     }
 
     /// A leading `~` is the home folder; `~name` and a `~` further in are

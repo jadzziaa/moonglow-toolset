@@ -10,7 +10,7 @@ use crate::common::*;
 fn terrain_screen() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("terrain-screen") else { return };
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     h.get_by_label("Tiles").click();
     h.run_steps(2);
@@ -64,7 +64,7 @@ fn look_tile_brush_with_game_shaders() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("tile-brush-shaders") else { return };
     h.state_mut().settings.game_shaders = Some(true);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     h.get_by_label("Tiles").click();
     h.run_steps(2);
@@ -126,7 +126,7 @@ fn look_gallery_water_with_game_shaders() {
     h.state_mut().set_game_shaders(true);
     h.state_mut().settings.palette_gallery = true;
     h.state_mut().settings.gallery_tile = Some(160);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     h.get_by_label("Tiles").click();
     h.run_steps(2);
@@ -498,7 +498,7 @@ fn look_custom_group() {
     let group = std::env::var("MG_GROUP").unwrap_or_else(|_| "Volcano - Path 1".into());
     let Some((mut h, area)) = area_harness_on("custom-group-look", &tileset, None) else { return };
     h.set_size(egui::vec2(1500.0, 1000.0));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
     h.run_steps(2);
@@ -580,7 +580,7 @@ fn look_edit_together_mixed() {
     let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
     let keys: Vec<ResKey> =
@@ -667,7 +667,7 @@ fn look_palette_in_language() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Creature;
     app.palette.tiles = false;
     app.palette.custom = std::env::var_os("MG_CUSTOM").is_some();

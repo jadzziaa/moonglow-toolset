@@ -1,5 +1,5 @@
 //! The area viewer's terrain mode: painting with the tileset palette's
-//! brushes (the palette pane's Tiles, as Aurora's Terrain tab).
+//! brushes (the Palette panel's Tiles, as Aurora's Terrain tab).
 //!
 //! - A terrain brush or Raise/Lower acts on the lattice corner nearest the
 //!   pointer (the right button lowers); the cursor is the square of the four
@@ -1561,7 +1561,7 @@ pub(crate) fn status(view: &AreaView) -> Option<String> {
     })
 }
 
-/// The tileset palette of the area shown last, in the palette pane:
+/// The tileset palette of the area shown last, in the Palette panel:
 /// Features, Groups and Terrain, each brush to choose.
 pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(area) = app.palette.area else {
@@ -1689,15 +1689,19 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         shown: Vec::new(),
         open: None,
     };
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        // (Rows 22 apart; a gallery's pictures keep their gaps.)
-        if at.gallery.is_none() {
-            mg_uikit::list_rows(ui);
-        }
-        for item in &palette.branches {
-            show_item(ui, item, &mut at, 0);
-        }
-    });
+    // (A scroll place of its own: not the blueprint palettes' list's.)
+    egui::ScrollArea::vertical().id_salt("palette-tiles-list").auto_shrink([false, false]).show(
+        ui,
+        |ui| {
+            // (Rows 22 apart; a gallery's pictures keep their gaps.)
+            if at.gallery.is_none() {
+                mg_uikit::list_rows(ui);
+            }
+            for item in &palette.branches {
+                show_item(ui, item, &mut at, 0);
+            }
+        },
+    );
     let (shown, open, stepped) = (std::mem::take(&mut at.shown), at.open, at.stepped);
     app.thumbnails.show(shown);
     // A tile tool clicked with tiles selected: the tool on them (Select

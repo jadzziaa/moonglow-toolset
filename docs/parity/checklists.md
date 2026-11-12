@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T10:40:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -193,8 +193,8 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | Tools › Palettes (its own pane on the right): type, Standard or Custom, categories with their blueprints; creatures show their CR | ✅ [palette_edit_copy_and_delete] |
-| Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the pane | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
+| Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | The Right Dock's Palette panel (Tools › Palettes, View › Right Dock; fixed in the dock, no longer a pane to drag): type, Standard or Custom, categories with their blueprints; creatures show their CR | ✅ [palette_edit_copy_and_delete, tools_palettes_and_view_right_dock_show_and_fold_it, the_palette_fits_the_right_dock_from_its_least_width_to_600] |
+| Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the panel | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
 | Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
 | Update Instances (Advanced page of every blueprint dialog but the waypoint's) | the same: every placed instance in every area made again from the blueprint where it stands (a trigger's or encounter's outline and spawn points kept) | ✅ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance: [update_instances_matches_aurora (`mg-corpus-tests/tests/aurora_update_instances.rs`)] |

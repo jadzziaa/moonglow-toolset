@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
 ---
 
 # Blueprints
@@ -15,7 +15,8 @@ one in an area makes an **instance**, a copy you can change on its own.
 
 ## Palettes
 
-The palette pane (right) shows the blueprints by type. Its header, from
+The palette (the Right Dock's Palette panel, on the right) shows the
+blueprints by type. Its header, from
 the top:
 
 - **The types**: a row of icons (tiles, creatures, doors, encounters,

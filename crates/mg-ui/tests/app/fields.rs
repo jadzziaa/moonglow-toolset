@@ -2549,7 +2549,7 @@ fn filters_find_names_case_and_accents_aside() {
             .to_vec();
         app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
         close_tab(&mut app, &Tab::ModuleProperties);
-        app.open_palette = false;
+        app.palette_dock = false;
         // (The tree by name, Options › General.)
         app.settings.area_names = true;
         harness(app, 900.0, 700.0)
@@ -2588,7 +2588,7 @@ fn filters_find_names_case_and_accents_aside() {
 
     // The palette's search.
     let mut h = app("ui-filter-accents-palette");
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     h.state_mut().palette.tiles = false;
     h.state_mut().palette.custom = true;

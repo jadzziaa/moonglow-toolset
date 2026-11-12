@@ -135,7 +135,7 @@ fn the_log_by_the_keyboard() {
     // (From the middle's: the palettes' where their pane is, then the
     // log's.)
     key(&mut h, egui::Key::F6);
-    if h.state().dock.find_tab(&Tab::Palette).is_some() {
+    if palette_shown(h.state()) {
         key(&mut h, egui::Key::F6);
     }
     picture(&mut h, &dir, "log-keys.png");
@@ -735,28 +735,27 @@ fn the_module_tree_never_takes_the_window() {
     // The area's view and the palettes are on screen, with room, and the
     // tree takes at most two fifths of the window.
     let s = h.state();
-    let pane = |tab: &Tab| {
-        let path = s.dock.find_tab(tab).expect("open");
-        let at = |p: &egui_dock::NodePath| p.surface == path.surface && p.node == path.node;
-        s.dock.iter_leaves().find(|(p, _)| at(p)).unwrap().1.rect
-    };
-    let (view, palette) = (pane(&Tab::Area(area)), pane(&Tab::Palette));
-    assert!(view.left() <= 1100.0 * 0.4 + 20.0, "the tree ends by {}", view.left());
+    let view = (s.dock.iter_leaves())
+        .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
+        .map(|(_, l)| l.rect)
+        .expect("the area's pane");
+    let palette = right_dock_rect(&h);
+    let window = AREA_HARNESS_WIDTH;
+    assert!(view.left() <= window * 0.4 + 20.0, "the tree ends by {}", view.left());
     assert!(view.width() > 150.0, "the area's view: {view:?}");
-    assert!(palette.width() > 150.0 && palette.right() <= 1100.0, "the palettes: {palette:?}");
-    // A split dragged all the way over (or remembered so) is brought back:
-    // neither side is left with nothing.
-    for (_, node) in h.state_mut().dock.iter_all_nodes_mut() {
-        if let egui_dock::Node::Horizontal(split) = node {
-            split.fraction = 0.999;
-        }
-    }
+    assert!(palette.width() > 150.0 && palette.right() <= window, "the palettes: {palette:?}");
+    assert!(view.right() <= palette.left(), "the view beside the palettes: {view:?} {palette:?}");
+    // The Right Dock dragged (or remembered) wider than the window is held
+    // to two fifths of it: the area's view keeps its room.
+    right_dock_width(&h, 5000.0);
     h.run_steps(3);
-    let s = h.state();
-    let path = s.dock.find_tab(&Tab::Palette).unwrap();
-    let at = |p: &egui_dock::NodePath| p.surface == path.surface && p.node == path.node;
-    let palette = s.dock.iter_leaves().find(|(p, _)| at(p)).unwrap().1.rect;
-    assert!(palette.width() > 60.0, "the palettes keep some room: {palette:?}");
+    let palette = right_dock_rect(&h);
+    assert!(palette.width() <= window * 0.4 + 2.0, "the palettes: {palette:?}");
+    let view = (h.state().dock.iter_leaves())
+        .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
+        .map(|(_, l)| l.rect)
+        .unwrap();
+    assert!(view.width() > 150.0, "the area's view keeps some room: {view:?}");
 }
 
 /// The Delete key on a row of the module tree asks as its menu's Delete…

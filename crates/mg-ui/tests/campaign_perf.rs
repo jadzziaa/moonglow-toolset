@@ -250,8 +250,11 @@ fn a_module_with_a_builder_s_haks_stays_within_budget() {
         let p = &mut h.state_mut().palette;
         (p.kind, p.custom, p.tiles, p.prefabs) = (kind, false, false, false);
         p.filter.clear();
-        h.state_mut().actions.push(Action::OpenTab(Tab::Palette));
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Palette));
         let ((), took) = time(|| h.run_steps(1));
+        // (Loudly: the palettes must be shown.)
+        let shown = h.state().right_dock_shows();
+        assert_eq!(shown, Some(mg_ui::Panel::Palette), "the palettes are not shown");
         check(format!("standard {name} palette, first frame"), took, PALETTES);
         let frames: Vec<Duration> = (0..10).map(|_| time(|| h.run_steps(1)).1).collect();
         check(format!("standard {name} palette, frame"), median(frames), FRAME);
@@ -408,7 +411,7 @@ fn a_creature_s_properties_over_a_builder_s_haks() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let layers = app.game.as_ref().map_or(0, |g| g.resman.layers().len());
     app.actions.push(Action::OpenTab(Tab::Blueprint(key)));
     let mut h = Harness::builder()

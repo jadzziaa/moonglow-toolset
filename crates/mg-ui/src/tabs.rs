@@ -51,8 +51,6 @@ pub enum Tab {
     ModelCopy { key: ResKey, layer: String },
     /// A model, in the 3D viewer.
     Model(ResKey),
-    /// The blueprint palettes.
-    Palette,
     /// A blueprint in its Properties editor.
     Blueprint(ResKey),
     /// Several blueprints of one type, edited together.
@@ -149,7 +147,6 @@ impl Tab {
             Tab::Dialog(_) => "dialog",
             Tab::Resource(_) | Tab::ResourceCopy { .. } => "resource",
             Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => "model",
-            Tab::Palette => "palette",
             Tab::Blueprint(k) => {
                 mg_area::ObjectKind::from_restype(k.restype).map_or("blueprint", |k| k.name())
             }
@@ -428,10 +425,9 @@ impl Viewer<'_> {
         // (The pane clicked in last, whose selection a plugin's command
         // from the Plugins menu or a key runs on.)
         if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
-            match tab {
-                Tab::Palette => self.app.plugins.pane = Some(crate::plugins::Pane::Palette),
-                Tab::Area(area) => self.app.plugins.pane = Some(crate::plugins::Pane::Area(*area)),
-                _ => {}
+            // (The palettes' press is the Right Dock's: `shell::right_dock`.)
+            if let Tab::Area(area) = tab {
+                self.app.plugins.pane = Some(crate::plugins::Pane::Area(*area));
             }
         }
         // (A side editor's Undo and Redo are its own with the pointer over
@@ -446,7 +442,6 @@ impl Viewer<'_> {
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Nui(k) => crate::nui_view::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
-            Tab::Palette => crate::palette_view::ui(self.app, ui),
             Tab::Blueprint(k) => crate::blueprint::ui(self.app, ui, *k),
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
@@ -538,7 +533,6 @@ impl TabViewer for Viewer<'_> {
                 format!("{k}{}", if dirty { " *" } else { "" }).into()
             }
             Tab::Gff(k) => k.to_string().into(),
-            Tab::Palette => "Palettes".into(),
             Tab::Blueprint(k) if self.app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) => {
                 format!("{k} (the game's: view only)").into()
             }
@@ -605,18 +599,7 @@ impl TabViewer for Viewer<'_> {
         // A little room round what a tab shows. (The dock is given no window
         // margin, `Moonglow::ui`, and takes its tabs' from that: without
         // this they sat flush against their pane's edge.)
-        let mut margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
-        // The palettes' pane's: more on the edge it faces the middle by,
-        // where the button that folds it away is (`Moonglow::palettes_edge`).
-        if let Some((side, tabs)) = &self.app.palette_edge
-            && tabs.contains(tab)
-        {
-            let room = (crate::widgets::PANE_EDGE + 4.0) as i8;
-            match side {
-                crate::Side::Left => margin.right = room,
-                _ => margin.left = room,
-            }
-        }
+        let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
         // In a window of its own, a drag on what isn't a control is the
         // tab's, behind all it shows, not the window's (egui_dock's windows
         // have no title bar, so egui moves them by any part): the window
@@ -702,7 +685,7 @@ impl TabViewer for Viewer<'_> {
             ui.close();
         }
         // A window of its own fills the main pane, and goes back.
-        if !tab.docks() && *tab != Tab::Palette {
+        if !tab.docks() {
             let label = if self.app.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
             if ui.button(label).on_hover_text("Also: double-click the tab").clicked() {
                 self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
@@ -769,7 +752,7 @@ impl TabViewer for Viewer<'_> {
         if response.middle_clicked() && tab.closeable() {
             self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
         }
-        if response.double_clicked() && !tab.docks() && *tab != Tab::Palette {
+        if response.double_clicked() && !tab.docks() {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }
     }

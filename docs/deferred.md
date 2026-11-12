@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T10:40:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T11:34:01Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -919,29 +919,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   else a builder who uses it finds wanting waits on such a pass. (S) (a
   senior builder's review, October 2026)
 - **Panes folded away** (GitHub issue 10, open: waits on its reporter's
-  retest of the one-button rule, built on 1.31.0): a View menu (Module
-  Tree, Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
+  retest of the one-button rule, built on 1.31.0): a View menu (Left
+  Dock, Right Dock, Log, ticked while shown; Hide All Panels; Reset
   Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
-  pane folded away leaves a strip at its edge that brings it back, as
-  wide as it was; the palettes' pane closed by its ✕ counts as folded;
-  the state is kept in the settings. Each pane has one button of its
-  own to fold it away, by the reporter's rule: a chevron on the edge it
-  faces the middle by (the tree's right, the palettes' left, or right
-  where they were split off the middle's left, the log's top), centered
-  along it, in a thin strip that is all a folded pane leaves, the button
-  in the same place. egui_dock's arrow on the palettes' tab bar is
-  covered over and its clicks taken (egui_dock has it on every pane or
-  none, and windows fold to their bar by it), and the keyboard passes
-  it (Tab and Shift+Tab, `the_palettes_covered_arrow_is_passed_by_the_keyboard`).
-  Left for the reporter's word, as their rule shapes each (S each): the
-  strip names its pane only in the tip (a name along a 16-point strip
-  would be drawn turned); the palettes' bar keeps the arrow's blank room
-  before its first tab, and the middle's panes keep their arrows
-  (egui_dock offers no per-pane choice: a patched egui_dock, or the
-  middle's arrows covered the same way); palettes joined to the middle's
-  tabs, split above or below it or in a window have no edge button (View
-  and their ✕ fold them), and those split above or below leave their
-  strip on the right. (from builders' reports after 1.19.1)
+  side dock folded away leaves a strip at the window's edge that brings
+  it back, as wide as it was; the state is kept in the settings. Each
+  dock has one control of its own to fold it away, by the reporter's
+  rule: the Left and Right Docks a button beside the edge they face the
+  middle by, half way along it, in the same place folded (beside the
+  strip's edge); the Bottom Dock its Log switch in the Status Bar. The
+  palettes' part is settled by the Right Dock (M3 T5, the owner's
+  ruling R5): the palettes are its Palette panel, fixed there, so their
+  pane's covered egui_dock arrow, its blank room before the first tab,
+  and the palettes joined to the middle's tabs, split above, below or
+  left of it, or in a window with no edge button, are gone with the
+  pane (`each_pane_folds_by_one_button_on_its_inner_edge` holds the
+  Right Dock to the Left's assertions). Left for the reporter's word, as
+  their rule shapes it (S): the middle's panes keep egui_dock's arrows
+  (it offers no per-pane choice: a patched egui_dock, or the arrows
+  covered). (from builders' reports after 1.19.1)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them (over an area's
   view F10 is Select Tiles', as in Aurora), Left and Right
@@ -959,24 +955,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   after 1.19.1)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser, then) shared the
-  palettes' pane; the pane's tabs no longer count as the middle's. The
-  palettes dropped among the middle's areas are the middle's (issue 20:
-  they were taken for the side pane, and the areas pushed to the
-  right). Another tool docked alone on the right (the talk table, a
-  script) is not known as a side pane. What is left of it goes with the
-  palettes' pane, which the Right Dock takes the place of (the UI
-  redesign's M3 T5, the owner's ruling R5). A tool window dragged from
-  a window of its own onto a side target of the middle was seen to move
-  and not to dock, by the tests' drag (issue 21's report was the
-  resource browser's; not confirmed either way in the window). Its
-  resource browser's part (the browser dropped on a side, issue 21, or
-  left alone beside the middle, issue 23) is settled by the owner's
-  ruling R5 of 2026-11-11: the browser is the Left Dock's Resources
-  panel since M3 T4 and does not move (a tool's tab dropped on a side is
-  still docked there: `a_tool_tab_dropped_on_a_side_is_docked_there`);
-  what remains is the palettes' part, for T5. (S) (GitHub issues 10 to 24, after 1.20.0; 20 and 21 after 1.30.2)
-  (the window's drop waits on a drag by hand in the running program,
-  the owner's: the UI tests can't make a window of its own)
+  palettes' pane, and the palettes dropped among the middle's areas
+  were taken for the side pane (issue 20). Settled by the owner's
+  ruling R5 of 2026-11-11: the resource browser is the Left Dock's
+  Resources panel since M3 T4 (issues 21 and 23) and the palettes the
+  Right Dock's Palette panel since M3 T5, neither of them a tab of the
+  editor area to share a pane with or drop on the middle
+  (`the_palette_is_a_panel_not_a_tab`); the editor area holds editors
+  alone, and the middle keeps its place with every tab closed
+  (`the_middle_keeps_its_place_with_no_area_open`). A tool's tab
+  dropped on a side of the middle is still docked there
+  (`a_tool_tab_dropped_on_a_side_is_docked_there`). What remains: a
+  tool window dragged from a window of its own onto a side target of
+  the middle was seen to move and not to dock, by the tests' drag
+  (issue 21's report was the resource browser's; not confirmed either
+  way in the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20 and
+  21 after 1.30.2) (the window's drop waits on a drag by hand in the
+  running program, the owner's: the UI tests can't make a window of
+  its own)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
   Left and fold the tree): after a click in a list (the module tree, a

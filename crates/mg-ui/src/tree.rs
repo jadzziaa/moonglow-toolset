@@ -1212,14 +1212,8 @@ pub(crate) fn module_row() -> ResKey {
 /// back to the tab's one).
 pub(crate) fn follow_front_tab(app: &mut Moonglow) {
     let front = |leaf: &egui_dock::LeafNode<Tab>| leaf.tabs.get(leaf.active.0).cloned();
-    let fronts: Vec<Tab> = (app.dock.iter_leaves())
-        .filter_map(|(_, leaf)| front(leaf))
-        .filter(|t| *t != Tab::Palette)
-        .collect();
-    let focused = (app.dock.focused_leaf())
-        .and_then(|p| app.dock.leaf(p).ok())
-        .and_then(front)
-        .filter(|t| *t != Tab::Palette);
+    let fronts: Vec<Tab> = (app.dock.iter_leaves()).filter_map(|(_, leaf)| front(leaf)).collect();
+    let focused = (app.dock.focused_leaf()).and_then(|p| app.dock.leaf(p).ok()).and_then(front);
     let open = app.dock.iter_all_tabs().count();
     let (was_focused, was, were_open) = std::mem::take(&mut app.tree_front);
     let chosen = if open < were_open {

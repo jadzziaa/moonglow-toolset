@@ -451,6 +451,12 @@ fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
         h.state_mut().settings.toolbar_icons_only = icons_only;
         for width in (640..=1600).step_by(4) {
             h.set_size(egui::vec2(width as f32, 800.0));
+            // (Under 760 the Left Dock and the Right Dock, at its least
+            // width, 280, leave the editor area less than the toolbar's
+            // widest control: the Left Dock folded there, as the shell's
+            // yields fold it in narrow windows, M3 T14. Before the Right
+            // Dock, M3 T5, the palettes' pane shared the editor area.)
+            h.state_mut().settings.hide_tree = width < 760;
             // (A dropdown's room is the one it took the frame before: run
             // until the toolbar is laid out the same twice, with a deadline.)
             let started = std::time::Instant::now();
@@ -869,7 +875,7 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let first = mg_module::new::tilesets(app.game.as_deref().unwrap())[0].name.clone();
     let mut h = harness(app, 1200.0, 900.0);
     h.run();

@@ -232,7 +232,7 @@ fn placed_chest_holds_whole_items() {
     h.get_by_label("Inventory…").click();
     h.run_steps(2);
     // The chest's item palette, not the Palettes pane's.
-    close_tab(h.state_mut(), &Tab::Palette);
+    fold_palette(h.state_mut());
     h.run_steps(2);
     type_into_hint(&mut h, "Find", "nw_it_torch001");
     let torch = |n: &egui_kittest::kittest::AccessKitNode<'_>| {

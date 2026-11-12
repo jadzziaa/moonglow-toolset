@@ -416,10 +416,9 @@ fn old_settings_with_a_resources_place_open_without_it() {
     assert!(read.kept.is_none(), "nothing put aside");
     let app = Moonglow::with_settings(read.settings, Box::new(NoDialogs::default()));
     let places = &app.settings.window_places;
-    assert_eq!(
-        places,
-        &[("script".to_string(), "middle".to_string()), ("factions".into(), "palettes".into())]
-    );
+    // (A kind kept in the palettes' pane, place `palettes`, is dropped
+    // too since the palettes are the Right Dock's panel, M3 T5.)
+    assert_eq!(places, &[("script".to_string(), "middle".to_string())]);
     assert_eq!(app.settings.window_sizes, [("script".to_string(), [1100, 700])]);
     let said: Vec<_> =
         (app.log.entries.iter()).filter(|(level, _)| *level != mg_ui::Level::Info).collect();

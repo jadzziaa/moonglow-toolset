@@ -112,6 +112,39 @@ pub(crate) fn show_resources(app: &mut Moonglow) {
     app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
 }
 
+/// The palettes shown: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it (at the next frame).
+pub(crate) fn show_palette(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+}
+
+/// Whether the palettes are shown: the Right Dock unfolded on its Palette
+/// panel.
+pub(crate) fn palette_shown(app: &Moonglow) -> bool {
+    app.right_dock_shows() == Some(mg_ui::Panel::Palette)
+}
+
+/// The palettes folded away: the Right Dock folded, as View › Right Dock
+/// folds it.
+pub(crate) fn fold_palette(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::FoldPalettes);
+}
+
+/// The Right Dock `width` wide (its outer width, as its edge is dragged
+/// to: kept by egui under the panel's id), from the next frame.
+pub(crate) fn right_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+    let state = egui::containers::panel::PanelState { outer_rect: rect };
+    h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
+}
+
+/// Where the Right Dock is drawn: from its inner edge (where its fold
+/// button stands beside it) to its outer edge, the Top Bar to the Status
+/// Bar. It must be shown.
+pub(crate) fn right_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    h.state().right_dock_rect().expect("the Right Dock is shown")
+}
+
 /// The Left Dock `width` wide (its outer width, as its edge is dragged to:
 /// kept by egui under the panel's id, `"tree"`), from the next frame.
 pub(crate) fn left_dock_width(h: &Harness<'_, Moonglow>, width: f32) {
@@ -295,7 +328,7 @@ pub(crate) fn blueprint_harness_with(
     // The editor alone on screen (Module Properties, docked when the module
     // opened, and the palette would show beside its window).
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let h = harness(app, 1000.0, 800.0);
     Some((h, key))
 }
@@ -608,6 +641,9 @@ pub(crate) fn module_gff(h: &mut Harness<'_, Moonglow>, name: &str, t: ResType) 
     ws.module.gff(&key).map(|g| g.unwrap())
 }
 
+/// The width of [`area_harness`]'s window.
+pub(crate) const AREA_HARNESS_WIDTH: f32 = 1160.0;
+
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
 /// and (30, 20), with the game's data and a GPU (`None` without either).
 pub(crate) fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
@@ -652,7 +688,10 @@ pub(crate) fn area_harness_with(
     prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let (app, rs, area) = area_app(name, tileset, tile, side, user, prepare)?;
-    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    // (1160 wide: the area's view as wide as it was at 1100 with the
+    // palettes' pane in the editor area, now that they are the Right
+    // Dock's 320 points beside it, M3 T5.)
+    let mut h = area_gpu_harness(app, rs, AREA_HARNESS_WIDTH, 800.0);
     h.run_steps(3);
     Some((h, area))
 }
@@ -984,7 +1023,7 @@ pub(crate) fn plugin_harness(
         app_with(Vec::new())
     };
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let key = ResKey::parse("guard", ResType::UTC).unwrap();
     let mut guard = Gff::new(*b"UTC ");
     guard.root.set("Tag", mg_gff::Value::String(b"gate_guard".to_vec()));

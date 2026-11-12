@@ -33,6 +33,7 @@ mod projects;
 mod renderer_check;
 mod resources;
 mod resources_panel;
+mod right_dock;
 mod scripts;
 mod search;
 mod shell;

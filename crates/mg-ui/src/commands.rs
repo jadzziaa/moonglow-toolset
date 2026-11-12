@@ -314,8 +314,9 @@ impl TopBar {
 /// The Top Bar, today's menu bar and toolbar in one row (proposal
 /// section 5). Today's other toolbar buttons have their homes elsewhere:
 /// Properties and New Area in the Module panel's header, Start in View ›
-/// Go to Start Location, Resources and Palettes in the Tools menu, Preview
-/// in the Command Palette (Preview Window).
+/// Go to Start Location, Resources and Palettes in the Tools menu (each
+/// showing its dock's panel), Preview in the Command Palette (Preview
+/// Window).
 pub const TOP_BAR: TopBar = TopBar {
     quick: [
         Some((Id::NewModule, Icon::New, "New", "New module")),
@@ -486,7 +487,9 @@ impl Id {
             ),
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::NewNui => ("new-nui", "New NUI Window…", "Create a game UI window and its scripts"),
-            Id::Palettes => ("palettes", "Palettes", ""),
+            Id::Palettes => {
+                ("palettes", "Palettes", "The blueprint and tile palettes, in the Right Dock")
+            }
             Id::PlaceableGallery => (
                 "placeable-gallery",
                 "Appearance Gallery…",
@@ -590,7 +593,7 @@ impl Id {
             Id::NextPane => (
                 "next-pane",
                 "Next Pane",
-                "Give the arrow keys to the next pane: tree, middle or palettes",
+                "Give the arrow keys to the next pane: a dock's panel or the editor area",
             ),
             Id::PreviousPane => {
                 ("previous-pane", "Previous Pane", "Give the arrow keys to the pane before")
@@ -598,8 +601,10 @@ impl Id {
             // (The Left Dock's, since it holds the Resources panel beside
             // the module tree: its id, and so a key given it, as before.)
             Id::ViewTree => ("view-tree", "Left Dock", "Show the Left Dock, or fold it away"),
+            // (The Right Dock's, since the palettes are its Palette panel:
+            // its id, and so a key given it, as before.)
             Id::ViewPalettes => {
-                ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
+                ("view-palettes", "Right Dock", "Show the Right Dock, or fold it away")
             }
             Id::ViewLog => ("view-log", "Log", "Show the log, or fold it away"),
             Id::CopyLog => {
@@ -728,7 +733,9 @@ impl Id {
             // without a module too.)
             Id::ViewTree => crate::shell::left_shown(app).is_some(),
             Id::HidePanels => open,
-            Id::ViewPalettes => open && app.game.is_some(),
+            // (Whenever the Right Dock holds a panel: the Palette panel
+            // without a module too, once asked for.)
+            Id::ViewPalettes => crate::shell::right_shown(app).is_some(),
             Id::CloseTab => app.front_tab().is_some(),
             Id::MaximizeWindow => app.front_window_tab().is_some(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
@@ -823,7 +830,7 @@ impl Id {
             Id::Factions => Action::OpenTab(Tab::Factions),
             Id::Journal => Action::OpenTab(Tab::Journal),
             Id::TalkTable => Action::OpenTab(Tab::TalkTable),
-            Id::Palettes => Action::OpenTab(Tab::Palette),
+            Id::Palettes => Action::ShowPanel(crate::Panel::Palette),
             Id::PlaceableGallery => Action::PlaceableGallery,
             Id::Resources => Action::ShowPanel(crate::Panel::Resources),
             Id::ReloadResources => Action::ReloadResources,
