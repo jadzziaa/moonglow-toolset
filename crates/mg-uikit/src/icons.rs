@@ -900,7 +900,9 @@ mod tests {
     /// The build read the file as the tests' copy of the parser does.
     #[test]
     fn the_build_s_strokes_are_the_parser_s() {
-        let json = include_str!("../icons/icons.json");
+        // (A Windows checkout may hold the file with CRLF line ends, which
+        // the ends of the entries below are looked for without.)
+        let json = include_str!("../icons/icons.json").replace("\r\n", "\n");
         for icon in [Icon::Ability, Icon::Info, Icon::Settings, Icon::Grid] {
             let start = json.find(&format!("\"{}\": \"", icon.name())).unwrap();
             let markup = &json[start + icon.name().len() + 5..];
