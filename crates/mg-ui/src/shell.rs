@@ -12,8 +12,9 @@
 //!   right (hints and counts are T7 and T12's);
 //! - the **Left Dock** ([`left_dock`]): its tab bar (the Module panel's
 //!   tab, its header buttons, and the one button that folds the dock),
-//!   the module tree under it; folded, a strip with the chevron that
-//!   brings it back;
+//!   the Module panel under it (the Filter over the module tree, whose
+//!   Areas group scrolls in a well of its own: M3's T3); folded, a strip
+//!   with the chevron that brings it back;
 //! - the **Bottom Dock** ([`bottom_dock`]): its tab bar (the Log's tab,
 //!   with the log's Copy, Save… and Clear), the log under it; opened and
 //!   closed by the Log's switch in the Status Bar (issue 10's one control
@@ -98,15 +99,41 @@ pub(crate) fn icons() -> Vec<Icon> {
     let mut all: Vec<Icon> = TOP_BAR.icons().collect();
     all.push(Icon::ChevronDown);
     all.extend(MODULE_TOOLS.iter().map(|t| t.1));
+    all.extend([Icon::ExpandAll, Icon::CollapseAll]);
     all
 }
 
-/// The Module panel's header buttons (today's toolbar's Properties and
-/// New Area), as the Top Bar's: command, icon, name, tip.
+/// The Module panel's header buttons that run commands (today's
+/// toolbar's Properties and New Area), as the Top Bar's: command, icon,
+/// name, tip. (Expand All and Collapse All after them are the tree's:
+/// [`module_tools`].) The tree's row of the same name is apart from the
+/// button: in the group [`tree::MODULE_TREE`], a selectable row.
 const MODULE_TOOLS: [TopBarButton; 2] = [
-    (Id::ModuleProperties, Icon::Module, "Properties", "Module properties"),
-    (Id::AreaWizard, Icon::Area, "New Area", "Area Wizard"),
+    (Id::ModuleProperties, Icon::Module, "Module Properties", "Module properties"),
+    (Id::AreaWizard, Icon::Plus, "New Area", "A new area, by the Area Wizard"),
 ];
+
+/// The Left Dock's least width: its tab bar's Module tab, the Module
+/// panel's four header buttons and the fold button, side by side.
+pub(crate) const LEFT_DOCK_LEAST: f32 = 190.0;
+
+/// What the Module panel's header buttons asked: a command to run, and
+/// Expand All (`Some(true)`) or Collapse All (`Some(false)`).
+type ModuleAsked = (Option<Id>, Option<bool>);
+
+/// The Module panel's header buttons (`.panel-tabs .tools`): Module
+/// Properties and New Area (`commands`), then Expand All and Collapse All,
+/// their tips with their keys (Options › Keyboard).
+fn module_tools(ui: &mut Ui, commands: &[Prepared], keymap: &crate::keys::Keymap) -> ModuleAsked {
+    let mut asked = (None, None);
+    for b in commands {
+        if b.show(ui, Tools::icons_alone(true)) {
+            asked.0 = Some(b.id);
+        }
+    }
+    asked.1 = crate::palette_view::fold_icons(ui, "group", keymap);
+    asked
+}
 
 /// The thickness of the line a panel draws along its inner edge, which
 /// egui counts in a panel's size.
@@ -414,9 +441,10 @@ fn module_name(path: &std::path::Path) -> String {
 }
 
 /// The Left Dock (`Panel::left("tree")`), with a module open: its tab bar
-/// (the Module tab; Properties, New Area and the fold button at its
-/// right), the module tree under it. Folded (`Settings::hide_tree`), the
-/// strip of its panels' icons under the chevron that brings it back.
+/// (the Module tab; the Module panel's Module Properties, New Area, Expand
+/// All and Collapse All, and the fold button at its right), the Module
+/// panel under it (`tree::module_tree`). Folded (`Settings::hide_tree`),
+/// the strip of its panels' icons under the chevron that brings it back.
 pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     if app.ws.is_none() {
         return;
@@ -461,27 +489,27 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     let shown = egui::Panel::left("tree")
         .resizable(!on_button)
         .default_size(metrics::LEFT_DOCK)
-        .size_range(150.0..=(window.x * 0.4).max(150.0))
+        .size_range(LEFT_DOCK_LEAST..=(window.x * 0.4).max(LEFT_DOCK_LEAST))
         .frame(egui::Frame::new().fill(t.panel))
         .show(ui, |ui| {
             let mut tab = 0;
+            let keymap = &app.keymap;
             let bar =
                 DockTabs::new(LEFT_DOCK).with(DockTab::new("Module")).show(ui, &mut tab, |ui| {
-                    let mut clicked = None;
-                    for b in &tools {
-                        if b.show(ui, Tools::icons_alone(true)) {
-                            clicked = Some(b.id);
-                        }
-                    }
+                    let asked = module_tools(ui, &tools, keymap);
                     let fold = kit::fold_button_tip(ui, Side::Left, LEFT_DOCK, &fold_tip);
-                    (clicked, fold.clicked(), fold.rect)
+                    (asked, fold.clicked(), fold.rect)
                 });
-            let margin = Margin { left: 8, right: 8, top: 6, bottom: 8 };
-            egui::Frame::new().inner_margin(margin).show(ui, |ui| tree::module_tree(app, ui));
+            let ((_, folded), ..) = bar.inner;
+            // (The tree's rows reach the panel's sides, as the mock's;
+            // its Filter has a margin of its own.)
+            let margin = Margin { left: 0, right: 0, top: 2, bottom: 2 };
+            let body = egui::Frame::new().inner_margin(margin);
+            body.show(ui, |ui| tree::module_tree(app, ui, folded));
             bar.inner
         });
     app.tree_width = Some(shown.response.rect.width());
-    let (clicked, fold, fold_rect) = shown.inner;
+    let ((clicked, _), fold, fold_rect) = shown.inner;
     app.left_fold = Some(fold_rect);
     if let Some(id) = clicked {
         id.run(app, &ctx);

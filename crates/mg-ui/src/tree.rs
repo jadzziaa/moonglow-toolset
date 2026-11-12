@@ -524,24 +524,31 @@ fn contents_ui(
                 Some(found) => found.get(at).cloned().unwrap_or_else(|| Arc::from([])),
                 None => order.clone(),
             };
-            let title = if filtered {
-                format!("{} ({} of {})", kind.label(), shown.len(), rows.len())
+            let count = if filtered {
+                format!("{} of {}", shown.len(), rows.len())
             } else {
-                format!("{} ({})", kind.label(), rows.len())
+                rows.len().to_string()
             };
+            // (Named with its count, as its row shows them: "Creatures
+            // (46)", "Creatures (3 of 46)".)
+            let title = format!("{} ({count})", kind.label());
+            let icon = crate::icons::object(*kind);
             if shown.is_empty() {
                 if !filtered && !hide_empty {
-                    // (A row's height, as the kinds' headers have.)
-                    ui.horizontal(|ui| ui.weak(title));
+                    // (A row, quiet, as the kinds' with something in them
+                    // without their arrow.)
+                    let row = mg_uikit::TreeRow::new(kind.label()).icon(icon).count(&count);
+                    row.label(&title).dim().show(ui);
                 }
                 continue;
             }
             let at_kind = keys.cursor == Some(TreeAt::Kind(area, *kind));
-            let mut header = egui::CollapsingHeader::new(title)
-                .icon(mg_uikit::collapsing_icon)
-                .id_salt(("area-kind", area, *kind))
+            let mut header = mg_uikit::TreeGroup::new(("area-kind", area, *kind), kind.label())
+                .icon(icon)
+                .count(&count)
+                .label(&title)
                 // (The keys' cursor on a kind shows as its row marked.)
-                .show_background(at_kind);
+                .marked(at_kind);
             // The keys' cursor at one of its objects, by its place among
             // those listed.
             let at_object = match keys.cursor {
@@ -758,7 +765,12 @@ fn spacing_gap(ui: &Ui) -> f32 {
 
 /// Brings a row (`rect`) into view up or down only: the tree scrolled
 /// sideways stays so (egui's own goes to a long row's start).
+/// (In the Areas group's well, [`areas_well`] scrolls the well to it
+/// instead: [`well_target`].)
 fn bring_into_view(ui: &Ui, rect: egui::Rect) {
+    if well_target(ui, rect, false) {
+        return;
+    }
     let x = ui.clip_rect().center().x;
     ui.scroll_to_rect(egui::Rect::from_x_y_ranges(x..=x, rect.y_range()), None);
 }
@@ -768,10 +780,14 @@ fn bring_into_view(ui: &Ui, rect: egui::Rect) {
 /// rather than its foot or top (where the tree scrolled only as far as it
 /// must, a row brought up from below sat at the foot, the rows after it
 /// out of sight); one in sight stays where it is (under the pointer, for
-/// a double click's second click).
+/// a double click's second click). (In the Areas group's well, as
+/// [`bring_into_view`].)
 fn reveal_into_view(ui: &Ui, rect: egui::Rect) {
     let clip = ui.clip_rect();
     if clip.y_range().contains(rect.top()) && clip.y_range().contains(rect.bottom()) {
+        return;
+    }
+    if well_target(ui, rect, true) {
         return;
     }
     let x = clip.center().x;
@@ -779,13 +795,66 @@ fn reveal_into_view(ui: &Ui, rect: egui::Rect) {
     ui.scroll_to_rect(to, Some(egui::Align::Center));
 }
 
-/// The module tree's pane: the Filter and Expand All / Collapse All, which
-/// stay in sight, over the tree, which scrolls (Home and End go to its
-/// top and bottom while the pointer is over it).
-pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
+/// Where the Areas group's well is drawn, while its rows are being laid
+/// out ([`areas_well`]): its view on the screen (as high as it is at
+/// most).
+fn well_view() -> egui::Id {
+    egui::Id::new("tree-well-view")
+}
+
+/// A row of the Areas group's well to scroll to, once its rows are laid
+/// out: where it is, and whether to the middle of the well.
+#[derive(Clone, Copy, Default)]
+struct WellTarget {
+    /// (`None`: a row in the well's view already, the well alone to
+    /// bring into the tree's.)
+    rows: Option<egui::Rangef>,
+    center: bool,
+}
+
+/// While the Areas group's well is being laid out, the row at `rect` to be
+/// scrolled to in it (to the middle where `center`), for [`areas_well`];
+/// whether it was. A scroll area works out what is scrolled to inside it
+/// by what it shows of itself, which, with the well partly out of the
+/// tree's view (the tree scrolled down past it), was the part in sight,
+/// or nothing, and the row went out of sight; and it takes what is
+/// scrolled to inside it for itself, so the tree around it would not
+/// bring the well into view. (A row in the well's view, the well partly
+/// out of the tree's, is scrolled to no further in it.)
+fn well_target(ui: &Ui, rect: egui::Rect, center: bool) -> bool {
+    let Some(view) = ui.data(|d| d.get_temp::<Option<egui::Rect>>(well_view())).flatten() else {
+        return false;
+    };
+    let seen = view.y_range().contains(rect.top()) && view.y_range().contains(rect.bottom());
+    let center = center && !seen;
+    let rows = (!seen).then(|| rect.y_range());
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("tree-well-target"), WellTarget { rows, center }));
+    true
+}
+
+/// The Module panel's name: the group its body is in (its Filter and the
+/// tree), apart from the Left Dock's tab bar (whose Module Properties is a
+/// button, the tree's a row) and from a dropdown's Filter.
+pub(crate) const MODULE_PANEL: &str = "Module Panel";
+/// The module tree's name: the group its rows are in, in the Module
+/// panel's.
+pub(crate) const MODULE_TREE: &str = "Module Tree Rows";
+
+/// The least number of rows the Areas group's well shows while it holds
+/// more (the Main board's five).
+const WELL_LEAST_ROWS: f32 = 5.0;
+
+/// The Module panel's body (the Left Dock's Module tab, under its tab bar,
+/// whose Expand All and Collapse All give `fold`): the Filter, which stays
+/// in sight, over the tree, which scrolls (Home and End go to its top and
+/// bottom while the pointer is over it, the Areas group's while it is
+/// over that); the Areas group scrolls in a well of its own
+/// ([`areas_well`]).
+pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     if app.ws.is_none() {
         return;
     }
+    mg_uikit::name_group(ui, MODULE_PANEL);
     // (The pane clicked in last, whose selection a plugin's command from
     // the Plugins menu or a key runs on.)
     if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
@@ -793,23 +862,30 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     }
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
-    // As the palettes' pane: the search across the pane, with what it
-    // looks in said and a button to clear it; under it the list's own
-    // small toolbar. Find's keys (Ctrl+F), with the keys the tree's, go to
-    // it; Escape there clears what is typed; again, back to the rows, and
-    // Down to the first row it finds.
-    // (The button that folds the pane away is on its edge: GitHub issue
-    // 10, `Moonglow::pane_edge`.)
+    // As the palettes' pane: the search across the pane, with a button to
+    // clear it. Find's keys (Ctrl+F), with the keys the tree's, go to it;
+    // Escape there clears what is typed; again, back to the rows, and Down
+    // to the first row it finds.
+    // (The button that folds the dock away is on its tab bar: GitHub
+    // issue 10, `shell::left_dock`.)
     let here = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
         && app.tree_cursor.is_some();
-    let left = crate::widgets::SearchField::new(egui::Id::new("tree-filter-field"), &mut filter)
-        .hint("Filter name, resref")
-        .clear_tip("Clear the filter")
-        .clear_name("Clear Filter")
-        .find_when(here)
-        .down()
-        .show(ui)
-        .left;
+    // (The mock's `.panel-bar`: 4 px above and below, 8 at the sides.)
+    let bar = egui::Margin { left: 8, right: 8, top: 4, bottom: 4 };
+    let left = egui::Frame::new()
+        .inner_margin(bar)
+        .show(ui, |ui| {
+            crate::widgets::SearchField::new(egui::Id::new("tree-filter-field"), &mut filter)
+                .icon(mg_uikit::Icon::Filter)
+                .hint("Filter")
+                .clear_tip("Clear the filter")
+                .clear_name("Clear Filter")
+                .find_when(here)
+                .down()
+                .show(ui)
+                .left
+        })
+        .inner;
     if let Some(left) = left {
         if left == crate::widgets::FilterLeft::Down {
             app.tree_to_match = true;
@@ -832,15 +908,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     if changed {
         ui.data_mut(|d| *d.get_temp_mut_or(egui::Id::new("tree-filter-changes"), 0_u64) += 1);
     }
-    let mut fold = None;
-    ui.horizontal(|ui| {
-        fold = crate::palette_view::fold_icons(ui, "group", &app.keymap);
-        let resources = app.ws.as_ref().map_or(0, |ws| ws.module.len());
-        ui.weak(format!("{resources} resource{}", if resources == 1 { "" } else { "s" }))
-            .on_hover_text("Resources in the module");
-    });
-    ui.separator();
-    // (Their keys too, while the keys are the tree's.)
+    // Expand All and Collapse All (on the tab bar), and their keys too,
+    // while the keys are the tree's.
+    let mut fold = fold;
     let keyed = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
         && !ui.ctx().egui_wants_keyboard_input();
     if keyed {
@@ -864,6 +934,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     }
     let fold = fold.or(typed.then_some(true));
     let mut rows = egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+        mg_uikit::name_group(ui, MODULE_TREE);
         mg_uikit::list_rows(ui);
         // A name too long for the pane goes on past it, and the tree
         // scrolls sideways to it, as Aurora's does (a builder's report:
@@ -883,8 +954,117 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         });
         ui.expand_to_include_x(left + width);
     });
-    crate::widgets::home_and_end(ui, &mut rows);
+    // (Over the Areas group's well, its own: `areas_well`.)
+    let well = ui.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("tree-well-rect")));
+    if !well.is_some_and(|w| ui.rect_contains_pointer(w)) {
+        crate::widgets::home_and_end(ui, &mut rows);
+    }
     crate::palette_view::keys_outline(ui, rows.inner_rect, crate::palette_view::Keys::Tree);
+}
+
+/// `add` in the Areas group's well ([`areas_well`]) where `well`, else as
+/// it is.
+fn in_well<R>(
+    ui: &mut Ui,
+    well: bool,
+    view: f32,
+    others: usize,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    if well { areas_well(ui, view, others, add) } else { add(ui) }
+}
+
+/// A group's icon: its kind's (an area's, a conversation's, a blueprint
+/// kind's, the journal's for the journal and factions).
+fn group_icon(types: &[ResType]) -> mg_uikit::Icon {
+    use mg_uikit::Icon;
+    match types.first().copied() {
+        Some(ResType::ARE) => Icon::Area,
+        Some(ResType::DLG) => Icon::Conversation,
+        Some(ResType::NSS) => Icon::Script,
+        Some(ResType::JUI) => Icon::Nui,
+        Some(ResType::JRL) => Icon::Journal,
+        Some(t) => mg_area::ObjectKind::from_restype(t).map_or(Icon::File, crate::icons::object),
+        None => Icon::File,
+    }
+}
+
+/// The Areas group's rows (`add`) in a well of their own that scrolls by
+/// itself (ruling 10 of 2026-11-10; the mock's `.tree-well`), so that the
+/// groups under it stay in sight and in place. The well is as high as the
+/// tree's view (`view`) less a row for each of the tree's other rows
+/// (`others`: Module Properties, each group's row and the line under
+/// them), in whole rows, at least [`WELL_LEAST_ROWS`], and no higher than
+/// the rows it holds; as wide as the tree's view, where it stays when the
+/// tree is scrolled sideways (it scrolls sideways itself to a long name).
+/// A row brought into view in it ([`bring_into_view`],
+/// [`reveal_into_view`]) is scrolled to there, and the well into the
+/// tree's view.
+fn areas_well<R>(ui: &mut Ui, view: f32, others: usize, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let row = mg_uikit::row_height(ui);
+    let rows = ((view / row).floor() - others as f32).max(WELL_LEAST_ROWS);
+    let height = rows * row;
+    let clip = ui.clip_rect();
+    // (Pinned to the tree's view sideways: the group's rows are indented,
+    // the well spans the pane as the board draws it.)
+    let at = egui::pos2(clip.left(), ui.cursor().top());
+    let room = egui::Rect::from_min_size(at, egui::vec2(clip.width(), height));
+    let target_id = egui::Id::new("tree-well-target");
+    ui.data_mut(|d| {
+        d.insert_temp(well_view(), Some(room));
+        d.remove_temp::<WellTarget>(target_id);
+    });
+    let builder =
+        egui::UiBuilder::new().max_rect(room).layout(egui::Layout::top_down(egui::Align::Min));
+    let (inner, rect) = ui
+        .scope_builder(builder, |ui| {
+            let mut out = egui::ScrollArea::both()
+                .id_salt("tree-areas")
+                .auto_shrink([false, true])
+                .max_height(height)
+                .show(ui, |ui| {
+                    // (Where the rows began, for the row to scroll to.)
+                    let top = ui.max_rect().top();
+                    (ui.indent("tree-areas-rows", add).inner, top)
+                });
+            crate::widgets::home_and_end(ui, &mut out);
+            let ((inner, top), view) = (out.inner, out.inner_rect);
+            ui.data_mut(|d| d.insert_temp(well_view(), None::<egui::Rect>));
+            // A row to go to: the well scrolled to it (from the next
+            // frame, as a scroll area scrolls), to its middle or only as
+            // far as it shows it; and the well into the tree's view.
+            let target = ui.data_mut(|d| d.remove_temp::<WellTarget>(target_id));
+            if let Some(WellTarget { rows, center }) = target {
+                let (now, tall) = (out.state.offset.y, view.height());
+                let most = (out.content_size.y - tall).max(0.0);
+                let (from, to) = rows.map_or((now, now), |r| (r.min - top, r.max - top));
+                let offset = if rows.is_none() {
+                    now
+                } else if center {
+                    (from + to) / 2.0 - tall / 2.0
+                } else if from < now {
+                    from
+                } else if to > now + tall {
+                    to - tall
+                } else {
+                    now
+                };
+                let offset = offset.clamp(0.0, most);
+                if (offset - now).abs() > 0.1 {
+                    out.state.offset.y = offset;
+                    out.state.store(ui.ctx(), out.id);
+                    ui.ctx().request_repaint();
+                }
+            }
+            ((inner, target.is_some()), view)
+        })
+        .inner;
+    let (inner, sought) = inner;
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("tree-well-rect"), rect));
+    if sought {
+        ui.scroll_to_rect(rect, None);
+    }
+    inner
 }
 
 /// The one object selected in the area in front, if it is another than
@@ -1209,7 +1389,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let hide_empty = app.settings.tree_hides_empty;
     let filter = filter.clone();
     // (Marked while its tab is the one chosen.)
-    let module = ui.selectable_label(app.tree_marked == Some(module_row()), "Module Properties");
+    let module = mg_uikit::TreeRow::new("Module Properties")
+        .icon(mg_uikit::Icon::Module)
+        .selected(app.tree_marked == Some(module_row()))
+        .show(ui);
     if app.tree_reveal.is_some_and(|(k, _)| k == module_row()) {
         app.tree_marked = Some(module_row());
         reveal_into_view(ui, module.rect);
@@ -1300,12 +1483,17 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         }
         app.area_names.filtered.areas.get(&area).cloned().flatten()
     };
+    // A group with nothing in it, left out (Options › General: Hide empty
+    // groups, a builder's ask). (While the Filter has something typed, the
+    // groups are as it leaves them.)
+    let left_out = |all: &[ResKey]| hide_empty && all.is_empty() && filter.is_empty();
+    // The tree's rows outside the Areas group's well, for its height:
+    // Module Properties, each group's row and the line under them.
+    let others = 2 + lists.iter().filter(|(all, _)| !left_out(all)).count();
+    let view = ui.clip_rect().height();
     for (group, ((name, types), (all, names))) in GROUPS.iter().zip(lists.iter()).enumerate() {
         listed += all.len();
-        // A group with nothing in it, left out (Options › General: Hide
-        // empty groups, a builder's ask). (While the Filter has something
-        // typed, the groups are as it leaves them.)
-        if hide_empty && all.is_empty() && filter.is_empty() {
+        if left_out(all) {
             continue;
         }
         let holds = |k: &ResKey| k.restype == ResType::ARE && found_of(k.resref).is_some();
@@ -1320,11 +1508,13 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         let new = new_command(types);
         let new_label = new.map(|id| new_label(&id.name()));
         let at_group = cursor == Some(TreeAt::Group(name));
-        let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len())).icon(mg_uikit::collapsing_icon)
-            .id_salt(name)
+        // (The group's row: its kind's icon, its name and its count.)
+        let header = mg_uikit::TreeGroup::new(name, *name)
+            .icon(group_icon(types))
+            .count(keys.len())
             .default_open(*name == "Areas")
             // (The keys' cursor on a group shows as its row marked.)
-            .show_background(at_group)
+            .marked(at_group)
             // A resource to bring into view opens its group (a filter
             // typed opens every group, through `fold`); the keys open and
             // close the one they are at.
@@ -1335,6 +1525,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     .or(fold),
             )
             .show(ui, |ui| {
+              // (The Areas group's rows scroll by themselves.)
+              let well = types == &[ResType::ARE];
+              in_well(ui, well, view, others, |ui| {
                 for &k in keys {
                     let label = match (names.get(&k), k.restype) {
                         (Some(name), _) => name.clone(),
@@ -1417,6 +1610,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         continue;
                     }
                     let row = ui.horizontal(|ui| {
+                        // (The name where the board has it: after the
+                        // arrow's column, an area's arrow or the room of
+                        // one, with the label's own padding narrowed.)
+                        let gap = std::mem::replace(&mut ui.spacing_mut().item_spacing.x, 0.0);
+                        ui.spacing_mut().button_padding.x = mg_uikit::tree::ROW_GAP;
+                        if !is_area {
+                            ui.add_space(mg_uikit::metrics::ICON_BUTTON);
+                        }
                         if is_area {
                             let arrow = match out {
                                 true => mg_uikit::Icon::ChevronDown,
@@ -1438,6 +1639,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         }
                         let marked = in_hand || at_row || chosen;
                         let r = ui.add(egui::Button::selectable(marked, label).sense(sense));
+                        ui.spacing_mut().item_spacing.x = gap;
                         // Who holds it (the project's claims table).
                         if is_area {
                             crate::claims::tree_mark(crate::claims::of(&app.ws), ui, k.resref);
@@ -1713,6 +1915,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         }
                     });
                 }
+              })
             });
         if *name == "Areas" {
             // The object selected was gone to if its area is opened out;
@@ -1799,7 +2002,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         }
     }
     let others = ws.module.len() - listed;
-    ui.weak(format!("{others} other resources"));
+    mg_uikit::TreeRow::new(format!("{others} other resources")).dim().show(ui);
     // Down from the Filter: to the first row in sight that it finds (a
     // resource by its ResRef or name, a placed object: an area listed for
     // its objects alone is passed over for them), else the first row.

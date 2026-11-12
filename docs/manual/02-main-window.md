@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:44:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T04:48:06Z }
 ---
 
 # The main window
@@ -38,8 +38,9 @@ is the same whatever **Tools › Options › General › Editors' toolbar
 buttons** says: that setting is the area view's and the editors'
 toolbars'. The icons are Moonglow's own drawings, one to a command. The
 toolbar's other buttons of earlier versions have homes of their own:
-**Properties** (Module Properties, a box) and **New Area** (the Area
-Wizard) are icons on the module tree's tab bar; **Start** is **View ›
+**Module Properties** (a box) and **New Area** (the Area Wizard, a
+plus) are icons on the Module panel's tab bar, beside **Expand All** and
+**Collapse All**; **Start** is **View ›
 Go to Start Location** (the area view's Go to Start Location and its
 Start filter show its circled arrow); **Resources** and **Palettes** are
 in the Tools menu (Resource Browser, Palettes); **Preview** is Preview
@@ -243,18 +244,38 @@ them.
 
 ## The module tree
 
-The left pane lists what the module holds, by kind: Areas, Conversations,
-Scripts, the blueprints (Creatures, Doors, Encounters, Items,
-Placeables, Sounds, Stores, Triggers, Waypoints) and the journal and factions;
-**Module Properties** is at the top. **Filter** narrows every group to the
+The Left Dock's **Module** panel lists what the module holds, by kind:
+Areas, Conversations, Scripts, the blueprints (Creatures, Doors,
+Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints) and
+the journal and factions, each group's row with its kind's icon and,
+at the right, how many it holds; **Module Properties** is at the top,
+and under the groups how many other resources the module has (those no
+group lists). Its tab bar has four buttons: **Module Properties**,
+**New Area** (the Area Wizard), **Expand All** and **Collapse All**
+(below). **Filter** (the field under the tab bar) narrows every group to the
 rows with every word typed in their name or ResRef, in any order, case
 and accents aside (`arbol` finds `Árbol`, `sword iron` finds `Iron
 Sword`, as every Filter and Find field of names does: the palettes', the
-resource browser's, a list's, a wizard's; its clear button clears it); it and Expand All / Collapse All stay in sight
-while the tree scrolls, and Home and End go to the tree's top and bottom
-with the pointer over it. A name too long for the pane goes on past
-its edge, and the tree scrolls sideways to it (Shift and the mouse
-wheel, or the scroll bar under it), as Aurora's does.
+resource browser's, a list's, a wizard's; its clear button, **Clear
+Filter**, clears it; each group's count is then of what it finds); it
+stays in sight while the tree scrolls, and Home and End go to the
+tree's top and bottom with the pointer over it.
+
+**The Areas group scrolls by itself:** its rows (and the objects of the
+areas opened out) are in a well of their own, with a scroll bar of its
+own, so the groups under it stay in sight and where they are however
+many areas the module has. The well is as high as the tree's view less
+a row for each of the tree's other rows (Module Properties, each
+group's row and the line under them), and never fewer than five rows:
+in a window 800 pixels high, with the groups closed, all of them are
+in sight under the Areas group. The mouse wheel over the well scrolls
+it (at its top or foot, the tree around it), and Home and End over it
+go to its top and foot. An area or an object the tree goes to (a tab
+chosen, an object selected in an area's view, the keys) is scrolled to
+in the well, and the well into the tree's view. A name too long for the
+pane goes on past its edge, and the tree scrolls sideways to it (Shift
+and the mouse wheel, or the scroll bar under it), as Aurora's does; the
+well scrolls sideways by itself to a long area name.
 
 Resources are listed by their ResRefs, as in Aurora. With **Tools ›
 Options › General › List areas and blueprints by name**, areas and
@@ -320,14 +341,13 @@ A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).
 
-**Expand All** and **Collapse All** (the two icons under the Filter, as
-in the Palettes pane) open and close every group at once; with the keys
-in the tree (or a palette), **Ctrl+Shift+Right** and **Ctrl+Shift+Left**
-do the same (Options › Keyboard, under Module Tree and Palettes). Collapse All
-also closes every area opened out to its objects, and the kinds under
-it; Expand All leaves them closed (an area's objects can be hundreds of
-rows). Beside them is how many resources the module has. The Filter says what it looks in,
-and has a clear button (**Clear Filter**) to clear it.
+**Expand All** and **Collapse All** (the two icons on the Module panel's
+tab bar; the palettes have their own) open and close every group of the
+tree at once; with the keys in the tree (or a palette),
+**Ctrl+Shift+Right** and **Ctrl+Shift+Left** do the same (Options ›
+Keyboard, under Module Tree and Palettes). Collapse All also closes
+every area opened out to its objects, and the kinds under it; Expand All
+leaves them closed (an area's objects can be hundreds of rows).
 
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
@@ -427,8 +447,8 @@ also has one control of its own for it. The **Left Dock** has a small
 arrow at the right end of its tab bar, by the middle (**Fold the Left
 Dock**): folded, the dock leaves a thin strip at the window's left with
 an arrow at its top that brings it back (**Show the Left Dock**) and
-the module tree's icon under it, which does the same; it comes back as
-wide as it was. The **palettes** have an arrow on the edge they face
+the Module panel's icon under it, which brings it back on that panel;
+it comes back as wide as it was. The **palettes** have an arrow on the edge they face
 the middle by, halfway along it, pointing the way the pane goes; folded
 away they leave a thin strip at that edge, with the same button in the
 same place, pointing the other way. Palettes you moved to the left of

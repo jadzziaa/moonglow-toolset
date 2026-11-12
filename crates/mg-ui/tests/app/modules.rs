@@ -15,7 +15,7 @@ fn welcome_then_open_a_module_through_the_dialog() {
     // The tree lists the area and the script; Module Properties is open.
     h.get_by_label("Areas (1)");
     h.get_by_label_contains("Scripts (1)");
-    h.get_by_label("Module Properties");
+    tree_row(&h, "Module Properties");
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Opened")));
 }
 

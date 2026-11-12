@@ -22,6 +22,7 @@ mod inventories;
 mod lists_together;
 mod looks;
 mod menus;
+mod module_panel;
 mod modules;
 mod options_and_keys;
 mod palettes;

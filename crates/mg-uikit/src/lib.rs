@@ -32,6 +32,7 @@ pub mod shell;
 pub mod status;
 pub mod theme;
 pub mod tokens;
+pub mod tree;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -56,3 +57,4 @@ pub use menu::{
 };
 pub use theme::{Theme, TokensExt, applied, apply, tokens};
 pub use tokens::Tokens;
+pub use tree::{TreeGroup, TreeRow};

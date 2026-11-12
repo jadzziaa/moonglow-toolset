@@ -353,7 +353,7 @@ fn an_item_property_s_spells_have_a_filter() {
     h.run();
     // Opened at the chosen spell (far down the list: Aid, Barkskin… come
     // first), under the Filter field.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
     let row = (h.query_all_by_label_contains("Cure Light Wounds"))
         .map(|n| n.rect().center().y)
@@ -863,7 +863,7 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(2);
     // (Typed into its Filter: frames are stepped, as the preview plays.)
-    let filter = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let filter = list_filter;
     h.get(egui_kittest::kittest::by().predicate(filter)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");

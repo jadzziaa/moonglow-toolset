@@ -471,9 +471,52 @@ pub(crate) fn icon_drawn(
         .any(|(i, r)| *i == icon && rect.expand(1.0).contains_rect(*r))
 }
 
+/// Whether the accessible node `n` is in the group named `group`.
+pub(crate) fn node_in_group(n: &egui_kittest::kittest::AccessKitNode<'_>, group: &str) -> bool {
+    let mut up = n.parent();
+    while let Some(p) = up {
+        if p.label().as_deref() == Some(group) {
+            return true;
+        }
+        up = p.parent();
+    }
+    false
+}
+
+/// The Module panel's group (its Filter and the module tree).
+pub(crate) const MODULE_PANEL: &str = "Module Panel";
+
+/// Whether `n` is a dropdown's or a list's Filter field (its placeholder
+/// "Filter"), not the module tree's (which says the same, in the Module
+/// panel).
+pub(crate) fn list_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
+    n.placeholder() == Some("Filter") && !node_in_group(n, MODULE_PANEL)
+}
+
+/// Whether `n` is the module tree's Filter field.
+pub(crate) fn tree_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
+    n.placeholder() == Some("Filter") && node_in_group(n, MODULE_PANEL)
+}
+
+/// Types `text` into the module tree's Filter, and waits for what it shows.
+pub(crate) fn type_into_tree_filter(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.get(egui_kittest::kittest::by().predicate(tree_filter)).click();
+    settle(h);
+    h.get(egui_kittest::kittest::by().predicate(tree_filter)).type_text(text);
+    settle(h);
+}
+
+/// The module tree's row `label` (a resource's, a group's "Areas (1)",
+/// Module Properties: not the Module panel header's button of that name).
+#[track_caller]
+pub(crate) fn tree_row<'t>(h: &'t Harness<'_, Moonglow>, label: &'t str) -> egui_kittest::Node<'t> {
+    h.get_by_label("Module Tree Rows").get_by_label(label)
+}
+
 /// Types into the text field with placeholder `hint` (a live filter), and
 /// waits for what it shows ([`settle`]: a gallery's pictures, made a few
-/// milliseconds' worth a frame).
+/// milliseconds' worth a frame). A "Filter" is a dropdown's or a list's,
+/// not the module tree's ([`type_into_tree_filter`]).
 pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     // ("Find" is a list's search: the palette's says what it looks in.
     // A search field's glass is drawn, not in its hint.)
@@ -483,7 +526,9 @@ pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &s
         h.query_all(egui_kittest::kittest::by().predicate(by)).next().is_some()
     };
     let hint = if !has(h, hint) && hint == "Find" { palette } else { hint };
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.placeholder() == Some(hint) && (hint != "Filter" || list_filter(n))
+    };
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);

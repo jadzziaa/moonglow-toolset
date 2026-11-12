@@ -312,7 +312,7 @@ fn the_module_tree_s_groups_open_and_close_together() {
     let listed = |h: &Harness<'_, Moonglow>| h.query_all_by_label(&area.to_string()).count();
     let before = listed(&h);
     assert!(before >= 1, "Areas is open to begin with");
-    h.get_all_by_label("Collapse All").next().unwrap().click();
+    module_tool(&h, "Collapse All").click();
     h.run_steps(4);
     assert_eq!(listed(&h), before - 1, "the area's row is gone from the tree");
     // (Each group's row says whether it is open, for a screen reader.)
@@ -321,7 +321,7 @@ fn the_module_tree_s_groups_open_and_close_together() {
         row.accesskit_node().data().is_expanded()
     };
     assert_eq!(areas_open(&h), Some(false), "Areas said closed");
-    h.get_all_by_label("Expand All").next().unwrap().click();
+    module_tool(&h, "Expand All").click();
     h.run_steps(4);
     assert_eq!(listed(&h), before, "and back");
     assert_eq!(areas_open(&h), Some(true), "Areas said open");
@@ -766,7 +766,7 @@ fn delete_on_a_tree_row_asks_first() {
     let Some((mut h, key)) = plugin_harness("ui-tree-delete-key", false) else { return };
     h.run();
     // The guard's row (its type opened out), under the pointer.
-    h.get_all_by_label("Expand All").next().unwrap().click();
+    module_tool(&h, "Expand All").click();
     h.run_steps(3);
     let found = h.query_all_by_label_contains("guard").count();
     assert!(found > 0, "the guard's row");
@@ -1351,8 +1351,7 @@ fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
     ];
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(tabs));
     h.run_steps(3);
-    let hint = "Filter name, resref";
-    type_into_hint(&mut h, hint, "script_0");
+    type_into_tree_filter(&mut h, "script_0");
     h.run_steps(3);
     assert!(h.query_by_label("script_50").is_none(), "hidden by the Filter");
     open(&mut h, Tab::Script(script(50)));
@@ -1706,11 +1705,8 @@ fn an_area_the_filter_opens_out_closes_again() {
     h.run_steps(10);
     assert_eq!(kinds(&h), 1, "opened out again");
     // Collapse All, then the Filter cleared and typed again: opened out once more.
-    // (The tree's, left of the area view's.)
-    let collapse = h
-        .get_all_by_label("Collapse All")
-        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()));
-    collapse.unwrap().click();
+    // (The tree's, on the Module panel's header.)
+    module_tool(&h, "Collapse All").click();
     h.run_steps(10);
     assert_eq!(kinds(&h), 0, "Collapse All");
     h.get_by_label("Clear Filter").click();

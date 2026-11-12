@@ -120,6 +120,20 @@ fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<
         .unwrap_or_else(|| panic!("no {name} apart from the toolbars"))
 }
 
+/// Whether `n` is a dropdown's or a list's Filter field (its placeholder
+/// "Filter"), not the module tree's, which says the same in the group
+/// "Module Panel".
+fn list_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
+    let mut up = n.parent();
+    while let Some(p) = up {
+        if p.label().as_deref() == Some("Module Panel") {
+            return false;
+        }
+        up = p.parent();
+    }
+    n.placeholder() == Some("Filter")
+}
+
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
     shoot_in(h, dir, name, light());
 }
@@ -2833,7 +2847,7 @@ fn hover_list_row(
     // (A long list's: its Filter field, at once above or below the box.
     // A short list's rows are all in sight.)
     let filter = h
-        .query_all_by(|n| n.placeholder() == Some("Filter"))
+        .query_all_by(list_filter)
         .map(|n| n.rect())
         .find(|r| (r.left() - list.left()).abs() < 20.0);
     let in_sight = |r: egui::Rect| match filter {
@@ -9030,7 +9044,7 @@ fn area_properties_audio_dropdown() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     // The Filter field's width, and the widest row's under it.
     let widths = |h: &Harness<'_, Moonglow>| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -9120,7 +9134,7 @@ fn appearance_dropdown_frames() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let filter =
         |h: &Harness<'_, Moonglow>| h.get(egui_kittest::kittest::by().predicate(hint)).rect();
     // (The click opens it in a pass that measures it, unseen.)
@@ -10571,6 +10585,59 @@ fn shell_floating() {
     place(&mut h, &script, (420.0, 120.0), (820.0, 560.0));
     h.run_steps(10);
     shoot(&mut h, &dir, "shell_floating");
+}
+
+/// The Left Dock folded to its strip (the chevron, the Module panel's
+/// icon) at the narrow board's size.
+#[test]
+#[ignore]
+fn shell_left_folded() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    h.state_mut().settings.hide_tree = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_left_folded");
+}
+
+/// The Module panel with every group of the tree open (Expand All), at the
+/// main board's size: each group's icon and count, the Areas group
+/// scrolling in its own well over the groups below it.
+#[test]
+#[ignore]
+fn shell_tree_groups() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.get_all_by_label("Expand All").next().unwrap().click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_tree_groups");
+}
+
+/// The Module panel with a word typed in its Filter ("m1q1"): the areas,
+/// conversations and scripts it finds, the placed objects of the areas
+/// opened out, and the Filter's clear button.
+#[test]
+#[ignore]
+fn shell_tree_filter() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let field = egui::accesskit::Role::TextInput;
+    h.get_all_by_role(field).next().unwrap().click();
+    h.run_steps(2);
+    h.get_all_by_role(field).next().unwrap().type_text("m1q1");
+    for _ in 0..20 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    shoot(&mut h, &dir, "shell_tree_filter");
 }
 
 /// The frame at 760 by 600 with a module and its area open: the Top Bar's

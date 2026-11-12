@@ -1776,7 +1776,7 @@ fn a_dropdown_opens_at_what_is_chosen() {
     open(&mut h);
     // The chosen row is in the list's window, a little under its Filter
     // field (the list has hundreds of rows before "Chest").
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let in_sight = |h: &Harness<'_, Moonglow>| {
         let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
         let row = h
@@ -1825,7 +1825,7 @@ fn an_open_dropdown_keeps_its_width() {
     // (Measured from the first frame that draws it: `run` would step past
     // a frame that grew.)
     h.step();
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     // The Filter field's width, and a row's (its highlight) under it.
     let widths = |h: &Harness<'_, Moonglow>, row: &str| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -1889,7 +1889,7 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query_by_label("Altar").is_none(), "what doesn't match is left out");
     // Escape clears what is typed, the list still open; Escape again
     // closes it, the appearance as it was.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_some(), "open");
@@ -2566,8 +2566,8 @@ fn filters_find_names_case_and_accents_aside() {
     // Every row the filter leaves, from the tree's top to its foot (it
     // lays out only the rows in sight, so a row out of sight is not there
     // to be found or missed): Árbol among them, Roble not.
-    let tree = h.get_by_label("Module Properties").rect().center();
-    let top = |h: &Harness<'_, Moonglow>| h.get_by_label("Module Properties").rect().top();
+    let tree = tree_row(&h, "Module Properties").rect().center();
+    let top = |h: &Harness<'_, Moonglow>| tree_row(h, "Module Properties").rect().top();
     let (mut found, mut was) = (false, f32::NAN);
     let deadline = std::time::Instant::now() + SETTLE_TIME;
     while top(&h) != was {

@@ -193,9 +193,9 @@ fn verify_and_the_module_panel_s_buttons_run_their_commands() {
     h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_none());
-    let props = module_tool(&h, "Properties").rect();
+    let props = module_tool(&h, "Module Properties").rect();
     assert!(tip_at(&mut h, props).is_some_and(|t| t.contains("Module properties")));
-    module_tool(&h, "Properties").click();
+    module_tool(&h, "Module Properties").click();
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_some(), "Module Properties");
     module_tool(&h, "New Area").click();
@@ -734,6 +734,39 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     assert_eq!(tab.accesskit_node().role(), egui::accesskit::Role::Tab);
     assert_eq!(tab.accesskit_node().is_selected(), Some(true));
     h.get_by_label("Areas (1)");
+}
+
+/// Dragged as narrow as it goes, the Left Dock is as wide as its tab bar
+/// needs (the Module tab, the Module panel's four buttons and the fold
+/// button, 190 points), and nothing on it overlaps; so too in the least
+/// window (420 points wide), where two fifths of the window would be less.
+#[test]
+fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
+    let dir = mg_testkit::scratch_dir("ui-left-dock-least");
+    let path = sample_module(&dir);
+    for width in [1400.0, 420.0 + TEST_FRAME] {
+        let mut app = app_with(Vec::new());
+        app.settings.no_last_area = true;
+        app.open_module(&path);
+        let mut h = harness(app, width, 700.0);
+        settle(&mut h);
+        let edge = fold_edge(&h) + 3.0;
+        let y = h.ctx.content_rect().center().y;
+        drag(&mut h, egui::pos2(edge, y), egui::vec2(-400.0, 0.0));
+        // (The test's window frame, 8 points; the fold button 2 points
+        // from the dock's inner edge.)
+        let left = h.ctx.content_rect().left() + 8.0;
+        let wide = fold_edge(&h) + 2.0 - left;
+        assert!((wide - 190.0).abs() <= 3.0, "{width}: the dock {wide} wide");
+        let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
+        let dock = egui::Rect::from_x_y_ranges(left..=fold_edge(&h), tab.y_range());
+        let wrong: Vec<String> =
+            bars_wrong(&h, true).into_iter().filter(|w| w.starts_with("Left Dock")).collect();
+        assert!(wrong.is_empty(), "{width}: {wrong:#?}");
+        for name in ["Module Properties", "New Area", "Expand All", "Collapse All"] {
+            assert!(dock.contains_rect(module_tool(&h, name).rect()), "{width}: {name}");
+        }
+    }
 }
 
 /// The Log's switch in the Status Bar opens and closes the Bottom Dock,

@@ -2641,6 +2641,7 @@ pub(crate) struct SearchField<'a> {
     find_over: bool,
     down: bool,
     width: Option<f32>,
+    icon: mg_uikit::Icon,
 }
 
 /// What a [`SearchField`] did: the field's response, and how its keys
@@ -2662,7 +2663,15 @@ impl<'a> SearchField<'a> {
             find_over: false,
             down: false,
             width: None,
+            icon: mg_uikit::Icon::Search,
         }
+    }
+
+    /// The icon before what it looks in (the glass, where not given; the
+    /// module tree's Filter has the filter's funnel, as the mock's).
+    pub(crate) fn icon(mut self, icon: mg_uikit::Icon) -> Self {
+        self.icon = icon;
+        self
     }
 
     /// What the field says while it is empty.
@@ -2712,8 +2721,18 @@ impl<'a> SearchField<'a> {
     }
 
     pub(crate) fn show(self, ui: &mut egui::Ui) -> Searched {
-        let SearchField { id, text, hint, clear_tip, clear_name, find, find_over, down, width } =
-            self;
+        let SearchField {
+            id,
+            text,
+            hint,
+            clear_tip,
+            clear_name,
+            find,
+            find_over,
+            down,
+            width,
+            icon,
+        } = self;
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
@@ -2744,7 +2763,7 @@ impl<'a> SearchField<'a> {
                     let at = egui::pos2(r.rect.left() + f32::from(field.left), r.rect.center().y);
                     let rect = egui::Rect::from_min_size(at - egui::vec2(0.0, side.y / 2.0), side);
                     let color = ui.visuals().weak_text_color();
-                    mg_uikit::Icon::Search.paint(ui.painter(), rect, color);
+                    icon.paint(ui.painter(), rect, color);
                 }
                 if clear {
                     let b = ui.add(clear_button().name(clear_name)).on_hover_text(clear_tip);
