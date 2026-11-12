@@ -104,8 +104,7 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
     let mut pasted = if open || button.hovered() { take_paste(ui) } else { None };
     // (Its own id: egui's for a context menu is the picker's, which kept
     // the menu from opening.)
-    Popup::context_menu(&button).id(popup_id.with("menu")).show(|ui| {
-        mg_uikit::menu_rows(ui);
+    Popup::context_menu(&button).id(popup_id.with("menu")).style(mg_uikit::menu_style).show(|ui| {
         if ui.button("Copy Color").on_hover_text("Its values, as 158, 151, 211").clicked() {
             ui.copy_text(text_of(*srgba, alpha));
             ui.close();
@@ -128,10 +127,10 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
         pasted = parse(&text);
     }
     const COLOR_SLIDER_WIDTH: f32 = 275.0;
-    Popup::menu(&button).id(popup_id).close_behavior(PopupCloseBehavior::CloseOnClickOutside).show(
-        |ui| {
-            // (A picker, not a menu's rows: its parts keep their gaps.)
-            mg_uikit::menu_form(ui);
+    let picker = Popup::menu(&button).id(popup_id).style(mg_uikit::menu_style);
+    picker.close_behavior(PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        // (A picker, not a menu's rows: its parts keep their gaps.)
+        mg_uikit::menu_form(ui, |ui| {
             ui.spacing_mut().slider_width = COLOR_SLIDER_WIDTH;
             if color_picker_hsva_2d(ui, &mut hsva, alpha) {
                 button.mark_changed();
@@ -175,8 +174,8 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
                     ui.ctx().request_repaint();
                 }
             });
-        },
-    );
+        });
+    });
     if let Some(mut c) = pasted {
         if alpha == Alpha::Opaque {
             c = Color32::from_rgb(c.r(), c.g(), c.b());

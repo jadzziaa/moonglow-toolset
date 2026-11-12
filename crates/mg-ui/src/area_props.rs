@@ -581,7 +581,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.close();
             }
             if saved.is_empty() {
-                ui.weak("None saved yet");
+                mg_uikit::menu_note(ui, "None saved yet");
             }
             for name in saved {
                 if ui.button(name).clicked() {
@@ -590,11 +590,11 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             }
             if !saved.is_empty() {
-                ui.check_box(&mut relight, "Tiles' Lights Too").on_hover_text(
+                mg_uikit::menu_check(ui, &mut relight, "Tiles' Lights Too").on_hover_text(
                     "Also picks each tile's lights anew from the colors saved with the lighting",
                 );
             }
-            ui.separator();
+            mg_uikit::menu_separator(ui);
             if ui.button("Save This Lighting…").clicked() {
                 ui.data_mut(|d| d.insert_temp(naming, (None::<String>, String::new())));
                 ui.close();
@@ -630,7 +630,7 @@ fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             });
             mg_uikit::menu_button(ui, "Make a Lighting Scheme", |ui| {
-                ui.weak("A row of environment.2da: the table to add it to");
+                mg_uikit::menu_heading(ui, "A row of environment.2da: the table to add it to");
                 let key =
                     ResKey::new(ResRef::from_str("environment").expect("a name"), ResType::TWODA);
                 for name in saved {

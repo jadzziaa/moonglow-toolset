@@ -1853,8 +1853,7 @@ fn tree(
                     ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
                 }
             }
-            r.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&r, |ui| {
                 view.selected = Some(row);
                 if linked
                     && ui

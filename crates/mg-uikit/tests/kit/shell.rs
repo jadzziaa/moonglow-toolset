@@ -323,6 +323,41 @@ fn a_panel_header_names_its_tools_group() {
     assert!(h.get_by_label("Expand All").is_focused());
 }
 
+/// A panel header's detail starts 12 px after its title (the
+/// stylesheet's `.docktab.title` padding, `.panel-tabs` having no gap,
+/// and the 2 px the boards give the detail), the title 10 px from the
+/// header's left.
+#[test]
+fn a_panel_header_s_detail_is_12_after_its_title() {
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        PanelHeader::new("Outliner").detail("map_m1q1a").show(ui, |_| {});
+    });
+    h.run();
+    let words = texts(&h);
+    let at = |w: &str| words.iter().find(|(t, _)| t == w).map(|(_, r)| *r).unwrap();
+    let (title, detail) = (at("Outliner"), at("map_m1q1a"));
+    assert_eq!(detail.left() - title.right(), shell::PANEL_DETAIL_GAP, "{title:?} {detail:?}");
+    assert_eq!(shell::PANEL_DETAIL_GAP, 12.0);
+    assert_eq!(title.left() - 8.0, shell::DOCK_TAB_PADDING, "the harness's margin, then 10");
+}
+
+/// The words drawn in a frame, where.
+fn texts(h: &Harness<'_>) -> Vec<(String, egui::Rect)> {
+    fn add(shape: &egui::Shape, to: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(t) => {
+                to.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2())))
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
+    all
+}
+
 /// The Top Bar's middle slot: centered in the room the two groups leave,
 /// at most the cap wide (and less where the room is less); the group
 /// named "Top Bar".

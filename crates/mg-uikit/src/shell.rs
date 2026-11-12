@@ -454,6 +454,11 @@ pub fn fold_button(ui: &mut Ui, side: Side, dock: &str) -> Response {
 
 /// A dock tab's padding at each side (`.docktab`: `padding: 0 10px`).
 pub const DOCK_TAB_PADDING: f32 = 10.0;
+/// The room between a panel header's title and its detail
+/// ([`PanelHeader::detail`]): the title's padding at its right
+/// (`.docktab.title`'s `padding: 0 10px`, in `.panel-tabs`, which has no
+/// gap) and the 2 px the boards give the detail at its left.
+pub const PANEL_DETAIL_GAP: f32 = DOCK_TAB_PADDING + 2.0;
 /// The gap between a dock tab's words and its badge (`gap: 6px` and the
 /// badge's own 2).
 pub const DOCK_TAB_BADGE_GAP: f32 = 8.0;
@@ -724,9 +729,10 @@ impl PanelHeader {
                 p.galley(pos2(x, y(title.size().y)), title, t.text);
                 if let Some(detail) = &self.detail {
                     let galley = p.layout_no_wrap(detail.clone(), font, t.text_3);
-                    // (`.t3.row` after the title: the row's 4 px gap and the
-                    // title's 10 px padding.)
-                    let at = end + DOCK_TAB_PADDING;
+                    // (`.t3.row` after `.docktab.title`, in `.panel-tabs`,
+                    // which has no gap: the title's 10 px padding at its
+                    // right, and the detail's own 2 at its left.)
+                    let at = end + PANEL_DETAIL_GAP;
                     end = at + galley.size().x;
                     p.galley(pos2(at, y(galley.size().y)), galley, t.text_3);
                 }

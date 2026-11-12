@@ -2189,8 +2189,7 @@ pub(crate) fn grid_in(
                                 ui.painter().vline(x, rect.y_range(), stroke);
                             }
                         }
-                        r.context_menu(|ui| {
-                            mg_uikit::menu_rows(ui);
+                        mg_uikit::context_menu(&r, |ui| {
                             if read_only {
                                 if ui.button("Hide Column").clicked() {
                                     column_view = Some(ColumnView::Hide(index));
@@ -2229,7 +2228,7 @@ pub(crate) fn grid_in(
                                 column_act = Some((index, true));
                                 ui.close();
                             }
-                            ui.separator();
+                            mg_uikit::menu_separator(ui);
                             if ui
                                 .button("Hide Column")
                                 .on_hover_text(

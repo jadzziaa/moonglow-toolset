@@ -2981,8 +2981,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     let row_id = ui.id().with("area-toolbar-row");
     if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(row_id)) {
         let behind = ui.interact(rect, row_id.with("menu"), egui::Sense::click());
-        behind.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&behind, |ui| {
             egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
                 toolbar_menu(ui, &mut app.settings.hidden_area_tools, false);
             });
@@ -4393,7 +4392,12 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
     }));
     let mut tick = |ui: &mut egui::Ui, (id, label): &(String, String)| {
         let mut shown = !hidden.contains(id);
-        if ui.check_box(&mut shown, label).changed() {
+        // (In the menu, rows of it; on the Options page, check boxes.)
+        let r = match wrapped {
+            true => ui.check_box(&mut shown, label),
+            false => mg_uikit::menu_check(ui, &mut shown, label),
+        };
+        if r.changed() {
             hidden.retain(|h| h != id);
             if !shown {
                 hidden.push(id.clone());
@@ -4414,14 +4418,14 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
             }
         });
     } else {
-        ui.label(egui::RichText::new("Show on the Toolbar").strong());
+        mg_uikit::menu_heading(ui, "Show on the Toolbar");
         for (i, t) in ticks.iter().enumerate() {
             if i == ObjectKind::ALL.len() {
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             tick(ui, t);
         }
-        ui.separator();
+        mg_uikit::menu_separator(ui);
     }
     if ui.button("Show All").on_hover_text("Every button on the area's toolbar").clicked() {
         hidden.clear();
@@ -5272,8 +5276,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.tile_menu_at = response.interact_pointer_pos();
             }
             let at = view.tile_menu_at;
-            response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(response, |ui| {
                 crate::tile_select::context_menu(app, view, ui, at)
             });
         }
@@ -5291,8 +5294,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         if !shift {
             let at = view.tile_menu_at;
-            response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(response, |ui| {
                 crate::tile_select::context_menu(app, view, ui, at)
             });
         }
@@ -5584,10 +5586,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             .and_then(|p| crate::tile_select::tile_at(view, p))
             .filter(|_| view.terrain.is_some());
     }
-    response.context_menu(|ui| {
-        mg_uikit::menu_rows(ui);
-        context_menu(app, view, ui)
-    });
+    mg_uikit::context_menu(response, |ui| context_menu(app, view, ui));
 
     // Moving, turning, raising; selecting by a box. A drag starts once the
     // pointer has moved: pick where it was pressed. It goes on until its
@@ -7339,13 +7338,13 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     // A read-only area's: what looks at it, nothing that changes it.
     match view.read_only.clone() {
         Some(why) => {
-            ui.weak(format!("{why}: read-only here"));
+            mg_uikit::menu_note(ui, format!("{why}: read-only here"));
             preview_item(app, view, ui, single);
         }
         None => editing_items(app, view, ui, single),
     }
     // Variables, then Properties: the menu's last, as in Aurora.
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     if let Some((kind, index)) = single
         && view.read_only.is_none()
         && ui.button("Variables…").clicked()
@@ -7671,7 +7670,7 @@ fn editing_items(
                 if custom {
                     let made = made_lights(app);
                     if !made.is_empty() {
-                        ui.separator();
+                        mg_uikit::menu_separator(ui);
                     }
                     for light in made.iter() {
                         if light_button(ui, light).clicked() {
@@ -7685,7 +7684,7 @@ fn editing_items(
                             ui.close();
                         }
                     }
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                     if ui
                         .button("Custom Light…")
                         .on_hover_text(
@@ -7837,14 +7836,14 @@ fn editing_items(
         view.set_name = Some(String::new());
         ui.close();
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
         delete(app, view);
         ui.close();
     }
     // Where the menu was opened (not when it is opened from the keys).
     if let Some(at) = view.menu_at {
-        ui.separator();
+        mg_uikit::menu_separator(ui);
         // The module's start location, here, facing the way the camera
         // looks (Aurora places it from the palette).
         if ui

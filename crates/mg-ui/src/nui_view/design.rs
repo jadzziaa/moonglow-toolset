@@ -210,16 +210,12 @@ pub(super) fn editor(
     let compact = width < 760.0;
     if compact {
         ui.horizontal(|ui| {
-            mg_uikit::menu_button(ui, "Add element", |ui| {
-                mg_uikit::menu_rows(ui);
-                palette(ui, v, s, state);
-            });
-            mg_uikit::menu_button(ui, "Layers", |ui| {
-                mg_uikit::menu_rows(ui);
-                layers(ui, v, s, state);
-            });
-            mg_uikit::menu_button(ui, "Properties", |ui| {
-                mg_uikit::menu_rows(ui);
+            // (The panels the wide window shows beside the preview, each a
+            // form in a menu: headings, fields and lists keep their gaps,
+            // and a click in them leaves the menu open.)
+            mg_uikit::form_menu_button(ui, "Add element", |ui| palette(ui, v, s, state));
+            mg_uikit::form_menu_button(ui, "Layers", |ui| layers(ui, v, s, state));
+            mg_uikit::form_menu_button(ui, "Properties", |ui| {
                 ui.set_width(260.0);
                 let height = ui.ctx().content_rect().height() * 0.8;
                 egui::ScrollArea::vertical().max_height(height).show(ui, |ui| {
@@ -350,7 +346,7 @@ fn edit_actions(
 ) {
     use crate::keys::Cmd;
     if state.resize.is_some() {
-        ui.weak("Finish resizing to change elements.");
+        mg_uikit::menu_note(ui, "Finish resizing to change elements.");
         return;
     }
     for (label, op, cmd) in [
@@ -359,8 +355,12 @@ fn edit_actions(
         ("Duplicate element", Op::Duplicate, Cmd::NuiDuplicate),
         ("Delete element", Op::Delete, Cmd::NuiDelete),
     ] {
-        let button = egui::Button::new(label).shortcut_text(keymap.label(cmd, ui.ctx()));
-        if ui.add_enabled(shortcuts::can_edit(v, &state.selected, op), button).clicked() {
+        let keys = keymap.label(cmd, ui.ctx());
+        let enabled = shortcuts::can_edit(v, &state.selected, op);
+        let row = ui.add_enabled_ui(enabled, |ui| {
+            mg_uikit::menu_row_with_keys(ui, egui::Button::new(label), &keys)
+        });
+        if row.inner.clicked() {
             if op == Op::Delete {
                 structure::delete_selected(v, state);
             } else {
@@ -377,7 +377,7 @@ fn edit_actions(
             ui.close();
         }
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     for (label, key, op, enabled) in [
         ("Copy element", egui::Key::C, 0, !state.selected.is_empty()),
         ("Cut element", egui::Key::X, 1, shortcuts::can_edit(v, &state.selected, Op::Delete)),
@@ -390,7 +390,10 @@ fn edit_actions(
     ] {
         let shortcut =
             ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key));
-        if ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut)).clicked() {
+        let row = ui.add_enabled_ui(enabled, |ui| {
+            mg_uikit::menu_row_with_keys(ui, egui::Button::new(label), &shortcut)
+        });
+        if row.inner.clicked() {
             shortcuts::clipboard(ui.ctx(), v, s, &mut state.selected, op);
             ui.close();
         }

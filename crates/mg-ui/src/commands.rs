@@ -1424,24 +1424,18 @@ fn initial(name: &str) -> char {
     first.map_or(' ', |c| c.to_lowercase().next().unwrap_or(c))
 }
 
+/// A menu row's keys (beside its name), laid out by the row and painted
+/// by [`add_entry`] in the color its state gives (`mg_uikit::MenuKeys`):
+/// `on-fill` where the row is lit, under the pointer or the keys' cursor
+/// (the weak text did not read on the menu's `accent-fill`). None where
+/// it has no keys.
+fn keys_of(ui: &Ui, key: String) -> Option<mg_uikit::MenuKeys> {
+    (!key.is_empty()).then(|| mg_uikit::MenuKeys::new(ui, key))
+}
+
 /// A row of a menu, for the keys: counted, marked where the keys are at
 /// it, and chosen by Enter. Returns the button to draw, and whether the
 /// keys chose it.
-/// A menu row's keys (beside its name), for the row [`row`] makes next at
-/// `level`: in the weak text's color, or the fill's (`on-fill`) where the
-/// row is lit, under the pointer or the keys' cursor: the weak text did
-/// not read on the menu's `accent-fill`.
-fn keys_beside(app: &Moonglow, ui: &Ui, level: usize, key: String) -> egui::RichText {
-    let index = app.menu_row.get(level).copied().unwrap_or(0);
-    let next = egui::Rect::from_min_size(
-        ui.cursor().min,
-        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
-    );
-    let lit = app.menu_keys.at(level, index) || ui.rect_contains_pointer(next);
-    let keys = egui::RichText::new(key);
-    if lit { keys.color(mg_uikit::tokens(ui.ctx()).on_fill) } else { keys }
-}
-
 fn row<'a>(
     app: &mut Moonglow,
     level: usize,
@@ -1530,7 +1524,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
         match *item {
             Do(id) => button(app, ui, id, level),
             Separator => {
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             Sub(name, items) => {
                 submenu(app, ui, level, name, true, |app, ui| menu(app, ui, items, level + 1));
@@ -1548,7 +1542,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     let name = id.label(app).trim_end_matches('…').to_string();
                     submenu(app, ui, level, &name, true, |app, ui| {
                         button(app, ui, id, level + 1);
-                        ui.separator();
+                        mg_uikit::menu_separator(ui);
                         plugin_entries(app, ui, &entries, level + 1);
                     });
                 }
@@ -1556,7 +1550,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
             Item::PluginWizards => {
                 let entries = app.plugin_entries(crate::plugin_kinds::Added::Wizard);
                 if !entries.is_empty() {
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                     plugin_entries(app, ui, &entries, level);
                 }
             }
@@ -1566,7 +1560,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     submenu(app, ui, level, "Panels", true, |app, ui| {
                         plugin_entries(app, ui, &entries, level + 1);
                     });
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                 }
             }
             Item::PluginCommands => {
@@ -1578,13 +1572,13 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     let plugin = &commands[at].plugin;
                     let n = commands[at..].iter().take_while(|c| &c.plugin == plugin).count();
                     if several {
-                        ui.weak(&commands[at].plugin_name);
+                        mg_uikit::menu_heading(ui, &commands[at].plugin_name);
                     }
                     plugin_command_rows(app, ui, level, &commands[at..at + n], 0);
                     at += n;
                 }
                 if !commands.is_empty() {
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                 }
             }
             Item::Project => {
@@ -1597,20 +1591,21 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                         let can = c.run.is_some();
                         let mut entry = egui::Button::new(&name);
                         let id = crate::project_commands::key_id(&c.name);
-                        let key = app.keymap.label_of(&id, ui.ctx());
-                        if !key.is_empty() {
-                            entry = entry.shortcut_text(keys_beside(app, ui, level + 1, key));
+                        let keys = keys_of(ui, app.keymap.label_of(&id, ui.ctx()));
+                        if let Some(keys) = &keys {
+                            entry = entry.shortcut_text(keys.atom());
                         }
                         let (entry, chosen) = row(app, level + 1, &name, entry, can);
                         let tip = crate::project_commands::tip(&c);
-                        let r = ui.add_enabled(can, entry);
+                        let at = app.menu_keys.at(level + 1, app.menu_row[level + 1] - 1);
+                        let (r, _) = add_entry(ui, can, entry, keys.as_ref(), at);
                         let r = r.on_hover_text(&tip).on_disabled_hover_text(&tip);
                         if r.clicked() || chosen {
                             app.actions.push(Action::ProjectCommand(c.name));
                             egui::Popup::close_all(ui.ctx());
                         }
                     }
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                     let name = "Command Output";
                     let can = crate::project_commands::has_output(app);
                     let (entry, chosen) = row(app, level + 1, name, egui::Button::new(name), can);
@@ -1671,15 +1666,15 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
         Some(_) => egui::Button::new(tick_atoms(&name)),
         None => egui::Button::new(&name),
     };
-    let key = app.keymap.label_of(&id.id(), ui.ctx());
-    if !key.is_empty() {
-        entry = entry.shortcut_text(keys_beside(app, ui, level, key));
+    let keys = keys_of(ui, app.keymap.label_of(&id.id(), ui.ctx()));
+    if let Some(keys) = &keys {
+        entry = entry.shortcut_text(keys.atom());
     }
     let enabled = id.enabled(app);
     let (entry, chosen) = row(app, level, &name, entry, enabled);
-    let (mut r, tick) = add_entry(ui, enabled, entry);
+    let at = app.menu_keys.at(level, app.menu_row[level] - 1);
+    let (mut r, tick) = add_entry(ui, enabled, entry, keys.as_ref(), at);
     if let Some(on) = ticked {
-        let at = app.menu_keys.at(level, app.menu_row[level] - 1);
         paint_tick(ui, &r, tick, on, at, &name);
     }
     let hint = id.text().2;
@@ -1707,15 +1702,22 @@ fn tick_atoms(name: &str) -> egui::Atoms<'static> {
     atoms
 }
 
-/// A menu row `entry` added, enabled or not, and the room it laid out for
-/// its tick, where it has one ([`tick_atoms`]).
+/// A menu row `entry` added, enabled or not, its `keys` painted where it
+/// has them (lit where the row is, or where the keys' cursor is `at` it),
+/// and the room it laid out for its tick, where it has one
+/// ([`tick_atoms`]).
 fn add_entry(
     ui: &mut Ui,
     enabled: bool,
     entry: egui::Button<'_>,
+    keys: Option<&mg_uikit::MenuKeys>,
+    at: bool,
 ) -> (egui::Response, Option<egui::Rect>) {
     ui.add_enabled_ui(enabled, |ui| {
         let laid = entry.atom_ui(ui);
+        if let Some(keys) = keys {
+            keys.paint(ui, &laid, at || mg_uikit::menu_row_lit(&laid.response));
+        }
         (laid.response.clone(), laid.rect(tick_id()))
     })
     .inner
@@ -1766,12 +1768,13 @@ fn plugin_command_rows(
         let enabled = app.ws.is_some();
         let Some(name) = c.menu.get(depth) else {
             let mut entry = egui::Button::new(&c.title);
-            let key = app.keymap.label_of(&c.key_id, ui.ctx());
-            if !key.is_empty() {
-                entry = entry.shortcut_text(keys_beside(app, ui, level, key));
+            let keys = keys_of(ui, app.keymap.label_of(&c.key_id, ui.ctx()));
+            if let Some(keys) = &keys {
+                entry = entry.shortcut_text(keys.atom());
             }
             let (entry, chosen) = row(app, level, &c.title, entry, enabled);
-            let mut r = ui.add_enabled(enabled, entry);
+            let at = app.menu_keys.at(level, app.menu_row[level] - 1);
+            let (mut r, _) = add_entry(ui, enabled, entry, keys.as_ref(), at);
             if !c.hint.is_empty() {
                 r = r.on_hover_text(&c.hint);
             }
@@ -1808,7 +1811,7 @@ fn plugin_entries(
     let mut last = None;
     for e in entries {
         if several && last != Some(&e.plugin) {
-            ui.weak(&e.plugin_name);
+            mg_uikit::menu_heading(ui, &e.plugin_name);
         }
         last = Some(&e.plugin);
         let enabled = app.plugin_entry_enabled(e);
@@ -1822,7 +1825,7 @@ fn plugin_entries(
             None => egui::Button::new(&e.title),
         };
         let (entry, chosen) = row(app, level, &e.title, entry, enabled);
-        let (mut r, tick) = add_entry(ui, enabled, entry);
+        let (mut r, tick) = add_entry(ui, enabled, entry, None, false);
         if let Some(on) = ticked {
             let at = app.menu_keys.at(level, app.menu_row[level] - 1);
             paint_tick(ui, &r, tick, on, at, &e.title);

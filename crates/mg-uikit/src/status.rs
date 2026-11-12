@@ -293,8 +293,18 @@ pub enum HintPart {
     /// A joiner between key caps, in 11 px `text-3` (`.hint .plus`: `+`,
     /// or `/` between keys that do the same).
     Join(&'static str),
-    /// An icon from the set, 16 px in `text-2`.
+    /// An icon from the set, 16 px in `text-2`, unspoken (a screen reader
+    /// hears the keys and the word: the icon's file name is no word to
+    /// say). [`HintPart::NamedIcon`] for one to be said.
     Icon(Icon),
+    /// An icon from the set as [`HintPart::Icon`], named `name` for a
+    /// screen reader (as a [`HintPart::Glyph`] is).
+    NamedIcon {
+        /// The icon.
+        icon: Icon,
+        /// What a screen reader says for it.
+        name: String,
+    },
     /// A glyph of the caller's own (Main.png's gizmo ring before Turn):
     /// its width in a 16 px high box, and how it is painted there (with
     /// the tokens), named `name` for a screen reader.
@@ -314,19 +324,20 @@ impl std::fmt::Debug for HintPart {
             HintPart::Key(k) => write!(f, "Key({k:?})"),
             HintPart::Join(j) => write!(f, "Join({j:?})"),
             HintPart::Icon(i) => write!(f, "Icon({})", i.name()),
+            HintPart::NamedIcon { icon, name } => write!(f, "NamedIcon({}, {name:?})", icon.name()),
             HintPart::Glyph { name, width, .. } => write!(f, "Glyph({name:?}, {width})"),
         }
     }
 }
 
 impl HintPart {
-    /// What a screen reader says for it.
+    /// What a screen reader says for it (nothing for an unnamed icon).
     fn spoken(&self) -> String {
         match self {
             HintPart::Key(k) => k.clone(),
             HintPart::Join(j) => (*j).to_string(),
-            HintPart::Icon(i) => i.name().to_string(),
-            HintPart::Glyph { name, .. } => name.clone(),
+            HintPart::Icon(_) => String::new(),
+            HintPart::NamedIcon { name, .. } | HintPart::Glyph { name, .. } => name.clone(),
         }
     }
 }
@@ -409,7 +420,8 @@ impl Hint {
     /// What a screen reader says for it, and its accessible name: its
     /// parts and its word, in order (`Shift + Right Drag Turn`).
     pub fn spoken(&self) -> String {
-        let mut words: Vec<String> = self.parts.iter().map(HintPart::spoken).collect();
+        let mut words: Vec<String> =
+            self.parts.iter().map(HintPart::spoken).filter(|w| !w.is_empty()).collect();
         words.push(self.word.clone());
         words.join(" ")
     }
@@ -425,7 +437,7 @@ impl Hint {
                 HintPart::Join(j) => {
                     painter.layout_no_wrap((*j).to_string(), small_font(), Color32::WHITE).size().x
                 }
-                HintPart::Icon(_) => metrics::ICON,
+                HintPart::Icon(_) | HintPart::NamedIcon { .. } => metrics::ICON,
                 HintPart::Glyph { width, .. } => *width,
             })
             .collect();
@@ -454,7 +466,9 @@ impl Hint {
                     let pos = pos2(x, (y - galley.size().y / 2.0).round());
                     p.galley(pos, galley, t.text_3);
                 }
-                HintPart::Icon(icon) => icon.paint(p, rect, t.text_2),
+                HintPart::Icon(icon) | HintPart::NamedIcon { icon, .. } => {
+                    icon.paint(p, rect, t.text_2)
+                }
                 HintPart::Glyph { paint, .. } => paint(p, rect, t),
             }
             x += w + HINT_PART_GAP;
@@ -679,12 +693,16 @@ mod tests {
         assert_eq!(hints_that_fit(&[60.0, 300.0, 10.0], 8.0, 200.0), 1);
     }
 
-    /// A hint's name is its keys, joiners and word in order.
+    /// A hint's name is its keys, joiners and word in order; an icon's
+    /// the name its caller gave it, and an unnamed icon says nothing (not
+    /// its file's name: "rotate Turn").
     #[test]
     fn a_hint_says_its_keys_and_word() {
         assert_eq!(Hint::keys(["Shift", "Right Drag"], "Turn").spoken(), "Shift + Right Drag Turn");
         assert_eq!(Hint::either(["Q", "E"], "Turn by a step").spoken(), "Q / E Turn by a step");
         assert_eq!(Hint::keys(["Drag"], "Move").spoken(), "Drag Move");
-        assert_eq!(Hint::new("Turn").part(HintPart::Icon(Icon::Rotate)).spoken(), "rotate Turn");
+        let named = HintPart::NamedIcon { icon: Icon::Rotate, name: "Turn handle".into() };
+        assert_eq!(Hint::new("Turn").part(named).spoken(), "Turn handle Turn");
+        assert_eq!(Hint::new("Turn").part(HintPart::Icon(Icon::Rotate)).spoken(), "Turn");
     }
 }

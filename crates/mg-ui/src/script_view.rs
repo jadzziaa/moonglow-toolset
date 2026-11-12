@@ -1443,8 +1443,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             cursor_now = out.state.cursor.char_range();
             ui.visuals_mut().selection.bg_fill = selected;
-            out.response.response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&out.response.response, |ui| {
                 for (tabs, label) in INDENT_CONVERSIONS {
                     if ui.button(label).clicked() {
                         convert = Some(tabs);
@@ -2680,8 +2679,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                             );
                             w.cursor = at;
                         }
-                        r.context_menu(|ui| {
-                            mg_uikit::menu_rows(ui);
+                        mg_uikit::context_menu(&r, |ui| {
                             let several = w.selected.len() > 1;
                             let label = match several {
                                 true => format!("Open {} Selected", w.selected.len()),

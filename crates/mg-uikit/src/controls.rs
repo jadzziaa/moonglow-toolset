@@ -48,7 +48,7 @@ pub fn tokens_of(style: &Style) -> Tokens {
 
 /// How a check box or radio is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Look {
+pub(crate) struct Look {
     on: bool,
     hovered: bool,
     focused: bool,
@@ -58,7 +58,7 @@ struct Look {
 }
 
 impl Look {
-    fn of(ui: &Ui, response: &Response, on: bool, enabled: bool) -> Self {
+    pub(crate) fn of(ui: &Ui, response: &Response, on: bool, enabled: bool) -> Self {
         let read_only = is_read_only(ui);
         Look {
             on,
@@ -308,6 +308,28 @@ fn paint_radio(painter: &egui::Painter, t: &Tokens, center: Pos2, look: Look) {
     }
 }
 
+/// A check box's box in a menu's row that may be lit (`accent-fill`
+/// under it): there, ringed in `on-fill`, so that a box filled
+/// `accent-fill` still shows on the row's fill.
+pub(crate) fn paint_check_lit(ui: &Ui, t: &Tokens, square: Rect, look: Look, lit: bool) {
+    let painter = box_painter(ui, look.enabled);
+    paint_check(&painter, t, square, look, false);
+    if lit {
+        let stroke = Stroke::new(1.0, t.on_fill);
+        painter.rect_stroke(square, metrics::RADIUS, stroke, egui::StrokeKind::Inside);
+    }
+}
+
+/// A radio's circle in a menu's row that may be lit (as
+/// [`paint_check_lit`]).
+pub(crate) fn paint_radio_lit(ui: &Ui, t: &Tokens, center: Pos2, look: Look, lit: bool) {
+    let painter = box_painter(ui, look.enabled);
+    paint_radio(&painter, t, center, look);
+    if lit {
+        painter.circle_stroke(center, BOX / 2.0 - 0.5, Stroke::new(1.0, t.on_fill));
+    }
+}
+
 /// `ui.check_box`, `ui.radio_button` and `ui.radio_choice`: the crate's
 /// [`Checkbox`] and [`RadioButton`] as egui's `ui.checkbox`, `ui.radio`
 /// and `ui.radio_value` are.
@@ -475,9 +497,14 @@ fn themed(style: &Style) -> bool {
 /// `on-fill`, 8 px at each end; their fills drawn on the rows' own
 /// rectangles, square, so that a lit row meets its neighbors with neither
 /// overlap nor seam (egui's 1 px expansion, and a border, reached a pixel
-/// into the row beside). For `MenuConfig::style`, and inside a context
-/// menu, where egui's own is fixed, through [`menu_rows`]. Egui's own menu
-/// style where the style is not the theme's.
+/// into the row beside). The menu's popover padded 4 px above and below
+/// and not at the sides ([`crate::menu::MENU_MARGIN`], `.menu-pop`), so
+/// that a lit row's fill reaches its edges: a popup's frame is made from
+/// the style its popup is given, so this is for `MenuConfig::style` and
+/// `Popup::style` (as [`crate::context_menu`] and
+/// [`crate::IconButton::menu`] give it); [`menu_rows`] gives the rows the
+/// rest inside a menu whose style egui fixed. Egui's own menu style where
+/// the style is not the theme's.
 pub fn menu_style(style: &mut Style) {
     egui::containers::menu::menu_style(style);
     if !themed(style) {
@@ -485,6 +512,7 @@ pub fn menu_style(style: &mut Style) {
     }
     let t = tokens_of(style);
     style.spacing.button_padding = vec2(metrics::CONTROL_PADDING_X, 0.0);
+    style.spacing.menu_margin = crate::menu::MENU_MARGIN;
     style.spacing.item_spacing.y = 0.0;
     // (Taller where a window made its controls taller with its text.)
     style.spacing.interact_size.y = style.spacing.interact_size.y.max(metrics::MENU_ROW);
@@ -510,19 +538,6 @@ pub fn menu_style(style: &mut Style) {
 pub fn menu_rows(ui: &mut Ui) {
     if theme::applied(ui.ctx()).is_some() {
         menu_style(ui.style_mut());
-    }
-}
-
-/// A menu that holds a form rather than rows (a color picker, a field to
-/// type a name into, a block of code to copy): [`menu_rows`]' look for its
-/// buttons, with a control's height and the theme's gap between its
-/// parts given back (the rows' 24 px with no gap would run a field into
-/// the label above it).
-pub fn menu_form(ui: &mut Ui) {
-    if theme::applied(ui.ctx()).is_some() {
-        menu_style(ui.style_mut());
-        ui.spacing_mut().item_spacing.y = metrics::GAP_S;
-        ui.spacing_mut().interact_size.y = metrics::CONTROL_HEIGHT;
     }
 }
 
@@ -951,22 +966,56 @@ mod tests {
         }
     }
 
-    /// A menu holding a form keeps a control's height and the theme's gap
-    /// between its parts, its buttons the menu's look.
+    /// A menu holding a form keeps a control's height and the mock's
+    /// `.pop-body` gap (6) between its parts, its controls a form's (the
+    /// window's style: a button framed at rest, not a menu's flat row);
+    /// where the window made its controls taller with its text (the
+    /// context's style while the menu is drawn), theirs.
     #[test]
     fn a_menu_s_form_keeps_its_gaps() {
         let _ = frame(Some(crate::Theme::Dark), |ui| {
-            menu_form(ui);
-            assert_eq!(ui.spacing().item_spacing.y, metrics::GAP_S);
-            assert_eq!(ui.spacing().interact_size.y, metrics::CONTROL_HEIGHT);
-            let t = crate::Theme::Dark.tokens();
-            assert_eq!(ui.visuals().widgets.hovered.weak_bg_fill, t.accent_fill);
+            let window = ui.ctx().global_style();
+            menu_style(ui.style_mut());
+            crate::menu_form(ui, |ui| {
+                assert_eq!(ui.spacing().item_spacing.y, crate::menu::MENU_FORM_GAP);
+                assert_eq!(ui.spacing().interact_size.y, metrics::CONTROL_HEIGHT);
+                let t = crate::Theme::Dark.tokens();
+                let w = &ui.visuals().widgets;
+                assert_eq!(w.inactive.weak_bg_fill, window.visuals.widgets.inactive.weak_bg_fill);
+                assert_ne!(w.inactive.weak_bg_fill, egui::Color32::TRANSPARENT);
+                assert_ne!(w.hovered.weak_bg_fill, t.accent_fill, "a form's button, not a row");
+            });
         });
         let _ = frame(None, |ui| {
             let before = ui.style().clone();
-            menu_form(ui);
-            assert_eq!(*ui.style(), before, "egui's own without the theme");
+            crate::menu_form(ui, |ui| {
+                assert_eq!(*ui.style(), before, "egui's own without the theme");
+            });
         });
+    }
+
+    /// A menu's form under a window's larger text (Options › Conversation
+    /// Editor's size: the context's style is the window's while it is
+    /// drawn) keeps the window's taller controls, not a control's 22.
+    #[test]
+    fn a_menu_s_form_keeps_a_larger_text_s_height() {
+        let ctx = egui::Context::default();
+        crate::apply(&ctx, crate::Theme::Dark);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let tall = 34.0;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.ctx().global_style_mut(|s| s.spacing.interact_size.y = tall);
+            ui.spacing_mut().interact_size.y = tall;
+            menu_style(ui.style_mut());
+            crate::menu_form(ui, |ui| {
+                assert_eq!(ui.spacing().interact_size.y, tall);
+                // (A button as tall; a field takes its height from its
+                // text, which a larger text makes taller itself.)
+                let button = ui.button("Paste").rect;
+                assert_eq!(button.height(), tall, "{button:?}");
+            });
+        });
+        out.textures_delta.clear();
     }
 
     /// A menu bar's titles keep the mock's 22 px (`.menu`), its rows'

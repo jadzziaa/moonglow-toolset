@@ -176,7 +176,7 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
     if selected.is_empty() || selected.len() != view.selection.len() {
         return;
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     // (Worked out once for the selection and the module as they are.)
     let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
     let wanted: MenuFor = (view.area, revision, selected.clone());

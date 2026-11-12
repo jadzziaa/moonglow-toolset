@@ -21,6 +21,7 @@ mod icon_tips;
 mod inventories;
 mod lists_together;
 mod looks;
+mod menus;
 mod modules;
 mod options_and_keys;
 mod palettes;

@@ -1061,8 +1061,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if let (Some(path), false) = (u.path.gff(), commands.is_empty()) {
                     let on = [crate::plugins::selected_at(u.from, path)];
                     if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
-                        r.context_menu(|ui| {
-                            mg_uikit::menu_rows(ui);
+                        mg_uikit::context_menu(&r, |ui| {
                             crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
                         });
                     }

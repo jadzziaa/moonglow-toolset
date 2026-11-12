@@ -425,7 +425,7 @@ pub(crate) fn menu_commands(
     if fitting.is_empty() {
         return None;
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     let mut chosen = None;
     nested_commands(ui, &fitting, 0, &mut chosen);
     chosen

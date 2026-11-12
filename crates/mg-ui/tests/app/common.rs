@@ -1185,11 +1185,30 @@ pub(crate) fn drawn_tint(h: &Harness<'_, Moonglow>, area: ResRef) -> Option<Vec<
     })
 }
 
-/// Drags across a color picker's square under the swatch at `well` (just
-/// opened), from `from` to `to` points along it, a frame a step, and
-/// lets go: the picker stays open.
+/// Drags across the color picker's square opened from the swatch at
+/// `well`, from `from` to `to` points along it, a frame a step, and lets
+/// go: the picker stays open. (The square found by the picker's own
+/// parts, its #rrggbb field at its left under it and Paste Color beside
+/// that: the popover opens under the swatch, or beside it where there is
+/// no room under it.)
 pub(crate) fn drag_picker(h: &mut Harness<'_, Moonglow>, well: egui::Rect, from: f32, to: f32) {
-    let point = |x: f32| egui::pos2(well.left() + 20.0 + x, well.bottom() + 120.0);
+    let pastes: Vec<egui::Rect> = h.query_all_by_label("Paste Color").map(|n| n.rect()).collect();
+    let hex = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with('#')))
+        .map(|n| n.rect())
+        // (The picker's own, with Paste Color beside it: a variable's
+        // value can be a #rrggbb too.)
+        .filter(|r| {
+            pastes.iter().any(|p| (p.center().y - r.center().y).abs() < 4.0 && p.left() > r.left())
+        })
+        .min_by(|a, b| {
+            let d = |r: &egui::Rect| r.center().distance(well.center());
+            d(a).total_cmp(&d(b))
+        })
+        .expect("the picker's #rrggbb field");
+    // (Above the field: the hue strip, then the square's lower part.)
+    let point = |x: f32| egui::pos2(hex.left() + 20.0 + x, hex.top() - 100.0);
     let button = |pos, pressed| egui::Event::PointerButton {
         pos,
         button: egui::PointerButton::Primary,

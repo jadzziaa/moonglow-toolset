@@ -913,9 +913,9 @@ pub(crate) fn sets_menu<T: Clone + Send + Sync + 'static>(
     // that isn't a set is said so.)
     let read = kind.read(ui.ctx(), dir);
     if dir.is_none() {
-        ui.weak("Moonglow has no data folder to keep sets in");
+        mg_uikit::menu_note(ui, "Moonglow has no data folder to keep sets in");
     } else if read.is_empty() {
-        ui.weak(format!("No {}s saved yet", kind.shelf.what));
+        mg_uikit::menu_note(ui, format!("No {}s saved yet", kind.shelf.what));
     }
     for (n, set) in read {
         match set {
@@ -932,7 +932,7 @@ pub(crate) fn sets_menu<T: Clone + Send + Sync + 'static>(
             }
         }
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     if ui.button("Add from File…").on_hover_text(kind.from_file_tip).clicked() {
         chosen = Some(SetChoice::FromFile);
         ui.close();

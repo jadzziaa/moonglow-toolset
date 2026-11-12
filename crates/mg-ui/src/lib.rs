@@ -2831,8 +2831,7 @@ impl Moonglow {
             if pressed {
                 toggle = Some(tab.clone());
             }
-            response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&response, |ui| {
                 if ui.button(label).clicked() {
                     toggle = Some(tab.clone());
                     ui.close();

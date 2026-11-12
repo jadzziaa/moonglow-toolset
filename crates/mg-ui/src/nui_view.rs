@@ -907,8 +907,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                     .on_hover_text("Build before testing: the game runs what was last built");
             }
             // The window opens from a script of yours: what to put in it.
-            let how = tools.word_widget(icon::HOW_TO_OPEN, "How to open it…").menu(ui, |ui| {
-                mg_uikit::menu_form(ui);
+            let how = tools.word_widget(icon::HOW_TO_OPEN, "How to open it…").form_menu(ui, |ui| {
                 let code = format!(
                     "#include \"{name}_o\"\n\n\
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
@@ -972,7 +971,7 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                         state.page = Page::Images;
                         ui.close();
                     }
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                     let there = |k: &ResKey| app.ws.as_ref().is_some_and(|w| w.module.contains(k));
                     if let Some(k) = ResKey::parse(&format!("{name}_o"), ResType::NSS)
                         && ui.add_enabled(there(&k), egui::Button::new("Opener Script")).clicked()

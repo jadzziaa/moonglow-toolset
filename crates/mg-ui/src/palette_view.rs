@@ -1618,8 +1618,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let rest = egui::vec2(ui.available_width(), ui.available_height().max(24.0));
         let (_, below) = ui.allocate_exact_size(rest, egui::Sense::click());
         if let Some(label) = tree.new {
-            below.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&below, |ui| {
                 if ui.button(label).clicked() {
                     tree.picks.push(Pick::New);
                     ui.close();
@@ -2111,8 +2110,7 @@ impl Tree<'_> {
         let plugins = self.commands.iter().any(|c| c.fits(&kinds));
         if !custom {
             if plugins {
-                shown.header_response.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
+                mg_uikit::context_menu(&shown.header_response, |ui| {
                     if let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
                         let mut keys = Vec::new();
                         all_under(node, kind, &mut keys);
@@ -2132,14 +2130,13 @@ impl Tree<'_> {
         // A custom category: Update Instances of everything in it.
         let new = self.new;
         let mut made = false;
-        shown.header_response.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&shown.header_response, |ui| {
             if let Some(label) = new {
                 if ui.button(label).clicked() {
                     made = true;
                     ui.close();
                 }
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             let mut keys = Vec::new();
             all_under(node, kind, &mut keys);
@@ -2296,14 +2293,13 @@ impl Tree<'_> {
         }
         let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
         let commands = self.commands;
-        r.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&r, |ui| {
             if let Some(label) = new {
                 if ui.button(label).on_hover_text("A new blueprint (the type's wizard)").clicked() {
                     picks.push(Pick::New);
                     ui.close();
                 }
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             if mine && ui.button("Edit").clicked() {
                 picks.push(Pick::Edit(key));
@@ -2782,8 +2778,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 if r.clicked() {
                     app.actions.push(Action::PlacePrefab(name.clone()));
                 }
-                r.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
+                mg_uikit::context_menu(&r, |ui| {
                     if ui.button("Place").clicked() {
                         app.actions.push(Action::PlacePrefab(name.clone()));
                         ui.close();

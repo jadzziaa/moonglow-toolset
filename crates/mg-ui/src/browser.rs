@@ -313,8 +313,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if r.double_clicked() || (entered && cursor == Some(at)) {
                     actions.push(Action::OpenTab(tab()));
                 }
-                r.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
+                mg_uikit::context_menu(&r, |ui| {
                     if ui.button("Open").clicked() {
                         actions.push(Action::OpenTab(tab()));
                     }

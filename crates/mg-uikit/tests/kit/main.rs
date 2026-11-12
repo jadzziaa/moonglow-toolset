@@ -5,6 +5,7 @@
 //! hand: `cargo test -p mg-uikit --test kit -- --ignored`, write
 //! `target/test-output/uikit/`).
 
+mod menus;
 mod sheet;
 mod shell;
 mod theme;

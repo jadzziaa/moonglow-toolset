@@ -10587,3 +10587,288 @@ fn shell_welcome() {
     h.run_steps(5);
     shoot(&mut h, &dir, "shell_welcome");
 }
+
+// Menus that hold more than rows (the shell milestone's T1, its fix
+// round): headings, notes, check boxes, fields and separators in the
+// application's own menus, each opened as a builder opens it, into
+// `screens/menus/`. And a row's keys under the pointer (the NUI
+// designer's Layer Actions).
+
+/// The pictures' folder of the menus' cases.
+fn menus_dir() -> std::path::PathBuf {
+    let dir = mg_testkit::output_dir("screens").join("menus");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// A right-click at `at`.
+fn right_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+}
+
+/// A module of one 4 by 4 field (ttr01) with two waypoints, open in a
+/// window of 1400 by 900 with a GPU, the lighting kept in `lighting`.
+fn menus_area_harness(
+    root: &std::path::Path,
+    name: &str,
+    lighting: &std::path::Path,
+) -> (Harness<'static, Moonglow>, mg_core::ResRef) {
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let install = GameInstall::new(root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Menus", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let bp = mg_gff::Gff::read(&bp).unwrap();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let waypoints = [20.0, 30.0]
+        .map(|x| {
+            let at = Placement { position: [x, 20.0, 0.0], rotation: 0.3 };
+            instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap()
+        })
+        .to_vec();
+    git.root.set("WaypointList", mg_gff::Value::List(waypoints));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir(name).join("menus.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    app.lighting_dir = Some(lighting.to_path_buf());
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    (h, area)
+}
+
+/// The NUI designer narrower than 760 px with its Properties menu open
+/// (the whole inspector in a menu), and wide, Layer Actions open with
+/// its first row under the pointer (a row's keys, lit).
+#[test]
+#[ignore]
+fn menus_nui_properties_and_layer_actions() {
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let key = ResKey::parse("menus", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("menus".into()));
+    let mut window = mg_nui::window();
+    window["root"]["children"] = json!([{
+        "type":"row","children":[
+            {"type":"label","id":"title","value":"Hello"},
+            {"type":"button","id":"ok","label":"OK"}
+        ]
+    }]);
+    app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
+    let mut h = nui_harness(app, key, (1130.0, 760.0));
+    themed(&mut h);
+    h.get_by_label_contains("Canvas Button").click();
+    h.run_steps(3);
+    h.get_by_label("Layer Actions").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Move up").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "menu-nui-layer-actions");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Nui(key), (20.0, 90.0), (700.0, 760.0));
+    h.run_steps(4);
+    // (The menu's button, beside Add element and Layers: the main
+    // toolbar has a Properties too.)
+    let button = h.get_all_by_label("Properties").find(|n| !in_toolbar(n));
+    button.unwrap().click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-nui-properties");
+}
+
+/// The NUI preview's Screen menu: a check box, rows to choose from and a
+/// note.
+#[test]
+#[ignore]
+fn menus_nui_screen() {
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let key = ResKey::parse("screen", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("screen".into()));
+    let mut h = nui_harness(app, key, (1130.0, 760.0));
+    themed(&mut h);
+    h.get_by_label("Screen").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-nui-screen");
+}
+
+/// An area's Add Grass to… (headings, one that wraps, and a line between
+/// the two groups), and Area Properties' Saved Lighting with nothing
+/// saved (a note) and with a lighting saved (a check box and the rows).
+#[test]
+#[ignore]
+fn menus_grass_and_saved_lighting() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = menus_dir();
+    let lighting = mg_testkit::scratch_dir("screens-menus-lighting");
+    let (mut h, area) = menus_area_harness(&root, "screens-menus-grass", &lighting);
+    let are = ResKey::new(area, ResType::ARE);
+    h.state_mut().blueprint_pages.insert((are, GffPath::root()), "Grass");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
+    h.run_steps(5);
+    place(&mut h, &mg_ui::Tab::AreaProperties(area), (700.0, 70.0), (620.0, 780.0));
+    h.run_steps(3);
+    h.get_by_label("Add Grass to…").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-add-grass");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label("Visual").click();
+    h.run_steps(3);
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-saved-lighting-none");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    let are_now = h.state_mut().ws.as_mut().unwrap().doc(&are).unwrap().root.clone();
+    mg_ui::lighting::save(Some(&lighting), "Dusk", &are_now).unwrap();
+    mg_ui::lighting::save(Some(&lighting), "Torchlit hall", &are_now).unwrap();
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-saved-lighting");
+}
+
+/// The module tree's menu on placed objects chosen together (a weak
+/// line saying how many, and a line under it).
+#[test]
+#[ignore]
+fn menus_tree_several_objects() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = menus_dir();
+    let lighting = mg_testkit::scratch_dir("screens-menus-tree-lighting");
+    let (mut h, area) = menus_area_harness(&root, "screens-menus-tree", &lighting);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    h.get_by_label_contains("Placed Objects in ").click();
+    h.run_steps(30);
+    let kind = h.query_all_by_label_contains("Waypoints (").find(|n| !in_toolbar(n));
+    kind.expect("the tree's Waypoints").click();
+    h.run_steps(30);
+    let first = h.query_all_by_label("NW_WAYPOINT001").next().unwrap().rect().center();
+    h.hover_at(first);
+    h.run_steps(2);
+    h.query_all_by_label("NW_WAYPOINT001").next().unwrap().click();
+    h.run_steps(20);
+    h.query_all_by_label("NW_WAYPOINT001")
+        .nth(1)
+        .unwrap()
+        .click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(3);
+    let second = h.query_all_by_label("NW_WAYPOINT001").nth(1).unwrap().rect().center();
+    right_click(&mut h, second);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-tree-several-objects");
+}
+
+/// A sets menu with no sets saved (a conversation's Add Set: a note
+/// above its rows).
+#[test]
+#[ignore]
+fn menus_sets_none() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let scratch = mg_testkit::scratch_dir("screens-menus-sets");
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "You look strong. Lift this.");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("strong", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    let path = scratch.join("d.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.param_set_dir = Some(scratch.join("parameter-sets"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(key)));
+    h.run_steps(4);
+    h.get_by_label_contains("You look strong.").click();
+    h.run_steps(4);
+    h.get_by_label("Add Set").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-sets-none");
+}
+
+/// The color picker (a menu holding a form) under a window's larger text,
+/// as Options › Conversation Editor makes the editor's (20 px: the
+/// context's style the window's while it is drawn): its controls as tall
+/// as the window's, not a control's 22. (The NUI designer's Rename… and
+/// How to open it… are never opened under it in the application: only
+/// the conversation editor makes its text larger. The kit sheet shows a
+/// form like theirs under it.)
+#[test]
+#[ignore]
+fn menus_color_picker_at_a_larger_text() {
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let mut h = Harness::builder().with_size(egui::vec2(560.0, 620.0)).wgpu().build_ui_state(
+        |ui, rgb: &mut [u8; 3]| {
+            mg_uikit::apply(ui.ctx(), theme());
+            let by = 20.0 / mg_uikit::metrics::BODY_SIZE;
+            let mut style = (**ui.style()).clone();
+            for font in style.text_styles.values_mut() {
+                font.size *= by;
+            }
+            style.spacing.interact_size.y *= by;
+            ui.set_style(style.clone());
+            let usual = ui.ctx().global_style();
+            ui.ctx().set_global_style(style);
+            mg_ui::color_button::edit_srgb(ui, rgb);
+            ui.ctx().set_global_style(usual);
+        },
+        [158, 151, 211],
+    );
+    h.run();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    let image = h.render().expect("render");
+    image.save(picture_dir(&dir).join("menu-color-picker-font-20.png")).unwrap();
+}

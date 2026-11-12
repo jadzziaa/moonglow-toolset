@@ -651,14 +651,13 @@ fn contents_ui(
                     if r.hovered() {
                         *hovered = Some(TreeAt::Object(area, *kind, index));
                     }
-                    r.context_menu(|ui| {
-                        mg_uikit::menu_rows(ui);
+                    mg_uikit::context_menu(&r, |ui| {
                         // Several chosen, this one among them: what is
                         // done to them together.
                         if several {
                             let n = chosen.map_or(0, BTreeSet::len);
-                            ui.weak(format!("{n} objects chosen"));
-                            ui.separator();
+                            mg_uikit::menu_note(ui, format!("{n} objects chosen"));
+                            mg_uikit::menu_separator(ui);
                         }
                         // Variables and Properties last, as in Aurora;
                         // Adjust Location… after Go To, as the area
@@ -692,7 +691,7 @@ fn contents_ui(
                                     *go = Some((area, *kind, index, Asked::Plugin(i)));
                                     *together = several;
                                 }
-                                ui.separator();
+                                mg_uikit::menu_separator(ui);
                             }
                             // (One at a time: its variables, and a
                             // blueprint of it; Properties of several of one
@@ -1552,8 +1551,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     {
                         app.actions.push(delete_asked(&app.tree_selected, k));
                     }
-                    r.context_menu(|ui| {
-                        mg_uikit::menu_rows(ui);
+                    mg_uikit::context_menu(&r, |ui| {
                         if chosen {
                             let keys: Vec<ResKey> = app.tree_selected.iter().copied().collect();
                             let asked = several_menu(ui, &keys, &menu_commands, &mut app.actions);
@@ -1564,7 +1562,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             if ui.button(label).clicked() {
                                 make = Some(id);
                             }
-                            ui.separator();
+                            mg_uikit::menu_separator(ui);
                         }
                         if k.restype != ResType::ARE {
                             if ui.button("Edit").clicked() {
@@ -1578,7 +1576,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             {
                                 app.actions.push(Action::OpenTab(Tab::Model(k)));
                             }
-                            ui.separator();
+                            mg_uikit::menu_separator(ui);
                         }
                         if k.restype == ResType::ARE && unlisted.contains(&k.resref) {
                             if ui
@@ -1591,7 +1589,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             {
                                 app.actions.push(Action::Apply(add));
                             }
-                            ui.separator();
+                            mg_uikit::menu_separator(ui);
                         }
                         if k.restype == ResType::ARE {
                             if ui
@@ -1620,7 +1618,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     }
                                 }
                             });
-                            ui.separator();
+                            mg_uikit::menu_separator(ui);
                         }
                         if mg_module::rename::renamable(k.restype) {
                             if ui.button("Find References").clicked() {
@@ -1708,7 +1706,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         }
                         // An area's Properties last, as in Aurora.
                         if k.restype == ResType::ARE {
-                            ui.separator();
+                            mg_uikit::menu_separator(ui);
                             if ui.button("Properties").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::AreaProperties(k.resref)));
                             }
@@ -1742,8 +1740,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         let group_has =
             group_kinds.len() == 1 && menu_commands.iter().any(|c| c.fits(&group_kinds));
         if new.is_none() && group_has {
-            header.header_response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&header.header_response, |ui| {
                 if let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds) {
                     plugin_group = Some((i, listed_keys.to_vec()));
                 }
@@ -1751,8 +1748,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         }
         shown.push((*name, !header.fully_closed(), listed_keys.clone()));
         if let (Some(id), Some(label)) = (new, &new_label) {
-            header.header_response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&header.header_response, |ui| {
                 if group_has
                     && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &group_kinds)
                 {
@@ -2212,7 +2208,7 @@ fn story_items(ui: &mut Ui, keys: &[ResKey], actions: &mut Vec<Action>) {
     if !crate::dialog_export::all_conversations(keys) {
         return;
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     let each = if keys.len() == 1 { "It" } else { "Each" };
     for (format, word) in crate::dialog_export::FORMATS {
         let ext = format.extensions()[0];
@@ -2259,8 +2255,8 @@ fn several_menu(
     actions: &mut Vec<Action>,
 ) -> Option<usize> {
     let n = keys.len();
-    ui.weak(format!("{n} resources chosen"));
-    ui.separator();
+    mg_uikit::menu_note(ui, format!("{n} resources chosen"));
+    mg_uikit::menu_separator(ui);
     let first = keys.first()?.restype;
     let one_type = keys.iter().all(|k| k.restype == first);
     let areas: Vec<ResRef> = keys.iter().map(|k| k.resref).collect();
@@ -2271,7 +2267,7 @@ fn several_menu(
             ui.close();
         }
         placeables_menu(ui, &areas, "of the areas", actions);
-        ui.separator();
+        mg_uikit::menu_separator(ui);
     } else if one_type
         && mg_area::ObjectKind::from_restype(first).is_some()
         && ui.button(format!("Edit {n} Together")).on_hover_text(together).clicked()
@@ -2298,7 +2294,7 @@ fn several_menu(
             ui.close();
         }
         if one_type && first == ResType::ARE {
-            ui.separator();
+            mg_uikit::menu_separator(ui);
             minimap_items(ui, &areas, actions);
         }
         story_items(ui, keys, actions);

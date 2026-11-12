@@ -549,17 +549,60 @@ impl IconButton {
         ui: &mut Ui,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
+        self.menu_closed_by(ui, None, add_contents)
+    }
+
+    /// [`Self::menu`] for a menu that holds a form ([`crate::menu_form`]:
+    /// a field to type into, an inspector, a list to search): `add`
+    /// laid out as a form, and the menu kept open by a click inside it (a
+    /// field clicked into, a row chosen, a section opened); a click
+    /// outside or Escape closes it, as an action that is done does
+    /// (`ui.close()`).
+    pub fn form_menu<R>(
+        self,
+        ui: &mut Ui,
+        add: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<Option<R>> {
+        let close = egui::PopupCloseBehavior::CloseOnClickOutside;
+        self.menu_closed_by(ui, Some(close), |ui| crate::menu_form(ui, add))
+    }
+
+    /// [`Self::menu`], closed by clicks as `close` says (the menu's own
+    /// config's way where `None`).
+    fn menu_closed_by<R>(
+        self,
+        ui: &mut Ui,
+        close: Option<egui::PopupCloseBehavior>,
+        add_contents: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<Option<R>> {
         use egui::containers::menu::{MenuConfig, SubMenu};
         if egui::containers::menu::is_in_menu(ui) {
             let response = submenu_row(ui, self);
-            let inner = SubMenu::default().show(ui, &response, add_contents);
+            let sub = match close {
+                Some(close) => {
+                    let found = MenuConfig::find(ui);
+                    SubMenu::new()
+                        .config(MenuConfig::new().close_behavior(close).style(found.style))
+                }
+                None => SubMenu::default(),
+            };
+            let inner = sub.show(ui, &response, add_contents);
             return egui::InnerResponse::new(inner.map(|i| i.inner), response);
         }
         let response = ui.add(self);
         // (The menu's own config, as egui's `MenuButton` gives it: not a
-        // bar's, whose rows would not open submenus.)
+        // bar's, whose rows would not open submenus. Outside any menu or
+        // bar, the crate's menu style rather than egui's default: the
+        // popover's padding is made from it, before the rows.)
         let found = MenuConfig::find(ui);
-        let config = MenuConfig::new().close_behavior(found.close_behavior).style(found.style);
+        let in_config =
+            ui.stack().iter().any(|s| s.info.tags.contains(MenuConfig::MENU_CONFIG_TAG));
+        let style = match in_config {
+            true => found.style,
+            false => crate::menu_style.into(),
+        };
+        let close = close.unwrap_or(found.close_behavior);
+        let config = MenuConfig::new().close_behavior(close).style(style);
         let inner = egui::Popup::menu(&response)
             .close_behavior(config.close_behavior)
             .style(config.style.clone())
@@ -709,6 +752,16 @@ pub fn menu_button<R>(
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> egui::InnerResponse<Option<R>> {
     IconButton::new(Icon::ChevronRight, text).label(Label::WordsOnly).menu(ui, add_contents)
+}
+
+/// [`menu_button`] for a menu that holds a form ([`IconButton::form_menu`]:
+/// laid out as a form, kept open by a click inside it).
+pub fn form_menu_button<R>(
+    ui: &mut Ui,
+    text: impl Into<egui::WidgetText>,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    IconButton::new(Icon::ChevronRight, text).label(Label::WordsOnly).form_menu(ui, add)
 }
 
 /// An icon (16 px, in `color`, or the text color) and words after it, as a

@@ -329,9 +329,9 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         mg_uikit::menu_button(ui, "Add Grass to…", |ui| {
             mg_uikit::menu_rows(ui);
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                ui.weak("On this area's tiles");
+                mg_uikit::menu_heading(ui, "On this area's tiles");
                 if on.is_empty() {
-                    ui.weak("(none left)");
+                    mg_uikit::menu_note(ui, "(none left)");
                 }
                 for (c, square_meters) in &on {
                     let row = c.row as u32;
@@ -343,8 +343,11 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
                         pick = Some(row);
                     }
                 }
-                ui.separator();
-                ui.weak("Not on this area's tiles (nothing grows until a tile has it)");
+                mg_uikit::menu_separator(ui);
+                mg_uikit::menu_heading(
+                    ui,
+                    "Not on this area's tiles (nothing grows until a tile has it)",
+                );
                 for c in off {
                     let row = c.row as u32;
                     let text = egui::RichText::new(material_name(&materials, row)).weak();

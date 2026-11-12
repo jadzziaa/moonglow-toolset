@@ -322,24 +322,105 @@ fn form(ui: &mut Ui, s: &mut State) {
     mg_uikit::table_heading(ui, "A table heading");
 }
 
+/// A menu's popover as the kit's menus have it (drawn in place): no
+/// padding at its sides, 4 above and below.
+fn menu_frame(ui: &Ui) -> egui::Frame {
+    egui::Frame::menu(ui.style()).inner_margin(mg_uikit::menu::MENU_MARGIN)
+}
+
+/// A menu's parts beyond its rows, drawn in place: a heading, rows, a
+/// note, check boxes (one hovered) and radios as rows, a separator; and a
+/// menu that holds a form.
+fn menu_parts(ui: &mut Ui, s: &mut State) {
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 16.0;
+        menu_frame(ui).show(ui, |ui| {
+            ui.set_width(220.0);
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                mg_uikit::menu_rows(ui);
+                mg_uikit::menu_heading(ui, "On this area's tiles");
+                let _ = ui.button("Grass (3)");
+                let _ = ui.button("Stone (4)");
+                mg_uikit::menu_separator(ui);
+                mg_uikit::menu_heading(
+                    ui,
+                    "Not on this area's tiles (nothing grows until a tile has it)",
+                );
+                let _ = ui.button("Dirt (1)");
+                mg_uikit::menu_separator(ui);
+                mg_uikit::menu_note(ui, "None saved yet");
+                mg_uikit::menu_check(ui, &mut s.on, "Tiles' Lights Too");
+                as_hovered(ui, |ui| mg_uikit::menu_check(ui, &mut s.on, "Hovered, on"));
+                let mut off = false;
+                mg_uikit::menu_check(ui, &mut off, "Preview on screen");
+                mg_uikit::menu_radio(ui, true, "1280 × 720");
+                as_hovered(ui, |ui| mg_uikit::menu_radio(ui, false, "1920 × 1080"));
+                ui.add_enabled_ui(false, |ui| mg_uikit::menu_check(ui, &mut off, "Disabled"));
+            });
+        });
+        menu_frame(ui).show(ui, |ui| {
+            ui.set_width(220.0);
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                mg_uikit::menu_rows(ui);
+                mg_uikit::menu_form(ui, |ui| {
+                    mg_uikit::field_label(ui, "Name");
+                    ui.add(mg_uikit::text_field(&mut s.note));
+                    ui.horizontal(|ui| {
+                        let _ = ui.button("Rename");
+                        let _ = ui.button("Cancel");
+                    });
+                    ui.weak("A form in a menu keeps its gaps.");
+                });
+            });
+        });
+        // The same under a window's larger text (Options › Conversation
+        // Editor at 20: the context's style is the window's while it is
+        // drawn, as a popup opened from it starts from).
+        let usual = ui.ctx().global_style();
+        let mut large = (*usual).clone();
+        let by = 20.0 / metrics::BODY_SIZE;
+        for font in large.text_styles.values_mut() {
+            font.size *= by;
+        }
+        large.spacing.interact_size.y *= by;
+        ui.ctx().set_global_style(large.clone());
+        ui.scope(|ui| {
+            ui.set_style(large);
+            menu_frame(ui).show(ui, |ui| {
+                ui.set_width(300.0);
+                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    mg_uikit::menu_rows(ui);
+                    mg_uikit::menu_form(ui, |ui| {
+                        mg_uikit::field_label(ui, "Name");
+                        ui.add(mg_uikit::text_field(&mut s.tag));
+                        ui.horizontal(|ui| {
+                            let _ = ui.button("Rename");
+                            let _ = ui.button("Copy");
+                        });
+                        ui.weak("Pass the player who should see it.");
+                    });
+                });
+            });
+        });
+        ui.ctx().set_global_style(usual);
+    });
+}
+
 fn popups(ui: &mut Ui) {
     // A menu, open (drawn in place: one popup is open at a time).
     ui.vertical(|ui| {
-        egui::Frame::menu(ui.style()).show(ui, |ui| {
+        menu_frame(ui).show(ui, |ui| {
             ui.set_width(200.0);
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 mg_uikit::menu_rows(ui);
-                let _ = ui.add(
-                    egui::Button::new("Undo").shortcut_text("Ctrl+Z").frame_when_inactive(false),
-                );
+                let undo = egui::Button::new("Undo").frame_when_inactive(false);
+                let _ = mg_uikit::menu_row_with_keys(ui, undo, "Ctrl+Z");
+                // (Its keys in `on-fill` on the lit row's fill.)
                 as_hovered(ui, |ui| {
-                    ui.add(
-                        egui::Button::new("Redo")
-                            .shortcut_text("Ctrl+Shift+Z")
-                            .frame_when_inactive(true),
-                    )
+                    let redo = egui::Button::new("Redo").frame_when_inactive(true);
+                    mg_uikit::menu_row_with_keys(ui, redo, "Ctrl+Shift+Z")
                 });
-                ui.separator();
+                mg_uikit::menu_separator(ui);
                 let _ = ui.add(egui::Button::new("Module Properties").frame_when_inactive(false));
                 ui.add_enabled(false, egui::Button::new("Resize Area…").frame_when_inactive(false));
             });
@@ -589,22 +670,20 @@ fn top_bar(ui: &mut Ui) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
         // An open menu (drawn in place).
-        egui::Frame::menu(ui.style()).show(ui, |ui| {
+        menu_frame(ui).show(ui, |ui| {
             ui.set_width(240.0);
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 mg_uikit::menu_rows(ui);
-                let _ = ui.add(egui::Button::new("Module Tree").shortcut_text("Ctrl+Alt+1"));
-                // (A lit row's keys in `on-fill`, as the toolset's menus
-                // give them: egui's are the weak text's.)
+                let tree = egui::Button::new("Module Tree");
+                let _ = mg_uikit::menu_row_with_keys(ui, tree, "Ctrl+Alt+1");
+                // (A lit row's keys in `on-fill`: egui's are the weak
+                // text's, which does not read on `accent-fill`.)
                 as_hovered(ui, |ui| {
-                    ui.add(
-                        egui::Button::new("Log")
-                            .shortcut_text(RichText::new("Ctrl+Alt+3").color(ui.tokens().on_fill))
-                            .frame_when_inactive(true),
-                    )
+                    let log = egui::Button::new("Log").frame_when_inactive(true);
+                    mg_uikit::menu_row_with_keys(ui, log, "Ctrl+Alt+3")
                 });
                 let _ = ui.add(egui::Button::new("Copy Log"));
-                ui.separator();
+                mg_uikit::menu_separator(ui);
                 let sub = IconButton::new(Icon::ChevronRight, "Position")
                     .label(mg_uikit::Label::WordsOnly);
                 let _ = mg_uikit::submenu_button(ui, sub);
@@ -710,6 +789,12 @@ fn sheet(ui: &mut Ui, theme: Theme, s: &mut State) {
         ui,
         "top bar: menus (hovered, open), quick actions, Quick Open, build actions; a menu's 24 px rows; folded dock strip",
         top_bar,
+    );
+    ui.add_space(8.0);
+    cell_wide(
+        ui,
+        "a menu's parts: headings (one wrapped), separators, a note, check and radio rows (hovered, disabled); a menu holding a form, and one under a 20 px text",
+        |ui| menu_parts(ui, s),
     );
     ui.add_space(8.0);
     cell(
