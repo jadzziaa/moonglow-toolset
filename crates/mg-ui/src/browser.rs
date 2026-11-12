@@ -1331,20 +1331,24 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
     });
 }
 
+/// The types shown as text whatever they hold (others are where their
+/// bytes are text: [`is_text`]).
+pub(crate) const TEXT_TYPES: [ResType; 9] = [
+    ResType::NSS,
+    ResType::JUI,
+    ResType::TXT,
+    ResType::INI,
+    ResType::SET,
+    ResType::TXI,
+    ResType::MTR,
+    ResType::SHD,
+    ResType::LUA,
+];
+
 fn is_text(t: ResType, data: &[u8]) -> bool {
-    matches!(
-        t,
-        ResType::NSS
-            | ResType::JUI
-            | ResType::TXT
-            | ResType::INI
-            | ResType::SET
-            | ResType::TXI
-            | ResType::MTR
-            | ResType::SHD
-            | ResType::LUA
-    ) || (!data.is_empty()
-        && data.iter().take(4096).all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace()))
+    TEXT_TYPES.contains(&t)
+        || (!data.is_empty()
+            && data.iter().take(4096).all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace()))
 }
 
 fn hex(data: &[u8]) -> String {

@@ -836,9 +836,11 @@ impl Id {
             Id::Redo => "Nothing to redo",
             Id::CopyLog | Id::SaveLog | Id::ClearLog => "The log is empty",
             Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics if open => {
-                "Open an area first"
+                "It acts on the area shown last, and no area's view is open"
             }
-            Id::IndentToTabs | Id::IndentToSpaces => "Open a script first",
+            Id::IndentToTabs | Id::IndentToSpaces => {
+                "It acts on the script in front, or the one typed in last, and none is open"
+            }
             Id::CloseTab | Id::MaximizeWindow => "No tab is open",
             Id::ReopenTab => "No tab was closed",
             Id::InstallPlugin => "Moonglow has no plugin folder",
@@ -1171,7 +1173,14 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // its own history's, as the menu's are. Taken before the editor is
     // drawn, so that its own Ctrl+Z doesn't take a second step.)
     let script = crate::script_view::with_keys(app, ui.ctx());
+    // (Quick Open's field has the keys: what changes the module or a tab
+    // waits, its keys left to the field, Ctrl+Z its own undo:
+    // `quick_open::runs_from_field`.)
+    let searching = focused == Some(crate::quick_open::field_id());
     for id in Id::all() {
+        if searching && !crate::quick_open::runs_from_field(id) {
+            continue;
+        }
         if let (Some(key), Id::Undo | Id::Redo) = (script, id) {
             if ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing)) {
                 crate::script_view::undo(app, ui.ctx(), key, id == Id::Redo);
@@ -1217,6 +1226,9 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // the window's. (They too wait for a field typed in to set its text:
     // a plugin reads the module as its command begins.)
     for c in app.plugin_commands() {
+        if searching {
+            break;
+        }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &c.key_id, typing));
         if pressed && app.ws.is_some() {
             app.quick_open.close(ui.ctx(), false);
@@ -1227,6 +1239,9 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // And the project's.
     let project = crate::project_commands::commands(app).map(|(_, c)| c).unwrap_or_default();
     for c in project {
+        if searching {
+            break;
+        }
         let id = crate::project_commands::key_id(&c.name);
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id, typing));
         if pressed && c.run.is_some() {

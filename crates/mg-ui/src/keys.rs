@@ -635,6 +635,26 @@ impl Keymap {
         map
     }
 
+    /// The key `cmd` gave way on ([`Keymap::give_way`]), and the id of the
+    /// command that has it: what Options › Keyboard says on its row.
+    pub fn gave_way_to(&self, cmd: Cmd) -> Option<(KeyboardShortcut, String)> {
+        if !GIVES_WAY.contains(&cmd) || self.chosen_ids.contains(cmd.id()) {
+            return None;
+        }
+        let group = |id: &str| Cmd::from_id(id).map_or(Group::General, Cmd::group);
+        let mine = self.keys(cmd);
+        cmd.defaults().into_iter().filter(|k| !mine.contains(k)).find_map(|k| {
+            let mut ids: Vec<&String> = (self.keys.iter())
+                .filter(|(id, keys)| {
+                    id.as_str() != cmd.id() && group(id).overlaps(cmd.group()) && keys.contains(&k)
+                })
+                .map(|(id, _)| id)
+                .collect();
+            ids.sort();
+            ids.first().map(|id| (k, (*id).clone()))
+        })
+    }
+
     /// The commands that give way ([`GIVES_WAY`]) without each of their
     /// own keys another command that works at the same moment has: unless
     /// the user chose their keys, they are left the rest (none, where

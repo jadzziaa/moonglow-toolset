@@ -342,7 +342,7 @@ fn with_no_module_open_it_offers_recent_modules_and_commands() {
     let (window, pop) = (h.ctx.content_rect(), popover(&h));
     let field = quick_open_field(&h).rect();
     assert!(pop.width() > field.width() + 100.0, "wider than the field: {pop:?}");
-    assert!(window.contains_rect(pop), "{pop:?} inside {window:?}");
+    assert_kept_in(window, pop, "760, wide rows");
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     assert_eq!(h.state().module_path(), Some(path));
@@ -426,11 +426,12 @@ fn the_index_is_made_again_only_when_the_module_changes() {
     assert_eq!(h.state().quick_open.builds().0, 2);
     h.key_press(egui::Key::Escape);
     settle(&mut h);
-    // A resource put in past the commands (a file read again from
-    // outside): made again, and found.
+    // A file read again from outside (`Workspace::adopt`): made again,
+    // and found.
     let key = ResKey::parse("cellar", ResType::ARE).unwrap();
+    let data: std::sync::Arc<[u8]> = Gff::new(*b"ARE ").to_bytes().unwrap().into();
     let ws = h.state_mut().ws.as_mut().unwrap();
-    ws.module.set(key, Gff::new(*b"ARE ").to_bytes().unwrap());
+    ws.adopt(&[(key, Some(data))]).unwrap();
     quick_open(&mut h, "cellar");
     assert_eq!(h.state().quick_open.builds().0, 3);
     assert_eq!(quick_open_rows(&h), ["cellar.are"]);
@@ -463,6 +464,15 @@ fn formosa_opens_its_script_and_a_game_resource_opens_read_only() {
     settle(&mut h);
     let script = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some(), "its editor");
+    // Its compiled form, the module's, has no editor: read-only, as the
+    // Resources panel shows it (the source first among the two).
+    quick_open(&mut h, "m1q3_formosa_9");
+    assert_eq!(quick_open_rows(&h), ["m1q3_formosa_9.nss", "m1q3_formosa_9.ncs"]);
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    let compiled = ResKey::parse("m1q3_formosa_9", ResType::NCS).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Resource(compiled)).is_some(), "read-only");
     // A resource of the game's alone: read-only, as the Resources panel
     // opens it.
     quick_open(&mut h, "nw_c2_default1");
@@ -657,7 +667,7 @@ fn the_popover_stays_inside_the_window() {
         quick_open(&mut h, "s");
         let window = h.ctx.content_rect();
         let pop = popover(&h);
-        assert!(window.contains_rect(pop), "{w}x{ht}: {pop:?} leaves {window:?}");
+        assert_kept_in(window, pop, &format!("{w}x{ht}"));
         assert!(pop.height() >= 24.0, "{w}x{ht}: a row at least");
         h.key_press(egui::Key::Escape);
         settle(&mut h);
@@ -676,6 +686,16 @@ fn the_popover_stays_inside_the_window() {
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Area(ResRef::from_str("inn").unwrap())).is_some());
+}
+
+/// The popover's margin from the window's edges: 8 points every side.
+#[track_caller]
+fn assert_kept_in(window: egui::Rect, pop: egui::Rect, at: &str) {
+    let edge = 8.0 - 0.5;
+    assert!(pop.left() >= window.left() + edge, "{at}: {pop:?} left of {window:?}");
+    assert!(pop.right() <= window.right() - edge, "{at}: {pop:?} right of {window:?}");
+    assert!(pop.top() >= window.top() + edge, "{at}: {pop:?} above {window:?}");
+    assert!(pop.bottom() <= window.bottom() - edge, "{at}: {pop:?} below {window:?}");
 }
 
 /// What Quick Open's index and a keystroke cost, on the largest load
@@ -708,7 +728,9 @@ fn quick_open_costs() {
         }
     }
     let queries = ["a", "ar", "are", "area", "area_", "nw_c2", "nw_c2_default1", "zzzz"];
-    let (count, built, typed) = mg_ui::quick_open::time_keystrokes(&game.resman, &queries, 7);
+    let (count, bytes, built, typed) =
+        mg_ui::quick_open::time_keystrokes(&game.resman, &queries, 7);
+    println!("index holds about {:.1} MB", bytes as f64 / 1_000_000.0);
     println!("load order: the game and {haks} haks from {dirs:?}: {count} resources");
     println!("index made in {:.2} ms (best of 7)", built.as_secs_f64() * 1000.0);
     for (q, found, took) in typed {
@@ -790,10 +812,11 @@ fn again(h: &Harness<'_, Moonglow>) -> std::time::Duration {
 }
 
 /// Where the window does its work in the background (the application):
-/// at rest Quick Open asks for no frames; open, the areas opened lately
-/// are named at once, frames are asked for while its names and the load
-/// order's resources are taken a little at a time ("Indexing…" said
-/// meanwhile), and the load order's rows come.
+/// at rest Quick Open asks for no frames; open, the module's rows and the
+/// commands answer at once while the load order's part is made (held
+/// back here by the test), its last row saying "Indexing…" and a frame
+/// asked for meanwhile; the load order's rows come once it is handed
+/// over, and the frames stop.
 #[test]
 fn in_the_background_it_works_while_it_indexes() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -803,33 +826,46 @@ fn in_the_background_it_works_while_it_indexes() {
     let mut app = game_app(&root, None);
     app.settings.no_last_area = true;
     app.background_jobs = true;
-    let chapter = root.join("data/nwm/Chapter1.nwm");
-    app.settings.remember_area(&chapter, "map_m1q1a");
-    app.open_module(&chapter);
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let (hand, held) = std::sync::mpsc::channel();
+    app.quick_open.hold_builds(mg_ui::quick_open::HoldAt::Handing, held);
     let mut h = harness(app, 1400.0, 900.0);
     settle(&mut h);
     h.step();
     assert!(again(&h) >= std::time::Duration::from_secs(1), "at rest: {:?}", again(&h));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
     h.step();
-    h.step();
-    assert!(h.state().quick_open.is_open());
-    assert_eq!(again(&h), std::time::Duration::ZERO, "a frame asked for while it indexes");
-    let (rows, _) = h.state().quick_open.shown();
-    assert!(!rows[0].ends_with(".are"), "the recent area named at once: {rows:?}");
-    quick_open_field(&h).type_text("nw_c2_default1");
-    // (One frame: the load order's part is still being made.)
-    h.step();
-    assert!(h.query_by_label("Indexing…").is_some(), "said while it indexes");
+    quick_open_field(&h).type_text("formosa");
+    // (Frames while the build is held: the module's names are taken a
+    // few at a time meanwhile.)
     let deadline = std::time::Instant::now() + SETTLE_TIME;
-    while h.query_by_label("Indexing…").is_some() {
-        assert!(std::time::Instant::now() < deadline, "the index never came");
-        assert_eq!(again(&h), std::time::Duration::ZERO, "a frame asked for meanwhile");
+    while !h.state().quick_open.shown().0.iter().any(|r| r == "Formosa") {
+        assert!(std::time::Instant::now() < deadline, "the module's rows never came");
         h.step();
-        std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let (rows, _) = h.state().quick_open.shown();
+    assert!(rows.iter().any(|r| r == "m1q3_formosa_9.nss"), "the module's: {rows:?}");
+    assert!(h.state().quick_open.building(), "the load order's still being made");
+    assert!(h.query_by_label("Indexing…").is_some(), "said while it indexes");
+    assert_eq!(again(&h), std::time::Duration::ZERO, "a frame asked for meanwhile");
+    quick_open_field(&h).type_text(" nw");
+    h.step();
+    h.step();
+    let (rows, _) = h.state().quick_open.shown();
+    assert!(rows.is_empty(), "no game rows before it is handed over: {rows:?}");
+    // Handed over: the load order's rows, and no more frames asked for.
+    hand.send(()).unwrap();
+    let deadline = std::time::Instant::now() + SETTLE_TIME;
+    while h.state().quick_open.building() || h.query_by_label("Indexing…").is_some() {
+        assert!(std::time::Instant::now() < deadline, "the index never came");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    h.state_mut().quick_open.text = "nw_c2_default1".into();
+    settle(&mut h);
+    let (rows, _) = h.state().quick_open.shown();
     assert!(rows.iter().any(|r| r == "nw_c2_default1.nss"), "{rows:?}");
+    assert!(again(&h) > std::time::Duration::ZERO, "{:?}", again(&h));
 }
 
 /// The popover is over the area's view: a press on one of its rows (here
@@ -859,4 +895,188 @@ fn a_press_on_the_popover_is_not_the_area_view_s() {
     click_pos(&h, row.center());
     settle(&mut h);
     assert_ne!(h.state().area_views[&area].selection, selection, "the view's press");
+}
+
+/// Undo and Redo are the field's while it has the keys, typed in or not:
+/// Ctrl+Z after Ctrl+P (or Ctrl+Shift+P and its `>`) takes nothing of the
+/// module back and leaves Quick Open open; after typing, it takes the
+/// typing back. Close Tab's key waits too; Save's runs.
+#[test]
+fn undo_and_the_tab_keys_are_the_field_s() {
+    let (mut h, _) = quick_harness("undo", 1400.0);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(b"2DA V2.0\n\n   A\n".to_vec()) }],
+    )));
+    settle(&mut h);
+    let step =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    let has_table =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.contains(&key);
+    assert_eq!(step(&h).as_deref(), Some("A table"));
+    for open in [quick_open as fn(&mut Harness<'_, Moonglow>, &str), command_palette] {
+        open(&mut h, "");
+        let typed = h.state().quick_open.text.clone();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        settle(&mut h);
+        assert!(has_table(&h), "the module's step not taken back");
+        assert_eq!(step(&h).as_deref(), Some("A table"));
+        assert!(h.state().quick_open.is_open(), "still open");
+        assert_eq!(h.state().quick_open.text, typed, "nothing typed to take back");
+        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+        settle(&mut h);
+        assert!(has_table(&h) && h.state().quick_open.is_open());
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+    }
+    // Typed in: Ctrl+Z takes the typing back, the module as it was.
+    quick_open(&mut h, "inn");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_ne!(h.state().quick_open.text, "inn", "the typing taken back");
+    assert!(has_table(&h) && h.state().quick_open.is_open());
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    // Close Tab's key (Ctrl+W) waits: the tab in front stays.
+    let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(hello.clone()));
+    settle(&mut h);
+    quick_open(&mut h, "");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&hello).is_some(), "Ctrl+W waited");
+    assert!(h.state().quick_open.is_open());
+    // Save's key runs (and closes Quick Open).
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    settle(&mut h);
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "saved");
+    assert!(!h.state().quick_open.is_open());
+}
+
+/// The rows are told apart by their detail (the file, a command's menu,
+/// a resource's source), said as each row's description: Chapter 1's
+/// many blueprints named alike.
+#[test]
+fn rows_that_read_alike_are_told_apart() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut app = game_app(&root, None);
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = harness(app, 1400.0, 900.0);
+    settle(&mut h);
+    quick_open(&mut h, "m1q");
+    use egui::accesskit::Role;
+    let group = h.get_by_label(mg_ui::quick_open::RESULTS);
+    let rows: Vec<(String, String)> = group
+        .query_all(egui_kittest::kittest::by().role(Role::Button))
+        .map(|n| {
+            let node = n.accesskit_node();
+            (node.label().unwrap_or_default(), node.description().unwrap_or_default())
+        })
+        .collect();
+    let names: std::collections::HashSet<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    assert!(names.len() < rows.len(), "some rows read alike by their names: {rows:?}");
+    let whole: std::collections::HashSet<&(String, String)> = rows.iter().collect();
+    assert_eq!(whole.len(), rows.len(), "told apart with their descriptions: {rows:?}");
+}
+
+/// An input method composing in the field: Enter, the arrows and Escape
+/// are its (committing, moving in what is composed) and run nothing; once
+/// it has committed, Enter runs the row. (A dead key gives egui no event
+/// until its character is made, a text event as any: that, and a real
+/// input method's own window, are not testable here.)
+#[test]
+fn an_input_method_s_keys_are_its_own() {
+    let (mut h, _) = quick_harness("ime", 1400.0);
+    quick_open(&mut h, "in");
+    let ime = |e: egui::ImeEvent| egui::Event::Ime(e);
+    h.event(ime(egui::ImeEvent::Preedit { text: "n".into(), active_range_chars: None }));
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(h.state().quick_open.is_open(), "Enter was the input method's");
+    assert_eq!(h.state().quick_open.selected, 0, "Down was too");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().quick_open.is_open(), "and Escape");
+    // (Committed in the same frame as its Enter: still its.)
+    h.event(ime(egui::ImeEvent::Commit("n".into())));
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(h.state().quick_open.is_open(), "the Enter that commits");
+    assert!(h.state().quick_open.text.starts_with("inn"), "{}", h.state().quick_open.text);
+    // (What the harness's input method left, made plain.)
+    h.state_mut().quick_open.text = "inn".into();
+    settle(&mut h);
+    // Committed: Enter runs the row.
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(!h.state().quick_open.is_open());
+    assert!(h.state().dock.find_tab(&Tab::Area(ResRef::from_str("inn").unwrap())).is_some());
+}
+
+/// In the least window (420 points) the open field lies over the menus:
+/// closed, every menu opens by its keys (F10, Alt and its letter); open,
+/// a menu's key closes Quick Open first and opens the menu.
+#[test]
+fn the_menus_open_by_their_keys_in_the_least_window() {
+    let (mut h, _) = quick_harness("least-menus", 420.0 + TEST_FRAME);
+    let menu_open = |h: &Harness<'_, Moonglow>| egui::Popup::is_any_open(&h.ctx);
+    for (letter, row) in [
+        (egui::Key::F, "Open Module…"),
+        (egui::Key::E, "Module Properties"),
+        (egui::Key::V, "Reset Layout"),
+        (egui::Key::W, "Area Wizard…"),
+        (egui::Key::T, "Options…"),
+        (egui::Key::B, "Verify Module"),
+        (egui::Key::P, "Manage Plugins…"),
+        (egui::Key::H, "About Moonglow Toolset"),
+    ] {
+        h.key_press_modifiers(egui::Modifiers::ALT, letter);
+        settle(&mut h);
+        assert!(menu_open(&h), "Alt+{letter:?}");
+        assert!(menu_row(&h, row).is_some(), "Alt+{letter:?} opens the menu with {row}");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        assert!(!menu_open(&h));
+    }
+    h.key_press(egui::Key::F10);
+    settle(&mut h);
+    assert!(menu_row(&h, "Open Module…").is_some(), "F10: the first menu");
+    h.key_press(egui::Key::F10);
+    settle(&mut h);
+    // Open over the menus: F10 and Alt+F close it, the menu opens.
+    for open_menu in [(egui::Modifiers::NONE, egui::Key::F10), (egui::Modifiers::ALT, egui::Key::F)]
+    {
+        quick_open(&mut h, "");
+        h.key_press_modifiers(open_menu.0, open_menu.1);
+        settle(&mut h);
+        assert!(!h.state().quick_open.is_open(), "{open_menu:?} closed Quick Open");
+        assert!(menu_row(&h, "Open Module…").is_some(), "{open_menu:?} opened File");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+    }
+}
+
+/// Options › Keyboard shows what Apply will do: Ctrl+P given to another
+/// command is no conflict with Quick Open, whose row says it has no key
+/// while that command holds it.
+#[test]
+fn options_keyboard_shows_quick_open_giving_way() {
+    let (mut h, _) = quick_harness("options-keys", 1400.0);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    h.get_by_label("Keyboard").click();
+    settle(&mut h);
+    let ctrl_p = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::P);
+    h.state_mut().options.as_mut().unwrap().keymap.set_of("about", vec![ctrl_p]);
+    settle(&mut h);
+    assert!(h.query_by_label_contains("is the key of both").is_none(), "no conflict");
+    h.get_by_label_contains("No key while About Moonglow Toolset has Ctrl+P");
+    let draft = &h.state().options.as_ref().unwrap().keymap;
+    assert!(draft.keys(mg_ui::keys::Cmd::QuickOpen).is_empty());
 }

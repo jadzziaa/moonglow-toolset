@@ -3475,6 +3475,12 @@ impl Moonglow {
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
+        // (Quick Open's build of the load order gives up; with no game data
+        // there is nothing of it to keep.)
+        self.quick_open.index.give_up_build();
+        if self.game.is_none() {
+            self.quick_open.index.forget_game();
+        }
         self.sound_said.clear();
         self.tag_cache = Default::default();
         // (The project's plugins were its own.)
@@ -5237,6 +5243,8 @@ impl Moonglow {
     /// What was shown from the game data is shown anew: its layers changed.
     fn game_data_changed(&mut self) {
         self.release_game_data();
+        // (Quick Open's part of the load order is read again from it.)
+        self.quick_open.index.forget_game();
         if let Some(game) = exclusive(&mut self.game) {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
@@ -5975,6 +5983,9 @@ impl Moonglow {
     /// of a module just closed, read on). Not a job: the window waits for
     /// none while one runs (its game data is changed once it is done).
     pub(crate) fn release_game_data(&mut self) {
+        // (Quick Open's build of the load order lets go at once, rather
+        // than be waited for: begun again when Quick Open next opens.)
+        self.quick_open.index.give_up_build();
         let Some(game) = &self.game else { return };
         if Arc::strong_count(game) == 1 {
             return;

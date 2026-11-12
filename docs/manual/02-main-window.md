@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T19:38:16Z }
 ---
 
 # The main window
@@ -110,29 +110,41 @@ click on a row does too). Under the field a list shows what it finds,
 best first, at most 50 at a time; a last line says how many more there
 are, and typing more narrows them. In three groups:
 
-- **the module's resources**, by their ResRef and, for an area or a
-  blueprint, by its name (as the Module panel's Filter finds them; the
-  objects placed in an area are not looked through). One opens as a
-  double-click in the module tree opens it: an area's tab, a script's
-  editor, a blueprint's Properties; one already open is brought to the
-  front of its window;
+- **the module's resources**, by their file's name (`hello.nss`, so
+  by their ResRef too) and, for an area or a blueprint, by its name, as
+  the Module panel's Filter finds them; the objects placed in an area,
+  their names and tags, which the Filter also looks through, are left
+  out. One opens as a double-click in the module tree opens it: an
+  area's tab, a script's editor, a blueprint's Properties (one already
+  open comes to the front of its window); one with no editor (a
+  compiled script, a texture) opens read-only, as the Resources panel
+  shows it;
 - **the commands**: those of the menus, the enabled plugins' commands,
   exporters, importers, wizards and panels, and the open project's
   commands (File › Project), each with its menu and its key. One that
   can't be used now is dimmed, its tip says why, and Enter leaves it;
 - **the load order's resources** (the game's, your haks', override's),
   which open read-only, as the Resources panel opens them, each with
-  where the game reads it from.
+  where the game reads it from. One your module has too (a script it
+  overrides) is listed once, as the module's.
 
-Within a group: a name equal to what you typed first, then one that
-begins with it, then one where it begins a word (`formosa` in
-`m1q3_formosa_9`), then one that has it anywhere, then one that has
-every word you typed apart (`sword iron` finds "Iron Sword"), and last
-a command found only with its menu's name (`mod build` finds Verify
-Module, in the Build menu). At each step a match on the name comes
-before one on the ResRef, then the shorter name, then the alphabetical
-order (and, of a script's two files, its source first). Case and
-accents don't count: `arbol` finds "Árbol".
+A last word that names a type narrows the resources to that type:
+`.utc` (alone, or after other words) lists the creatures' blueprints,
+and `hello nss` finds `hello.nss` and not `hello.ncs`.
+
+Within a group, the resources that open in an editor or a viewer of
+their own (a script, an area, a blueprint, a conversation, a model, a
+2DA, a text) come before those shown only as their bytes (a compiled
+script, a script's debug file, a texture, a sound), each half in this
+order: a name equal to what you typed first, then one that begins with
+it, then one where it begins a word (`formosa` in `m1q3_formosa_9`),
+then one that has it anywhere, then one that has every word you typed
+apart (`sword iron` finds "Iron Sword"), and last a command found only
+with its menu's name (`mod build` finds Verify Module, in the Build
+menu). At each step a match on the name comes before one on the ResRef,
+then one on the file's name, then the shorter name, then the
+alphabetical order. Case and accents don't count: `arbol` finds
+"Árbol".
 
 With nothing typed it offers the areas of this module you opened last,
 most recent first (an area of another module needs its module opened:
@@ -150,17 +162,27 @@ the list is open; **Escape** closes it and gives the keys back to what
 had them (an area's view keeps its keys: W moves its camera again; a
 field you were typing in takes your typing again). A click outside
 closes it without running anything. While you type in it, a key that
-types is the field's (a command given a plain letter waits); a key
-with Ctrl, or a function key, runs its command as in any text field
-(Ctrl+S saves the module) and closes Quick Open. While a job has the
-window, Quick Open is dimmed.
+types is the field's (a command given a plain letter waits), and Undo
+and Redo (Ctrl+Z, Ctrl+Shift+Z) take back your typing, never the
+module's last change. Of the commands with keys, those that save,
+build, test, show a panel, open a view or a tool, or help run from the
+field and close Quick Open (Ctrl+S saves the module, F9 tests it, F1
+opens the manual); those that change or close the module, a resource
+or a tab wait (Undo, Redo, New, Open and Close Module, Import, the
+wizards, New Script, Close Tab and the tabs' and panes' keys, Reload
+Resources, Clear Log), as do the plugins' and the project's commands.
+A menu opened by its key (Alt, F10) closes Quick Open. While an input
+method composes a character, Enter, the arrows and Escape are its.
+While a job has the window, Quick Open is dimmed.
 
 Ctrl+P is Quick Open's key unless you gave Ctrl+P to another command
 (in Tools › Options › Keyboard, or a plugin or a project gave it to
 one of theirs): that command keeps it, and Quick Open is then without a
 key (its field shows none) until Ctrl+P is free again, or until you
-give Quick Open a key of your own, which its field then shows. Any
-command can be given a key in Tools › Options › Keyboard.
+give Quick Open a key of your own, which its field then shows. Tools ›
+Options › Keyboard shows it so before you apply: no conflict, and on
+Quick Open's row "No key while … has Ctrl+P". Any command can be given
+a key there.
 
 **Help › Check for Updates…** (also a button in Help › About) asks
 GitHub for Moonglow's latest release and says either that yours is the

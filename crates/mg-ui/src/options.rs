@@ -1750,6 +1750,9 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
         }
     }
     ui.label("Click the plus and press the keys to add them. A key's cross takes it away.");
+    // (As Apply will have it: Quick Open without a key another command
+    // was given, no conflict over it.)
+    draft.keymap.give_way();
     let conflicts = draft.keymap.conflicts();
     for (k, a, b) in &conflicts {
         ui.colored_label(
@@ -1835,6 +1838,12 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                     });
                     if add.clicked() {
                         draft.recording = if recording { None } else { Some(id.clone()) };
+                    }
+                    // (Quick Open's Ctrl+P, given way to another command.)
+                    let gave = Cmd::from_id(id).and_then(|c| draft.keymap.gave_way_to(c));
+                    if let Some((k, to)) = gave {
+                        let to = crate::commands::name_of(&to);
+                        ui.weak(format!("No key while {to} has {}", shown(&k, mac)));
                     }
                 });
                 let own = draft.keymap.defaults_of(id);
