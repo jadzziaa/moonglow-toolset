@@ -34,6 +34,7 @@ mod scripts;
 mod search;
 mod sounds;
 mod tables;
+mod tile_edges;
 mod tiles;
 mod tree;
 mod typed_text;

@@ -1360,7 +1360,7 @@ fn area_are(h: &mut Harness<'_, Moonglow>, area: ResRef) -> mg_gff::Struct {
 }
 
 /// The Tiles palette open on the area's tileset, brush `brush` chosen.
-fn choose_tile_brush(h: &mut Harness<'_, Moonglow>, brush: &str) {
+pub(crate) fn choose_tile_brush(h: &mut Harness<'_, Moonglow>, brush: &str) {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
     palette_type(h, "Tiles");
@@ -5129,4 +5129,734 @@ fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
     h.run_steps(3);
     let turned = grid(&mut h).tile(1, 1);
     assert_eq!((turned.tile, turned.orientation), (up, 1));
+}
+
+// The tile and group brushes and the area's objects (the owner's rulings
+// of 2026-11-11, for Exact Tile, and 2026-11-12, for a plain tile and the
+// groups too): with one in hand, a press on an object picks the object
+// and a drag from it moves it; a press on bare ground places as ever.
+
+/// The chest (`plc_chest1`) at Placeable List index `i`, where the view
+/// has it.
+fn chest_at(h: &Harness<'_, Moonglow>, area: ResRef, i: usize) -> glam::Vec3 {
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    model.object(mg_area::ObjectKind::Placeable, i).expect("the chest").position
+}
+
+/// Chests put in at `at`, after the area's placeables, through the
+/// workspace (one step, "Setup").
+fn put_chests(h: &mut Harness<'_, Moonglow>, area: ResRef, at: &[glam::Vec3]) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let first = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Placeable List").map_or(0, |l| l.len())
+    };
+    let edits = {
+        let game = h.state().game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        (at.iter().enumerate())
+            .map(|(i, p)| {
+                let placement = Placement { position: p.to_array(), rotation: 0.0 };
+                mg_edit::Edit::InsertItem {
+                    key: ResKey::new(area, ResType::GIT),
+                    path: mg_edit::GffPath::root(),
+                    list: "Placeable List".into(),
+                    index: first + i,
+                    item: instance(&placing, ResType::UTP, &bp, placement, &[]).unwrap(),
+                }
+            })
+            .collect()
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    h.run_steps(3);
+    settle(h);
+}
+
+/// Rural's end of a wall: it fits nowhere in open grass.
+fn wall_end_tile(h: &Harness<'_, Moonglow>) -> u32 {
+    use mg_tiles::TileIndex;
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let (wall, grass) = (index.crosser("Wall1").unwrap(), index.terrain("Grass").unwrap());
+    *index
+        .tiles_where(|c| {
+            c.edges.iter().filter(|e| **e == Some(wall)).count() == 1
+                && c.corners.iter().all(|k| k.terrain == grass && k.height == 0)
+        })
+        .first()
+        .expect("Rural has wall ends")
+}
+
+/// The tile and group brushes, with which a press on an object picks the
+/// object (the owner's rulings of 2026-11-11 and 2026-11-12): each chosen
+/// from its picture in the tiles palette's Gallery.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Hand {
+    /// Rural's wall end with Exact Tile on.
+    ExactTile,
+    /// The same tile with Exact Tile off: it fits its neighbors to it.
+    PlainTile,
+    /// Rural's first group (Ant Hill, one tile).
+    Group,
+    /// The group with Exact Tile on.
+    ExactGroup,
+}
+
+pub(crate) const HANDS: [Hand; 4] =
+    [Hand::ExactTile, Hand::PlainTile, Hand::Group, Hand::ExactGroup];
+
+/// Runs `case` with each brush in hand, every one even after one fails
+/// (each its own pictures), then fails naming those that did.
+fn each_hand(case: fn(Hand)) {
+    let failed: Vec<Hand> = HANDS
+        .into_iter()
+        .filter(|&hand| std::panic::catch_unwind(|| case(hand)).is_err())
+        .collect();
+    assert!(failed.is_empty(), "failed with {failed:?} in hand");
+}
+
+impl Hand {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Hand::ExactTile => "exact-tile",
+            Hand::PlainTile => "plain-tile",
+            Hand::Group => "group",
+            Hand::ExactGroup => "exact-group",
+        }
+    }
+
+    fn group(self) -> bool {
+        matches!(self, Hand::Group | Hand::ExactGroup)
+    }
+
+    fn exact(self) -> bool {
+        matches!(self, Hand::ExactTile | Hand::ExactGroup)
+    }
+}
+
+/// What a brush in hand is: its picture's name and the step a placement
+/// with it is named by.
+pub(crate) struct InHand {
+    picture: String,
+    step: String,
+}
+
+/// Chooses `hand`'s picture in the tiles palette's Gallery, Exact Tile
+/// switched as it says.
+pub(crate) fn choose_hand(h: &mut Harness<'_, Moonglow>, hand: Hand) -> InHand {
+    let picture = match hand.group() {
+        true => first_group_name(h),
+        false => index_model(h, wall_end_tile(h)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(h, "Tiles");
+    h.run_steps(3);
+    h.get_by_label("Gallery").click();
+    h.run_steps(2);
+    if h.state().settings.exact_tiles != hand.exact() {
+        h.get_by_label("Exact Tile").click();
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().settings.exact_tiles, hand.exact());
+    open_tile_heading(h, &picture);
+    h.get_all_by_label(&picture).next().expect("its picture").scroll_to_me();
+    h.run_steps(3);
+    h.get_all_by_label(&picture).next().unwrap().click();
+    h.run_steps(2);
+    assert!(h.state().palette.tile_brush.is_some(), "{hand:?} chosen");
+    let step = match hand {
+        Hand::ExactTile => format!("Exact Tile {picture}"),
+        Hand::PlainTile => format!("Paint {picture}"),
+        Hand::Group => format!("Place {picture}"),
+        Hand::ExactGroup => format!("Exact {picture}"),
+    };
+    InHand { picture, step }
+}
+
+/// The test area with a chest at (15, 15) (tile (1, 1)) and `hand` in
+/// hand, the pointer away from the view.
+fn brush_chest_harness(
+    name: &str,
+    hand: Hand,
+) -> Option<(Harness<'static, Moonglow>, ResRef, InHand)> {
+    let (mut h, area) = area_harness(&format!("{name}-{}", hand.name()))?;
+    put_chests(&mut h, area, &[glam::Vec3::new(15.0, 15.0, 0.0)]);
+    let in_hand = choose_hand(&mut h, hand);
+    h.hover_at(egui::pos2(960.0, 610.0));
+    h.run_steps(3);
+    Some((h, area, in_hand))
+}
+
+/// The indices of the tiles that differ between two Tile_Lists.
+fn tiles_changed(before: &[mg_gff::Struct], after: &[mg_gff::Struct]) -> Vec<usize> {
+    (0..after.len()).filter(|i| before[*i] != after[*i]).collect()
+}
+
+/// The area view's status line, if it shows `part`.
+fn status_line(h: &Harness<'_, Moonglow>, part: &str) -> Option<String> {
+    let node = h.query_all_by_label_contains(part).next()?;
+    let n = node.accesskit_node();
+    n.label().or_else(|| n.value())
+}
+
+/// The status line's words over an object a press would pick.
+const GOES_TO_OBJECT: &str = "goes to the object";
+
+/// A press at `from` led to `to` in ten steps, a frame each, and let go
+/// there, `modifiers` held; then a few frames.
+fn press_drag(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2, m: egui::Modifiers) {
+    h.event(egui::Event::ModifiersChanged(m));
+    h.hover_at(from);
+    h.run_steps(1);
+    press(h, from, true, m);
+    h.run_steps(1);
+    for k in 1..=10 {
+        h.hover_at(from + (to - from) * (k as f32 / 10.0));
+        h.run_steps(1);
+    }
+    press(h, to, false, m);
+    h.run_steps(3);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(2);
+}
+
+/// Undo, from the keyboard.
+fn undo_key(h: &mut Harness<'_, Moonglow>) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+}
+
+/// With a tile or a group in hand, the pointer over a placeable promises
+/// nothing (no ghost, no cursor, a status line that names the brush and
+/// says the press goes to the object); a click on it selects it and
+/// changes no tile, adding no step; a drag from it moves it and leaves
+/// the tiles alone, one step that Undo takes back; the brush stays chosen
+/// throughout. Pictures of the hover, the click and the drag in
+/// `target/test-output/brush-press/`.
+#[test]
+fn a_press_on_an_object_picks_it_with_a_tile_or_group_in_hand() {
+    each_hand(press_on_an_object_picks_it);
+}
+
+fn press_on_an_object_picks_it(hand: Hand) {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Placeable;
+    let Some((mut h, area, in_hand)) = brush_chest_harness("brush-press", hand) else { return };
+    let shots = mg_testkit::output_dir("brush-press");
+    let shot = |h: &mut Harness<'_, Moonglow>, what: &str| {
+        let path = shots.join(format!("{}-{what}.png", hand.name()));
+        h.render().unwrap().save(path).unwrap();
+    };
+    let list = tile_list(&mut h, area);
+    let chest = chest_at(&h, area, 0);
+    // (Aimed at the chest's middle, a little above its foot.)
+    let on_chest = screen(&h, area, chest + Vec3::Z * 0.3);
+    assert!(h.state().area_views[&area].pick(on_chest).is_some(), "set-up: on it");
+    h.hover_at(on_chest);
+    h.run_steps(4);
+    shot(&mut h, "hover");
+    let ghost = h.state().area_views[&area].tile_preview.len();
+    let cursor = h.state().area_views[&area].brush_cursor.len();
+    let status = status_line(&h, GOES_TO_OBJECT);
+    click_with(&mut h, on_chest, egui::Modifiers::NONE);
+    shot(&mut h, "click");
+    let clicked_tiles = tile_list(&mut h, area);
+    let clicked_selection = h.state().area_views[&area].selection.clone();
+    let clicked_undo = undo_label(&h);
+    let to = screen(&h, area, Vec3::new(25.0, 15.0, 0.0));
+    press_drag(&mut h, on_chest, to, egui::Modifiers::NONE);
+    shot(&mut h, "drag");
+    let moved = chest_at(&h, area, 0);
+    eprintln!(
+        "{hand:?} hover: ghost {ghost}, cursor {cursor}, status {status:?}; click: selection \
+         {clicked_selection:?}, undo {clicked_undo:?}; drag: {chest} to {moved}, undo {:?}",
+        undo_label(&h)
+    );
+    assert_eq!(ghost, 0, "{hand:?}: no tile ghost over the chest");
+    assert_eq!(cursor, 0, "{hand:?}: no brush cursor over the chest");
+    let status = status.unwrap_or_else(|| panic!("{hand:?}: the status line says it"));
+    assert!(status.starts_with(&in_hand.picture), "{hand:?}: names the brush: {status}");
+    assert_eq!(status.contains("Exact Tile"), hand.exact(), "{hand:?}: {status}");
+    assert_eq!(clicked_tiles, list, "{hand:?}: a click on the chest changes no tile");
+    assert_eq!(clicked_selection, [(Placeable, 0)], "{hand:?}: a click selects it");
+    assert_eq!(clicked_undo.as_deref(), Some("Setup"), "{hand:?}: a click adds no step");
+    assert_eq!(tile_list(&mut h, area), list, "{hand:?}: a drag from it changes no tile");
+    assert!((moved - Vec3::new(25.0, 15.0, moved.z)).length() < 0.6, "{hand:?} moved: {moved}");
+    assert_eq!(undo_label(&h).as_deref(), Some("Move"));
+    assert!(h.state().palette.tile_brush.is_some(), "{hand:?}: the brush still chosen");
+    undo_key(&mut h);
+    assert!((chest_at(&h, area, 0) - chest).length() < 1e-3, "{hand:?}: Undo puts it back");
+    assert_eq!(undo_label(&h).as_deref(), Some("Setup"));
+}
+
+/// With a tile or a group in hand, a press on bare ground places as ever
+/// (the plain tile with its neighbors fitted to it); a drag begun on the
+/// ground and led over a placeable stays the brush's (a tile brush paints
+/// every tile it passes, the chest's too; a group's drag places nothing)
+/// and moves nothing. Undo after a placement, a drag of a chest and
+/// another placement goes back in order.
+#[test]
+fn a_press_on_ground_places_and_a_stroke_from_it_stays_the_brush_s() {
+    each_hand(press_on_ground_places);
+}
+
+fn press_on_ground_places(hand: Hand) {
+    use glam::Vec3;
+    let Some((mut h, area, in_hand)) = brush_chest_harness("brush-ground", hand) else { return };
+    let list = tile_list(&mut h, area);
+    let chest = chest_at(&h, area, 0);
+    // A click on bare ground, tile (2, 2).
+    let ground = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    assert!(h.state().area_views[&area].pick(ground).is_none(), "set-up: bare ground");
+    click_with(&mut h, ground, egui::Modifiers::NONE);
+    let changed = tiles_changed(&list, &tile_list(&mut h, area));
+    assert!(changed.contains(&10), "{hand:?}: placed in the tile clicked: {changed:?}");
+    if hand == Hand::PlainTile {
+        assert!(changed.len() > 1, "the plain tile's neighbors fitted to it: {changed:?}");
+    }
+    assert_eq!(undo_label(&h), Some(in_hand.step.clone()), "{hand:?}");
+    let placed = tile_list(&mut h, area);
+    // Begun on the ground west of the chest, led over it and on east.
+    let from = screen(&h, area, Vec3::new(5.0, 15.0, 0.0));
+    let to = screen(&h, area, Vec3::new(25.0, 15.0, 0.0));
+    press_drag(&mut h, from, to, egui::Modifiers::NONE);
+    let now = tile_list(&mut h, area);
+    if hand.group() {
+        assert_eq!(now, placed, "{hand:?}: a drag places nothing");
+        assert_eq!(undo_label(&h), Some(in_hand.step.clone()), "{hand:?}: no step");
+    } else {
+        let changed = tiles_changed(&placed, &now);
+        for i in [4, 5, 6] {
+            assert!(changed.contains(&i), "{hand:?}: tile {i} painted: {changed:?}");
+        }
+    }
+    assert_eq!(chest_at(&h, area, 0), chest, "{hand:?}: the chest not moved");
+    assert!(h.state().area_views[&area].selection.is_empty(), "{hand:?}: nothing selected");
+    let after_first = tile_list(&mut h, area);
+    // Another chest (in tile (3, 0), which nothing here passes: the one
+    // painted over may stand in the wall's ground) dragged, then a
+    // placement on row 3.
+    put_chests(&mut h, area, &[Vec3::new(35.0, 5.0, 0.0)]);
+    let other = chest_at(&h, area, 1);
+    let on_chest = screen(&h, area, other + Vec3::Z * 0.3);
+    let to = screen(&h, area, Vec3::new(35.0, 25.0, 0.0));
+    press_drag(&mut h, on_chest, to, Default::default());
+    let moved = chest_at(&h, area, 1);
+    let near = (moved.truncate() - glam::Vec2::new(35.0, 25.0)).length() < 0.6;
+    assert!(near, "{hand:?} moved: {moved}");
+    let at = screen(&h, area, Vec3::new(5.0, 35.0, 0.0));
+    click_with(&mut h, at, egui::Modifiers::NONE);
+    assert!(tiles_changed(&after_first, &tile_list(&mut h, area)).contains(&12), "{hand:?}");
+    // Undo: the placement, the move, then the rest.
+    undo_key(&mut h);
+    assert_eq!(tile_list(&mut h, area), after_first, "{hand:?}: the placement undone");
+    assert!((chest_at(&h, area, 1) - moved).length() < 1e-3);
+    undo_key(&mut h);
+    assert!((chest_at(&h, area, 1) - other).length() < 1e-3, "{hand:?}: the move undone");
+    assert_eq!(tile_list(&mut h, area), after_first);
+    // (The second chest's Setup too.)
+    for _ in 0..8 {
+        if tile_list(&mut h, area) == list {
+            break;
+        }
+        undo_key(&mut h);
+    }
+    assert_eq!(tile_list(&mut h, area), list, "{hand:?}: all undone");
+    assert_eq!(chest_at(&h, area, 0), chest);
+}
+
+/// The ray from the camera through a point of the area's view, as the
+/// view casts it (`AreaView::ray`).
+fn ray_through(h: &Harness<'_, Moonglow>, area: ResRef, pos: egui::Pos2) -> mg_area::pick::Ray {
+    let view = &h.state().area_views[&area];
+    let camera = view.camera().expect("a camera");
+    let r = view.rect;
+    let aspect = (r.width() / r.height().max(1.0)).max(1e-3);
+    let at = glam::Vec2::new((pos.x - r.min.x) / r.width(), (pos.y - r.min.y) / r.height());
+    mg_area::pick::Ray::from_screen(&camera, aspect, at)
+}
+
+/// With a tile or a group in hand, a press over a placeable no press
+/// could pick places as ever: one of a kind hidden (Placeables off), one
+/// locked, and one behind a tile (the tile's ground nearer the eye under
+/// the pointer). In object mode a click there does pick the chest behind
+/// the tile (`AreaView::pick` weighs objects alone): only the brush's
+/// press looks at what is seen.
+#[test]
+fn hidden_locked_and_hidden_behind_objects_take_no_press() {
+    each_hand(not_pickable_objects_take_no_press);
+}
+
+fn not_pickable_objects_take_no_press(hand: Hand) {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Placeable;
+    let Some((mut h, area, _)) = brush_chest_harness("brush-not-pickable", hand) else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = chest_at(&h, area, 0);
+    let on_chest = screen(&h, area, chest + Vec3::Z * 0.3);
+    let list = tile_list(&mut h, area);
+    let placed = |h: &mut Harness<'_, Moonglow>| tiles_changed(&list, &tile_list(h, area));
+    // Placeables hidden.
+    h.state_mut().area_views.get_mut(&area).unwrap().show[Placeable.index()] = false;
+    h.run_steps(2);
+    click_with(&mut h, on_chest, egui::Modifiers::NONE);
+    assert!(placed(&mut h).contains(&5), "{hand:?} hidden: placed there");
+    assert!(h.state().area_views[&area].selection.is_empty());
+    undo_key(&mut h);
+    h.state_mut().area_views.get_mut(&area).unwrap().show[Placeable.index()] = true;
+    // Locked.
+    let lock = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("Placeable List", 0),
+        label: mg_area::LOCKED.into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Lock", vec![lock])));
+    h.run_steps(3);
+    click_with(&mut h, on_chest, egui::Modifiers::NONE);
+    assert!(placed(&mut h).contains(&5), "{hand:?} locked: placed there");
+    assert!(h.state().area_views[&area].selection.is_empty());
+    undo_key(&mut h);
+    undo_key(&mut h);
+    // Behind a tile: the three tiles south-west of it a step up, seen low
+    // from the south-west (higher, the ray would pass under their
+    // walkmesh, a raised tile having no cliff face).
+    let raise = [0, 1, 4]
+        .map(|i| mg_edit::Edit::SetField {
+            key: ResKey::new(area, ResType::ARE),
+            path: mg_edit::GffPath::root().item("Tile_List", i),
+            label: "Tile_Height".into(),
+            value: Some(mg_gff::Value::Int(1)),
+        })
+        .to_vec();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Raise", raise)));
+    h.run_steps(3);
+    settle(&mut h);
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = chest;
+        (o.distance, o.pitch, o.yaw) = (45.0, 0.3, (-135f32).to_radians());
+    }
+    h.run_steps(5);
+    let behind = screen(&h, area, chest + Vec3::Z * 0.3);
+    let ground = {
+        let game = h.state().game.as_deref().unwrap();
+        let model = h.state().area_views[&area].model.as_ref().unwrap();
+        mg_area::walk::Ground::new(game, model)
+    };
+    let ray = ray_through(&h, area, behind);
+    let hit = ground.hit(&ray).expect("set-up: the ray meets a raised tile");
+    assert!(
+        (hit - ray.origin).length() < (chest - ray.origin).length() - 1.0,
+        "set-up: the raised tile's ground ({hit}) is nearer than the chest"
+    );
+    assert!(h.state().area_views[&area].pick(behind).is_some(), "pick sees the chest behind it");
+    let before = tile_list(&mut h, area);
+    click_with(&mut h, behind, egui::Modifiers::NONE);
+    assert!(h.state().area_views[&area].selection.is_empty(), "{hand:?} behind: not picked");
+    assert_ne!(tile_list(&mut h, area), before, "{hand:?}: placed on the tile seen");
+    assert_eq!(chest_at(&h, area, 0), chest);
+}
+
+/// With a tile or a group in hand, what is not a plain press on an object
+/// is as before: Ctrl + drag and Alt + drag from it move the view and
+/// change nothing; Ctrl + click on it toggles it in the selection, as in
+/// object mode (the owner's answer of 2026-11-12); a right click on it
+/// turns the tile or group a quarter (the next placed is turned) and
+/// selects nothing; Escape over it puts the brush down.
+#[test]
+fn camera_presses_right_click_and_escape_stay_with_a_tile_or_group_in_hand() {
+    each_hand(camera_right_click_and_escape);
+}
+
+fn camera_right_click_and_escape(hand: Hand) {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Placeable;
+    let Some((mut h, area, _)) = brush_chest_harness("brush-unchanged", hand) else { return };
+    let list = tile_list(&mut h, area);
+    let chest = chest_at(&h, area, 0);
+    let on_chest = screen(&h, area, chest + Vec3::Z * 0.3);
+    let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    for m in [egui::Modifiers::COMMAND, egui::Modifiers::ALT] {
+        let orbit = h.state().area_views[&area].orbit.unwrap();
+        press_drag(&mut h, on_chest, to, m);
+        let now = h.state().area_views[&area].orbit.unwrap();
+        assert!((now.target - orbit.target).length() > 1.0, "{hand:?} {m:?} + drag: the view");
+        assert_eq!(tile_list(&mut h, area), list, "{hand:?} {m:?} + drag: no tile changed");
+        assert_eq!(chest_at(&h, area, 0), chest, "{hand:?} {m:?} + drag: the chest stays");
+        assert_eq!(undo_label(&h).as_deref(), Some("Setup"));
+        h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(orbit);
+        h.run_steps(3);
+    }
+    click_with(&mut h, on_chest, egui::Modifiers::COMMAND);
+    assert_eq!(h.state().area_views[&area].selection, [(Placeable, 0)], "{hand:?}: Ctrl + click");
+    click_with(&mut h, on_chest, egui::Modifiers::COMMAND);
+    assert!(h.state().area_views[&area].selection.is_empty(), "{hand:?}: Ctrl + click again");
+    assert_eq!(tile_list(&mut h, area), list);
+    assert_eq!(undo_label(&h).as_deref(), Some("Setup"));
+    // A right click on the chest: turned, nothing selected. (What the
+    // tile clicked is turned to without it first, then undone.)
+    let turn = |h: &mut Harness<'_, Moonglow>| tile_list(h, area)[10].integer("Tile_Orientation");
+    click_with(&mut h, to, egui::Modifiers::NONE);
+    let unturned = turn(&mut h).unwrap_or(0);
+    undo_key(&mut h);
+    h.hover_at(on_chest);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: on_chest,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].selection.is_empty(), "{hand:?}: a right click");
+    click_with(&mut h, to, egui::Modifiers::NONE);
+    let turned = turn(&mut h).unwrap_or(0);
+    assert_ne!(turned, unturned, "{hand:?}: placed turned");
+    // Escape over the chest: the brush put down.
+    h.hover_at(on_chest);
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().palette.tile_brush.is_none(), "{hand:?}: Escape puts the brush down");
+}
+
+/// With a tile or a group in hand, its Gallery picture dropped on a
+/// placeable places it there, as ever (`drop_tile`).
+#[test]
+fn a_tile_or_group_picture_dropped_on_an_object_places_it() {
+    each_hand(picture_dropped_on_an_object);
+}
+
+fn picture_dropped_on_an_object(hand: Hand) {
+    use glam::Vec3;
+    let Some((mut h, area, in_hand)) = brush_chest_harness("brush-drop", hand) else { return };
+    let list = tile_list(&mut h, area);
+    let chest = chest_at(&h, area, 0);
+    let from = h.get_all_by_label(&in_hand.picture).next().expect("its picture").rect().center();
+    let to = screen(&h, area, chest + Vec3::Z * 0.3);
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=10 {
+        h.hover_at(from + (to - from) * (k as f32 / 10.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let changed = tiles_changed(&list, &tile_list(&mut h, area));
+    assert!(changed.contains(&5), "{hand:?}: placed under the chest: {changed:?}");
+    assert_eq!(chest_at(&h, area, 0), chest);
+}
+
+/// With a tile or a group in hand: several selected, a drag from one
+/// moves them all; Shift + drag from one moves it as in object mode
+/// (Shift's rectangle is a stroke's, begun on the ground); the
+/// selection's turn ring, led, turns it and places nothing.
+#[test]
+fn several_selected_move_and_the_selection_s_handles_are_its() {
+    each_hand(several_and_handles);
+}
+
+fn several_and_handles(hand: Hand) {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Placeable;
+    let Some((mut h, area, _)) = brush_chest_harness("brush-several", hand) else { return };
+    put_chests(&mut h, area, &[Vec3::new(15.0, 35.0, 0.0)]);
+    let list = tile_list(&mut h, area);
+    let (a0, b0) = (chest_at(&h, area, 0), chest_at(&h, area, 1));
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(Placeable, 0), (Placeable, 1)];
+    h.run_steps(3);
+    let on_a = screen(&h, area, a0 + Vec3::Z * 0.3);
+    let to = screen(&h, area, Vec3::new(25.0, 15.0, 0.0));
+    press_drag(&mut h, on_a, to, Default::default());
+    let (a1, b1) = (chest_at(&h, area, 0), chest_at(&h, area, 1));
+    assert!(((a1 - a0) - (b1 - b0)).truncate().length() < 0.05, "{hand:?}: {a1} {b1}");
+    assert!((a1 - a0).truncate().length() > 9.0, "{hand:?} moved: {a0} to {a1}");
+    assert_eq!(tile_list(&mut h, area), list);
+    // Shift + drag from one: it alone moves (as in object mode).
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Placeable, 0)];
+    h.run_steps(3);
+    let on_a = screen(&h, area, a1 + Vec3::Z * 0.3);
+    let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    press_drag(&mut h, on_a, to, egui::Modifiers::SHIFT);
+    let a2 = chest_at(&h, area, 0);
+    assert!((a2.truncate() - glam::Vec2::new(25.0, 25.0)).length() < 0.6, "{hand:?}: {a2}");
+    assert_eq!(tile_list(&mut h, area), list, "{hand:?}: Shift + drag places nothing");
+    // The turn ring, led a quarter round.
+    let radius = h.state().area_views[&area].handle_radius_at(a2).unwrap();
+    let ring = |a: f32| a2 + Vec3::new(a.cos(), a.sin(), 0.0) * radius;
+    let from = screen(&h, area, ring(0.0));
+    h.hover_at(from);
+    h.run_steps(2);
+    if hand == Hand::ExactTile {
+        let shot = h.render().unwrap();
+        shot.save(mg_testkit::output_dir("brush-press").join("handles.png")).unwrap();
+    }
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for k in 1..=8 {
+        h.hover_at(screen(&h, area, ring(std::f32::consts::FRAC_PI_2 * k as f32 / 8.0)));
+        h.run_steps(1);
+    }
+    press(&h, screen(&h, area, ring(std::f32::consts::FRAC_PI_2)), false, Default::default());
+    h.run_steps(3);
+    assert_eq!(undo_label(&h).as_deref(), Some("Rotate"), "{hand:?}: the ring turned it");
+    assert_eq!(tile_list(&mut h, area), list, "{hand:?}: the ring places nothing");
+}
+
+/// A read-only area with a tile or a group in hand: a press on its chest
+/// selects it, a drag moves nothing and nothing is placed.
+#[test]
+fn a_read_only_area_selects_and_changes_nothing_with_a_tile_or_group_in_hand() {
+    each_hand(read_only);
+}
+
+fn read_only(hand: Hand) {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Placeable;
+    let name = format!("brush-read-only-{}", hand.name());
+    let Some((mut h, area)) = read_only_area_harness(&name) else { return };
+    choose_hand(&mut h, hand);
+    h.hover_at(egui::pos2(960.0, 610.0));
+    h.run_steps(3);
+    let list = tile_list(&mut h, area);
+    let chest = chest_at(&h, area, 0);
+    let on_chest = screen(&h, area, chest + Vec3::Z * 0.3);
+    click_with(&mut h, on_chest, egui::Modifiers::NONE);
+    assert_eq!(h.state().area_views[&area].selection, [(Placeable, 0)], "{hand:?}");
+    let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    press_drag(&mut h, on_chest, to, Default::default());
+    assert_eq!(chest_at(&h, area, 0), chest, "{hand:?}");
+    assert_eq!(tile_list(&mut h, area), list, "{hand:?}");
+}
+
+/// The first group's name in Rural's tiles palette.
+fn first_group_name(h: &Harness<'_, Moonglow>) -> String {
+    use mg_tiles::TileIndex;
+    let game = h.state().game.as_deref().unwrap();
+    let ttr01 = ResRef::from_str("ttr01").unwrap();
+    let set = mg_area::tileset(game, ttr01).unwrap();
+    let index = TileIndex::new(&set);
+    let palette = mg_area::terrain::TilesetPalette::read(game, ttr01, &set, &index);
+    let brushes = palette.brushes();
+    let group = brushes.iter().find(|(_, b)| matches!(b, mg_area::terrain::Brush::Group(_)));
+    group.expect("Rural has groups").0.to_string()
+}
+
+/// What the painting brushes (and Select Tiles and Paint, to compare) do
+/// with a click on a placeable and a press-drag from it to the next tile
+/// north-east: the tiles changed, what is selected, where the chest is
+/// and the step added. They take every press (the owner's answer of
+/// 2026-11-12: the tile and group brushes pick the object, these stay
+/// as they are). The table is printed.
+#[test]
+fn other_brushes_on_an_object_today() {
+    use glam::Vec3;
+    let modes = [
+        "Terrain (Water)",
+        "Raise/Lower",
+        "Eraser",
+        "Refine Tile",
+        "Crosser (Road)",
+        "Next Tile Appearance",
+        "Previous Tile Appearance",
+        "Rotate Tile",
+        "Select Tiles",
+        "Paint (placeables)",
+    ];
+    let mut table = Vec::new();
+    for mode in modes {
+        let Some((mut h, area)) = area_harness("other-brushes") else { return };
+        put_chests(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+        match mode {
+            "Terrain (Water)" => choose_tile_brush(&mut h, "Water"),
+            "Crosser (Road)" => choose_tile_brush(&mut h, "Road"),
+            "Select Tiles" => {
+                area_tool(&h, "Select Tiles").click();
+                h.run_steps(2);
+            }
+            "Paint (placeables)" => {
+                let shrub = ResKey::parse("plc_shrub", ResType::UTP).unwrap();
+                let app = h.state_mut();
+                app.palette.tiles = false;
+                app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+                app.palette.selected = Some(shrub);
+                app.palette.chosen = vec![shrub];
+                app.paint = true;
+                h.run_steps(2);
+            }
+            label => choose_tile_brush(&mut h, label),
+        }
+        h.hover_at(egui::pos2(960.0, 610.0));
+        h.run_steps(3);
+        let list = tile_list(&mut h, area);
+        let count = |h: &mut Harness<'_, Moonglow>| {
+            let ws = h.state_mut().ws.as_mut().unwrap();
+            let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+            git.root.list("Placeable List").map_or(0, |l| l.len())
+        };
+        let chest = chest_at(&h, area, 0);
+        let on_chest = screen(&h, area, chest + Vec3::Z * 0.3);
+        let changed = |h: &mut Harness<'_, Moonglow>| -> Vec<usize> {
+            let now = tile_list(h, area);
+            (0..now.len()).filter(|i| now[*i] != list[*i]).collect()
+        };
+        let outcome = |h: &mut Harness<'_, Moonglow>| {
+            let moved = (chest_at(h, area, 0) - chest).truncate().length() > 0.5;
+            // (How many the placeable brush lays is its own chance: some
+            // or none is what is pinned.)
+            let added = if count(h) > 1 { "some" } else { "none" };
+            // (Which tiles besides the chest's a brush changes is a
+            // variant's chance (one may come out as it was) and where a
+            // drag's steps fall: whether the chest's is among them is what
+            // is pinned.)
+            let changed = changed(h);
+            let tiles = match (changed.contains(&5), changed.len()) {
+                (_, 0) => "none",
+                (true, _) => "the chest's among them",
+                (false, _) => "others",
+            };
+            format!(
+                "tiles {tiles}, selected {}, chest {}, placeables added {added}, step {:?}",
+                !h.state().area_views[&area].selection.is_empty(),
+                if moved { "moved" } else { "stays" },
+                undo_label(h).filter(|l| l != "Setup")
+            )
+        };
+        click_with(&mut h, on_chest, egui::Modifiers::NONE);
+        let click = outcome(&mut h);
+        while undo_label(&h).is_some_and(|l| l != "Setup") {
+            h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+            h.run_steps(3);
+        }
+        h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+        h.run_steps(2);
+        let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+        press_drag(&mut h, on_chest, to, egui::Modifiers::NONE);
+        let drag = outcome(&mut h);
+        table.push(format!("{mode} | click: {click} | press-drag: {drag}"));
+    }
+    eprintln!("{}", table.join("\n"));
+    let pinned: &[&str] = &[
+        "Terrain (Water) | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Paint Water\") | press-drag: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Paint Water\")",
+        "Raise/Lower | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Raise terrain\") | press-drag: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Raise terrain\")",
+        "Eraser | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Erase tile\") | press-drag: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Erase tile\")",
+        "Refine Tile | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Refine tile\") | press-drag: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Refine tiles\")",
+        "Crosser (Road) | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Paint Road\") | press-drag: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Paint Road\")",
+        "Next Tile Appearance | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Next tile appearance\") | press-drag: tiles none, selected false, chest stays, placeables added none, step None",
+        "Previous Tile Appearance | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Previous tile appearance\") | press-drag: tiles none, selected false, chest stays, placeables added none, step None",
+        "Rotate Tile | click: tiles the chest's among them, selected false, chest stays, placeables added none, step Some(\"Rotate tile\") | press-drag: tiles none, selected false, chest stays, placeables added none, step None",
+        "Select Tiles | click: tiles none, selected true, chest stays, placeables added none, step None | press-drag: tiles none, selected true, chest moved, placeables added none, step Some(\"Move\")",
+        "Paint (placeables) | click: tiles none, selected false, chest stays, placeables added some, step Some(\"Paint Placeables\") | press-drag: tiles none, selected false, chest stays, placeables added some, step Some(\"Paint Placeables\")",
+    ];
+    assert_eq!(table, pinned, "what the other brushes do on an object, as pinned");
 }

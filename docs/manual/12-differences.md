@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T05:12:15Z }
 ---
 
 # Differences from Aurora
@@ -54,6 +54,11 @@ it differs, it is on purpose:
 - **The tile border** past an area's edge, which the game draws and
   Aurora doesn't, can be drawn in the area viewer: the toolbar's **Tile
   Border**, off by default ([Areas](04-areas.md#the-toolbar)).
+- **A press on an object with a tile or a group in hand** is the
+  object's: a click selects it and a drag moves it, the brush staying
+  chosen, where Aurora's brushes take every click. A press on bare ground
+  places as ever, and the painting brushes (terrains, crossers,
+  Raise/Lower) take every press, as Aurora's do ([Areas](04-areas.md)).
 - **Grass** is drawn in the area viewer, which Aurora does not draw: the
   tileset's and the area's own (Area Properties › Grass, which Aurora
   hasn't), wherever the view shows grass ground, thinner far off but
