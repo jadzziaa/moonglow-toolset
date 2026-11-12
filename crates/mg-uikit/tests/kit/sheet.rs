@@ -615,7 +615,7 @@ fn status_bar(ui: &mut Ui) {
                 |ui| {
                     if narrow {
                         // (A job whose progress is not known: its mark.)
-                        ui.add(StatusJob::new("Build Module", None));
+                        ui.add(StatusJob::unknown("Build Module"));
                         status::separator(ui);
                         ui.add(StatusItem::new("192 objects"));
                     } else {

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T16:51:09Z }
 ---
 
 # The main window
@@ -46,10 +46,12 @@ actions (New, Open, Save, Undo and Redo): each is in the menus as well
 (420 by 320 points, which grow with Options › General › Interface size
 and follow it as soon as it changes); one left smaller opens at that
 size. Where the Status Bar is short of room, the log's last line is
-cut short with an ellipsis and then goes, then the game folder goes,
-then a running job's name is cut short (its bar kept), and last the
-module's name and the note of files being read are cut short ("(modified)"
-kept; rest the pointer on any of them for the whole). The Top Bar
+cut short with an ellipsis, down to a few words; then the game folder
+goes (and the line has more room again); then the line is cut short
+again and goes; then a running job's name is cut short (its bar kept);
+and last the module's name and the note of files being read are cut
+short ("(modified)" kept; rest the pointer on any of them for the
+whole). The Top Bar
 is the same whatever **Tools › Options › General › Editors' toolbar
 buttons** says: that setting is the area view's and the editors'
 toolbars'. The icons are Moonglow's own drawings, one to a command. The
@@ -513,8 +515,9 @@ is drawn smaller (a side dock at most two fifths of the window, the log
 at most half its height, and in the narrowest windows the Right Dock
 narrower than 280 so as to stay inside), and it is as large again when
 the window is; only dragging its edge changes the size it keeps.
-**View › Reset Layout** shows all three docks at the sizes they have at
-first.
+**View › Reset Layout** puts the window back as Moonglow first opens
+it: the Left and Right Docks unfolded at their first widths and the log
+closed (opened again, it is at its first height).
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -936,8 +939,12 @@ as you left it.
 
 While the log is closed, its last line follows the Log switch in the
 Status Bar, without its time: a warning in yellow, an error in red, cut
-short with an ellipsis where the bar is short of room. Rest the pointer
-on it for the whole line and its time; click it to open the log.
+short with an ellipsis where the bar is short of room. Only a message's
+first line is shown, and a blank line (a command's empty output) is
+passed over for the message before it. Rest the pointer on it for its
+time and its first lines (a long message says "… more in the log");
+click it to open the log. A screen reader hears it as "Last log line:"
+and the line.
 
 While long work runs as a job (Build Module, Compile All Scripts,
 Verify Module, a hak saved, an NWSync publish, a project's or a

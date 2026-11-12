@@ -843,19 +843,27 @@ fn again(h: &Harness<'_>) -> std::time::Duration {
     out.get(&egui::ViewportId::ROOT).map_or(std::time::Duration::MAX, |v| v.repaint_delay)
 }
 
-/// A job whose progress is not known draws a moving mark along its bar
-/// (`accent`, a quarter of the bar), which moves from frame to frame and
-/// asks for a frame each [`status::JOB_MARK_FRAME`]; a job whose part done
-/// is known draws that part, still, and asks for none. Its accessible
+/// A job whose progress is not known ([`StatusJob::unknown`]) draws a
+/// moving mark along its bar (`accent`, a quarter of the bar), which moves
+/// from frame to frame and asks for a frame each
+/// [`status::JOB_MARK_FRAME`]; one given no part done
+/// (`StatusJob::new(_, None)`) keeps its empty bar, still, and asks for
+/// none, as before the mark; a job whose part done is known draws that
+/// part, still, and asks for none. Its accessible
 /// name is the one given it, its words cut short to its width at most,
 /// its bar never.
 #[test]
 fn a_job_of_unknown_progress_has_a_moving_mark() {
-    let known = Cell::new(None::<f32>);
+    // (0: not known, 1: none given, 2: half done.)
+    let mode = Cell::new(0);
     let mut h = Harness::new_ui(|ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
-        let job = StatusJob::new("Verify Module", known.get()).name("Verify Module, under way");
-        ui.add(job);
+        let job = match mode.get() {
+            0 => StatusJob::unknown("Verify Module"),
+            1 => StatusJob::new("Verify Module", None),
+            _ => StatusJob::new("Verify Module", Some(0.5)),
+        };
+        ui.add(job.name("Verify Module, under way"));
     });
     h.run_steps(1);
     let t = Theme::Dark.tokens();
@@ -873,7 +881,13 @@ fn a_job_of_unknown_progress_has_a_moving_mark() {
     assert!(again(&h) <= status::JOB_MARK_FRAME, "{:?}", again(&h));
     let node = h.get_by_label("Verify Module, under way");
     assert_eq!(node.accesskit_node().numeric_value(), None);
-    known.set(Some(0.5));
+    mode.set(1);
+    h.run_steps(1);
+    h.step();
+    let accent = rects(&h).into_iter().filter(|r| r.fill == t.accent).count();
+    assert_eq!(accent, 0, "none given: an empty bar");
+    assert!(again(&h) > std::time::Duration::from_secs(1), "still: {:?}", again(&h));
+    mode.set(2);
     h.run_steps(1);
     assert_eq!(mark(&h).width(), status::JOB_BAR.x * 0.5);
     assert!(again(&h) > std::time::Duration::from_secs(1), "still: {:?}", again(&h));
@@ -912,8 +926,8 @@ fn a_job_of_unknown_progress_has_a_moving_mark() {
 }
 
 /// The log's last line: in `text-3`, or the color given it; cut short
-/// with an ellipsis to its width at most (named by its whole words, its
-/// first line alone shown); a button, which reports its click.
+/// with an ellipsis to its width at most (named by its first line whole,
+/// that line alone shown); a button, which reports its click.
 #[test]
 fn the_log_s_last_line_is_cut_short_and_pressed() {
     let long = "Verify Module found 12 problems in the module's scripts and areas\nand more";
@@ -944,7 +958,8 @@ fn the_log_s_last_line_is_cut_short_and_pressed() {
         out
     };
     assert_eq!(painted(&h), [t.text_3]);
-    let node = h.get_by_label(long);
+    // (Named by its first line, whole, where no name is given.)
+    let node = h.get_by_label(long.lines().next().unwrap());
     assert_eq!(node.accesskit_node().role(), Role::Button);
     assert!(node.rect().width() <= 160.0);
     node.click();

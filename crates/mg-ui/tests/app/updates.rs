@@ -180,9 +180,22 @@ fn the_update_notice_appears_and_is_dismissed() {
     let notice = h.get_by_label(&told).rect();
     let menus = h.get_by_label("Top Bar").get_by_label("File").rect();
     assert!(notice.top() >= menus.bottom(), "under the Top Bar: {notice:?} {menus:?}");
-    // (The docks and the editor area start where the strip ends.)
+    // (The docks and the editor area start where the strip ends: with a
+    // module open, the Left Dock's tab bar and, closed and opened, the
+    // Bottom Dock's under the editor area.)
+    let dir = mg_testkit::scratch_dir("ui-update-notice-docks");
+    h.state_mut().settings.no_last_area = true;
+    h.state_mut().open_module(&sample_module(&dir));
+    settle(&mut h);
+    let notice = h.get_by_label(&told).rect();
     let area = h.state().editor_area_rect().expect("the editor area");
-    assert!(notice.bottom() <= area.top(), "over the docks: {notice:?} {area:?}");
+    assert!(notice.bottom() <= area.top(), "over the editor area: {notice:?} {area:?}");
+    let left = h.get_by_label("Left Dock").get_by_label("Module").rect();
+    assert!(notice.bottom() <= left.top(), "over the Left Dock: {notice:?} {left:?}");
+    if let Some(bottom) = h.state().bottom_dock_rect() {
+        assert!(notice.bottom() <= bottom.top(), "over the Bottom Dock: {bottom:?}");
+    }
+    assert!(h.state().right_dock_rect().is_none(), "no Right Dock without the game");
     h.get_by_label("Release Page");
     assert_eq!(asked.load(Ordering::SeqCst), 1);
     let checked = h.state().settings.update_checked.expect("the check's time is kept");

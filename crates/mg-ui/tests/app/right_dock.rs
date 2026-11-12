@@ -819,9 +819,10 @@ fn reset_layout_puts_the_right_dock_back_at_320() {
 /// width where the window has not the room: never past its edge), nothing
 /// in the Right Dock outside it or over another of its widgets, nothing
 /// else drawn across its edges ([`dock_wrong`]), and at 600 nothing in the
-/// window overlaps. (The editor area is left little room under about 760,
-/// and the Bottom Dock's tab is over its buttons under about 500: the
-/// shell's yields, M3 T14, fold the Left Dock in narrow windows.)
+/// window overlaps. (The editor area is left little room under about 760:
+/// the shell's yields, M3 T14, fold the Left Dock in narrow windows. The
+/// Bottom Dock's tab bar gives way in a narrow dock since T7:
+/// status_bar.rs's `the_bottom_dock_s_tab_and_tools_never_overlap`.)
 #[test]
 fn the_least_window_holds_both_docks() {
     let Some(mut h) = dock_harness("ui-right-dock-least-window", 1400.0) else { return };

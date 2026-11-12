@@ -24,6 +24,22 @@ fn in_bar<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> Option<egui_kittes
     h.get_by_label("Status Bar").query_by_label(name)
 }
 
+/// How the last line's button is named: "Last log line: " and the line.
+const LAST: &str = "Last log line: ";
+
+/// The last line reading `text` in the Status Bar, if it is there: its
+/// rectangle.
+fn last_line(h: &Harness<'_, Moonglow>, text: &str) -> Option<egui::Rect> {
+    let name = format!("{LAST}{text}");
+    in_bar(h, &name).map(|n| n.rect())
+}
+
+/// Clicks the last line reading `text`.
+fn click_last_line(h: &Harness<'_, Moonglow>, text: &str) {
+    let name = format!("{LAST}{text}");
+    in_bar(h, &name).expect("the last line").click();
+}
+
 /// The color the text drawn inside `rect` was painted in, the last frame.
 fn text_color(h: &Harness<'_, Moonglow>, rect: egui::Rect) -> Option<egui::Color32> {
     drawn(h).into_iter().find_map(|s| match s {
@@ -65,21 +81,23 @@ fn the_log_s_last_line_shows_while_the_log_is_closed() {
     app.log.info("First thing said");
     let mut h = harness(app, 1200.0, 700.0);
     settle(&mut h);
-    let line = in_bar(&h, "First thing said").expect("the last line");
+    let name = format!("{LAST}First thing said");
+    let line = in_bar(&h, &name).expect("the last line");
     assert_eq!(line.accesskit_node().role(), egui::accesskit::Role::Button);
     let switch = in_bar(&h, "Log").unwrap().rect();
     let shown = line.rect();
     assert!(shown.left() >= switch.right() + 7.5, "after the switch: {shown:?} {switch:?}");
     h.state_mut().log.warn("Second thing said");
     settle(&mut h);
-    assert!(in_bar(&h, "First thing said").is_none() && in_bar(&h, "Second thing said").is_some());
+    assert!(last_line(&h, "First thing said").is_none());
+    assert!(last_line(&h, "Second thing said").is_some());
     in_bar(&h, "Log").unwrap().click();
     settle(&mut h);
     assert!(!h.state().settings.hide_log && h.query_by_label("Bottom Dock").is_some());
-    assert!(in_bar(&h, "Second thing said").is_none(), "not while the log shows it");
+    assert!(last_line(&h, "Second thing said").is_none(), "not while the log shows it");
     in_bar(&h, "Log").unwrap().click();
     settle(&mut h);
-    assert!(in_bar(&h, "Second thing said").is_some(), "back once closed");
+    assert!(last_line(&h, "Second thing said").is_some(), "back once closed");
 }
 
 /// The last line is in the log's color for its level, by the theme's
@@ -106,7 +124,7 @@ fn the_last_line_is_in_its_level_s_color() {
             // (The pointer away: a plain line under it is brighter.)
             h.hover_at(egui::pos2(1.0, 1.0));
             settle(&mut h);
-            let rect = in_bar(&h, said).expect(said).rect();
+            let rect = last_line(&h, said).expect(said);
             assert_eq!(text_color(&h, rect), Some(token), "{said}, light {light}");
             let tip = tip_at(&mut h, rect).unwrap_or_default();
             let log = &h.state().log;
@@ -128,7 +146,7 @@ fn a_long_last_line_is_cut_short_with_the_whole_line_in_its_tip() {
         app.log.info(long);
         let mut h = harness(app, width, 600.0);
         settle(&mut h);
-        let line = in_bar(&h, long).expect("the last line").rect();
+        let line = last_line(&h, long).expect("the last line");
         let name = in_bar(&h, "No module open").unwrap().rect();
         assert!(line.right() <= name.left() - 8.0, "{width}: {line:?} before {name:?}");
         let words = drawn_texts(&h, line);
@@ -146,8 +164,10 @@ fn a_long_last_line_is_cut_short_with_the_whole_line_in_its_tip() {
     app.log.error("The first line\nand the second");
     let mut h = harness(app, 1200.0, 600.0);
     settle(&mut h);
-    let line = in_bar(&h, "The first line\nand the second").expect("named by it all").rect();
+    let line = last_line(&h, "The first line").expect("named by its first line");
     assert_eq!(drawn_texts(&h, line), ["The first line"]);
+    let tip = tip_at(&mut h, line).unwrap_or_default();
+    assert!(tip.ends_with("The first line\nand the second"), "its lines in the tip: {tip}");
 }
 
 /// Pressing the last line opens the log, as the switch does.
@@ -157,7 +177,7 @@ fn pressing_the_last_line_opens_the_log() {
     app.log.info("Something said");
     let mut h = harness(app, 1200.0, 700.0);
     settle(&mut h);
-    in_bar(&h, "Something said").unwrap().click();
+    click_last_line(&h, "Something said");
     settle(&mut h);
     assert!(!h.state().settings.hide_log, "opened");
     // (A log line's words are its value, its time first.)
@@ -165,7 +185,104 @@ fn pressing_the_last_line_opens_the_log() {
         n.value().is_some_and(|v| v.contains(" Something said"))
     };
     assert!(h.query_all_by(said).count() >= 1, "the log shows it");
-    assert!(in_bar(&h, "Something said").is_none());
+    assert!(last_line(&h, "Something said").is_none());
+}
+
+/// The last line is the last entry whose first line is not blank: a last
+/// entry of spaces (a project command's blank output line), an empty one
+/// or one starting with a new line leaves the one before shown; with only
+/// blank entries, no line, no separator and no room, as with none at all.
+#[test]
+fn a_blank_last_entry_shows_the_line_before() {
+    let mut h = harness(closed_log_app(), 1200.0, 700.0);
+    settle(&mut h);
+    let controls = |h: &Harness<'_, Moonglow>| bar_controls(h, "Status Bar");
+    let bare = controls(&h);
+    let separators = |h: &Harness<'_, Moonglow>| {
+        let bar = in_bar(h, "Log").unwrap().rect();
+        let name = in_bar(h, "No module open").unwrap().rect();
+        // (A separator: a 1 by 14 rectangle of `line-soft` between them.)
+        let soft = mg_uikit::tokens(&h.ctx).line_soft;
+        drawn(h)
+            .into_iter()
+            .filter(|s| match s {
+                egui::Shape::Rect(r) => {
+                    r.fill == soft
+                        && r.rect.width() <= 1.5
+                        && r.rect.left() > bar.right()
+                        && r.rect.right() < name.left()
+                        && (r.rect.center().y - bar.center().y).abs() < 6.0
+                }
+                _ => false,
+            })
+            .count()
+    };
+    for blank in ["   ", "", "\nthe rest of it", "  \t  "] {
+        h.state_mut().log.clear();
+        h.state_mut().log.info("The message before");
+        h.state_mut().log.info(blank);
+        settle(&mut h);
+        assert!(last_line(&h, "The message before").is_some(), "{blank:?}: the one before");
+        // Only blank entries: nothing shown, no separator, no room.
+        h.state_mut().log.clear();
+        h.state_mut().log.info(blank);
+        h.state_mut().log.info("  ");
+        settle(&mut h);
+        assert_eq!(controls(&h), bare, "{blank:?}: as with no line");
+        assert_eq!(separators(&h), 0, "{blank:?}: no separator");
+    }
+}
+
+/// A message of megabytes, on one line or many: the last line shows its
+/// first line cut to 300 characters with an ellipsis, its button's name
+/// as bounded; its tip (made only while it is hovered: not in a frame
+/// where it is not) its first lines cut likewise and "… more in the log".
+#[test]
+fn a_huge_last_line_is_bounded() {
+    let mut h = harness(closed_log_app(), 1600.0, 700.0);
+    settle(&mut h);
+    let one_line = "x".repeat(4_000_000);
+    let many_lines = "y".repeat(100) + &"\nline".repeat(400_000);
+    for (what, text) in [("one line", one_line), ("many lines", many_lines)] {
+        h.state_mut().log.clear();
+        h.state_mut().log.info(text.clone());
+        h.hover_at(egui::pos2(1.0, 1.0));
+        settle(&mut h);
+        let node = h
+            .get_by_label("Status Bar")
+            .query_by(|n| n.label().is_some_and(|l| l.starts_with(LAST)))
+            .expect(what);
+        let name = node.accesskit_node().label().unwrap_or_default();
+        let rect = node.rect();
+        assert!(name.chars().count() <= LAST.len() + 301, "{what}: {} characters", name.len());
+        let first = text.lines().next().unwrap();
+        assert!(name.starts_with(&format!("{LAST}{}", &first[..50])), "{what}");
+        if first.chars().count() > 300 {
+            assert!(name.ends_with('…'), "{what}: cut, and says so");
+        }
+        // Frames with the pointer away make no tip.
+        let made = h.state().last_line_tips();
+        h.run_steps(3);
+        assert_eq!(h.state().last_line_tips(), made, "{what}: no tip made unhovered");
+        let tip = tip_at(&mut h, rect).unwrap_or_default();
+        assert!(h.state().last_line_tips() > made, "{what}: made while hovered");
+        assert!(tip.len() < 4_000, "{what}: the tip bounded: {} bytes", tip.len());
+        assert!(tip.ends_with("… more in the log"), "{what}: {}", &tip[tip.len() - 40..]);
+    }
+}
+
+/// A message that reads "Log" (or any control's word) does not take the
+/// switch's name: the last line is "Last log line: Log", the switch
+/// still found alone by "Log".
+#[test]
+fn a_last_line_reading_log_is_not_the_switch() {
+    let mut app = closed_log_app();
+    app.log.info("Log");
+    let mut h = harness(app, 1200.0, 700.0);
+    settle(&mut h);
+    assert!(last_line(&h, "Log").is_some());
+    let switch = in_bar(&h, "Log").expect("the switch, found alone by its name");
+    assert_eq!(switch.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
 }
 
 /// With nothing said yet, nothing follows the switch and no room is kept
@@ -237,8 +354,10 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
 }
 
 /// The Bottom Dock keeps the height it was given through the switch
-/// (closed and opened), a restart (its settings read again) and comes
-/// back at its first height after View › Reset Layout.
+/// (closed and opened) and a restart (its settings read again); View ›
+/// Reset Layout gives the shell's own layout: the Bottom Dock closed (as
+/// a new installation's), the side docks unfolded, and opened again the
+/// dock is at its first height.
 #[test]
 fn the_bottom_dock_keeps_its_height_through_the_switch_and_a_restart() {
     let mut h = harness(app_with(Vec::new()), 1000.0, 700.0);
@@ -265,11 +384,17 @@ fn the_bottom_dock_keeps_its_height_through_the_switch_and_a_restart() {
     let mut again = harness(app, 1000.0, 700.0);
     settle(&mut again);
     assert_eq!(top(&again), Some(high), "as high after a restart");
+    again.state_mut().settings.hide_tree = true;
+    settle(&mut again);
     menu_command(&mut again, "View", "Reset Layout");
     settle(&mut again);
     let first = mg_uikit::metrics::BOTTOM_DOCK.round() as u32;
     assert_eq!(again.state().settings.bottom_dock_height, Some(first));
-    assert!((top(&again).unwrap() - was).abs() <= 1.0, "its first height again");
+    assert_eq!(top(&again), None, "closed, as the shell has it at first");
+    assert!(!again.state().settings.hide_tree, "the Left Dock unfolded");
+    in_bar(&again, "Log").unwrap().click();
+    settle(&mut again);
+    assert!((top(&again).unwrap() - was).abs() <= 1.0, "opened, its first height");
 }
 
 /// What a test job is told to do, one step at a time.
@@ -330,23 +455,24 @@ fn a_running_job_shows_in_the_status_bar_until_it_ends() {
         assert_eq!(job(&h).unwrap().1, Some(f64::from(0.3f32)));
         // One at a time: another is refused, this one still shown.
         h.state_mut().start_job_for_tests("Another Job", |_| ());
+        // (One frame: the refusal is said when it is asked for, not later.)
         h.step();
         assert_eq!(job(&h).unwrap().0, "Count Things, 3 of 10");
         let refused = "Another Job: waiting for Count Things to finish";
-        assert!(in_bar(&h, refused).is_some(), "the refusal is the last line");
+        assert!(last_line(&h, refused).is_some(), "the refusal is the last line");
         tell.send(if fail { Step::Fail } else { Step::End }).unwrap();
         wait_for(&mut h, "the job's end", |h| !h.state().busy());
         settle(&mut h);
         assert!(job(&h).is_none(), "gone with the job");
         let said = if fail { "Count Things failed: it broke" } else { "Count Things: done" };
-        let rect = in_bar(&h, said).unwrap_or_else(|| panic!("{said}")).rect();
+        let rect = last_line(&h, said).unwrap_or_else(|| panic!("{said}"));
         let t = mg_uikit::tokens(&h.ctx);
         h.hover_at(egui::pos2(1.0, 1.0));
         settle(&mut h);
         let color = if fail { t.error } else { t.text_3 };
         assert_eq!(text_color(&h, rect), Some(color), "{said}");
         // Nothing asks for frames once it is over.
-        h.run_steps(2);
+        settle(&mut h);
         assert!(again(&h) >= Duration::from_secs(1), "at rest: {:?}", again(&h));
     }
 }
@@ -359,12 +485,10 @@ fn the_last_line_asks_for_no_frames() {
     app.log.info("Said once");
     let mut h = harness(app, 1200.0, 700.0);
     settle(&mut h);
-    h.run_steps(2);
     let open = again(&h);
     h.state_mut().settings.hide_log = true;
     settle(&mut h);
-    h.run_steps(2);
-    assert!(in_bar(&h, "Said once").is_some());
+    assert!(last_line(&h, "Said once").is_some());
     assert!(again(&h) >= open, "{:?} against {open:?}", again(&h));
     assert!(again(&h) >= Duration::from_secs(1), "{:?}", again(&h));
 }
@@ -386,7 +510,7 @@ fn a_new_installation_opens_with_the_log_closed() {
     let switch = in_bar(&h, "Log").unwrap().accesskit_node().toggled();
     assert_eq!(switch, Some(egui::accesskit::Toggled::False));
     let last = h.state().log.entries.last().map(|e| e.1.clone()).expect("a line said");
-    assert!(in_bar(&h, &last).is_some(), "its last line beside the switch: {last}");
+    assert!(last_line(&h, &last).is_some(), "its last line beside the switch: {last}");
     // A file that does not name it: the log open, as an existing user's.
     let kv = std::collections::HashMap::from([(
         "moonglow-settings".to_string(),
@@ -401,12 +525,14 @@ fn a_new_installation_opens_with_the_log_closed() {
 }
 
 /// The Status Bar at every width from the least window's (420) to 1600,
-/// in 8 point steps (and at 1600), with a long module name (modified), a long last
-/// line, a running job and a long game folder: every node of the bar
-/// inside it and none over another, every text drawn inside the bar and
-/// over no other; the module's name always there, everything at 1600;
-/// and they yield in order as the window narrows: the last line first,
-/// then the game folder, then the job's name (cut short), the module's
+/// in 8 point steps (and at 1600), with a long module name (modified), a
+/// long last line, a running job and a long game folder: every node of the
+/// bar inside it and none over another, every text drawn inside the bar
+/// and over no other; the module's name always there, everything at 1600;
+/// and they yield in order as the window narrows: the last line is cut
+/// short down to its least room (`shell::LAST_LINE_LEAST`, 48 points);
+/// then the game folder goes (the line widens again); then the line is
+/// cut again and goes; then the job's name is cut short; the module's
 /// name last.
 #[test]
 fn the_status_bar_holds_at_every_width() {
@@ -425,14 +551,15 @@ fn the_status_bar_holds_at_every_width() {
         data: Some(b"void main() { }\n".to_vec()),
     };
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
-    let line = "Compiled 312 scripts of the module and its haks, with 4 warnings about \
+    let said = "Compiled 312 scripts of the module and its haks, with 4 warnings about \
                 functions declared one way and defined another";
+    let line = &format!("{LAST}{said}");
     let name = "a_module_with_a_rather_long_file_name_for_the_status_bar_check (modified)";
     let folder = "…/Neverwinter Nights Enhanced Edition on the second drive";
     let job_title = "Compile All Scripts";
     let mut h = harness(app, 1600.0, 600.0);
     settle(&mut h);
-    h.state_mut().log.info(line);
+    h.state_mut().log.info(said);
     let tell = held_job(&mut h, job_title);
     tell.send(Step::Progress(40, 312)).unwrap();
     let job_name = "Compile All Scripts, 40 of 312";
@@ -459,6 +586,9 @@ fn the_status_bar_holds_at_every_width() {
     };
     let mut full_job = 0.0;
     let mut wrong = Vec::new();
+    // (Widths where the folder had gone and the line was shown, wider than
+    // its least room: the line widened again.)
+    let mut widened = 0;
     // (1600 first, where everything shows, then from the least window up.)
     let widths = std::iter::once(1600).chain((420..1600).step_by(8));
     for width in widths {
@@ -508,7 +638,7 @@ fn the_status_bar_holds_at_every_width() {
         }
         let job = has(job_name);
         if width >= 1600.0 {
-            for n in ["Log", line, job_name, name, folder] {
+            for n in ["Log", line.as_str(), job_name, name, folder] {
                 if has(n).is_none() {
                     wrong.push(at(&format!("{n} missing at full width")));
                 }
@@ -521,6 +651,17 @@ fn the_status_bar_holds_at_every_width() {
             has(name).is_some_and(|r| drawn_texts(&h, r).iter().any(|w| w.contains('…')));
         if has(folder).is_some() && has(line).is_none() {
             wrong.push(at("the folder shown and the last line gone"));
+        }
+        // (The line's least room, 48 points, with a point to spare for the
+        // rounding of its galley.)
+        if has(folder).is_some() && has(line).is_some_and(|r| r.width() < 47.0) {
+            wrong.push(at("the folder shown and the line under its least room"));
+        }
+        if has(folder).is_none() && has(line).is_some_and(|r| r.width() > 60.0) {
+            widened += 1;
+        }
+        if job_cut && has(line).is_some() {
+            wrong.push(at("the job cut short and the last line shown"));
         }
         if job_cut && has(folder).is_some() {
             wrong.push(at("the job cut short and the folder shown"));
@@ -535,35 +676,46 @@ fn the_status_bar_holds_at_every_width() {
     tell.send(Step::End).unwrap();
     wait_for(&mut h, "the job's end", |h| !h.state().busy());
     assert!(wrong.is_empty(), "{wrong:#?}");
+    assert!(widened > 0, "the folder gone, the line had its room again");
 }
 
 /// The Bottom Dock's tab bar at every window width from the least (420)
-/// to 1000, in 8 point steps, beside an area with both side docks open
-/// (the dock under the editor area only, a few points wide in the least
+/// to 1000, in 4 point steps, beside an area with both side docks open
+/// (the dock under the editor area only, 24 points wide in the least
 /// window): its Log tab and its tools (Copy Log, Save Log, Clear Log)
-/// never over each other nor outside the dock; the tab its icon alone
-/// where its words and the tools do not fit, the tools going whole from
-/// the end where even that does not, and no tab where the dock is
-/// narrower than its icon; all three at 1000.
+/// never over each other nor outside the dock; and, as the dock narrows,
+/// each stage in turn: the tab's words with all three tools; the tab its
+/// icon alone with the tools going one by one from the end; the icon
+/// alone with no tools; nothing under the icon's width. The tab is "Log"
+/// whatever its form; each tool not shown is in the View menu.
 #[test]
 fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     let Some((mut h, _area)) = area_harness("bottom-dock-narrow") else { return };
     settle(&mut h);
     let tools = ["Copy Log", "Save Log", "Clear Log"];
+    // (The stages in order, the narrowest first: the tab's form and how
+    // many tools.)
+    let stages = [("none", 0), ("icon", 0), ("icon", 1), ("icon", 2), ("icon", 3), ("words", 3)];
     let mut wrong = Vec::new();
-    let mut shown_at = Vec::new();
-    for width in (420..=1000).step_by(8) {
+    let mut seen = Vec::new();
+    for width in (420..=1000).step_by(4) {
         let width = width as f32;
         h.set_size(egui::vec2(width, 800.0));
         settle(&mut h);
         let dock = h.state().bottom_dock_rect().expect("the Bottom Dock");
         let bar = h.get_by_label("Bottom Dock");
-        // (Narrower than the tab's icon, none: the bar is drawn empty.)
-        let mut rects: Vec<(&str, egui::Rect)> =
-            bar.query_by_label("Log").map(|t| ("Log", t.rect())).into_iter().collect();
-        if rects.is_empty() && dock.width() >= 40.0 {
-            wrong.push(format!("{width}: no tab in a dock {dock:?}"));
-        }
+        let tab = bar.query_by_label("Log").map(|t| t.rect());
+        // The tab's form, by what it draws: its icon alone, or its words.
+        let form = match tab {
+            None => "none",
+            Some(r) if drawn_texts(&h, r).iter().any(|w| w == "Log") => "words",
+            Some(r) if icon_drawn(&h, mg_uikit::Icon::Log, r) => "icon",
+            Some(r) => {
+                wrong.push(format!("{width}: a tab {r:?} with neither its words nor its icon"));
+                "none"
+            }
+        };
+        let mut rects: Vec<(&str, egui::Rect)> = tab.map(|r| ("Log", r)).into_iter().collect();
         for name in tools {
             if let Some(n) = bar.query_by_label(name) {
                 rects.push((name, n.rect()));
@@ -574,7 +726,10 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
         if names != tools[..names.len()] {
             wrong.push(format!("{width}: the tools shown {names:?}"));
         }
-        shown_at.push((dock.width(), names.len()));
+        match stages.iter().position(|s| *s == (form, names.len())) {
+            Some(stage) => seen.push((dock.width(), stage)),
+            None => wrong.push(format!("{width}: {form} with {} tools", names.len())),
+        }
         for (i, (a, ra)) in rects.iter().enumerate() {
             if ra.left() < dock.left() - 0.5 || ra.right() > dock.right() + 0.5 {
                 wrong.push(format!("{width}: {a} {ra:?} outside the dock {dock:?}"));
@@ -585,29 +740,76 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
                 }
             }
         }
+        // The tools not shown are in the View menu.
+        if names.len() < tools.len() {
+            h.get_by_label("Top Bar").get_by_label("View").click();
+            settle(&mut h);
+            for (tool, row) in
+                [("Copy Log", "Copy Log"), ("Save Log", "Save Log…"), ("Clear Log", "Clear Log")]
+            {
+                if !names.contains(&tool) && menu_row(&h, row).is_none() {
+                    wrong.push(format!("{width}: {row} not in the View menu"));
+                }
+            }
+            h.key_press(egui::Key::Escape);
+            settle(&mut h);
+        }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
-    assert_eq!(shown_at.last().map(|s| s.1), Some(3), "all three at 1000: {shown_at:?}");
-    // (Fewer only where the dock is narrower, never more: the dock's
-    // width, not the window's, which the side docks share unevenly.)
-    shown_at.sort_by(|a, b| a.0.total_cmp(&b.0));
-    assert!(shown_at.windows(2).all(|w| w[0].1 <= w[1].1), "{shown_at:?}");
+    // (In order of the dock's width, not the window's, which the side
+    // docks share unevenly: a stage never comes back once passed.)
+    seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(seen.windows(2).all(|w| w[0].1 <= w[1].1), "{seen:?}");
+    let reached: Vec<usize> = seen.iter().map(|s| s.1).collect();
+    for (i, stage) in stages.iter().enumerate() {
+        // (The icon with all three tools is a few points of the dock's
+        // width at most: not every sweep lands on it.)
+        if *stage != ("icon", 3) {
+            assert!(reached.contains(&i), "{stage:?} never seen: {seen:?}");
+        }
+    }
+    // Nothing under the icon tab's width; the icon alone from there.
+    for (w, stage) in &seen {
+        if *stage == 0 {
+            assert!(*w < 34.0, "no tab in a dock {w} wide");
+        }
+    }
+}
+
+/// Kills the process whose number is in `file` (written by the command
+/// it ran: `echo $$ > FILE; exec sleep …`), if it is still that command,
+/// when dropped: a test's command does not outlive it, failed or not.
+struct KillOnDrop(std::path::PathBuf);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let Ok(pid) = std::fs::read_to_string(&self.0) else { return };
+        let pid = pid.trim();
+        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        if String::from_utf8_lossy(&cmd).starts_with("sleep") {
+            _ = std::process::Command::new("kill").args(["-9", pid]).status();
+        }
+    }
 }
 
 /// A real job, a project's command (`sleep`), shows in the Status Bar as
 /// it runs, its progress not known, and goes once it is canceled from
-/// its window.
+/// its window. (The command's own process is killed when the test ends,
+/// whether or not it got as far as Cancel.)
 #[cfg(unix)]
 #[test]
 fn a_project_s_command_shows_as_a_job() {
-    let slow = "sleep 300";
+    let scratch = mg_testkit::scratch_dir("ui-status-project-job-pid");
+    let pid = scratch.join("job.pid");
+    let slow = format!("echo $$ > '{}'; exec sleep 300", pid.display());
     let rules = format!("[commands]\nslow = {slow:?}\n");
     let dir = project_folder("ui-status-project-job", &[("moonglow.toml", &rules)]);
+    let _kill = KillOnDrop(pid.clone());
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.background_jobs = true;
     let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
-    app.settings.allowed_commands.push((project, "slow".into(), slow.into()));
+    app.settings.allowed_commands.push((project, "slow".into(), slow.clone()));
     app.open_module(&dir);
     let mut h = harness(app, 1200.0, 700.0);
     wait_for(&mut h, "the module's own work", |h| !h.state().busy());
@@ -617,13 +819,36 @@ fn a_project_s_command_shows_as_a_job() {
             .query_by(|n| n.role() == egui::accesskit::Role::ProgressIndicator)
             .map(|n| n.accesskit_node().label().unwrap_or_default())
     };
-    wait_for(&mut h, "the command shown", |h| job(h).is_some());
+    wait_for(&mut h, "the command shown", |h| job(h).is_some() && pid.exists());
     let name = job(&h).unwrap();
     assert!(name.ends_with(", under way") && name.to_lowercase().contains("slow"), "{name}");
-    // (The job's window shown, its fade in over.)
-    h.run_steps(20);
-    h.get_all_by_label("Cancel").last().unwrap().click();
-    wait_for(&mut h, "the command stopped", |h| !h.state().busy());
-    h.step();
+    // Its window's Cancel, pressed until the job ends (a press while the
+    // window fades in is not taken).
+    let started = Instant::now();
+    while h.state().busy() {
+        assert!(started.elapsed() < Duration::from_secs(60), "the command never stopped");
+        if let Some(cancel) = h.get_all_by_label("Cancel").last() {
+            cancel.click();
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        h.step();
+    }
+    settle(&mut h);
     assert!(job(&h).is_none(), "gone with it");
+}
+
+/// A first start with no game found, the log closed as a new
+/// installation's: the Status Bar's last line is the log's warning that
+/// no installation was found (as the manual's troubleshooting says), the
+/// folder "No game install".
+#[test]
+fn a_first_start_without_the_game_says_so_in_the_last_line() {
+    let mut app = app_with(Vec::new());
+    app.settings.hide_log = mg_ui::Settings::new_installation().hide_log;
+    let mut h = harness(app, 1600.0, 700.0);
+    settle(&mut h);
+    let said = h.state().log.entries.last().map(|e| e.1.clone()).unwrap_or_default();
+    assert!(said.starts_with("No Neverwinter Nights installation found"), "{said:?}");
+    assert!(last_line(&h, &said).is_some(), "shown: {said}");
+    assert!(in_bar(&h, "No game install").is_some());
 }

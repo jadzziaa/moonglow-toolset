@@ -831,6 +831,9 @@ pub struct Moonglow {
     /// Where the Bottom Dock was drawn at the last frame
     /// ([`Moonglow::bottom_dock_rect`]).
     pub(crate) bottom_rect: Option<egui::Rect>,
+    /// How many times the Status Bar has made the last line's tip (only
+    /// while it is hovered or has the focus): [`Moonglow::last_line_tips`].
+    pub(crate) last_line_tips: usize,
     /// Where the Right Dock's Preview panel's body was drawn at this
     /// frame, under the dock's tab bar (`shell::right_dock`; `None` from
     /// the start of each frame until it is drawn, and while the Palette's
@@ -1361,6 +1364,7 @@ impl Moonglow {
             right_fold: None,
             right_rect: None,
             bottom_rect: None,
+            last_line_tips: 0,
             preview_rect: None,
             right_panel: Panel::Palette,
             preview_slot: None,
@@ -2281,6 +2285,15 @@ impl Moonglow {
         self.bottom_rect
     }
 
+    /// How many times the Status Bar has made the tip of the log's last
+    /// line: only in a frame where the line is hovered or has the focus,
+    /// for the window's tests (the tip is not made, nor a long entry read,
+    /// in the others).
+    #[doc(hidden)]
+    pub fn last_line_tips(&self) -> usize {
+        self.last_line_tips
+    }
+
     /// The panel the Right Dock shows (its tab selected): `None` where the
     /// dock is folded, or holds no panel and is not drawn.
     pub fn right_dock_shows(&self) -> Option<Panel> {
@@ -2318,14 +2331,16 @@ impl Moonglow {
         }
     }
 
-    /// View › Reset Layout: the Left, Right and Bottom Docks shown, at the
-    /// sizes they have at first.
+    /// View › Reset Layout: the shell as it is designed (a new
+    /// installation's): the Left and Right Docks unfolded at their first
+    /// widths, the Bottom Dock closed, its first height kept for when it
+    /// is opened.
     pub(crate) fn reset_layout(&mut self, ctx: &egui::Context) {
         for id in ["tree", "log", shell::RIGHT_DOCK_ID] {
             ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::new(id)));
         }
         self.settings.hide_tree = false;
-        self.settings.hide_log = false;
+        self.settings.hide_log = Settings::new_installation().hide_log;
         self.settings.hide_palettes = false;
         // (Chosen anew, not left to be taken from what egui kept: drawn in
         // a small window, that is smaller than chosen.)

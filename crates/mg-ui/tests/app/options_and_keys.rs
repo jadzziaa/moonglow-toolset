@@ -496,13 +496,15 @@ fn menus_by_the_keyboard() {
     key(&mut h, egui::Key::Enter);
     assert!(h.state().settings.hide_log && !h.state().settings.hide_tree);
     assert!(!shown(&h, "Hide All Panels"), "chosen, the menus close");
-    // Up from the first row is the last: Reset Layout brings the log back.
+    // Up from the first row is the last: Reset Layout, the shell's own
+    // layout (the Left Dock unfolded, the log closed).
+    h.state_mut().settings.hide_tree = true;
     key(&mut h, egui::Key::F10);
     key(&mut h, egui::Key::ArrowRight);
     key(&mut h, egui::Key::ArrowRight);
     key(&mut h, egui::Key::ArrowUp);
     key(&mut h, egui::Key::Space);
-    assert!(!h.state().settings.hide_log);
+    assert!(!h.state().settings.hide_tree && h.state().settings.hide_log, "Reset Layout");
 
     // A submenu: Tools, up to Options and three more to Tilesets; Right
     // opens it, Left closes it, and the menu stays.
@@ -531,13 +533,15 @@ fn menus_by_the_keyboard() {
     };
     alt(&mut h, egui::Key::V);
     assert!(shown(&h, "Hide All Panels") && !shown(&h, "Save As"));
+    let closed = h.state().settings.hide_log;
     key(&mut h, egui::Key::L);
     key(&mut h, egui::Key::Enter);
-    assert!(h.state().settings.hide_log, "the row the letter went to");
+    assert_ne!(h.state().settings.hide_log, closed, "the row the letter went to");
+    h.state_mut().settings.hide_tree = true;
     alt(&mut h, egui::Key::V);
     key(&mut h, egui::Key::R);
     key(&mut h, egui::Key::Enter);
-    assert!(!h.state().settings.hide_log, "Reset Layout");
+    assert!(!h.state().settings.hide_tree, "Reset Layout");
     // Alt and another menu's letter, with one open: that one.
     alt(&mut h, egui::Key::V);
     alt(&mut h, egui::Key::H);

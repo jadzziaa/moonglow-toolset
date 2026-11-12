@@ -722,10 +722,12 @@ pub const JOB_MARK_PERIOD: f64 = 1.6;
 pub const JOB_MARK_FRAME: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// A running job in the Status Bar (`.sb-job`): its words in `text-2`, a
-/// 60 by 4 bar in an `inset` well with the part done in `accent`; where
-/// how far it is is not known, a [`JOB_MARK`] wide `accent` mark going to
-/// and fro along the bar (a frame asked for every [`JOB_MARK_FRAME`]
-/// while it is drawn, and none once it is not). A progress indicator
+/// 60 by 4 bar in an `inset` well with the part done in `accent` (none
+/// done where it is not given: the bar empty, still); made with
+/// [`StatusJob::unknown`], where how far it is is not known, a
+/// [`JOB_MARK`] wide `accent` mark going to and fro along the bar (a
+/// frame asked for every [`JOB_MARK_FRAME`] while it is drawn, and none
+/// once it is not). A progress indicator
 /// named by its words (or the name given it, [`StatusJob::name`]), the
 /// part done its value (none where it is not known). Given a
 /// [`max_width`](StatusJob::max_width), its words are cut short with an
@@ -735,15 +737,30 @@ pub const JOB_MARK_FRAME: std::time::Duration = std::time::Duration::from_millis
 pub struct StatusJob {
     text: String,
     done: Option<f32>,
+    moving: bool,
     name: Option<String>,
     tooltip: Option<String>,
     max_width: Option<f32>,
 }
 
 impl StatusJob {
-    /// A job named `text`, `done` of it done (0 to 1) where known.
+    /// A job named `text`, `done` of it done (0 to 1) where known (else
+    /// its bar empty).
     pub fn new(text: impl Into<String>, done: Option<f32>) -> Self {
-        StatusJob { text: text.into(), done, name: None, tooltip: None, max_width: None }
+        StatusJob {
+            text: text.into(),
+            done,
+            moving: false,
+            name: None,
+            tooltip: None,
+            max_width: None,
+        }
+    }
+
+    /// A job named `text` whose progress is not known: the moving mark
+    /// along its bar.
+    pub fn unknown(text: impl Into<String>) -> Self {
+        StatusJob { moving: true, ..StatusJob::new(text, None) }
     }
 
     /// Named `name` for a screen reader (and tests) in place of its words
@@ -827,6 +844,7 @@ impl egui::Widget for StatusJob {
                         Rect::from_min_size(bar.min, vec2(JOB_BAR.x * done.clamp(0.0, 1.0), 4.0));
                     p.rect_filled(part, 2, t.accent);
                 }
+                None if !self.moving => {}
                 None => {
                     let time = ui.input(|i| i.time);
                     let left = bar.left() + StatusJob::mark_offset(time, JOB_BAR.x);
@@ -847,12 +865,15 @@ impl egui::Widget for StatusJob {
 /// shows it is closed: in 11 px, `text-3` (or the color given it, a
 /// warning's or an error's), cut short with an ellipsis to the room given
 /// it ([`StatusLog::max_width`]); pressed, it opens the log (the caller's
-/// to do). A button named by its words (the whole line, however it is cut
-/// short), its tooltip the whole line where given.
+/// to do). A button named by the name given it ([`StatusLog::name`]),
+/// else by its first line whole (however it is cut short), its tooltip
+/// where given. (The caller bounds what it is given: it is laid out each
+/// frame.)
 #[derive(Clone, Debug)]
 #[must_use = "add it with ui.add"]
 pub struct StatusLog {
     text: String,
+    name: Option<String>,
     color: Option<Color32>,
     max_width: Option<f32>,
     tooltip: Option<String>,
@@ -861,7 +882,14 @@ pub struct StatusLog {
 impl StatusLog {
     /// The line `text` (its first line, where it has several).
     pub fn new(text: impl Into<String>) -> Self {
-        StatusLog { text: text.into(), color: None, max_width: None, tooltip: None }
+        StatusLog { text: text.into(), name: None, color: None, max_width: None, tooltip: None }
+    }
+
+    /// Named `name` for a screen reader (and tests) in place of its first
+    /// line ("Last log line: …": its words alone could be any control's).
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 
     /// Drawn in `color` (a warning's, an error's) in place of `text-3`.
@@ -924,7 +952,7 @@ impl egui::Widget for StatusLog {
         let size = vec2(galley.size().x, SWITCH_HEIGHT);
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         let enabled = ui.is_enabled();
-        let name = self.text.clone();
+        let name = self.name.clone().unwrap_or_else(|| self.line().to_owned());
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &name));
         if ui.is_rect_visible(rect) {
             let p = ui.painter();

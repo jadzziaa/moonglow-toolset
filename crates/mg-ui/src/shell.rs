@@ -527,13 +527,16 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
 
 /// The Status Bar (`Panel::bottom("status")`): the Log's switch at the
 /// left and, while the Bottom Dock is closed, the log's last line after it
-/// (pressed, it opens the log); at the right a running job (its name and
-/// bar), the module's name (with "(modified)", its path in the tip) and
-/// the game folder. As the window narrows they yield in that order: the
-/// last line is cut short with an ellipsis, then goes; the game folder
-/// goes; the job's name is cut short (its bar kept); then the module's
+/// ([`last_line`]; pressed, it opens the log); at the right a running job
+/// (its name and bar), the module's name (with "(modified)", its path in
+/// the tip) and the game folder. As the window narrows: the last line is
+/// cut short with an ellipsis down to its least room
+/// ([`LAST_LINE_LEAST`]); then the game folder goes (the line has its
+/// room again, and widens); then the line is cut short again and goes;
+/// then the job's name is cut short (its bar kept); last the module's
 /// name is cut short ("(modified)" kept whole), shared with the note of a
-/// look under way as before ([`share`]).
+/// look under way as before ([`share`]). (SPEC's section 12: the folder
+/// drops before what is in the middle.)
 pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(ui.ctx());
     let size = metrics::STATUS_BAR + panel_line(ui);
@@ -556,17 +559,19 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         None => ("No game install".to_string(), None),
     };
     // The log's last line, while the dock that shows the log is closed:
-    // its message (the board's, with no time), in the log's color for a
-    // warning or an error; the whole of it, its time first, in the tip.
-    let last = (!log_on).then(|| app.log.entries.len().checked_sub(1)).flatten().map(|i| {
-        let (level, text) = &app.log.entries[i];
-        let color = match level {
+    // its message's first line (the board's, with no time), in the log's
+    // color for a warning or an error; its time and its first lines in
+    // the tip, made only while the line is hovered or has the focus.
+    let log = &app.log;
+    let last = (!log_on).then(|| last_line(log)).flatten().map(|(i, line)| {
+        let color = match log.entries[i].0 {
             crate::Level::Info => None,
             crate::Level::Warning => Some(t.warn),
             crate::Level::Error => Some(t.error),
         };
-        (text.clone(), color, app.log.shown(i))
+        (i, line, color)
     });
+    let tips_made = std::cell::Cell::new(0);
     let job = app.job_shown().map(|crate::jobs::JobShown { title, steps, note }| {
         let (name, mut tip) = match steps {
             Some((done, total)) => {
@@ -577,8 +582,11 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         if !note.is_empty() {
             tip = format!("{tip}\n{note}");
         }
-        let done = steps.map(|(d, n)| d as f32 / n as f32);
-        StatusJob::new(title, done).name(name).tooltip(tip)
+        let job = match steps {
+            Some((d, n)) => StatusJob::new(title, Some(d as f32 / n as f32)),
+            None => StatusJob::unknown(title),
+        };
+        job.name(name).tooltip(tip)
     });
     let (clicked, last_clicked) = egui::Panel::bottom("status")
         .exact_size(size)
@@ -649,19 +657,25 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 |ui| ui.add(switch).clicked(),
                 // (The hints: T12's.)
                 |ui, room| {
-                    let (text, color, tip) = last?;
+                    let (i, text, color) = last?;
                     // (After a separator, as the board has it; too narrow
                     // for a word and its ellipsis, not shown.)
                     let room = room - status::SEPARATOR_WIDTH - status::GAP;
                     if room < LAST_LINE_LEAST {
                         return None;
                     }
-                    let mut line = StatusLog::new(text).max_width(room).tooltip(tip);
+                    let name = format!("Last log line: {text}");
+                    let mut line = StatusLog::new(text).name(name).max_width(room);
                     if let Some(color) = color {
                         line = line.color(color);
                     }
                     status::separator(ui);
-                    Some(ui.add(line).clicked())
+                    let mut shown = ui.add(line);
+                    if shown.hovered() || shown.has_focus() {
+                        tips_made.set(tips_made.get() + 1);
+                        shown = shown.on_hover_text(last_line_tip(log, i));
+                    }
+                    Some(shown.clicked())
                 },
                 |ui| {
                     if let Some(note) = note {
@@ -682,11 +696,87 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             (clicked, last_clicked == Some(true))
         })
         .inner;
+    app.last_line_tips += tips_made.get();
     if clicked {
         app.show_panel(Id::ViewLog, !log_on);
     } else if last_clicked {
         app.show_panel(Id::ViewLog, true);
     }
+}
+
+/// How many of the log's entries, from its end, the Status Bar looks in
+/// for its last line: the last of them whose first line is not blank (a
+/// project command's blank output lines, `"  "`, are passed over). Where
+/// all of them are blank, no line is shown; a log of thousands of blank
+/// lines is not walked each frame.
+pub(crate) const LAST_LINE_LOOK_BACK: usize = 64;
+/// The most characters of the last line the Status Bar shows and names
+/// its button by (a longer one is cut with an ellipsis): a message of
+/// megabytes is not laid out, or said, whole each frame.
+pub(crate) const LAST_LINE_CHARS: usize = 300;
+/// The bytes of an entry read for its first line.
+const LAST_LINE_BYTES: usize = 4096;
+/// The lines of an entry its tip shows (after its time), each cut to
+/// [`LAST_LINE_CHARS`]; more, and the tip says so.
+const LAST_LINE_TIP_LINES: usize = 8;
+
+/// The log's last line as the Status Bar shows it: the entry's place in
+/// the log and its first line, trimmed and cut to [`LAST_LINE_CHARS`]
+/// with an ellipsis, from the last of the last [`LAST_LINE_LOOK_BACK`]
+/// entries whose first line is not blank.
+pub(crate) fn last_line(log: &crate::Log) -> Option<(usize, String)> {
+    let n = log.entries.len();
+    let from = n.saturating_sub(LAST_LINE_LOOK_BACK);
+    (from..n).rev().find_map(|i| first_line(&log.entries[i].1).map(|l| (i, l)))
+}
+
+/// `text` up to `bytes` (at a character's boundary).
+fn head(text: &str, bytes: usize) -> &str {
+    let mut end = text.len().min(bytes);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// `line` cut to [`LAST_LINE_CHARS`] characters, with an ellipsis where it
+/// was cut (or where `more` says it goes on).
+fn cut_line(line: &str, more: bool) -> String {
+    let mut chars = line.chars();
+    let mut out: String = chars.by_ref().take(LAST_LINE_CHARS).collect();
+    if more || chars.next().is_some() {
+        out.push('…');
+    }
+    out
+}
+
+/// The first line of an entry, trimmed and cut ([`cut_line`]), read from
+/// its first [`LAST_LINE_BYTES`] alone: `None` where it is blank.
+fn first_line(text: &str) -> Option<String> {
+    let head = head(text, LAST_LINE_BYTES);
+    let (line, more) = match head.find('\n') {
+        Some(at) => (&head[..at], false),
+        None => (head, head.len() < text.len()),
+    };
+    let line = line.trim();
+    (!line.is_empty()).then(|| cut_line(line, more))
+}
+
+/// The tip of the last line, entry `i`: its time and its first
+/// [`LAST_LINE_TIP_LINES`] lines, each cut ([`cut_line`]), and "… more in
+/// the log" where it has more.
+fn last_line_tip(log: &crate::Log, i: usize) -> String {
+    let text = &log.entries[i].1;
+    let at = log.times.get(i).map_or("", String::as_str);
+    let head = head(text, LAST_LINE_BYTES * LAST_LINE_TIP_LINES);
+    let mut lines = head.lines();
+    let shown: Vec<String> =
+        lines.by_ref().take(LAST_LINE_TIP_LINES).map(|l| cut_line(l, false)).collect();
+    let mut tip = format!("{at} {}", shown.join("\n"));
+    if lines.next().is_some() || head.len() < text.len() {
+        tip.push_str("\n… more in the log");
+    }
+    tip
 }
 
 /// The least room the log's last line is shown in (a short word and its
