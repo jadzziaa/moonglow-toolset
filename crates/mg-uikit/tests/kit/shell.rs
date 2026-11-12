@@ -700,3 +700,139 @@ fn a_dock_s_fold_button_stands_on_its_inner_edge() {
     let short = shell::edge_fold_rect(10.0, egui::Rangef::new(0.0, 30.0));
     assert_eq!(short.height(), 30.0);
 }
+
+/// A dock's fold button beside its inner edge (`edge_fold_rect_beside`):
+/// from the edge toward the middle of the window, never over the dock,
+/// half way down; folded, the button that unfolds it in the same place
+/// beside the strip's edge, as high and as large, pointing the other way,
+/// named "Show the Left Dock" and said closed; each reports its click.
+/// The Right Dock's stands at the left of its edge.
+#[test]
+fn a_dock_s_fold_button_beside_its_edge_and_the_unfold_button_in_its_place() {
+    let folded = Cell::new(false);
+    let clicks = Cell::new(0);
+    let along = egui::Rangef::new(40.0, 340.0);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let edge = if folded.get() { 25.0 } else { 261.0 };
+        let rect = shell::edge_fold_rect_beside(edge, along, Side::Left);
+        let r = if folded.get() {
+            shell::edge_unfold_button(ui, rect, Side::Left, "Left Dock", "the tip")
+        } else {
+            shell::edge_fold_button(ui, rect, Side::Left, "Left Dock", "the tip")
+        };
+        if r.clicked() {
+            clicks.set(clicks.get() + 1);
+        }
+    });
+    h.run();
+    let fold = h.get_by_label("Fold the Left Dock");
+    assert_eq!(fold.accesskit_node().data().is_expanded(), Some(true));
+    let open = fold.rect();
+    assert_eq!(open.left(), 261.0, "beside the edge, not over the dock");
+    assert_eq!(open.center().y, along.center(), "half way down");
+    assert_eq!(open.size(), egui::vec2(shell::EDGE_FOLD_WIDTH, shell::EDGE_FOLD_LENGTH));
+    fold.click();
+    h.run();
+    assert_eq!(clicks.get(), 1);
+    folded.set(true);
+    h.run();
+    assert!(h.query_by_label("Fold the Left Dock").is_none());
+    let show = h.get_by_label("Show the Left Dock");
+    assert_eq!(show.accesskit_node().data().is_expanded(), Some(false));
+    let closed = show.rect();
+    assert_eq!(closed.left(), 25.0);
+    assert_eq!((closed.center().y, closed.size()), (open.center().y, open.size()), "its place");
+    show.click();
+    h.run();
+    assert_eq!(clicks.get(), 2);
+    // The Right Dock's: at the left of its edge.
+    let right = shell::edge_fold_rect_beside(1000.0, along, Side::Right);
+    assert_eq!(right.right(), 1000.0);
+    // A short dock: as long as the dock.
+    let short = shell::edge_fold_rect_beside(10.0, egui::Rangef::new(0.0, 30.0), Side::Left);
+    assert_eq!((short.top(), short.height()), (0.0, 30.0));
+}
+
+/// A strip without its chevron (its dock unfolded by the button on its
+/// edge): no "Show the Left Dock" in it, its panels' buttons from its top,
+/// each reporting its click.
+#[test]
+fn a_fold_strip_without_its_chevron_starts_with_its_panels() {
+    let clicked = RefCell::new(Vec::new());
+    let top = Cell::new(0.0);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        ui.horizontal(|ui| {
+            ui.set_height(300.0);
+            top.set(ui.max_rect().top());
+            let strip = FoldStrip::new("Left Dock", Side::Left)
+                .chevron(false)
+                .panel(Icon::Module, "Module", "Module")
+                .panel(Icon::Folder, "Resources", "Resources");
+            if let Some(click) = strip.show(ui) {
+                clicked.borrow_mut().push(click);
+            }
+        });
+    });
+    h.run();
+    let strip = h.get_by_label("Left Dock");
+    assert!(strip.query_by_label("Show the Left Dock").is_none(), "no chevron");
+    let top = top.get();
+    let module = h.get_by_label("Left Dock").get_by_label("Module").rect();
+    assert!((module.top() - top - shell::STRIP_PADDING).abs() < 1.0, "{module:?} {top}");
+    h.get_by_label("Left Dock").get_by_label("Resources").click();
+    h.run();
+    assert_eq!(*clicked.borrow(), vec![StripClick::Panel(1)]);
+}
+
+/// Left and Right on a dock tab with the keyboard's focus choose the tab
+/// before or after it, round the ends, and take the focus there; the keys
+/// are the tab's (taken, not left for what is drawn after the bar).
+#[test]
+fn the_arrow_keys_go_between_a_dock_s_tabs() {
+    let left = Cell::new(0usize);
+    let after = Cell::new(0);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let mut selected = left.get();
+        DockTabs::new("Left Dock").tab("Module").tab("Resources").tab("Outliner").show(
+            ui,
+            &mut selected,
+            |_| {},
+        );
+        left.set(selected);
+        // (What the panel under the bar would read.)
+        let keys = [egui::Key::ArrowLeft, egui::Key::ArrowRight];
+        if ui.input(|i| keys.iter().any(|k| i.key_pressed(*k))) {
+            after.set(after.get() + 1);
+        }
+    });
+    h.run();
+    let focused = |h: &Harness<'_>, name: &str| {
+        h.get_by_label("Left Dock").get_by_label(name).accesskit_node().is_focused()
+    };
+    h.get_by_label("Left Dock").get_by_label("Module").focus();
+    h.run();
+    h.key_press(egui::Key::ArrowRight);
+    h.run();
+    h.run();
+    assert_eq!(left.get(), 1);
+    assert!(focused(&h, "Resources"), "the focus goes with it");
+    h.key_press(egui::Key::ArrowRight);
+    h.run();
+    h.run();
+    assert_eq!(left.get(), 2);
+    h.key_press(egui::Key::ArrowRight);
+    h.run();
+    h.run();
+    assert_eq!(left.get(), 0, "round the end");
+    h.key_press(egui::Key::ArrowLeft);
+    h.run();
+    h.run();
+    assert_eq!(left.get(), 2, "and back round it");
+    assert!(focused(&h, "Outliner"));
+    let said = h.get_by_label("Left Dock").get_by_label("Outliner").accesskit_node().is_selected();
+    assert_eq!(said, Some(true));
+    assert_eq!(after.get(), 0, "the keys the tabs'");
+}

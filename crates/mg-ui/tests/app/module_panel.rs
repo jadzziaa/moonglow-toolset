@@ -184,9 +184,10 @@ fn the_module_panel_s_header_buttons_act_on_the_tree_with_tips() {
     let lefts: Vec<f32> = names.iter().map(|n| module_tool(&h, n).rect().left()).collect();
     assert!(lefts.windows(2).all(|w| w[0] < w[1]), "in order: {lefts:?}");
     assert!(h.get_by_label("Left Dock").query_by_label("Fold the Left Dock").is_none());
+    // (The fold button beside the dock's edge, from its outer side.)
     let fold = h.get_by_label("Fold the Left Dock").rect();
     let last = module_tool(&h, "Collapse All").rect();
-    assert!(last.right() <= fold.center().x && fold.center().x - last.right() < 6.0, "{last:?}");
+    assert!(last.right() <= fold.left() && fold.left() - last.right() < 6.0, "{last:?}");
     for (name, tip) in [
         ("Module Properties", "Open the module's properties"),
         ("New Area", "Make a new area with the Area Wizard"),
@@ -622,9 +623,10 @@ fn sideways(h: &mut Harness<'_, Moonglow>) -> f32 {
     moved
 }
 
-/// The Left Dock's right edge (where it is dragged wider or narrower).
+/// The Left Dock's right edge (where it is dragged wider or narrower):
+/// its fold button stands beside it, from the line along it.
 fn dock_edge(h: &Harness<'_, Moonglow>) -> f32 {
-    h.get_by_label("Fold the Left Dock").rect().center().x + 1.0
+    h.get_by_label("Fold the Left Dock").rect().left() + 0.5
 }
 
 /// The Left Dock widened by 300 points, then narrowed to its least width:

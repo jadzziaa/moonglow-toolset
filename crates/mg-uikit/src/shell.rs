@@ -10,10 +10,13 @@
 //! - a dock's tab bar, [`DockTabs`] (26 px, its tools at the right), and a
 //!   panel's header where it has one tab, [`PanelHeader`];
 //! - a folded dock's strip, [`FoldStrip`] (24 px of its panels' icons
-//!   under a chevron that unfolds it), and the button that folds it,
-//!   [`fold_button`], or on the dock's inner edge, [`edge_fold_button`];
-//!   a dock's tabs show their icons alone where their words and the tools
-//!   do not fit ([`DockTabs::tools_width`]);
+//!   under a chevron that unfolds it, or without the chevron where the
+//!   strip's edge has that control: [`FoldStrip::chevron`]), and the
+//!   button that folds it, [`fold_button`], or beside the dock's inner
+//!   edge, [`edge_fold_button`], with [`edge_unfold_button`] in the same
+//!   place beside the strip's ([`edge_fold_rect_beside`]); a dock's tabs
+//!   show their icons alone where their words and the tools do not fit
+//!   ([`DockTabs::tools_width`]);
 //! - the document tabs' parts, painted over egui_dock's tabs:
 //!   [`doc_tab_parts`], [`paint_doc_tab_icon`], [`paint_doc_tab_close`],
 //!   with [`crate::paint_modified_dot`];
@@ -394,7 +397,10 @@ pub enum StripClick {
 /// unfolds the dock, a line, and an icon button for each of its panels,
 /// which unfolds it on that panel. A group named by its dock; the chevron
 /// named "Show the Left Dock" and said closed (accesskit's expanded), each
-/// panel's button by its name, with its tooltip.
+/// panel's button by its name, with its tooltip. Without the chevron (and
+/// its line) where the dock is unfolded by a control on the strip's edge
+/// ([`FoldStrip::chevron`], [`edge_unfold_button`]): one control to
+/// unfold it, where the one that folds it was.
 #[derive(Clone, Debug)]
 #[must_use = "show it with .show(ui)"]
 pub struct FoldStrip {
@@ -402,12 +408,24 @@ pub struct FoldStrip {
     side: Side,
     unfold_tip: Option<String>,
     panels: Vec<(Icon, String, String)>,
+    chevron: bool,
 }
 
 impl FoldStrip {
     /// The strip of the dock named `dock` (`"Left Dock"`) at `side`.
     pub fn new(dock: impl Into<String>, side: Side) -> Self {
-        FoldStrip { dock: dock.into(), side, unfold_tip: None, panels: Vec::new() }
+        let (dock, panels) = (dock.into(), Vec::new());
+        FoldStrip { dock, side, unfold_tip: None, panels, chevron: true }
+    }
+
+    /// Whether the strip has its chevron (and the line under it) at its
+    /// top: it has, unless `shown` is false, where the strip's inner edge
+    /// has the control that unfolds the dock ([`edge_unfold_button`]),
+    /// so that the strip does not show a second. Its panels' buttons then
+    /// start at its top.
+    pub fn chevron(mut self, shown: bool) -> Self {
+        self.chevron = shown;
+        self
     }
 
     /// A panel of the dock: its icon, its name (the button's accessible
@@ -444,15 +462,18 @@ impl FoldStrip {
         ui.scope_builder(builder, |ui| {
             crate::icons::name_group(ui, &self.dock);
             ui.spacing_mut().item_spacing.y = STRIP_GAP;
-            let name = self.unfold_name();
-            let tip = self.unfold_tip.clone().unwrap_or_else(|| name.clone());
-            let chevron = IconButton::new(self.side.inward(), name).icon_only(true).expanded(false);
-            if ui.add(chevron).on_hover_text(tip).clicked() {
-                clicked = Some(StripClick::Unfold);
+            if self.chevron {
+                let name = self.unfold_name();
+                let tip = self.unfold_tip.clone().unwrap_or_else(|| name.clone());
+                let chevron =
+                    IconButton::new(self.side.inward(), name).icon_only(true).expanded(false);
+                if ui.add(chevron).on_hover_text(tip).clicked() {
+                    clicked = Some(StripClick::Unfold);
+                }
+                let (line, _) = ui.allocate_exact_size(vec2(STRIP_SEP, 7.0), Sense::hover());
+                let y = line.center().y.round() - 0.5;
+                ui.painter().hline(line.x_range(), y, Stroke::new(1.0, t.line_soft));
             }
-            let (line, _) = ui.allocate_exact_size(vec2(STRIP_SEP, 7.0), Sense::hover());
-            let y = line.center().y.round() - 0.5;
-            ui.painter().hline(line.x_range(), y, Stroke::new(1.0, t.line_soft));
             for (i, (icon, name, tip)) in self.panels.iter().enumerate() {
                 let button = IconButton::new(*icon, name.as_str()).icon_only(true);
                 if ui.add(button).on_hover_text(tip.as_str()).clicked() {
@@ -473,7 +494,12 @@ pub fn fold_button(ui: &mut Ui, side: Side, dock: &str) -> Response {
 }
 
 /// [`fold_button`] with `tip` as its tooltip in place of its name (its
-/// name and the keys that do it, say: "Fold the Left Dock (Ctrl+Alt+1)").
+/// name and the keys that do it, say: "Fold the Left Dock (Ctrl+Alt+1)"),
+/// for a fold button laid out among other buttons (a dock's tab bar or
+/// a panel header's tools). Moonglow Toolset's Left Dock folds by the
+/// button beside its edge instead ([`edge_fold_button`], whose `tip` is
+/// the same kind of words); this stays for a dock or panel that keeps
+/// the button among its tools.
 pub fn fold_button_tip(ui: &mut Ui, side: Side, dock: &str, tip: &str) -> Response {
     let name = format!("Fold the {dock}");
     let button = IconButton::new(side.outward(), name.as_str()).icon_only(true).expanded(true);
@@ -489,10 +515,30 @@ pub const EDGE_FOLD_LENGTH: f32 = 44.0;
 /// Where a dock's fold button stands on its inner edge (the line at `x`,
 /// the dock's height `along`): across the edge, half on each side of it,
 /// half way down ([`EDGE_FOLD_LENGTH`] long, or the dock's height where
-/// that is less).
+/// that is less). Half of it is then over the dock's own content (its
+/// lists' scroll bars at its edge): [`edge_fold_rect_beside`] keeps
+/// clear of it.
 pub fn edge_fold_rect(x: f32, along: egui::Rangef) -> Rect {
     let length = EDGE_FOLD_LENGTH.min(along.span().max(0.0));
     Rect::from_center_size(pos2(x, along.center()), vec2(EDGE_FOLD_WIDTH, length))
+}
+
+/// Where a dock's fold button stands beside its inner edge, a dock at
+/// `side` whose outer bound on that edge is `x` (the Left Dock's right,
+/// the line along it included), `along` its height: [`EDGE_FOLD_WIDTH`]
+/// wide from `x` toward the middle of the window, so that it is never
+/// over the dock's own content or scroll bars, half way down
+/// ([`EDGE_FOLD_LENGTH`] long, or the dock's height where that is less).
+/// Folded, the strip's edge gives the button that unfolds it the same
+/// height and size ([`edge_unfold_button`]).
+pub fn edge_fold_rect_beside(x: f32, along: egui::Rangef, side: Side) -> Rect {
+    let length = EDGE_FOLD_LENGTH.min(along.span().max(0.0));
+    let left = match side {
+        Side::Left => x,
+        Side::Right => x - EDGE_FOLD_WIDTH,
+    };
+    let top = along.center() - length / 2.0;
+    Rect::from_min_size(pos2(left, top), vec2(EDGE_FOLD_WIDTH, length))
 }
 
 /// The button that folds an open dock, on its inner edge (issue 10's one
@@ -506,12 +552,28 @@ pub fn edge_fold_rect(x: f32, along: egui::Rangef) -> Rect {
 /// takes the pointer there; the edge stays the dock's to drag above and
 /// below it.
 pub fn edge_fold_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str) -> Response {
+    edge_button(ui, rect, side, dock, tip, true)
+}
+
+/// The button that unfolds a folded dock, on its strip's inner edge, at
+/// `rect` ([`edge_fold_rect_beside`] of the strip's edge: where the
+/// button that folded it was, as high and as large): [`edge_fold_button`]
+/// pointing the other way, into the window, named "Show the Left Dock"
+/// (`dock`) and said closed, as the strip's chevron is (the strip is then
+/// drawn without one: [`FoldStrip::chevron`]).
+pub fn edge_unfold_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str) -> Response {
+    edge_button(ui, rect, side, dock, tip, false)
+}
+
+/// [`edge_fold_button`] (`open`: the dock is open, the button folds it)
+/// or [`edge_unfold_button`].
+fn edge_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str, open: bool) -> Response {
     let t = ui.tokens();
-    let name = format!("Fold the {dock}");
+    let name = if open { format!("Fold the {dock}") } else { format!("Show the {dock}") };
     let id = ui.id().with(("mg-uikit-edge-fold", dock));
     let r = ui.interact(rect, id, Sense::click());
     r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), &name));
-    crate::say_expanded(&r, true);
+    crate::say_expanded(&r, open);
     let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
     if ui.is_rect_visible(rect) {
         let lit = r.hovered() || r.has_focus() || r.is_pointer_button_down_on();
@@ -520,7 +582,8 @@ pub fn edge_fold_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &s
         p.rect(rect, 3.0, fill, Stroke::new(1.0, t.line), egui::StrokeKind::Inside);
         let side_len = metrics::ICON_SMALL;
         let icon = Rect::from_center_size(rect.center(), vec2(side_len, side_len));
-        side.outward().paint(p, icon, color);
+        let chevron = if open { side.outward() } else { side.inward() };
+        chevron.paint(p, icon, color);
     }
     r
 }
@@ -617,7 +680,10 @@ pub struct DockTabsOutput<R> {
 ///
 /// A tab list named by its dock, each tab a tab named by its words (or
 /// its own name, [`DockTab::name`]) and said selected or not, reached
-/// with Tab and chosen with Enter or Space as a button.
+/// with Tab and chosen with Enter or Space as a button; on a tab with
+/// the keyboard's focus, Left and Right choose the tab before or after
+/// it (round the ends, as a tab list's arrows go) and take the focus
+/// there.
 #[derive(Clone, Debug)]
 #[must_use = "show it with .show(ui, &mut selected, tools)"]
 pub struct DockTabs {
@@ -686,6 +752,10 @@ impl DockTabs {
         paint_bar(ui, &t, bar);
         let icons = self.icons_in(ui, bar.width());
         let mut changed = false;
+        // (The tab the arrow keys went to, given the focus once its id is
+        // known.)
+        let mut focus_to = None;
+        let mut ids = Vec::with_capacity(self.tabs.len());
         let builder = egui::UiBuilder::new()
             .max_rect(bar)
             .layout(egui::Layout::left_to_right(egui::Align::Center));
@@ -700,10 +770,38 @@ impl DockTabs {
                     let wide = if icons { tab.icon_width(ui) } else { tab.width(ui) };
                     let size = vec2(wide, bar.height());
                     let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+                    ids.push(r.id);
                     let on = *selected == i;
                     if r.clicked() && !on {
                         *selected = i;
                         changed = true;
+                    }
+                    // Left and Right on the tab with the focus: the tab
+                    // before or after it, round the ends.
+                    // (egui's own arrows move the focus to the widget that
+                    // way: the tab's, not egui's.)
+                    let n = self.tabs.len();
+                    if r.has_focus() && n > 1 {
+                        let arrows =
+                            egui::EventFilter { horizontal_arrows: true, ..Default::default() };
+                        ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
+                        let step = ui.input_mut(|input| {
+                            let none = egui::Modifiers::NONE;
+                            if input.consume_key(none, egui::Key::ArrowRight) {
+                                Some(1)
+                            } else if input.consume_key(none, egui::Key::ArrowLeft) {
+                                Some(n - 1)
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(step) = step {
+                            ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+                            let to = (i + step) % n;
+                            *selected = to;
+                            changed = true;
+                            focus_to = Some(to);
+                        }
                     }
                     let on = *selected == i;
                     let name = tab.name.clone().unwrap_or_else(|| tab.text.clone());
@@ -725,6 +823,12 @@ impl DockTabs {
                 tools_at_right_end(ui, bar, tools)
             })
             .inner;
+        // (A tab before the one that had the focus is drawn already: it
+        // is shown selected from the next frame, the focus with it.)
+        if let Some(id) = focus_to.and_then(|to| ids.get(to).copied()) {
+            ui.memory_mut(|m| m.request_focus(id));
+            ui.ctx().request_repaint();
+        }
         DockTabsOutput { response, icons, changed, inner }
     }
 }

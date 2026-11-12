@@ -653,9 +653,10 @@ fn undo_on_the_top_bar_with_a_floating_editor() {
     undo_is_the_module_s(&mut h, tree, Some(1));
 }
 
-/// The Left Dock's inner edge: where its fold button stands, across it.
+/// The Left Dock's inner edge (the middle of the 1 px line along it):
+/// its fold button stands beside it, from the line's outer side.
 fn fold_edge(h: &Harness<'_, Moonglow>) -> f32 {
-    h.get_by_label("Fold the Left Dock").rect().center().x
+    h.get_by_label("Fold the Left Dock").rect().left() - 0.5
 }
 
 /// Drags from `from` by `by`, a frame a step.
@@ -673,8 +674,9 @@ fn drag(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, by: egui::Vec2) {
 }
 
 /// The Left Dock folds to its strip by its button and by its key
-/// (Ctrl+Alt+1), and unfolds by the strip's chevron, by the strip's
-/// Module button and by the key, each time as wide as it was left.
+/// (Ctrl+Alt+1), and unfolds by the button beside the strip's edge (the
+/// strip's chevron until the review of M3 T4), by the strip's Module
+/// button and by the key, each time as wide as it was left.
 #[test]
 fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     let dir = mg_testkit::scratch_dir("ui-left-dock-fold");
@@ -697,7 +699,7 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
         assert_eq!(strip, h.state().settings.hide_tree);
         strip
     };
-    // By its button, back by the chevron.
+    // By its button, back by the one beside the strip's edge.
     h.get_by_label("Fold the Left Dock").click();
     settle(&mut h);
     assert!(folded(&h));
@@ -705,10 +707,12 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     assert!(strip.query_by_label("Module").is_some(), "the strip's Module button");
     let chevron = h.get_by_label("Show the Left Dock");
     assert_eq!(chevron.accesskit_node().data().is_expanded(), Some(false));
-    // (The window's frame round it in a test: 8 points.)
+    // (The window's frame round it in a test: 8 points; the strip 24
+    // points and its line, the button beside it.)
     let edge = h.ctx.content_rect().left() + 8.0;
     let at = chevron.rect();
-    assert!(at.left() >= edge && at.right() < edge + 26.0, "a strip at the window's edge: {at:?}");
+    let beside = at.left() - (edge + mg_uikit::shell::STRIP + 1.0);
+    assert!(beside.abs() <= 1.0, "beside a strip at the window's edge: {at:?}");
     chevron.click();
     settle(&mut h);
     assert!(!folded(&h));
@@ -922,7 +926,8 @@ fn the_status_bar_names_the_module_and_says_when_it_is_modified() {
     assert!(bar(&h, "sample").is_some() && bar(&h, "sample (modified)").is_none());
 }
 
-/// View's rows for the docks work and say their state: Module Tree
+/// View's rows for the docks work and say their state: Left Dock (the
+/// row was Module Tree until the dock held the Resources panel too)
 /// ticked while the Left Dock is unfolded, Log while the Bottom Dock is
 /// open; chosen, they fold and close them, and say so.
 #[test]
@@ -945,18 +950,18 @@ fn the_view_menu_s_rows_fold_the_docks_and_say_so() {
         settle(h);
         on == Some(egui::accesskit::Toggled::True)
     };
-    assert!(ticked(&mut h, "Module Tree") && ticked(&mut h, "Log"));
-    menu_command(&mut h, "View", "Module Tree");
+    assert!(ticked(&mut h, "Left Dock") && ticked(&mut h, "Log"));
+    menu_command(&mut h, "View", "Left Dock");
     assert!(h.state().settings.hide_tree && h.query_by_label("Show the Left Dock").is_some());
-    assert!(!ticked(&mut h, "Module Tree"));
+    assert!(!ticked(&mut h, "Left Dock"));
     menu_command(&mut h, "View", "Log");
     assert!(h.state().settings.hide_log && h.query_by_label("Bottom Dock").is_none());
     assert!(!ticked(&mut h, "Log"));
     let off = h.get_by_label("Status Bar").get_by_label("Log").accesskit_node().toggled();
     assert_eq!(off, Some(egui::accesskit::Toggled::False), "the switch says so too");
-    menu_command(&mut h, "View", "Module Tree");
+    menu_command(&mut h, "View", "Left Dock");
     menu_command(&mut h, "View", "Log");
-    assert!(ticked(&mut h, "Module Tree") && ticked(&mut h, "Log"));
+    assert!(ticked(&mut h, "Left Dock") && ticked(&mut h, "Log"));
     assert!(h.query_by_label("Fold the Left Dock").is_some());
 }
 

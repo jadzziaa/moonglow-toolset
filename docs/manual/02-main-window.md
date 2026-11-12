@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T09:14:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T10:40:19Z }
 ---
 
 # The main window
@@ -57,7 +57,7 @@ the area view's toolbar and in the palette's row of types.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Module Tree, Palettes Panel, Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
+| View | Left Dock (the Module and Resources panels), Palettes Panel, Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
@@ -200,7 +200,7 @@ changes them; the menus show the current keys.
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
 | F6, Shift+F6 | The arrow keys to the next pane (the Left Dock's panel shown, the middle, the palettes, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
-| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
+| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the palettes, the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
 
@@ -255,8 +255,11 @@ at the right, how many it holds; **Module Properties** is at the top,
 and under the groups how many other resources the module has (those no
 group lists). (The dock's other tab, **Resources**, is [the resource
 browser](#the-resource-browser); where the dock is too narrow for the
-tabs' words beside the buttons of the panel shown, the tabs show their
-icons alone, a box and a folder, with their names in their tips.) With
+tabs' words beside the Module panel's four buttons, the tabs show their
+icons alone, a box and a folder, with their names in their tips: the
+same on either tab, so a tab stays where it was when you choose the
+other. With a tab reached by the keyboard, Left and Right go to the
+other tab, as Enter and Space choose it.) With
 the Module tab chosen, the tab bar has four buttons: **Module Properties**,
 **New Area** (the Area Wizard), **Expand All** and **Collapse All**
 (below). **Filter** (the field under the tab bar) narrows every group to the
@@ -455,16 +458,20 @@ number.
 **The docks and the panes beside the middle** (the module tree and the
 resource browser in the Left Dock, the palettes on the right, the log
 in the Bottom Dock) fold
-away to give the area's view the room: **View** has each (Module Tree,
-Palettes Panel, Log), ticked while shown, and **Hide All Panels**. Each
-also has one control of its own for it. The **Left Dock** has a small
-arrow on its inner edge, by the middle, half way down (**Fold the Left
-Dock**; drag the edge above or below it to make the dock wider or
-narrower): folded, the dock leaves a thin strip at the window's left with
-an arrow at its top that brings it back (**Show the Left Dock**) on the
-panel it showed, and under it a button for each of its panels (**Module**,
-a box; **Resources**, a folder), which brings it back on that panel;
-it comes back as wide as it was. Its panels stay in it: neither can be
+away to give the area's view the room: **View** has each (Left Dock,
+whichever of its panels it shows; Palettes Panel; Log), ticked while
+shown, and **Hide All Panels**. Each also has one control of its own for
+it. The **Left Dock** has a small arrow beside its inner edge, by the
+middle, half way down (**Fold the Left Dock**), clear of the dock's
+lists and their scroll bars; drag the edge above or below it to make
+the dock wider or narrower. Tab reaches it after the dock's own
+controls. Folded, the dock leaves a thin strip at the window's left,
+with the arrow that brings it back (**Show the Left Dock**) beside the
+strip's edge, at the same height and size, pointing the other way: it
+brings the dock back on the panel it showed. At the strip's top is a
+button for each of its panels (**Module**, a box; **Resources**, a
+folder), which brings it back on that panel. It comes back as wide as
+it was. Its panels stay in it: neither can be
 dragged to another side or into the middle. The **palettes** have an arrow on the edge they face
 the middle by, halfway along it, pointing the way the pane goes; folded
 away they leave a thin strip at that edge, with the same button in the
@@ -731,11 +738,15 @@ Resources tab shown. At the top of the panel are **Type** (one type of
 resource, or all), the **Name** field and **Overridden copies**, and
 under them how many resources are listed, of how many ("12 of 113538
 resources", and the overridden copies listed). Each row has its kind's
-icon, its name, and at the right the layer it comes from; where the
-dock is too narrow for both, the name and the layer are cut short with
-an ellipsis, and resting the pointer on the row shows them whole
-("portraits.2da from hak:low, overridden by hak:top"). Widen the dock by
-dragging its edge. A file linked into `override` or `development`
+icon, its name, and at the right the layer it comes from. Where the
+dock is too narrow for both, the name comes first: the layer is cut
+short with an ellipsis to the room the name leaves it, or left out
+where only a few letters of it would fit, and a name longer than the
+row is cut in its middle, its start and its end in sight
+(`act_q2dji…stone.nss`), since names that begin alike differ at their
+ends. Resting the pointer on the row shows both whole ("portraits.2da
+from hak:low, overridden by hak:top"). Widen the dock by dragging its
+edge. A file linked into `override` or `development`
 (a symbolic link) is read as the game reads it, as a file copied there; a
 link to a folder is not followed. Double-click a resource (or press
 Enter on it) to view it read-only in a tab or window of the editor area
@@ -746,7 +757,9 @@ menu in the list; a compiled model shows as the text it compiles from,
 and **Save As Text…** saves it so). The panel's tab bar has two buttons:
 **Export N as Files…** (an arrow out of a tray) writes all the
 resources listed into a folder, once a type or part of a name narrows
-the list (its tip says how many), and **Refresh** reads the load order
+the list (its tip says how many: "Write the 627 listed resources into
+a folder as files"; with the whole load order listed it says to narrow
+the list first), and **Refresh** reads the load order
 again. Files go out as they are; with **Models as text** ticked (under
 Overridden copies, shown when models are listed), compiled models go
 out as the text they compile from. Where the folder has some of the

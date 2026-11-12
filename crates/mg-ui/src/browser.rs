@@ -201,14 +201,26 @@ pub(crate) fn header(app: &mut Moonglow) -> Header {
     Header { found, narrowed: found > 0 && found < browser.resources, game: game.is_some() }
 }
 
+/// Export's tooltip, which says how many it writes ([`tools`]):
+/// enabled, what it does with them; disabled, what to do first.
+fn export_tip(header: &Header) -> String {
+    match header.found {
+        0 => "Nothing is listed to export".into(),
+        _ if !header.narrowed => "Narrow the list to export it".into(),
+        1 => "Write the 1 listed resource into a folder as a file".into(),
+        n => format!("Write the {n} listed resources into a folder as files"),
+    }
+}
+
 /// The header's buttons, in the board's order: Export N as Files… (named
-/// with how many it writes; enabled with the list narrowed) and Refresh.
+/// with how many it writes, its tip too; enabled with the list narrowed)
+/// and Refresh.
 pub(crate) fn tools(ui: &mut Ui, header: &Header) -> Asked {
     use crate::widgets::icon_only;
     let name = format!("Export {} as Files…", header.found);
-    let tip = "Write the listed resources into a folder as loose files. Narrow the list first.";
+    let tip = export_tip(header);
     let r = ui.add_enabled(header.narrowed, icon_only(mg_uikit::Icon::Export, &name));
-    let export = r.on_hover_text(tip).on_disabled_hover_text(tip).clicked();
+    let export = r.on_hover_text(&tip).on_disabled_hover_text(&tip).clicked();
     let tip = "Read the load order again";
     let r = ui.add_enabled(header.game, icon_only(mg_uikit::Icon::Update, "Refresh"));
     let refresh = r.on_hover_text(tip).on_disabled_hover_text(tip).clicked();
@@ -260,27 +272,111 @@ fn kind_icon(t: ResType) -> mg_uikit::Icon {
 const ROW_LEFT: f32 = 4.0;
 const ROW_RIGHT: f32 = 6.0;
 const ROW_GAP: f32 = 4.0;
-/// The share of a row's words the layer is cut to where both do not fit
-/// (and the name is longer than the rest): the name is what is looked for.
+/// The share of a row's words the layer takes at most where both do not
+/// fit: the name is what is looked for, and comes first.
 const LAYER_SHARE: f32 = 0.45;
 /// A row's name's size (the board's `.res .tree-row .name.mono`).
 const NAME_SIZE: f32 = 12.0;
+/// The least of a layer's words worth showing, cut with an ellipsis
+/// ([`share`]): less than this, and the row shows its name alone (the
+/// row's tip has both).
+const LAYER_STUB: &str = "key:n…";
 
 /// The widths at most of a row's name and layer, `name` and `layer` wide
-/// as they are, in `room`: both whole where they fit; else the one
-/// narrower than its share whole and the other cut to what it leaves;
-/// else the name to its share and the layer to [`LAYER_SHARE`].
-fn share(room: f32, name: f32, layer: f32) -> (f32, f32) {
+/// as they are, in `room` (the room between them taken out): both whole
+/// where they fit. Else the name comes first: the layer takes at most
+/// what the whole name leaves, and never more than [`LAYER_SHARE`] of
+/// the room, cut with an ellipsis; where that is less than `stub` (a
+/// readable stub of a layer, [`LAYER_STUB`]) and less than the whole
+/// layer, the layer is not shown (`None`) and the name has the room.
+fn share(room: f32, name: f32, layer: f32, stub: f32) -> (f32, Option<f32>) {
     let room = room.max(0.0);
-    let layer_most = room * LAYER_SHARE;
     if name + layer <= room {
-        (name, layer)
-    } else if layer <= layer_most {
-        (room - layer, layer)
-    } else if name <= room - layer_most {
-        (name, room - name)
-    } else {
-        (room - layer_most, layer_most)
+        return (name, Some(layer));
+    }
+    let left = (room * LAYER_SHARE).min(room - name);
+    if left < layer.min(stub) {
+        return (room, None);
+    }
+    let layer = layer.min(left);
+    (room - layer, Some(layer))
+}
+
+/// `text` (a resource's name, `name.ext`) cut in its middle to `keep`
+/// characters and an ellipsis between them, its end and extension kept
+/// (`nw_ch_s…off.ncs`): resources' names differ at their ends as often
+/// as at their starts. `None` where it has no more than `keep`
+/// characters, or where `keep` leaves no room for the extension and a
+/// character before it (then it is cut at its end).
+fn middle_cut(text: &str, keep: usize) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= keep {
+        return None;
+    }
+    let ext = chars.iter().rposition(|c| *c == '.').map_or(0, |at| chars.len() - at);
+    if keep < ext + 2 {
+        return None;
+    }
+    let tail = (keep / 2).max(ext).min(keep - 1);
+    let head = keep - tail;
+    let mut cut: String = chars[..head].iter().collect();
+    cut.push('…');
+    cut.extend(&chars[chars.len() - tail..]);
+    Some(cut)
+}
+
+/// What every row of the list lays out its words with, measured once for
+/// the rows drawn ([`list_row`]): the name's monospace font, the width of
+/// one of its characters and of its ellipsis, the layer's small font, and
+/// the width of a layer's stub ([`LAYER_STUB`]).
+struct RowFonts {
+    mono: egui::FontId,
+    small: egui::FontId,
+    char_width: f32,
+    ellipsis: f32,
+    stub: f32,
+}
+
+impl RowFonts {
+    fn of(ui: &Ui) -> RowFonts {
+        let mono = egui::FontId::monospace(NAME_SIZE);
+        let small = egui::TextStyle::Small.resolve(ui.style());
+        let width =
+            |text: &str, font: &egui::FontId| cut(ui, text, font.clone(), f32::INFINITY).size().x;
+        // (Ten, for a width that is the font's advance, not a glyph's.)
+        let char_width = width("0000000000", &mono) / 10.0;
+        let ellipsis = width("0…", &mono) - width("0", &mono);
+        let stub = width(LAYER_STUB, &small);
+        RowFonts { mono, small, char_width, ellipsis, stub }
+    }
+
+    /// `name` laid out in the name's font in `width` at most: whole where
+    /// it fits (`natural`, laid out already), else cut in its middle
+    /// ([`middle_cut`]), else at its end, with an ellipsis.
+    fn name(
+        &self,
+        ui: &Ui,
+        name: &str,
+        natural: std::sync::Arc<egui::Galley>,
+        width: f32,
+    ) -> (std::sync::Arc<egui::Galley>, bool) {
+        if natural.size().x <= width {
+            return (natural, false);
+        }
+        if self.char_width > 0.0 {
+            let mut keep = ((width - self.ellipsis) / self.char_width).floor().max(0.0) as usize;
+            // (Measured as built: a font's ellipsis or kerning may make it
+            // wider than counted, then a character less.)
+            for _ in 0..3 {
+                let Some(text) = middle_cut(name, keep) else { break };
+                let galley = cut(ui, &text, self.mono.clone(), f32::INFINITY);
+                if galley.size().x <= width {
+                    return (galley, true);
+                }
+                keep = keep.saturating_sub(1);
+            }
+        }
+        (cut(ui, name, self.mono.clone(), width), true)
     }
 }
 
@@ -309,14 +405,17 @@ fn cut_in(
 /// A row of the list (the board's `.tree-row` in `.res-list`), as wide as
 /// the list: the kind's icon, the name (monospace) and the layer it comes
 /// from right-aligned (weak, small; an overridden copy set in, its name
-/// weak, its layer "hak:x, overridden by hak:y"), each cut with an
-/// ellipsis where both do not fit ([`share`]) and the whole of both in
-/// the row's tooltip then. Two parts side by side, which answer the
-/// pointer as one row: up to the layer, a selectable label named by its
-/// name, said selected while `marked` (the one the keyboard's Tab reaches);
-/// the layer, a label of its own (which file provides the resource),
-/// clicked as the row is. The row's response: both parts'.
-fn list_row(ui: &mut Ui, row: &Row, marked: bool) -> egui::Response {
+/// weak, its layer "hak:x, overridden by hak:y"). Where both do not fit,
+/// the name comes first ([`share`]): the layer is cut with an ellipsis
+/// to what the whole name leaves, or left out where less than a stub of
+/// it would be; a name longer than the row is cut in its middle, its
+/// extension kept (`nw_ch_s…off.ncs`, [`middle_cut`]). The whole of both
+/// is in the row's tooltip then. Two parts side by side, which answer
+/// the pointer as one row: up to the layer, a selectable label named by
+/// its name, said selected while `marked` (the one the keyboard's Tab
+/// reaches); the layer, a label of its own (which file provides the
+/// resource), clicked as the row is. The row's response: both parts'.
+fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Response {
     let t = mg_uikit::tokens(ui.ctx());
     let name = row.key.to_string();
     let layer = match &row.over {
@@ -329,27 +428,37 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool) -> egui::Response {
     let left = rect.left() + ROW_LEFT + if row.over.is_some() { COPY_INDENT } else { 0.0 };
     let name_x = left + mg_uikit::metrics::ICON + ROW_GAP;
     let end = rect.right() - ROW_RIGHT;
-    let room = end - name_x - 2.0 * ROW_GAP;
-    let natural = |text: &str, font| cut(ui, text, font, f32::INFINITY).size().x;
+    let gaps = 2.0 * ROW_GAP;
+    let room = end - name_x - gaps;
     // (The name in 12 px monospace, the layer small: `.name.mono`, `.src`.)
-    let mono = egui::FontId::monospace(NAME_SIZE);
-    let small = egui::TextStyle::Small.resolve(ui.style());
+    let natural_name = cut(ui, &name, fonts.mono.clone(), f32::INFINITY);
+    let natural_layer = cut(ui, &layer, fonts.small.clone(), f32::INFINITY);
     let (name_most, layer_most) =
-        share(room, natural(&name, mono.clone()), natural(&layer, small.clone()));
-    let name_galley = cut(ui, &name, mono, name_most);
-    let layer_galley = cut(ui, &layer, small, layer_most);
+        share(room, natural_name.size().x, natural_layer.size().x, fonts.stub);
+    // (Without the layer, the name has the gaps before it too.)
+    let name_most = if layer_most.is_some() { name_most } else { end - name_x };
+    let (name_galley, name_cut) = fonts.name(ui, &name, natural_name, name_most);
+    let layer_galley = layer_most.map(|most| match natural_layer.size().x <= most {
+        true => natural_layer,
+        false => cut(ui, &layer, fonts.small.clone(), most),
+    });
+    let layer_cut = layer_galley.as_ref().is_none_or(|g| g.elided);
     // (The layer's part from the gap before its words to the row's end.)
-    let layer_left = end - layer_galley.size().x;
-    let split = (layer_left - ROW_GAP).max(rect.left() + 1.0);
+    let layer_left = layer_galley.as_ref().map(|g| end - g.size().x);
+    let split = layer_left.map_or(rect.right(), |l| (l - ROW_GAP).max(rect.left() + 1.0));
     let id = ui.id().with(("browser-row", row.key, &row.layer));
     let named = ui.interact(rect.with_max_x(split), id, egui::Sense::click());
     named.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, marked, &name)
     });
     // (Clicked as the row, not a stop of its own for the keyboard's Tab.)
-    let said = ui.interact(rect.with_min_x(split), id.with("layer"), egui::Sense::CLICK);
-    said.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &layer));
-    let response = named | said;
+    let response = if layer_galley.is_some() {
+        let said = ui.interact(rect.with_min_x(split), id.with("layer"), egui::Sense::CLICK);
+        said.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &layer));
+        named | said
+    } else {
+        named
+    };
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered() || response.has_focus();
         let (fill, text, weak, icon) = if marked {
@@ -369,9 +478,11 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool) -> egui::Response {
         kind_icon(row.key.restype).paint(p, egui::Rect::from_min_size(at, side), icon);
         let y = |g: &egui::Galley| (middle - g.size().y / 2.0).round();
         p.galley(egui::pos2(name_x, y(&name_galley)), name_galley.clone(), text);
-        p.galley(egui::pos2(layer_left, y(&layer_galley)), layer_galley.clone(), weak);
+        if let (Some(galley), Some(left)) = (&layer_galley, layer_left) {
+            p.galley(egui::pos2(left, y(galley)), galley.clone(), weak);
+        }
     }
-    if name_galley.elided || layer_galley.elided {
+    if name_cut || layer_cut {
         response.on_hover_text(format!("{name} from {layer}"))
     } else {
         response
@@ -493,7 +604,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
     let pitch = mg_uikit::row_metrics(ui).1;
     let in_module = |k: &ResKey| ws.as_ref().is_some_and(|w| w.module.contains(k));
     let shown = &browser.shown;
-    let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]);
+    // (Under an id of its own: the module tree's scroll area is drawn in
+    // the same place of the Left Dock, and with egui's default id the two
+    // shared one place, each taking the other's when its tab came back.
+    // The tree keeps the default id, under which eframe keeps its place.)
+    let mut list =
+        egui::ScrollArea::vertical().id_salt("resources-list").auto_shrink([false, false]);
     if std::mem::take(&mut browser.reveal)
         && let Some(at) = browser.cursor
     {
@@ -502,6 +618,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
     }
     let cursor = browser.cursor;
     let mut clicked = None;
+    let fonts = RowFonts::of(ui);
     let out = mg_uikit::show_rows(list, ui, count, |ui, range| {
         // (The rows one under another, as wide as the list.)
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -512,7 +629,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                 let at_cursor = cursor == Some(at) && keys_are(ui.ctx(), Keys::Browser);
                 // A copy another overrides: under it, set in, its own
                 // layer's (opened as that layer has it).
-                let r = list_row(ui, row, at_cursor);
+                let r = list_row(ui, row, at_cursor, &fonts);
                 let copy = over.as_ref().map(|_| layer.clone());
                 let tab = || match (&copy, Tab::for_resource(*k)) {
                     (Some(layer), _) => Tab::ResourceCopy { key: *k, layer: layer.clone() },
@@ -1381,22 +1498,49 @@ pub(crate) fn two_da(
 mod tests {
     use super::*;
 
-    /// A row's name and layer share its room: both whole where they fit;
-    /// the shorter whole and the other cut to what it leaves; else the
-    /// layer cut to its share and the name to the rest; never more than
-    /// the room.
+    /// A row's name and layer share its room, the name first (the
+    /// owner's ruling on the review of M3 T4): both whole where they fit;
+    /// else the layer takes what the whole name leaves, at most 45% of the
+    /// room, and is left out where that is less than a stub of it (30
+    /// here), the name then given the room; never more than the room.
     #[test]
     fn a_row_s_name_and_layer_share_the_room() {
-        assert_eq!(share(200.0, 100.0, 60.0), (100.0, 60.0));
-        assert_eq!(share(200.0, 180.0, 60.0), (140.0, 60.0), "the name cut");
-        assert_eq!(share(200.0, 80.0, 250.0), (80.0, 120.0), "the layer cut");
-        assert_eq!(share(200.0, 150.0, 150.0), (110.0, 90.0), "both cut");
-        assert_eq!(share(-10.0, 50.0, 50.0), (0.0, 0.0));
+        let stub = 30.0;
+        assert_eq!(share(200.0, 100.0, 60.0, stub), (100.0, Some(60.0)));
+        assert_eq!(share(200.0, 80.0, 250.0, stub), (110.0, Some(90.0)), "the layer to 45%");
+        assert_eq!(share(200.0, 150.0, 150.0, stub), (150.0, Some(50.0)), "what the name leaves");
+        assert_eq!(share(200.0, 180.0, 60.0, stub), (200.0, None), "less than a stub: no layer");
+        assert_eq!(share(200.0, 250.0, 60.0, stub), (200.0, None), "a name past the row");
+        assert_eq!(share(200.0, 170.0, 40.0, stub), (170.0, Some(30.0)), "a stub of the layer");
+        assert_eq!(share(-10.0, 50.0, 50.0, stub), (0.0, None));
         for (room, name, layer) in [(120.0, 300.0, 40.0), (120.0, 30.0, 300.0), (90.0, 90.0, 90.0)]
         {
-            let (n, l) = share(room, name, layer);
-            assert!(n + l <= room + 0.001 && n <= name && l <= layer, "{room} {name} {layer}");
+            let (n, l) = share(room, name, layer, stub);
+            let l = l.unwrap_or(0.0);
+            assert!(n + l <= room + 0.001 && l <= layer, "{room} {name} {layer}");
+            assert!(l <= room * LAYER_SHARE + 0.001, "{room} {name} {layer}");
         }
+    }
+
+    /// A name cut in its middle keeps its start, its end and its
+    /// extension, and as many characters as asked: the names that read
+    /// alike cut at their ends (the review's `nw_ch_srch…`) read apart.
+    #[test]
+    fn a_name_is_cut_in_its_middle_with_its_extension() {
+        assert_eq!(middle_cut("nw_ch_srch_off.ncs", 14).as_deref(), Some("nw_ch_s…off.ncs"));
+        assert_eq!(middle_cut("nw_ch_srch_off.ncs", 18), None, "it fits");
+        assert_eq!(middle_cut("portraits.2da", 10).as_deref(), Some("portr…s.2da"));
+        let names = ["nw_ch_srch_hb.ncs", "nw_ch_srch_hb2.ncs", "nw_ch_srch_off.ncs"];
+        let cut: Vec<String> = names.iter().map(|n| middle_cut(n, 12).unwrap()).collect();
+        assert!(cut[0] != cut[1] && cut[1] != cut[2], "{cut:?}");
+        for c in &cut {
+            assert_eq!(c.chars().count(), 13, "{c}: twelve and the ellipsis");
+            assert!(c.ends_with(".ncs") && c.starts_with("nw_ch"), "{c}");
+        }
+        // No room for the extension and a character before it: cut at the
+        // end instead.
+        assert_eq!(middle_cut("portraits.2da", 4), None);
+        assert_eq!(middle_cut("noextension", 6).as_deref(), Some("noe…ion"));
     }
 
     /// A long text's lines are the text's, and a script's lines colored

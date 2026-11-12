@@ -595,7 +595,9 @@ impl Id {
             Id::PreviousPane => {
                 ("previous-pane", "Previous Pane", "Give the arrow keys to the pane before")
             }
-            Id::ViewTree => ("view-tree", "Module Tree", "Show the module tree, or fold it away"),
+            // (The Left Dock's, since it holds the Resources panel beside
+            // the module tree: its id, and so a key given it, as before.)
+            Id::ViewTree => ("view-tree", "Left Dock", "Show the Left Dock, or fold it away"),
             Id::ViewPalettes => {
                 ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
             }
@@ -717,10 +719,15 @@ impl Id {
             | Id::FullScreen
             | Id::NextTab
             | Id::PreviousTab => true,
-            Id::NextPane | Id::PreviousPane => open,
+            // (The Left Dock's panes too: the Resources panel without a
+            // module.)
+            Id::NextPane | Id::PreviousPane => open || crate::shell::left_shown(app).is_some(),
             Id::ViewLog | Id::ResetLayout => true,
             Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
-            Id::ViewTree | Id::HidePanels => open,
+            // (Whenever the Left Dock holds a panel: its Resources panel
+            // without a module too.)
+            Id::ViewTree => crate::shell::left_shown(app).is_some(),
+            Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
             Id::MaximizeWindow => app.front_window_tab().is_some(),

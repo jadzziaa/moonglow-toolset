@@ -806,8 +806,10 @@ pub struct Moonglow {
     pub(crate) undo_worked: Option<Tab>,
     /// The side editor whose tab the pointer was pressed on this frame.
     pub(crate) pressed_side_tab: Option<Tab>,
-    /// The Left Dock's fold button as last drawn (its edge is the
-    /// dock's, which is resized from there: `shell::left_dock`).
+    /// The Left Dock's fold button as last drawn, or folded the button
+    /// that unfolds it, in the same place beside the strip's edge (the
+    /// dock is resized from its edge, but not under the button:
+    /// `shell::left_dock`).
     pub(crate) left_fold: Option<egui::Rect>,
     /// The Left Dock's panel chosen last (its tab selected), for the run:
     /// shown where the dock holds it (`shell::left_shown`).
@@ -1855,9 +1857,6 @@ impl Moonglow {
             self.window_bars(ui);
             self.palettes_edge(ui);
         });
-        // (The Left Dock's fold button, over its edge and the editor
-        // area's beside it.)
-        shell::left_dock_fold(self, ui);
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());

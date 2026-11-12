@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T09:14:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T10:40:19Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1500,7 +1500,6 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
-
 
 - **The previews' shadows: the model viewer's alone** (the owner's
   word, 2026-11-02): the model viewer's model casts the sun's shadow on

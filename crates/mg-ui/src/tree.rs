@@ -958,6 +958,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui, fold: Option<bool>) {
     // Filter, back once it is cleared (a word that finds little made the
     // tree short, and a scroll area keeps no more than it can show).
     let unfiltered = egui::Id::new("tree-unfiltered-offset");
+    // (egui's default id, under which eframe has kept the tree's place
+    // from run to run; the Resources panel's list, drawn in the same place
+    // of the Left Dock, has one of its own: `browser::ui`.)
     let mut area = egui::ScrollArea::both().auto_shrink(false);
     if changed
         && filter.is_empty()

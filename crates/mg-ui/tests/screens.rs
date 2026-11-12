@@ -10698,6 +10698,47 @@ fn shell_resources_folded() {
     shoot(&mut h, &dir, "shell_resources_folded");
 }
 
+/// The Left Dock 220 points wide, on its Resources tab and on its Module
+/// tab, at the narrow board's size: its tabs in the same form (words or
+/// icons) and the same place whichever panel is in front.
+#[test]
+#[ignore]
+fn shell_tabs_220() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1280.0, 800.0), Some(220.0));
+    shoot(&mut h, &dir, "shell_tabs_220_resources");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_tabs_220_module");
+}
+
+/// The Left Dock's fold button at the dock's default width, beside the
+/// scroll bar of the browser's list (`shell_fold_edge_resources`) and of
+/// the module tree with every group open (`shell_fold_edge_module`), at
+/// the narrow board's size; and folded, the control that unfolds it
+/// (`shell_fold_edge_folded`).
+#[test]
+#[ignore]
+fn shell_fold_edge() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1280.0, 800.0), None);
+    shoot(&mut h, &dir, "shell_fold_edge_resources");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(5);
+    h.get_by_label("Left Dock").get_by_label("Expand All").click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_fold_edge_module");
+    h.state_mut().settings.hide_tree = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_fold_edge_folded");
+}
+
 /// The Module panel with every group of the tree open (Expand All), at the
 /// main board's size: each group's icon and count, the Areas group
 /// scrolling in its own well over the groups below it.
@@ -10770,8 +10811,7 @@ fn shell_tree_narrowed() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
-    let edge =
-        |h: &Harness<'_, Moonglow>| h.get_by_label("Fold the Left Dock").rect().center().x + 1.0;
+    let edge = |h: &Harness<'_, Moonglow>| h.get_by_label("Fold the Left Dock").rect().left() + 0.5;
     let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
         h.hover_at(from);
         h.run_steps(2);

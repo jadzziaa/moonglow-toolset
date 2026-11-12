@@ -649,9 +649,10 @@ fn resources_panel(h: &mut App<'_>, r: &mut Report, what: &str) {
     h.run_steps(3);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "{what}: shown");
     // (The panel: under the dock's tab bar, from its first tab to its
-    // edge, where its fold button stands, down to the Status Bar.)
+    // edge, where its fold button stands beside it, down to the Status
+    // Bar.)
     let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
-    let edge = h.get_by_label("Fold the Left Dock").rect().center().x;
+    let edge = h.get_by_label("Fold the Left Dock").rect().left();
     h.get_by_label("Filter Resources");
     let bottom = SCREEN.y - mg_uikit::metrics::STATUS_BAR;
     let panel =
