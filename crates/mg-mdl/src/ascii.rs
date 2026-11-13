@@ -701,8 +701,8 @@ fn geometry_node(raw: &RawNode<'_>, notes: &mut Vec<Note>) -> (Node, Option<Sour
                 ..Default::default()
             };
             m.textures[0] = resname(p("texture0").or(p("bitmap")).and_then(|v| v.first()));
-            for i in 1..4 {
-                m.textures[i] = resname(p(&format!("texture{i}")).and_then(|v| v.first()));
+            for (i, texture) in m.textures.iter_mut().enumerate().skip(1) {
+                *texture = resname(p(&format!("texture{i}")).and_then(|v| v.first()));
             }
             source = Some(build_mesh(raw, &mut m, notes));
             m.extra = match raw.ty.as_str() {

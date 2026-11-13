@@ -113,23 +113,36 @@ jobs:
         if: runner.os == 'Linux'
         # ALSA for sound playback (rodio).
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - name: DXC beside the test binaries
-        # The pinned dxcompiler.dll the Windows packages ship, where the
-        # test binaries run (target\debug\deps): Direct3D 12 compiles
-        # shaders with it there as beside moonglow.exe (mg_render::dx12).
-        # MOONGLOW_REQUIRE_DXC, below, fails the compiler check in
-        # mg-render's render tests unless Direct3D 12 took it.
-        if: runner.os == 'Windows'
-        run: packaging\windows\dxc.ps1 -Destination target\debug\deps
-      - name: Test
+      - name: Build the tests
         # Corpus, differential and engine tests skip without a game install.
         # Not the examples (developer tools; a plain `cargo test` links all
         # 22 of them; the Lint job's clippy checks them).
-        env:
-          MOONGLOW_REQUIRE_DXC: ${{ runner.os == 'Windows' && '1' || '' }}
         # --timings: when each crate and test binary was built, how long it
         # took and what waited on it (the build is most of the job).
-        run: cargo test --workspace --lib --bins --tests --timings
+        run: cargo test --workspace --lib --bins --tests --no-run --timings
+      - name: DXC beside the test binaries
+        # The pinned dxcompiler.dll the Windows packages ship, beside every
+        # test binary: Direct3D 12 compiles shaders with it there as beside
+        # moonglow.exe (mg_render::dx12). The folders are the ones Cargo
+        # names for the binaries just built: since Cargo 1.100 each binary
+        # has its own (target\debug\build\<crate>\<hash>\out), no longer
+        # all in target\debug\deps, and the DLL left in deps was beside
+        # none of them. MOONGLOW_REQUIRE_DXC, below, fails the compiler
+        # check in mg-render's render tests unless Direct3D 12 took it.
+        if: runner.os == 'Windows'
+        run: |
+          $dirs = cargo test --workspace --lib --bins --tests --no-run --message-format=json |
+            ForEach-Object { ConvertFrom-Json -InputObject $_ } |
+            Where-Object { $_.executable } |
+            ForEach-Object { Split-Path -Parent $_.executable } |
+            Sort-Object -Unique
+          if ($LASTEXITCODE -ne 0) { throw "cargo test --no-run failed" }
+          Write-Host "$(@($dirs).Count) folders of test binaries"
+          packaging\windows\dxc.ps1 -Destination $dirs
+      - name: Test
+        env:
+          MOONGLOW_REQUIRE_DXC: ${{ runner.os == 'Windows' && '1' || '' }}
+        run: cargo test --workspace --lib --bins --tests
       - name: Documentation tests
         run: cargo test --workspace --doc
       - name: Build timings
