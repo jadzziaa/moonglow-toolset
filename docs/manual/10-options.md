@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:05:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T01:20:03Z }
 ---
 
 # Options
@@ -210,7 +210,8 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   A kind of editor you have moved opens where you last put one, in either
   mode, until **View › Reset Layout** (see [The main window](02-main-window.md),
   Tabs and windows). Tile Properties and a model's view open in a window of their
-  own in both.
+  own in both. With the keyboard on the switch, Left and Right (or Home
+  and End) choose; Tab goes on past it.
 
 Under **Floating windows**, the three settings of editors' windows (a
 window is one in As Tabs too, for a kind you moved to a window):
@@ -611,7 +612,7 @@ already**: **Ask** (the default: Use Line N, Add a Line or Keep in the
 File), **Use that line**, **Add a line**, or **Keep it in the file**; the
 question's **Always do this** sets it too. A project's `moonglow.toml`
 with `[talk] typed` turns it on (or off) for everyone who opens its
-module: the switch shows the project's word, greyed, with a line saying
+module: the switch shows the project's word, grayed, with a line saying
 so, and yours is kept for other modules. See [Text typed into the talk
 table](03-modules.md#text-typed-into-the-talk-table).
 
@@ -690,7 +691,7 @@ Moonglow's own: Aurora has no such page.
   and installed when Moonglow closes, so the next start is the new
   version, without the window asking; the line under the Top Bar says
   so and offers **Restart Now**. The window's **Always install updates**
-  switches it on. It is greyed where Moonglow doesn't install updates itself
+  switches it on. It is grayed where Moonglow doesn't install updates itself
   (see [Installing an update](02-main-window.md#installing-an-update)).
 - **Include pre-releases** (off): a newer pre-release (a release
   candidate, to try before the release) is offered too. Releases are

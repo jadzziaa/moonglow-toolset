@@ -493,6 +493,14 @@ pub(crate) fn window_drawn_but(
         // back.
         let asked = app.actions.len() > pending;
         if let Some(command) = cancel_window(app, first, tab, asked) {
+            // (Escape sets changes back without a button pressed: said, and
+            // that the one step it is comes back with Undo.)
+            if escaped {
+                let name = crate::tabs::name(app, tab);
+                app.log.info(format!(
+                    "Escape canceled {name}: its changes are set back. Edit › Undo brings them back."
+                ));
+            }
             app.actions.push(Action::Apply(command));
         }
     }

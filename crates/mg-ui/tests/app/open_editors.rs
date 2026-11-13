@@ -285,9 +285,9 @@ fn a_plugin_panel_follows_the_switch() {
         h.state_mut().enable_plugin("example.module-overview", true);
         settle(&mut h);
         h.get_by_label("Plugins").click();
-        h.run();
+        until(&mut h, "the Plugins menu", |h| h.query_by_label("Panels").is_some());
         h.get_by_label("Panels").click();
-        h.run();
+        until(&mut h, "its Panels", |h| h.query_by_label("Module Overview").is_some());
         h.get_by_label("Module Overview").click();
         settle(&mut h);
         let tab =
@@ -297,7 +297,10 @@ fn a_plugin_panel_follows_the_switch() {
     }
 }
 
-// Escape on a docked tab with OK and Cancel (ruling R1).
+// Escape on a docked tab with OK and Cancel (ruling R1). The keyboard
+// decides first (the tab or window of the widget with the focus, else of
+// the last press); the pointer only where the keyboard is in nothing
+// that could take the Escape. Each body runs in both modes, a test each.
 
 fn tag(h: &mut Harness<'_, Moonglow>) -> String {
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -305,39 +308,81 @@ fn tag(h: &mut Harness<'_, Moonglow>) -> String {
     String::from_utf8_lossy(root.string("Mod_Tag").unwrap_or_default()).into_owned()
 }
 
-/// Module Properties (docked as the module opened, in both modes, and
-/// opened there again: its kind kept in the area's group) in front of its
-/// group, its tag field clicked and typed in ("SAMPLEX").
+/// A waypoint blueprint's tag, as the workspace holds it.
+fn wp_tag(h: &mut Harness<'_, Moonglow>, name: &str) -> String {
+    let key = ResKey::parse(name, ResType::UTW).unwrap();
+    let root = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().root.clone();
+    String::from_utf8_lossy(root.string("Tag").unwrap_or_default()).into_owned()
+}
+
+/// The pointer moved to `at`: one step for the move.
+fn hover(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.step();
+}
+
+/// A click at `at`: a step for the move, the press and the release each.
+fn click_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    hover(h, at);
+    press(h, at, true, egui::Modifiers::NONE);
+    h.step();
+    press(h, at, false, egui::Modifiers::NONE);
+    h.step();
+}
+
+/// The text field showing `value` on the row of a label `label`.
+fn field_at(h: &Harness<'_, Moonglow>, label: &str, value: &str) -> egui::Pos2 {
+    let rows: Vec<f32> = h.get_all_by_label(label).map(|n| n.rect().center().y).collect();
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
+    };
+    (h.query_all(egui_kittest::kittest::by().predicate(is)))
+        .map(|n| n.rect().center())
+        .find(|c| rows.iter().any(|y| (c.y - y).abs() < 8.0))
+        .unwrap_or_else(|| panic!("the {label} field showing {value}"))
+}
+
+/// Types "X" at the end of the field at `at`, clicked first; waits until
+/// the field shows it.
+fn type_x(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, value: &str) {
+    click_at(h, at);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("X".into()));
+    let typed = format!("{value}X");
+    until(h, "the field typed in", |h| h.query_all_by_value(&typed).next().is_some());
+}
+
+/// Module Properties (docked as the module opened, in both modes) brought
+/// in front of its group, opened again where it was closed, and its tag
+/// field typed in (an X at its end).
 fn edit_tag(h: &mut Harness<'_, Moonglow>) {
     if h.state().dock.find_tab(&Tab::ModuleProperties).is_none() {
         open(h, &Tab::ModuleProperties);
     }
     click_tab(h, &Tab::ModuleProperties);
     settle(h);
-    let row = h.get_all_by_label("Tag").last().unwrap().rect().center().y;
-    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("SAMPLE")
-    };
-    let at = (h.query_all(egui_kittest::kittest::by().predicate(is)))
-        .map(|n| n.rect().center())
-        .find(|c| (c.y - row).abs() < 8.0)
-        .expect("the tag's field");
-    h.hover_at(at);
-    press(h, at, true, egui::Modifiers::NONE);
-    press(h, at, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    h.key_press(egui::Key::End);
-    h.event(egui::Event::Text("X".into()));
-    h.run_steps(2);
+    let now = tag(h);
+    let at = field_at(h, "Tag", &now);
+    type_x(h, at, &now);
 }
 
-/// A point of Module Properties' body away from its fields (under its
-/// pages' list).
-fn in_module_properties(h: &Harness<'_, Moonglow>) -> egui::Pos2 {
+/// A point of `tab`'s body that nothing lies over (no window), away from
+/// its fields and its OK and Cancel where it can be: its right side, from
+/// the middle down, then up.
+fn visible_in(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Pos2 {
     let (_, leaf) = (h.state().dock.iter_leaves())
-        .find(|(_, l)| l.tabs.contains(&Tab::ModuleProperties))
-        .unwrap();
-    egui::pos2(leaf.viewport.left() + 40.0, leaf.viewport.bottom() - 80.0)
+        .find(|(_, l)| l.tabs.contains(tab))
+        .unwrap_or_else(|| panic!("{tab:?} open"));
+    let v = leaf.viewport;
+    let main = |p: egui::Pos2| h.ctx.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Middle);
+    let rows = [0.5, 0.6, 0.4, 0.7, 0.3, 0.8, 0.2];
+    rows.iter()
+        .flat_map(|y| (0..8).map(move |j| (*y, j)))
+        .map(|(y, j)| {
+            egui::pos2(v.right() - 30.0 - j as f32 * v.width() / 9.0, v.top() + y * v.height())
+        })
+        .find(|p| v.contains(*p) && main(*p))
+        .expect("a part of it in sight")
 }
 
 /// A point of the Left Dock (the module tree, below its rows).
@@ -355,222 +400,400 @@ fn open_tab(h: &Harness<'_, Moonglow>, tab: &Tab) -> bool {
     h.state().dock.find_tab(tab).is_some()
 }
 
-/// Escape cancels Module Properties docked in front of its group: with
-/// the pointer over it, and with the keyboard in it (typed in, the
-/// pointer then on the Left Dock), what was typed set back and the tab
-/// closed, as a floating Properties window's Escape does. Not with the
-/// pointer over another group, nor with the keyboard in another group.
+fn last_log(h: &Harness<'_, Moonglow>) -> String {
+    h.state().log.entries.last().map(|e| e.1.clone()).unwrap_or_default()
+}
+
+/// Escape cancels Module Properties docked in front of its group: typed
+/// in with the pointer over it, and typed in with the pointer on the Left
+/// Dock, what was typed set back and the tab closed, as a floating
+/// Properties window's Escape does. The log says so (and that Undo brings
+/// the changes back, which it does), shown in the Status Bar while the
+/// log is closed; nothing is said where nothing was changed. A waypoint's
+/// Properties opened where editors open (a tab in As Tabs, a window in As
+/// Floating Windows) is cancelled the same way. A script's text with the
+/// keyboard, in a group of its own: Escape is neither Module Properties'
+/// nor the script's (no OK and Cancel).
 #[test]
 fn escape_cancels_a_docked_tab_with_ok_and_cancel() {
-    for mode in MODES {
-        let places = [("script", "split right 500"), ("module-properties", "middle")];
-        let mut h = window(mode, "ui-open-escape", &places);
-        // The pointer over it, typed in.
-        edit_tag(&mut h);
-        assert_eq!(in_main(&h, &Tab::ModuleProperties), Some(true));
-        escape(&mut h);
-        assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: closed");
-        assert_eq!(tag(&mut h), "SAMPLE", "{mode:?}: set back");
-        // The keyboard in it, the pointer on the Left Dock.
-        edit_tag(&mut h);
-        h.hover_at(in_left_dock(&h));
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: closed by the keyboard's");
-        assert_eq!(tag(&mut h), "SAMPLE");
-        // A script in a group of its own. Typed in Module Properties, the
-        // pointer over the script: the keyboard's, Module Properties'.
-        open(&mut h, &script(1));
-        edit_tag(&mut h);
-        let other = h.state().tab_rect(&script(1)).unwrap().center() + egui::vec2(0.0, 120.0);
-        h.hover_at(other);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the field's tab's");
-        assert_eq!(tag(&mut h), "SAMPLE");
-        assert!(open_tab(&h, &script(1)), "the script stays");
-        // Typed in, then a click in the script (its text has the keyboard):
-        // not Module Properties', nor with the pointer back over it.
-        edit_tag(&mut h);
-        let is_text = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-            n.role() == egui::accesskit::Role::MultilineTextInput
-                && n.value().is_some_and(|v| v.contains("void main"))
-        };
-        let text = h.get(egui_kittest::kittest::by().predicate(is_text)).rect().center();
-        h.hover_at(text);
-        h.run_steps(1);
-        press(&h, text, true, egui::Modifiers::NONE);
-        press(&h, text, false, egui::Modifiers::NONE);
-        h.run_steps(2);
-        assert!(h.ctx.memory(|m| m.focused().is_some()), "the script's text has the keyboard");
-        let back = in_module_properties(&h);
-        h.hover_at(back);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the keyboard in another group");
-        // Nothing with the keyboard, the pointer over another group.
-        let dock = in_left_dock(&h);
-        click_away(&mut h, dock);
-        h.hover_at(other);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the pointer on another group");
-        click_tab(&mut h, &script(1));
-        settle(&mut h);
-        h.hover_at(in_left_dock(&h));
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the keyboard in another");
-        // Nor a tab without OK and Cancel: the script stays.
-        h.hover_at(other);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &script(1)), "{mode:?}: a script's tab is not closed");
-    }
+    cancels(Mode::Floating);
+}
+
+#[test]
+fn escape_cancels_a_docked_tab_with_ok_and_cancel_as_tabs() {
+    cancels(Mode::Tabs);
+}
+
+fn cancels(mode: Mode) {
+    // (Module Properties opened again in the area's group in As Floating
+    // Windows too; As Tabs places it so by itself.)
+    let places: &[(&str, &str)] = match mode {
+        Mode::Floating => &[("script", "split right 500"), ("module-properties", "middle")],
+        Mode::Tabs => &[("script", "split right 500")],
+    };
+    let mut h = window(mode, "ui-open-escape", places);
+    // The log closed, its last line in the Status Bar.
+    h.state_mut().settings.hide_log = true;
+    settle(&mut h);
+    // Typed in, the pointer over it.
+    edit_tag(&mut h);
+    assert_eq!(in_main(&h, &Tab::ModuleProperties), Some(true));
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: closed");
+    assert_eq!(tag(&mut h), "SAMPLE", "{mode:?}: set back");
+    let said = "Escape canceled Module Properties: its changes are set back. \
+                Edit › Undo brings them back.";
+    assert_eq!(last_log(&h), said);
+    let status = format!("Last log line: {said}");
+    until(&mut h, "the line in the Status Bar", |h| h.query_by_label(&status).is_some());
+    // One Undo: the changes back.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!(tag(&mut h), "SAMPLEX", "{mode:?}: Undo brings them back");
+    // Nothing changed: closed, nothing said.
+    open(&mut h, &Tab::ModuleProperties);
+    let lines = h.state().log.entries.len();
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    click_at(&mut h, over);
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: closed unchanged");
+    assert_eq!(h.state().log.entries.len(), lines, "nothing said");
+    // Typed in, the pointer on the Left Dock: the keyboard's.
+    edit_tag(&mut h);
+    let at = in_left_dock(&h);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: closed by the keyboard's");
+    assert_eq!(tag(&mut h), "SAMPLEX");
+    // A waypoint's Properties opened where editors open: Escape its
+    // Cancel, a tab or a window.
+    let wp = waypoint("wp_a");
+    open(&mut h, &wp);
+    assert_eq!(in_main(&h, &wp), Some(mode.tabs()), "{mode:?}: where editors open");
+    let at = field_at(&h, "Tag", "wp_a");
+    type_x(&mut h, at, "wp_a");
+    escape(&mut h);
+    assert!(!open_tab(&h, &wp), "{mode:?}: the waypoint's Properties canceled");
+    assert_eq!(wp_tag(&mut h, "wp_a"), "wp_a", "set back");
+    assert!(last_log(&h).ends_with("its changes are set back. Edit › Undo brings them back."));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!(wp_tag(&mut h, "wp_a"), "wp_aX", "{mode:?}: Undo brings it back");
+    // A script in a group of its own, its text clicked (it has the
+    // keyboard): neither Module Properties' with the pointer over it, nor
+    // the script's. (Module Properties opened first, in the area's group:
+    // opened after, As Tabs puts it in the script's, which has the focus.)
+    open(&mut h, &Tab::ModuleProperties);
+    open(&mut h, &script(1));
+    edit_tag(&mut h);
+    let is_text = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::MultilineTextInput
+            && n.value().is_some_and(|v| v.contains("void main"))
+    };
+    let text = h.get(egui_kittest::kittest::by().predicate(is_text)).rect().center();
+    click_at(&mut h, text);
+    assert!(h.ctx.memory(|m| m.focused().is_some()), "the script's text has the keyboard");
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the keyboard in another group");
+    assert!(open_tab(&h, &script(1)), "{mode:?}: a script's tab is not closed");
+}
+
+/// Where Escape goes when the keyboard and the pointer are in different
+/// places (Module Properties in the area's group, a waypoint's Properties
+/// in a group at its right):
+/// - the keyboard in a docked tab with OK and Cancel: that tab's, over the
+///   one under the pointer;
+/// - the keyboard moved without a press (a field focused by the keys) is
+///   where it is, not where the last press was;
+/// - the keyboard in a floating window (a script's: its text with the
+///   keys, or its tab pressed last): no docked tab under the pointer takes
+///   it, as before ruling R1;
+/// - the keyboard in nothing that takes Escape (the last press on the
+///   Left Dock, no field with the keys): the tab under the pointer.
+#[test]
+fn escape_follows_the_keyboard_then_the_pointer() {
+    follows(Mode::Floating);
+}
+
+#[test]
+fn escape_follows_the_keyboard_then_the_pointer_as_tabs() {
+    follows(Mode::Tabs);
+}
+
+fn follows(mode: Mode) {
+    let places =
+        [("module-properties", "middle"), ("waypoint", "split right 500"), ("script", "window")];
+    let mut h = window(mode, "ui-open-escape-keys", &places);
+    let wp = waypoint("wp_a");
+    open(&mut h, &wp);
+    assert_eq!(in_main(&h, &wp), Some(true));
+    assert_ne!(pane(&h, &wp), pane(&h, &Tab::ModuleProperties), "two groups");
+    // The keyboard in Module Properties, the pointer over the waypoint's.
+    edit_tag(&mut h);
+    let at = visible_in(&h, &wp);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the keyboard's tab");
+    assert!(open_tab(&h, &wp), "{mode:?}: not the hovered one");
+    // The last press in Module Properties, then the waypoint's tag field
+    // given the keys without a press: the waypoint's, the pointer over
+    // Module Properties.
+    open(&mut h, &Tab::ModuleProperties);
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    click_at(&mut h, at);
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("wp_a")
+    };
+    h.get(egui_kittest::kittest::by().predicate(is)).focus();
+    until(&mut h, "the waypoint's field with the keys", |h| {
+        h.ctx.memory(|m| m.focused().is_some())
+    });
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &wp), "{mode:?}: where the keys are");
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: not the last press's");
+    // A floating script's window with the keyboard, the pointer over a part
+    // of Module Properties in sight: neither.
+    let s = script(1);
+    open(&mut h, &s);
+    assert_eq!(in_main(&h, &s), Some(false), "a window");
+    let is_text = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::MultilineTextInput
+            && n.value().is_some_and(|v| v.contains("void main"))
+    };
+    let text = h.get(egui_kittest::kittest::by().predicate(is_text)).rect().center();
+    click_at(&mut h, text);
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the window's Escape, not the tab's");
+    assert!(open_tab(&h, &s), "{mode:?}: the script stays");
+    // The last press on the window's tab (no field with the keys): the
+    // window's still, the pointer over Module Properties.
+    let title = h.state().tab_rect(&s).unwrap().center();
+    click_at(&mut h, title);
+    assert!(h.ctx.memory(|m| m.focused().is_none()), "no field with the keys");
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the window's, its tab pressed");
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![s]));
+    settle(&mut h);
+    // The keyboard in nothing that takes it: the pointer's tab.
+    open(&mut h, &wp);
+    let at = in_left_dock(&h);
+    click_at(&mut h, at);
+    let at = visible_in(&h, &wp);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &wp), "{mode:?}: the pointer's tab");
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: and only it");
 }
 
 /// Escape gives way: to an open menu (it closes the menu, the tab stays;
-/// a second Escape is the tab's), to Quick Open, to the module tree's
+/// a second Escape, the pointer over the tab, is the tab's), to Quick Open, to the module tree's
 /// Filter (it clears what was typed), to the log holding the arrow keys
-/// (it hands them back), to a drag in progress (a button held), and to a window in front with OK and Cancel (a waypoint's
-/// Properties, floating: the window's, the docked tab's at the next).
+/// (it hands them back), to a drag in progress (a button held), and to a
+/// window in front with OK and Cancel (a waypoint's Properties, floating:
+/// the window's, the docked tab's at the next).
 #[test]
 fn escape_on_a_docked_tab_gives_way() {
-    for mode in MODES {
-        let places = [("waypoint", "window"), ("module-properties", "middle")];
-        let mut h = window(mode, "ui-open-escape-way", &places);
-        edit_tag(&mut h);
-        let over = in_module_properties(&h);
-        // An open menu.
-        h.get_by_label("View").click();
-        h.run();
-        assert!(h.query_by_label("Reset Layout").is_some(), "the menu open");
-        escape(&mut h);
-        assert!(h.query_by_label("Reset Layout").is_none(), "{mode:?}: the menu closed");
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: and only it");
-        // Quick Open.
-        h.hover_at(over);
-        h.run_steps(2);
-        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
-        settle(&mut h);
-        assert!(h.state().quick_open.is_open(), "Quick Open open");
-        escape(&mut h);
-        assert!(!h.state().quick_open.is_open());
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: Quick Open's Escape");
-        // The module tree's Filter.
-        type_into_tree_filter(&mut h, "zz");
-        h.hover_at(over);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the Filter's Escape");
-        assert!(h.query_all_by_value("zz").next().is_none(), "the Filter cleared");
-        // The log's own Escape: clicked in, it has the arrow keys, and
-        // Escape hands them back (drawn before the editor area).
-        h.state_mut().settings.hide_log = false;
-        settle(&mut h);
-        let log = h.state().bottom_dock_rect().unwrap();
-        let in_log = egui::pos2(log.center().x, log.bottom() - 20.0);
-        click_away(&mut h, in_log);
-        h.hover_at(over);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the log's Escape");
-        // (Module Properties shorter above the log now.)
-        let over = in_module_properties(&h);
-        // A drag: the button held over it.
-        h.hover_at(over);
-        press(&h, over, true, egui::Modifiers::NONE);
-        h.run_steps(2);
-        h.key_press(egui::Key::Escape);
-        h.run_steps(3);
-        press(&h, over, false, egui::Modifiers::NONE);
-        settle(&mut h);
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: during a drag");
-        // A window in front with OK and Cancel: a waypoint's Properties.
-        let wp = waypoint("wp_a");
-        open(&mut h, &wp);
-        assert_eq!(in_main(&h, &wp), Some(false), "Properties in a window");
-        h.hover_at(in_left_dock(&h));
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(!open_tab(&h, &wp), "{mode:?}: the window's Escape");
-        assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the window's alone");
-        // Then the docked tab's (the keyboard in its group).
-        escape(&mut h);
-        assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: then the tab's");
-        assert_eq!(tag(&mut h), "SAMPLE");
-    }
+    gives_way(Mode::Floating);
 }
 
-/// Docked, Options closes at Escape (its draft dropped, as its Cancel); a
-/// model's view docked (its kind kept in a group) does not: a tab without
-/// OK and Cancel.
+#[test]
+fn escape_on_a_docked_tab_gives_way_as_tabs() {
+    gives_way(Mode::Tabs);
+}
+
+fn gives_way(mode: Mode) {
+    let places = [("waypoint", "window"), ("module-properties", "middle")];
+    let mut h = window(mode, "ui-open-escape-way", &places);
+    edit_tag(&mut h);
+    // An open menu: its Escape, then the tab's.
+    h.get_by_label("View").click();
+    until(&mut h, "the menu open", |h| h.query_by_label("Reset Layout").is_some());
+    escape(&mut h);
+    assert!(h.query_by_label("Reset Layout").is_none(), "{mode:?}: the menu closed");
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: and only it");
+    // (The last press on the menu's name: the pointer's tab.)
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the second Escape the tab's");
+    assert_eq!(tag(&mut h), "SAMPLE");
+    // Quick Open.
+    edit_tag(&mut h);
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    click_at(&mut h, over);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
+    settle(&mut h);
+    assert!(h.state().quick_open.is_open(), "Quick Open open");
+    escape(&mut h);
+    assert!(!h.state().quick_open.is_open());
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: Quick Open's Escape");
+    // The module tree's Filter.
+    type_into_tree_filter(&mut h, "zz");
+    hover(&mut h, over);
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the Filter's Escape");
+    assert!(h.query_all_by_value("zz").next().is_none(), "the Filter cleared");
+    // The log's own Escape: clicked in, it has the arrow keys, and Escape
+    // hands them back (drawn before the editor area).
+    h.state_mut().settings.hide_log = false;
+    settle(&mut h);
+    let log = h.state().bottom_dock_rect().unwrap();
+    click_at(&mut h, egui::pos2(log.center().x, log.bottom() - 20.0));
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the log's Escape");
+    // A drag: the button held over it.
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    h.step();
+    h.key_press(egui::Key::Escape);
+    // (A step for the key, and one more for an Escape seen to act.)
+    h.step();
+    h.step();
+    press(&h, over, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: during a drag");
+    // A window in front with OK and Cancel: a waypoint's Properties.
+    let wp = waypoint("wp_a");
+    open(&mut h, &wp);
+    assert_eq!(in_main(&h, &wp), Some(false), "Properties in a window");
+    let at = field_at(&h, "Tag", "wp_a");
+    click_at(&mut h, at);
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &wp), "{mode:?}: the window's Escape");
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the window's alone");
+    // Then the docked tab's (the pointer over it, the keyboard in nothing).
+    let at = in_left_dock(&h);
+    click_at(&mut h, at);
+    let at = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: then the tab's");
+    // The window in front again, the keyboard in Module Properties (typed
+    // in): the tab's, not the window's.
+    open(&mut h, &Tab::ModuleProperties);
+    open(&mut h, &wp);
+    // (Its window set at the right, off Module Properties' fields.)
+    let path = h.state().dock.find_tab(&wp).unwrap();
+    let w = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
+    w.set_position(egui::pos2(950.0, 420.0)).set_size(egui::vec2(420.0, 420.0));
+    settle(&mut h);
+    edit_tag(&mut h);
+    assert_eq!(in_main(&h, &wp), Some(false), "the window over the area");
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the keyboard's tab");
+    assert!(open_tab(&h, &wp), "{mode:?}: not the window in front");
+}
+
+/// Docked, Options closes at Escape (its draft dropped, as its Cancel, the
+/// log saying so with no Undo); waiting for a key on its Keyboard page,
+/// Escape is the page's; a model's view docked (its kind kept in a group)
+/// does not close: a tab without OK and Cancel.
 #[test]
 fn escape_closes_docked_options_but_not_a_docked_model_view() {
-    for mode in MODES {
-        let places = [("options", "middle"), ("model", "middle")];
-        let mut h = window(mode, "ui-open-escape-options", &places);
-        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
-        settle(&mut h);
-        assert_eq!(in_main(&h, &Tab::Options), Some(true), "{mode:?}: docked");
-        h.state_mut().options.as_mut().unwrap().light_theme = true;
-        let (_, leaf) =
-            (h.state().dock.iter_leaves()).find(|(_, l)| l.tabs.contains(&Tab::Options)).unwrap();
-        let over = leaf.viewport.center();
-        h.hover_at(over);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(!open_tab(&h, &Tab::Options), "{mode:?}: closed");
-        assert!(!h.state().settings.light_theme, "its draft dropped");
-        // Waiting for a key on its Keyboard page: Escape is the page's.
-        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
-        settle(&mut h);
-        h.state_mut().options.as_mut().unwrap().recording = Some("manual".to_string());
-        h.hover_at(over);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &Tab::Options), "{mode:?}: the recorder's Escape");
-        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Options]));
-        settle(&mut h);
-        let model = Tab::Model(ResKey::parse("hello", ResType::NSS).unwrap());
-        open(&mut h, &model);
-        assert_eq!(in_main(&h, &model), Some(true), "{mode:?}: docked");
-        h.hover_at(over);
-        h.run_steps(2);
-        escape(&mut h);
-        assert!(open_tab(&h, &model), "{mode:?}: a docked model's view stays");
-    }
+    options_and_model(Mode::Floating);
+}
+
+#[test]
+fn escape_closes_docked_options_but_not_a_docked_model_view_as_tabs() {
+    options_and_model(Mode::Tabs);
+}
+
+fn options_and_model(mode: Mode) {
+    let places = [("options", "middle"), ("model", "middle")];
+    let mut h = window(mode, "ui-open-escape-options", &places);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    assert_eq!(in_main(&h, &Tab::Options), Some(true), "{mode:?}: docked");
+    h.state_mut().options.as_mut().unwrap().light_theme = true;
+    let over = visible_in(&h, &Tab::Options);
+    hover(&mut h, over);
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::Options), "{mode:?}: closed");
+    assert!(!h.state().settings.light_theme, "its draft dropped");
+    assert_eq!(last_log(&h), "Escape canceled Options: its changes are set back.");
+    // Waiting for a key on its Keyboard page: Escape is the page's.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    h.state_mut().options.as_mut().unwrap().recording = Some("manual".to_string());
+    hover(&mut h, over);
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::Options), "{mode:?}: the recorder's Escape");
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Options]));
+    settle(&mut h);
+    let model = Tab::Model(ResKey::parse("hello", ResType::NSS).unwrap());
+    open(&mut h, &model);
+    assert_eq!(in_main(&h, &model), Some(true), "{mode:?}: docked");
+    let at = visible_in(&h, &model);
+    hover(&mut h, at);
+    escape(&mut h);
+    assert!(open_tab(&h, &model), "{mode:?}: a docked model's view stays");
 }
 
 /// Tile Properties docked (its kind kept beside the area) with a change
-/// not applied asks before it closes at Escape, as its X does; Cancel
-/// keeps it. (The game's data and a GPU, else skipped.)
+/// not applied asks before it closes at Escape, as its X does; Don't Save
+/// closes it. (The game's data and a GPU, else skipped.)
 #[test]
 fn escape_on_docked_tile_properties_with_changes_asks() {
+    tile_properties_ask(Mode::Floating);
+}
+
+#[test]
+fn escape_on_docked_tile_properties_with_changes_asks_as_tabs() {
+    tile_properties_ask(Mode::Tabs);
+}
+
+fn tile_properties_ask(mode: Mode) {
     use glam::Vec3;
-    for mode in MODES {
-        let Some((mut h, area)) = area_harness(&mode.dir("ui-open-escape-tiles")) else { return };
-        let mut settings = mode.settings();
-        settings.window_places = vec![("tile-properties".into(), "split right 400".into())];
-        settings.hide_log = h.state().settings.hide_log;
-        h.state_mut().settings = settings;
-        crate::tiles::tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
-        settle(&mut h);
-        assert_eq!(in_main(&h, &Tab::TileProperties), Some(true), "{mode:?}: docked");
-        let p = h.state_mut().tile_props.as_mut().expect("open");
-        p.main[0] = (p.main[0] + 5) % 32;
-        settle(&mut h);
-        let (_, leaf) = (h.state().dock.iter_leaves())
-            .find(|(_, l)| l.tabs.contains(&Tab::TileProperties))
-            .unwrap();
-        let over = leaf.viewport.center();
-        h.hover_at(over);
-        h.run_steps(2);
-        escape(&mut h);
-        h.get_by_label("Save changes to Tile Properties?");
-        assert!(open_tab(&h, &Tab::TileProperties), "{mode:?}: asked, still open");
-        h.get_by_label("Don't Save").click();
-        settle(&mut h);
-        assert!(!open_tab(&h, &Tab::TileProperties));
-    }
+    let Some((mut h, area)) = area_harness(&mode.dir("ui-open-escape-tiles")) else { return };
+    put_in(h.state_mut(), mode);
+    h.state_mut().settings.window_places =
+        vec![("tile-properties".into(), "split right 400".into())];
+    crate::tiles::tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+    settle(&mut h);
+    assert_eq!(in_main(&h, &Tab::TileProperties), Some(true), "{mode:?}: docked");
+    let p = h.state_mut().tile_props.as_mut().expect("open");
+    p.main[0] = (p.main[0] + 5) % 32;
+    settle(&mut h);
+    let at = visible_in(&h, &Tab::TileProperties);
+    click_at(&mut h, at);
+    escape(&mut h);
+    h.get_by_label("Save changes to Tile Properties?");
+    assert!(open_tab(&h, &Tab::TileProperties), "{mode:?}: asked, still open");
+    h.get_by_label("Don't Save").click();
+    settle(&mut h);
+    assert!(!open_tab(&h, &Tab::TileProperties));
+}
+
+/// Options › General's Open editors is a radio group named "Open editors"
+/// (a screen reader says the label with the choices), its choices in it;
+/// the arrow keys on the chosen one choose the other.
+#[test]
+fn the_switch_is_a_named_radio_group_the_arrows_choose_in() {
+    let mut h = harness(app_with(Vec::new()), 1100.0, 800.0);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    h.state_mut().options.as_mut().unwrap().page = mg_ui::OptionsPage::General;
+    settle(&mut h);
+    let group = h.get_by_role_and_label(egui::accesskit::Role::RadioGroup, "Open editors");
+    group.get_by_label("As Tabs");
+    group.get_by_label("As Floating Windows").focus();
+    settle(&mut h);
+    h.key_press(egui::Key::ArrowLeft);
+    settle(&mut h);
+    let draft = h.state().options.as_ref().unwrap().open_editors;
+    assert_eq!(draft, mg_ui::OpenEditors::Tabs, "Left: As Tabs");
+    assert!(h.get_by_label("As Tabs").is_focused());
 }

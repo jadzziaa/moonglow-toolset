@@ -1041,3 +1041,31 @@ fn the_theme_s_chevrons_and_row_hover_are_drawn() {
         settle(&mut h);
     }
 }
+
+/// Each Options page keeps its own place in its scroll: the Area page
+/// scrolled down to its Editing section, General opens at its top (its
+/// Editors heading in sight under the page's top), and Area comes back
+/// where it was left.
+#[test]
+fn each_options_page_keeps_its_own_scroll() {
+    use mg_ui::OptionsPage as P;
+    let mut h = harness(app_with(Vec::new()), 1100.0, 700.0);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    let page = |h: &mut Harness<'_, Moonglow>, p: P| {
+        h.state_mut().options.as_mut().unwrap().page = p;
+        settle(h);
+    };
+    page(&mut h, P::Area);
+    // (The page list's first row stands at the pages' top.)
+    let top = h.get_by_label("Folders").rect().top();
+    h.get_by_label("Editing").scroll_to_me();
+    settle(&mut h);
+    let editing = h.get_by_label("Editing").rect().top();
+    page(&mut h, P::General);
+    let editors = h.get_by_label("Editors").rect();
+    assert!(editors.top() >= top - 4.0, "General at its top: {editors:?}, the list's top {top}");
+    page(&mut h, P::Area);
+    let back = h.get_by_label("Editing").rect().top();
+    assert!((back - editing).abs() < 2.0, "Area where it was left: {back} against {editing}");
+}

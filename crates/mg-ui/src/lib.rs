@@ -1089,10 +1089,19 @@ pub struct Moonglow {
     /// keyboard from a field at an Escape before anything is drawn, and
     /// does not say where that field was).
     pub(crate) last_press: Option<(egui::Pos2, Option<egui::LayerId>)>,
-    /// Whether a widget had the keyboard as the last frame ended (a field
-    /// typed in): then an Escape is the tab's the last press was in, not
-    /// the one under the pointer.
-    pub(crate) keyboard_had: bool,
+    /// The widget that had the keyboard as the last frame ended (egui
+    /// takes it from the widget at an Escape before anything is drawn).
+    focus_was: Option<egui::Id>,
+    /// Where the keyboard was at this frame's Escape: the widget that had
+    /// it (its layer and middle), else the last press; and whether a
+    /// widget had it. `None` without an Escape.
+    pub(crate) keyboard_at: Option<(Option<egui::LayerId>, egui::Pos2)>,
+    pub(crate) keyboard_focused: bool,
+    /// Where the docked tabs with OK and Cancel in front of their groups
+    /// were drawn at the last frame (their layers and rectangles), and this
+    /// frame's: the keyboard in one of them is that tab's.
+    pub(crate) cancel_rects: Vec<(egui::LayerId, egui::Rect)>,
+    pub(crate) cancel_rects_next: Vec<(egui::LayerId, egui::Rect)>,
     /// Tabs the user moved by hand of late (dragged, or by Split Editor):
     /// in As Tabs mode, the only docked moves a kind's place is kept for
     /// (`remember_window_places`).
@@ -1509,7 +1518,11 @@ impl Moonglow {
             escape_docked: None,
             escape_docked_next: None,
             last_press: None,
-            keyboard_had: false,
+            focus_was: None,
+            keyboard_at: None,
+            keyboard_focused: false,
+            cancel_rects: Vec::new(),
+            cancel_rects_next: Vec::new(),
             moved_by_hand: Vec::new(),
             tree_reveal: None,
             tree_area: None,
@@ -1707,6 +1720,22 @@ impl Moonglow {
         let pressed = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()));
         if let Some(at) = pressed.flatten() {
             self.last_press = Some((at, ui.ctx().layer_id_at(at)));
+        }
+        // Where the keyboard is, for an Escape (ruling R1): the widget that
+        // had it, else where the last press was. (Its place is read only
+        // at an Escape, when egui has taken the keyboard from it already:
+        // reading a widget's response at a frame's end changed what the
+        // next frame's widgets did.)
+        self.cancel_rects = std::mem::take(&mut self.cancel_rects_next);
+        self.keyboard_at = None;
+        self.keyboard_focused = false;
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            let widget = self.focus_was.and_then(|id| ui.ctx().read_response(id));
+            self.keyboard_focused = widget.is_some();
+            self.keyboard_at = match widget {
+                Some(r) => Some((Some(r.layer_id), r.rect.center())),
+                None => self.last_press.map(|(p, l)| (l, p)),
+            };
         }
         // (A color being picked, as the windows asked in the frame before.)
         self.var_preview = std::mem::take(&mut self.var_preview_next);
@@ -2118,7 +2147,7 @@ impl Moonglow {
         }
         self.open_tabs_frame(ui.ctx());
         widgets::dialogs_end(ui.ctx());
-        self.keyboard_had = ui.ctx().memory(|m| m.focused().is_some());
+        self.focus_was = ui.ctx().memory(|m| m.focused());
     }
 
     /// The debug log's start of a frame: once, the settings and the

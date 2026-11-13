@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:20:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T01:20:03Z }
 ---
 
 # The main window
@@ -714,14 +714,25 @@ Properties window, Options, Tile Properties) as its **Cancel** does, as in
 Aurora: what was changed in it is set back (Tile Properties with changes
 asks first, as its close button does); a model's window while the pointer
 is over it. **A docked tab with OK and Cancel** (Module Properties, which
-the module opens docked, a Properties tab, Options as a tab) is cancelled
+the module opens docked, a Properties tab, Options as a tab) is canceled
 by Escape the same way, in either mode, while it is in front of its
-group: with a field of it clicked and typed in, wherever the pointer is;
-with no field holding the keys, while the pointer is over it, or after a
-click in it with the pointer on no other group or window (on a dock, a
-bar). Escape goes first to what is open over it or has it: an
+group. **The keyboard decides first**: Escape goes where the keyboard is,
+the field that has the keys (clicked, or reached with Tab), or else where
+you last clicked, whatever the pointer is over. A window there keeps it
+(a floating script's window with the keys takes Escape for itself, and no
+docked tab under the pointer is canceled); a docked tab with OK and
+Cancel there is canceled, not the one the pointer is on. Only where the
+keyboard is in nothing that takes Escape (your last click on a dock, a
+bar, a tab without OK and Cancel, no field with the keys) does the tab
+under the pointer take it. Escape that sets changes back says so in the
+log, which the Status Bar shows while the log is closed: "Escape canceled
+Module Properties: its changes are set back. Edit › Undo brings them
+back." One **Edit › Undo** brings back what a Properties tab or window
+set back (Module and Area Properties too); what Options had not applied is
+dropped, and Tile Properties with changes asks first. Nothing is said
+where nothing was changed. Escape goes first to what is open over it or has it: an
 open menu or list, Quick Open, a dialog, a window in front with OK and
-Cancel, a search or filter field (the module tree's Filter, an
+Cancel where the keyboard is not in the tab, a search or filter field (the module tree's Filter, an
 inventory's Find), and nothing happens while a mouse button is held (a
 drag). It does not close a tab without OK and Cancel (a script, a
 conversation, a side editor, a model's view docked). In a text or number

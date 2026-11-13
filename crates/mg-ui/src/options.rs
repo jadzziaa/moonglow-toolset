@@ -17,7 +17,7 @@ use crate::settings::{
 use crate::{Action, Moonglow, Settings};
 
 /// The Options window's pages.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum OptionsPage {
     #[default]
     Folders,
@@ -743,7 +743,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(6.0)).show(
                 ui,
                 |ui| {
-                    egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| match draft.page {
+                    // (Each page its own scroll: one chosen opens where it
+                    // was left, at its top the first time, not at another
+                    // page's place.)
+                    let scroll = egui::ScrollArea::both().id_salt(("options-page", draft.page));
+                    scroll.auto_shrink(false).show(ui, |ui| match draft.page {
                         OptionsPage::Keyboard => keyboard(ui, draft),
                         OptionsPage::Folders => {
                             crate::widgets::section_heading(ui, "Game Installation");
@@ -1906,7 +1910,7 @@ fn editors(ui: &mut Ui, draft: &mut OptionsDraft) {
                 "Open editors as windows of their own over the area",
             ),
         ];
-        mg_uikit::segmented(ui, &mut draft.open_editors, &choices);
+        mg_uikit::segmented(ui, "Open editors", &mut draft.open_editors, &choices);
     });
     ui.weak(
         "Areas always open as tabs. A kind of editor you have moved opens where you last put \

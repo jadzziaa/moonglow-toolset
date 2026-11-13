@@ -125,29 +125,72 @@ fn focus_ring(painter: &egui::Painter, t: &Tokens, rect: Rect, round: bool) {
 /// Open editors). Each choice is drawn `raised` with its words in
 /// `text-2` (`raised-hover` and `text` under the pointer), the one chosen
 /// `accent-fill` with `on-fill` words; the keyboard's focus is an `accent`
-/// ring. `choices` are each a value, its words (its name to a screen
-/// reader, as a radio button, selected where chosen) and its tooltip
-/// (empty: none). A click, or Space or Enter with the keyboard on it,
-/// chooses it. The whole control's response, changed where a choice was
-/// made. Where no theme was applied, egui's selectable labels.
+/// ring. `name` names the group to a screen reader (a radio group, as the
+/// label beside it says); `choices` are each a value, its words (its name
+/// as a radio button, selected where chosen) and its tooltip (empty:
+/// none). A click chooses one; as a radio group, the group is one stop of
+/// Tab (the choice chosen), and there Left and Right (Up and Down) go to
+/// the choice before or after and choose it, Home and End to the first and
+/// the last. The whole control's response, changed where a choice was
+/// made. Where no theme was applied, drawn in egui's selection colors.
 pub fn segmented<T: PartialEq + Copy>(
     ui: &mut Ui,
+    name: &str,
     value: &mut T,
     choices: &[(T, &str, &str)],
 ) -> Response {
     let theme = theme::applied(ui.ctx());
+    let group = ui.make_persistent_id(("mg-segmented", name));
+    let ids: Vec<Id> = (0..choices.len()).map(|i| group.with(i)).collect();
     let mut changed = false;
-    let mut inner = ui.horizontal(|ui| {
-        if theme.is_some() {
-            ui.spacing_mut().item_spacing.x = 1.0;
+    // (The keys of the choice with the focus: to another, chosen. The
+    // arrows are the group's there, not egui's moves of the focus.)
+    let focused = ids.iter().position(|id| ui.memory(|m| m.has_focus(*id)));
+    if let Some(at) = focused {
+        let arrows = egui::EventFilter {
+            horizontal_arrows: true,
+            vertical_arrows: true,
+            ..Default::default()
+        };
+        ui.memory_mut(|m| m.set_focus_lock_filter(ids[at], arrows));
+    }
+    if let (Some(at), n) = (focused, choices.len()) {
+        let none = egui::Modifiers::NONE;
+        let to = ui.input_mut(|i| {
+            let mut key = |k| i.consume_key(none, k);
+            if key(egui::Key::ArrowRight) || key(egui::Key::ArrowDown) {
+                Some((at + 1) % n)
+            } else if key(egui::Key::ArrowLeft) || key(egui::Key::ArrowUp) {
+                Some((at + n - 1) % n)
+            } else if key(egui::Key::Home) {
+                Some(0)
+            } else if key(egui::Key::End) {
+                Some(n - 1)
+            } else {
+                None
+            }
+        });
+        if let Some(to) = to {
+            if choices[to].0 != *value {
+                *value = choices[to].0;
+                changed = true;
+            }
+            ui.memory_mut(|m| m.request_focus(ids[to]));
         }
+    }
+    let chosen = choices.iter().position(|c| c.0 == *value).unwrap_or(0);
+    let builder = egui::UiBuilder::new()
+        .id_salt(("mg-segmented-group", name))
+        .layout(egui::Layout::left_to_right(egui::Align::Center));
+    let mut inner = ui.scope_builder(builder, |ui| {
+        let enabled = ui.is_enabled();
+        ui.response().widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
+        ui.spacing_mut().item_spacing.x = if theme.is_some() { 1.0 } else { 2.0 };
         for (i, (choice, words, tip)) in choices.iter().enumerate() {
             let on = *value == *choice;
             let ends = (i == 0, i + 1 == choices.len());
-            let mut response = match theme {
-                Some(theme) => segment(ui, &theme.tokens(), on, words, ends),
-                None => ui.selectable_label(on, *words),
-            };
+            let t = theme.map(|t| t.tokens());
+            let mut response = segment(ui, ids[i], t.as_ref(), on, words, ends, i == chosen);
             if !tip.is_empty() {
                 response = response.on_hover_text(*tip);
             }
@@ -163,9 +206,19 @@ pub fn segmented<T: PartialEq + Copy>(
     inner.response
 }
 
-/// One choice of a [`segmented`] control; `ends` says whether it is the
-/// first and the last (their outer corners rounded).
-fn segment(ui: &mut Ui, t: &Tokens, on: bool, words: &str, ends: (bool, bool)) -> Response {
+/// One choice of a [`segmented`] control, `id` its own; `ends` says
+/// whether it is the first and the last (their outer corners rounded);
+/// `stop` whether Tab stops at it (the choice chosen alone). Without the
+/// suite's tokens, in egui's selection and widget colors.
+fn segment(
+    ui: &mut Ui,
+    id: Id,
+    t: Option<&Tokens>,
+    on: bool,
+    words: &str,
+    ends: (bool, bool),
+    stop: bool,
+) -> Response {
     let galley = egui::WidgetText::from(words).into_galley(
         ui,
         Some(egui::TextWrapMode::Extend),
@@ -174,19 +227,33 @@ fn segment(ui: &mut Ui, t: &Tokens, on: bool, words: &str, ends: (bool, bool)) -
     );
     let height = metrics::CONTROL_HEIGHT.max(ui.spacing().interact_size.y);
     let size = vec2(galley.size().x + 2.0 * metrics::CONTROL_PADDING_X, height);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let sense = if stop { Sense::click() } else { Sense::CLICK };
+    let response = ui.interact(rect, id, sense);
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, on, words));
     if !ui.is_rect_visible(rect) {
         return response;
     }
     let hovered = response.hovered() && enabled && !is_read_only(ui);
-    let (fill, text) = match (on, hovered, enabled) {
-        (true, _, true) => (t.accent_fill, t.on_fill),
-        (true, _, false) => (t.accent_fill_off, t.on_fill_off),
-        (false, true, _) => (t.raised_hover, t.text),
-        (false, false, true) => (t.raised, t.text_2),
-        (false, false, false) => (t.raised, t.text_off),
+    let (fill, text, ring) = match t {
+        Some(t) => {
+            let (fill, text) = match (on, hovered, enabled) {
+                (true, _, true) => (t.accent_fill, t.on_fill),
+                (true, _, false) => (t.accent_fill_off, t.on_fill_off),
+                (false, true, _) => (t.raised_hover, t.text),
+                (false, false, true) => (t.raised, t.text_2),
+                (false, false, false) => (t.raised, t.text_off),
+            };
+            (fill, text, t.accent)
+        }
+        None => {
+            let v = ui.visuals();
+            let w = ui.style().interact_selectable(&response, on);
+            let fill = if on { v.selection.bg_fill } else { w.weak_bg_fill };
+            let text = if on { v.selection.stroke.color } else { w.text_color() };
+            (fill, text, v.selection.stroke.color)
+        }
     };
     let r = |rounded: bool| if rounded { metrics::RADIUS } else { 0 };
     let (first, last) = ends;
@@ -196,7 +263,7 @@ fn segment(ui: &mut Ui, t: &Tokens, on: bool, words: &str, ends: (bool, bool)) -
     let at = rect.center() - galley.size() / 2.0;
     painter.galley(at, galley, text);
     if response.has_focus() {
-        let stroke = Stroke::new(1.0, t.accent);
+        let stroke = Stroke::new(1.0, ring);
         painter.rect_stroke(
             rect.expand(2.0),
             metrics::RADIUS + 2,

@@ -432,7 +432,10 @@ impl Viewer<'_> {
                     | Tab::Tile { .. }
             )
             && ui.rect_contains_pointer(ui.max_rect());
+        // (The keyboard in a docked tab with OK and Cancel, drawn before
+        // the windows: that tab's Escape, not the window's in front.)
         let front = floating
+            && self.app.escape_docked_seen.is_none()
             && ui.memory(|m| {
                 // (The last of the windows showing: closed ones keep their
                 // place in the order.)
@@ -449,33 +452,28 @@ impl Viewer<'_> {
         let recording = *tab == Tab::Options
             && self.app.options.as_ref().is_some_and(|o| o.recording.is_some());
         // A docked tab with OK and Cancel (ruling R1): Escape is its Cancel
-        // too, in front of its group: where a field had the keyboard as the
-        // last frame ended, the tab the last press of a button was in (the
-        // field's), wherever the pointer is; else the tab under the pointer
-        // (nothing in front of it there), or the last pressed while the
-        // pointer is on no other group and no window (a dock, a bar); an
-        // Escape something drawn before it took (the module tree's Filter,
-        // the log, a field of its own) is not its, nor one a window in front
-        // takes. Seen now, it is taken in the next frame where no window
-        // took this one and the key is still there once the editor area is
-        // drawn (`Moonglow::escape_docked`).
+        // too, in front of its group, where the keyboard is in it (the
+        // widget with the keyboard, else the last press: `keyboard_at`),
+        // whatever the pointer is over; or, the keyboard in nothing that
+        // takes an Escape (no widget had it, and the last press was in no
+        // window and no other tab with OK and Cancel), with the pointer
+        // over it (nothing in front of it there). An Escape something drawn
+        // before it took (the module tree's Filter, the log, a field of its
+        // own) is not its. Seen now, it is taken in the next frame where no
+        // window took this one and the key is still there once the editor
+        // area is drawn (`Moonglow::escape_docked`).
+        if !floating && tab.escape_cancels() {
+            self.app.cancel_rects_next.push((layer, ui.max_rect()));
+        }
         if escape && !floating && !recording && !tool && tab.escape_cancels() {
             let pointer = ui.rect_contains_pointer(ui.max_rect());
-            let elsewhere = ui.ctx().pointer_hover_pos().is_none_or(|p| {
-                let on_window =
-                    (ui.ctx().layer_id_at(p)).is_some_and(|l| l.order == egui::Order::Middle);
-                !on_window && !self.app.dock_rect.is_some_and(|r| r.contains(p))
+            let at = self.app.keyboard_at;
+            let in_it = at.is_some_and(|(l, p)| l == Some(layer) && ui.max_rect().contains(p));
+            let takes = at.is_some_and(|(l, p)| {
+                l.is_some_and(|l| l.order == egui::Order::Middle)
+                    || (self.app.cancel_rects.iter()).any(|(c, r)| l == Some(*c) && r.contains(p))
             });
-            let pressed_in = (self.app.last_press)
-                .is_some_and(|(p, l)| l == Some(layer) && ui.max_rect().contains(p));
-            // (A field had the keyboard: the Escape is the tab's it is in,
-            // wherever the pointer is; else the pointer's tab, or the last
-            // pressed with the pointer on no other.)
-            let seen = match self.app.keyboard_had {
-                true => pressed_in,
-                false => pointer || (pressed_in && elsewhere),
-            };
-            if seen {
+            if in_it || (!self.app.keyboard_focused && !takes && pointer) {
                 self.app.escape_docked_seen = Some(tab.clone());
             }
         }
@@ -492,6 +490,12 @@ impl Viewer<'_> {
             if *tab == Tab::TileProperties {
                 self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
             } else if model || *tab == Tab::Options {
+                // (Options with changes not applied says they are dropped.)
+                let draft = self.app.options.as_ref().filter(|_| *tab == Tab::Options);
+                if draft.is_some_and(|d| d.apply(&self.app.settings) != self.app.settings) {
+                    let name = name(self.app, tab);
+                    self.app.log.info(format!("Escape canceled {name}: its changes are set back."));
+                }
                 self.app.actions.push(crate::Action::CloseTab(tab.clone()));
             } else {
                 self.app.escape_cancel = Some(tab.clone());

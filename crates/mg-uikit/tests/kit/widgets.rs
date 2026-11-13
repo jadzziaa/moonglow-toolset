@@ -250,8 +250,8 @@ fn a_check_box_is_named_toggles_and_shows_its_state() {
 
 /// The segmented control: each choice named by its words as a radio
 /// button, the one chosen said selected and filled `accent-fill`, the
-/// others `raised`; chosen by a click and by Space with the keyboard on
-/// it, the response changed then and only then; a tooltip where given;
+/// others `raised`; chosen by a click and by an arrow from the one
+/// chosen, the response changed then and only then; a tooltip where given;
 /// egui's selectable labels where no theme was applied.
 #[test]
 fn a_segmented_control_is_named_and_chooses() {
@@ -267,7 +267,7 @@ fn a_segmented_control_is_named_and_chooses() {
         let mut h = Harness::new_ui(|ui| {
             mg_uikit::apply(ui.ctx(), theme);
             let mut v = value.get();
-            if mg_uikit::segmented(ui, &mut v, &choices).changed() {
+            if mg_uikit::segmented(ui, "Open", &mut v, &choices).changed() {
                 changes.set(changes.get() + 1);
             }
             value.set(v);
@@ -297,17 +297,19 @@ fn a_segmented_control_is_named_and_chooses() {
         // (The pointer still on it: chosen, the accent all the same.)
         assert_eq!(fill(&h, "As Windows"), Some(t.accent_fill));
         assert_eq!(fill(&h, "As Tabs"), Some(t.raised));
-        h.get_by_label("As Tabs").focus();
+        // The keyboard on the one chosen (the group's one stop): Left
+        // chooses the one before.
+        h.get_by_label("As Windows").focus();
         h.run();
-        h.key_press(egui::Key::Space);
+        h.key_press(egui::Key::ArrowLeft);
         h.run();
-        assert_eq!((value.get(), changes.get()), (Open::Tabs, 2), "Space chooses it");
+        assert_eq!((value.get(), changes.get()), (Open::Tabs, 2), "Left chooses it");
     }
     // Not themed: egui's own, which still chooses.
     let value = Cell::new(Open::Tabs);
     let mut plain = Harness::new_ui(|ui| {
         let mut v = value.get();
-        mg_uikit::segmented(ui, &mut v, &choices);
+        mg_uikit::segmented(ui, "Open", &mut v, &choices);
         value.set(v);
     });
     plain.run();
@@ -315,6 +317,72 @@ fn a_segmented_control_is_named_and_chooses() {
     plain.run();
     assert_eq!(value.get(), Open::Windows);
     assert!(rects(&plain).iter().all(|r| r.fill != Tokens::DARK.accent_fill));
+}
+
+/// The segmented control's keys, as a radio group's: the group is one
+/// stop of Tab (the choice chosen; Tab from it leaves the group), the
+/// arrows go to the choice after or before and choose it (round the
+/// ends), Home and End to the first and the last; the group is a radio
+/// group named as given, the choices in it. Themed and not.
+#[test]
+fn a_segmented_control_is_one_stop_its_arrows_choose_and_it_is_named() {
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Pick {
+        A,
+        B,
+        C,
+    }
+    let choices = [(Pick::A, "Alpha", ""), (Pick::B, "Beta", ""), (Pick::C, "Gamma", "")];
+    for theme in [Some(Theme::Dark), Some(Theme::Light), None] {
+        let value = Cell::new(Pick::B);
+        let mut after = false;
+        let mut h = Harness::new_ui(|ui| {
+            if let Some(theme) = theme {
+                mg_uikit::apply(ui.ctx(), theme);
+            }
+            let _ = ui.button("Before");
+            let mut v = value.get();
+            mg_uikit::segmented(ui, "Letters", &mut v, &choices);
+            value.set(v);
+            after = ui.button("After").has_focus();
+        });
+        h.run();
+        let group = h.get_by_role_and_label(egui::accesskit::Role::RadioGroup, "Letters");
+        for name in ["Alpha", "Beta", "Gamma"] {
+            assert_eq!(
+                group.get_by_label(name).accesskit_node().role(),
+                egui::accesskit::Role::RadioButton,
+                "{theme:?}: {name} in the group"
+            );
+        }
+        // Tab: Before, then the chosen choice alone, then After.
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert!(h.get_by_label("Before").is_focused(), "{theme:?}");
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert!(h.get_by_label("Beta").is_focused(), "{theme:?}: the chosen one");
+        let steps = [
+            (egui::Key::ArrowRight, Pick::C, "Gamma"),
+            (egui::Key::ArrowRight, Pick::A, "Alpha"),
+            (egui::Key::ArrowLeft, Pick::C, "Gamma"),
+            (egui::Key::Home, Pick::A, "Alpha"),
+            (egui::Key::End, Pick::C, "Gamma"),
+            (egui::Key::ArrowUp, Pick::B, "Beta"),
+        ];
+        for (key, want, name) in steps {
+            h.key_press(key);
+            h.run();
+            assert_eq!(value.get(), want, "{theme:?}: {key:?}");
+            assert!(h.get_by_label(name).is_focused(), "{theme:?}: {key:?} moves the focus");
+        }
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert!(h.get_by_label("After").is_focused(), "{theme:?}: one stop");
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+        h.run();
+        assert!(h.get_by_label("Beta").is_focused(), "{theme:?}: back to the chosen one");
+    }
 }
 
 /// The radio: named, said on or off, chosen by a click and with the

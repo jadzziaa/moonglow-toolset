@@ -10803,8 +10803,6 @@ fn shell_floating() {
     shoot(&mut h, &dir, "shell_floating");
 }
 
-/// The Left Dock folded to its strip (the chevron, the Module panel's
-/// icon) at the narrow board's size.
 /// A script and a creature's Properties opened in each mode of Options ›
 /// General › Open editors (M3's T10), against the Main board (As Tabs:
 /// both tabs of the area's group, the Properties in front) and the
@@ -10827,20 +10825,22 @@ fn shell_open_editors() {
         let faribeth = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
         for tab in [&script, &faribeth] {
             h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
-            h.run_steps(5);
+            frames_until(&mut h, "the tab drawn", |h| h.state().tab_rect(tab).is_some());
         }
         if mode == mg_ui::OpenEditors::Floating {
             place(&mut h, &script, (330.0, 120.0), (820.0, 520.0));
             place(&mut h, &faribeth, (760.0, 300.0), (700.0, 560.0));
+            let at = |h: &Harness<'_, Moonglow>| h.state().tab_rect(&faribeth).map(|r| r.left());
+            frames_until(&mut h, "the windows placed", |h| at(h).is_some_and(|x| x > 700.0));
         }
-        for _ in 0..20 {
-            h.step();
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
+        // (The Properties' first page laid out, its portrait among it.)
+        frames_until(&mut h, "the Properties drawn", |h| h.query_by_label("First Name").is_some());
         shoot(&mut h, &dir, name);
     }
 }
 
+/// The Left Dock folded to its strip (the chevron, the Module panel's
+/// icon) at the narrow board's size.
 #[test]
 #[ignore]
 fn shell_left_folded() {

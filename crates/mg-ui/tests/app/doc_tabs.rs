@@ -539,7 +539,10 @@ fn three_editor_groups_come_back_in_their_order() {
 }
 
 /// [`three_editor_groups_come_back_in_their_order`] where editors open as
-/// tabs (a new installation's).
+/// tabs (a new installation's). The record is read as in the other mode
+/// (its places are kept ones); what this mode adds is where an editor of a
+/// kind with no place kept opens once the groups are back: a tab of the
+/// focused group (a window of its own in the other).
 #[test]
 fn three_editor_groups_come_back_in_their_order_as_tabs() {
     three_groups(Mode::Tabs);
@@ -571,8 +574,17 @@ fn three_groups(mode: Mode) {
     assert_eq!(laid, [vec![Tab::ModuleProperties], vec![s(1)], vec![s(2)]]);
     h.state_mut().actions.push(mg_ui::Action::Close);
     settle(&mut h);
-    let h = open(&kept);
+    let mut h = open(&kept);
     assert_eq!(groups(&h), laid);
+    // An editor of a kind with no place kept: where editors open.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    settle(&mut h);
+    let main = h.state().dock.find_tab(&Tab::Factions).unwrap().surface.is_main();
+    assert_eq!(main, mode.tabs(), "{mode:?}: a tab of the focused group or a window");
+    if mode.tabs() {
+        let focused = h.state().dock.main_surface().focused_leaf().unwrap();
+        assert_eq!(h.state().dock.find_tab(&Tab::Factions).unwrap().node, focused);
+    }
 }
 
 /// GitHub issues 11 and 20's last part: a tool's group left alone (the
@@ -903,7 +915,9 @@ fn a_kind_kept_beside_the_middle_opens_in_that_group() {
 
 /// [`a_kind_kept_beside_the_middle_opens_in_that_group`] where editors
 /// open as tabs (a new installation's): a kept place goes before the
-/// focused group.
+/// focused group (the scripts in the group kept for them), and a kind with
+/// no place kept (the Faction Editor) opens where the focus is, the
+/// scripts' group (a window of its own in the other mode).
 #[test]
 fn a_kind_kept_beside_the_middle_opens_in_that_group_as_tabs() {
     kept_beside(Mode::Tabs);
@@ -918,6 +932,17 @@ fn kept_beside(mode: Mode) {
         settle(&mut h);
     }
     assert_eq!(groups(&h), [vec![Tab::ModuleProperties, start()], vec![s(1), s(2)]]);
+    // A kind with no place kept: where editors open (the focus is in the
+    // scripts' group, where the last opened).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    settle(&mut h);
+    match mode.tabs() {
+        true => assert_eq!(groups(&h)[1], [s(1), s(2), Tab::Factions], "the focused group"),
+        false => {
+            let at = h.state().dock.find_tab(&Tab::Factions).unwrap();
+            assert!(!at.surface.is_main(), "a window of its own");
+        }
+    }
 }
 
 /// A tab that asks before it closes (a 2DA with unsaved changes), closed
