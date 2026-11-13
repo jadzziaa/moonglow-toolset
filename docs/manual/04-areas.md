@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:07:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:02:34Z }
 ---
 
 # Areas
@@ -1349,7 +1349,7 @@ any other change to its tiles (a brush, a paste, a plugin).
 
 **Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
 tileset's height steps (the meters are written beside it): **-** and
-**+** lower and raise them a step, and any number of steps can be typed
+**+** (Lower Height and Raise Height) lower and raise them a step, and any number of steps can be typed
 or dragged, below 0 too. It is set on the tiles alone: no neighbor,
 corner or terrain around them changes, so a tile raised alone stands
 above the tiles around with gaps between (what the builder asked for,
