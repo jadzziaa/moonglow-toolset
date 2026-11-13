@@ -5,6 +5,9 @@
 //! hand: `cargo test -p mg-uikit --test kit -- --ignored`, write
 //! `target/test-output/uikit/`).
 
+// (It runs the packaging script with python3: where the packages are
+// made, and not on Windows's CI.)
+#[cfg(unix)]
 mod licenses;
 mod sheet;
 mod theme;

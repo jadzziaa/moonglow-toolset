@@ -19,7 +19,6 @@ fn notices(text: &str) -> Vec<(Vec<String>, String)> {
 }
 
 #[test]
-#[cfg(unix)]
 fn the_packages_notices_name_the_icons_and_the_fonts() {
     let dir = mg_testkit::scratch_dir("uikit-licenses");
     let out = dir.join("THIRD-PARTY-LICENSES.txt");
