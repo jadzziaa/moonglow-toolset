@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T23:02:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:05:33Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -369,6 +369,7 @@ Wizard.
 | View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area view's toolbar: each kind, All, None, Start, as in Aurora for every area view; View › Go to Start Location | ✅ |
 | View › Full Screen (F11) | Full Screen (F11), from the key and Quick Open | ✅ |
 | The main frame's area windows, one for each area open, side by side within it | the editor area's document tabs (each with its kind's icon, its name, a dot where it has unsaved changes and a close button) in editor groups side by side: View › Split Editor (Ctrl+\\, and the button at the right end of the focused group's tab bar) moves the tab in front to another editor group (a new one at its right where there is one); a tab dragged to a group's side makes one; the groups are kept with the module's open tabs | ✅ [split_editor_makes_a_second_group_from_the_front_tab, the_modified_dot_follows_each_tab_s_own_unsaved_changes, editor_groups_are_kept_and_come_back_from_their_places_alone] |
+| The main frame's other windows (each Properties, script and conversation in a window of its own within it; Escape as Cancel) | Options › General › Open editors: As Tabs (a tab of the focused editor group; a new installation's) or As Floating Windows (a window of its own over the area); areas always as tabs; a kind moved opens where it was put, until View › Reset Layout; Escape is the Cancel of a window, or of a docked tab, with OK and Cancel | ✅ [editors_open_as_tabs_or_as_windows_as_the_switch_says, a_kind_moved_keeps_its_place_until_reset_layout, escape_cancels_a_docked_tab_with_ok_and_cancel] |
 | View › Show Preview Window | Tools › Preview (beside Tools › Palettes: the Right Dock on its Preview tab; the folded dock's Preview button; a key set in Options › Keyboard, by the command's id of before) | ✅ [tools_preview_and_the_strip_show_the_preview] |
 | Environment (the area's Scene) › Refresh (F5) | none: the view is drawn as it changes; Tools › Reload Resources reads changed haks and folders | — (its key is settled) |
 | Environment › Display Grid, Display Shadows, Fog, Use Area Lighting | the area view's toolbar: Grid, Shadows (with three kinds), Fog, Lighting | ✅ |

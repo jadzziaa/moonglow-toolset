@@ -248,6 +248,75 @@ fn a_check_box_is_named_toggles_and_shows_its_state() {
     }
 }
 
+/// The segmented control: each choice named by its words as a radio
+/// button, the one chosen said selected and filled `accent-fill`, the
+/// others `raised`; chosen by a click and by Space with the keyboard on
+/// it, the response changed then and only then; a tooltip where given;
+/// egui's selectable labels where no theme was applied.
+#[test]
+fn a_segmented_control_is_named_and_chooses() {
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Open {
+        Tabs,
+        Windows,
+    }
+    let choices = [(Open::Tabs, "As Tabs", "As tabs"), (Open::Windows, "As Windows", "")];
+    for theme in Theme::ALL {
+        let t = theme.tokens();
+        let (value, changes) = (Cell::new(Open::Tabs), Cell::new(0));
+        let mut h = Harness::new_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), theme);
+            let mut v = value.get();
+            if mg_uikit::segmented(ui, &mut v, &choices).changed() {
+                changes.set(changes.get() + 1);
+            }
+            value.set(v);
+        });
+        h.run();
+        let node = |h: &Harness<'_>, name: &str| {
+            let n = h.get_by_label(name).accesskit_node();
+            (n.role(), n.toggled() == Some(egui::accesskit::Toggled::True))
+        };
+        use egui::accesskit::Role::RadioButton;
+        assert_eq!(node(&h, "As Tabs"), (RadioButton, true), "{theme:?}");
+        assert_eq!(node(&h, "As Windows"), (RadioButton, false));
+        let fill = |h: &Harness<'_>, name: &str| {
+            let at = h.get_by_label(name).rect();
+            rects(h).iter().find(|r| (r.rect.center() - at.center()).length() < 1.0).map(|r| r.fill)
+        };
+        assert_eq!(fill(&h, "As Tabs"), Some(t.accent_fill));
+        assert_eq!(fill(&h, "As Windows"), Some(t.raised));
+        // A click on the one chosen changes nothing.
+        h.get_by_label("As Tabs").click();
+        h.run();
+        assert_eq!((value.get(), changes.get()), (Open::Tabs, 0));
+        h.get_by_label("As Windows").click();
+        h.run();
+        assert_eq!((value.get(), changes.get()), (Open::Windows, 1), "{theme:?}");
+        assert!(node(&h, "As Windows").1);
+        // (The pointer still on it: chosen, the accent all the same.)
+        assert_eq!(fill(&h, "As Windows"), Some(t.accent_fill));
+        assert_eq!(fill(&h, "As Tabs"), Some(t.raised));
+        h.get_by_label("As Tabs").focus();
+        h.run();
+        h.key_press(egui::Key::Space);
+        h.run();
+        assert_eq!((value.get(), changes.get()), (Open::Tabs, 2), "Space chooses it");
+    }
+    // Not themed: egui's own, which still chooses.
+    let value = Cell::new(Open::Tabs);
+    let mut plain = Harness::new_ui(|ui| {
+        let mut v = value.get();
+        mg_uikit::segmented(ui, &mut v, &choices);
+        value.set(v);
+    });
+    plain.run();
+    plain.get_by_label("As Windows").click();
+    plain.run();
+    assert_eq!(value.get(), Open::Windows);
+    assert!(rects(&plain).iter().all(|r| r.fill != Tokens::DARK.accent_fill));
+}
+
 /// The radio: named, said on or off, chosen by a click and with the
 /// keyboard; on, an `on-fill` dot in an `accent-fill` ring.
 #[test]

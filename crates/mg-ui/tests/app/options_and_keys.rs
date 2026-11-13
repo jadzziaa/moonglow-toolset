@@ -706,7 +706,9 @@ fn the_graphics_backend_is_chosen_in_options() {
     h.run();
     h.get_by_label("General").click();
     h.run();
-    h.get_by_label("Takes effect the next time Moonglow starts.");
+    // (Below the Editors section: brought into sight, its list below it.)
+    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    h.run();
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let automatic =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
@@ -763,7 +765,13 @@ fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
     let both = |n: &egui_kittest::Node<'_>| {
         n.accesskit_node().value().as_deref() == Some("Icons and text")
     };
-    h.query_all(combo).find(both).expect("the editors' toolbar buttons' dropdown").click();
+    // (Below the Editors section: brought into sight, its list below it.)
+    h.query_all(combo.clone())
+        .find(both)
+        .expect("the editors' toolbar buttons' dropdown")
+        .scroll_to_me();
+    h.run();
+    h.query_all(combo).find(both).unwrap().click();
     h.run();
     h.get_by_label("Icons only").click();
     h.run();

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T23:02:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:20:07Z }
 ---
 
 # The main window
@@ -602,7 +602,9 @@ narrower than 280 so as to stay inside), and it is as large again when
 the window is; only dragging its edge changes the size it keeps.
 **View › Reset Layout** puts the window back as Moonglow first opens
 it: the Left and Right Docks unfolded at their first widths and the log
-closed (opened again, it is at its first height).
+closed (opened again, it is at its first height); and it forgets where
+each kind of editor was put, so that each opens again as Options ›
+General › Open editors says (see Tabs and windows).
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -680,29 +682,60 @@ were, and three or more as groups split off the main pane's sides, with
 every tab. **F6** gives the arrow keys to the editor area as one pane, the
 tab in front of the focused group.
 
-Areas open as tabs in the main pane. Everything else (blueprint and object
-editors, scripts, conversations, previews, Module Properties, the Faction
-and Journal Editors, a resource opened read-only, this manual) opens in a window
-of its own over the area, sized for what it shows, so the area view stays
-put. Drag a window by its tab into the main pane, or beside another, to
-dock it; drag a tab out to float it again. The palettes are not a tab:
-they are the Right Dock's panel. A dialog (a question, a picker such as Select Portrait, a
-wizard) opens in the middle of the main window and is moved by its
-title. **Escape** closes the window in front: a dialog (as its Cancel
-or close button does; a picker opened from a Properties window closes
-alone, and the window stays), then a Properties window as its **Cancel** does,
-as in Aurora: what was changed in it is set back (Tile Properties with
-changes asks first, as its close button does); a model's window while the
-pointer is over it. In a text or number field too, Escape is the
-window's Cancel at once, as in Aurora (what was typed there is set back
-with the rest); in a search field of a Properties window (an inventory's
-or a list's Find) it clears what is typed, then leaves the field, and
-the next Escape is the window's. In a dialog's search field (Open
-Script's name, a wizard's Find, Open 2DA, the Area chooser, the Command
-Palette, a long dropdown's Filter) Escape clears what is typed, and the
-next Escape closes the dialog (or the list). With something in hand in the area (a blueprint to place, a paste, a
-terrain brush) and the pointer over the area, Escape lets go of that and
-leaves the window open. Right-click a tab for **Close**, **Close
+Areas always open as tabs in the main pane. Everything else (blueprint
+and object editors, scripts, conversations, Module Properties, the Faction
+and Journal Editors, a resource opened read-only, this manual, Options, a
+plugin's panel) opens as **Options › General › Open editors** says:
+**As Tabs**, a tab of the focused editor group (the group last clicked;
+a new installation starts so), or **As Floating Windows**, a window of
+its own over the area, sized for what it shows, so the area view stays put
+(settings from before this switch keep it). Two open in a window of their
+own either way: Tile Properties, which follows the tiles chosen in an
+area view, and a model's view (a blueprint's Pop Out, the palette's
+Preview, a tile's model), opened to look at beside the editor it came
+from. **A kind you move opens where you last put one**: drag a window by
+its tab into the main pane, or beside another, to dock it; drag a tab
+out, or choose **Eject** on its menu, to float it; the next editor of
+its kind opens there too (one moved to the side of the areas' group opens
+in the group there), in either mode, until **View › Reset Layout**
+forgets every kind's place. With editors as tabs, a tab moved out to a
+window is kept as "goes to a window"; one moved among the groups is kept
+only when you moved it (dragged it, or Split Editor did), not when the
+groups around it changed. With editors as windows, a window is where one
+opens anyway, and is not kept. The palettes are not a tab: they are the
+Right Dock's panel. A dialog (a question, a picker such as Select
+Portrait, a wizard) opens in the middle of the main window and is moved
+by its title.
+
+**Escape** closes the window in front: a dialog (as its Cancel or close
+button does; a picker opened from a Properties window closes alone, and
+the window stays), then a window with **OK** and **Cancel** (a
+Properties window, Options, Tile Properties) as its **Cancel** does, as in
+Aurora: what was changed in it is set back (Tile Properties with changes
+asks first, as its close button does); a model's window while the pointer
+is over it. **A docked tab with OK and Cancel** (Module Properties, which
+the module opens docked, a Properties tab, Options as a tab) is cancelled
+by Escape the same way, in either mode, while it is in front of its
+group: with a field of it clicked and typed in, wherever the pointer is;
+with no field holding the keys, while the pointer is over it, or after a
+click in it with the pointer on no other group or window (on a dock, a
+bar). Escape goes first to what is open over it or has it: an
+open menu or list, Quick Open, a dialog, a window in front with OK and
+Cancel, a search or filter field (the module tree's Filter, an
+inventory's Find), and nothing happens while a mouse button is held (a
+drag). It does not close a tab without OK and Cancel (a script, a
+conversation, a side editor, a model's view docked). In a text or number
+field too, Escape is the window's or the tab's Cancel at once, as in
+Aurora (what was typed there is set back with the rest): to keep what you
+typed and leave the field, click elsewhere (or press Tab in a field of one line). In a search
+field of a Properties window or tab (an inventory's or a list's Find) it
+clears what is typed, then leaves the field, and the next Escape is the
+window's. In a dialog's search field (Open Script's name, a wizard's
+Find, Open 2DA, the Area chooser, the Command Palette, a long dropdown's
+Filter) Escape clears what is typed, and the next Escape closes the
+dialog (or the list). With something in hand in the area (a blueprint to
+place, a paste, a terrain brush) and the pointer over the area, Escape
+lets go of that and leaves the window open. Right-click a tab for **Close**, **Close
 Others**, **Close Tabs to the Right** and **Close All** (the tabs of its
 group or window) and **Eject** (to a window of its own), and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed

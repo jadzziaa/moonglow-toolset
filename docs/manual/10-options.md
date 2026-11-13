@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders and the NWSync upload command, area, general with the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
+description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T02:37:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:05:33Z }
 ---
 
 # Options
@@ -198,6 +198,47 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
 
 ## General
 
+### Editors
+
+- **Open editors**: **As Tabs** or **As Floating Windows**. Where an
+  editor (a script, a conversation, a blueprint's or a placed object's
+  Properties, Module Properties, the Faction and Journal Editors, this
+  manual, Options, a plugin's panel) opens when nothing of its kind has a
+  place kept: as a tab of the focused editor group, or as a window of its
+  own over the area. Areas always open as tabs. A new installation starts
+  with tabs; settings kept from before this switch keep floating windows.
+  A kind of editor you have moved opens where you last put one, in either
+  mode, until **View › Reset Layout** (see [The main window](02-main-window.md),
+  Tabs and windows). Tile Properties and a model's view open in a window of their
+  own in both.
+
+Under **Floating windows**, the three settings of editors' windows (a
+window is one in As Tabs too, for a kind you moved to a window):
+
+- **Open Properties as tabs of one window**: on by default. A
+  blueprint's or a placed object's Properties open as a tab of the window
+  Properties are open in already; off, each in a window of its own. A
+  tab dragged out is a window of its own again, to set two side by side.
+  (Scripts have the same on the Script Editor page.)
+- **Closing a window cancels its changes (as Aurora)**: off by default.
+  A window with **OK** and **Cancel** (a blueprint's or a placed
+  object's Properties, several edited together, Module and Area
+  Properties, a conversation, the journal, the factions, the raw fields
+  view, a NUI window) closed any way but OK (its tab's close button, the tab's
+  **Close**, **Close Others**, **Close Tabs to the Right** or **Close
+  All**, Ctrl+W) does what its Cancel does, as Aurora's close button
+  does: what was changed in it is set back, as one step that Undo takes
+  back, and Edit Copy's or Add to Palette's new blueprint closed so is
+  not made. A window with nothing changed just closes. Off, closing it
+  keeps the changes, as OK does. Windows closed because the module
+  closes, or because what they show was deleted, are only closed; the
+  2DA, hak, tileset, talk table and script editors ask about their
+  unsaved changes either way.
+- **Move windows by dragging anywhere in them**: off by default. A
+  window of tabs (Properties, conversations, scripts…) moves by its tab
+  bar alone, so a click that misses a control doesn't move it; on, any
+  part of it that isn't a control moves it too.
+
 ### Saving and Exporting
 
 - **Create backups of modules**: each save also keeps the module as it
@@ -301,29 +342,6 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
 
 ### Windows and Tabs
 
-- **Open Properties as tabs of one window**: on by default. A
-  blueprint's or a placed object's Properties open as a tab of the window
-  Properties are open in already; off, each in a window of its own. A
-  tab dragged out is a window of its own again, to set two side by side.
-  (Scripts have the same on the Script Editor page.)
-- **Closing a window cancels its changes (as Aurora)**: off by default.
-  A window with **OK** and **Cancel** (a blueprint's or a placed
-  object's Properties, several edited together, Module and Area
-  Properties, a conversation, the journal, the factions, the raw fields
-  view, a NUI window) closed any way but OK (its tab's close button, the tab's
-  **Close**, **Close Others**, **Close Tabs to the Right** or **Close
-  All**, Ctrl+W) does what its Cancel does, as Aurora's close button
-  does: what was changed in it is set back, as one step that Undo takes
-  back, and Edit Copy's or Add to Palette's new blueprint closed so is
-  not made. A window with nothing changed just closes. Off, closing it
-  keeps the changes, as OK does. Windows closed because the module
-  closes, or because what they show was deleted, are only closed; the
-  2DA, hak, tileset, talk table and script editors ask about their
-  unsaved changes either way.
-- **Move windows by dragging anywhere in them**: off by default. A
-  window of tabs (Properties, conversations, scripts…) moves by its tab
-  bar alone, so a click that misses a control doesn't move it; on, any
-  part of it that isn't a control moves it too.
 - **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
   through a pane's tabs in the order they were last used, for as long
   as Ctrl is held (one press: back to the tab before); off, to the next

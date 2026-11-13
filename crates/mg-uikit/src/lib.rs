@@ -41,7 +41,8 @@ mod svg;
 pub use controls::{
     Checkbox, Controls, RadioButton, code_frame, collapsing_icon, combo_icon, is_read_only,
     list_rows, menu_bar_style, menu_rows, menu_style, read_only, row_height, row_metrics,
-    row_pitch, row_style, show_rows, slider, table_rows, text_field, with_rows, with_table_rows,
+    row_pitch, row_style, segmented, show_rows, slider, table_rows, text_field, with_rows,
+    with_table_rows,
 };
 pub use fonts::install_fonts;
 pub use form::{field_label, palette_swatches, section_heading, swatch, table_heading};

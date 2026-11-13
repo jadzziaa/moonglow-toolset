@@ -867,7 +867,20 @@ fn the_middle_keeps_the_editor_area_whatever_the_left_dock_shows() {
 /// panel since M3 T5, fixed there: ruling R5.)
 #[test]
 fn a_tool_window_reopens_in_its_split_of_the_middle() {
-    let Some((mut h, area)) = area_harness("dock-splits") else { return };
+    reopens_in_its_split(Mode::Floating);
+}
+
+/// [`a_tool_window_reopens_in_its_split_of_the_middle`] where editors open
+/// as tabs (a new installation's): the manual, a tab of the area's group,
+/// dragged off below it (a move by hand, which As Tabs keeps).
+#[test]
+fn a_tool_reopens_in_its_split_of_the_middle_as_tabs() {
+    reopens_in_its_split(Mode::Tabs);
+}
+
+fn reopens_in_its_split(mode: Mode) {
+    let Some((mut h, area)) = area_harness(&mode.dir("dock-splits")) else { return };
+    put_in(h.state_mut(), mode);
     let middle = |h: &Harness<'_, Moonglow>| {
         let dock = &h.state().dock;
         dock.iter_leaves()
@@ -885,6 +898,9 @@ fn a_tool_window_reopens_in_its_split_of_the_middle() {
     // browser was this tool until it was the Left Dock's panel.)
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
     h.run_steps(3);
+    assert_eq!(pane(&h, &Tab::Manual).0, mode.tabs(), "where editors open");
+    // (Moved by hand: noted as a drag notes it.)
+    h.state_mut().moved_by_hand(&Tab::Manual);
     {
         let (node, _) = middle(&h);
         let dock = &mut h.state_mut().dock;
@@ -915,9 +931,21 @@ fn a_tool_window_reopens_in_its_split_of_the_middle() {
 /// its own; View › Reset Layout forgets that.
 #[test]
 fn a_tool_window_opens_where_its_kind_was_last_docked() {
-    let dir = mg_testkit::scratch_dir("ui-window-places");
+    kind_last_put(Mode::Floating);
+}
+
+/// [`a_tool_window_opens_where_its_kind_was_last_docked`] where editors
+/// open as tabs (a new installation's): a kind moved out to a window of
+/// its own opens in one until View › Reset Layout.
+#[test]
+fn a_tool_opens_in_a_window_where_its_kind_was_last_put_as_tabs() {
+    kind_last_put(Mode::Tabs);
+}
+
+fn kind_last_put(mode: Mode) {
+    let dir = mg_testkit::scratch_dir(&mode.dir("ui-window-places"));
     let path = sample_module(&dir);
-    let mut app = app_with(Vec::new());
+    let mut app = app_in(mode, Vec::new());
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
@@ -934,28 +962,35 @@ fn a_tool_window_opens_where_its_kind_was_last_docked() {
     let in_main = |h: &Harness<'_, Moonglow>, tab: &Tab| {
         h.state().dock.find_tab(tab).map(|p| p.surface.is_main())
     };
-    // At first: a window of its own, over the area.
+    // At first: where editors open (a window of its own over the area, or
+    // a tab).
+    let at_first = mode.tabs();
     open(&mut h, Tab::Factions);
-    assert_eq!(in_main(&h, &Tab::Factions), Some(false));
-    // Dragged into the main pane (done here on the dock itself).
+    assert_eq!(in_main(&h, &Tab::Factions), Some(at_first));
+    // Moved (done here on the dock itself): dragged into the main pane, or
+    // out to a window of its own (as Eject or a drag out does).
     let dock = &mut h.state_mut().dock;
     let from = dock.find_tab(&Tab::Factions).unwrap();
     dock.remove_tab(from);
-    dock.main_surface_mut().push_to_first_leaf(Tab::Factions);
+    match mode.tabs() {
+        true => _ = dock.add_window(vec![Tab::Factions]),
+        false => dock.main_surface_mut().push_to_first_leaf(Tab::Factions),
+    }
     h.run();
     h.run();
-    assert_eq!(h.state().settings.window_places, [("factions".to_string(), "middle".to_string())]);
-    // Closed and opened again: there, and another kind still in a window.
+    let kept = if mode.tabs() { "window" } else { "middle" };
+    assert_eq!(h.state().settings.window_places, [("factions".to_string(), kept.to_string())]);
+    // Closed and opened again: there, and another kind still as at first.
     close(&mut h, Tab::Factions);
     assert_eq!(in_main(&h, &Tab::Factions), None);
     open(&mut h, Tab::Factions);
-    assert_eq!(in_main(&h, &Tab::Factions), Some(true));
+    assert_eq!(in_main(&h, &Tab::Factions), Some(!at_first));
     open(&mut h, Tab::Journal);
-    assert_eq!(in_main(&h, &Tab::Journal), Some(false));
-    // Opened again while open, it stays in the main pane, in front.
+    assert_eq!(in_main(&h, &Tab::Journal), Some(at_first));
+    // Opened again while open, it stays where it is, in front.
     open(&mut h, Tab::Factions);
-    assert_eq!(in_main(&h, &Tab::Factions), Some(true));
-    // Reset Layout: a window of its own again.
+    assert_eq!(in_main(&h, &Tab::Factions), Some(!at_first));
+    // Reset Layout: where editors open again.
     close(&mut h, Tab::Factions);
     h.get_by_label("View").click();
     h.run();
@@ -963,7 +998,7 @@ fn a_tool_window_opens_where_its_kind_was_last_docked() {
     h.run();
     assert!(h.state().settings.window_places.is_empty());
     open(&mut h, Tab::Factions);
-    assert_eq!(in_main(&h, &Tab::Factions), Some(false));
+    assert_eq!(in_main(&h, &Tab::Factions), Some(at_first));
 }
 
 /// The log's lines carry the time they were said, before them, as the
@@ -1286,9 +1321,15 @@ fn a_window_of_tabs_moves_by_its_tab_bar_alone() {
     );
 }
 
+/// Editors open in windows of their own over the area, which stays in
+/// front of the main pane, below the Top Bar: as Options › General › Open
+/// editors has it for an existing user's settings, As Floating Windows
+/// (`open_editors::editors_open_as_tabs_or_as_windows_as_the_switch_says`
+/// has both).
 #[test]
 fn editors_open_in_windows_over_the_area() {
     let Some((mut h, area)) = area_harness("editor-windows") else { return };
+    assert_eq!(h.state().settings.open_editors, mg_ui::OpenEditors::Floating);
     h.run_steps(3);
     for tab in [Tab::Factions, Tab::ModuleProperties] {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -2610,8 +2651,21 @@ fn a_tab_dragged_out_into_its_own_window_is_maximized() {
 /// Properties window itself.
 #[test]
 fn escape_closes_the_window_in_front() {
+    escape_in_front(Mode::Floating);
+}
+
+/// [`escape_closes_the_window_in_front`] where editors open as tabs (a new
+/// installation's): the Properties a tab over the area, Escape its Cancel
+/// there too (ruling R1), once the Variables window over it is closed.
+#[test]
+fn escape_closes_the_window_in_front_as_tabs() {
+    escape_in_front(Mode::Tabs);
+}
+
+fn escape_in_front(mode: Mode) {
     use glam::Vec3;
-    let Some((mut h, area)) = area_harness("escape") else { return };
+    let Some((mut h, area)) = area_harness(&mode.dir("escape")) else { return };
+    put_in(h.state_mut(), mode);
     h.run_steps(40);
     let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
     for _ in 0..2 {
@@ -2628,11 +2682,12 @@ fn escape_closes_the_window_in_front() {
     h.run_steps(3);
     assert!(h.state().var_edit.is_some(), "the Variables window");
     // A click in Properties, behind it: the Variables window stays in front.
+    assert_eq!(h.state().dock.find_tab(&tab).unwrap().surface.is_main(), mode.tabs());
     let props = h
         .state()
         .dock
         .iter_leaves()
-        .find(|(p, _)| !p.surface.is_main())
+        .find(|(_, l)| l.tabs.contains(&tab))
         .map(|(_, leaf)| leaf.rect)
         .unwrap();
     // (Above its OK and Cancel.)
@@ -2654,7 +2709,9 @@ fn escape_closes_the_window_in_front() {
 
 /// Properties windows and conversations open as tabs of the window one
 /// of their kind is open in already, or, with their options off, each in
-/// a window of its own.
+/// a window of its own. (With editors opening As Floating Windows, an
+/// existing user's settings; As Tabs they are tabs of the focused group:
+/// `open_editors::properties_gather_into_one_window_in_floating_mode_only`.)
 #[test]
 fn properties_and_conversations_open_as_tabs_of_one_window() {
     use mg_module::dialog::new_dialog;
@@ -2708,7 +2765,8 @@ fn properties_and_conversations_open_as_tabs_of_one_window() {
 }
 
 /// Scripts open as tabs of one window (the window a script is open in
-/// already), or, with the option off, each in a window of its own.
+/// already), or, with the option off, each in a window of its own. (With
+/// editors opening As Floating Windows, an existing user's settings.)
 #[test]
 fn scripts_open_as_tabs_of_one_window() {
     let dir = mg_testkit::scratch_dir("ui-scripts-together");

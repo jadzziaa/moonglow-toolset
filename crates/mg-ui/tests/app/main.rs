@@ -25,6 +25,7 @@ mod looks;
 mod menus;
 mod module_panel;
 mod modules;
+mod open_editors;
 mod options_and_keys;
 mod palettes;
 mod part_emitters;

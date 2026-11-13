@@ -131,7 +131,7 @@ pub use mg_render::dx12;
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
 pub use options::{OptionsDraft, OptionsPage, UI_SCALES};
-pub use settings::{GraphicsBackend, Settings};
+pub use settings::{GraphicsBackend, OpenEditors, Settings};
 pub use tabs::Tab;
 pub use text::set_edit_language;
 pub use transfer::{ExportDraft, ImportDraft};
@@ -1072,6 +1072,31 @@ pub struct Moonglow {
     /// The Properties window Escape is Cancel for this frame, as Aurora's
     /// Escape is (`blueprint::window_drawn_but` presses it).
     pub(crate) escape_cancel: Option<Tab>,
+    /// Escape for a docked tab with OK and Cancel (ruling R1): the tab in
+    /// front of its group with the pointer or the keyboard in it, as the
+    /// editor area was drawn (`escape_docked_seen`), where the key is
+    /// still there once the editor area is drawn (a field of the tab, or
+    /// something drawn before it, did not take it), and no window in front
+    /// took it this frame (`escape_taken`). Taken as that tab's Escape in
+    /// the next frame (`escape_docked`), so that one tab, never two, takes
+    /// an Escape: the editor groups are drawn before the windows over them.
+    pub(crate) escape_docked_seen: Option<Tab>,
+    pub(crate) escape_taken: bool,
+    pub(crate) escape_docked: Option<Tab>,
+    escape_docked_next: Option<Tab>,
+    /// Where the last press of a pointer button was, and the layer it was
+    /// on: where the keyboard is for a docked tab's Escape (egui takes the
+    /// keyboard from a field at an Escape before anything is drawn, and
+    /// does not say where that field was).
+    pub(crate) last_press: Option<(egui::Pos2, Option<egui::LayerId>)>,
+    /// Whether a widget had the keyboard as the last frame ended (a field
+    /// typed in): then an Escape is the tab's the last press was in, not
+    /// the one under the pointer.
+    pub(crate) keyboard_had: bool,
+    /// Tabs the user moved by hand of late (dragged, or by Split Editor):
+    /// in As Tabs mode, the only docked moves a kind's place is kept for
+    /// (`remember_window_places`).
+    moved_by_hand: Vec<Tab>,
     /// A resource for the module tree to bring into view, its group
     /// opened (and, an area, if asked, opened out to what is placed in
     /// it): that of the tab just chosen, or of its menu's Show in Module
@@ -1479,6 +1504,13 @@ impl Moonglow {
             area_tool_at: 0,
             load_order: 0,
             escape_cancel: None,
+            escape_docked_seen: None,
+            escape_taken: false,
+            escape_docked: None,
+            escape_docked_next: None,
+            last_press: None,
+            keyboard_had: false,
+            moved_by_hand: Vec::new(),
             tree_reveal: None,
             tree_area: None,
             tree_marked: None,
@@ -1667,6 +1699,15 @@ impl Moonglow {
         self.trace_frame(ui);
         // (Pressed by the window it was for, in the frame it was asked.)
         self.escape_cancel = None;
+        // (A docked tab's Escape, seen as the last frame drew the editor
+        // area, and no window's: that tab's now.)
+        self.escape_docked = self.escape_docked_next.take();
+        self.escape_docked_seen = None;
+        self.escape_taken = false;
+        let pressed = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()));
+        if let Some(at) = pressed.flatten() {
+            self.last_press = Some((at, ui.ctx().layer_id_at(at)));
+        }
         // (A color being picked, as the windows asked in the frame before.)
         self.var_preview = std::mem::take(&mut self.var_preview_next);
         let female = self.settings.armor_on_woman;
@@ -1911,6 +1952,17 @@ impl Moonglow {
                     .show_inside(ui, &mut viewer);
             }
             self.dock = dock;
+            // (A docked tab's Escape, where no window in front took it.)
+            // (Looked at again once the tabs are drawn: a field of the tab
+            // that kept the Escape for itself, `widgets::keep_escape`, or
+            // took the key, has it.)
+            let still = widgets::escape_past_dialogs(ui.ctx())
+                && ui.input(|i| i.key_pressed(egui::Key::Escape));
+            self.escape_docked_next =
+                self.escape_docked_seen.take().filter(|_| !self.escape_taken && still);
+            if self.escape_docked_next.is_some() {
+                ui.ctx().request_repaint();
+            }
             self.doc_tab_parts(ui);
             self.window_bars(ui);
         });
@@ -1920,7 +1972,7 @@ impl Moonglow {
         self.note_worked(ui.ctx());
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
-        self.remember_window_places();
+        self.remember_window_places(ui.ctx());
         self.note_recent_tabs(ui.ctx());
         tree::follow_front_tab(self);
         self.prune_tree_selection();
@@ -2066,6 +2118,7 @@ impl Moonglow {
         }
         self.open_tabs_frame(ui.ctx());
         widgets::dialogs_end(ui.ctx());
+        self.keyboard_had = ui.ctx().memory(|m| m.focused().is_some());
     }
 
     /// The debug log's start of a frame: once, the settings and the
@@ -2272,6 +2325,8 @@ impl Moonglow {
         };
         let main = self.dock.main_surface_mut();
         let Some(tab) = main.remove_tab((from.node, index)) else { return };
+        // (Moved by the user: its kind's place is kept.)
+        self.moved_by_hand(&tab);
         match to {
             Some(to) => {
                 self.dock.set_focused_node_and_surface(to);
@@ -2296,12 +2351,34 @@ impl Moonglow {
             .find(|g| matches!(self.split_of(g.node), Some(Place::Split(s, _)) if s == side))
     }
 
-    /// Where the next window of a kind opens: where one of its kind was
-    /// last dragged to (GitHub issue 14), a window of its own otherwise.
-    fn place_for(&self, tab: &Tab) -> Place {
+    /// Where the next editor of a kind opens: where one of its kind was
+    /// last put (GitHub issue 14), else its kind's default
+    /// ([`Moonglow::default_place`]). `None`: the focused editor group.
+    fn place_for(&self, tab: &Tab) -> Option<Place> {
         let kept = kept_by_kind(&self.settings.window_places, tab);
         // ("split left 300": the side, and thousandths of the two.)
-        kept.and_then(|(_, p)| Place::parse(p)).unwrap_or(Place::Window)
+        kept.and_then(|(_, p)| Place::parse(p)).or_else(|| self.default_place(tab))
+    }
+
+    /// Where an editor opens with no place kept for its kind: as Options ›
+    /// General › Open editors says, a tab of the focused editor group
+    /// (`None`, As Tabs) or a window of its own (As Floating Windows).
+    /// The tabs that open in a window in both ([`Tab::floats`]) do so.
+    fn default_place(&self, tab: &Tab) -> Option<Place> {
+        match self.settings.open_editors {
+            settings::OpenEditors::Tabs if !tab.floats() => None,
+            _ => Some(Place::Window),
+        }
+    }
+
+    /// Notes that the user moved `tab` by hand (dragged it, or Split
+    /// Editor moved it): in As Tabs mode, the docked moves its kind's place
+    /// is kept for. For tests, which move tabs on the dock itself.
+    #[doc(hidden)]
+    pub fn moved_by_hand(&mut self, tab: &Tab) {
+        if !self.moved_by_hand.contains(tab) {
+            self.moved_by_hand.push(tab.clone());
+        }
     }
 
     /// Holds the resources chosen in the module tree to those the module
@@ -2333,9 +2410,20 @@ impl Moonglow {
             .or_else(|| (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| p.surface.is_main()))
     }
 
-    /// Notes where the user dragged a tool window to (a window seen in
-    /// another place than the frame before), for the next of its kind.
-    fn remember_window_places(&mut self) {
+    /// Notes where the user put an editor (a tab seen in another place
+    /// than the frame before), for the next of its kind: a window of its
+    /// own where that is not where its kind opens anyway (As Tabs: Eject,
+    /// or a tab dragged out), a group of the editor area otherwise. In As
+    /// Tabs mode, where editors live among the groups, a docked place is
+    /// kept only for a tab the user moved by hand (dragged, or by Split
+    /// Editor): a place is measured from the middle (the areas' group),
+    /// which moves as groups are split or emptied, and a tab that did not
+    /// move would otherwise keep a place for its kind.
+    fn remember_window_places(&mut self, ctx: &egui::Context) {
+        if let Some(tab) = self.dragged_tab.clone() {
+            self.moved_by_hand(&tab);
+        }
+        let tabs = self.settings.open_editors == settings::OpenEditors::Tabs;
         let open: Vec<Tab> =
             (self.dock.iter_all_tabs().map(|(_, t)| t)).filter(|t| !t.docks()).cloned().collect();
         self.tab_places.retain(|t, _| open.contains(t));
@@ -2344,14 +2432,21 @@ impl Moonglow {
             let Some(now) = self.place_of(&tab) else { continue };
             let before = self.tab_places.insert(tab.clone(), now);
             if before.is_some_and(|b| b != now) && !self.maximized.contains_key(&tab) {
+                if tabs && now != Place::Window && !self.moved_by_hand.contains(&tab) {
+                    continue;
+                }
                 let kind = tab.kind();
                 self.settings.window_places.retain(|(k, _)| k != kind);
-                // (A window of its own is where one opens anyway.)
-                if now == Place::Window {
+                // (Where one opens anyway: not kept.)
+                if Some(now) == self.default_place(&tab) {
                     continue;
                 }
                 self.settings.window_places.push((kind.to_string(), now.text()));
             }
+        }
+        // (A drag's drop is seen in the frame its button is let go.)
+        if !ctx.input(|i| i.pointer.any_down()) {
+            self.moved_by_hand.clear();
         }
     }
 
@@ -4259,7 +4354,7 @@ impl Moonglow {
                 // when the module opened) moves to a window of its own
                 // rather than come to the front over the area.
                 if !tab.docks()
-                    && self.place_for(&tab) != Place::Middle
+                    && matches!(self.place_for(&tab), Some(Place::Window | Place::Split(..)))
                     && let Some(path) = self.dock.find_tab(&tab)
                     && let Ok(leaf) = self
                         .dock
@@ -4270,16 +4365,19 @@ impl Moonglow {
                 }
                 if self.dock.find_tab(&tab).is_none() {
                     if !tab.docks() {
-                        // Where one of its kind was last dragged to, if
-                        // that pane is there; a window of its own else.
+                        // Where one of its kind was last put, if that pane
+                        // is there; else as Options › General › Open
+                        // editors says: a tab of the focused editor group,
+                        // or a window of its own.
                         let pane = match self.place_for(&tab) {
-                            Place::Window => None,
-                            Place::Middle => self.middle_pane(),
+                            None => self.focused_group(),
+                            Some(Place::Window) => None,
+                            Some(Place::Middle) => self.middle_pane(),
                             // A pane of its own off that side of the middle,
                             // as large as it was (GitHub issue 22).
                             // (Into the group off that side where there
                             // is one: a group, not one more each time.)
-                            Place::Split(side, share) => self
+                            Some(Place::Split(side, share)) => self
                                 .group_off(side)
                                 .or_else(|| self.split_middle(side, share, &tab)),
                         };
@@ -6413,6 +6511,68 @@ fn drawn_with_changed(was: &mg_resman::MemContainer, module: &Module) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where an editor opens with no place kept for its kind, in each mode
+    /// (Options › General › Open editors), and the place of its kind kept
+    /// when one is moved: a window of its own kept in As Tabs (where it is
+    /// not where one opens anyway), not in As Floating Windows; a group of
+    /// the editor area kept in both, in As Tabs only for a tab moved by
+    /// hand; a kept place opens there in both modes; Tile Properties and
+    /// the model views open in windows in both.
+    #[test]
+    fn the_window_place_is_kept_where_editors_open_as_tabs() {
+        use settings::OpenEditors::{Floating, Tabs};
+        let ctx = egui::Context::default();
+        let model = Tab::Model(ResKey::parse("c_dragon", ResType::MDL).unwrap());
+        for mode in [Tabs, Floating] {
+            let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+            app.settings.open_editors = mode;
+            let default = (mode == Floating).then_some(Place::Window);
+            assert_eq!(app.place_for(&Tab::Factions), default, "{mode:?}");
+            for floats in [Tab::TileProperties, model.clone()] {
+                assert_eq!(app.place_for(&floats), Some(Place::Window), "{mode:?} {floats:?}");
+            }
+            // Opened in the main window, then moved to a window of its own
+            // (as Eject does).
+            app.dock.push_to_first_leaf(Tab::Factions);
+            app.remember_window_places(&ctx);
+            assert!(app.settings.window_places.is_empty());
+            let at = app.dock.find_tab(&Tab::Factions).unwrap();
+            app.dock.remove_tab(at);
+            app.dock.add_window(vec![Tab::Factions]);
+            app.remember_window_places(&ctx);
+            let window = vec![("factions".to_string(), "window".to_string())];
+            match mode {
+                Tabs => assert_eq!(app.settings.window_places, window),
+                Floating => assert!(app.settings.window_places.is_empty()),
+            }
+            assert_eq!(app.place_for(&Tab::Factions), Some(Place::Window), "{mode:?}");
+            // Back into the main window: kept in both, in As Tabs only when
+            // moved by hand.
+            let at = app.dock.find_tab(&Tab::Factions).unwrap();
+            app.dock.remove_tab(at);
+            app.dock.push_to_first_leaf(Tab::Factions);
+            app.remember_window_places(&ctx);
+            let middle = vec![("factions".to_string(), "middle".to_string())];
+            match mode {
+                Tabs => assert_eq!(app.settings.window_places, window, "not moved by hand"),
+                Floating => assert_eq!(app.settings.window_places, middle),
+            }
+            let at = app.dock.find_tab(&Tab::Factions).unwrap();
+            app.dock.remove_tab(at);
+            app.dock.add_window(vec![Tab::Factions]);
+            app.remember_window_places(&ctx);
+            let at = app.dock.find_tab(&Tab::Factions).unwrap();
+            app.dock.remove_tab(at);
+            app.dock.push_to_first_leaf(Tab::Factions);
+            app.moved_by_hand(&Tab::Factions);
+            app.remember_window_places(&ctx);
+            assert_eq!(app.settings.window_places, middle, "{mode:?}");
+            assert_eq!(app.place_for(&Tab::Factions), Some(Place::Middle));
+            // The hand's move noted once: forgotten with the button up.
+            assert!(app.moved_by_hand.is_empty());
+        }
+    }
 
     /// The module's layer is made again after every build and before
     /// every job: the renderer's textures are forgotten with it only

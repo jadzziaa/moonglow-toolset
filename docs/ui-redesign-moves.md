@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T21:50:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:05:33Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -177,29 +177,29 @@ Every control of the screens mocked in the second round and its home in the mock
 
 ### Options
 
-| Today | In the redesign |
-|---|---|
+| Today | In the redesign | Done |
+|---|---|---|
 | Ten pages: Folders, Area, General, Script Editor, Conversation Editor, Sounds, Verify, Language, Keyboard, Updates | Page list at the left, styled like Creature's, with icons |
 | OK, Cancel | Editor header, right end |
-| Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field (no Esc, it does nothing docked) |
-| Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order |
+| Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field; Esc cancels Options docked too (ruling R1), so the hints show Esc | Esc: ✓ M3 T10 (the hints are T12's) |
+| Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order | Editors first: ✓ M3 T10 (the columns are M4's) |
 | Windows and Tabs, Module Tree and Palettes, Appearance | Column 2 |
 | Questions, Warnings, Troubleshooting | Column 3 |
 | Toolbar buttons | Retired: the Top Bar's buttons are icons with tooltips |
-| Open Properties as tabs of one window, Closing a window cancels its changes, Move windows by dragging anywhere | Editors section, under the switch |
+| Open Properties as tabs of one window, Closing a window cancels its changes, Move windows by dragging anywhere | Editors section, under the switch | ✓ M3 T10 (under "Floating windows", as the Options board) |
 | Right Dock | None on this screen |
 
 
 #### New
 
-- Open editors: As Tabs | As Floating Windows, with a note that areas always open as tabs and moved kinds open where you last put one, until View › Reset Layout.
+- Open editors: As Tabs | As Floating Windows, with a note that areas always open as tabs and moved kinds open where you last put one, until View › Reset Layout. ✓ M3 T10
 - The page icons in the page list.
 - The General page bar, as on Creature.
 
 #### Findings for the Design Notes
 
-- Today a kind of editor moved to a window is never stored, so it would be lost once As Tabs is the default.
-- Today Esc cancels Options only when it floats.
+- Today a kind of editor moved to a window is never stored, so it would be lost once As Tabs is the default. Settled in M3 T10: stored where editors open as tabs.
+- Today Esc cancels Options only when it floats. Settled in M3 T10 (ruling R1): docked too.
 
 ### Floating Editors
 

@@ -34,6 +34,64 @@ pub(crate) fn app_with(open: Vec<std::path::PathBuf>) -> Moonglow {
     Moonglow::new(None, Box::new(NoDialogs { open, ..Default::default() }))
 }
 
+/// The way editors open in a test's window (Options › General › Open
+/// editors): an existing user's settings (`Settings::default`, As
+/// Floating Windows), or a new installation's (`Settings::new_installation`:
+/// As Tabs, the Bottom Dock closed), which every new user starts with.
+/// A test family runs its body once for each ([`MODES`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    Floating,
+    Tabs,
+}
+
+/// Both ways, an existing user's first.
+pub(crate) const MODES: [Mode; 2] = [Mode::Floating, Mode::Tabs];
+
+impl Mode {
+    /// The settings a window of this mode starts with.
+    pub(crate) fn settings(self) -> mg_ui::Settings {
+        match self {
+            Mode::Floating => mg_ui::Settings::default(),
+            Mode::Tabs => mg_ui::Settings::new_installation(),
+        }
+    }
+
+    /// A scratch folder's name for this mode (`scratch_dir` empties its
+    /// folder: the two runs of a family must not share one).
+    pub(crate) fn dir(self, name: &str) -> String {
+        format!("{name}-{}", self.word())
+    }
+
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Mode::Floating => "floating",
+            Mode::Tabs => "tabs",
+        }
+    }
+
+    /// Whether editors open as tabs.
+    pub(crate) fn tabs(self) -> bool {
+        self == Mode::Tabs
+    }
+}
+
+/// Gives `app`, made with its own settings, the two a mode's differ in
+/// (Open editors and the Bottom Dock's fold).
+pub(crate) fn put_in(app: &mut Moonglow, mode: Mode) {
+    let s = mode.settings();
+    app.settings.open_editors = s.open_editors;
+    app.settings.hide_log = s.hide_log;
+}
+
+/// [`app_with`] in `mode`: its settings those of an existing user (As
+/// Floating Windows) or of a new installation (As Tabs).
+pub(crate) fn app_in(mode: Mode, open: Vec<std::path::PathBuf>) -> Moonglow {
+    let mut app = app_with(open);
+    app.settings = mode.settings();
+    app
+}
+
 /// The application on the game installed at `root`, in English, with
 /// `user` as the game's user folder (`None`: none), its dialogs answered
 /// by `dialogs`.
@@ -323,6 +381,17 @@ pub(crate) fn blueprint_harness_with(
     t: ResType,
     user: Option<std::path::PathBuf>,
 ) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    blueprint_harness_in(Mode::Floating, name, copy, t, user)
+}
+
+/// [`blueprint_harness_with`] in `mode` (the editor a tab in As Tabs).
+pub(crate) fn blueprint_harness_in(
+    mode: Mode,
+    name: &str,
+    copy: &str,
+    t: ResType,
+    user: Option<std::path::PathBuf>,
+) -> Option<(Harness<'static, Moonglow>, ResKey)> {
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
         return None;
@@ -330,6 +399,7 @@ pub(crate) fn blueprint_harness_with(
     let dir = mg_testkit::scratch_dir(&format!("ui-bp-{copy}"));
     let path = sample_module(&dir);
     let mut app = game_app(&root, user);
+    put_in(&mut app, mode);
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();

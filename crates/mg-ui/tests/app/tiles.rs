@@ -848,7 +848,11 @@ fn set_tile_id(h: &mut Harness<'_, Moonglow>, area: ResRef, index: usize, id: i3
 
 /// In Select Tiles, clicks the tiles at `points` (Ctrl + click after the
 /// first) and opens Tile Properties from the tile menu.
-fn tile_properties_of(h: &mut Harness<'_, Moonglow>, area: ResRef, points: &[glam::Vec3]) {
+pub(crate) fn tile_properties_of(
+    h: &mut Harness<'_, Moonglow>,
+    area: ResRef,
+    points: &[glam::Vec3],
+) {
     if !h.state().area_views[&area].tile_mode {
         area_tool(h, "Select Tiles").click();
         h.run_steps(2);

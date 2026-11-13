@@ -265,14 +265,29 @@ fn one_group(
     tabs: &[Tab],
     size: egui::Vec2,
 ) -> Harness<'static, Moonglow> {
-    let dir = mg_testkit::scratch_dir(name);
+    one_group_in(Mode::Floating, name, scripts, tabs, size)
+}
+
+/// [`one_group`] in `mode`: in As Tabs, nothing kept for the kinds (the
+/// scripts, the manual and the journal open in the group as any editor
+/// does there).
+fn one_group_in(
+    mode: Mode,
+    name: &str,
+    scripts: usize,
+    tabs: &[Tab],
+    size: egui::Vec2,
+) -> Harness<'static, Moonglow> {
+    let dir = mg_testkit::scratch_dir(&mode.dir(name));
     let path = module_with(&dir, scripts);
-    let mut app = app_with(Vec::new());
+    let mut app = app_in(mode, Vec::new());
     app.settings.no_last_area = true;
-    app.settings.window_places = ["script", "manual", "journal"]
-        .iter()
-        .map(|k| (k.to_string(), "middle".to_string()))
-        .collect();
+    if !mode.tabs() {
+        app.settings.window_places = ["script", "manual", "journal"]
+            .iter()
+            .map(|k| (k.to_string(), "middle".to_string()))
+            .collect();
+    }
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(ResRef::from_str("start").unwrap())));
     for tab in tabs {
@@ -387,9 +402,22 @@ fn the_docks_follow_the_focused_editor_group() {
 /// tab in front and no other group's.
 #[test]
 fn the_tab_keys_act_on_the_focused_group() {
-    let mut h = one_group("ui-doc-tab-keys", 3, &[], egui::vec2(1400.0, 900.0));
+    tab_keys_per_group(Mode::Floating);
+}
+
+/// [`the_tab_keys_act_on_the_focused_group`] where editors open as tabs (a
+/// new installation's).
+#[test]
+fn the_tab_keys_act_on_the_focused_group_as_tabs() {
+    tab_keys_per_group(Mode::Tabs);
+}
+
+fn tab_keys_per_group(mode: Mode) {
+    let mut h = one_group_in(mode, "ui-doc-tab-keys", 3, &[], egui::vec2(1400.0, 900.0));
     let s = |n: usize| Tab::Script(ResKey::parse(&format!("s{n:02}"), ResType::NSS).unwrap());
-    h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
+    if !mode.tabs() {
+        h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
+    }
     for n in 1..=3 {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(s(n)));
         settle(&mut h);
@@ -438,14 +466,27 @@ fn the_tab_keys_act_on_the_focused_group() {
 /// groups come back as they were from their places alone.
 #[test]
 fn editor_groups_are_kept_and_come_back_from_their_places_alone() {
-    let dir = mg_testkit::scratch_dir("ui-doc-tab-kept");
+    groups_kept(Mode::Floating);
+}
+
+/// [`editor_groups_are_kept_and_come_back_from_their_places_alone`] where
+/// editors open as tabs (a new installation's).
+#[test]
+fn editor_groups_are_kept_and_come_back_from_their_places_alone_as_tabs() {
+    groups_kept(Mode::Tabs);
+}
+
+fn groups_kept(mode: Mode) {
+    let dir = mg_testkit::scratch_dir(&mode.dir("ui-doc-tab-kept"));
     let path = module_with(&dir, 0);
     let kept = dir.join("open-tabs");
     let open = |kept: &std::path::Path| {
-        let mut app = app_with(Vec::new());
+        let mut app = app_in(mode, Vec::new());
         app.settings.no_last_area = true;
         app.open_tabs_dir = Some(kept.to_path_buf());
-        app.settings.window_places = vec![("script".into(), "middle".into())];
+        if !mode.tabs() {
+            app.settings.window_places = vec![("script".into(), "middle".into())];
+        }
         app.open_module(&path);
         let mut h = harness(app, 1400.0, 900.0);
         settle(&mut h);
@@ -494,12 +535,23 @@ fn editor_groups_are_kept_and_come_back_from_their_places_alone() {
 /// the middle's pane).
 #[test]
 fn three_editor_groups_come_back_in_their_order() {
-    let dir = mg_testkit::scratch_dir("ui-doc-tab-three");
+    three_groups(Mode::Floating);
+}
+
+/// [`three_editor_groups_come_back_in_their_order`] where editors open as
+/// tabs (a new installation's).
+#[test]
+fn three_editor_groups_come_back_in_their_order_as_tabs() {
+    three_groups(Mode::Tabs);
+}
+
+fn three_groups(mode: Mode) {
+    let dir = mg_testkit::scratch_dir(&mode.dir("ui-doc-tab-three"));
     let path = module_with(&dir, 2);
     let kept = dir.join("open-tabs");
     let s = |n: usize| Tab::Script(ResKey::parse(&format!("s{n:02}"), ResType::NSS).unwrap());
     let open = |kept: &std::path::Path| {
-        let mut app = app_with(Vec::new());
+        let mut app = app_in(mode, Vec::new());
         app.settings.no_last_area = true;
         app.open_tabs_dir = Some(kept.to_path_buf());
         app.open_module(&path);
@@ -846,7 +898,19 @@ fn thirty_tabs_frame_cost() {
 /// editor groups).
 #[test]
 fn a_kind_kept_beside_the_middle_opens_in_that_group() {
-    let mut h = one_group("ui-doc-tab-kept-kind", 2, &[], egui::vec2(1400.0, 900.0));
+    kept_beside(Mode::Floating);
+}
+
+/// [`a_kind_kept_beside_the_middle_opens_in_that_group`] where editors
+/// open as tabs (a new installation's): a kept place goes before the
+/// focused group.
+#[test]
+fn a_kind_kept_beside_the_middle_opens_in_that_group_as_tabs() {
+    kept_beside(Mode::Tabs);
+}
+
+fn kept_beside(mode: Mode) {
+    let mut h = one_group_in(mode, "ui-doc-tab-kept-kind", 2, &[], egui::vec2(1400.0, 900.0));
     h.state_mut().settings.window_places = vec![("script".into(), "split right 500".into())];
     let s = |n: usize| Tab::Script(ResKey::parse(&format!("s{n:02}"), ResType::NSS).unwrap());
     for n in [1, 2] {
@@ -861,8 +925,22 @@ fn a_kind_kept_beside_the_middle_opens_in_that_group() {
 /// the question is asked of it, as egui_dock's close did.
 #[test]
 fn a_tab_that_asks_comes_to_the_front_when_closed_from_behind() {
-    let mut h = one_group("ui-doc-tab-asks", 0, &[], egui::vec2(1400.0, 900.0));
-    h.state_mut().settings.window_places = vec![("table".into(), "middle".into())];
+    tab_that_asks(Mode::Floating);
+}
+
+/// [`a_tab_that_asks_comes_to_the_front_when_closed_from_behind`] where
+/// editors open as tabs (a new installation's), the 2DA a tab where it
+/// opens.
+#[test]
+fn a_tab_that_asks_comes_to_the_front_when_closed_from_behind_as_tabs() {
+    tab_that_asks(Mode::Tabs);
+}
+
+fn tab_that_asks(mode: Mode) {
+    let mut h = one_group_in(mode, "ui-doc-tab-asks", 0, &[], egui::vec2(1400.0, 900.0));
+    if !mode.tabs() {
+        h.state_mut().settings.window_places = vec![("table".into(), "middle".into())];
+    }
     let key = ResKey::parse("mytable", ResType::TWODA).unwrap();
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     settle(&mut h);
@@ -876,6 +954,13 @@ fn a_tab_that_asks_comes_to_the_front_when_closed_from_behind() {
     settle(&mut h);
     assert!(h.state().dock.find_tab(&table).is_some(), "asks first");
     assert_eq!(h.state().active_editor(), Some(&table), "in front while asked");
+    // Its Cancel: the tab stays, its change kept.
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&table).is_some(), "Cancel: kept");
+    assert!(h.query_by_label("Don't Save").is_none(), "no longer asked");
+    click_tab_close(&mut h, &table);
+    settle(&mut h);
     h.get_all_by_label("Don't Save").last().unwrap().click();
     settle(&mut h);
     assert!(h.state().dock.find_tab(&table).is_none());

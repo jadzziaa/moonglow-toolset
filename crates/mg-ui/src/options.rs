@@ -120,6 +120,8 @@ pub struct OptionsDraft {
     pub scripts_external_only: bool,
     pub scripts_together: bool,
     pub properties_together: bool,
+    /// Open editors: as tabs, or as windows of their own.
+    pub open_editors: crate::settings::OpenEditors,
     pub close_cancels: bool,
     pub tree_opens_area: bool,
     pub tree_follows_tabs: bool,
@@ -283,6 +285,7 @@ impl OptionsDraft {
             scripts_external_only: s.scripts_external_only,
             scripts_together: !s.scripts_own_windows,
             properties_together: !s.properties_own_windows,
+            open_editors: s.open_editors,
             close_cancels: s.close_cancels,
             tree_opens_area: !s.tree_keeps_areas_closed,
             tree_follows_tabs: !s.tree_stays,
@@ -407,6 +410,7 @@ impl OptionsDraft {
             scripts_external_only,
             scripts_own_windows,
             properties_own_windows,
+            open_editors,
             close_cancels,
             tree_keeps_areas_closed,
             tree_stays,
@@ -522,6 +526,7 @@ impl OptionsDraft {
             scripts_external_only: self.scripts_external_only,
             scripts_own_windows: !self.scripts_together,
             properties_own_windows: !self.properties_together,
+            open_editors: self.open_editors,
             close_cancels: self.close_cancels,
             tree_keeps_areas_closed: !self.tree_opens_area,
             tree_stays: !self.tree_follows_tabs,
@@ -1884,6 +1889,41 @@ fn keys_file_id() -> egui::Id {
     egui::Id::new("options-keys-file")
 }
 
+/// Options › General › Editors (the Options board's first section): Open
+/// editors, As Tabs or As Floating Windows, with its note; under
+/// "Floating windows", the three settings of editors' windows (kept in
+/// either mode: a kind moved to a window is one in As Tabs too).
+fn editors(ui: &mut Ui, draft: &mut OptionsDraft) {
+    use crate::settings::OpenEditors;
+    crate::widgets::section_heading(ui, "Editors");
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Open editors");
+        let choices = [
+            (OpenEditors::Tabs, "As Tabs", "Open editors as tabs of the editor area"),
+            (
+                OpenEditors::Floating,
+                "As Floating Windows",
+                "Open editors as windows of their own over the area",
+            ),
+        ];
+        mg_uikit::segmented(ui, &mut draft.open_editors, &choices);
+    });
+    ui.weak(
+        "Areas always open as tabs. A kind of editor you have moved opens where you last put \
+         one, until View › Reset Layout. A new installation starts with tabs.",
+    );
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new("Floating windows").color(mg_uikit::tokens(ui.ctx()).text_2));
+    ui.check_box(&mut draft.properties_together, "Open Properties as tabs of one window")
+        .on_hover_text("Open each Properties as a tab of one window. Off, each in its own.");
+    ui.check_box(&mut draft.close_cancels, "Closing a window cancels its changes (as Aurora)")
+        .on_hover_text(CLOSE_CANCELS_TIP);
+    ui.check_box(&mut draft.drag_windows_anywhere, "Move windows by dragging anywhere in them")
+        .on_hover_text(
+            "Move a window by dragging any part that isn't a control. Off, by its tab bar.",
+        );
+}
+
 /// Options › General, in sections: Aurora's options first in each, in its
 /// order, then Moonglow's.
 fn general(
@@ -1892,6 +1932,8 @@ fn general(
     drawing_with: Option<&str>,
     passes_over: &[wgpu::Backend],
 ) {
+    editors(ui, draft);
+    ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Saving and Exporting");
     ui.check_box(&mut draft.backups, "Create backups of modules")
         .on_hover_text("Keep the module as it was as <name>.BackupMod at each save");
@@ -1938,14 +1980,6 @@ fn general(
     graphics_backend(ui, draft, drawing_with, passes_over);
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Windows and Tabs");
-    ui.check_box(&mut draft.properties_together, "Open Properties as tabs of one window")
-        .on_hover_text("Open each Properties as a tab of one window. Off, each in its own.");
-    ui.check_box(&mut draft.close_cancels, "Closing a window cancels its changes (as Aurora)")
-        .on_hover_text(CLOSE_CANCELS_TIP);
-    ui.check_box(&mut draft.drag_windows_anywhere, "Move windows by dragging anywhere in them")
-        .on_hover_text(
-            "Move a window by dragging any part that isn't a control. Off, by its tab bar.",
-        );
     ui.check_box(&mut draft.tabs_by_recent, "Ctrl+Tab goes to the tab used last")
         .on_hover_text("Next Tab and Previous Tab follow the order tabs were last used");
     ui.add_space(crate::widgets::SECTION_GAP);
@@ -2304,6 +2338,26 @@ mod tests {
     /// Closing a window by its tab's × keeps what it changed unless asked
     /// otherwise (a builder's report: Aurora's close button is its
     /// Cancel), and the choice is kept.
+    #[test]
+    fn open_editors_is_drafted_and_kept() {
+        use crate::settings::OpenEditors;
+        for (was, now) in
+            [(OpenEditors::Floating, OpenEditors::Tabs), (OpenEditors::Tabs, OpenEditors::Floating)]
+        {
+            let s = Settings { open_editors: was, ..Settings::default() };
+            let mut d = OptionsDraft::from_settings(&s);
+            assert_eq!(d.open_editors, was);
+            d.open_editors = now;
+            let t = d.apply(&s);
+            assert_eq!(t.open_editors, now);
+            assert!(!d.moves_game(&s), "no reload for it");
+            // Left as found, set meanwhile from elsewhere: kept as it is.
+            let d = OptionsDraft::from_settings(&s);
+            let meanwhile = Settings { open_editors: now, ..s.clone() };
+            assert_eq!(d.apply(&meanwhile).open_editors, now);
+        }
+    }
+
     #[test]
     fn closing_a_window_keeps_its_changes_until_asked_otherwise() {
         let s = Settings::default();

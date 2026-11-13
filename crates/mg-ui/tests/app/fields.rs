@@ -131,7 +131,7 @@ fn multi_line_text_keeps_its_line_ends() {
         .unwrap()
         .type_text("First\nSecond\nThird");
     h.run();
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     let ws = h.state_mut().ws.as_mut().unwrap();
     let g = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
@@ -141,6 +141,14 @@ fn multi_line_text_keeps_its_line_ends() {
 
 /// The sample module with `description` for its description, open on its
 /// Description page in a harness `size` big; and the description's box.
+/// Leaves the field that has the keyboard, what it holds set, by a click
+/// on the Left Dock below the module tree's rows. (Escape there is Module
+/// Properties' Cancel, docked as floating: ruling R1.)
+fn leave_field(h: &mut Harness<'_, Moonglow>) {
+    let area = h.state().editor_area_rect().unwrap();
+    click_away(h, egui::pos2(area.left() - 100.0, area.bottom() - 60.0));
+}
+
 fn module_description_harness(
     name: &str,
     description: &str,
@@ -238,7 +246,7 @@ fn page_keys_move_through_a_description() {
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::PageDown);
     h.run();
     assert_eq!(typed(&mut h, "Z"), up);
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     let stored = module_description(&mut h);
     assert!(!stored.contains('Y') && stored.lines().count() <= 110, "{stored:.300}");
@@ -264,7 +272,7 @@ fn a_description_with_both_line_ends_keeps_each_line_s() {
     h.event(egui::Event::Paste("\r\nSix".into()));
     h.run();
     multiline_input(&h, "One\nTwo\nThree\nFour\nFive\nSix");
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     assert_eq!(module_description(&mut h), "One\r\nTwo\nThree\r\nFour\r\nFive\r\nSix");
 }
@@ -281,7 +289,7 @@ fn a_description_of_one_line_gets_a_plain_line_end() {
     h.key_press(egui::Key::Enter);
     h.event(egui::Event::Text("Two".into()));
     h.run();
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     assert_eq!(module_description(&mut h), "One\nTwo");
 }
@@ -2667,13 +2675,30 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
 /// leaves the field; again, it is the window's Cancel.
 #[test]
 fn escape_in_a_field_is_the_window_s_cancel_but_in_a_search_field() {
-    let Some((mut h, key)) = blueprint_harness("nw_chicken", "esc_field", ResType::UTC) else {
+    escape_in_a_field(Mode::Floating);
+}
+
+/// [`escape_in_a_field_is_the_window_s_cancel_but_in_a_search_field`]
+/// where editors open as tabs (a new installation's): the Properties a
+/// docked tab, Escape its Cancel as a window's (ruling R1), and a search
+/// field's in it first.
+#[test]
+fn escape_in_a_field_is_the_tab_s_cancel_but_in_a_search_field_as_tabs() {
+    escape_in_a_field(Mode::Tabs);
+}
+
+fn escape_in_a_field(mode: Mode) {
+    let copy = if mode.tabs() { "esc_field_tabs" } else { "esc_field" };
+    let Some((mut h, key)) = blueprint_harness_in(mode, "nw_chicken", copy, ResType::UTC, None)
+    else {
         return;
     };
     let is_input =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
     let open = |h: &Harness<'_, Moonglow>| h.state().dock.find_tab(&Tab::Blueprint(key)).is_some();
     h.run();
+    let main = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap().surface.is_main();
+    assert_eq!(main, mode.tabs(), "a tab or a window");
     // A tag typed into: Escape closes the window, the tag set back.
     let tag = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
     h.get_all_by_value(&tag).find(is_input).expect("the tag's field").click();

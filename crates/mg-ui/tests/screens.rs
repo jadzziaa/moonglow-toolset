@@ -1668,6 +1668,9 @@ fn options_window() {
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let automatic =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
+    // (Below the Editors section: brought into sight, its list below it.)
+    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    h.run();
     h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
     shoot(&mut h, &dir, "options-general-graphics-backend");
     h.key_press(egui::Key::Escape);
@@ -10802,6 +10805,42 @@ fn shell_floating() {
 
 /// The Left Dock folded to its strip (the chevron, the Module panel's
 /// icon) at the narrow board's size.
+/// A script and a creature's Properties opened in each mode of Options ›
+/// General › Open editors (M3's T10), against the Main board (As Tabs:
+/// both tabs of the area's group, the Properties in front) and the
+/// Floating board (As Floating Windows: windows over the area):
+/// `shell_open_editors_tabs`, `shell_open_editors_floating`.
+#[test]
+#[ignore]
+fn shell_open_editors() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (mode, name) in [
+        (mg_ui::OpenEditors::Tabs, "shell_open_editors_tabs"),
+        (mg_ui::OpenEditors::Floating, "shell_open_editors_floating"),
+    ] {
+        let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+        h.state_mut().settings.open_editors = mode;
+        let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+        let faribeth = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+        for tab in [&script, &faribeth] {
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            h.run_steps(5);
+        }
+        if mode == mg_ui::OpenEditors::Floating {
+            place(&mut h, &script, (330.0, 120.0), (820.0, 520.0));
+            place(&mut h, &faribeth, (760.0, 300.0), (700.0, 560.0));
+        }
+        for _ in 0..20 {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        shoot(&mut h, &dir, name);
+    }
+}
+
 #[test]
 #[ignore]
 fn shell_left_folded() {

@@ -120,6 +120,93 @@ fn focus_ring(painter: &egui::Painter, t: &Tokens, rect: Rect, round: bool) {
     }
 }
 
+/// A segmented control: the mock's `.seg`, one of several choices side
+/// by side, 1 point apart, the outer corners rounded (Options › General ›
+/// Open editors). Each choice is drawn `raised` with its words in
+/// `text-2` (`raised-hover` and `text` under the pointer), the one chosen
+/// `accent-fill` with `on-fill` words; the keyboard's focus is an `accent`
+/// ring. `choices` are each a value, its words (its name to a screen
+/// reader, as a radio button, selected where chosen) and its tooltip
+/// (empty: none). A click, or Space or Enter with the keyboard on it,
+/// chooses it. The whole control's response, changed where a choice was
+/// made. Where no theme was applied, egui's selectable labels.
+pub fn segmented<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+) -> Response {
+    let theme = theme::applied(ui.ctx());
+    let mut changed = false;
+    let mut inner = ui.horizontal(|ui| {
+        if theme.is_some() {
+            ui.spacing_mut().item_spacing.x = 1.0;
+        }
+        for (i, (choice, words, tip)) in choices.iter().enumerate() {
+            let on = *value == *choice;
+            let ends = (i == 0, i + 1 == choices.len());
+            let mut response = match theme {
+                Some(theme) => segment(ui, &theme.tokens(), on, words, ends),
+                None => ui.selectable_label(on, *words),
+            };
+            if !tip.is_empty() {
+                response = response.on_hover_text(*tip);
+            }
+            if response.clicked() && !on {
+                *value = *choice;
+                changed = true;
+            }
+        }
+    });
+    if changed {
+        inner.response.mark_changed();
+    }
+    inner.response
+}
+
+/// One choice of a [`segmented`] control; `ends` says whether it is the
+/// first and the last (their outer corners rounded).
+fn segment(ui: &mut Ui, t: &Tokens, on: bool, words: &str, ends: (bool, bool)) -> Response {
+    let galley = egui::WidgetText::from(words).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    );
+    let height = metrics::CONTROL_HEIGHT.max(ui.spacing().interact_size.y);
+    let size = vec2(galley.size().x + 2.0 * metrics::CONTROL_PADDING_X, height);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, on, words));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let hovered = response.hovered() && enabled && !is_read_only(ui);
+    let (fill, text) = match (on, hovered, enabled) {
+        (true, _, true) => (t.accent_fill, t.on_fill),
+        (true, _, false) => (t.accent_fill_off, t.on_fill_off),
+        (false, true, _) => (t.raised_hover, t.text),
+        (false, false, true) => (t.raised, t.text_2),
+        (false, false, false) => (t.raised, t.text_off),
+    };
+    let r = |rounded: bool| if rounded { metrics::RADIUS } else { 0 };
+    let (first, last) = ends;
+    let corners = egui::CornerRadius { nw: r(first), sw: r(first), ne: r(last), se: r(last) };
+    let painter = box_painter(ui, enabled);
+    painter.rect_filled(rect, corners, fill);
+    let at = rect.center() - galley.size() / 2.0;
+    painter.galley(at, galley, text);
+    if response.has_focus() {
+        let stroke = Stroke::new(1.0, t.accent);
+        painter.rect_stroke(
+            rect.expand(2.0),
+            metrics::RADIUS + 2,
+            stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+    response
+}
+
 /// A check box: the mock's `.check` (on, `accent-fill` with a white mark;
 /// off, a well bordered in `text-3`; mixed, a dash; disabled, the
 /// `*-off` tokens). `ui.add(Checkbox::new(&mut on, "Plot"))`, or

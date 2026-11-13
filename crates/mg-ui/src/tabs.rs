@@ -110,11 +110,50 @@ pub(crate) const FORMS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
 pub(crate) const ROWS_TALLER: f32 = 1.08;
 
 impl Tab {
-    /// Whether it opens in the main dock: areas (and the start page), which
-    /// the rest open over in windows of their own, so a window never takes
-    /// the area view's place.
+    /// Whether it opens in the main dock whatever Options › General › Open
+    /// editors says: areas (and the start page), which the rest open over
+    /// in windows of their own (As Floating Windows), so a window never
+    /// takes the area view's place, or beside as tabs (As Tabs).
     pub fn docks(&self) -> bool {
         matches!(self, Tab::Area(_) | Tab::Welcome | Tab::NoArea)
+    }
+
+    /// Whether it opens in a window of its own however editors open
+    /// (Options › General › Open editors), unless its kind was put
+    /// elsewhere: Tile Properties, which follows the tiles chosen in an
+    /// area view (a tab of the area's group would cover the tiles it
+    /// edits), and the model views, opened to look at a model beside the
+    /// editor it came from (a blueprint's Pop Out, the palette's Preview,
+    /// a tile's model).
+    pub(crate) fn floats(&self) -> bool {
+        matches!(
+            self,
+            Tab::TileProperties
+                | Tab::Model(_)
+                | Tab::InstanceModel { .. }
+                | Tab::ModelCopy { .. }
+                | Tab::Tile { .. }
+        )
+    }
+
+    /// Whether Escape is its Cancel (Aurora's Escape): the tabs with OK
+    /// and Cancel that set back what they changed, floating (as the
+    /// window in front) or docked (ruling R1: in front of its group, with
+    /// the pointer or the keyboard in it). The side editors' (a hak's, a
+    /// 2DA's), whose Cancel asks about unsaved work, are not among them.
+    pub(crate) fn escape_cancels(&self) -> bool {
+        matches!(
+            self,
+            Tab::Blueprint(_)
+                | Tab::Blueprints(_)
+                | Tab::Instance { .. }
+                | Tab::Instances { .. }
+                | Tab::AreaProperties(_)
+                | Tab::AreasProperties(_)
+                | Tab::ModuleProperties
+                | Tab::Options
+                | Tab::TileProperties
+        )
     }
 
     /// What its kind was called before, where it was another: the
@@ -380,12 +419,20 @@ impl Viewer<'_> {
             && !crate::widgets::escape_left_search(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
             && !ui.input(|i| i.pointer.any_down());
-        let model = matches!(
-            tab,
-            Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } | Tab::Tile { .. }
-        ) && ui.rect_contains_pointer(ui.max_rect());
         let layer = ui.layer_id();
-        let front = layer.order == egui::Order::Middle
+        let floating = layer.order == egui::Order::Middle;
+        // (A model's view docked, as a tab of an editor group, is a tab as
+        // any: Escape does not close it, ruling R1.)
+        let model = floating
+            && matches!(
+                tab,
+                Tab::Model(_)
+                    | Tab::InstanceModel { .. }
+                    | Tab::ModelCopy { .. }
+                    | Tab::Tile { .. }
+            )
+            && ui.rect_contains_pointer(ui.max_rect());
+        let front = floating
             && ui.memory(|m| {
                 // (The last of the windows showing: closed ones keep their
                 // place in the order.)
@@ -393,18 +440,7 @@ impl Viewer<'_> {
                     |l: &egui::LayerId| l.order == egui::Order::Middle && m.areas().is_visible(l);
                 m.layer_ids().filter(showing).last()
             }) == Some(layer)
-            && matches!(
-                tab,
-                Tab::Blueprint(_)
-                    | Tab::Blueprints(_)
-                    | Tab::Instance { .. }
-                    | Tab::Instances { .. }
-                    | Tab::AreaProperties(_)
-                    | Tab::AreasProperties(_)
-                    | Tab::ModuleProperties
-                    | Tab::Options
-                    | Tab::TileProperties
-            );
+            && tab.escape_cancels();
         // (With a tool in hand in the area, Escape over the area drops the
         // tool and no more; over this window, it closes the window.)
         let tool = ui.ctx().cumulative_pass_nr().saturating_sub(self.app.area_tool_at) <= 1
@@ -412,7 +448,43 @@ impl Viewer<'_> {
         // (Options › Keyboard, waiting for a key, takes Escape itself.)
         let recording = *tab == Tab::Options
             && self.app.options.as_ref().is_some_and(|o| o.recording.is_some());
-        if escape && !recording && (model || (front && !tool)) {
+        // A docked tab with OK and Cancel (ruling R1): Escape is its Cancel
+        // too, in front of its group: where a field had the keyboard as the
+        // last frame ended, the tab the last press of a button was in (the
+        // field's), wherever the pointer is; else the tab under the pointer
+        // (nothing in front of it there), or the last pressed while the
+        // pointer is on no other group and no window (a dock, a bar); an
+        // Escape something drawn before it took (the module tree's Filter,
+        // the log, a field of its own) is not its, nor one a window in front
+        // takes. Seen now, it is taken in the next frame where no window
+        // took this one and the key is still there once the editor area is
+        // drawn (`Moonglow::escape_docked`).
+        if escape && !floating && !recording && !tool && tab.escape_cancels() {
+            let pointer = ui.rect_contains_pointer(ui.max_rect());
+            let elsewhere = ui.ctx().pointer_hover_pos().is_none_or(|p| {
+                let on_window =
+                    (ui.ctx().layer_id_at(p)).is_some_and(|l| l.order == egui::Order::Middle);
+                !on_window && !self.app.dock_rect.is_some_and(|r| r.contains(p))
+            });
+            let pressed_in = (self.app.last_press)
+                .is_some_and(|(p, l)| l == Some(layer) && ui.max_rect().contains(p));
+            // (A field had the keyboard: the Escape is the tab's it is in,
+            // wherever the pointer is; else the pointer's tab, or the last
+            // pressed with the pointer on no other.)
+            let seen = match self.app.keyboard_had {
+                true => pressed_in,
+                false => pointer || (pressed_in && elsewhere),
+            };
+            if seen {
+                self.app.escape_docked_seen = Some(tab.clone());
+            }
+        }
+        let docked = self.app.escape_docked.as_ref() == Some(tab) && !floating;
+        if (escape && !recording && (model || (front && !tool))) || docked {
+            if !docked {
+                self.app.escape_taken = true;
+            }
+            self.app.escape_docked = None;
             // (Tile Properties with changes not applied asks first, as
             // its X does: `may_close`.)
             // (Options' Cancel is its close, which drops what wasn't

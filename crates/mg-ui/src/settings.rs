@@ -127,6 +127,22 @@ named!(FilesThere: Ask, Replace, Skip);
 named!(MissingFeats: Ask, Add, Refuse);
 named!(ShadowQuality: Fast, High);
 named!(GraphicsBackend: Automatic, Vulkan, Direct3d12, Metal);
+named!(OpenEditors: Tabs, Floating);
+
+/// Options › General › Editors › Open editors: where an editor opens
+/// when nothing of its kind has a place kept for it
+/// ([`Settings::window_places`]). Areas open as tabs either way. The
+/// default is the windows every Moonglow before the shell opened (an
+/// existing settings file names no value, and keeps them); a new
+/// installation starts with tabs ([`Settings::new_installation`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum OpenEditors {
+    /// As tabs of the focused editor group.
+    Tabs,
+    /// As windows of their own over the area.
+    #[default]
+    Floating,
+}
 
 /// What File › Export… does with an archive that is there already
 /// (Options › General): asks, appends to it or overwrites it.
@@ -608,7 +624,14 @@ pub struct Settings {
     /// (a pane split off a side of the middle). The next of its kind opens
     /// there. (`palettes`, a tab of the palettes' pane before they were
     /// the Right Dock's panel, is dropped by [`Settings::shell_migrate`].)
+    /// `window` (a window of its own) is kept where editors open as tabs
+    /// ([`Settings::open_editors`]): there it is not where one opens
+    /// anyway. View › Reset Layout forgets them all.
     pub window_places: Vec<(String, String)>,
+    /// Options › General › Editors › Open editors: as tabs of the focused
+    /// editor group, or as windows of their own (the default, which an
+    /// existing settings file without the field reads).
+    pub open_editors: OpenEditors,
     /// The 2DA columns given a width of their own by dragging the edge of
     /// their name: each table's (by name, lowercase; the last changed
     /// first) columns and widths in points. The 2DA editor and the
@@ -1041,12 +1064,13 @@ impl Settings {
     /// The settings of a new installation (no settings file yet: the
     /// desktop app's first start, [`Settings::read_eframe`]): the shell as
     /// the redesign has it, the Bottom Dock closed (the log's last line in
-    /// the Status Bar). [`Settings::default`] keeps the meaning it had
-    /// before the shell (the log open), which an existing file that does
-    /// not name a setting, or does not read, takes: an existing user's
-    /// window stays as it was.
+    /// the Status Bar) and editors opening as tabs. [`Settings::default`]
+    /// keeps the meaning it had before the shell (the log open, editors in
+    /// windows of their own), which an existing file that does not name a
+    /// setting, or does not read, takes: an existing user's window stays as
+    /// it was.
     pub fn new_installation() -> Settings {
-        Settings { hide_log: true, ..Settings::default() }
+        Settings { hide_log: true, open_editors: OpenEditors::Tabs, ..Settings::default() }
     }
 
     /// The minutes between recovery copies ([`AUTOSAVE_MINUTES`] unset).
@@ -1690,13 +1714,65 @@ mod tests {
     }
 
     /// A new installation's settings differ from the defaults (an existing
-    /// user's, before the shell) only in the Bottom Dock closed. (M3's T10
-    /// adds the Open editors switch, As Tabs, as their second difference.)
+    /// user's, before the shell) in exactly two: the Bottom Dock closed
+    /// and editors opening as tabs (M3's T10).
     #[test]
     fn a_new_installation_differs_from_the_defaults_only_in_the_log_closed() {
         let new = Settings::new_installation();
-        assert!(new.hide_log && !Settings::default().hide_log);
-        assert_eq!(Settings { hide_log: false, ..new }, Settings::default());
+        let old = Settings::default();
+        assert!(new.hide_log && !old.hide_log);
+        assert_eq!(
+            (new.open_editors, old.open_editors),
+            (OpenEditors::Tabs, OpenEditors::Floating)
+        );
+        let back = Settings { hide_log: false, open_editors: OpenEditors::Floating, ..new.clone() };
+        assert_eq!(back, old);
+        // (Each alone is a difference.)
+        assert_ne!(Settings { hide_log: false, ..new.clone() }, old);
+        assert_ne!(Settings { open_editors: OpenEditors::Floating, ..new }, old);
+    }
+
+    /// Open editors as it is read: a settings file without it (every
+    /// Moonglow's before T10) reads As Floating Windows; each value reads
+    /// back as written, in RON and JSON; a value this version does not
+    /// know (a newer Moonglow's) reads as the default, nothing else lost;
+    /// no file at all, a new installation's As Tabs. And what this version
+    /// writes reads in a Moonglow without the field (4.1.0 reads with
+    /// `serde(default)` and no `deny_unknown_fields`): the field passed
+    /// over, the rest kept.
+    #[test]
+    fn open_editors_reads_floating_without_the_field_and_each_value_back() {
+        assert_eq!(Settings::default().open_editors, OpenEditors::Floating);
+        let old: Settings = ron::from_str("(light_theme:true)").unwrap();
+        assert_eq!(old.open_editors, OpenEditors::Floating);
+        let old: Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
+        assert_eq!(old.open_editors, OpenEditors::Floating);
+        for value in [OpenEditors::Tabs, OpenEditors::Floating] {
+            let s = Settings { open_editors: value, light_theme: true, ..Default::default() };
+            let text = s.saved_text();
+            assert!(text.contains(&format!("open_editors:{value:?}")), "{text}");
+            assert_eq!(ron::from_str::<Settings>(&text).unwrap(), s);
+            assert_eq!(Settings::read_fields(&text).unwrap(), (s.clone(), Vec::new()));
+            let json = serde_json::to_string(&s).unwrap();
+            assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), s);
+            // (As a Moonglow without the field reads it.)
+            #[derive(Deserialize, Default)]
+            #[serde(default)]
+            struct Older {
+                light_theme: bool,
+                hide_log: bool,
+            }
+            let older: Older = ron::from_str(&text).unwrap();
+            assert!(older.light_theme && !older.hide_log, "{text}");
+        }
+        let newer = Settings::default()
+            .saved_text()
+            .replace("open_editors:Floating", "open_editors:Docked");
+        let (read, unread) = Settings::read_fields(&newer).unwrap();
+        assert_eq!((read.open_editors, unread), (OpenEditors::Floating, Vec::<String>::new()));
+        let dir = mg_testkit::scratch_dir("settings-open-editors");
+        let read = Settings::read_eframe(&dir.join("app.ron"), "moonglow-settings");
+        assert_eq!(read.settings.open_editors, OpenEditors::Tabs, "no file");
     }
 
     /// The settings 4.1.0 kept (before the shell's dock sizes), as RON and
@@ -1707,7 +1783,8 @@ mod tests {
     fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
         // (The fields the shell added since 4.1.0: whatever their values,
         // a 4.1.0 file has none of them.)
-        const ADDED: [&str; 3] = ["left_dock_width", "right_dock_width", "bottom_dock_height"];
+        const ADDED: [&str; 4] =
+            ["left_dock_width", "right_dock_width", "bottom_dock_height", "open_editors"];
         let saved = Settings { light_theme: true, ..Default::default() };
         let mut ron_text = saved.saved_text();
         for field in ADDED {
