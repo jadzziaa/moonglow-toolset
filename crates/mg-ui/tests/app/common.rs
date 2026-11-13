@@ -1122,12 +1122,16 @@ pub(crate) fn click_window_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
 /// in it, not its title row's at its top, which closes it too.
 pub(crate) fn click_dialog_s_own_close(h: &mut Harness<'_, Moonglow>, title: &str) {
     let window = h.get_by_label(title).rect();
-    let lowest = h
-        .get_all_by_label("Close")
-        .filter(|n| window.contains_rect(n.rect()))
-        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
-        .unwrap_or_else(|| panic!("no Close in {title}"));
-    lowest.click();
+    // (Not the title row's, in its top 28 points: that one is not the
+    // dialog's own.)
+    let below_row = window.top() + 28.0;
+    let own: Vec<egui::Rect> = (h.get_by_label(title).query_all_by_label("Close"))
+        .map(|n| n.rect())
+        .filter(|r| r.top() >= below_row)
+        .collect();
+    let [at] = own[..] else { panic!("one Close of {title}'s own under its row, found {own:?}") };
+    let node = (h.get_by_label(title).query_all_by_label("Close")).find(|n| n.rect() == at);
+    node.expect("the Close found").click();
 }
 
 /// Closes the editors' windows (the tabs not in the main dock), back to the

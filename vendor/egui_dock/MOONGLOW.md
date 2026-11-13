@@ -1,9 +1,11 @@
 # egui_dock, patched for Moonglow
 
-egui_dock 0.21.1 as published on crates.io, with three additions, in
-`src/widgets/dock_area/mod.rs`, `src/widgets/dock_area/show/leaf.rs` and
-`src/widgets/tab_viewer.rs` (and `WindowBarButton` exported from
-`src/widgets/mod.rs`), each marked "Moonglow's patch" there.
+egui_dock 0.21.1 as published on crates.io, with four additions, in
+`src/widgets/dock_area/mod.rs`, `src/widgets/dock_area/show/leaf.rs`,
+`src/widgets/dock_area/show/window_surface.rs`,
+`src/dock_state/window_state.rs` and `src/widgets/tab_viewer.rs` (and
+`WindowBarButton` exported from `src/widgets/mod.rs`), each marked
+"Moonglow's patch" there.
 
 The first is `DockArea::main_surface_end_room(room)`. With it, the main surface's tab
 bars have no leaf collapse arrow and no close-all-tabs button (the windows'
@@ -35,10 +37,18 @@ its window's only one), called for a window's collapse arrow and close
 all once egui_dock has taken their clicks and before it paints them:
 where it answers true, egui_dock paints nothing of the button (fill,
 symbol, border) and gives it none of its tips, and the application
-paints it and names it on the `Response` given. What the buttons do
-(the collapse through crate-private state, the close all through
-`TabViewer::on_close`) stays egui_dock's. Without an implementation
-nothing changes.
+paints it and names it on the `Response` given. What a click does is
+egui_dock's own, in each of its modes, the painted close all copying
+egui_dock's logic: without the secondary button's modifier held, the
+collapse folds the pane and the close all closes the pane's tabs
+(through `TabViewer::on_close`, so a tab that asks asks), and its right
+click menu offers to close the window; with the modifier held
+(`DockArea::secondary_button_on_modifier`, Shift by default), egui_dock's
+own close all only draws a "close window" symbol and a click on it does
+nothing, and its collapse minimizes the window. Moonglow turns that mode
+off (`secondary_button_on_modifier(false)`), so Shift changes nothing on
+a window's buttons, and the names and tips it gives them are always
+true. Without an implementation nothing changes.
 
 Why: the Floating board draws a window's bar with the suite's icon
 buttons (a chevron at the left, Close at the right beside Maximize, each
@@ -46,6 +56,19 @@ buttons (a chevron at the left, Close at the right beside Maximize, each
 accessible name; the collapse cannot be drawn by the application instead
 (as above), and a screen reader found two unnamed buttons on every
 window.
+
+The fourth is `DockArea::window_end_room(room)` and
+`DockArea::window_min_width(width)`: `room` points left free of tabs at
+the right end of a window's tab bars, before its close all, as
+`main_surface_end_room` leaves on the main surface's; and the least
+width a window can be made, whether dragged or given a size
+(`WindowState::set_size`, held to it). Without the calls nothing changes.
+
+Why: Moonglow puts Maximize beside a window's close all; egui_dock laid
+the tabs out to the close all, so in a narrow window the tabs ran under
+Maximize and the last tab's close lay on the close all (one click there
+closed the window), and a window narrower than its bar's buttons lost
+Maximize altogether.
 
 The root `Cargo.toml` patches it in (`[patch.crates-io]`) and leaves it out
 of the workspace. Drop it, and the patch, once egui_dock offers a per-surface

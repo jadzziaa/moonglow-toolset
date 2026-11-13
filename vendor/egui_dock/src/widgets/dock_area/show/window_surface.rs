@@ -22,11 +22,12 @@ impl<Tab> DockArea<'_, Tab> {
         let id = format!("window {surf_index:?}").into();
         let bounds = self.window_bounds.unwrap();
         let open = true;
+        // (Moonglow's patch: `DockArea::window_min_width`.)
         let window = self
             .dock_state
             .get_window_state_mut(surf_index)
             .unwrap()
-            .create_window(id, bounds);
+            .create_window(id, bounds, self.window_min_width);
 
         // Calculate fading of the window (if any)
         let (fade_factor, fade_style) = match fade_style {

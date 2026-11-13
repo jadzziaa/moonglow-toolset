@@ -32,6 +32,9 @@ pub struct DockArea<'tree, Tab> {
     show_leaf_close_all_buttons: bool,
     show_leaf_collapse_buttons: bool,
     main_surface_end_room: Option<f32>,
+    // (Moonglow's patch: `DockArea::window_end_room`, `window_min_width`.)
+    window_end_room: Option<f32>,
+    window_min_width: Option<f32>,
     show_secondary_button_hint: bool,
     secondary_button_modifiers: Modifiers,
     secondary_button_on_modifier: bool,
@@ -72,6 +75,8 @@ impl<'tree, Tab> DockArea<'tree, Tab> {
             show_leaf_close_all_buttons: true,
             show_leaf_collapse_buttons: true,
             main_surface_end_room: None,
+            window_end_room: None,
+            window_min_width: None,
             show_secondary_button_hint: true,
             secondary_button_modifiers: Modifiers::SHIFT,
             secondary_button_on_modifier: true,
@@ -229,6 +234,25 @@ impl<'tree, Tab> DockArea<'tree, Tab> {
     #[inline(always)]
     pub fn main_surface_end_room(mut self, room: f32) -> Self {
         self.main_surface_end_room = Some(room.max(0.0));
+        self
+    }
+
+    /// (Moonglow's patch.) `room` points left free at the right end of a
+    /// window's tab bars, before its close all tabs button, where the tabs
+    /// do not go, for the application's own buttons. By default a
+    /// window's tabs go up to its close all tabs button.
+    #[inline(always)]
+    pub fn window_end_room(mut self, room: f32) -> Self {
+        self.window_end_room = Some(room.max(0.0));
+        self
+    }
+
+    /// (Moonglow's patch.) The least width a window can be made (its whole
+    /// width, frame and all): room for its bar's buttons and a tab. By
+    /// default egui's.
+    #[inline(always)]
+    pub fn window_min_width(mut self, width: f32) -> Self {
+        self.window_min_width = Some(width.max(0.0));
         self
     }
 }

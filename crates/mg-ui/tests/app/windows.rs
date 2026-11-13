@@ -3191,3 +3191,60 @@ fn the_wizards_on_a_placed_object_follow_it_through_its_list() {
     assert_eq!(held(&h), (None, None, None, None));
     assert!(h.state().placeable_gallery.is_some(), "the gallery itself stays");
 }
+
+/// A module's open-tabs record from before the theme (no `rects_scaled`):
+/// its window opens as much taller as its kind's windows are now (a
+/// script's 8%), once; the record written again says so, and read again
+/// the window is as tall, not taller; and the window moved, its kind's
+/// remembered size is the scaled height, not the record's old one.
+#[test]
+fn an_old_record_s_window_opens_taller_once() {
+    let (path, app, kept) = tabs_app("ui-open-tabs-scaled");
+    drop(app);
+    std::fs::create_dir_all(&kept).unwrap();
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    let record = r#"{"panes":[
+        {"place":"middle","tabs":["module-properties"]},
+        {"place":"window","tabs":["script:hello.nss"],"rect":[300.0,120.0,700.0,500.0]}
+    ]}"#;
+    std::fs::write(&file, record).unwrap();
+    let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    let window_height = |h: &Harness<'_, Moonglow>| {
+        let path = h.state().dock.find_tab(&hello).expect("open");
+        assert!(!path.surface.is_main(), "in its window");
+        let leaf = h.state().dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1;
+        // (The window's height: its pane's and the frame round it.)
+        leaf.rect.height() + 2.0
+    };
+    let mut h = tabs_session(&path, &kept);
+    settle(&mut h);
+    let first = window_height(&h);
+    assert!((first - 540.0).abs() < 2.0, "500 made 540: {first}");
+    // Moved by its bar: its kind's size is the scaled one.
+    let bar = {
+        let path = h.state().dock.find_tab(&hello).unwrap();
+        let leaf = h.state().dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1;
+        egui::pos2(leaf.rect.right() - 80.0, leaf.rect.top() + 10.0)
+    };
+    h.hover_at(bar);
+    h.run_steps(1);
+    press(&h, bar, true, egui::Modifiers::NONE);
+    for k in 1..=5 {
+        h.hover_at(bar + egui::vec2(8.0 * k as f32, 6.0 * k as f32));
+        h.run_steps(1); // (One step a pointer move.)
+    }
+    press(&h, bar + egui::vec2(40.0, 30.0), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    let size = h.state().settings.window_sizes.iter().find(|(k, _)| k == "script").map(|(_, s)| *s);
+    let size = size.expect("the script's size kept as it moved");
+    assert!((size[1] as f32 - 540.0).abs() < 2.0, "the scaled height kept: {size:?}");
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    drop(h);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("\"rects_scaled\": true"), "{text}");
+    let mut h = tabs_session(&path, &kept);
+    settle(&mut h);
+    let again = window_height(&h);
+    assert!((again - first).abs() < 2.0, "not taller again: {again} after {first}");
+}

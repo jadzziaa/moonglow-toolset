@@ -61,4 +61,6 @@ pub use menu::{
 pub use theme::{Theme, TokensExt, applied, apply, tokens};
 pub use tokens::Tokens;
 pub use tree::{TreeGroup, TreeRow, TreeRowShown};
-pub use window::{TitleRow, paint_resize_grip, title_row, title_row_width};
+pub use window::{
+    TitleRow, paint_resize_grip, title_row, title_row_width, title_row_width_with, title_row_with,
+};

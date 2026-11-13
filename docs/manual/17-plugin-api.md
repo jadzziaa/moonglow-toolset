@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T04:39:23Z }
 ---
 
 # Plugin API reference
@@ -342,7 +342,7 @@ would write what nobody saw. So around a save a plugin only reads: a
 `resource-saving` or `resource-saved` handler that edits fails (as one
 that sets a setting before a save does), and what it would change it
 offers as a fix, made only if the user clicks it. A fix made from the
-Before saving window is a step of Undo of its own, and the save is then
+Before Saving window is a step of Undo of its own, and the save is then
 asked again: the plugins read the module as it now is.
 
 **In what order.** Moonglow's own work comes first: the builder code in

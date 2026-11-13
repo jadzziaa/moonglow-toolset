@@ -2696,7 +2696,7 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut later = false;
     let modal =
         crate::widgets::modal_window(ctx, egui::Id::new("plugin-project")).show(ctx, |ui| {
-            crate::widgets::modal_titled(ui, "This project comes with plugins", |ui| {
+            crate::widgets::modal_titled(ui, "This Project Comes with Plugins", |ui| {
                 ui.set_width(520.0);
                 ui.label(format!(
             "Its folder {}/ holds plugins the team shares. None of their code runs until you \

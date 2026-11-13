@@ -362,7 +362,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let modal = crate::widgets::modal_window(ctx, egui::Id::new("plugin-save")).show(ctx, |ui| {
         crate::widgets::modal_titled(
             ui,
-            if refused { "Not saved" } else { "Before saving" },
+            if refused { "Not Saved" } else { "Before Saving" },
             |ui| {
                 ui.set_width(540.0);
                 ui.label(if refused {

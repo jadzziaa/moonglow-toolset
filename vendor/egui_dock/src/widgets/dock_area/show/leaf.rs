@@ -240,12 +240,14 @@ impl<Tab> DockArea<'_, Tab> {
             return tabbar_outer_rect;
         }
 
-        // (Moonglow's patch: `DockArea::main_surface_end_room`.)
-        let end_room = self
+        // (Moonglow's patch: `DockArea::main_surface_end_room` and
+        // `DockArea::window_end_room`.)
+        let main_room = self
             .main_surface_end_room
             .filter(|_| path.surface.is_main());
-        let show_close_all = self.show_leaf_close_all_buttons && end_room.is_none();
-        let show_collapse = self.show_leaf_collapse_buttons && end_room.is_none();
+        let show_close_all = self.show_leaf_close_all_buttons && main_room.is_none();
+        let show_collapse = self.show_leaf_collapse_buttons && main_room.is_none();
+        let end_room = main_room.or(self.window_end_room.filter(|_| !path.surface.is_main()));
         if let Some(room) = end_room {
             available_width = (available_width - room).at_least(0.0);
         }
@@ -747,9 +749,15 @@ impl<Tab> DockArea<'_, Tab> {
         let on_secondary_button = self.is_on_secondary_button(path.surface, ui, &response);
 
         if painted {
+            // (What egui_dock's own does below, in each mode: in the
+            // secondary button's mode (a modifier held) a click does
+            // nothing; else the leaf's tabs are closed, and its menu offers
+            // the window's.)
             if !disabled {
                 response = response.on_hover_cursor(CursorIcon::PointingHand);
-                if !path.surface.is_main() && self.secondary_button_context_menu {
+            }
+            if !on_secondary_button {
+                if !disabled && !path.surface.is_main() && self.secondary_button_context_menu {
                     response.context_menu(|ui| {
                         ui.add_enabled_ui(!close_window_disabled, |ui| {
                             if ui
@@ -761,13 +769,7 @@ impl<Tab> DockArea<'_, Tab> {
                         });
                     });
                 }
-            }
-            if response.clicked() {
-                if on_secondary_button {
-                    if !close_window_disabled {
-                        self.to_remove.push(TabRemoval::Window(path.surface));
-                    }
-                } else if !disabled {
+                if response.clicked() && !disabled {
                     self.to_remove.push(TabRemoval::Node(path));
                 }
             }

@@ -7548,7 +7548,7 @@ fn nui_delete_and_rename() {
     h.run_steps(4);
     h.get_by_label("Edit Code").click();
     h.run();
-    assert!(h.query_by_label_contains("shop_e.nss").is_some(), "the event script opened");
+    assert!(h.query_by_label("shop_e.nss").is_some(), "the event script opened");
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();
     h.event(egui::Event::Text("// typed\n".into()));
@@ -9251,6 +9251,24 @@ fn main_window_log_and_tree() {
     // Rows chosen with Shift and Ctrl, and their menu.
     h.get_by_label("Clear Filter").click();
     h.run_steps(4);
+    shoot(&mut h, &dir, "w3-tree-filter-cleared");
+    // (The tree stays at the tab chosen, a script far down the list:
+    // the areas' rows are up out of sight, and the tree lays out the rows
+    // in sight alone. Scrolled up to them by the wheel, as a builder
+    // would; a wheel's turn a step.)
+    let started = std::time::Instant::now();
+    let over_tree = egui::pos2(120.0, 300.0);
+    h.hover_at(over_tree);
+    while h.query_by_label("estate").is_none() {
+        assert!(started.elapsed().as_secs() < 30, "estate never came into sight");
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 200.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
     let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
         let at = h.get_by_label(label).rect().center();
         h.hover_at(at);

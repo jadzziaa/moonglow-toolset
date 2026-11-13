@@ -52,6 +52,13 @@ struct Record {
     /// finds each again in its area's list if the list changed since.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     objects: BTreeMap<String, Placed>,
+    /// Whether its windows' rectangles were taken with the theme's rows
+    /// (22 points): absent (false) in a record from before the theme,
+    /// whose windows' heights are made as much taller as their kind's
+    /// windows are now as it is read (`Tab::taller`), once; this version
+    /// writes it. (4.1.0 passes over it.)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    rects_scaled: bool,
 }
 
 /// A pane's tabs (a window's: all its panes'), as [`Moonglow::tab_text`]
@@ -881,9 +888,16 @@ impl Moonglow {
             if let Some(s) = &mut split {
                 rename_split(s, &renamed);
             }
-            let rect = pane
-                .rect
-                .map(|[x, y, w, h]| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h)));
+            // (A record from before the theme: the window as much taller as
+            // its first tab's kind's are now, once, as the remembered sizes
+            // are: `Settings::scale_window_sizes`.)
+            let taller = match (record.rects_scaled, tabs.first()) {
+                (false, Some((_, Want::Tab(tab)))) => tab.taller(),
+                _ => 1.0,
+            };
+            let rect = pane.rect.map(|[x, y, w, h]| {
+                egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, (h * taller).round()))
+            });
             let active = rename(&pane.active);
             panes.push(Kept { place: Place::parse(&pane.place), tabs, active, rect, split });
         }
@@ -1116,7 +1130,7 @@ impl Moonglow {
             }
             self.objects_of(tab, &mut objects);
         }
-        Record { panes, front, views, objects }
+        Record { panes, front, views, objects, rects_scaled: true }
     }
 
     /// Writes the open module's tabs, if they are kept and changed since

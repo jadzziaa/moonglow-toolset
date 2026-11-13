@@ -1737,7 +1737,7 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     let mut h = project_harness(&dir, false).unwrap();
     h.run();
     assert_eq!(h.state().plugins.project_asking, [id]);
-    h.get_by_label("This project comes with plugins");
+    h.get_by_label("This Project Comes with Plugins");
     h.get_by_label_contains("Its folder plugins/ holds plugins the team shares");
     h.get_by_label("Builder tags 1.0.0");
     h.get_by_label("Command: Prefix Tags (right-click: creature, placeable)");
@@ -1752,7 +1752,7 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     h.get_by_label("Decide Later").click();
     h.run();
     assert!(h.state().plugins.project_asking.is_empty() && !runs(&h, id));
-    assert!(h.query_by_label("This project comes with plugins").is_none());
+    assert!(h.query_by_label("This Project Comes with Plugins").is_none());
     h.state_mut().open_module(&dir);
     h.run();
     assert_eq!(h.state().plugins.project_asking, [id]);
@@ -1825,7 +1825,7 @@ fn answers_a_project_carries_are_not_taken() {
     h.run();
     assert_eq!(h.state().plugins.project_asking, ["example.builder-tags"]);
     assert!(!runs(&h, "example.builder-tags"));
-    h.get_by_label("This project comes with plugins");
+    h.get_by_label("This Project Comes with Plugins");
     let log = &h.state().log.entries;
     assert!(
         log.iter().any(|(l, m)| *l == mg_ui::Level::Warning
@@ -2174,7 +2174,7 @@ fn a_plugin_refuses_a_save_and_says_why() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run_steps(3);
     assert!(!saved(&h), "nothing written");
-    h.get_by_label("Not saved");
+    h.get_by_label("Not Saved");
     h.get_by_label("Refused");
     h.get_by_label_contains("its tag was TAVERN, now INN: players' places are kept by it");
     assert!(h.query_by_label("Save Anyway").is_none(), "a refusal is not saved anyway");
@@ -2232,7 +2232,7 @@ fn a_plugin_warns_before_a_save() {
     h.run_steps(2);
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run_steps(3);
-    h.get_by_label("Before saving");
+    h.get_by_label("Before Saving");
     h.get_by_label("Warning");
     h.get_by_label("tag Cellar is not upper case");
     h.get_by_label("Make it CELLAR");
@@ -2472,7 +2472,7 @@ fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
     h.get_by_label("Areas Not Yours");
     h.get_by_label("Save Anyway").click();
     h.run_steps(3);
-    h.get_by_label("Before saving");
+    h.get_by_label("Before Saving");
     h.get_by_label("tag Cellar is not upper case");
     h.get_by_label("Save Anyway").click();
     h.run_steps(3);
@@ -2507,7 +2507,7 @@ fn save_anyway_on_a_save_as_does_not_answer_the_claims_for_the_next_save() {
     h.run();
     h.state_mut().actions.push(mg_ui::Action::SaveAt(ModuleLocation::Folder(dir)));
     h.run_steps(3);
-    h.get_by_label("Before saving");
+    h.get_by_label("Before Saving");
     h.get_by_label("Save Anyway").click();
     h.run_steps(3);
     assert!(!h.state().has_unsaved_work(), "saved");

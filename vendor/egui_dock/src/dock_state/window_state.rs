@@ -118,7 +118,12 @@ impl WindowState {
     }
 
     //the 'static in this case means that the `open` field is always `None`
-    pub(crate) fn create_window(&mut self, id: Id, bounds: Rect) -> egui::Window<'static> {
+    pub(crate) fn create_window(
+        &mut self,
+        id: Id,
+        bounds: Rect,
+        min_width: Option<f32>,
+    ) -> egui::Window<'static> {
         let new = self.new;
         let mut window_constructor = egui::Window::new("")
             .id(id)
@@ -128,7 +133,17 @@ impl WindowState {
         if let Some(position) = self.next_position() {
             window_constructor = window_constructor.current_pos(position);
         }
-        if let Some(size) = self.next_size() {
+        // (Moonglow's patch: `DockArea::window_min_width`, before a size
+        // given: `fixed_size` sets the least as well, which a least set
+        // after it would undo.)
+        if let Some(min) = min_width {
+            window_constructor = window_constructor.min_width(min);
+        }
+        if let Some(mut size) = self.next_size() {
+            // (Moonglow's patch: a size given narrower held to the least.)
+            if let Some(min) = min_width {
+                size.x = size.x.max(min);
+            }
             window_constructor = window_constructor.fixed_size(size);
         }
         // Reset the height of the window if it is now expanded

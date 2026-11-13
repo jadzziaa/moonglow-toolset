@@ -719,7 +719,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // text selections, sliders and canvas handles retain their own drag sense.
     // (Its own room only: OK and Cancel under it are not its body.)
     let body = ui.available_rect_before_wrap();
-    ui.interact(body, id.with("body-drag-guard"), egui::Sense::drag());
+    // (Not a stop of Tab: `Sense::DRAG` alone.)
+    ui.interact(body, id.with("body-drag-guard"), egui::Sense::DRAG);
     let mut state = app.nui_views.remove(&key).unwrap_or_default();
     if let Some(path) = state.select_next.take() {
         state.selected = path;

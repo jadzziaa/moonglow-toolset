@@ -200,28 +200,87 @@ fn a_dialog_opens_in_the_middle_of_the_main_window_whatever_the_docks() {
     }
 }
 
-/// In the least window (420 points, both docks open, the editor area
-/// narrower than the wizard) the Area Wizard is wholly in the window, its
-/// buttons in reach.
-#[test]
-fn a_dialog_stays_whole_in_the_least_window() {
-    let Some((mut h, _)) = area_harness("dialog-least") else { return };
-    h.set_size(egui::vec2(420.0, 700.0));
-    settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::AreaWizard);
-    settle(&mut h);
-    let screen = h.ctx.content_rect();
-    let window = window_rect(&h, "Area Wizard");
-    let area = h.state().editor_area_rect().expect("the editor area");
-    assert!(area.width() < window.width(), "the editor area narrower: {area:?} {window:?}");
-    assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
-    for button in ["Create", "Cancel"] {
-        let at = h.get_by_label(button).rect();
-        assert!(screen.contains_rect(at) && window.contains_rect(at), "{button} at {at:?}");
+/// The window sizes a dialog must hold in: the least window
+/// (`LEAST_WINDOW_SIZE`, 420 by 320) and a short one.
+const SHORT_WINDOWS: [egui::Vec2; 2] = [mg_ui::LEAST_WINDOW_SIZE, egui::vec2(800.0, 450.0)];
+
+/// The dialog `title` held in the window whatever its size: wholly inside
+/// it, its title row in sight, and each of `buttons` (its last ones)
+/// brought into sight where its body scrolls, inside the dialog and the
+/// window; then the last of them clicked, which answers it.
+fn reachable(h: &mut Harness<'_, Moonglow>, title: &str, buttons: &[&str], at: egui::Vec2) {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, at);
+    let window = resting(h, title);
+    assert!(screen.contains_rect(window.shrink(0.5)), "{title} at {at:?}: {window:?}");
+    let row = egui::Rect::from_min_size(window.min, egui::vec2(window.width(), 28.0));
+    assert!(screen.contains_rect(row.shrink(0.5)), "{title} at {at:?}: its row {row:?}");
+    // (Its buttons found within it: a window behind it has an OK and a
+    // Cancel too.)
+    let mine = |h: &Harness<'_, Moonglow>, button: &str| -> Option<egui::Rect> {
+        let window = h.get_by_label(title);
+        window.query_all_by_label(button).map(|n| n.rect()).next()
+    };
+    for button in buttons {
+        let window = h.get_by_label(title);
+        let node = window.query_all_by_label(button).next();
+        node.unwrap_or_else(|| panic!("{title} at {at:?}: its {button}")).scroll_to_me();
+        h.run();
+        let window = resting(h, title);
+        let r = mine(h, button).unwrap_or_else(|| panic!("{title} at {at:?}: its {button}"));
+        let seen = window.intersect(screen);
+        assert!(seen.contains_rect(r.shrink(0.5)), "{title} at {at:?}: {button} {r:?} {seen:?}");
     }
-    h.get_by_label("Cancel").click();
-    settle(&mut h);
-    assert!(h.query_by_label("Area Wizard").is_none(), "answered");
+    let last = buttons.last().unwrap();
+    resting(h, title);
+    h.get_by_label(title).query_all_by_label(last).next().unwrap().click();
+    settle(h);
+    assert!(h.query_by_label(title).is_none(), "{title} at {at:?}: answered by its {last}");
+}
+
+/// The Area Wizard (the tallest dialog over an area) in the least window,
+/// 420 by 320, and in a short one, 800 by 450: in the window, its title
+/// row in sight, its body scrolling to Create and Cancel.
+#[test]
+fn a_tall_dialog_stays_whole_and_scrolls_in_a_short_window() {
+    let Some((mut h, _)) = area_harness("dialog-least") else { return };
+    for at in SHORT_WINDOWS {
+        h.set_size(at);
+        settle(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+        settle(&mut h);
+        if at == mg_ui::LEAST_WINDOW_SIZE {
+            let window = resting(&mut h, "Area Wizard");
+            let area = h.state().editor_area_rect().expect("the editor area");
+            assert!(area.width() < window.width(), "the editor area narrower: {area:?} {window:?}");
+        }
+        reachable(&mut h, "Area Wizard", &["Create", "Cancel"], at);
+    }
+}
+
+/// New Module (over the Welcome page) and a picker (Select Portrait, as
+/// wide as most of the window) at the same sizes.
+#[test]
+fn new_module_and_a_picker_stay_whole_in_a_short_window() {
+    for at in SHORT_WINDOWS {
+        let mut h = harness(app_with(Vec::new()), at.x, at.y);
+        h.run();
+        h.state_mut().actions.push(mg_ui::Action::NewModuleDialog);
+        settle(&mut h);
+        reachable(&mut h, "New Module", &["Create", "Cancel"], at);
+    }
+    let Some((mut h, _)) = blueprint_harness("nw_bandit001", "bandit_short", ResType::UTC) else {
+        return;
+    };
+    for at in SHORT_WINDOWS {
+        h.set_size(at);
+        settle(&mut h);
+        let portraits = h.get_by_label("Portraits…");
+        portraits.scroll_to_me();
+        h.run();
+        h.get_by_label("Portraits…").click();
+        settle(&mut h);
+        reachable(&mut h, "Select Portrait", &["OK", "Cancel"], at);
+    }
 }
 
 /// The area's Properties in a window of its own in `mode` (As Tabs keeps
@@ -288,6 +347,17 @@ fn a_floating_window_s_bar(mode: Mode) {
         h.hover_at(first.center());
         h.run();
     }
+    // Tab and Shift+Tab about Maximize: each stop a named control (the
+    // bar behind the buttons and the body's drag catcher take none).
+    for m in [egui::Modifiers::SHIFT, egui::Modifiers::NONE] {
+        h.get_by_label("Maximize").focus();
+        h.run();
+        for i in 0..3 {
+            h.key_press_modifiers(m, egui::Key::Tab);
+            h.run();
+            focused(&h, &format!("{m:?} Tab {}", i + 1));
+        }
+    }
     // Collapsed to its bar, and opened again.
     h.get_by_label("Collapse").click();
     settle(&mut h);
@@ -319,15 +389,28 @@ fn a_floating_window_s_bar(mode: Mode) {
     // The grip, in the window's corner, in `text-off`: dragged, the
     // window smaller.
     let (now, _) = pane(&h, &props);
-    let off = mg_uikit::tokens(&h.ctx).text_off;
+    let t = mg_uikit::tokens(&h.ctx);
     let corner = egui::Rect::from_min_max(now.right_bottom() - egui::vec2(14.0, 14.0), now.max);
-    let grip_strokes = h.output().shapes.iter().filter(|s| match &s.shape {
-        egui::Shape::LineSegment { points, stroke } => {
-            stroke.color == off && points.iter().all(|p| corner.expand(2.0).contains(*p))
-        }
-        _ => false,
-    });
-    assert_eq!(grip_strokes.count(), 2, "the grip's two strokes in {corner:?}");
+    let grip_strokes = |h: &Harness<'_, Moonglow>, color: egui::Color32| {
+        (h.output().shapes.iter())
+            .filter(|s| match &s.shape {
+                egui::Shape::LineSegment { points, stroke } => {
+                    stroke.color == color && points.iter().all(|p| corner.expand(2.0).contains(*p))
+                }
+                _ => false,
+            })
+            .count()
+    };
+    assert_eq!(grip_strokes(&h, t.text_off), 2, "the grip's two strokes in {corner:?}");
+    // Lit where egui resizes by the corner (its grab radius, 10 points),
+    // not past it.
+    let window_corner = now.max + egui::vec2(1.0, 1.0);
+    for (off, lit) in [(13.0, false), (4.0, true)] {
+        h.hover_at(window_corner - egui::vec2(off, off));
+        h.run_steps(1); // (One step: the hover's frame.)
+        let color = if lit { t.text_2 } else { t.text_off };
+        assert_eq!(grip_strokes(&h, color), 2, "{off} points in: lit {lit}");
+    }
     let grip = now.right_bottom() - egui::vec2(6.0, 6.0);
     press_drag(&mut h, grip, grip - egui::vec2(90.0, 60.0));
     settle(&mut h);
@@ -370,8 +453,12 @@ fn a_size_scaled_past_the_window_opens_inside_it() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
     settle(&mut h);
     let (rect, _) = pane(&h, &props);
+    // (Under the Top Bar, where windows open: the editor area's top down
+    // to the window's foot.)
     let screen = h.ctx.content_rect();
-    assert!(screen.contains_rect(rect), "{rect:?} inside {screen:?}");
+    let top = h.state().editor_area_rect().expect("the editor area").top();
+    let room = egui::Rect::from_x_y_ranges(screen.x_range(), top..=screen.bottom());
+    assert!(room.expand(1.0).contains_rect(rect), "{rect:?} inside {room:?}");
     assert!(rect.width() > 650.0, "its width kept: {rect:?}");
 }
 
@@ -428,17 +515,10 @@ fn a_picker_s_close_is_its_cancel() {
     // (A portrait chosen, not taken: the Close drops it.)
     h.get_by_label("po_dw_f_01_").click();
     settle(&mut h);
-    // (Where the picker is once its pictures are in, its Close waited for:
-    // the picker grows about its middle as they come.)
-    let in_picker = |h: &Harness<'_, Moonglow>| {
-        let window = window_rect(h, "Select Portrait");
-        h.query_all_by_label("Close").map(|n| n.rect()).find(|r| window.contains_rect(*r))
-    };
-    let started = std::time::Instant::now();
-    while in_picker(&h).is_none() && started.elapsed().as_secs() < 10 {
-        h.step();
-    }
-    let window = window_rect(&h, "Select Portrait");
+    // (Where the picker is once it rests: its first frame is egui's
+    // sizing pass, laid out at a default place, and it grows about its
+    // middle as its pictures come.)
+    let window = resting(&mut h, "Select Portrait");
     let close = h.query_all_by_label("Close").find(|n| window.contains_rect(n.rect()));
     let close = close.expect("a Close in the picker's title row");
     assert!(close.rect().top() - window.top() < 6.0, "in its title row");
@@ -473,4 +553,323 @@ fn a_resizable_dialog_is_made_narrower_by_its_edge() {
     press_drag(&mut h, edge, edge + egui::vec2(60.0, 0.0));
     let wider = resting(&mut h, TITLE);
     assert!(wider.width() > narrower.width() + 20.0, "{wider:?} from {narrower:?}");
+}
+
+/// The node with the keyboard's focus: its name and where it is drawn,
+/// failing where none has it (a widget with no node: nothing a screen
+/// reader can say, nothing drawn).
+fn focused(h: &Harness<'_, Moonglow>, after: &str) -> (String, egui::Rect) {
+    let found: Vec<(String, egui::Rect)> = h
+        .query_all_by(|n| n.is_focused())
+        .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
+        .collect();
+    let [(name, rect)] = &found[..] else { panic!("after {after}: focused {found:?}") };
+    assert!(!name.is_empty(), "after {after}: a stop with no name at {rect:?}");
+    assert!(rect.is_positive(), "after {after}: {name} not drawn ({rect:?})");
+    (name.clone(), *rect)
+}
+
+/// Tab through a dialog, forward and backward: every stop is a control
+/// with a name, drawn where it is (none of the catchers behind the body
+/// or the bar takes the keyboard).
+#[test]
+fn every_stop_of_tab_in_a_dialog_is_a_named_control() {
+    let mut h = about_harness("ui-dialogs-about-tab");
+    for (key, back) in [("Tab", false), ("Shift+Tab", true)] {
+        h.get_by_label("Check for Updates…").focus();
+        h.run();
+        focused(&h, "focus");
+        for i in 0..4 {
+            let m = if back { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+            h.key_press_modifiers(m, egui::Key::Tab);
+            h.run();
+            focused(&h, &format!("{key} {}", i + 1));
+        }
+    }
+}
+
+/// A dialog that folds (Find and Replace Text, which egui's own arrow
+/// folded) has the arrow at its title row's left, "Collapse": clicked, the
+/// dialog is its row alone and the arrow is "Expand"; clicked again, the
+/// dialog is as it was, its size kept; and so by the keyboard (the arrow
+/// focused, Enter). A dialog its buttons answer (New Module) has none.
+#[test]
+fn a_dialog_folds_to_its_title_row_and_back() {
+    let dir = mg_testkit::scratch_dir("ui-dialogs-fold");
+    let mut app = app_with(Vec::new());
+    app.open_module(&sample_module(&dir));
+    let mut h = harness(app, 1100.0, 800.0);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    settle(&mut h);
+    const TITLE: &str = "Find and Replace Text";
+    let open = resting(&mut h, TITLE);
+    let arrow = |h: &Harness<'_, Moonglow>, name: &str| -> Option<egui::Rect> {
+        h.get_by_label(TITLE).query_all_by_label(name).map(|n| n.rect()).next()
+    };
+    let at = arrow(&h, "Collapse").expect("the arrow at its row's left");
+    assert!(at.left() - open.left() < 6.0 && at.top() - open.top() < 6.0, "{at:?} {open:?}");
+    tip_at(&mut h, at.center(), "Collapse the dialog to its title row");
+    for keyboard in [false, true] {
+        let press = |h: &mut Harness<'_, Moonglow>, name: &str| {
+            let node = h.get_by_label(TITLE).query_all_by_label(name).next().unwrap();
+            if keyboard {
+                node.focus();
+                h.run();
+                h.key_press(egui::Key::Enter);
+            } else {
+                node.click();
+            }
+            settle(h);
+        };
+        press(&mut h, "Collapse");
+        let folded = resting(&mut h, TITLE);
+        assert!(folded.height() < 32.0, "its row alone (keyboard {keyboard}): {folded:?}");
+        assert!(arrow(&h, "Collapse").is_none() && arrow(&h, "Expand").is_some());
+        assert!(h.query_by_label("Find what").is_none(), "no body while folded");
+        press(&mut h, "Expand");
+        let back = resting(&mut h, TITLE);
+        assert!((back.size() - open.size()).length() < 1.0, "{back:?} as {open:?}");
+        assert!(arrow(&h, "Collapse").is_some(), "open again");
+    }
+    // A dialog its buttons answer folds not.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::NewModuleDialog);
+    settle(&mut h);
+    let wizard = h.get_by_label("New Module");
+    assert!(wizard.query_all_by_label("Collapse").next().is_none(), "no arrow on a wizard");
+}
+
+/// The bar's buttons and tabs of the pane of `tab`'s window, by the
+/// accessibility tree: each node's name and where it is, within the bar.
+fn window_bar_nodes(
+    h: &Harness<'_, Moonglow>,
+    tab: &Tab,
+) -> (egui::Rect, Vec<(String, egui::Rect)>) {
+    let (pane, _) = pane(h, tab);
+    let s = h.state();
+    let leaf = s.dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab)).unwrap().1;
+    let bar = egui::Rect::from_x_y_ranges(pane.x_range(), pane.top()..=leaf.viewport.top());
+    let mut out = Vec::new();
+    for role in [egui::accesskit::Role::Tab, egui::accesskit::Role::Button] {
+        for n in h.get_all_by_role(role) {
+            let r = n.rect();
+            if r.intersects(bar.shrink(1.0))
+                && r.top() >= bar.top() - 1.0
+                && r.bottom() <= bar.bottom() + 1.0
+            {
+                out.push((n.accesskit_node().label().unwrap_or_default(), r));
+            }
+        }
+    }
+    (bar, out)
+}
+
+/// What takes the pointer in a window's bar's row as a tab does (a click
+/// and a drag), where it does: each tab cut where the bar cuts it. (On
+/// the windows' layers: the main surface's tabs lie under it.)
+fn bar_tab_hits(h: &Harness<'_, Moonglow>, bar: egui::Rect) -> Vec<egui::Rect> {
+    let mut out = Vec::new();
+    h.ctx.viewport(|v| {
+        for (layer, widgets) in v.prev_pass.widgets.layers() {
+            if layer.order != egui::Order::Middle {
+                continue;
+            }
+            for w in widgets.iter() {
+                let r = w.interact_rect;
+                if w.sense.senses_click()
+                    && w.sense.senses_drag()
+                    && r.is_positive()
+                    && (r.center().y - bar.center().y).abs() < 2.0
+                    && r.height() < bar.height() + 1.0
+                    && bar.intersects(r)
+                {
+                    out.push(r);
+                }
+            }
+        }
+    });
+    out
+}
+
+/// A floating window's bar at every width it can have, from its least to
+/// 900 points, with 1, 3 and 8 tabs: the collapse arrow, Maximize and
+/// Close Window always there and inside the bar; every tab and every
+/// tab's close ending before Maximize; no two buttons on one point.
+#[test]
+fn a_window_s_bar_holds_at_every_width() {
+    let Some((mut h, area)) = area_harness("window-bar-sweep") else { return };
+    let props = Tab::AreaProperties(area);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+    settle(&mut h);
+    let more = [
+        Tab::Factions,
+        Tab::Journal,
+        Tab::Manual,
+        Tab::References,
+        Tab::AdvancedSearch,
+        Tab::ModuleProperties,
+        Tab::PlaceableGallery,
+    ];
+    let mut shown = 1;
+    for count in [1usize, 3, 8] {
+        while shown < count {
+            let tab = more[shown - 1].clone();
+            let s = h.state_mut();
+            let path = s.dock.find_tab(&props).expect("open");
+            s.dock.set_focused_node_and_surface(path.node_path());
+            s.dock.push_to_focused_leaf(tab);
+            shown += 1;
+        }
+        settle(&mut h);
+        let surface = {
+            let path = h.state().dock.find_tab(&props).unwrap();
+            assert!(!path.surface.is_main());
+            path.surface
+        };
+        // (From under its least width: it is held there.)
+        let mut width = 40.0;
+        while width <= 900.0 {
+            let s = h.state_mut();
+            // (Its bar below the main surface's tab bar: nothing of that
+            // one lies under it.)
+            let state = s.dock.get_window_state_mut(surface).unwrap();
+            state.set_position(egui::pos2(200.0, 200.0)).set_size(egui::vec2(width, 500.0));
+            settle(&mut h);
+            let (bar, nodes) = window_bar_nodes(&h, &props);
+            let one = |name: &str| -> egui::Rect {
+                let found: Vec<_> =
+                    nodes.iter().filter(|(n, _)| n == name).map(|(_, r)| *r).collect();
+                let [r] = found[..] else {
+                    panic!("{count} at {width}: one {name} in {bar:?}, {found:?}")
+                };
+                assert!(
+                    bar.expand(0.5).contains_rect(r),
+                    "{count} at {width}: {name} {r:?} in {bar:?}"
+                );
+                r
+            };
+            let (collapse, maximize, close) =
+                (one("Collapse"), one("Maximize"), one("Close Window"));
+            // The tabs, as they take the pointer, between the arrow and
+            // Maximize.
+            for r in bar_tab_hits(&h, bar) {
+                assert!(
+                    r.left() >= collapse.right() - 0.5 && r.right() <= maximize.left() + 0.5,
+                    "{count} at {width}: a tab at {r:?}, Collapse at {collapse:?}, Maximize at {maximize:?}"
+                );
+            }
+            let buttons: Vec<&(String, egui::Rect)> = nodes
+                .iter()
+                .filter(|(n, _)| {
+                    n.starts_with("Close ")
+                        || ["Collapse", "Maximize", "Close Window"].contains(&n.as_str())
+                })
+                .collect();
+            for (name, r) in &buttons {
+                if name.starts_with("Close ") && name.as_str() != "Close Window" {
+                    assert!(r.right() <= maximize.left() + 0.5, "{count} at {width}: {name} {r:?}");
+                }
+            }
+            for (i, (a, ra)) in buttons.iter().enumerate() {
+                for (b, rb) in &buttons[i + 1..] {
+                    let both = ra.intersect(*rb);
+                    assert!(!both.is_positive(), "{count} at {width}: {a} {ra:?} over {b} {rb:?}");
+                }
+            }
+            let _ = close;
+            width += 60.0;
+        }
+    }
+}
+
+/// The bar of the pane `tab` is in (not its window's first pane's).
+fn leaf_bar(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Rect {
+    let s = h.state();
+    let leaf = s.dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab)).expect("open").1;
+    egui::Rect::from_x_y_ranges(leaf.rect.x_range(), leaf.rect.top()..=leaf.viewport.top())
+}
+
+/// The button named `name` in the bar of `tab`'s pane.
+fn in_leaf_bar(h: &Harness<'_, Moonglow>, tab: &Tab, name: &str) -> egui::Rect {
+    let bar = leaf_bar(h, tab);
+    let found: Vec<egui::Rect> = (h.query_all_by_label(name).map(|n| n.rect()))
+        .filter(|r| bar.expand(1.0).contains_rect(*r))
+        .collect();
+    let [one] = found[..] else { panic!("one {name} in {bar:?}: {found:?}") };
+    one
+}
+
+/// A click at `at` with `modifiers` held from before the press to after
+/// the release (Shift and a click), a frame each.
+fn click_holding(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, modifiers: egui::Modifiers) {
+    h.input_mut().events.push(egui::Event::ModifiersChanged(modifiers));
+    h.hover_at(at);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        let button = egui::PointerButton::Primary;
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers,
+        });
+        h.run_steps(1);
+    }
+    h.input_mut().events.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+}
+
+/// A window split in panes: each pane's Close is "Close Pane", tipped so,
+/// and closes its pane's tabs alone, with Shift held too (Shift changes
+/// nothing on a window's buttons); a tab of it that asks before closing
+/// (a table with unsaved changes) asks; with one pane left its Close is
+/// "Close Window".
+#[test]
+fn a_window_s_panes_close_one_at_a_time() {
+    let Some((mut h, _)) = area_harness("window-panes") else { return };
+    let dir = mg_testkit::scratch_dir("ui-window-panes");
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, "2DA V2.0\n\n Label Cost\n0 Bread 1\n").unwrap();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    settle(&mut h);
+    let table = Tab::Table(id);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    doc.edit.set(0, 0, Some("Loaf".into())).unwrap();
+    // Split: the table, Factions at its right, the Journal under Factions.
+    {
+        let s = h.state_mut();
+        let path = s.dock.find_tab(&table).expect("open");
+        assert!(!path.surface.is_main(), "in a window");
+        let state = s.dock.get_window_state_mut(path.surface).unwrap();
+        state.set_position(egui::pos2(200.0, 120.0)).set_size(egui::vec2(800.0, 560.0));
+        let [_, right] = s.dock[path.surface].split_right(path.node, 0.5, vec![Tab::Factions]);
+        s.dock[path.surface].split_below(right, 0.5, vec![Tab::Journal]);
+    }
+    settle(&mut h);
+    for tab in [&table, &Tab::Factions, &Tab::Journal] {
+        in_leaf_bar(&h, tab, "Close Pane");
+    }
+    let at = in_leaf_bar(&h, &Tab::Factions, "Close Pane").center();
+    tip_at(&mut h, at, "Close this pane's tabs");
+    // Factions' pane alone.
+    let at = in_leaf_bar(&h, &Tab::Factions, "Close Pane").center();
+    click_holding(&mut h, at, egui::Modifiers::NONE);
+    settle(&mut h);
+    let open = |h: &Harness<'_, Moonglow>, t: &Tab| h.state().dock.find_tab(t).is_some();
+    assert!(!open(&h, &Tab::Factions) && open(&h, &Tab::Journal) && open(&h, &table));
+    // Shift held: the Journal's pane alone too.
+    let at = in_leaf_bar(&h, &Tab::Journal, "Close Pane").center();
+    click_holding(&mut h, at, egui::Modifiers::SHIFT);
+    settle(&mut h);
+    assert!(!open(&h, &Tab::Journal) && open(&h, &table), "Shift closes the pane alone");
+    // The table, unsaved: its window's Close asks.
+    let at = in_leaf_bar(&h, &table, "Close Window").center();
+    click_holding(&mut h, at, egui::Modifiers::NONE);
+    settle(&mut h);
+    h.get_by_label("Save changes to loose.2da?");
+    h.get_by_label("Don't Save").click();
+    settle(&mut h);
+    assert!(!open(&h, &table), "closed once answered");
 }

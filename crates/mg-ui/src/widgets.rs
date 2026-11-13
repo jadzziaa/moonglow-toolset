@@ -3264,6 +3264,7 @@ fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> Dial
         open: None,
         resizes: true,
         close_cancels: false,
+        folds: true,
     }
 }
 
@@ -3287,6 +3288,9 @@ pub(crate) struct Dialog<'a> {
     resizes: bool,
     /// A Close that is its Cancel ([`Dialog::close_as_cancel`]).
     close_cancels: bool,
+    /// Whether it folds to its title row by the arrow at the row's left
+    /// (egui's windows fold unless told not to: [`modal`] says so).
+    folds: bool,
 }
 
 /// The least width of a dialog's body inside its margin: egui's first
@@ -3307,8 +3311,11 @@ impl<'a> Dialog<'a> {
         self
     }
 
+    /// Whether it folds to its title row (`true` unless said: egui's
+    /// windows did): the arrow at the row's left, as a floating editor's
+    /// bar has it.
     pub(crate) fn collapsible(mut self, collapsible: bool) -> Self {
-        self.window = self.window.collapsible(collapsible);
+        self.folds = collapsible;
         self
     }
 
@@ -3367,13 +3374,16 @@ impl<'a> Dialog<'a> {
 
     /// Shows it, the title row first and `add_contents` under it with
     /// the window's margin: as `egui::Window::show` (nothing where it is
-    /// closed).
+    /// closed; no body, `None` within, where it is folded to its row).
+    /// Never taller or wider than the application's window: a body that
+    /// would make it so (as it was last frame) scrolls in the room there
+    /// is, so its title row and every button stay in reach.
     pub(crate) fn show<R>(
         self,
         ctx: &egui::Context,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> Option<egui::InnerResponse<Option<R>>> {
-        let Dialog { window, title, id, open, resizes, close_cancels } = self;
+        let Dialog { mut window, title, id, open, resizes, close_cancels, folds } = self;
         if open.as_deref() == Some(&false) {
             return None;
         }
@@ -3385,29 +3395,108 @@ impl<'a> Dialog<'a> {
         let style = ctx.global_style();
         let margin = style.spacing.window_margin;
         let frame = egui::Frame::window(&style).inner_margin(0);
-        let mut closed = false;
-        let mut row_bottom = None;
-        let shown = window.title_bar(false).frame(frame).show(ctx, |ui| {
-            if let Some(body) = body {
-                ui.interact(body, body_id, egui::Sense::drag());
+        // The room for its body: the application's window, less its title
+        // row, margin and frame. What the body took last frame says
+        // whether it scrolls in it.
+        let screen = ctx.content_rect();
+        let edges = 2.0 * style.visuals.window_stroke.width;
+        let room = egui::vec2(
+            screen.width() - margin.sum().x - edges,
+            screen.height() - mg_uikit::metrics::TITLE_ROW - margin.sum().y - edges,
+        )
+        .max(egui::Vec2::splat(1.0));
+        let natural_id = id.with("mg-dialog-natural");
+        let natural: Option<egui::Vec2> = ctx.data(|d| d.get_temp(natural_id));
+        let scroll = natural.map(|n| egui::Vec2b::new(n.x > room.x + 0.5, n.y > room.y + 0.5));
+        let scroll = scroll.filter(|s| s.any());
+        // Folded to its row (its height as it was kept to open it so).
+        let fold_id = id.with("mg-dialog-folded");
+        let fold: Option<Fold> = folds.then(|| ctx.data(|d| d.get_temp(fold_id))).flatten();
+        match fold {
+            Some(Fold::Folded(_)) => {
+                // (Its row alone, as wide as it was: `titled`.)
+                window = window.resizable(false);
             }
-            let tip = close.then_some(DIALOG_CLOSE_TIP);
-            let (inner, row) = titled(ui, &title, tip, margin, !resizes, add_contents);
-            closed = row.closed();
-            row_bottom = Some(row.rect.bottom());
-            inner
-        });
-        if resizes && let Some(shown) = &shown {
-            let window = shown.response.rect;
-            let grip = mg_uikit::window::resize_grip_rect(window).expand(4.0);
-            let hot = ctx.pointer_latest_pos().is_some_and(|p| {
-                grip.contains(p) && ctx.layer_id_at(p) == Some(shown.response.layer_id)
+            None => {}
+        }
+        let folded = matches!(fold, Some(Fold::Folded(_)));
+        let mut closed = false;
+        let mut fold_clicked = false;
+        let mut row_bottom = None;
+        let mut took = None;
+        let shown = window.title_bar(false).frame(frame).show(ctx, |ui| {
+            if let Some(body) = body.filter(|_| !folded) {
+                // (`Sense::DRAG` alone: `Sense::drag()` is focusable, and
+                // the catcher was a stop of Tab with no name.)
+                ui.interact(body, body_id, egui::Sense::DRAG);
+            }
+            let row = Row {
+                title: &title,
+                close: close.then_some(DIALOG_CLOSE_TIP),
+                fold: folds.then_some(folded),
+                folded_width: match fold {
+                    Some(Fold::Folded(size)) => Some(size.x - edges),
+                    _ => None,
+                },
+                margin,
+                grows: !resizes,
+            };
+            let (inner, shown, natural) = titled(ui, row, |ui| {
+                Some(match scroll {
+                    Some(both) => {
+                        let out = egui::ScrollArea::new(both)
+                            .id_salt(natural_id)
+                            .max_width(room.x)
+                            .max_height(room.y)
+                            .show(ui, add_contents);
+                        (out.inner, Some(out.content_size))
+                    }
+                    None => (add_contents(ui), None),
+                })
             });
+            closed = shown.closed();
+            fold_clicked = shown.fold_clicked();
+            row_bottom = Some(shown.rect.bottom());
+            inner.flatten().map(|(inner, content)| {
+                took = Some(content.unwrap_or(natural));
+                inner
+            })
+        });
+        let shown =
+            shown.map(|s| egui::InnerResponse { inner: s.inner.flatten(), response: s.response });
+        if let Some(took) = took {
+            ctx.data_mut(|d| d.insert_temp(natural_id, took));
+        }
+        // The arrow: folded, with its size (its row as wide); shown again,
+        // nothing kept (egui keeps the size a window's edges were left at).
+        let next = match (fold, fold_clicked, &shown) {
+            (None, true, Some(s)) => Some(Fold::Folded(s.response.rect.size())),
+            (Some(Fold::Folded(h)), false, _) => Some(Fold::Folded(h)),
+            _ => None,
+        };
+        match next {
+            Some(f) => ctx.data_mut(|d| {
+                d.insert_temp(fold_id, f);
+            }),
+            None => ctx.data_mut(|d| {
+                d.remove::<Fold>(fold_id);
+            }),
+        }
+        if fold_clicked {
+            ctx.request_repaint();
+        }
+        if resizes
+            && !folded
+            && let Some(shown) = &shown
+        {
+            let window = shown.response.rect;
+            // (Lit where egui resizes it by the corner, no further.)
+            let hot = mg_uikit::window::resize_grip_hot(ctx, window, shown.response.layer_id);
             let painter = ctx.layer_painter(shown.response.layer_id);
             mg_uikit::paint_resize_grip(&painter, window, hot);
         }
         match (&shown, row_bottom) {
-            (Some(shown), Some(bottom)) => {
+            (Some(shown), Some(bottom)) if !folded => {
                 let mut body = shown.response.rect;
                 body.min.y = bottom;
                 ctx.data_mut(|d| d.insert_temp(body_id, body));
@@ -3430,18 +3519,41 @@ impl<'a> Dialog<'a> {
     }
 }
 
-/// The boards' title row over `add_contents` (laid out with `margin`
-/// round it) in a window or modal with no margin of its own: its room
-/// kept first, the row painted across the width the body made
-/// (`mg_uikit::title_row`, a Close where `close` gives its tip).
+/// A dialog folded to its title row ([`Dialog::collapsible`]), with the
+/// size it had.
+#[derive(Clone, Copy, Debug)]
+enum Fold {
+    Folded(egui::Vec2),
+}
+
+/// What a title row ([`titled`]) holds and how its window takes room.
+struct Row<'t> {
+    title: &'t str,
+    /// The Close's tip, where it has one.
+    close: Option<&'t str>,
+    /// Whether it is folded, where it folds.
+    fold: Option<bool>,
+    /// Folded: the width it keeps (its row alone, no body).
+    folded_width: Option<f32>,
+    /// The body's margin.
+    margin: egui::Margin,
+    /// Whether the window grows to what it holds (not resized by its
+    /// edges).
+    grows: bool,
+}
+
+/// The boards' title row over `add_contents` (laid out with the row's
+/// margin round it) in a window or modal with no margin of its own: its
+/// room kept first, the row painted across the width the body made
+/// (`mg_uikit::title_row_with`). What the body gave (none where it is
+/// folded, the row alone), the row shown, and the size the body took
+/// inside its margin.
 fn titled<R>(
     ui: &mut Ui,
-    title: &str,
-    close: Option<&str>,
-    margin: egui::Margin,
-    grows: bool,
+    row: Row<'_>,
     add_contents: impl FnOnce(&mut Ui) -> R,
-) -> (R, mg_uikit::TitleRow) {
+) -> (Option<R>, mg_uikit::TitleRow, egui::Vec2) {
+    let Row { title, close, fold, folded_width, margin, grows } = row;
     // (Where the window grows to what it holds (`grows`, not resized by
     // its edges): as wide as its body was last frame, at least, and never
     // under egui's first width for a window's body (`egui::Resize`'s 320
@@ -3450,16 +3562,28 @@ fn titled<R>(
     // keeps the width it opened at, not a frame narrower and moved about
     // its middle under a click. One resized by its edges is as wide as
     // it is made, and its row with it: as egui's title bar, it does not
-    // hold it.)
-    let mut least = mg_uikit::title_row_width(ui, title, close.is_some());
+    // hold it. Never wider than the application's window, though.)
+    let mut least = mg_uikit::title_row_width_with(ui, title, close.is_some(), fold.is_some());
     if grows {
-        least = least.max(ui.response().rect.width()).max(DIALOG_LEAST_BODY + margin.sum().x);
+        let screen = ui.ctx().content_rect().width() - 2.0;
+        let wide = ui.response().rect.width().max(DIALOG_LEAST_BODY + margin.sum().x);
+        least = least.max(wide.min(screen));
+    }
+    if let Some(width) = folded_width {
+        least = least.max(width);
     }
     let (kept, _) = ui
         .allocate_exact_size(egui::vec2(least, mg_uikit::metrics::TITLE_ROW), egui::Sense::hover());
-    let inner = egui::Frame::NONE.inner_margin(margin).show(ui, add_contents).inner;
-    let row = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), kept.y_range());
-    (inner, mg_uikit::title_row(ui, row, title, close))
+    let (inner, took) = match folded_width {
+        Some(_) => (None, egui::Vec2::ZERO),
+        None => {
+            let body = egui::Frame::NONE.inner_margin(margin).show(ui, add_contents);
+            (Some(body.inner), body.response.rect.size() - margin.sum())
+        }
+    };
+    let rect = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), kept.y_range());
+    let shown = mg_uikit::title_row_with(ui, rect, title, close, fold);
+    (inner, shown, took)
 }
 
 /// An `egui::Modal` (what stops the work until it is answered: a job's
@@ -3480,7 +3604,9 @@ pub(crate) fn modal_titled<R>(
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> (R, egui::Response) {
     let margin = ui.ctx().global_style().spacing.window_margin;
-    let (inner, row) = titled(ui, title, None, margin, true, add_contents);
+    let row = Row { title, close: None, fold: None, folded_width: None, margin, grows: true };
+    let (inner, row, _) = titled(ui, row, add_contents);
+    let inner = inner.expect("a modal does not fold");
     let named = ui.interact(row.rect, ui.id().with(("modal-title", title)), egui::Sense::hover());
     named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
     (inner, named)

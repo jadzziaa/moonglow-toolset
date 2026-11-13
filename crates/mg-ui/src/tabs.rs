@@ -670,7 +670,8 @@ impl TabViewer for Viewer<'_> {
         if !self.app.settings.drag_windows_anywhere
             && ui.layer_id().order != egui::Order::Background
         {
-            ui.interact(ui.max_rect(), ui.id().with("no-window-drag"), egui::Sense::drag());
+            // (Not a stop of Tab: `Sense::DRAG` alone.)
+            ui.interact(ui.max_rect(), ui.id().with("no-window-drag"), egui::Sense::DRAG);
         }
         let framed = |viewer: &mut Self, ui: &mut Ui, tab: &mut Tab| {
             egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
@@ -1216,10 +1217,15 @@ fn modified(app: &Moonglow, tab: &Tab, watch: &mut Watch<'_>) -> bool {
 
 /// The room a pane's tab bar leaves its tabs: the main surface's, all but
 /// the Split Editor button's at its right end ([`SPLIT_ROOM`]); a window's,
-/// all but its collapse arrow at its left ([`WINDOW_BAR_START`]) and its
-/// Maximize and Close at its right ([`WINDOW_BAR_END`]).
+/// all but its collapse arrow at its left ([`WINDOW_BAR_START`]), its
+/// close all ([`WINDOW_CLOSE_ALL`]) and the room before it for Maximize
+/// ([`WINDOW_END_ROOM`]).
 pub(crate) fn tab_room(main: bool, width: f32) -> f32 {
-    if main { width - SPLIT_ROOM } else { width - WINDOW_BAR_START - WINDOW_BAR_END }
+    if main {
+        width - SPLIT_ROOM
+    } else {
+        width - WINDOW_BAR_START - WINDOW_CLOSE_ALL - WINDOW_END_ROOM
+    }
 }
 
 /// The room at the right end of each tab bar of the main surface, which
@@ -1232,11 +1238,11 @@ pub(crate) const SPLIT_ROOM: f32 = 28.0;
 /// a point off).
 pub(crate) const WINDOW_BAR_START: f32 = 24.0;
 
-/// The room a window's Maximize and Close take at its bar's right: two
-/// 22 point buttons side by side a point from the window's edge (the
-/// board's `.fw-bar .tools`, 3 points from it: egui_dock's close all,
-/// which the Close is, ends at the edge).
-pub(crate) const WINDOW_BAR_END: f32 = 1.0 + 2.0 * mg_uikit::metrics::ICON_BUTTON;
+/// The room a window's Maximize and Close take at its bar's right:
+/// egui_dock's close all (the Close painted in it) and Maximize a point
+/// before it, 22 points (the board's `.fw-bar .tools`: Maximize where the
+/// board has it, the Close's icon two points nearer the edge).
+pub(crate) const WINDOW_BAR_END: f32 = WINDOW_CLOSE_ALL + 1.0 + mg_uikit::metrics::ICON_BUTTON;
 
 /// The name of a window's Close (egui_dock's close all on a window of one
 /// pane).
@@ -1244,6 +1250,26 @@ pub(crate) const WINDOW_CLOSE: &str = "Close Window";
 
 /// The name of a pane's Close in a window split in panes.
 pub(crate) const PANE_CLOSE: &str = "Close Pane";
+
+/// egui_dock's close all button at a window's bar's right end (the Close
+/// is painted in it).
+pub(crate) const WINDOW_CLOSE_ALL: f32 = 24.0;
+
+/// The room egui_dock leaves free of tabs before a window's close all
+/// (`DockArea::window_end_room`, the vendored crate's): Maximize's, which
+/// stands beside the Close a point further in than egui_dock's button
+/// reaches, and a point between it and the last tab, so that no tab and
+/// no tab's close lies under Maximize or the Close.
+pub(crate) const WINDOW_END_ROOM: f32 = WINDOW_BAR_END - WINDOW_CLOSE_ALL + 1.0;
+
+/// The least width of a floating window (`DockArea::window_min_width`):
+/// its frame, the collapse arrow, one tab cut to its least (a modified
+/// one's, with its dot) and Maximize and the Close, so that every button
+/// of its bar has its room at any width it can be made.
+pub(crate) fn window_least_width() -> f32 {
+    let tab = mg_uikit::shell::doc_tab_width(mg_uikit::dock::DOC_TAB_LEAST_TITLE, true);
+    (2.0 + WINDOW_BAR_START + tab + WINDOW_CLOSE_ALL + WINDOW_END_ROOM).ceil()
+}
 
 /// Where a window's Close is painted in egui_dock's close all button
 /// (`rect`, at the bar's right end and two points short of its foot):

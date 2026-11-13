@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T02:56:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T04:39:23Z }
 ---
 
 # The main window
@@ -705,13 +705,20 @@ groups around it changed. With editors as windows, a window is where one
 opens anyway, and is not kept. The palettes are not a tab: they are the
 Right Dock's panel. A dialog (a question, a picker such as Select
 Portrait, a wizard) opens in the middle of the main window, whichever
-docks are open, and stays wholly inside it however small it is. Its
-**title row** runs across its top, the title at the left: drag the row to
-move the dialog (a drag on the rest of it, where no control is, moves
-nothing). A dialog that Escape closes (Find and Replace Text, Build
-Module, Rename, About) has a **Close** at the row's right, after its own
-buttons when you go through it with Tab; one that only its own buttons
-answer (a question, a wizard, a picker) has none. A job's window (a
+docks are open. It is never taller or wider than the main window: in a
+short window its body scrolls, so its title row and every button stay
+in reach (and a dialog in the middle of a short window can cover what
+is behind it, the Welcome page's title too). Its **title row** runs
+across its top, the title at the left: drag the row to move the dialog
+(a drag on the rest of it, where no control is, moves nothing). A
+dialog that Escape closes (Find and Replace Text, Build Module, Rename,
+About) has a **Close** at the row's right, after its own buttons when
+you go through it with Tab, and so do the pickers Select Portrait and
+Select Texture, whose Close is their Cancel; one that only its own
+buttons answer (a question, a wizard) has none. A dialog that folds
+(Find and Replace Text, Find Instance, Plugins and most dialogs that
+Escape closes) has the arrow at the row's left: **Collapse** folds it
+to its row, **Expand** shows it again as it was. A job's window (a
 running command's progress, a plugin's question) has the same row, with
 no Close: its Cancel answers it.
 
@@ -826,9 +833,14 @@ tabs, and at its right **Maximize** and **Close Window**, which closes
 the window and its tabs as closing each tab would (what asks before it
 closes asks, and **Closing a window cancels its changes** in Options ›
 General decides whether its changes are kept). A window split in panes
-has a bar on each, whose Close is **Close Pane**. The **grip** in its
-bottom right corner shows where to drag to resize it (any edge or corner
-does). **Double-click a window's tab** (or the bar beside it) to maximize
+has a bar on each, whose Close is **Close Pane**, closing that pane's
+tabs (Shift changes nothing on these buttons; the right-click menu of
+the Close offers to close the whole window). The tabs never run under
+Maximize and Close: in a narrow window they are cut short, then scroll
+with the wheel, and a window is never narrower than 211 points, room
+for its buttons and one tab. The **grip** in its bottom right corner
+shows where to drag to resize it (any edge or corner does), lit where a
+drag takes it. **Double-click a window's tab** (or the bar beside it) to maximize
 it over the whole of Moonglow's window under the Top Bar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too, and the button at the

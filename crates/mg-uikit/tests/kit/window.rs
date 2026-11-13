@@ -92,3 +92,36 @@ fn a_long_title_leaves_room_for_the_close() {
     });
     h.run();
 }
+
+/// In a window's sizing pass (its first frame, laid out unseen, before
+/// egui has put it where it shows) the row's buttons take no click: there
+/// are none; from the next frame its Close and its fold arrow are there.
+#[test]
+fn a_title_row_has_no_buttons_in_its_window_s_sizing_pass() {
+    let seen: Cell<Vec<(bool, bool, bool)>> = Cell::new(Vec::new());
+    let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui(|ui| {
+        let ctx = ui.ctx().clone();
+        egui::Window::new("Find and Replace Text")
+            .title_bar(false)
+            .frame(egui::Frame::window(&ctx.global_style()).inner_margin(0))
+            .show(&ctx, |ui| {
+                let (kept, _) = ui.allocate_exact_size(
+                    egui::vec2(200.0, metrics::TITLE_ROW),
+                    egui::Sense::hover(),
+                );
+                ui.label("Find what");
+                let rect = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), kept.y_range());
+                let tip = Some("Close the dialog (Esc)");
+                let row =
+                    mg_uikit::title_row_with(ui, rect, "Find and Replace Text", tip, Some(false));
+                let mut all = seen.take();
+                all.push((ui.is_sizing_pass(), row.close.is_some(), row.fold.is_some()));
+                seen.set(all);
+            });
+    });
+    h.run_steps(3);
+    let frames = seen.take();
+    assert_eq!(frames.first(), Some(&(true, false, false)), "{frames:?}");
+    assert_eq!(frames.last(), Some(&(false, true, true)), "{frames:?}");
+    assert!(h.query_by_label(window::FOLD_NAME).is_some() && h.query_by_label("Close").is_some());
+}

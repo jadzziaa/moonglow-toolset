@@ -1987,6 +1987,14 @@ impl Moonglow {
                     .style(mg_uikit::dock::doc_tabs_style(ui))
                     .show_close_buttons(false)
                     .main_surface_end_room(tabs::SPLIT_ROOM)
+                    // (A window's tabs end before Maximize, and a window
+                    // is never too narrow for its bar's buttons.)
+                    .window_end_room(tabs::WINDOW_END_ROOM)
+                    .window_min_width(tabs::window_least_width())
+                    // (Shift changes nothing on a window's buttons: in
+                    // egui_dock's mode for it, Shift turned the close all
+                    // into a window's close that a click did not close.)
+                    .secondary_button_on_modifier(false)
                     .show_inside(ui, &mut viewer);
             }
             self.dock = dock;
@@ -3014,23 +3022,28 @@ impl Moonglow {
                 ),
                 egui::vec2(side, side),
             );
-            // From the last tab to the Maximize.
-            let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
-            let bar = egui::Rect::from_x_y_ranges(left..=at.left(), row);
-            if !bar.is_positive() || leaf.collapsed {
+            if leaf.collapsed {
                 continue;
             }
-            let id = egui::Id::new(("window-bar", path.surface.0, path.node.0));
-            let builder = egui::UiBuilder::new().layer_id(layer).max_rect(bar);
-            let response = ui.scope_builder(builder, |ui| {
-                // (Not cut to the editor area: a window's bar lies over the
-                // docks too, a maximized one's over both. Cut so, its
-                // double click did nothing over the Left and Right Docks.)
-                ui.set_clip_rect(bar);
-                ui.interact(bar, id, egui::Sense::click())
+            // From the last tab to the Maximize (none where the tabs fill
+            // the bar: Maximize is there all the same).
+            let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
+            let bar = egui::Rect::from_x_y_ranges(left.min(at.left())..=at.left(), row);
+            let response = bar.is_positive().then(|| {
+                let id = egui::Id::new(("window-bar", path.surface.0, path.node.0));
+                let builder = egui::UiBuilder::new().layer_id(layer).max_rect(bar);
+                ui.scope_builder(builder, |ui| {
+                    // (Not cut to the editor area: a window's bar lies over
+                    // the docks too, a maximized one's over both. Cut so,
+                    // its double click did nothing over the Left and Right
+                    // Docks.)
+                    ui.set_clip_rect(bar);
+                    // (Not a stop of Tab: Maximize is the keyboard's.)
+                    ui.interact(bar, id, egui::Sense::CLICK)
+                })
+                .inner
             });
-            let response = response.inner;
-            if response.double_clicked() {
+            if response.as_ref().is_some_and(egui::Response::double_clicked) {
                 toggle = Some(tab.clone());
             }
             let maximized = self.windows_maximized(&leaf.tabs);
@@ -3055,12 +3068,14 @@ impl Moonglow {
             if pressed {
                 toggle = Some(tab.clone());
             }
-            mg_uikit::context_menu(&response, |ui| {
-                if ui.button(label).clicked() {
-                    toggle = Some(tab.clone());
-                    ui.close();
-                }
-            });
+            if let Some(response) = &response {
+                mg_uikit::context_menu(response, |ui| {
+                    if ui.button(label).clicked() {
+                        toggle = Some(tab.clone());
+                        ui.close();
+                    }
+                });
+            }
         }
         // The grips, one a window (its panes' union: a window split in
         // two has one corner), framed by the window's stroke.
@@ -3071,13 +3086,10 @@ impl Moonglow {
                 None => windows.push((layer, rect)),
             }
         }
-        let pointer = ui.ctx().pointer_latest_pos();
         for (layer, panes) in windows {
             let window = panes.expand(self.window_frame);
-            let grip = mg_uikit::window::resize_grip_rect(window);
-            let hot = pointer.is_some_and(|p| {
-                grip.expand(4.0).contains(p) && ui.ctx().layer_id_at(p) == Some(layer)
-            });
+            // (Lit where egui resizes it by the corner, no further.)
+            let hot = mg_uikit::window::resize_grip_hot(ui.ctx(), window, layer);
             mg_uikit::paint_resize_grip(&ui.ctx().layer_painter(layer), window, hot);
         }
         if let Some(tab) = toggle {

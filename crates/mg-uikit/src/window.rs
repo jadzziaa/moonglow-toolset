@@ -50,6 +50,8 @@ pub struct TitleRow {
     pub rect: Rect,
     /// Its Close button's response, where it has one.
     pub close: Option<Response>,
+    /// Its fold arrow's response, where it has one ([`title_row_with`]).
+    pub fold: Option<Response>,
 }
 
 impl TitleRow {
@@ -57,14 +59,36 @@ impl TitleRow {
     pub fn closed(&self) -> bool {
         self.close.as_ref().is_some_and(Response::clicked)
     }
+
+    /// Whether its fold arrow was clicked (to fold the window to its row,
+    /// or to show it again).
+    pub fn fold_clicked(&self) -> bool {
+        self.fold.as_ref().is_some_and(Response::clicked)
+    }
 }
+
+/// The name of a title row's fold arrow while the window is open.
+pub const FOLD_NAME: &str = "Collapse";
+
+/// The name of a title row's fold arrow while the window is folded.
+pub const UNFOLD_NAME: &str = "Expand";
+
+/// The room the fold arrow takes at a title row's left: the button and 3
+/// points at each side of it.
+const FOLD_ROOM: f32 = 3.0 + metrics::ICON_BUTTON + 3.0;
 
 /// The least width of a title row for `title` and, where `close`, its
 /// Close button: what a window that grows to its content keeps for it.
 pub fn title_row_width(ui: &Ui, title: &str, close: bool) -> f32 {
+    title_row_width_with(ui, title, close, false)
+}
+
+/// [`title_row_width`] with the fold arrow where `fold`.
+pub fn title_row_width_with(ui: &Ui, title: &str, close: bool, fold: bool) -> f32 {
     let galley = title_galley(ui, title, f32::INFINITY);
     let end = if close { 4.0 + metrics::ICON_BUTTON + TITLE_END } else { TITLE_PADDING };
-    TITLE_PADDING + galley.size().x + end
+    let start = if fold { FOLD_ROOM } else { TITLE_PADDING };
+    start + galley.size().x + end
 }
 
 /// A dialog's title row in `rect` (its window's whole width and
@@ -77,33 +101,61 @@ pub fn title_row_width(ui: &Ui, title: &str, close: bool) -> f32 {
 /// drags from it to move it by the row alone). Without the theme
 /// applied, the dark tokens.
 pub fn title_row(ui: &mut Ui, rect: Rect, title: &str, close: Option<&str>) -> TitleRow {
+    title_row_with(ui, rect, title, close, None)
+}
+
+/// [`title_row`] with a fold arrow at its left where `fold` says whether
+/// the window is folded to its row now (a chevron down while it is open,
+/// named [`FOLD_NAME`], right while folded, [`UNFOLD_NAME`]; as a
+/// floating editor's bar has it): what folding does is the caller's. In a
+/// window's sizing pass (its first frame, laid out unseen) the row's
+/// buttons take no click: egui has not put the window where it shows.
+pub fn title_row_with(
+    ui: &mut Ui,
+    rect: Rect,
+    title: &str,
+    close: Option<&str>,
+    fold: Option<bool>,
+) -> TitleRow {
     let t = ui.tokens();
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, t.bar);
     let px = 1.0 / ui.ctx().pixels_per_point();
     painter.hline(rect.x_range(), rect.bottom() - px / 2.0, Stroke::new(px, t.line));
     let button = Vec2::splat(metrics::ICON_BUTTON);
+    let middle = rect.center().y - button.y / 2.0;
     let close_rect = close.map(|_| {
-        Rect::from_min_size(
-            Pos2::new(rect.right() - TITLE_END - button.x, rect.center().y - button.y / 2.0),
-            button,
-        )
+        Rect::from_min_size(Pos2::new(rect.right() - TITLE_END - button.x, middle), button)
     });
+    let fold_rect = fold.map(|_| Rect::from_min_size(Pos2::new(rect.left() + 3.0, middle), button));
+    let words_start = fold_rect.map_or(rect.left() + TITLE_PADDING, |r| r.right() + 3.0);
     let words_end = close_rect.map_or(rect.right() - TITLE_PADDING, |r| r.left() - 4.0);
-    let galley = title_galley(ui, title, (words_end - rect.left() - TITLE_PADDING).max(1.0));
-    let at = Pos2::new(rect.left() + TITLE_PADDING, rect.center().y - galley.size().y / 2.0);
+    let galley = title_galley(ui, title, (words_end - words_start).max(1.0));
+    let at = Pos2::new(words_start, rect.center().y - galley.size().y / 2.0);
     painter.galley(at, galley, t.text);
-    let close = close.zip(close_rect).map(|(tip, r)| {
-        let id = ui.id().with(("mg-uikit-title-close", title));
+    let live = !ui.is_sizing_pass();
+    let enabled = ui.is_enabled();
+    let button_at = |ui: &mut Ui, r: Rect, salt: &str, icon: Icon, name: &str, tip: &str| {
+        let id = ui.id().with((salt, title));
         let response = ui.interact(r, id, Sense::click());
-        let enabled = ui.is_enabled();
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, CLOSE_NAME));
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name));
         if ui.is_rect_visible(r) {
-            paint_icon_button(ui.painter(), &t, r, Icon::Close, ButtonState::of(&response), false);
+            paint_icon_button(ui.painter(), &t, r, icon, ButtonState::of(&response), false);
         }
         response.on_hover_text(tip)
+    };
+    let fold = fold.zip(fold_rect).filter(|_| live).map(|(folded, r)| {
+        let (icon, name, tip) = match folded {
+            false => (Icon::ChevronDown, FOLD_NAME, "Collapse the dialog to its title row"),
+            true => (Icon::ChevronRight, UNFOLD_NAME, "Show the dialog again"),
+        };
+        button_at(ui, r, "mg-uikit-title-fold", icon, name, tip)
     });
-    TitleRow { rect, close }
+    let close = close
+        .zip(close_rect)
+        .filter(|_| live)
+        .map(|(tip, r)| button_at(ui, r, "mg-uikit-title-close", Icon::Close, CLOSE_NAME, tip));
+    TitleRow { rect, close, fold }
 }
 
 /// The title laid out in the body's face, cut to `max` with an ellipsis.
@@ -138,6 +190,18 @@ pub fn paint_resize_grip(painter: &egui::Painter, window: Rect, hot: bool) {
     let stroke = Stroke::new(1.0, color);
     painter.line_segment([at(11.0, 4.0), at(4.0, 11.0)], stroke);
     painter.line_segment([at(11.0, 8.0), at(8.0, 11.0)], stroke);
+}
+
+/// Whether the pointer is where egui takes a drag to resize `window` (its
+/// outer rectangle on `layer`) by its bottom right corner: egui's corner
+/// grab radius about the corner, inside the window or just outside it.
+/// The grip is lit there, and only there ([`paint_resize_grip`]'s `hot`).
+pub fn resize_grip_hot(ctx: &egui::Context, window: Rect, layer: egui::LayerId) -> bool {
+    let reach = ctx.global_style().interaction.resize_grab_radius_corner;
+    let corner = Rect::from_center_size(window.max, Vec2::splat(2.0 * reach));
+    ctx.pointer_latest_pos().is_some_and(|p| {
+        corner.contains(p) && (!window.contains(p) || ctx.layer_id_at(p) == Some(layer))
+    })
 }
 
 /// The rectangle a window's grip ([`paint_resize_grip`]) is painted in.
