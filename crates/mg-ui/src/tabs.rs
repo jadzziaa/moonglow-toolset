@@ -443,6 +443,46 @@ pub(crate) struct Viewer<'a> {
 }
 
 impl Viewer<'_> {
+    /// Whether an Escape pressed now would be `tab`'s Cancel (a docked tab
+    /// with OK and Cancel, on `layer`), by the rule `body` takes it by
+    /// (ruling R1, T10's): for the Status Bar's Esc hint (M3's T12), so
+    /// that it shows for the tab that would in truth take the key. Known
+    /// only where nothing has the keyboard (where something has, which
+    /// tab's it is shows only at the Escape, egui's focus gone by then:
+    /// no hint), no list drawn before the editor area has the keys (the
+    /// module tree, the Resources panel, the log: each takes Escape
+    /// first), no dialog, menu or popup is open, no button is held,
+    /// Options › Keyboard is not waiting for a key and no tool is in hand
+    /// in an area (`busy`); then it is the tab's where the last press was
+    /// in it, or the pointer is over it and the last press was in no
+    /// window and no other tab with OK and Cancel.
+    fn foresee_escape(&mut self, ui: &Ui, tab: &Tab, layer: egui::LayerId, busy: bool) {
+        // (A list drawn before the editor area with the keys takes Escape
+        // first: the module tree's, the Resources panel's, the log's.)
+        use crate::palette_view::{Keys, keys_are};
+        let list =
+            [Keys::Tree, Keys::Browser, Keys::Log].into_iter().any(|k| keys_are(ui.ctx(), k));
+        let quiet = !busy
+            && !list
+            && !crate::widgets::dialog_open(ui.ctx())
+            && !egui::Popup::is_any_open(ui.ctx())
+            && ui.memory(|m| m.focused().is_none())
+            && !ui.input(|i| i.pointer.any_down());
+        if !quiet || self.app.escape_hint_next.is_some() {
+            return;
+        }
+        let pointer = ui.rect_contains_pointer(ui.max_rect());
+        let at = self.app.last_press.map(|(p, l)| (l, p));
+        let in_it = at.is_some_and(|(l, p)| l == Some(layer) && ui.max_rect().contains(p));
+        let takes = at.is_some_and(|(l, p)| {
+            l.is_some_and(|l| l.order == egui::Order::Middle)
+                || (self.app.cancel_rects.iter()).any(|(c, r)| l == Some(*c) && r.contains(p))
+        });
+        if in_it || (!takes && pointer) {
+            self.app.escape_hint_next = Some(tab.clone());
+        }
+    }
+
     /// What a tab shows.
     fn body(&mut self, ui: &mut Ui, tab: &mut Tab) {
         crate::trace::changed(&format!("drawn {tab:?}"), || format!("in {:?}", ui.max_rect()));
@@ -508,6 +548,10 @@ impl Viewer<'_> {
         // area is drawn (`Moonglow::escape_docked`).
         if !floating && tab.escape_cancels() {
             self.app.cancel_rects_next.push((layer, ui.max_rect()));
+            self.foresee_escape(ui, tab, layer, tool || recording);
+        }
+        if *tab == Tab::Options && ui.rect_contains_pointer(ui.max_rect()) {
+            self.app.options_hovered_next = true;
         }
         if escape && !floating && !recording && !tool && tab.escape_cancels() {
             let pointer = ui.rect_contains_pointer(ui.max_rect());

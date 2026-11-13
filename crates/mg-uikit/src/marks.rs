@@ -71,6 +71,16 @@ pub fn paint_key_cap(painter: &Painter, t: &Tokens, rect: Rect, text: &str) {
     paint_centered(painter, rect, galley, color);
 }
 
+/// Paints a key cap of a key held down now in `rect` (`.kbd.held`, the
+/// gizmo board's Shift while the handles show): `accent-fill` with its
+/// border, the words in `on-fill`.
+pub fn paint_held_key_cap(painter: &Painter, t: &Tokens, rect: Rect, text: &str) {
+    let fill = t.accent_fill;
+    painter.rect(rect, metrics::RADIUS, fill, Stroke::new(1.0, fill), egui::StrokeKind::Inside);
+    let galley = small_galley(painter, text, t.on_fill);
+    paint_centered(painter, rect, galley, t.on_fill);
+}
+
 /// A key cap (the mock's `.kbd`): a key's name in a small box, as the
 /// Status Bar's hints and a tooltip's keys show them. Not interactive; a
 /// label named by its words.

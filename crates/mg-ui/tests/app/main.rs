@@ -44,6 +44,7 @@ mod search;
 mod shell;
 mod sounds;
 mod status_bar;
+mod status_hints;
 mod tables;
 mod tile_edges;
 mod tiles;

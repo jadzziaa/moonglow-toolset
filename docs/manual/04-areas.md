@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:07:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
 ---
 
 # Areas
@@ -14,6 +14,17 @@ objects with the area's lighting, fog and sky, by day or night. Areas open
 looking straight down at their middle, north up, as in Aurora.
 
 ## The toolbar
+
+What the keys and the mouse do in the view, and what you hold, are in
+the **Status Bar** at the window's foot, as key caps and a word each
+(see [The Status Bar](02-main-window.md#the-status-bar)): they change
+as you select, hold Shift, drag, or take a tool (a blueprint, Paint,
+Select Tiles, a tile brush), each tool's after a note of what is in
+hand. Its right end shows the area's size and how many objects it holds
+("11 by 11 tiles", "192 objects"), and before them what is selected
+("1 selected": rest the pointer on it for the object's tag, blueprint,
+place and facing). They were a line of words under the toolbar before;
+the view has its height now.
 
 Each button shows an icon and its name. With **Tools › Options ›
 General › Editors' toolbar buttons: Icons only** the buttons that have an icon
@@ -418,12 +429,12 @@ the pointer anywhere else, Ctrl + wheel zooms the view slowly, so that
 the wheel turned while Ctrl still moves the view (Ctrl + drag) leaves
 the selection's size alone; with nothing selected it does nothing, as
 in Aurora. The
-size shows beside the pointer and in the status line; it becomes one
+size shows beside the pointer and in the Status Bar; it becomes one
 step to undo when Ctrl is let go or the wheel rests (Escape, or Undo
 meanwhile, drops it). It works on what a scale works on: creatures,
 items, doors and placeables that are not static. A static placeable
 takes no scale (the game ignores one): clear **Static** in its
-properties first; the status line says so, and the wheel zooms the view
+properties first; the Status Bar says so, and the wheel zooms the view
 slowly, as it does with nothing selected that takes a scale.
 
 **The arrows**: with **Shift** held, three arrows stand out from the
@@ -1031,7 +1042,7 @@ a stroke lays shows see-through until you let go; then it goes into the area as 
 **Paint Placeables**, which one Undo takes away. Escape or a right click
 during a stroke drops it. Otherwise it turns Paint off, and the
 placeables stay chosen. Of a very large dab or stroke the first four
-hundred show see-through, and the status line says how many more are
+hundred show see-through, and the Status Bar says how many more are
 laid than are drawn.
 
 ## Painting terrain
@@ -1070,7 +1081,7 @@ as Aurora's Terrain tab does:
   turn one before placing it. It stays chosen, to place another. Over
   part of another group or feature it is refused, as Aurora refuses it:
   the cursor is red there, and a click flashes the other's tiles red and
-  says so on the status line (erase that one first). With **Allow
+  says so in the Status Bar (erase that one first). With **Allow
   editing tiles of groups and features** on (Tools › Options › Area), it
   takes the other away whole instead.
 - **A group or a feature is one thing.** Its tiles are the tileset's
@@ -1080,12 +1091,12 @@ as Aurora's Terrain tab does:
   and Previous Tile Appearance, Rotate Tile, Refine Tile, the Eraser's
   Shift + click, a terrain's Shift + click and Shift + right click leave
   its tiles as they are, and a terrain painted where it would change one
-  of them is refused; the status line (the log, from the area's own
+  of them is refused; the Status Bar (the log, from the area's own
   menu) says why and how (the Eraser takes
   all of it away), and its tiles flash red. Painting beside it, where
   its tiles still meet the terrain, is as ever. With **Allow editing
   tiles of groups and features** on, each of its tiles can be changed
-  alone; the status line warns when a change leaves a group part
+  alone; the Status Bar warns when a change leaves a group part
   changed (Undo puts it back).
 - The **Eraser** takes the crossers off a tile, and on a tile of a group
   or a feature takes the whole of it away (its tiles become ground that
@@ -1149,7 +1160,7 @@ as Aurora's Terrain tab does:
   of Fort Interior) it goes in, the group replaced; over a tile of a
   larger group or a feature it is refused, as any stroke is (the group
   flashes red), unless **Allow editing tiles of groups and features** is
-  on, when the status line warns of the group left part changed. Each
+  on, when the Status Bar warns of the group left part changed. Each
   click, or drag, is one step to undo. A **Groups** or **Features**
   picture chosen with the switch on goes in the same way, as it is: its
   tiles in their cells, turned as the right click turns it, at the
@@ -1173,7 +1184,7 @@ as Aurora's Terrain tab does:
   click selects it (Ctrl + click adds it or takes it out), a drag moves
   it (the selection with it), and its rings and arrows turn and slide
   it; the brush stays chosen. Over an object nothing is previewed and
-  the status line says a click or drag there goes to the object. A
+  the Status Bar says a click or drag there goes to the object. A
   press on bare ground places as ever, and a drag begun there paints
   every tile it passes, those under objects too: to put a tile or a
   group under an object, start on the ground beside it (a tile: drag
@@ -1279,8 +1290,8 @@ where no object is starts the area's menu with the tile's items (Tile
 (x, y), the three, Tile Properties), as Aurora's menu has Tile
 Properties for a tile; on an object, the object's menu.
 
-The status line says why a step was refused, in Select Tiles as with a
-brush.
+The Status Bar says why a step was refused, in Select Tiles as with a
+brush: a note at the head of its hints.
 
 With one tile chosen, Tile Properties shows the **variants**: every tile
 that fits there, as pictures, the one there now framed (not for a

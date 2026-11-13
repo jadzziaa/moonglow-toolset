@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: The main window
-description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
+description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T04:39:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
 ---
 
 # The main window
@@ -15,10 +15,12 @@ resource browser), the
 **tabs** in the middle and the **Right Dock** on the right, with the
 **Palette** and **Preview** panels on two tabs, the **log** in the Bottom Dock under the tabs, and the
 **Status Bar** (the log's
-switch at its left and, while the log is closed, its last line; at its
-right a job while one runs, the module's name, "(modified)" while there
-are unsaved changes, and the game's folder: rest the pointer on the
-name for the module's file, on the folder for its whole path).
+switch at its left and, while the log is closed, its last line; in its
+middle the **hints** of the tab you work in, each a key or a gesture and
+what it does; at its right that tab's counts, a job while one runs, the
+module's name, "(modified)" while there are unsaved changes, and the
+game's folder: rest the pointer on the name for the module's file, on
+the folder for its whole path). See [The Status Bar](#the-status-bar).
 The palette comes with each module, in the Right Dock, 320 points wide
 at first. The docks follow the tab you work in: the Right Dock holds
 the panels of an area, so it is there while an area's tab (or, with no
@@ -51,13 +53,8 @@ still opens by its key and by Help › Command Palette…, its field then
 drawn over the bar's middle. The window can't be made narrower than the menus
 (420 by 320 points, which grow with Options › General › Interface size
 and follow it as soon as it changes); one left smaller opens at that
-size. Where the Status Bar is short of room, the log's last line is
-cut short with an ellipsis, down to a few words; then the game folder
-goes (and the line has more room again); then the line is cut short
-again and goes; then a running job's name is cut short (its bar kept);
-and last the module's name and the note of files being read are cut
-short ("(modified)" kept; rest the pointer on any of them for the
-whole). The Top Bar
+size. Where the Status Bar is short of room, its parts give way in
+one order (see [The Status Bar](#the-status-bar)). The Top Bar
 is the same whatever **Tools › Options › General › Editors' toolbar
 buttons** says: that setting is the area view's and the editors'
 toolbars'. The icons are Moonglow's own drawings, one to a command. The
@@ -1152,6 +1149,67 @@ where the job says, a mark going to and fro where it does not. Rest the
 pointer on it for how far it is. One job runs at a time, in a window of
 its own with **Cancel**, which is how it is stopped; work asked for
 meanwhile waits (the log says so).
+
+## The Status Bar
+
+The row along the window's foot. At its left, the **Log** switch (and,
+while the log is closed, its last line: see [The log](#the-log)); in
+its middle the **hints**; at its right the counts, a running job, the
+module's name and the game's folder.
+
+**Hints.** What the keys and the mouse do in the tab you work in (the
+one in front of the pane you last clicked in, as the docks follow it),
+each a key cap or two and a word: **Drag** Move, **Alt** + **Drag**
+Raise, **Q** **E** Turn by a step. They change as you work: in an area
+with nothing selected they are Click Select, Drag Move or box, Ctrl +
+Drag Move view and Ctrl + Right Drag Turn view; with objects selected,
+Drag Move, the turning ring Turn, Shift Handles, Alt + Drag Raise, Q
+and E Turn by a step and G Drop to ground; with Shift held, the
+handles' (Move along an axis, and Tilt and Scale where the selection's
+models take them); during a drag, Esc Cancel, Middle Drag Turn view and
+the snap; and for each tool in hand (a blueprint, a light or the start
+location being placed, a paste, Paint, Select Tiles, a tile brush,
+Redraw Polygon, Ctrl + wheel's scaling) its own, after a note of what is
+in hand ("Placing nw_chicken", "In hand: Raise/Lower", "Painting 2
+placeables"). A reason a step was refused (a tile stroke, a static
+placeable's scale) is a note at the head of the hints. The keys shown
+are yours: a command you gave another key in Options › Keyboard shows
+that key, and one you left without a key has no hint; on a Mac,
+Ctrl and Alt show as Cmd and Option. The Welcome page shows New module,
+Open module and Quick Open's keys; a script's tab its keys (Find, Find
+next, Definition, References, Complete, Bookmark, Compile all,
+Replace); the Resources panel, while the pointer is over it or its list
+has the keys, its own (Up or Down to move in the list and Enter to open,
+where the list has the keys; Double Click to open, Right Click for more,
+and Find's key, which goes to its Name field with the pointer over it); a tab with OK and Cancel (Options, a Properties tab) Tab and
+Shift + Tab for its fields, Esc Cancel where an Escape would cancel it
+(by the rule under [Tabs and windows](#tabs-and-windows): not while a
+field has the keys, where which tab the Escape is for shows only as you
+press it, nor while the module tree, the Resources panel or the log has
+the keys, which take it first), and, for Options, Enter OK while the
+pointer is over it. Where an Escape would cancel a tab other than the
+one you work in (a Properties tab beside the area, the pointer over
+it), its hint comes first and names it ("Esc: Cancel Module
+Properties"). A
+screen reader reads each hint as one label ("Shift, Right Drag:
+Turn"); the hints take no Tab stop.
+
+**Counts.** An area's tab shows its size and how many objects it holds
+("11 by 11 tiles", "192 objects"; the objects of the kinds shown), and
+before them what is selected ("1 selected", rest the pointer on it for
+the object's kind, tag, blueprint, place and facing; "3 selected";
+in Select Tiles "2 by 3 tiles selected" or "Tile (4, 4) selected") and,
+with a tile brush, the tile under the pointer. Another tab has none.
+
+**When it is short of room**, its parts give way in this order: the
+game folder goes first; then the hints, the last one first, each whole
+(a note at their head is cut short with an ellipsis, its whole words in
+its tip); then the log's last line, cut short from its usual width (a
+short one beside an area's hints, a little more beside another tab's)
+down to a few words, then gone; then the counts, the last first; then a
+running job's name is cut short (its bar kept); and last the module's
+name and the note of files being read are cut short ("(modified)" kept;
+rest the pointer on any of them for the whole).
 
 ## Screen readers and desktop agents
 

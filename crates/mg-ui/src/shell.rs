@@ -9,8 +9,9 @@
 //!   Open's field (M3's T8, `quick_open`), an icon button where the
 //!   bar's middle is narrow;
 //! - the **Status Bar** ([`status_bar`]): the Bottom Dock's switches at
-//!   the left (the Log's), the module's name and the game folder at the
-//!   right (hints and counts are T7 and T12's);
+//!   the left (the Log's), the log's last line and the active editor's
+//!   hints in the middle ([`shown`], T12), its counts, a running job, the
+//!   module's name and the game folder at the right;
 //! - the **Left Dock** ([`left_dock`]): its tab bar (the tabs of its
 //!   panels, Module and Resources, and the shown panel's header buttons),
 //!   the panel under it: the Module panel (the Filter over the module
@@ -57,7 +58,9 @@
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
-use mg_uikit::status::{self, StatusItem, StatusJob, StatusLog, StatusSwitch};
+use mg_uikit::status::{
+    self, Hint, HintPart, Hints, StatusItem, StatusJob, StatusLog, StatusSwitch,
+};
 use mg_uikit::{Icon, IconButton, Join, metrics};
 
 use crate::commands::{self, CommandRow, Id, TOP_BAR, TOP_BAR_TEST_MENU, TopBarButton};
@@ -554,21 +557,35 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// The Status Bar (`Panel::bottom("status")`): the Log's switch at the
-/// left and, while the Bottom Dock is closed, the log's last line after it
-/// ([`last_line`]; pressed, it opens the log); at the right a running job
-/// (its name and bar), the module's name (with "(modified)", its path in
-/// the tip) and the game folder. As the window narrows: the last line is
-/// cut short with an ellipsis down to its least room
-/// ([`LAST_LINE_LEAST`]); then the game folder goes (the line has its
-/// room again, and widens); then the line is cut short again and goes;
-/// then the job's name is cut short (its bar kept); last the module's
-/// name is cut short ("(modified)" kept whole), shared with the note of a
-/// look under way as before ([`share`]). (SPEC's section 12: the folder
-/// drops before what is in the middle.)
+/// left; in the middle, while the Bottom Dock is closed, the log's last
+/// line ([`last_line`]; pressed, it opens the log), held to
+/// [`last_line_cap`], and after it the active editor's hints ([`shown`]:
+/// key caps and a word, dropping whole from the end); at the right the
+/// editor's counts, a running job (its name and bar), the module's name
+/// (with "(modified)", its path in the tip) and the game folder.
+///
+/// As the window narrows they yield in one order (SPEC's section 12:
+/// the folder drops before what is in the middle; the boards' `.sb-log`
+/// and `.sb-hints`: the hints take what the line leaves, `flex: 1 1 0`):
+///
+/// 1. the game folder goes (it is shown only where every hint and the
+///    line at its cap fit beside it);
+/// 2. the hints drop whole from the end (a notice at their head is cut
+///    short with an ellipsis before it drops);
+/// 3. the last line is cut short down to its least room
+///    ([`LAST_LINE_LEAST`]; a shorter line is shown whole while it
+///    fits), then goes;
+/// 4. the counts go whole from the end;
+/// 5. the job's name is cut short (its bar kept);
+/// 6. last the module's name is cut short ("(modified)" kept whole),
+///    shared with the note of a look under way as before ([`share`]).
 pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(ui.ctx());
     let size = metrics::STATUS_BAR + panel_line(ui);
     let ctx = ui.ctx().clone();
+    let shown = shown_now(app, &ctx);
+    app.bar_said = shown.said();
+    let cap = last_line_cap(app);
     let log_on = !app.settings.hide_log;
     let log_tip = format!("Show the log, or close it{}", key_note(app, &ctx, Id::ViewLog));
     let looking = app.looking_note();
@@ -616,6 +633,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         };
         job.name(name).tooltip(tip)
     });
+    let hints = shown.hints;
     let (clicked, last_clicked) = egui::Panel::bottom("status")
         .exact_size(size)
         .resizable(false)
@@ -635,47 +653,75 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             if let Some(tip) = &folder_tip {
                 folder_item = folder_item.tooltip(tip);
             }
+            let mut counts: Vec<StatusItem> = (shown.counts.iter())
+                .map(|c| match &c.tip {
+                    Some(tip) => StatusItem::new(&c.text).tooltip(tip),
+                    None => StatusItem::new(&c.text),
+                })
+                .collect();
             // (Its whole words in its tip, where it is cut short.)
             let mut note = looking.map(|n| StatusItem::new(n).tooltip(n));
             let mut job = job;
-            // The right-hand items share the room left after the switch
-            // and the gap before them by one rule: the game folder goes
-            // first; then the job's name is cut short, down to its bar;
-            // then the note and the module's name are cut short with an
-            // ellipsis (`share`), each to half the room where both are
-            // wider, or to what the other leaves (the name's path in its
-            // tip, "(modified)" kept whole). The last line has what they
-            // leave (the bar's middle), and so yields before them all.
+            // The middle at its fullest: a separator after the switch,
+            // the last line at its cap, the hints whole.
             let between = 2.0 * status::GAP + status::SEPARATOR_WIDTH;
+            let line_full =
+                last.as_ref().map(|(_, text, _)| StatusLog::new(text).width(ui).min(cap));
+            let hints_full = Hints::new(&hints).width(ui);
+            let middle_full = match (line_full, hints.is_empty()) {
+                (None, true) => 0.0,
+                (None, false) => status::SEPARATOR_WIDTH + status::GAP + hints_full,
+                (Some(l), true) => status::SEPARATOR_WIDTH + status::GAP + l,
+                (Some(l), false) => status::SEPARATOR_WIDTH + 2.0 * status::GAP + l + hints_full,
+            };
+            // The right-hand items by the order they yield in: the folder
+            // first (where it does not fit beside the middle at its
+            // fullest), the middle's own (the hints, then the line, in
+            // `middle` below); then the counts whole from the end; then
+            // the job's name is cut short, down to its bar; then the note
+            // and the module's name are cut short with an ellipsis
+            // (`share`), each to half the room where both are wider, or
+            // to what the other leaves (the name's path in its tip,
+            // "(modified)" kept whole).
             let left = switch.width(ui) + 2.0 * status::GAP;
             let room = ui.available_width() - left;
             let note_gap = if note.is_some() { between } else { 0.0 };
             let job_gap = if job.is_some() { between } else { 0.0 };
             let note_width = note.as_ref().map_or(0.0, |n| n.width(ui));
             let job_width = job.as_ref().map_or(0.0, |j| j.width(ui));
-            let without_folder = item.width(ui) + note_width + note_gap + job_width + job_gap;
-            // (With a last line to show, the folder stays only where the
-            // line keeps its least room beside it: the line yields first.)
-            let line_room = match last {
-                Some(_) => LAST_LINE_LEAST + 2.0 * status::GAP + status::SEPARATOR_WIDTH,
-                None => 0.0,
-            };
-            let with_folder = without_folder + between + folder_item.width(ui);
-            let show_folder = with_folder + line_room <= room;
-            if !show_folder && without_folder > room {
-                let others = item.width(ui) + note_width + note_gap + job_gap;
-                job = job.map(|j| j.max_width(room - others));
-                let job_width = job.as_ref().map_or(0.0, |j| j.width(ui));
-                let rest = room - note_gap - job_width - job_gap;
-                let (name_max, note_max) = share(rest, item.width(ui), note_width);
-                item = item.max_width(name_max);
-                note = note.map(|n| n.max_width(note_max));
+            let count_widths: Vec<f32> = counts.iter().map(|c| c.width(ui) + between).collect();
+            let core = item.width(ui) + note_width + note_gap + job_width + job_gap;
+            let all_counts: f32 = count_widths.iter().sum();
+            let with_folder = core + all_counts + between + folder_item.width(ui);
+            let show_folder = with_folder + middle_full <= room;
+            // (Where a count goes, the middle has gone before it: what the
+            // count leaves is no room for the line.)
+            let mut middle_on = true;
+            if !show_folder {
+                // (The middle yields before the counts: they go only where
+                // the right-hand items alone are wider than the bar.)
+                let mut kept = count_widths.len();
+                while kept > 0 && core + count_widths[..kept].iter().sum::<f32>() > room {
+                    kept -= 1;
+                }
+                middle_on = kept == counts.len();
+                counts.truncate(kept);
+                if core > room {
+                    let others = item.width(ui) + note_width + note_gap + job_gap;
+                    job = job.map(|j| j.max_width(room - others));
+                    let job_width = job.as_ref().map_or(0.0, |j| j.width(ui));
+                    let rest = room - note_gap - job_width - job_gap;
+                    let (name_max, note_max) = share(rest, item.width(ui), note_width);
+                    item = item.max_width(name_max);
+                    note = note.map(|n| n.max_width(note_max));
+                }
             }
             let mut right = item.width(ui)
                 + note.as_ref().map_or(0.0, |n| n.width(ui))
                 + note_gap
                 + job.as_ref().map_or(0.0, |j| j.width(ui))
-                + job_gap;
+                + job_gap
+                + counts.iter().map(|c| c.width(ui) + between).sum::<f32>();
             if show_folder {
                 right += between + folder_item.width(ui);
             }
@@ -683,29 +729,52 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 ui,
                 right,
                 |ui| ui.add(switch).clicked(),
-                // (The hints: T12's.)
                 |ui, room| {
-                    let (i, text, color) = last?;
-                    // (After a separator, as the board has it; too narrow
-                    // for a word and its ellipsis, not shown.)
-                    let room = room - status::SEPARATOR_WIDTH - status::GAP;
-                    if room < LAST_LINE_LEAST {
+                    if !middle_on {
                         return None;
                     }
-                    let name = format!("Last log line: {text}");
-                    let mut line = StatusLog::new(text).name(name).max_width(room);
-                    if let Some(color) = color {
-                        line = line.color(color);
+                    // (After a separator, as the boards have it.)
+                    let inner = room - status::SEPARATOR_WIDTH - status::GAP;
+                    // The line takes its room first, up to its cap, and is
+                    // shown in its least or more; the hints have what it
+                    // leaves (the boards' `flex: 0 1 auto` and `1 1 0`).
+                    let line = last.as_ref().zip(line_full).and_then(|((i, text, color), full)| {
+                        let fits = full <= inner || inner >= LAST_LINE_LEAST;
+                        fits.then_some((*i, text, *color, full.min(inner)))
+                    });
+                    let hints_room = match &line {
+                        Some((.., width)) => inner - width - status::GAP,
+                        None => inner,
+                    };
+                    let any_hint = Hints::new(&hints).fitting(ui, hints_room) > 0;
+                    if line.is_none() && !any_hint {
+                        return None;
                     }
                     status::separator(ui);
-                    let mut shown = ui.add(line);
-                    if shown.hovered() || shown.has_focus() {
-                        tips_made.set(tips_made.get() + 1);
-                        shown = shown.on_hover_text(last_line_tip(log, i));
+                    let mut pressed = None;
+                    if let Some((i, text, color, width)) = line {
+                        let name = format!("Last log line: {text}");
+                        let mut line = StatusLog::new(text.as_str()).name(name).max_width(width);
+                        if let Some(color) = color {
+                            line = line.color(color);
+                        }
+                        let mut shown = ui.add(line);
+                        if shown.hovered() || shown.has_focus() {
+                            tips_made.set(tips_made.get() + 1);
+                            shown = shown.on_hover_text(last_line_tip(log, i));
+                        }
+                        pressed = Some(shown.clicked());
                     }
-                    Some(shown.clicked())
+                    if any_hint {
+                        Hints::new(&hints).show(ui, hints_room);
+                    }
+                    pressed
                 },
                 |ui| {
+                    for count in counts {
+                        ui.add(count);
+                        status::separator(ui);
+                    }
                     if let Some(note) = note {
                         ui.add(note);
                         status::separator(ui);
@@ -810,6 +879,249 @@ fn last_line_tip(log: &crate::Log, i: usize) -> String {
 /// The least room the log's last line is shown in (a short word and its
 /// ellipsis); in less, it is not shown.
 pub(crate) const LAST_LINE_LEAST: f32 = 48.0;
+
+/// The most of the bar the log's last line takes beside an area's
+/// hints (`.sb-log`'s `max-width` on the Main, AreaPaint and AreaTiles
+/// boards).
+pub(crate) const LAST_LINE_CAP_AREA: f32 = 96.0;
+/// The most it takes beside another editor's (150 to 260 on the other
+/// boards: the Creature board's 160).
+pub(crate) const LAST_LINE_CAP: f32 = 160.0;
+
+/// The most of the bar the log's last line takes now: less beside an
+/// area, whose hints are many.
+pub(crate) fn last_line_cap(app: &Moonglow) -> f32 {
+    match app.active_editor() {
+        Some(crate::Tab::Area(_) | crate::Tab::NoArea) => LAST_LINE_CAP_AREA,
+        _ => LAST_LINE_CAP,
+    }
+}
+
+/// What the Status Bar shows for the editor in front: its hints, the most
+/// useful first (a notice of what is in hand before them), and its counts
+/// at the bar's right, before the job.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Shown {
+    pub(crate) hints: Vec<Hint>,
+    pub(crate) counts: Vec<Count>,
+}
+
+impl Shown {
+    /// What it says, a line a hint (as a screen reader says it) and a
+    /// line a count: two frames that say the same show the same.
+    pub(crate) fn said(&self) -> Vec<String> {
+        let hints = self.hints.iter().map(Hint::spoken);
+        hints.chain(self.counts.iter().map(|c| c.text.clone())).collect()
+    }
+}
+
+/// One of the Status Bar's counts ("11 by 11 tiles", "1 selected"), with
+/// its tip where it has more to say.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Count {
+    pub(crate) text: String,
+    pub(crate) tip: Option<String>,
+}
+
+impl Count {
+    pub(crate) fn new(text: impl Into<String>) -> Count {
+        Count { text: text.into(), tip: None }
+    }
+}
+
+/// The keys a hint shows: a command's by the user's own key bindings
+/// (`keys.rs`; a command with no key has no hint), the modifiers of the
+/// mouse's gestures by this system's names (`Cmd` and `Option` on macOS,
+/// where the area view reads egui's `command` and `alt`).
+pub(crate) struct HintKeys<'a> {
+    keymap: &'a crate::keys::Keymap,
+    mac: bool,
+}
+
+impl<'a> HintKeys<'a> {
+    pub(crate) fn new(keymap: &'a crate::keys::Keymap, ctx: &egui::Context) -> HintKeys<'a> {
+        HintKeys { keymap, mac: ctx.os() == egui::os::OperatingSystem::Mac }
+    }
+
+    /// Ctrl's name (Cmd on macOS).
+    pub(crate) fn ctrl(&self) -> &'static str {
+        if self.mac { "Cmd" } else { "Ctrl" }
+    }
+
+    /// Alt's name (Option on macOS).
+    pub(crate) fn alt(&self) -> &'static str {
+        if self.mac { "Option" } else { "Alt" }
+    }
+
+    /// The key caps of `cmd`'s first key, where it has one.
+    fn caps(&self, cmd: crate::keys::Cmd) -> Option<Vec<String>> {
+        self.keymap.keys(cmd).first().map(|k| crate::keys::caps(k, self.mac))
+    }
+
+    /// `cmd`'s first key and `word` (`Ctrl` + `N` New module); none where
+    /// it has no key.
+    pub(crate) fn hint(&self, cmd: crate::keys::Cmd, word: &str) -> Option<Hint> {
+        self.caps(cmd).map(|caps| Hint::keys(caps, word))
+    }
+
+    /// The keys of `a` and `b`, which do the same each its way, joined by
+    /// `/` (`Q` / `E` Turn), and `word`; the one that has a key alone
+    /// where the other has none, and none where neither has.
+    pub(crate) fn either(
+        &self,
+        a: crate::keys::Cmd,
+        b: crate::keys::Cmd,
+        word: &str,
+    ) -> Option<Hint> {
+        self.joined([a, b], Some("/"), word)
+    }
+
+    /// [`HintKeys::either`] with nothing between the two keys (the Main
+    /// board's `Q` `E` Turn by a step).
+    pub(crate) fn both(
+        &self,
+        a: crate::keys::Cmd,
+        b: crate::keys::Cmd,
+        word: &str,
+    ) -> Option<Hint> {
+        self.joined([a, b], None, word)
+    }
+
+    fn joined(
+        &self,
+        cmds: [crate::keys::Cmd; 2],
+        join: Option<&'static str>,
+        word: &str,
+    ) -> Option<Hint> {
+        let mut hint = Hint::new(word);
+        let mut any = false;
+        for caps in cmds.into_iter().filter_map(|c| self.caps(c)) {
+            if any && let Some(j) = join {
+                hint = hint.part(HintPart::Join(j));
+            }
+            for (i, cap) in caps.into_iter().enumerate() {
+                hint = if i == 0 { hint.key(cap) } else { hint.plus(cap) };
+            }
+            any = true;
+        }
+        any.then_some(hint)
+    }
+}
+
+/// [`shown`] as the bar shows it now: the Escape a docked tab would take
+/// and the pointer over Options as the last frame drew the editor area.
+fn shown_now(app: &mut Moonglow, ctx: &egui::Context) -> Shown {
+    let escape = app.escape_hint.clone();
+    let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
+    shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), app.options_hovered)
+}
+
+/// What the Status Bar says the next frame, from the editor area as this
+/// frame left it: where it differs from what it showed, that frame is
+/// asked for (the bar is drawn before the editor area, whose state it
+/// reads).
+pub(crate) fn said_next(app: &mut Moonglow, ctx: &egui::Context) -> Vec<String> {
+    let escape = app.escape_hint_next.clone();
+    let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
+    let hovered = app.options_hovered_next;
+    shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered).said()
+}
+
+/// What the Status Bar shows for the active docked editor
+/// ([`Moonglow::active_editor`], as the Right Dock follows it), or for the
+/// Resources panel while it is in use (the pointer over it, or its list
+/// with the keys: Up and Down and Enter where the list has them, Double
+/// Click, Right Click, Find's key with the pointer over it; the editor's
+/// counts kept): an area's
+/// state's hints and counts (`area_view::bar`); the Welcome page's New
+/// module, Open module and Quick Open by their keys; a script's keys (the
+/// Script board's); a tab with OK and Cancel (`Tab::escape_cancels`):
+/// Enter for Options' OK where it is (the pointer over it, nothing with
+/// the keyboard), Esc for its Cancel where an Escape would be its own
+/// (`escape`, the tab whose Cancel it would be and its name: ruling R1,
+/// T10's rule, as `tabs::Viewer::body` foresees it), and Tab's fields.
+/// Where an Escape would be another docked tab's than the active
+/// editor's, its Esc comes first, named by it.
+pub(crate) fn shown(
+    app: &Moonglow,
+    ctx: &egui::Context,
+    escape: Option<(&crate::Tab, &str)>,
+    options_hovered: bool,
+) -> Shown {
+    use crate::Tab;
+    if let Some(shown) = &app.status_for_tests {
+        return shown.clone();
+    }
+    use crate::keys::Cmd;
+    let k = HintKeys::new(&app.keymap, ctx);
+    let active = app.active_editor();
+    let esc_mine = escape.is_some_and(|(t, _)| Some(t) == active);
+    let mut shown = match active {
+        Some(Tab::Area(area)) => app
+            .area_views
+            .get(area)
+            .map(|v| crate::area_view::status(app, v, ctx))
+            .unwrap_or_default(),
+        Some(Tab::Welcome) => {
+            let hints = [
+                k.hint(Cmd::NewModule, "New module"),
+                k.hint(Cmd::OpenModule, "Open module"),
+                k.hint(Cmd::QuickOpen, "Go to resource or command"),
+            ];
+            Shown { hints: hints.into_iter().flatten().collect(), counts: Vec::new() }
+        }
+        Some(Tab::Script(_)) => {
+            let hints = [
+                k.hint(Cmd::Find, "Find"),
+                k.hint(Cmd::FindNext, "Find next"),
+                k.hint(Cmd::Definition, "Definition"),
+                k.hint(Cmd::References, "References"),
+                k.hint(Cmd::Complete, "Complete"),
+                k.hint(Cmd::Bookmark, "Bookmark"),
+                k.hint(Cmd::CompileAll, "Compile all"),
+                k.hint(Cmd::Replace, "Replace"),
+            ];
+            Shown { hints: hints.into_iter().flatten().collect(), counts: Vec::new() }
+        }
+        Some(tab) if tab.escape_cancels() => {
+            let mut hints = Vec::new();
+            let typing = ctx.memory(|m| m.focused().is_some());
+            // (Not while Options › Keyboard waits for a key: it takes the
+            // keys itself.)
+            let recording = app.options.as_ref().is_some_and(|o| o.recording.is_some());
+            if *tab == Tab::Options && options_hovered && !typing && !recording {
+                hints.push(Hint::keys(["Enter"], "OK"));
+            }
+            if esc_mine {
+                hints.push(Hint::keys(["Esc"], "Cancel"));
+            }
+            hints.push(Hint::keys(["Tab"], "Next field"));
+            hints.push(Hint::keys(["Shift", "Tab"], "Previous field"));
+            Shown { hints, counts: Vec::new() }
+        }
+        _ => Shown::default(),
+    };
+    if let Some((_, name)) = escape.filter(|_| !esc_mine) {
+        shown.hints.insert(0, Hint::keys(["Esc"], format!("Cancel {name}")));
+    }
+    // The Resources panel in use: its hints (the Resources board's), the
+    // editor's counts kept.
+    if let Some(over) = app.resources_here {
+        let keys = crate::palette_view::keys_are(ctx, crate::palette_view::Keys::Browser);
+        let mut hints = Vec::new();
+        if keys {
+            hints.push(Hint::either(["Up", "Down"], "Move in the list"));
+            hints.push(Hint::keys(["Enter"], "Open"));
+        }
+        hints.push(Hint::keys(["Double Click"], "Open"));
+        hints.push(Hint::keys(["Right Click"], "More"));
+        if over {
+            hints.extend(k.hint(Cmd::Find, "Find"));
+        }
+        shown.hints = hints;
+    }
+    shown
+}
 
 /// The widths at most of the Status Bar's module name and its note (the
 /// game folder left out), `name` and `note` wide as they are, in `room`:

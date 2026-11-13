@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T02:56:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -76,8 +76,8 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Select Tiles (F10), Paint (B) | Tool shelf at the left of the 3D view |
 | Paint's second strip (Scatter, Row, Fill, Erase, Radius, Density and the rest) | Takes the header's left group while Paint is the active tool (not drawn) |
 | Reorient Camera, Go to Start Location | Buttons under the compass |
-| "11 by 11 tiles, 192 objects" | Status Bar, right |
-| Hint line | Status Bar, as key caps |
+| "11 by 11 tiles, 192 objects" | Status Bar, right ✓ M3 T12 (two counts, "11 by 11 tiles" and "192 objects", after what is selected; they follow the active editor; "problems" and "N missing" stay on the toolbar, beside its tools) |
+| Hint line | Status Bar, as key caps ✓ M3 T12 (each state's hints, a note of what is in hand or why a step was refused at their head; the line under the toolbar is gone) |
 | The strip's right-click menu (which buttons to show) | The header's right-click menu |
 | Palette: type picker, Standard and Custom, search, List and Gallery, New…, More, Group By | Palette panel, in the same order |
 | A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab |
@@ -104,7 +104,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Functions, Variables, Constants, Templates and the filter | Right Dock, Reference panel |
 | Help tab (bottom) | Right Dock, Help under Reference |
 | Compiler, Bookmarks, Search Results tabs (bottom) | Bottom Dock tabs, with switches in the Status Bar |
-| Key hints | Status Bar, as key caps |
+| Key hints | Status Bar, as key caps ✓ M3 T12 (Find, Find next, Definition, References, Complete, Bookmark, Compile all, Replace, as bound, while a script's tab is the active editor; the line and column count is M4's) |
 
 
 ### Conversation Editor
@@ -181,7 +181,7 @@ Every control of the screens mocked in the second round and its home in the mock
 |---|---|---|
 | Ten pages: Folders, Area, General, Script Editor, Conversation Editor, Sounds, Verify, Language, Keyboard, Updates | Page list at the left, styled like Creature's, with icons |
 | OK, Cancel | Editor header, right end |
-| Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field; Esc cancels Options docked too (ruling R1), so the hints show Esc | Esc: ✓ M3 T10 (the hints are T12's) |
+| Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field; Esc cancels Options docked too (ruling R1), so the hints show Esc | Esc: ✓ M3 T10; the hints ✓ M3 T12 (with Esc Cancel where an Escape would cancel it; Enter OK while the pointer is over it and nothing has the keys) |
 | Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order | Editors first: ✓ M3 T10 (the columns are M4's) |
 | Windows and Tabs, Module Tree and Palettes, Appearance | Column 2 |
 | Questions, Warnings, Troubleshooting | Column 3 |
@@ -346,7 +346,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Show toggles while Paint is on | The Outliner's eyes |
 | Snap, Turn | Brush popover, under "Placing, as with the Select tool" |
 | Together, Onto Objects | Back in the header when Select is the active tool |
-| Paint hints | Status Bar: Drag Paint, Shift + Wheel Brush size, Q / E Turn, Right Click / Esc Stop |
+| Paint hints | Status Bar: Drag Paint, Shift + Wheel Brush size, Q / E Turn, Right Click / Esc Stop ✓ M3 T12 (after "Painting 2 placeables", the board's lead; Erase, Fill and Row their own) |
 
 
 #### New
@@ -371,7 +371,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Tiles palette: search, List and Gallery, Exact Tile | Palette panel, in the same order |
 | Tile Properties: lights, loops, Height, Replacement texture, Defaults, Textures | Properties panel, same fields |
 | Tile Properties OK, Cancel | Gone: the step is one undo step, Cancel becomes Ctrl+Z |
-| Tile hints | Status Bar: Click, Drag Box, Shift + Click, Ctrl + Click, Right Click |
+| Tile hints | Status Bar: Click, Drag Box, Shift + Click, Ctrl + Click, Right Click ✓ M3 T12 (and Shift + Right Click Next tile, Shift + Drag Add a box; a refusal's notice first; "2 by 3 tiles selected" at the right) |
 
 
 #### New
@@ -438,7 +438,7 @@ Every control of the screens mocked in the second round and its home in the mock
 - Links to the manual's chapters, and a Help group: Command Palette…, Check for Updates…, About.
 - A "Game data found" line.
 - A note about dropping a module on the window.
-- Status Bar hints for Ctrl+N, Ctrl+O and Ctrl+P.
+- Status Bar hints for Ctrl+N, Ctrl+O and Ctrl+P. ✓ M3 T12 (as bound: a key changed shows changed, a command without one has no hint)
 
 #### Not Drawn
 
@@ -478,10 +478,10 @@ Every control of the screens mocked in the second round and its home in the mock
 |---|---|---|
 | Type dropdown, Name filter, Overridden copies | Left Dock, Resources tab, top of the panel | ✓ M3 T4 (Models as text under them, where models are listed) |
 | Refresh | Icon in the panel header | ✓ M3 T4 |
-| "N of M resources; double-click to open" | Count in the panel; the hint in the Status Bar | Count ✓ M3 T4; the hint is the count's tip until the Status Bar's hints (M3 T12) |
+| "N of M resources; double-click to open" | Count in the panel; the hint in the Status Bar | Count ✓ M3 T4; the hint ✓ M3 T12 (Double Click Open in the Status Bar while the panel is in use; the count's tip is gone) |
 | Export N as Files… | Icon in the panel header | ✓ M3 T4 |
 | List rows: name, layer, indented overridden copies | Same rows with a kind icon | ✓ M3 T4 (cut with an ellipsis at the dock's width, whole in the row's tip) |
-| Up, Down, Page, Home, End, Enter, Esc | Status Bar hints | M3 T12 |
+| Up, Down, Page, Home, End, Enter, Esc | Status Bar hints | ✓ M3 T12 (Up or Down Move in the list and Enter Open while its list has the keys, Double Click Open, Right Click More, Find's key with the pointer over it: the Resources board's) |
 | Read-only tab: Copy to Module, Save As… | Editor header, with a note | M4 |
 | Tab title "name (read-only)" | Kept as the document tab's name | ✓ (as it was) |
 | Read-only GFF tree | The GFF view's three columns, read-only |

@@ -1084,6 +1084,31 @@ pub struct Moonglow {
     pub(crate) escape_taken: bool,
     pub(crate) escape_docked: Option<Tab>,
     escape_docked_next: Option<Tab>,
+    /// The docked tab with OK and Cancel an Escape would be the Cancel of
+    /// now (the Status Bar's Esc hint, M3's T12), as `tabs::Viewer::body`
+    /// foresaw it while the editor area was drawn last (`_next`, taken as
+    /// the frame begins): by T10's rule where nothing has the keyboard
+    /// (where something has, where the key goes is known only at the
+    /// Escape, and no hint is shown). (A window in front with OK and
+    /// Cancel takes an Escape only where no docked tab does.)
+    pub(crate) escape_hint: Option<Tab>,
+    pub(crate) escape_hint_next: Option<Tab>,
+    /// The pointer over the Options tab as the editor area was drawn last
+    /// (its Enter is OK then, with nothing typed in): the Status Bar's
+    /// Enter hint.
+    pub(crate) options_hovered: bool,
+    pub(crate) options_hovered_next: bool,
+    /// What the Status Bar said this frame ([`shell::Shown::said`]): the
+    /// next frame is asked for where the editor area changed it.
+    pub(crate) bar_said: Vec<String>,
+    /// The Resources panel in use as the Left Dock was drawn last (the
+    /// pointer over it, or its list with the keys): `Some(over)`, where
+    /// `over` says the pointer is over it. The Status Bar's hints are the
+    /// panel's then (the Resources board's).
+    pub(crate) resources_here: Option<bool>,
+    /// What the Status Bar shows in place of the active editor's hints and
+    /// counts, for tests of the bar's room ([`Moonglow::status_for_tests`]).
+    pub(crate) status_for_tests: Option<shell::Shown>,
     /// Where the last press of a pointer button was, and the layer it was
     /// on: where the keyboard is for a docked tab's Escape (egui takes the
     /// keyboard from a field at an Escape before anything is drawn, and
@@ -1517,6 +1542,13 @@ impl Moonglow {
             escape_taken: false,
             escape_docked: None,
             escape_docked_next: None,
+            escape_hint: None,
+            escape_hint_next: None,
+            options_hovered: false,
+            options_hovered_next: false,
+            bar_said: Vec::new(),
+            resources_here: None,
+            status_for_tests: None,
             last_press: None,
             focus_was: None,
             keyboard_at: None,
@@ -1720,6 +1752,10 @@ impl Moonglow {
         self.escape_docked = self.escape_docked_next.take();
         self.escape_docked_seen = None;
         self.escape_taken = false;
+        // (The Status Bar's Esc and Enter hints, as the editor area was
+        // drawn last.)
+        self.escape_hint = self.escape_hint_next.take();
+        self.options_hovered = std::mem::take(&mut self.options_hovered_next);
         let pressed = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()));
         if let Some(at) = pressed.flatten() {
             self.last_press = Some((at, ui.ctx().layer_id_at(at)));
@@ -1910,6 +1946,8 @@ impl Moonglow {
         // in the same place beside its strip), the Bottom Dock's switch in
         // the Status Bar.
         shell::status_bar(self, ui);
+        // (Set again where the Left Dock draws the Resources panel.)
+        self.resources_here = None;
         shell::left_dock(self, ui);
         shell::right_dock(self, ui);
         // (The Bottom Dock and the editor area drawn within the room the
@@ -2013,6 +2051,12 @@ impl Moonglow {
             self.window_bars(ui);
         });
         ui.set_clip_rect(whole_clip);
+        // (The Status Bar, drawn before the editor area, shows its state
+        // as the frame began: where the editor area changed what it says,
+        // the next frame shows it.)
+        if shell::said_next(self, ui.ctx()) != self.bar_said {
+            ui.ctx().request_repaint();
+        }
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
@@ -2553,6 +2597,23 @@ impl Moonglow {
         let path = focused.or_else(|| self.middle_pane())?;
         let leaf = self.dock.leaf(path).ok()?;
         leaf.tabs.get(leaf.active.0)
+    }
+
+    /// Shows `hints` and `counts` in the Status Bar in place of the active
+    /// editor's (`None`: its own again), for the tests of how the bar
+    /// yields, whatever is open.
+    #[doc(hidden)]
+    pub fn status_for_tests(&mut self, shown: Option<(Vec<mg_uikit::status::Hint>, Vec<String>)>) {
+        self.status_for_tests = shown.map(|(hints, counts)| shell::Shown {
+            hints,
+            counts: counts.into_iter().map(shell::Count::new).collect(),
+        });
+    }
+
+    /// What the Status Bar said at the last frame: each hint as a screen
+    /// reader says it, then each count.
+    pub fn status_said(&self) -> &[String] {
+        &self.bar_said
     }
 
     /// Where the Right Dock's Preview panel's body was drawn at the last

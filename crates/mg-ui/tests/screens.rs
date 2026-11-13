@@ -10640,6 +10640,130 @@ fn quick_open_widths() {
     }
 }
 
+/// The area view's states, each as the Status Bar shows its hints (M3's
+/// T12; before it, the line under the area's toolbar): nothing selected,
+/// one selected, several, Shift held over one, a drag under way, a
+/// blueprint, a light and the start location being placed, the placeable
+/// brush, Select Tiles with tiles selected and a refusal's notice, and a
+/// tile brush (`shell_area_<state>.png`, the Main board's size).
+#[test]
+#[ignore]
+fn shell_area_states() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let rect = h.state().area_views[&area].rect;
+    let over = rect.center() + egui::vec2(-120.0, 60.0);
+    h.event(egui::Event::PointerMoved(over));
+    let reset = |h: &mut Harness<'_, Moonglow>| {
+        let app = h.state_mut();
+        app.palette.selected = None;
+        app.palette.chosen.clear();
+        app.palette.placing_light = None;
+        app.palette.placing_start = false;
+        app.palette.tile_brush = None;
+        app.paint = false;
+        let view = app.area_views.get_mut(&area).unwrap();
+        view.tile_mode = false;
+        view.tile_selection.clear();
+        view.selection.clear();
+    };
+    let creature = (mg_area::ObjectKind::Creature, 0);
+    reset(&mut h);
+    shoot(&mut h, &dir, "shell_area_idle");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![creature];
+    shoot(&mut h, &dir, "shell_area_one");
+    let several = vec![creature, (mg_area::ObjectKind::Creature, 1)];
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = several;
+    shoot(&mut h, &dir, "shell_area_several");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![creature];
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    shoot(&mut h, &dir, "shell_area_shift");
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(2);
+    // A drag of the creature under way.
+    let at = {
+        let view = &h.state().area_views[&area];
+        let o = view.model.as_ref().unwrap().object(creature.0, creature.1).unwrap();
+        view.screen_pos(o.position).unwrap()
+    };
+    let button = |h: &mut Harness<'_, Moonglow>, pos, pressed| {
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+        h.run_steps(1);
+    };
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(2);
+    button(&mut h, at, true);
+    for k in 1..=6 {
+        h.event(egui::Event::PointerMoved(at + egui::vec2(8.0 * k as f32, 4.0 * k as f32)));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "shell_area_drag");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    button(&mut h, at + egui::vec2(48.0, 24.0), false);
+    h.event(egui::Event::PointerMoved(over));
+    reset(&mut h);
+    h.state_mut().palette.selected = Some(ResKey::parse("plc_statue1", ResType::UTP).unwrap());
+    shoot(&mut h, &dir, "shell_area_placing");
+    reset(&mut h);
+    h.state_mut().palette.placing_light = Some(0);
+    shoot(&mut h, &dir, "shell_area_light");
+    reset(&mut h);
+    h.state_mut().palette.placing_start = true;
+    shoot(&mut h, &dir, "shell_area_start");
+    reset(&mut h);
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(ResKey::parse("plc_tree", ResType::UTP).unwrap());
+        app.palette.chosen = vec![ResKey::parse("plc_shrub", ResType::UTP).unwrap()];
+        app.paint = true;
+    }
+    shoot(&mut h, &dir, "shell_area_paint");
+    reset(&mut h);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.tile_mode = true;
+        view.tile_selection = vec![(1, 1), (2, 1), (1, 2), (2, 2), (1, 3), (2, 3)];
+    }
+    shoot(&mut h, &dir, "shell_area_tiles");
+    reset(&mut h);
+    let tileset = h.state().area_views[&area].model.as_ref().unwrap().tileset.unwrap();
+    h.state_mut().palette.tile_brush = Some(mg_ui::terrain_mode::TileBrush {
+        tileset,
+        label: "Raise/Lower".into(),
+        brush: mg_area::terrain::Brush::RaiseLower,
+        target: None,
+        exact: false,
+    });
+    shoot(&mut h, &dir, "shell_area_brush");
+}
+
+/// The Status Bar with an area's hints and counts (an object selected,
+/// the log closed, its last line said) in windows 420, 640, 1000 and 1600
+/// points wide (`shell_status_hints_<width>.png`): the folder, then the
+/// hints from the end, then the line, then the counts give way.
+#[test]
+#[ignore]
+fn shell_status_hints() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for width in [420.0, 640.0, 1000.0, 1600.0] {
+        let mut h = shell_with_area(&root, egui::vec2(width, 600.0));
+        h.state_mut().settings.hide_log = true;
+        h.state_mut().log.info("Opened map_m1q1a, 192 objects");
+        shoot(&mut h, &dir, &format!("shell_status_hints_{width}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn shell_narrow() {
@@ -11453,9 +11577,9 @@ fn shell_status() {
 
 /// The Status Bar at 420 and 640 points with long texts: a long module
 /// name (modified), a long last line, a job running and a long game
-/// folder (`shell_status_420.png`, `shell_status_640.png`): the last line
-/// goes first, then the folder, then the job's name is cut short, the
-/// module's name last.
+/// folder (`shell_status_420.png`, `shell_status_640.png`): the folder
+/// goes first, then the hints, then the last line, the counts, the job's
+/// name is cut short, the module's name last (`shell::status_bar`).
 #[cfg(unix)]
 #[test]
 #[ignore]

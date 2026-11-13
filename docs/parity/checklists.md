@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T02:56:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -323,6 +323,7 @@ row by `mg-edit/src/transition.rs`'s tests; the window's tests are in
 | Groups and features: a ghost under the pointer (its first tile there), right click turns it; its doors come with it | the same | ✅ (`aurora_terrain.rs`: eight placements and the doors, field for field; `engine_terrain.rs`) |
 | Select Terrain: tiles by click and box; Delete; Shift + right click: next variant; Tile Properties (main and source lights from lightcolor.2da, animation loops, Defaults) | Select Tiles: the same | ◐ [area_viewer_selects_tiles_and_sets_their_properties]; Defaults' lights not checked against Aurora indoors; Ctrl + C, X, V copy, cut and paste tiles with their lights (pasted as a group goes in) [tiles_copy_and_paste] |
 | Edit › Resize Area (rows and columns, Tiny/Small/Medium/Large), Rotate Area (90/180/270 either way) | the same | ✅ (`aurora_terrain.rs`: grown, shrunk through groups, rotated as Aurora does; objects outside deleted with Aurora's warning) [resize_and_rotate_area_from_the_edit_menu] |
+| The main frame's status bar (`sbFrame`, two panels) | the Status Bar: the area view's state's hints as key caps and a word (selected, Shift held, a drag, each tool in hand, with a note of what is in hand or why a step was refused), the area's counts (its size, its objects, what is selected) at its right; they were a line of words under the view's toolbar until M3's T12 | ✅ improvement [each_area_state_shows_its_hints] |
 | Render AABB Nodes (walkmesh); Build › Area Statistics (Resources Used) | Walkmesh (walkable faces green); Build › Area Statistics (tiles, objects, models, triangles, memory, textures) | ✅ [walkmesh_overlay_and_area_statistics] |
 
 ## Build menu (`TdlgVerifyModule`, Test Module)

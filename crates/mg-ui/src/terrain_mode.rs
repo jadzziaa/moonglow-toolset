@@ -1606,18 +1606,14 @@ fn cursor_shapes(
     }
 }
 
-/// What the status line says about the spot under the pointer.
-pub(crate) fn status(view: &AreaView) -> Option<String> {
+/// The tile under the pointer as the Status Bar's counts show it while a
+/// brush is in hand: "Tile (3, 4) tcn01_a01_01".
+pub(crate) fn spot_text(view: &AreaView) -> Option<String> {
     let s = view.spot?;
     let model = view.model.as_ref()?;
     view.terrain.as_ref()?;
     let tile = model.tiles.get((s.cell.1 * model.width + s.cell.0) as usize)?;
-    let text =
-        format!("Tile ({}, {}) {}", s.cell.0, s.cell.1, tile.model.as_deref().unwrap_or("?"),);
-    Some(match &view.notice {
-        Some(n) => format!("{text} · {n}"),
-        None => text,
-    })
+    Some(format!("Tile ({}, {}) {}", s.cell.0, s.cell.1, tile.model.as_deref().unwrap_or("?")))
 }
 
 /// The tileset palette of the area shown last, in the Palette panel:

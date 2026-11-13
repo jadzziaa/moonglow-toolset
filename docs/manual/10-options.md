@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T01:20:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
 ---
 
 # Options
@@ -179,12 +179,12 @@ the module is opened again from its file.
   Moonglow's own. Off, a group or feature (a barn, a gate, a statue) is
   one thing: Next and Previous Tile Appearance, Rotate Tile, Refine
   Tile, Shift + click and painting terrain leave its tiles as they are
-  (the status line says why, and its tiles flash red), Tile Properties
+  (the Status Bar says why, and its tiles flash red), Tile Properties
   offers it no variants, no group goes over part of another (as Aurora
   refuses it), and the Eraser and Delete take it away whole. On, each
   of its tiles can be changed alone, a group placed over another takes
   that one away whole, and Delete takes a group's tile alone, as
-  Aurora's does; the page and the status line warn, since a group left
+  Aurora's does; the page and the Status Bar warn, since a group left
   half changed is hard to see and to put right later (Undo does). See
   [Areas](04-areas.md#painting-terrain).
 

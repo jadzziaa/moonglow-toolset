@@ -515,6 +515,38 @@ pub fn from_text(text: &str) -> Option<KeyboardShortcut> {
     Some(KeyboardShortcut::new(m, Key::from_name(key)?))
 }
 
+/// A shortcut as the Status Bar's hints show it, a key cap a part: its
+/// modifiers by this system's names (`Cmd` and `Option` on macOS, `mac`),
+/// then its key, as the boards name keys (`Esc`, `Page Up`).
+pub(crate) fn caps(s: &KeyboardShortcut, mac: bool) -> Vec<String> {
+    let m = s.modifiers;
+    let mut out = Vec::new();
+    if m.command || m.mac_cmd {
+        out.push(if mac { "Cmd" } else { "Ctrl" }.to_string());
+    } else if m.ctrl {
+        out.push("Ctrl".to_string());
+    }
+    if m.alt {
+        out.push(if mac { "Option" } else { "Alt" }.to_string());
+    }
+    if m.shift {
+        out.push("Shift".to_string());
+    }
+    out.push(cap_name(s.logical_key));
+    out
+}
+
+/// A key's name on its key cap: egui's, but for those the boards spell
+/// otherwise.
+fn cap_name(key: Key) -> String {
+    match key {
+        Key::Escape => "Esc".into(),
+        Key::PageUp => "Page Up".into(),
+        Key::PageDown => "Page Down".into(),
+        key => key.name().into(),
+    }
+}
+
 /// A shortcut as shown on this system (`Cmd` on macOS).
 pub fn shown(s: &KeyboardShortcut, mac: bool) -> String {
     s.format(&ModifierNames::NAMES, mac)
@@ -909,6 +941,21 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key's caps: its modifiers by the system's names (Cmd and Option
+    /// on macOS), then the key as the boards name it.
+    #[test]
+    fn a_shortcut_s_caps_follow_the_system() {
+        let k = KeyboardShortcut::new;
+        let caps = |s, mac| caps(&s, mac);
+        assert_eq!(caps(k(CTRL, Key::N), false), ["Ctrl", "N"]);
+        assert_eq!(caps(k(CTRL, Key::N), true), ["Cmd", "N"]);
+        assert_eq!(caps(k(CTRL | SHIFT, Key::P), false), ["Ctrl", "Shift", "P"]);
+        assert_eq!(caps(k(Modifiers::ALT, Key::X), true), ["Option", "X"]);
+        assert_eq!(caps(k(NONE, Key::PageUp), false), ["Page Up"]);
+        assert_eq!(caps(k(NONE, Key::Escape), false), ["Esc"]);
+        assert_eq!(caps(k(SHIFT, Key::F12), false), ["Shift", "F12"]);
+    }
 
     #[test]
     fn keys_go_to_a_file_and_come_back() {

@@ -365,21 +365,21 @@ fn hints_drop_whole_at_a_narrow_width() {
     });
     h.run();
     assert_eq!(shown.get(), 5);
-    let names = ["Drag Move", "Shift Handles", "Alt + Drag Raise", "Q / E Turn by a step"];
+    let names = ["Drag: Move", "Shift: Handles", "Alt, Drag: Raise", "Q or E: Turn by a step"];
     for name in names {
         h.get_by_label("Hints").get_by_label(name);
     }
     // Room for the first two and part of the third: two, the third gone.
-    let first = h.get_by_label("Drag Move").rect();
-    let second = h.get_by_label("Shift Handles").rect();
+    let first = h.get_by_label("Drag: Move").rect();
+    let second = h.get_by_label("Shift: Handles").rect();
     room.set(second.right() - first.left() + 2.0 * status::HINTS_PADDING + 20.0);
     h.run();
     assert_eq!(shown.get(), 2);
-    assert!(h.query_by_label("Alt + Drag Raise").is_none(), "dropped whole");
-    assert!(h.query_by_label("G Drop to ground").is_none());
+    assert!(h.query_by_label("Alt, Drag: Raise").is_none(), "dropped whole");
+    assert!(h.query_by_label("G: Drop to ground").is_none());
     // (Each whole inside the room given, its padding at each end.)
-    let left = h.get_by_label("Drag Move").rect().left() - status::HINTS_PADDING;
-    for name in ["Drag Move", "Shift Handles"] {
+    let left = h.get_by_label("Drag: Move").rect().left() - status::HINTS_PADDING;
+    for name in ["Drag: Move", "Shift: Handles"] {
         let hint = h.get_by_label(name).rect();
         assert!(hint.right() <= left + room.get() - status::HINTS_PADDING, "{name} cut");
     }
@@ -387,6 +387,84 @@ fn hints_drop_whole_at_a_narrow_width() {
     room.set(10.0);
     h.run();
     assert_eq!(shown.get(), 0);
+}
+
+/// With and without the theme applied (egui's own look), a notice, a
+/// held key and hints of keys lay out alike: each one label in the group
+/// "Hints" named by its keys and word, as wide as `Hint::width` says, in
+/// order [`status::HINT_GAP`] apart after the padding, none taking the
+/// keyboard (Tab passes them by); `Hints::width` is their whole width.
+#[test]
+fn hints_lay_out_with_and_without_the_theme() {
+    for themed in [false, true] {
+        let hints = [
+            Hint::note("Painting 2 placeables"),
+            Hint::new("Held").held("Shift"),
+            Hint::keys(["Alt", "Right Drag"], "Turn"),
+            Hint::new("Turn by a step").key("Q").key("E"),
+        ];
+        let widths = std::cell::RefCell::new(Vec::new());
+        let whole = Cell::new(0.0);
+        let mut h = Harness::new_ui(|ui| {
+            if themed {
+                mg_uikit::apply(ui.ctx(), Theme::Dark);
+            }
+            *widths.borrow_mut() = hints.iter().map(|h| h.width(ui)).collect();
+            whole.set(Hints::new(&hints).width(ui));
+            ui.horizontal(|ui| Hints::new(&hints).show(ui, 1000.0));
+        });
+        h.run();
+        let names = [
+            "Painting 2 placeables",
+            "Shift: Held",
+            "Alt, Right Drag: Turn",
+            "Q, E: Turn by a step",
+        ];
+        let rects: Vec<egui::Rect> =
+            names.iter().map(|n| h.get_by_label("Hints").get_by_label(n).rect()).collect();
+        let widths = widths.borrow().clone();
+        for (i, r) in rects.iter().enumerate() {
+            assert!((r.width() - widths[i]).abs() < 0.01, "{themed}: {}", names[i]);
+            assert_eq!(r.height(), status::HINT_HEIGHT);
+            if i > 0 {
+                let gap = r.left() - rects[i - 1].right();
+                assert!((gap - status::HINT_GAP).abs() < 0.01, "{themed}: {gap}");
+            }
+        }
+        let sum: f32 = widths.iter().sum();
+        let expected = sum + 3.0 * status::HINT_GAP + 2.0 * status::HINTS_PADDING;
+        assert!((whole.get() - expected).abs() < 0.01, "{themed}: {}", whole.get());
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert_eq!(h.ctx.memory(|m| m.focused()), None, "{themed}: no hint takes the keys");
+    }
+}
+
+/// A notice that does not fit whole is cut short with an ellipsis (named
+/// by its whole words, inside the room), the hints after it dropped; in
+/// less than `NOTE_LEAST` it drops as a hint does.
+#[test]
+fn a_notice_without_room_is_cut_short() {
+    let room = Cell::new(1000.0);
+    let shown = Cell::new(0);
+    let note = "A static placeable takes no scale: clear Static in its properties first";
+    let hints = [Hint::note(note), Hint::keys(["Ctrl", "Wheel"], "Zoom slowly")];
+    let mut h = Harness::new_ui(|ui| {
+        ui.horizontal(|ui| shown.set(Hints::new(&hints).show(ui, room.get())));
+    });
+    h.run();
+    assert_eq!(shown.get(), 2);
+    let whole = h.get_by_label(note).rect().width();
+    room.set(whole / 2.0);
+    h.run();
+    assert_eq!(shown.get(), 1, "the notice cut short, the hint after it dropped");
+    let cut = h.get_by_label(note).rect();
+    assert!(cut.width() < whole && cut.width() <= room.get(), "{cut:?} in {}", room.get());
+    assert!(h.query_by_label("Ctrl, Wheel: Zoom slowly").is_none());
+    room.set(status::NOTE_LEAST - 1.0 + 2.0 * status::HINTS_PADDING);
+    h.run();
+    assert_eq!(shown.get(), 0, "too little room: dropped");
+    assert!(h.query_by_label(note).is_none());
 }
 
 /// A panel's header: a group named by its title, its tools found within

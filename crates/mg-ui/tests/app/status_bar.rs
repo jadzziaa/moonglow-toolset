@@ -11,13 +11,20 @@ use crate::common::*;
 use crate::shell::{bar_controls, drawn_texts};
 
 /// The application with no module and no game, the Bottom Dock closed
-/// and the log empty.
+/// and the log empty; the Status Bar with no hints (the Welcome page's
+/// are `status_hints.rs`'s), so that the last line has the middle alone.
 fn closed_log_app() -> Moonglow {
     let mut app = app_with(Vec::new());
     app.settings.hide_log = true;
     app.log.clear();
+    app.status_for_tests(Some((Vec::new(), Vec::new())));
     app
 }
+
+/// The most of the bar the last line takes beside an editor that is no
+/// area (`shell::LAST_LINE_CAP`: the boards' `.sb-log` `max-width`, the
+/// Creature board's 160).
+const LINE_CAP: f32 = 160.0;
 
 /// The node named `name` in the Status Bar, if it is there.
 fn in_bar<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> Option<egui_kittest::Node<'t>> {
@@ -151,11 +158,13 @@ fn a_long_last_line_is_cut_short_with_the_whole_line_in_its_tip() {
         assert!(line.right() <= name.left() - 8.0, "{width}: {line:?} before {name:?}");
         let words = drawn_texts(&h, line);
         assert_eq!(words.len(), 1, "{width}: {words:?}");
+        // (Cut short at every width: at its cap where the bar has room,
+        // the boards' `.sb-log`, shorter where it has less.)
+        assert!(words[0].ends_with('…') && words[0].starts_with("Verify"), "{words:?}");
+        assert!(words[0].chars().count() < long.chars().count());
+        assert!(line.width() <= LINE_CAP + 0.5, "{width}: held to its cap: {line:?}");
         if width >= 1600.0 {
-            assert_eq!(words[0], long, "whole where it fits");
-        } else {
-            assert!(words[0].ends_with('…') && words[0].starts_with("Verify"), "{words:?}");
-            assert!(words[0].chars().count() < long.chars().count());
+            assert!(line.width() > LINE_CAP - 12.0, "at its cap where there is room: {line:?}");
         }
         let tip = tip_at(&mut h, line).unwrap_or_default();
         assert!(tip.ends_with(long), "{width}: the whole line in its tip: {tip}");
@@ -297,6 +306,8 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
     std::fs::create_dir_all(&game).unwrap();
     let mut app = game_app(&game, None);
     app.settings.hide_log = true;
+    // (No hints: the Welcome page's are `status_hints.rs`'s.)
+    app.status_for_tests(Some((Vec::new(), Vec::new())));
     let mut h = harness(app, 1200.0, 700.0);
     settle(&mut h);
     h.state_mut().log.clear();
@@ -525,17 +536,25 @@ fn a_new_installation_opens_with_the_log_closed() {
 }
 
 /// The Status Bar at every width from the least window's (420) to 1600,
-/// in 8 point steps (and at 1600), with a long module name (modified), a
-/// long last line, a running job and a long game folder: every node of the
-/// bar inside it and none over another, every text drawn inside the bar
-/// and over no other; the module's name always there, everything at 1600;
-/// and they yield in order as the window narrows: the last line is cut
-/// short down to its least room (`shell::LAST_LINE_LEAST`, 48 points);
-/// then the game folder goes (the line widens again); then the line is
-/// cut again and goes; then the job's name is cut short; the module's
-/// name last.
+/// in 8 point steps, then to 2560 in 16, and at 3440 (the wide boards'),
+/// with a
+/// long module name (modified), a long last line, the Main board's six
+/// hints and its two counts, a running job and a long game folder: every
+/// node of the bar inside it and none over another, every text drawn
+/// inside the bar and over no other; the module's name always there,
+/// everything at 2560 and 3440 (the long texts are wider than the
+/// board's); and they yield in the one order
+/// `shell::status_bar` builds, as the window narrows: the game folder
+/// goes first (never shown beside a hint dropped or the line cut); then
+/// the hints drop whole from the end (those shown always the first ones);
+/// then the last line is cut short from its cap (`shell::LAST_LINE_CAP`,
+/// the boards' `.sb-log`) down to its least room
+/// (`shell::LAST_LINE_LEAST`, 48 points), then goes; then the counts go
+/// from the end; then the job's name is cut short; the module's name
+/// last. Each stage is seen at some width.
 #[test]
 fn the_status_bar_holds_at_every_width() {
+    use mg_uikit::status::Hint;
     let dir = mg_testkit::scratch_dir("ui-status-sweep");
     let path = sample_module(&dir);
     let long = dir.join("a_module_with_a_rather_long_file_name_for_the_status_bar_check.mod");
@@ -551,6 +570,19 @@ fn the_status_bar_holds_at_every_width() {
         data: Some(b"void main() { }\n".to_vec()),
     };
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+    // The Main board's hints and counts (in place of an area's, which
+    // need the game: `status_hints.rs` has them).
+    let hints = vec![
+        Hint::keys(["Drag"], "Move"),
+        Hint::keys(["Alt", "Right Drag"], "Turn"),
+        Hint::keys(["Shift"], "Handles"),
+        Hint::keys(["Alt", "Drag"], "Raise"),
+        Hint::new("Turn by a step").key("Q").key("E"),
+        Hint::keys(["G"], "Drop to ground"),
+    ];
+    let hint_names: Vec<String> = hints.iter().map(Hint::spoken).collect();
+    let count_names = ["11 by 11 tiles", "192 objects"];
+    app.status_for_tests(Some((hints, count_names.map(String::from).to_vec())));
     let said = "Compiled 312 scripts of the module and its haks, with 4 warnings about \
                 functions declared one way and defined another";
     let line = &format!("{LAST}{said}");
@@ -584,13 +616,19 @@ fn the_status_bar_holds_at_every_width() {
             .collect();
         (bar, bar_controls(h, "Status Bar"), texts)
     };
+    // (The line's least room, a point to spare for the rounding of its
+    // galley; its cap as it is drawn at 3440, held to the cap of the
+    // editor in front, Module Properties: 160, the boards' `.sb-log`.)
+    let least = 48.0 - 1.0;
+    let mut cap = 0.0;
     let mut full_job = 0.0;
     let mut wrong = Vec::new();
-    // (Widths where the folder had gone and the line was shown, wider than
-    // its least room: the line widened again.)
-    let mut widened = 0;
-    // (1600 first, where everything shows, then from the least window up.)
-    let widths = std::iter::once(1600).chain((420..1600).step_by(8));
+    // (Widths where each stage was seen.)
+    let mut stages = std::collections::BTreeMap::<&str, usize>::new();
+    // (3440 first, where everything shows, then from the least window up:
+    // by 8 to 1600, by 16 to 2560.)
+    let widths =
+        std::iter::once(3440).chain((420..1600).step_by(8)).chain((1600..=2560).step_by(16));
     for width in widths {
         let width = width as f32;
         h.set_size(egui::vec2(width, 600.0));
@@ -617,6 +655,10 @@ fn the_status_bar_holds_at_every_width() {
         }
         for (i, (a, ra)) in nodes.iter().enumerate() {
             for (b, rb) in &nodes[i + 1..] {
+                // (The hints' group holds its hints.)
+                if a == "Hints" || b == "Hints" {
+                    continue;
+                }
                 if ra.intersect(*rb).is_positive() && ra.intersect(*rb).area() > 1.0 {
                     wrong.push(at(&format!("{a} {ra:?} over {b} {rb:?}")));
                 }
@@ -637,46 +679,92 @@ fn the_status_bar_holds_at_every_width() {
             wrong.push(at("the module's name is gone"));
         }
         let job = has(job_name);
-        if width >= 1600.0 {
-            for n in ["Log", line.as_str(), job_name, name, folder] {
+        if width >= 2560.0 {
+            let all = ["Log", line.as_str(), job_name, name, folder];
+            let all = all.iter().copied().chain(hint_names.iter().map(String::as_str));
+            for n in all.chain(count_names) {
                 if has(n).is_none() {
                     wrong.push(at(&format!("{n} missing at full width")));
                 }
             }
-            full_job = job.map_or(0.0, |r| r.width());
+            if width >= 3440.0 {
+                full_job = job.map_or(0.0, |r| r.width());
+                cap = has(line).map_or(0.0, |r| r.width() - 1.0);
+                assert!((150.0..=161.0).contains(&cap), "the line at its cap: {cap}");
+            }
         }
-        // The order they yield in.
+        // Those shown are the first ones, in order.
+        let hints_shown = hint_names.iter().take_while(|n| has(n).is_some()).count();
+        if hint_names.iter().filter(|n| has(n).is_some()).count() != hints_shown {
+            wrong.push(at("a hint shown after one dropped"));
+        }
+        let counts_shown = count_names.iter().take_while(|n| has(n).is_some()).count();
+        if count_names.iter().filter(|n| has(n).is_some()).count() != counts_shown {
+            wrong.push(at("a count shown after one gone"));
+        }
+        let all_hints = hints_shown == hint_names.len();
+        let line_w = has(line).map(|r| r.width());
+        let line_full = line_w.is_some_and(|w| w >= cap);
         let job_cut = job.is_none_or(|r| r.width() < full_job - 0.5);
         let name_cut =
             has(name).is_some_and(|r| drawn_texts(&h, r).iter().any(|w| w.contains('…')));
-        if has(folder).is_some() && has(line).is_none() {
-            wrong.push(at("the folder shown and the last line gone"));
+        // The order they yield in.
+        if has(folder).is_some() && !(all_hints && line_full) {
+            wrong.push(at("the folder shown beside a hint dropped or the line cut"));
         }
-        // (The line's least room, 48 points, with a point to spare for the
-        // rounding of its galley.)
-        if has(folder).is_some() && has(line).is_some_and(|r| r.width() < 47.0) {
-            wrong.push(at("the folder shown and the line under its least room"));
+        if hints_shown > 0 && !line_full {
+            wrong.push(at("a hint shown beside the line cut or gone"));
         }
-        if has(folder).is_none() && has(line).is_some_and(|r| r.width() > 60.0) {
-            widened += 1;
+        if line_w.is_some_and(|w| w < least) {
+            wrong.push(at("the line under its least room"));
         }
-        if job_cut && has(line).is_some() {
-            wrong.push(at("the job cut short and the last line shown"));
+        if counts_shown < count_names.len() && (line_w.is_some() || hints_shown > 0) {
+            wrong.push(at("a count gone before the line and the hints"));
         }
-        if job_cut && has(folder).is_some() {
-            wrong.push(at("the job cut short and the folder shown"));
-        }
-        if name_cut && (has(line).is_some() || has(folder).is_some()) {
-            wrong.push(at("the name cut short before the line and the folder went"));
+        if job_cut && counts_shown > 0 {
+            wrong.push(at("the job cut short and a count shown"));
         }
         if name_cut && !job_cut {
             wrong.push(at("the name cut short before the job's"));
         }
+        // (Which stage this width is at.)
+        let stage = if has(folder).is_some() {
+            "everything"
+        } else if all_hints {
+            "the folder gone"
+        } else if hints_shown > 0 {
+            "hints dropped"
+        } else if line_full {
+            "no hints, the line whole"
+        } else if line_w.is_some() {
+            "the line cut"
+        } else if counts_shown == count_names.len() {
+            "the line gone"
+        } else if counts_shown > 0 {
+            "a count gone"
+        } else if !job_cut {
+            "the counts gone"
+        } else if !name_cut {
+            "the job cut"
+        } else {
+            "the name cut"
+        };
+        *stages.entry(stage).or_default() += 1;
     }
     tell.send(Step::End).unwrap();
     wait_for(&mut h, "the job's end", |h| !h.state().busy());
     assert!(wrong.is_empty(), "{wrong:#?}");
-    assert!(widened > 0, "the folder gone, the line had its room again");
+    for stage in [
+        "everything",
+        "the folder gone",
+        "hints dropped",
+        "the line cut",
+        "the line gone",
+        "the counts gone",
+        "the job cut",
+    ] {
+        assert!(stages.contains_key(stage), "never {stage}: {stages:?}");
+    }
 }
 
 /// The Bottom Dock's tab bar at every window width from the least (420)

@@ -76,6 +76,10 @@ pub const HINT_PART_GAP: f32 = 3.0;
 pub const HINT_WORD_MARGIN: f32 = 2.0;
 /// A hint's height (`.hint`: 20 px).
 pub const HINT_HEIGHT: f32 = 20.0;
+/// The least room a notice ([`Hint::note`]) that does not fit whole is
+/// shown cut short in (with an ellipsis, its whole words in its tip):
+/// under it, it drops as a hint does.
+pub const NOTE_LEAST: f32 = 48.0;
 /// A job's bar (`.sb-job .bar`: 60 by 4, radius 2).
 pub const JOB_BAR: Vec2 = Vec2::new(60.0, 4.0);
 /// The gap between a job's words and its bar (`gap: 6px`).
@@ -314,6 +318,9 @@ pub type GlyphPainter = Arc<dyn Fn(&Painter, Rect, &Tokens) + Send + Sync>;
 pub enum HintPart {
     /// A key cap (`Shift`, `Right Drag`).
     Key(String),
+    /// A key cap of a key held down now (`.kbd.held`: `accent-fill`, its
+    /// words in `on-fill`): Shift while the handles show.
+    Held(String),
     /// A joiner between key caps, in 11 px `text-3` (`.hint .plus`: `+`,
     /// or `/` between keys that do the same).
     Join(&'static str),
@@ -346,6 +353,7 @@ impl std::fmt::Debug for HintPart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HintPart::Key(k) => write!(f, "Key({k:?})"),
+            HintPart::Held(k) => write!(f, "Held({k:?})"),
             HintPart::Join(j) => write!(f, "Join({j:?})"),
             HintPart::Icon(i) => write!(f, "Icon({})", i.name()),
             HintPart::NamedIcon { icon, name } => write!(f, "NamedIcon({}, {name:?})", icon.name()),
@@ -358,7 +366,7 @@ impl HintPart {
     /// What a screen reader says for it (nothing for an unnamed icon).
     fn spoken(&self) -> String {
         match self {
-            HintPart::Key(k) => k.clone(),
+            HintPart::Key(k) | HintPart::Held(k) => k.clone(),
             HintPart::Join(j) => (*j).to_string(),
             HintPart::Icon(_) => String::new(),
             HintPart::NamedIcon { name, .. } | HintPart::Glyph { name, .. } => name.clone(),
@@ -407,6 +415,32 @@ impl Hint {
         hint
     }
 
+    /// A notice with no keys (`.hint.lead`: "Painting 2 placeables"): what
+    /// the tool in hand is doing, or why it refused, before its hints.
+    pub fn note(text: impl Into<String>) -> Self {
+        Hint::new(text)
+    }
+
+    /// Whether it is a notice: a word with no keys ([`Hint::note`]).
+    pub fn is_note(&self) -> bool {
+        self.parts.is_empty()
+    }
+
+    /// A key cap of a key held down now ([`HintPart::Held`]), after a `+`
+    /// where keys are before it.
+    pub fn held(mut self, key: impl Into<String>) -> Self {
+        if !self.parts.is_empty() {
+            self.parts.push(HintPart::Join("+"));
+        }
+        self.parts.push(HintPart::Held(key.into()));
+        self
+    }
+
+    /// Its parts before its word.
+    pub fn parts(&self) -> &[HintPart] {
+        &self.parts
+    }
+
     /// A key cap, joined to what is before it by nothing.
     pub fn key(mut self, key: impl Into<String>) -> Self {
         self.parts.push(HintPart::Key(key.into()));
@@ -442,12 +476,37 @@ impl Hint {
     }
 
     /// What a screen reader says for it, and its accessible name: its
-    /// parts and its word, in order (`Shift + Right Drag Turn`).
+    /// parts in order, keys pressed together after a comma and keys that
+    /// do the same after "or", then a colon and its word (`Shift, Right
+    /// Drag: Turn`, `Q or E: Turn by a step`); a notice its words alone.
     pub fn spoken(&self) -> String {
-        let mut words: Vec<String> =
-            self.parts.iter().map(HintPart::spoken).filter(|w| !w.is_empty()).collect();
-        words.push(self.word.clone());
-        words.join(" ")
+        let mut out = String::new();
+        let mut join = "";
+        for part in &self.parts {
+            let said = match part {
+                HintPart::Join("/") => {
+                    join = " or ";
+                    continue;
+                }
+                HintPart::Join(_) => {
+                    join = ", ";
+                    continue;
+                }
+                part => part.spoken(),
+            };
+            if said.is_empty() {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push_str(if join.is_empty() { ", " } else { join });
+            }
+            join = "";
+            out.push_str(&said);
+        }
+        if out.is_empty() {
+            return self.word.clone();
+        }
+        format!("{out}: {}", self.word)
     }
 
     /// Each part's width, then the word's, in `ui`'s fonts.
@@ -457,7 +516,7 @@ impl Hint {
             .parts
             .iter()
             .map(|part| match part {
-                HintPart::Key(k) => marks::key_cap_width(ui, k),
+                HintPart::Key(k) | HintPart::Held(k) => marks::key_cap_width(ui, k),
                 HintPart::Join(j) => {
                     painter.layout_no_wrap((*j).to_string(), small_font(), Color32::WHITE).size().x
                 }
@@ -471,20 +530,26 @@ impl Hint {
 
     /// The width it takes in `ui`.
     pub fn width(&self, ui: &Ui) -> f32 {
-        let (parts, word) = self.widths(ui);
-        let gaps = HINT_PART_GAP * parts.len() as f32;
-        parts.iter().sum::<f32>() + gaps + HINT_WORD_MARGIN + word
+        Self::width_of(&self.widths(ui))
     }
 
-    /// Paints it from `left`, centered on `y`.
-    fn paint(&self, ui: &Ui, t: &Tokens, left: f32, y: f32) {
-        let (widths, _) = self.widths(ui);
+    /// The width of a hint of these parts' and word's widths.
+    fn width_of((parts, word): &(Vec<f32>, f32)) -> f32 {
+        // (A notice has no margin before its word: it is all there is.)
+        let margin = if parts.is_empty() { 0.0 } else { HINT_WORD_MARGIN };
+        let gaps = HINT_PART_GAP * parts.len() as f32;
+        parts.iter().sum::<f32>() + gaps + margin + word
+    }
+
+    /// Paints it from `left`, centered on `y`, its parts `widths` wide.
+    fn paint(&self, ui: &Ui, t: &Tokens, left: f32, y: f32, widths: &[f32]) {
         let p = ui.painter();
         let mut x = left;
-        for (part, w) in self.parts.iter().zip(widths) {
+        for (part, &w) in self.parts.iter().zip(widths) {
             let rect = Rect::from_min_size(pos2(x, y - marks::MARK_HEIGHT / 2.0), vec2(w, 16.0));
             match part {
                 HintPart::Key(k) => marks::paint_key_cap(p, t, rect, k),
+                HintPart::Held(k) => marks::paint_held_key_cap(p, t, rect, k),
                 HintPart::Join(j) => {
                     let galley = p.layout_no_wrap((*j).to_string(), small_font(), t.text_3);
                     let pos = pos2(x, (y - galley.size().y / 2.0).round());
@@ -497,8 +562,9 @@ impl Hint {
             }
             x += w + HINT_PART_GAP;
         }
+        let margin = if self.parts.is_empty() { 0.0 } else { HINT_WORD_MARGIN };
         let galley = p.layout_no_wrap(self.word.clone(), small_font(), t.text_2);
-        let pos = pos2(x + HINT_WORD_MARGIN, (y - galley.size().y / 2.0).round());
+        let pos = pos2(x + margin, (y - galley.size().y / 2.0).round());
         p.galley(pos, galley, t.text_2);
     }
 }
@@ -534,17 +600,48 @@ impl<'a> Hints<'a> {
         Hints { hints }
     }
 
-    /// How many of them fit in `room` (their padding taken from it).
+    /// How many of them [`Hints::show`] draws in `room` (their padding
+    /// taken from it): those that fit whole, and a notice after them cut
+    /// short where it has [`NOTE_LEAST`].
     pub fn fitting(&self, ui: &Ui, room: f32) -> usize {
         let widths: Vec<f32> = self.hints.iter().map(|h| h.width(ui)).collect();
-        hints_that_fit(&widths, HINT_GAP, room - 2.0 * HINTS_PADDING)
+        let (shown, cut) = self.fit(&widths, room);
+        shown + usize::from(cut.is_some())
+    }
+
+    /// How many of the hints `widths` wide fit whole in `room`, and the
+    /// room left for the notice after them where it is shown cut short.
+    fn fit(&self, widths: &[f32], room: f32) -> (usize, Option<f32>) {
+        let inner = room - 2.0 * HINTS_PADDING;
+        let shown = hints_that_fit(widths, HINT_GAP, inner);
+        let cut = self.hints.get(shown).filter(|h| h.is_note()).and_then(|_| {
+            let used: f32 = widths[..shown].iter().sum::<f32>() + HINT_GAP * shown as f32;
+            let left = inner - used;
+            (left >= NOTE_LEAST).then_some(left)
+        });
+        (shown, cut)
+    }
+
+    /// The width all of them take, with their padding (none for no hints).
+    pub fn width(&self, ui: &Ui) -> f32 {
+        if self.hints.is_empty() {
+            return 0.0;
+        }
+        let widths = self.hints.iter().map(|h| h.width(ui));
+        widths.sum::<f32>() + HINT_GAP * (self.hints.len() - 1) as f32 + 2.0 * HINTS_PADDING
     }
 
     /// Draws those that fit in `room` (a width: what the right-hand items
     /// leave), [`HINT_HEIGHT`] high; returns how many were drawn. Takes
     /// the room whole (the hints are the Status Bar's part that gives).
+    /// Each hint is measured once. A notice ([`Hint::note`]) is no key
+    /// hint: the first that does not fit whole is drawn cut short with an
+    /// ellipsis where [`NOTE_LEAST`] or more is left for it (named by its
+    /// whole words, which its tip shows), and what follows it dropped.
     pub fn show(self, ui: &mut Ui, room: f32) -> usize {
-        let shown = self.fitting(ui, room);
+        let measured: Vec<(Vec<f32>, f32)> = self.hints.iter().map(|h| h.widths(ui)).collect();
+        let widths: Vec<f32> = measured.iter().map(Hint::width_of).collect();
+        let (shown, cut) = self.fit(&widths, room);
         let room = room.max(0.0);
         let (rect, _) = ui.allocate_exact_size(vec2(room, HINT_HEIGHT), Sense::hover());
         let builder = egui::UiBuilder::new()
@@ -555,17 +652,34 @@ impl<'a> Hints<'a> {
             ui.spacing_mut().item_spacing.x = HINT_GAP;
             ui.add_space(HINTS_PADDING);
             let t = ui.tokens();
-            for hint in &self.hints[..shown] {
-                let size = vec2(hint.width(ui), HINT_HEIGHT);
+            for (i, hint) in self.hints[..shown].iter().enumerate() {
+                let size = vec2(widths[i], HINT_HEIGHT);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
                 let spoken = hint.spoken();
                 response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
                 if ui.is_rect_visible(rect) {
-                    hint.paint(ui, &t, rect.left(), rect.center().y);
+                    hint.paint(ui, &t, rect.left(), rect.center().y, &measured[i].0);
                 }
             }
+            if let Some(left) = cut {
+                let note = &self.hints[shown];
+                let mut job = egui::text::LayoutJob::simple_singleline(
+                    note.word.clone(),
+                    small_font(),
+                    t.text_2,
+                );
+                job.wrap = egui::text::TextWrapping::truncate_at_width(left);
+                let galley = ui.painter().layout_job(job);
+                let size = vec2(galley.size().x, HINT_HEIGHT);
+                let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+                let spoken = note.spoken();
+                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
+                let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
+                ui.painter().galley(pos, galley, t.text_2);
+                response.on_hover_text(note.word.clone());
+            }
         });
-        shown
+        shown + usize::from(cut.is_some())
     }
 }
 
@@ -999,16 +1113,22 @@ mod tests {
         assert_eq!(hints_that_fit(&[60.0, 300.0, 10.0], 8.0, 200.0), 1);
     }
 
-    /// A hint's name is its keys, joiners and word in order; an icon's
-    /// the name its caller gave it, and an unnamed icon says nothing (not
-    /// its file's name: "rotate Turn").
+    /// A hint's name is its keys in order, a comma between keys pressed
+    /// together and "or" between keys that do the same, then a colon and
+    /// its word; an icon's the name its caller gave it, and an unnamed
+    /// icon says nothing (not its file's name: "rotate Turn"); a notice is
+    /// its words.
     #[test]
     fn a_hint_says_its_keys_and_word() {
-        assert_eq!(Hint::keys(["Shift", "Right Drag"], "Turn").spoken(), "Shift + Right Drag Turn");
-        assert_eq!(Hint::either(["Q", "E"], "Turn by a step").spoken(), "Q / E Turn by a step");
-        assert_eq!(Hint::keys(["Drag"], "Move").spoken(), "Drag Move");
+        assert_eq!(Hint::keys(["Shift", "Right Drag"], "Turn").spoken(), "Shift, Right Drag: Turn");
+        assert_eq!(Hint::either(["Q", "E"], "Turn by a step").spoken(), "Q or E: Turn by a step");
+        assert_eq!(Hint::new("Turn by a step").key("Q").key("E").spoken(), "Q, E: Turn by a step");
+        assert_eq!(Hint::keys(["Drag"], "Move").spoken(), "Drag: Move");
+        assert_eq!(Hint::new("Held").held("Shift").spoken(), "Shift: Held");
         let named = HintPart::NamedIcon { icon: Icon::Rotate, name: "Turn handle".into() };
-        assert_eq!(Hint::new("Turn").part(named).spoken(), "Turn handle Turn");
+        assert_eq!(Hint::new("Turn").part(named).spoken(), "Turn handle: Turn");
         assert_eq!(Hint::new("Turn").part(HintPart::Icon(Icon::Rotate)).spoken(), "Turn");
+        assert_eq!(Hint::note("Painting 2 placeables").spoken(), "Painting 2 placeables");
+        assert!(Hint::note("Painting").is_note() && !Hint::keys(["G"], "Drop").is_note());
     }
 }

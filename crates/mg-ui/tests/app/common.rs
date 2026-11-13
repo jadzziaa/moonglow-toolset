@@ -578,12 +578,19 @@ pub(crate) fn area_tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui
 /// what appears there (the nodes that were not there before), or `None`
 /// if nothing appears in a second and a half of frames (a tip waits a
 /// moment; on a busy machine the same moment is more frames, so the wait
-/// is long for an absent tip and short for a present one).
+/// is long for an absent tip and short for a present one). What appears
+/// inside the Status Bar is not a tip: its hints follow the pointer.
 pub(crate) fn tip_at(h: &mut Harness<'_, Moonglow>, rect: egui::Rect) -> Option<String> {
     use std::collections::HashMap;
     fn words(h: &Harness<'_, Moonglow>) -> HashMap<String, usize> {
         let mut out = HashMap::new();
+        let bar: std::collections::HashSet<_> = (h.query_by_label("Status Bar"))
+            .map(|b| b.query_all_by(|_| true).map(|n| n.accesskit_node().id()).collect())
+            .unwrap_or_default();
         for n in h.query_all_by(|n| n.bounding_box().is_some()) {
+            if bar.contains(&n.accesskit_node().id()) {
+                continue;
+            }
             let a = n.accesskit_node();
             let text = a.label().or(a.value()).unwrap_or_default();
             if !text.trim().is_empty() {

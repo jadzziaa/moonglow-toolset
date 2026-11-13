@@ -791,8 +791,11 @@ fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
     h.hover_at(new);
     // (A tooltip waits a moment.)
     h.run_steps(60);
-    let tip = h.get_by_label_contains("New module").accesskit_node();
-    let tip = tip.label().or(tip.value()).unwrap_or_default();
+    // (The tip, not the Status Bar's hint of the same command.)
+    let tips = h.query_all_by_label_contains("New module").map(|n| n.accesskit_node());
+    let tip = (tips.map(|n| n.label().or(n.value()).unwrap_or_default()))
+        .find(|t| !t.contains(": New module"))
+        .unwrap_or_default();
     assert!(tip.starts_with("New module ("), "named, with its key: {tip}");
     // Save (disabled without a module): its tip too, with its key.
     let save = tool(&h, "Save").rect().center();

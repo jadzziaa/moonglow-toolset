@@ -39,6 +39,9 @@ use mg_set::Tileset;
 
 use crate::{Action, Moonglow};
 
+mod bar;
+pub(crate) use bar::status;
+
 /// How far from a door hook a click places a door on it, metres.
 const DOOR_REACH: f32 = 4.0;
 
@@ -3375,10 +3378,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
         }
+        // (The area's counts are the Status Bar's, `bar`; what is wrong
+        // with what it reads stays here, beside its tools.)
         if let Some(m) = &view.model {
-            ui.separator();
-            let n = m.objects.iter().filter(|o| view.show[o.kind.index()]).count();
-            ui.weak(format!("{} by {} tiles, {n} objects", m.width, m.height));
             if !m.problems.is_empty() {
                 ui.colored_label(ui.visuals().warn_fg_color, "problems")
                     .on_hover_text(m.problems.join("\n"));
@@ -3397,141 +3399,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     if app.paint {
         crate::paint_mode::strip(app, ui);
     }
-    // One line, never wrapped, so that the view does not move when the
-    // selection changes.
-    let status = if let Some(paint) = crate::paint_mode::status(app) {
-        match view.paint.more {
-            0 => paint,
-            more => format!("{paint} · {more} more are laid than are drawn"),
-        }
-    } else if let Some(b) = crate::terrain_mode::active(app, view) {
-        // (Over an object a tile's or group's press would leave to it:
-        // what the press does there, after the brush's name.)
-        let leaves = view.over_object && crate::terrain_mode::objects_keep_their_presses(&b);
-        let how = match b.brush {
-            _ if leaves && b.exact => {
-                "Exact Tile: a click or drag here goes to the object (select, move or turn it) and \
-                 places nothing"
-            }
-            _ if leaves => {
-                "a click or drag here goes to the object (select, move or turn it) and places nothing"
-            }
-            mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
-            mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
-            mg_area::terrain::Brush::Eraser => {
-                "click a tile (Shift + click: its next variant); right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Appearance { back: false } => {
-                "click a tile for another of its kind; right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Appearance { back: true } => {
-                "click a tile for the one before of its kind; right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Rotate => {
-                "click a tile to turn it a quarter (Shift: clockwise); right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Refine if b.target.is_some() => {
-                "click a tile, or drag, to make those it fits the tile chosen"
-            }
-            mg_area::terrain::Brush::Refine => {
-                "click a tile for the next that fits there; drag: the first's, in every tile of \
-                 its kind passed"
-            }
-            mg_area::terrain::Brush::Group(_) => "click to place, right click to turn",
-            mg_area::terrain::Brush::Tile(_) if b.exact => {
-                "Exact Tile: click or drag to place this tile alone, its neighbors left as they \
-                 are; right click to turn it"
-            }
-            mg_area::terrain::Brush::Tile(_) => {
-                "click or drag to place this tile, right click to turn it"
-            }
-            _ => "click a corner; right click: the tile menu",
-        };
-        // (The tile under the pointer after, where there is one.)
-        match crate::terrain_mode::status(view) {
-            Some(at) => format!("{}: {how}; Escape: stop. {at}", b.label),
-            None => format!("{}: {how}; Escape: stop.", b.label),
-        }
-    } else if view.redraw.is_some() {
-        "Redraw Polygon: click its corners, double click to close (after the first, press Alt: \
-         the next click makes a rectangle to there); right click or Escape: stop"
-            .to_string()
-    } else if view.pasting {
-        "Pasting: click to place the copies; Q and E turn them; right click or Escape: stop"
-            .to_string()
-    } else if app.palette.placing_start {
-        "Placing the start location: click to put it here, facing the way the view looks \
-         (Shift + click: and again); right click or Escape: stop"
-            .to_string()
-    } else if let Some(taken) = &app.palette.placing_appearance {
-        format!(
-            "Placing {}: click to put it here (Shift + click: place more); Q and E turn it; right \
-             click or Escape: stop",
-            taken.name
-        )
-    } else if let Some(light) = app.palette.placing_light {
-        let name = light_of_row(app, light).map(|l| l.name);
-        format!(
-            "Placing a light ({}): click to put it here (Shift + click: place more); right click \
-             or Escape: stop",
-            name.unwrap_or_else(|| light.to_string())
-        )
-    } else if let Some(key) = brush(app) {
-        let what = match ObjectKind::from_restype(key.restype) {
-            Some(k) if k.has_outline() => {
-                "click its corners, double click to close (after the first, press Alt: the next \
-                 click makes a rectangle to there); right click or Escape: stop"
-            }
-            Some(ObjectKind::Door) => {
-                "click to place (Shift + click: place more); right click or Escape: stop"
-            }
-            _ => {
-                "click to place (Shift + click: place more); Page Up, Page Down: onto the next \
-                 surface up or down; right click or Escape: stop"
-            }
-        };
-        format!("Placing {}: {what}", key.resref)
-    } else if let Some(visual) = view.wheel_scale.as_ref().and(view.scaled().first()) {
-        format!(
-            "Scale {:.2} (Ctrl + wheel; let Ctrl go to keep it, Escape to drop it)",
-            visual.1.scale.x
-        )
-    } else if view.wheel_refused.is_some_and(|at| ui.input(|i| i.time) - at < 4.0) {
-        "A static placeable takes no scale: clear Static in its properties first. (Ctrl + \
-         wheel zooms slowly meanwhile.)"
-            .to_string()
-    } else if view.tile_mode {
-        // (And why a step was refused, as a brush's line says it: first,
-        // where a narrow view doesn't cut it short.)
-        let how = "Select Tiles: click a tile (Shift + click: add one, Ctrl + click: add or take \
-                   it out), drag a box (with Shift: add it); Shift + right \
-                   click: its next tile; right click: the tile menu";
-        match &view.notice {
-            Some(n) => format!("{n} · {how}"),
-            None => how.to_string(),
-        }
-    } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
-        && let Some(o) = m.object(*kind, *index)
-    {
-        format!(
-            "{:?} {} ({}) at {:.2}, {:.2}, {:.2}, facing {:.0}°",
-            kind,
-            o.tag,
-            o.template.map(|t| t.to_string()).unwrap_or_default(),
-            o.position.x,
-            o.position.y,
-            o.position.z,
-            o.facing().to_degrees().rem_euclid(360.0),
-        )
-    } else if view.selection.len() > 1 {
-        format!("{} objects selected", view.selection.len())
-    } else {
-        "Click to select, drag to move or to select in a box, Alt + right drag to turn, \
-         Alt + drag to raise the selection; Ctrl + drag moves the view (Alt + drag too, with \
-         nothing selected), Ctrl + right drag turns it."
-            .to_string()
-    };
-    ui.add(egui::Label::new(egui::RichText::new(&status).weak()).truncate()).on_hover_text(status);
+    // (What the view's state lets the builder do is the Status Bar's
+    // hints: `bar`, M3's T12. The line of words that stood here is gone,
+    // and the view has its height.)
 }
 
 /// The tiles' outlines (Display Grid), drawn in the scene so that what

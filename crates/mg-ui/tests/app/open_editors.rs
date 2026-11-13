@@ -797,3 +797,173 @@ fn the_switch_is_a_named_radio_group_the_arrows_choose_in() {
     assert_eq!(draft, mg_ui::OpenEditors::Tabs, "Left: As Tabs");
     assert!(h.get_by_label("As Tabs").is_focused());
 }
+
+/// What the Status Bar says (`Moonglow::status_said`).
+fn said(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    h.state().status_said().to_vec()
+}
+
+/// Whether the Status Bar shows an Esc hint for a tab's Cancel.
+fn esc_hinted(h: &Harness<'_, Moonglow>) -> bool {
+    said(h).iter().any(|s| s.starts_with("Esc: Cancel"))
+}
+
+/// The Status Bar's Esc hint (M3's T12) is shown for a docked tab with OK
+/// and Cancel only where an Escape would in truth be its Cancel (T10's
+/// rule): Module Properties in front, pressed in away from its fields
+/// (Esc, Tab and Shift + Tab shown), kept with the pointer moved to the
+/// Left Dock (the last press's tab; and Escape closes it); not while a
+/// field has the keyboard (which tab's an Escape is shows only at the
+/// key); after a press on the Left Dock, not with the pointer there, and
+/// with the pointer over the tab, its; not while a menu is open; not
+/// where the last press was in a floating window (the window's Escape:
+/// the window closes, the tab stays); not while the module tree has the
+/// keys (its Escape first).
+#[test]
+fn the_esc_hint_shows_where_the_escape_is_the_tab_s() {
+    esc_hint(Mode::Floating);
+}
+
+#[test]
+fn the_esc_hint_shows_where_the_escape_is_the_tab_s_as_tabs() {
+    esc_hint(Mode::Tabs);
+}
+
+fn esc_hint(mode: Mode) {
+    let places = [("module-properties", "middle"), ("waypoint", "window")];
+    let mut h = window(mode, "ui-open-esc-hint", &places);
+    if !open_tab(&h, &Tab::ModuleProperties) {
+        open(&mut h, &Tab::ModuleProperties);
+    }
+    click_tab(&mut h, &Tab::ModuleProperties);
+    settle(&mut h);
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    click_at(&mut h, over);
+    until(&mut h, "the Esc hint", esc_hinted);
+    let now = said(&h);
+    for w in ["Esc: Cancel", "Tab: Next field", "Shift, Tab: Previous field"] {
+        assert!(now.iter().any(|s| s == w), "{mode:?}: {w} in {now:?}");
+    }
+    assert!(!now.iter().any(|s| s == "Enter: OK"), "{mode:?}: Enter is Options' alone");
+    // The pointer on the Left Dock, the last press in the tab: still its
+    // (the keyboard's), and Escape cancels it there.
+    let dock = in_left_dock(&h);
+    hover(&mut h, dock);
+    h.step();
+    assert!(esc_hinted(&h), "{mode:?}: the last press's tab: {:?}", said(&h));
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the hint was true");
+    // A field with the keyboard: no hint.
+    edit_tag(&mut h);
+    until(&mut h, "no Esc hint, a field typed in", |h| !esc_hinted(h));
+    // A press on the Left Dock: not with the pointer there; over the tab,
+    // its.
+    let dock = in_left_dock(&h);
+    click_at(&mut h, dock);
+    until(&mut h, "no Esc hint, the pointer on the dock", |h| !esc_hinted(h));
+    hover(&mut h, over);
+    until(&mut h, "the Esc hint, the pointer over the tab", esc_hinted);
+    // A menu open: none.
+    h.get_by_label("View").click();
+    until(&mut h, "the menu open", |h| h.query_by_label("Reset Layout").is_some());
+    until(&mut h, "no Esc hint, a menu open", |h| !esc_hinted(h));
+    escape(&mut h);
+    // The last press in a floating window with OK and Cancel (its bar):
+    // none, and Escape is the window's.
+    let wp = waypoint("wp_a");
+    open(&mut h, &wp);
+    assert_eq!(in_main(&h, &wp), Some(false), "a window");
+    let title = h.state().tab_rect(&wp).unwrap().center();
+    click_at(&mut h, title);
+    hover(&mut h, over);
+    until(&mut h, "no Esc hint, the window's", |h| !esc_hinted(h));
+    escape(&mut h);
+    assert!(!open_tab(&h, &wp), "{mode:?}: the window's Escape");
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the tab stays");
+    // The module tree with the keys (F6 to it): its Escape first (it lets
+    // the row go), none.
+    // (The last press on the Left Dock, which takes no Escape: without
+    // the tree's keys, the pointer's tab would take it.)
+    let dock = in_left_dock(&h);
+    click_at(&mut h, dock);
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    for _ in 0..4 {
+        if keys(&h) == "Tree" {
+            break;
+        }
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+    }
+    assert_eq!(keys(&h), "Tree", "{mode:?}: the tree's keys");
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, over);
+    until(&mut h, "no Esc hint, the tree's keys", |h| !esc_hinted(h));
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the tree's Escape, as hinted");
+}
+
+/// Where an Escape would cancel a docked tab other than the active
+/// editor (Module Properties in a group of its own beside the area, the
+/// pointer over it, the area's group focused), the hint names it, first:
+/// "Esc: Cancel Module Properties"; and Escape cancels it.
+#[test]
+fn the_esc_hint_names_another_tab_than_the_active_editor() {
+    other_tab(Mode::Floating);
+}
+
+#[test]
+fn the_esc_hint_names_another_tab_than_the_active_editor_as_tabs() {
+    other_tab(Mode::Tabs);
+}
+
+fn other_tab(mode: Mode) {
+    let places = [("module-properties", "split right 500")];
+    let mut h = window(mode, "ui-open-esc-other", &places);
+    // (Opened again where its kind's place puts it, beside the area.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::ModuleProperties]));
+    settle(&mut h);
+    open(&mut h, &Tab::ModuleProperties);
+    assert_ne!(pane(&h, &start()), pane(&h, &Tab::ModuleProperties), "{mode:?}: two groups");
+    click_tab(&mut h, &start());
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&start()), "{mode:?}: the area's group");
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, over);
+    let named = "Esc: Cancel Module Properties";
+    until(&mut h, "the other tab's Esc", |h| said(h).first().is_some_and(|s| s == named));
+    escape(&mut h);
+    assert!(!open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the hint was true");
+}
+
+/// Docked Options shows Enter for its OK while the pointer is over it and
+/// nothing has the keyboard (where its Enter is OK, and pressed it is),
+/// and not with the pointer elsewhere, nor while its Keyboard page waits
+/// for a key; its Esc, Tab and Shift + Tab as the Options board has them.
+#[test]
+fn docked_options_hints_enter_where_it_is_ok() {
+    let mut h = window(Mode::Tabs, "ui-open-enter-hint", &[("options", "middle")]);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    assert_eq!(in_main(&h, &Tab::Options), Some(true), "docked");
+    let over = visible_in(&h, &Tab::Options);
+    click_at(&mut h, over);
+    until(&mut h, "Enter and Esc", |h| said(h).iter().any(|s| s == "Enter: OK") && esc_hinted(h));
+    let now = said(&h);
+    let board = ["Enter: OK", "Esc: Cancel", "Tab: Next field", "Shift, Tab: Previous field"];
+    assert_eq!(now, board, "the Options board's, with Esc");
+    let away = in_left_dock(&h);
+    hover(&mut h, away);
+    until(&mut h, "no Enter, the pointer away", |h| !said(h).iter().any(|s| s == "Enter: OK"));
+    hover(&mut h, over);
+    until(&mut h, "Enter again", |h| said(h).iter().any(|s| s == "Enter: OK"));
+    // Waiting for a key on its Keyboard page: no Enter (nor Esc).
+    h.state_mut().options.as_mut().unwrap().recording = Some("manual".to_string());
+    until(&mut h, "no Enter, a key awaited", |h| {
+        !said(h).iter().any(|s| s == "Enter: OK") && !esc_hinted(h)
+    });
+    h.state_mut().options.as_mut().unwrap().recording = None;
+    until(&mut h, "Enter once more", |h| said(h).iter().any(|s| s == "Enter: OK"));
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(!open_tab(&h, &Tab::Options), "Enter was its OK");
+}

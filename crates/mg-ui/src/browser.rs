@@ -496,7 +496,7 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Res
 /// with it: Find's keys there go to the Name.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
     use crate::palette_view::{Keys, give_keys, keys_are};
-    let Moonglow { browser, game, ws, actions, .. } = app;
+    let Moonglow { browser, game, ws, actions, resources_here, .. } = app;
     browser.refresh(game.as_ref().map(|g| &g.resman));
     let t = mg_uikit::tokens(ui.ctx());
     if game.is_none() {
@@ -525,6 +525,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         // it, Escape clears it and then leaves it, Down goes into the list.
         let field_id = egui::Id::new("browser-filter-field");
         let over = ui.ctx().pointer_hover_pos().is_some_and(|p| pane.contains(p));
+        // (The Status Bar's hints are the panel's while it is in use: the
+        // pointer over it or its list with the keys, `shell::shown`.)
+        *resources_here = (over || keys_are(ui.ctx(), Keys::Browser)).then_some(over);
         let left = crate::widgets::SearchField::new(field_id, &mut browser.filter)
             .icon(mg_uikit::Icon::Filter)
             .hint("Name")
@@ -550,7 +553,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         }
         // (The resources, the copies the game reads; and the copies they
         // override, listed under them. Cut short at the dock's width, the
-        // whole in its tip; whole, the tip says how to open one.)
+        // whole in its tip. How to open one is the Status Bar's hints'.)
         let copies = match browser.shown_copies {
             0 => String::new(),
             1 => ", 1 overridden copy".into(),
@@ -563,8 +566,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         let r = ui.add(egui::Label::new(galley).show_tooltip_when_elided(false).selectable(false));
         if elided {
             r.on_hover_text(&said);
-        } else {
-            r.on_hover_text("Double-click a resource or press Enter to open it");
         }
     });
     // (The bar's line under it, as the board's `border-bottom`.)

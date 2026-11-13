@@ -563,7 +563,12 @@ fn area_viewer_paints_terrain() {
     h.run_steps(2);
     click_in_sight(&mut h, "Water");
     h.run_steps(2);
-    h.get_by_label_contains("Water: click a corner");
+    // (The Status Bar's hints: the brush in hand, what a click does.)
+    let said = h.state().status_said().to_vec();
+    let has = |w: &str| said.iter().any(|s| s == w);
+    assert!(has("In hand: Water") && has("Click: Paint a corner"), "{said:?}");
+    let bar = h.get_by_label("Status Bar");
+    assert!(bar.query_by_label("Click: Paint a corner").is_some(), "shown in the bar");
 
     // Water at corner (2, 2): the four tiles around it are a pond.
     click(&mut h, Vec3::new(20.5, 19.5, 0.0));
@@ -5303,11 +5308,13 @@ fn tiles_changed(before: &[mg_gff::Struct], after: &[mg_gff::Struct]) -> Vec<usi
     (0..after.len()).filter(|i| before[*i] != after[*i]).collect()
 }
 
-/// The area view's status line, if it shows `part`.
+/// What the Status Bar says (its hints and counts, joined by " · "), if
+/// one of them says `part` and is shown (a node of the bar: not dropped
+/// for room).
 fn status_line(h: &Harness<'_, Moonglow>, part: &str) -> Option<String> {
-    let node = h.query_all_by_label_contains(part).next()?;
-    let n = node.accesskit_node();
-    n.label().or_else(|| n.value())
+    let said = h.state().status_said();
+    let shown = h.get_by_label("Status Bar").query_all_by_label_contains(part).next().is_some();
+    (shown && said.iter().any(|s| s.contains(part))).then(|| said.join(" · "))
 }
 
 /// The status line's words over an object a press would pick.
@@ -5386,7 +5393,8 @@ fn press_on_an_object_picks_it(hand: Hand) {
     assert_eq!(ghost, 0, "{hand:?}: no tile ghost over the chest");
     assert_eq!(cursor, 0, "{hand:?}: no brush cursor over the chest");
     let status = status.unwrap_or_else(|| panic!("{hand:?}: the status line says it"));
-    assert!(status.starts_with(&in_hand.picture), "{hand:?}: names the brush: {status}");
+    let named = format!("In hand: {}", in_hand.picture);
+    assert!(status.starts_with(&named), "{hand:?}: names the brush: {status}");
     assert_eq!(status.contains("Exact Tile"), hand.exact(), "{hand:?}: {status}");
     assert_eq!(clicked_tiles, list, "{hand:?}: a click on the chest changes no tile");
     assert_eq!(clicked_selection, [(Placeable, 0)], "{hand:?}: a click selects it");
