@@ -1083,9 +1083,12 @@ fn tab_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> (egui::Rect, Vec<egui::Rec
     (*tabs.get(index).expect("its tab"), squares)
 }
 
-/// Clicks the close button of the window `tab` is in (egui_dock's, at
-/// the right end of its tab bar, unnamed: what can be clicked, not
-/// dragged, at the bar's right edge; Maximize is before it).
+/// Clicks the Close of the window `tab` is in: the button named "Close
+/// Window" ("Close Pane" in a window split in panes) at the right end of
+/// its pane's tab bar (egui_dock's close all, which
+/// Moonglow paints and names: `tabs::paint_window_bar_button`), after
+/// Maximize. Fails, naming what it found, where there is none, or more
+/// than one, in that bar.
 pub(crate) fn click_window_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
     let band = h
         .state()
@@ -1096,25 +1099,35 @@ pub(crate) fn click_window_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
             egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top())
         })
         .expect("the tab is open");
-    let mut close = None;
-    h.ctx.viewport(|v| {
-        for (_, widgets) in v.prev_pass.widgets.layers() {
-            for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
-                let r = w.interact_rect;
-                let clicks = w.sense.senses_click() && !w.sense.senses_drag();
-                if clicks && r.right() >= band.right() - 1.0 && r.width() < 40.0 {
-                    close = Some(r);
-                }
-            }
-        }
-    });
-    let at = close.expect("its close button").center();
+    let closes: Vec<egui::Rect> = (h.query_all_by_label("Close Window"))
+        .chain(h.query_all_by_label("Close Pane"))
+        .map(|n| n.rect())
+        .filter(|r| band.expand(1.0).contains_rect(*r))
+        .collect();
+    let [close] = closes[..] else {
+        panic!("one Close in the bar of {tab:?}'s window ({band:?}), found {closes:?}");
+    };
+    assert!(close.right() >= band.right() - 4.0, "the Close at the bar's right end: {close:?}");
+    let at = close.center();
     h.hover_at(at);
     h.run_steps(1);
     press(h, at, true, egui::Modifiers::NONE);
     h.run_steps(1);
     press(h, at, false, egui::Modifiers::NONE);
     h.run_steps(1);
+}
+
+/// Clicks the dialog `title`'s own Close button, at its foot (the Check
+/// for Updates window's, the Claims Table's): the lowest named "Close"
+/// in it, not its title row's at its top, which closes it too.
+pub(crate) fn click_dialog_s_own_close(h: &mut Harness<'_, Moonglow>, title: &str) {
+    let window = h.get_by_label(title).rect();
+    let lowest = h
+        .get_all_by_label("Close")
+        .filter(|n| window.contains_rect(n.rect()))
+        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .unwrap_or_else(|| panic!("no Close in {title}"));
+    lowest.click();
 }
 
 /// Closes the editors' windows (the tabs not in the main dock), back to the

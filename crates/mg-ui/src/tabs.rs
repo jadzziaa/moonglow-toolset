@@ -275,6 +275,50 @@ impl Tab {
         }
     }
 
+    /// [`Tab::taller`] of the tabs whose [`Tab::kind`] is `kind`, as a
+    /// remembered window size names them (`window_sizes`): `None` for a
+    /// kind that never has a window of its own (an area, the Welcome
+    /// page) or one this version does not know.
+    pub(crate) fn taller_of_kind(kind: &str) -> Option<f32> {
+        const FORMS: [&str; 10] = [
+            "module-properties",
+            "area-properties",
+            "options",
+            "tile-properties",
+            "blueprint",
+            "blueprints",
+            "instance",
+            "factions",
+            "advanced-search",
+            "plugin-panel",
+        ];
+        const ROWS: [&str; 15] = [
+            "script",
+            "nui",
+            "gff",
+            "journal",
+            "talk-table",
+            "hak",
+            "table",
+            "tileset",
+            "dialog",
+            "resource",
+            "model",
+            "manual",
+            "references",
+            "placeable-gallery",
+            "tile",
+        ];
+        let blueprint = mg_area::ObjectKind::ALL.iter().any(|k| k.name() == kind);
+        if FORMS.contains(&kind) || blueprint {
+            Some(FORMS_TALLER)
+        } else if ROWS.contains(&kind) {
+            Some(ROWS_TALLER)
+        } else {
+            None
+        }
+    }
+
     /// The tab that edits a resource.
     pub fn for_resource(key: ResKey) -> Option<Tab> {
         match key.restype {
@@ -826,6 +870,20 @@ impl TabViewer for Viewer<'_> {
         mg_uikit::dock::paint_doc_tab_parts(&ctx.layer_painter(layer), &mark);
     }
 
+    /// A window's collapse arrow and close all in the Floating board's look
+    /// (`.fw-collapse` and the bar's Close: icon buttons of 22 points, the
+    /// arrow a chevron with a `line` after it), named and tipped as the
+    /// style guide has it. egui_dock still does what they do.
+    fn window_bar_button(
+        &mut self,
+        ui: &mut Ui,
+        button: egui_dock::WindowBarButton,
+        response: &egui::Response,
+    ) -> bool {
+        paint_window_bar_button(ui, button, response);
+        true
+    }
+
     /// A side editor with unsaved changes asks first; a closed one is let
     /// go.
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -1158,10 +1216,10 @@ fn modified(app: &Moonglow, tab: &Tab, watch: &mut Watch<'_>) -> bool {
 
 /// The room a pane's tab bar leaves its tabs: the main surface's, all but
 /// the Split Editor button's at its right end ([`SPLIT_ROOM`]); a window's,
-/// all but egui_dock's arrow and close all at its ends and the Maximize
-/// button before the close ([`Moonglow::window_bars`]).
+/// all but its collapse arrow at its left ([`WINDOW_BAR_START`]) and its
+/// Maximize and Close at its right ([`WINDOW_BAR_END`]).
 pub(crate) fn tab_room(main: bool, width: f32) -> f32 {
-    if main { width - SPLIT_ROOM } else { width - 2.0 * 24.0 - WINDOW_BAR_BUTTON }
+    if main { width - SPLIT_ROOM } else { width - WINDOW_BAR_START - WINDOW_BAR_END }
 }
 
 /// The room at the right end of each tab bar of the main surface, which
@@ -1169,8 +1227,97 @@ pub(crate) fn tab_room(main: bool, width: f32) -> f32 {
 /// `.doctabs .tools`: a 22 px button and 3 px at each side).
 pub(crate) const SPLIT_ROOM: f32 = 28.0;
 
-/// The room a window's Maximize button takes in its bar.
-const WINDOW_BAR_BUTTON: f32 = 28.0;
+/// The room a window's collapse arrow takes at its bar's left: egui_dock's
+/// button (24 points; the board's 22 point button with 3 and 2 round it,
+/// a point off).
+pub(crate) const WINDOW_BAR_START: f32 = 24.0;
+
+/// The room a window's Maximize and Close take at its bar's right: two
+/// 22 point buttons side by side a point from the window's edge (the
+/// board's `.fw-bar .tools`, 3 points from it: egui_dock's close all,
+/// which the Close is, ends at the edge).
+pub(crate) const WINDOW_BAR_END: f32 = 1.0 + 2.0 * mg_uikit::metrics::ICON_BUTTON;
+
+/// The name of a window's Close (egui_dock's close all on a window of one
+/// pane).
+pub(crate) const WINDOW_CLOSE: &str = "Close Window";
+
+/// The name of a pane's Close in a window split in panes.
+pub(crate) const PANE_CLOSE: &str = "Close Pane";
+
+/// Where a window's Close is painted in egui_dock's close all button
+/// (`rect`, at the bar's right end and two points short of its foot):
+/// 22 points square, a point from the bar's right end, in the middle of
+/// the bar's height.
+pub(crate) fn window_close_rect(rect: egui::Rect) -> egui::Rect {
+    let side = mg_uikit::metrics::ICON_BUTTON;
+    let middle = (rect.top() + rect.bottom() + 2.0) / 2.0;
+    egui::Rect::from_min_size(
+        egui::pos2(rect.right() - 1.0 - side, middle - side / 2.0),
+        egui::vec2(side, side),
+    )
+}
+
+/// A window's collapse arrow and close all ([`TabViewer::window_bar_button`]),
+/// in the Floating board's look, named and tipped.
+fn paint_window_bar_button(
+    ui: &mut Ui,
+    button: egui_dock::WindowBarButton,
+    response: &egui::Response,
+) {
+    use egui_dock::WindowBarButton;
+    use mg_uikit::icons::{ButtonState, Icon, paint_icon_button};
+    let t = mg_uikit::tokens(ui.ctx());
+    let side = mg_uikit::metrics::ICON_BUTTON;
+    let enabled = ui.is_enabled();
+    let state = ButtonState::of(response);
+    match button {
+        WindowBarButton::Collapse { collapsed, whole_window } => {
+            let rect = response.rect;
+            let at = egui::Rect::from_center_size(rect.center(), egui::vec2(side, side));
+            let icon = if collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
+            paint_icon_button(ui.painter(), &t, at, icon, state, false);
+            // (The line between it and the first tab: `.fw-bar
+            // .doctab:first-of-type`.)
+            let px = 1.0 / ui.ctx().pixels_per_point();
+            ui.painter().vline(
+                rect.right() - px / 2.0,
+                rect.y_range(),
+                egui::Stroke::new(px, t.line),
+            );
+            let (name, tip) = match (collapsed, whole_window) {
+                (false, true) => ("Collapse", "Collapse the window to its tab bar"),
+                (false, false) => ("Collapse", "Collapse the pane to its tab bar"),
+                (true, true) => ("Expand", "Show the window again"),
+                (true, false) => ("Expand", "Show the pane again"),
+            };
+            response
+                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            let _ = response.clone().on_hover_text(tip);
+        }
+        WindowBarButton::CloseAll { disabled, whole_window } => {
+            let at = window_close_rect(response.rect);
+            if disabled {
+                let icon = egui::Rect::from_center_size(at.center(), egui::Vec2::splat(16.0));
+                Icon::Close.paint(ui.painter(), icon, t.text_off);
+            } else {
+                paint_icon_button(ui.painter(), &t, at, Icon::Close, state, false);
+            }
+            let tip = match (disabled, whole_window) {
+                (true, _) => "A tab of it can't be closed",
+                (false, true) => "Close the window and its tabs",
+                (false, false) => "Close this pane's tabs",
+            };
+            // (Named for what it closes: a dialog's Close, and a tab's own
+            // "Close" button (the hak editor's view), may be in sight.)
+            let name = if whole_window { WINDOW_CLOSE } else { PANE_CLOSE };
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && !disabled, name)
+            });
+            let _ = response.clone().on_hover_text(tip);
+        }
+    }
+}
 
 /// Lays out every tab's title for the frame ahead, before the dock is
 /// drawn ([`Look`], in `Moonglow::doc_tabs`): each pane's titles whole
@@ -1528,6 +1675,21 @@ mod tests {
                 | Tab::PluginPanel { .. } => {}
             }
         }
+        // Each kind's taller by its name, as a remembered size names it,
+        // that of its tabs (the kinds with no window of their own none).
+        for (tab, _) in &every {
+            let by_name = Tab::taller_of_kind(tab.kind());
+            match tab.kind() {
+                "welcome" | "no-area" | "area" => assert_eq!(by_name, None, "{tab:?}"),
+                _ => assert_eq!(by_name, Some(tab.taller()), "{tab:?}"),
+            }
+        }
+        for kind in mg_area::ObjectKind::ALL {
+            let tab = Tab::Blueprint(k("b", kind.restype()));
+            assert_eq!(Tab::taller_of_kind(kind.name()), Some(tab.taller()), "{kind:?}");
+        }
+        assert_eq!(Tab::taller_of_kind("blueprint"), Some(FORMS_TALLER), "an older name");
+        assert_eq!(Tab::taller_of_kind("frobnicate"), None, "unknown");
         for (tab, want) in every {
             assert_eq!(icon(&tab), want, "{tab:?}");
             assert_ne!(icon(&tab), I::File, "{tab:?}");

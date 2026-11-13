@@ -2142,7 +2142,7 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     // The window follows the table: another's again.
     h.get_by_label_contains("ef since");
     assert!(h.query_by_label("Hand To…").is_none());
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Claims Table");
     h.run();
     assert!(h.query_by_label("Claims Table").is_none());
 }
@@ -2869,7 +2869,7 @@ fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
     h.get_by_label("empty:");
     h.get_by_label("warned");
     assert!(h.query_by_label("got:Hipólito").is_none(), "the last command's alone");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Command Output");
     h.run();
     assert!(h.query_by_label("Command Output").is_none(), "closed");
 }
@@ -3043,7 +3043,7 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     h.run();
     h.get_by_label("Command Output");
     assert!(h.query_all_by_label_contains("Sending latest: ").count() >= 1);
-    h.get_all_by_label("Close").last().unwrap().click();
+    click_dialog_s_own_close(&mut h, "Command Output");
     h.run();
 
     // A part that fails: nothing after it is sent.

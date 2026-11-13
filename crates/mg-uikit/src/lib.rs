@@ -4,8 +4,9 @@
 //! [icon set](icons), the [form helpers](form) both applications' forms
 //! use, and the shell's parts: the [Top Bar's, the docks' and the
 //! document tabs'](shell), the [Status Bar's](status), the key caps,
-//! badges and modified dot ([marks]), and a [menu]'s parts beyond its
-//! rows (headings, notes, separators, check boxes, keys, forms).
+//! badges and modified dot ([marks]), a [menu]'s parts beyond its
+//! rows (headings, notes, separators, check boxes, keys, forms), and a
+//! [window]'s (a dialog's title row, the resize grip).
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
@@ -33,6 +34,7 @@ pub mod status;
 pub mod theme;
 pub mod tokens;
 pub mod tree;
+pub mod window;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -59,3 +61,4 @@ pub use menu::{
 pub use theme::{Theme, TokensExt, applied, apply, tokens};
 pub use tokens::Tokens;
 pub use tree::{TreeGroup, TreeRow, TreeRowShown};
+pub use window::{TitleRow, paint_resize_grip, title_row, title_row_width};

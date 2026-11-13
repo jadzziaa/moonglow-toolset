@@ -3238,22 +3238,252 @@ impl NameWindow<'_> {
     }
 }
 
+/// Where a dialog opens: its middle at the middle of the application's
+/// window (the Dialogs and Wizard boards: "it opens in the middle of the
+/// main window"; the Area Wizard there stands at the window's middle, not
+/// the editor area's).
+pub(crate) fn dialog_center(ctx: &egui::Context) -> egui::Pos2 {
+    ctx.content_rect().center()
+}
+
 /// A window of its own over the application's, in the middle of it as it
-/// opens (by its middle: a window that grows, a wizard's next page,
-/// grows about it), and moved by its title. Every dialog is one, as
-/// [`modal`] or [`dialog`] make it.
-fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
-    // (Its title in the body's size and face, the mock's title row: egui
-    // gives titles the heading's.)
-    let title = match title.into() {
-        egui::WidgetText::Text(text) => {
-            egui::RichText::new(text).text_style(egui::TextStyle::Body).into()
-        }
-        other => other,
-    };
-    egui::Window::new(title)
+/// opens ([`dialog_center`]; by its middle: a window that grows, a
+/// wizard's next page, grows about it), with the boards' title row
+/// ([`Dialog`]) and moved by it. Every dialog is one, as [`modal`] or
+/// [`dialog`] make it.
+fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> Dialog<'a> {
+    let title = title.into().text().to_string();
+    let window = egui::Window::new(title.as_str())
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+        .default_pos(dialog_center(ctx));
+    // (egui's windows resize unless told not to.)
+    Dialog {
+        id: egui::Id::new(Some(title.as_str())),
+        window,
+        title,
+        open: None,
+        resizes: true,
+        close_cancels: false,
+    }
+}
+
+/// A dialog's window (an `egui::Window` with the methods its makers use)
+/// with the boards' title row: egui's own title bar off, a row of the
+/// `bar` fill across the window's top with the title at its left and,
+/// on a dialog that Escape closes ([`dialog`]), a Close button at its
+/// right (`mg_uikit::title_row`; the boards: "only on a dialog that Esc
+/// closes"). The window is moved by the row alone: a drag on its body
+/// that no control takes is caught behind it. The title stays the
+/// window's name (`egui::Window::new`), which screen readers and tests
+/// find it by, and its id, which [`escape_closes`] reads.
+#[must_use = "show it"]
+pub(crate) struct Dialog<'a> {
+    window: egui::Window<'a>,
+    title: String,
+    id: egui::Id,
+    /// Where it has a Close: its `open`, which the Close clears.
+    open: Option<&'a mut bool>,
+    /// Whether it is resized by its edges (it then shows the grip).
+    resizes: bool,
+    /// A Close that is its Cancel ([`Dialog::close_as_cancel`]).
+    close_cancels: bool,
+}
+
+/// The least width of a dialog's body inside its margin: egui's first
+/// width for a window's (`egui::Resize`'s default), which every dialog
+/// had at least while egui drew its title bar.
+const DIALOG_LEAST_BODY: f32 = 320.0;
+
+/// The tip of a dialog's Close.
+pub(crate) const DIALOG_CLOSE_TIP: &str = "Close the dialog (Esc)";
+
+impl<'a> Dialog<'a> {
+    /// A Close in its title row that answers it as its Cancel button does
+    /// ([`cancel`], [`cancel_discard`], which read it the next frame): a
+    /// picker's, which the boards draw with one (Select Portrait, Select
+    /// Texture), Escape closing it already.
+    pub(crate) fn close_as_cancel(mut self) -> Self {
+        self.close_cancels = true;
+        self
+    }
+
+    pub(crate) fn collapsible(mut self, collapsible: bool) -> Self {
+        self.window = self.window.collapsible(collapsible);
+        self
+    }
+
+    pub(crate) fn resizable(mut self, resizable: impl Into<egui::Vec2b>) -> Self {
+        let resizable = resizable.into();
+        self.resizes = resizable.any();
+        self.window = self.window.resizable(resizable);
+        self
+    }
+
+    pub(crate) fn default_width(mut self, width: f32) -> Self {
+        self.window = self.window.default_width(width);
+        self
+    }
+
+    pub(crate) fn default_size(mut self, size: impl Into<egui::Vec2>) -> Self {
+        self.window = self.window.default_size(size);
+        self
+    }
+
+    pub(crate) fn default_pos(mut self, pos: impl Into<egui::Pos2>) -> Self {
+        self.window = self.window.default_pos(pos);
+        self
+    }
+
+    pub(crate) fn pivot(mut self, pivot: egui::Align2) -> Self {
+        self.window = self.window.pivot(pivot);
+        self
+    }
+
+    pub(crate) fn id(mut self, id: egui::Id) -> Self {
+        self.window = self.window.id(id);
+        self.id = id;
+        self
+    }
+
+    pub(crate) fn min_width(mut self, width: f32) -> Self {
+        self.window = self.window.min_width(width);
+        self
+    }
+
+    pub(crate) fn min_height(mut self, height: f32) -> Self {
+        self.window = self.window.min_height(height);
+        self
+    }
+
+    pub(crate) fn min_size(mut self, size: impl Into<egui::Vec2>) -> Self {
+        self.window = self.window.min_size(size);
+        self
+    }
+
+    pub(crate) fn max_width(mut self, width: f32) -> Self {
+        self.window = self.window.max_width(width);
+        self
+    }
+
+    /// Shows it, the title row first and `add_contents` under it with
+    /// the window's margin: as `egui::Window::show` (nothing where it is
+    /// closed).
+    pub(crate) fn show<R>(
+        self,
+        ctx: &egui::Context,
+        add_contents: impl FnOnce(&mut Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        let Dialog { window, title, id, open, resizes, close_cancels } = self;
+        if open.as_deref() == Some(&false) {
+            return None;
+        }
+        let close = open.is_some() || close_cancels;
+        // (Where its body was last frame: a drag there that no control
+        // takes is caught, not the window's.)
+        let body_id = id.with("mg-dialog-body");
+        let body: Option<egui::Rect> = ctx.data(|d| d.get_temp(body_id));
+        let style = ctx.global_style();
+        let margin = style.spacing.window_margin;
+        let frame = egui::Frame::window(&style).inner_margin(0);
+        let mut closed = false;
+        let mut row_bottom = None;
+        let shown = window.title_bar(false).frame(frame).show(ctx, |ui| {
+            if let Some(body) = body {
+                ui.interact(body, body_id, egui::Sense::drag());
+            }
+            let tip = close.then_some(DIALOG_CLOSE_TIP);
+            let (inner, row) = titled(ui, &title, tip, margin, !resizes, add_contents);
+            closed = row.closed();
+            row_bottom = Some(row.rect.bottom());
+            inner
+        });
+        if resizes && let Some(shown) = &shown {
+            let window = shown.response.rect;
+            let grip = mg_uikit::window::resize_grip_rect(window).expand(4.0);
+            let hot = ctx.pointer_latest_pos().is_some_and(|p| {
+                grip.contains(p) && ctx.layer_id_at(p) == Some(shown.response.layer_id)
+            });
+            let painter = ctx.layer_painter(shown.response.layer_id);
+            mg_uikit::paint_resize_grip(&painter, window, hot);
+        }
+        match (&shown, row_bottom) {
+            (Some(shown), Some(bottom)) => {
+                let mut body = shown.response.rect;
+                body.min.y = bottom;
+                ctx.data_mut(|d| d.insert_temp(body_id, body));
+            }
+            _ => ctx.data_mut(|d| d.remove::<egui::Rect>(body_id)),
+        }
+        if closed && let Some(open) = open {
+            *open = false;
+        }
+        if closed
+            && close_cancels
+            && let Some(shown) = &shown
+        {
+            // (Its Cancel reads it as the window is drawn next.)
+            let layer = shown.response.layer_id;
+            ctx.data_mut(|d| d.insert_temp(closed_as_cancel_id(layer), true));
+            ctx.request_repaint();
+        }
+        shown
+    }
+}
+
+/// The boards' title row over `add_contents` (laid out with `margin`
+/// round it) in a window or modal with no margin of its own: its room
+/// kept first, the row painted across the width the body made
+/// (`mg_uikit::title_row`, a Close where `close` gives its tip).
+fn titled<R>(
+    ui: &mut Ui,
+    title: &str,
+    close: Option<&str>,
+    margin: egui::Margin,
+    grows: bool,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> (R, mg_uikit::TitleRow) {
+    // (Where the window grows to what it holds (`grows`, not resized by
+    // its edges): as wide as its body was last frame, at least, and never
+    // under egui's first width for a window's body (`egui::Resize`'s 320
+    // and the margin), as egui's own title bar kept such a dialog: one
+    // with a grid, whose columns are known only after its first frame,
+    // keeps the width it opened at, not a frame narrower and moved about
+    // its middle under a click. One resized by its edges is as wide as
+    // it is made, and its row with it: as egui's title bar, it does not
+    // hold it.)
+    let mut least = mg_uikit::title_row_width(ui, title, close.is_some());
+    if grows {
+        least = least.max(ui.response().rect.width()).max(DIALOG_LEAST_BODY + margin.sum().x);
+    }
+    let (kept, _) = ui
+        .allocate_exact_size(egui::vec2(least, mg_uikit::metrics::TITLE_ROW), egui::Sense::hover());
+    let inner = egui::Frame::NONE.inner_margin(margin).show(ui, add_contents).inner;
+    let row = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), kept.y_range());
+    (inner, mg_uikit::title_row(ui, row, title, close))
+}
+
+/// An `egui::Modal` (what stops the work until it is answered: a job's
+/// progress, a plugin's question) in the dialogs' frame, with no margin
+/// of its own: [`modal_titled`] draws in it.
+pub(crate) fn modal_window(ctx: &egui::Context, id: egui::Id) -> egui::Modal {
+    egui::Modal::new(id).frame(egui::Frame::window(&ctx.global_style()).inner_margin(0))
+}
+
+/// A modal's ([`modal_window`]) title row over `add_contents`, as a
+/// dialog's ([`Dialog`]; no Close: what is in it answers it). An
+/// `egui::Modal` has no name of its own, so the title is named as a
+/// label (as the heading that was its title was): a screen reader and a
+/// test find it by it. Its response, for a tip.
+pub(crate) fn modal_titled<R>(
+    ui: &mut Ui,
+    title: &str,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> (R, egui::Response) {
+    let margin = ui.ctx().global_style().spacing.window_margin;
+    let (inner, row) = titled(ui, title, None, margin, true, add_contents);
+    let named = ui.interact(row.rect, ui.id().with(("modal-title", title)), egui::Sense::hover());
+    named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    (inner, named)
 }
 
 /// A dialog that its own buttons answer (OK and Cancel, Yes and No, a
@@ -3267,10 +3497,7 @@ fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui
 /// refuses. Opened over a Properties window, it
 /// took its Escape too: Escape in Select Portrait closed the blueprint's
 /// window, as its Cancel.)
-pub(crate) fn modal<'a>(
-    ctx: &egui::Context,
-    title: impl Into<egui::WidgetText>,
-) -> egui::Window<'a> {
+pub(crate) fn modal<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> Dialog<'a> {
     centered(ctx, title).collapsible(false).resizable(false)
 }
 
@@ -3281,20 +3508,21 @@ pub(crate) fn modal<'a>(
 /// (Import Resources, Select Token, Conversation Test).
 pub(crate) fn resizable<'a>(
     ctx: &egui::Context,
-    window: egui::Window<'a>,
+    window: Dialog<'a>,
     size: egui::Vec2,
-) -> egui::Window<'a> {
+) -> Dialog<'a> {
     window
         .resizable(true)
         .pivot(egui::Align2::LEFT_TOP)
-        .default_pos(ctx.content_rect().center() - size / 2.0)
+        .default_pos(dialog_center(ctx) - size / 2.0)
         .default_size(size)
 }
 
-/// A dialog that its close button or Escape closes (`open`), as well as
-/// what it has to answer it: [`centered`].
-pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> egui::Window<'a> {
-    centered(ctx, title).open(open_unless_escape(ctx, title, open))
+/// A dialog that its Close or Escape closes (`open`), as well as what it
+/// has to answer it: [`centered`], with a Close at its title row's right.
+pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> Dialog<'a> {
+    let open = open_unless_escape(ctx, title, open);
+    Dialog { open: Some(open), ..centered(ctx, title) }
 }
 
 /// Whether a dialog is open (one that Escape closes or a Cancel answers,
@@ -3427,9 +3655,20 @@ fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
     if let Some(h) = hover {
         r = r.on_hover_text(h);
     }
-    // (In a window of its own: not a Cancel within a docked tab.)
+    // (In a window of its own: not a Cancel within a docked tab. And the
+    // Close of a picker's title row, the frame before:
+    // `Dialog::close_as_cancel`.)
     let layer = ui.layer_id();
-    r.clicked() || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
+    let closed = ui.ctx().data_mut(|d| d.remove_temp::<bool>(closed_as_cancel_id(layer)));
+    r.clicked()
+        || closed == Some(true)
+        || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
+}
+
+/// Where a dialog's Close that is its Cancel ([`Dialog::close_as_cancel`])
+/// is noted for the window on `layer`.
+fn closed_as_cancel_id(layer: egui::LayerId) -> egui::Id {
+    egui::Id::new(("mg-dialog-closed-as-cancel", layer))
 }
 
 /// The mouse wheel over a closed choice list `r` (a body or armor part's):

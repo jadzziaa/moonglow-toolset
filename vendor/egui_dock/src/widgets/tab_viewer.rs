@@ -42,6 +42,22 @@ pub trait TabViewer {
     ) {
     }
 
+    /// (Moonglow's patch.) Paints one of a window's tab bar buttons, the
+    /// collapse arrow at its left or the close all at its right, in
+    /// `response.rect`, after egui_dock has taken its clicks and before it
+    /// paints it: true when it was painted here, and egui_dock then paints
+    /// nothing of it (its fill, symbol and border) and gives it no tip of
+    /// its own. What it does is egui_dock's either way. `response` may be
+    /// given a name and a tip (`Response::widget_info`, `on_hover_text`).
+    fn window_bar_button(
+        &mut self,
+        _ui: &mut Ui,
+        _button: WindowBarButton,
+        _response: &egui::Response,
+    ) -> bool {
+        false
+    }
+
     /// This is called when the `_tab` gets closed by the user.
     ///
     /// Returns an `OnCloseResponse` which determines what happens to the tab after this function gets called.
@@ -130,4 +146,26 @@ pub enum OnCloseResponse {
     Focus,
     /// Ignores the close request.
     Ignore,
+}
+
+/// (Moonglow's patch.) Which of a window's tab bar buttons
+/// [`TabViewer::window_bar_button`] paints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowBarButton {
+    /// The arrow at the bar's left that collapses its pane to the bar
+    /// (`collapsed`: it is, and the arrow opens it again).
+    Collapse {
+        /// Whether the pane is collapsed now.
+        collapsed: bool,
+        /// Whether the pane is the window's only one.
+        whole_window: bool,
+    },
+    /// The close all at the bar's right: it closes the pane's tabs, the
+    /// whole window where the pane is its only one (`whole_window`).
+    CloseAll {
+        /// Whether some tab of the pane can't be closed.
+        disabled: bool,
+        /// Whether the pane is the window's only one.
+        whole_window: bool,
+    },
 }

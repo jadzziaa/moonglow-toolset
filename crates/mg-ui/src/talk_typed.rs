@@ -595,49 +595,54 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     // (Escape is this question's, as a dialog's is: the Properties window
     // under it doesn't take it for its Cancel.)
     let escape = crate::widgets::escape_closes(ctx, title);
-    let modal = egui::Modal::new(egui::Id::new("talk-typed-ask")).show(ctx, |ui| {
-        ui.set_max_width(420.0);
-        ui.heading(title);
-        ui.add_space(4.0);
-        ui.label(format!(
-            "The talk table has this text already, at line {} (StrRef {}):",
-            ask.row,
-            strref(ask.row)
-        ));
-        ui.add(egui::Label::new(egui::RichText::new(short(&ask.text)).strong()).wrap());
-        ui.add_space(4.0);
-        ui.weak(
+    let modal =
+        crate::widgets::modal_window(ctx, egui::Id::new("talk-typed-ask")).show(ctx, |ui| {
+            crate::widgets::modal_titled(ui, title, |ui| {
+                ui.set_max_width(420.0);
+                ui.label(format!(
+                    "The talk table has this text already, at line {} (StrRef {}):",
+                    ask.row,
+                    strref(ask.row)
+                ));
+                ui.add(egui::Label::new(egui::RichText::new(short(&ask.text)).strong()).wrap());
+                ui.add_space(4.0);
+                ui.weak(
             "The field can name that line, or have a line of its own: a line named by several \
              fields changes for each of them when it is changed in the talk table editor.",
         );
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if ui
-                .button(format!("Use Line {}", ask.row))
-                .on_hover_text("The field names the line the table has")
-                .clicked()
-                || crate::widgets::enter(ui)
-            {
-                answer = Some(Answer::Use(ask.row));
-            }
-            if ui.button("Add a Line").on_hover_text("A new line with the same text").clicked() {
-                answer = Some(Answer::Add);
-            }
-            if ui
-                .button("Keep in the File")
-                .on_hover_text("The text is the field's own, as Aurora writes it")
-                .clicked()
-            {
-                answer = Some(Answer::File);
-            }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(format!("Use Line {}", ask.row))
+                        .on_hover_text("The field names the line the table has")
+                        .clicked()
+                        || crate::widgets::enter(ui)
+                    {
+                        answer = Some(Answer::Use(ask.row));
+                    }
+                    if ui
+                        .button("Add a Line")
+                        .on_hover_text("A new line with the same text")
+                        .clicked()
+                    {
+                        answer = Some(Answer::Add);
+                    }
+                    if ui
+                        .button("Keep in the File")
+                        .on_hover_text("The text is the field's own, as Aurora writes it")
+                        .clicked()
+                    {
+                        answer = Some(Answer::File);
+                    }
+                });
+                always = crate::widgets::always_box(
+                    ui,
+                    egui::Id::new("talk-typed-always"),
+                    "Always do this",
+                    "Tools › Options › Language › When the talk table has the text",
+                );
+            });
         });
-        always = crate::widgets::always_box(
-            ui,
-            egui::Id::new("talk-typed-always"),
-            "Always do this",
-            "Tools › Options › Language › When the talk table has the text",
-        );
-    });
     // (Always so: Options › Language's choice, from now on.)
     if always && let Some(a) = answer {
         app.settings.talk_reuse = match a {

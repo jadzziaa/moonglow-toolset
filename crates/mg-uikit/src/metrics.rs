@@ -44,6 +44,8 @@ pub const MENU_ROW: f32 = 24.0;
 pub const MENU_TITLE: f32 = 22.0;
 /// The active document tab's accent line along its top.
 pub const ACTIVE_TAB_LINE: f32 = 2.0;
+/// A dialog's title row (the mock's `.dlg-bar`).
+pub const TITLE_ROW: f32 = 28.0;
 
 /// Corner radius of controls, rows and tooltips.
 pub const RADIUS: u8 = 3;

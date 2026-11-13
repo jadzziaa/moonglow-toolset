@@ -13,6 +13,7 @@ use crate::node::LeafNode;
 use crate::tab_viewer::OnCloseResponse;
 use crate::{
     DockArea, Node, NodeIndex, Style, SurfaceIndex, TabAddAlign, TabIndex, TabStyle, TabViewer,
+    WindowBarButton,
     dock_area::{
         drag_and_drop::{DragData, DragDropState, HoverData, TreeComponent},
         state::State,
@@ -361,11 +362,19 @@ impl<Tab> DockArea<'_, Tab> {
                     fade_style,
                     disabled,
                     close_window_disabled,
+                    tab_viewer,
                 )
             }
 
             if show_collapse {
-                self.tab_collapse(ui, path, tabbar_outer_rect, fade_style, collapsed)
+                self.tab_collapse(
+                    ui,
+                    path,
+                    tabbar_outer_rect,
+                    fade_style,
+                    collapsed,
+                    tab_viewer,
+                )
             }
 
             (tabs_ui.min_rect().width(), tab_hovered)
@@ -701,6 +710,7 @@ impl<Tab> DockArea<'_, Tab> {
         fade_style: Option<&Style>,
         disabled: bool,
         close_window_disabled: bool,
+        tab_viewer: &mut impl TabViewer<Tab = Tab>,
     ) {
         let rect = Rect::from_min_max(
             tabbar_outer_rect.right_top() - vec2(Style::TAB_CLOSE_ALL_BUTTON_SIZE, 0.0),
@@ -716,10 +726,53 @@ impl<Tab> DockArea<'_, Tab> {
 
         let (rect, mut response) = ui.allocate_exact_size(ui.available_size(), Sense::click());
 
+        // (Moonglow's patch: `TabViewer::window_bar_button`.)
+        let whole_window = self.dock_state[path.surface]
+            .iter()
+            .filter(|node| node.is_leaf())
+            .count()
+            == 1;
+        let painted = tab_viewer.window_bar_button(
+            ui,
+            WindowBarButton::CloseAll {
+                disabled,
+                whole_window,
+            },
+            &response,
+        );
+
         let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
 
         // Whether we're on "secondary button mode" due to modifier keys
         let on_secondary_button = self.is_on_secondary_button(path.surface, ui, &response);
+
+        if painted {
+            if !disabled {
+                response = response.on_hover_cursor(CursorIcon::PointingHand);
+                if !path.surface.is_main() && self.secondary_button_context_menu {
+                    response.context_menu(|ui| {
+                        ui.add_enabled_ui(!close_window_disabled, |ui| {
+                            if ui
+                                .button(&self.dock_state.translations.leaf.close_all_button)
+                                .clicked()
+                            {
+                                self.to_remove.push(TabRemoval::Window(path.surface));
+                            }
+                        });
+                    });
+                }
+            }
+            if response.clicked() {
+                if on_secondary_button {
+                    if !close_window_disabled {
+                        self.to_remove.push(TabRemoval::Window(path.surface));
+                    }
+                } else if !disabled {
+                    self.to_remove.push(TabRemoval::Node(path));
+                }
+            }
+            return;
+        }
 
         let mut stroke_color = if disabled {
             style.buttons.close_all_tabs_disabled_color
@@ -836,6 +889,7 @@ impl<Tab> DockArea<'_, Tab> {
         tabbar_outer_rect: Rect,
         fade_style: Option<&Style>,
         collapsed: bool,
+        tab_viewer: &mut impl TabViewer<Tab = Tab>,
     ) {
         let rect = Rect::from_min_max(
             tabbar_outer_rect.left_top(),
@@ -858,37 +912,54 @@ impl<Tab> DockArea<'_, Tab> {
         // Whether we're on "secondary button mode" due to modifier keys
         let on_secondary_button = self.is_on_secondary_button(path.surface, ui, &response);
 
-        let color = if response.hovered() || response.has_focus() {
-            ui.painter().rect_filled(
-                rect,
-                CornerRadius::ZERO,
-                style.buttons.collapse_tabs_bg_fill,
-            );
-            style.buttons.collapse_tabs_active_color
-        } else {
-            style.buttons.collapse_tabs_color
-        };
-
-        let mut arrow_rect = rect;
-        rect_set_size_centered(&mut arrow_rect, Vec2::splat(Style::TAB_COLLAPSE_ARROW_SIZE));
-
-        if on_secondary_button {
-            // Collapse the entire window
-            Self::draw_chevron_down(ui, style, color, arrow_rect);
-        } else {
-            // Draw arrow.
-            Self::draw_arrow(collapsed, ui, color, arrow_rect);
-        }
-
-        // Draw button right border.
-        ui.painter().vline(
-            rect.right(),
-            rect.y_range(),
-            Stroke::new(
-                ui.ctx().pixels_per_point().recip(),
-                style.buttons.collapse_tabs_border_color,
-            ),
+        // (Moonglow's patch: `TabViewer::window_bar_button`.)
+        let whole_window = self.dock_state[path.surface]
+            .iter()
+            .filter(|node| node.is_leaf())
+            .count()
+            == 1;
+        let painted = tab_viewer.window_bar_button(
+            ui,
+            WindowBarButton::Collapse {
+                collapsed,
+                whole_window,
+            },
+            &response,
         );
+
+        if !painted {
+            let color = if response.hovered() || response.has_focus() {
+                ui.painter().rect_filled(
+                    rect,
+                    CornerRadius::ZERO,
+                    style.buttons.collapse_tabs_bg_fill,
+                );
+                style.buttons.collapse_tabs_active_color
+            } else {
+                style.buttons.collapse_tabs_color
+            };
+
+            let mut arrow_rect = rect;
+            rect_set_size_centered(&mut arrow_rect, Vec2::splat(Style::TAB_COLLAPSE_ARROW_SIZE));
+
+            if on_secondary_button {
+                // Collapse the entire window
+                Self::draw_chevron_down(ui, style, color, arrow_rect);
+            } else {
+                // Draw arrow.
+                Self::draw_arrow(collapsed, ui, color, arrow_rect);
+            }
+
+            // Draw button right border.
+            ui.painter().vline(
+                rect.right(),
+                rect.y_range(),
+                Stroke::new(
+                    ui.ctx().pixels_per_point().recip(),
+                    style.buttons.collapse_tabs_border_color,
+                ),
+            );
+        }
 
         if response.clicked() {
             if on_secondary_button {
@@ -912,7 +983,7 @@ impl<Tab> DockArea<'_, Tab> {
             });
         }
 
-        if !on_secondary_button {
+        if !on_secondary_button && !painted {
             self.show_tooltip_hints(path.surface, response);
         }
     }

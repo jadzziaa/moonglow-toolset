@@ -11544,6 +11544,44 @@ fn shell_welcome() {
     shoot(&mut h, &dir, "shell_welcome");
 }
 
+/// Wizards where they open (M3's T11, against the Welcome and Wizard
+/// boards): the New Module wizard over the Welcome page, the subtitle in
+/// sight (`shell_welcome_wizard`; the Area Wizard needs a module open,
+/// and with one the Welcome page is gone); the Area Wizard over the area
+/// with both docks open (`shell_area_wizard`); and the same in the least
+/// window, 420 points wide, where the editor area is narrower than the
+/// wizard (`shell_area_wizard_least`).
+#[test]
+#[ignore]
+fn shell_wizards() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.recent = Vec::new();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::NewModuleDialog);
+    frames_until(&mut h, "the wizard", |h| h.query_by_label("New Module").is_some());
+    h.run_steps(3);
+    shoot(&mut h, &dir, "shell_welcome_wizard");
+    for (size, name) in [
+        (egui::vec2(1600.0, 900.0), "shell_area_wizard"),
+        (egui::vec2(420.0, 700.0), "shell_area_wizard_least"),
+    ] {
+        let mut h = shell_with_area(&root, size);
+        h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+        frames_until(&mut h, "the wizard", |h| h.query_by_label("Area Wizard").is_some());
+        h.run_steps(3);
+        shoot(&mut h, &dir, name);
+    }
+}
+
 // Menus that hold more than rows (the shell milestone's T1, its fix
 // round): headings, notes, check boxes, fields and separators in the
 // application's own menus, each opened as a builder opens it, into

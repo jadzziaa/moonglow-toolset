@@ -375,10 +375,18 @@ fn answer_all(h: &mut Harness<'_, Moonglow>, answers: &[Answer], obs: &mut Obs, 
     }
 }
 
-/// The menu item `item` on screen (by its label, or the text it begins).
-fn menu_item<'t>(h: &'t Harness<'_, Moonglow>, item: &'t str) -> Option<egui_kittest::Node<'t>> {
-    h.query_all_by_label(item).last().or_else(|| {
+/// The menu item `item` on screen (by its label, or the text it begins),
+/// not one of `before` (what was named so before the menu opened: a
+/// window's Close, where the item is File › Close).
+fn menu_item<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    item: &'t str,
+    before: &[egui::Rect],
+) -> Option<egui_kittest::Node<'t>> {
+    let new = |n: &egui_kittest::Node<'_>| !before.contains(&n.rect());
+    h.query_all_by_label(item).rfind(new).or_else(|| {
         h.query_all_by_label_contains(item)
+            .filter(new)
             .rfind(|n| text_of(n).is_some_and(|t| t.starts_with(item)))
     })
 }
@@ -390,19 +398,20 @@ fn menu(h: &mut Harness<'_, Moonglow>, name: &str, item: &str, note: &mut String
         note.push_str(&format!(" [no {name} menu]"));
         return false;
     };
+    let before: Vec<egui::Rect> = h.query_all_by_label(item).map(|n| n.rect()).collect();
     m.click();
     // (Until the menu is open and its item laid out, at most
     // `SETTLE_TIME`.)
     let started = std::time::Instant::now();
     loop {
         settle_noting(h, note);
-        if menu_item(h, item).is_some() || started.elapsed() > SETTLE_TIME {
+        if menu_item(h, item, &before).is_some() || started.elapsed() > SETTLE_TIME {
             break;
         }
         h.step();
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    let Some(i) = menu_item(h, item) else {
+    let Some(i) = menu_item(h, item, &before) else {
         let seen: Vec<String> =
             h.query_all_by_label_contains(&item[..2]).filter_map(|n| text_of(&n)).collect();
         note.push_str(&format!(" [{name} › {item} not found; seen {seen:?}]"));

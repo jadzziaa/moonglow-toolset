@@ -81,7 +81,7 @@ fn check_for_updates_says_what_is_newest() {
     h.run();
     h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
     h.get_by_label("This copy is updated by Scoop: scoop update moonglow.");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Check for Updates");
     h.run();
     assert!(h.query_by_label("Check Again").is_none());
     // And from Help › About.
@@ -96,7 +96,7 @@ fn check_for_updates_says_what_is_newest() {
 /// newer release: the notice under the toolbar stays.
 fn close_window(h: &mut Harness<'_, Moonglow>) {
     assert!(h.state().updates.window, "the window opened on the release");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(h, "Check for Updates");
     h.run();
 }
 
@@ -139,7 +139,7 @@ fn a_newer_release_found_at_start_opens_the_window_asking() {
     assert!(h.state().settings.update_auto_install, "Options › Updates' switch");
     let getting = h.state().updates.getting.as_ref().expect("this release, downloading");
     assert!(!getting.now, "installed as Moonglow closes, as Later");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Check for Updates");
     h.run();
     assert!(h.query_by_label("Always install updates").is_none(), "the window's alone");
 

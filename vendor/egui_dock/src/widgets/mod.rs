@@ -5,4 +5,5 @@ pub mod dock_area;
 pub mod tab_viewer;
 
 pub use dock_area::{AllowedSplits, DockArea};
-pub use tab_viewer::TabViewer;
+// (Moonglow's patch: `WindowBarButton`.)
+pub use tab_viewer::{TabViewer, WindowBarButton};

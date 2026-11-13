@@ -18,6 +18,16 @@ fn app_with(name: &str, dialogs: NoDialogs) -> Moonglow {
     app
 }
 
+/// Insert… › Close Window: the snippet's menu row, not the Close Window of
+/// the script's window's bar (a window of its own: its own name).
+fn insert_close_window(h: &mut Harness<'_, Moonglow>) {
+    let bars: Vec<egui::Rect> = h.query_all_by_label("Close Window").map(|n| n.rect()).collect();
+    h.get_by_label("Insert…").click();
+    h.run();
+    let row = h.get_all_by_label("Close Window").find(|n| !bars.contains(&n.rect()));
+    row.expect("Insert… › Close Window").click();
+}
+
 fn app() -> Moonglow {
     app_with("nui_test", NoDialogs::default())
 }
@@ -413,9 +423,7 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     assert!(h.state().script_tools.jump.is_none_or(|(k, i)| k == script_key && i == at));
     // Insert adds ready-made code to the handler, after what is there.
     close_script(&mut h, script_key);
-    h.get_by_label("Insert…").click();
-    h.run();
-    h.get_by_label("Close Window").click();
+    insert_close_window(&mut h);
     h.run();
     assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
     // Event script… opens the whole script; Undo takes the insert back.
@@ -465,9 +473,7 @@ fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed
     assert!(typed.contains("int nTyped = 1; ") && typed != written, "{typed}");
     assert_eq!(text(h.state(), script), written, "typed, not saved");
     close_script(&mut h, script);
-    h.get_by_label("Insert…").click();
-    h.run();
-    h.get_by_label("Close Window").click();
+    insert_close_window(&mut h);
     h.run();
     let now = text(h.state(), script);
     assert!(now.contains("int nTyped = 1; "), "what was typed is kept: {now}");

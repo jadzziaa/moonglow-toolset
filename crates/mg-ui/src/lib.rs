@@ -1684,6 +1684,9 @@ impl Moonglow {
     pub fn with_settings(mut settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
         // (An older Moonglow's, made the shell's: `Settings::shell_migrate`.)
         settings.shell_migrate();
+        // (Sizes kept before the theme's rows, made as tall as their
+        // windows are now: `Settings::scale_window_sizes`.)
+        settings.scale_window_sizes();
         let mut app = Moonglow::new(settings.install(), dialogs);
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
         // (From the start, so that it has a module opened at once.)
@@ -1838,6 +1841,12 @@ impl Moonglow {
         // (egui's float over the content and show only under the pointer,
         // so a list gave no sign that there was more of it).
         mg_uikit::apply(ui.ctx(), self.theme());
+        // (egui's own resize corner off: the windows and the resizable
+        // dialogs paint the boards' grip, `mg_uikit::paint_resize_grip`,
+        // where egui's three strokes in the frame's color were.)
+        if ui.ctx().global_style().visuals.resize_corner_size > 0.0 {
+            ui.ctx().all_styles_mut(|s| s.visuals.resize_corner_size = 0.0);
+        }
         // Options › General › Interface size (when chosen; else the size is
         // egui's own, which Ctrl with + and - change).
         match self.settings.ui_scale {
@@ -2974,14 +2983,16 @@ impl Moonglow {
 
     /// The bar beside a window's tabs does what its tab does: a double
     /// click maximizes the window and restores it, and a right click
-    /// offers that; a button at its right end before the close button
-    /// does it too, and shows which the window is (the `maximize` icon,
-    /// or `restore`). (egui_dock gives the bar nothing; a builder looked for
+    /// offers that; a button at its right end before the Close does it
+    /// too, and shows which the window is (the `maximize` icon, or
+    /// `restore`). (egui_dock gives the bar nothing; a builder looked for
     /// them there, as on any window's title.) The window is still dragged
-    /// by it.
+    /// by it. And each window's resize grip, in its bottom right corner
+    /// (the Floating board's `.fw-grip`), where it is not folded.
     fn window_bars(&mut self, ui: &mut egui::Ui) {
         let buttons = std::mem::take(&mut self.tab_buttons);
         let mut toggle = None;
+        let mut grips: Vec<(egui::LayerId, egui::Rect)> = Vec::new();
         for (path, leaf) in self.dock.iter_leaves() {
             let Some(tab) = leaf.tabs.get(leaf.active.0).or(leaf.tabs.first()) else { continue };
             if path.surface.is_main() || tab.docks() {
@@ -2989,12 +3000,23 @@ impl Moonglow {
             }
             let own: Vec<_> = buttons.iter().filter(|(t, ..)| leaf.tabs.contains(t)).collect();
             let Some(layer) = own.first().map(|b| b.2) else { continue };
-            // From the last tab to the window's close button.
-            let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
-            let bar = egui::Rect::from_min_max(
-                egui::pos2(left, leaf.rect.top()),
-                egui::pos2(leaf.rect.right() - 28.0, leaf.viewport.top()),
+            if !leaf.collapsed {
+                grips.push((layer, leaf.rect));
+            }
+            // Maximize beside the Close at the bar's right end (the
+            // board's `.tools`), both 22 points square.
+            let side = mg_uikit::metrics::ICON_BUTTON;
+            let row = leaf.rect.top()..=leaf.viewport.top();
+            let at = egui::Rect::from_min_size(
+                egui::pos2(
+                    leaf.rect.right() - tabs::WINDOW_BAR_END,
+                    (leaf.rect.top() + leaf.viewport.top()) / 2.0 - side / 2.0,
+                ),
+                egui::vec2(side, side),
             );
+            // From the last tab to the Maximize.
+            let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
+            let bar = egui::Rect::from_x_y_ranges(left..=at.left(), row);
             if !bar.is_positive() || leaf.collapsed {
                 continue;
             }
@@ -3013,13 +3035,13 @@ impl Moonglow {
             }
             let maximized = self.windows_maximized(&leaf.tabs);
             let label = if maximized { "Restore" } else { "Maximize" };
+            let tip = if maximized {
+                "Put the window back where it was, or double-click the bar"
+            } else {
+                "Fill the main window, or double-click the bar"
+            };
             // (Registered after the bar: it takes its clicks.)
             let icon = if maximized { icons::RESTORE } else { icons::MAXIMIZE };
-            let side = mg_uikit::metrics::ICON_BUTTON.min(bar.height());
-            let at = egui::Rect::from_center_size(
-                egui::pos2(bar.right() - side / 2.0 - 2.0, bar.center().y),
-                egui::vec2(side, side),
-            );
             let button = mg_uikit::IconButton::new(icon, label).icon_only(true);
             let pressed = ui
                 .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
@@ -3027,7 +3049,7 @@ impl Moonglow {
                     // cut to the main window's panels, which hid it where
                     // a window's bar lay over the toolbar.)
                     ui.set_clip_rect(at.expand(1.0));
-                    ui.put(at, button).on_hover_text(label).clicked()
+                    ui.put(at, button).on_hover_text(tip).clicked()
                 })
                 .inner;
             if pressed {
@@ -3039,6 +3061,24 @@ impl Moonglow {
                     ui.close();
                 }
             });
+        }
+        // The grips, one a window (its panes' union: a window split in
+        // two has one corner), framed by the window's stroke.
+        let mut windows: Vec<(egui::LayerId, egui::Rect)> = Vec::new();
+        for (layer, rect) in grips {
+            match windows.iter_mut().find(|(l, _)| *l == layer) {
+                Some((_, r)) => *r = r.union(rect),
+                None => windows.push((layer, rect)),
+            }
+        }
+        let pointer = ui.ctx().pointer_latest_pos();
+        for (layer, panes) in windows {
+            let window = panes.expand(self.window_frame);
+            let grip = mg_uikit::window::resize_grip_rect(window);
+            let hot = pointer.is_some_and(|p| {
+                grip.expand(4.0).contains(p) && ui.ctx().layer_id_at(p) == Some(layer)
+            });
+            mg_uikit::paint_resize_grip(&ui.ctx().layer_painter(layer), window, hot);
         }
         if let Some(tab) = toggle {
             self.actions.push(Action::ToggleMaximize(tab));

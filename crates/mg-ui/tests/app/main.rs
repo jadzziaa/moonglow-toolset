@@ -13,6 +13,7 @@ mod areas;
 mod bake;
 mod blueprints;
 mod conversations;
+mod dialogs;
 mod doc_tabs;
 mod drawing;
 mod fields;

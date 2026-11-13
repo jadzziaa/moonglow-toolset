@@ -619,6 +619,12 @@ pub struct Settings {
     /// The size each kind of editor window was last left at (its
     /// `Tab::kind`, width and height in points): the next one opens so.
     pub window_sizes: Vec<(String, [u32; 2])>,
+    /// Whether [`Settings::window_sizes`] were taken with the theme's
+    /// rows (22 points): false in a file from before the theme (a missing
+    /// field reads false), whose heights [`Settings::scale_window_sizes`]
+    /// makes as much taller as the theme made their windows, once; true
+    /// in a new installation and once scaled.
+    pub window_sizes_scaled: bool,
     /// Where each kind of window was last dragged to, when not a window
     /// of its own: `middle` (a tab of the main pane) or `split left 300`
     /// (a pane split off a side of the middle). The next of its kind opens
@@ -1070,7 +1076,12 @@ impl Settings {
     /// setting, or does not read, takes: an existing user's window stays as
     /// it was.
     pub fn new_installation() -> Settings {
-        Settings { hide_log: true, open_editors: OpenEditors::Tabs, ..Settings::default() }
+        Settings {
+            hide_log: true,
+            open_editors: OpenEditors::Tabs,
+            window_sizes_scaled: true,
+            ..Settings::default()
+        }
     }
 
     /// The minutes between recovery copies ([`AUTOSAVE_MINUTES`] unset).
@@ -1139,6 +1150,27 @@ impl Settings {
         let panel = |kind: &String| PANELS.contains(&kind.as_str());
         self.window_places.retain(|(kind, place)| !panel(kind) && place.trim() != "palettes");
         self.window_sizes.retain(|(kind, _)| !panel(kind));
+    }
+
+    /// The remembered window sizes ([`Settings::window_sizes`]) of a file
+    /// from before the theme, taken when rows were 18 points with 3
+    /// between: each height made as much taller as its kind's window is
+    /// now (`Tab::taller`, by the kind's name; a kind this version does
+    /// not know, or one with no window, as it was), the widths as they
+    /// were; then marked done ([`Settings::window_sizes_scaled`]), so
+    /// that run again it changes nothing. A size taller than the window
+    /// it opens in is fitted to it as the window opens, as any is.
+    /// ([`crate::Moonglow::with_settings`] runs it.)
+    pub fn scale_window_sizes(&mut self) {
+        if self.window_sizes_scaled {
+            return;
+        }
+        for (kind, [_, h]) in &mut self.window_sizes {
+            if let Some(taller) = crate::tabs::Tab::taller_of_kind(kind) {
+                *h = (*h as f32 * taller).round() as u32;
+            }
+        }
+        self.window_sizes_scaled = true;
     }
 
     /// The settings as they are saved: RON text.
@@ -1725,11 +1757,128 @@ mod tests {
             (new.open_editors, old.open_editors),
             (OpenEditors::Tabs, OpenEditors::Floating)
         );
-        let back = Settings { hide_log: false, open_editors: OpenEditors::Floating, ..new.clone() };
+        // (And its window sizes, none yet, are the theme's: never scaled.)
+        assert!(new.window_sizes_scaled && !old.window_sizes_scaled);
+        let back = Settings {
+            hide_log: false,
+            open_editors: OpenEditors::Floating,
+            window_sizes_scaled: false,
+            ..new.clone()
+        };
         assert_eq!(back, old);
         // (Each alone is a difference.)
-        assert_ne!(Settings { hide_log: false, ..new.clone() }, old);
-        assert_ne!(Settings { open_editors: OpenEditors::Floating, ..new }, old);
+        assert_ne!(Settings { hide_log: false, window_sizes_scaled: false, ..new.clone() }, old);
+        assert_ne!(
+            Settings {
+                open_editors: OpenEditors::Floating,
+                window_sizes_scaled: false,
+                ..new.clone()
+            },
+            old
+        );
+        assert_ne!(Settings { hide_log: false, open_editors: OpenEditors::Floating, ..new }, old);
+    }
+
+    /// The window sizes kept before the theme (a file without
+    /// `window_sizes_scaled`, every Moonglow's to 4.1.0 and the branch's
+    /// before it) are made as much taller as their kind's windows are now,
+    /// once: a form's by `FORMS_TALLER`, a window of rows by
+    /// `ROWS_TALLER`, the widths as they were, a kind with no window (an
+    /// area) or one this version does not know as it was; marked, and run
+    /// again nothing changes. A file with the marker, and a new
+    /// installation, are never scaled.
+    #[test]
+    fn window_sizes_from_before_the_theme_are_scaled_once() {
+        use crate::tabs::{FORMS_TALLER, ROWS_TALLER};
+        let sizes = || {
+            vec![
+                ("creature".to_string(), [820, 640]),
+                ("area-properties".to_string(), [760, 600]),
+                ("script".to_string(), [1120, 700]),
+                ("blueprint".to_string(), [800, 500]),
+                ("area".to_string(), [900, 900]),
+                ("frobnicate".to_string(), [300, 200]),
+            ]
+        };
+        let old: Settings =
+            ron::from_str(&format!("(window_sizes:{})", ron::to_string(&sizes()).unwrap()))
+                .unwrap();
+        assert!(!old.window_sizes_scaled, "a file without the marker");
+        let mut s = old.clone();
+        s.scale_window_sizes();
+        let tall = |h: u32, by: f32| (h as f32 * by).round() as u32;
+        let want = vec![
+            ("creature".to_string(), [820, tall(640, FORMS_TALLER)]),
+            ("area-properties".to_string(), [760, tall(600, FORMS_TALLER)]),
+            ("script".to_string(), [1120, tall(700, ROWS_TALLER)]),
+            ("blueprint".to_string(), [800, tall(500, FORMS_TALLER)]),
+            ("area".to_string(), [900, 900]),
+            ("frobnicate".to_string(), [300, 200]),
+        ];
+        assert_eq!(s.window_sizes, want);
+        assert_eq!(s.window_sizes[0].1, [820, 792], "a creature's 640 by 26 / 21");
+        assert!(s.window_sizes_scaled, "marked");
+        assert_eq!(Settings { window_sizes: sizes(), ..s.clone() }, old_marked(&old));
+        let once = s.clone();
+        s.scale_window_sizes();
+        assert_eq!(s, once, "never twice");
+        // Written and read back: marked, not scaled again.
+        let mut back: Settings = ron::from_str(&once.saved_text()).unwrap();
+        back.scale_window_sizes();
+        assert_eq!(back, once);
+        // The branch's file before the marker (this version's text without
+        // it): read whole, nothing unread, and scaled once.
+        let text = once.saved_text();
+        assert!(text.contains("window_sizes_scaled:true,"), "{text}");
+        let before = text.replace("window_sizes_scaled:true,", "");
+        let (mut read, unread) = Settings::read_fields(&before).unwrap();
+        assert!(unread.is_empty() && !read.window_sizes_scaled, "{unread:?}");
+        read.scale_window_sizes();
+        assert!(read.window_sizes_scaled);
+        // A file with the marker (this version's), and a new installation.
+        let mut marked = Settings { window_sizes: sizes(), ..Settings::new_installation() };
+        marked.scale_window_sizes();
+        assert_eq!(marked.window_sizes, sizes());
+        let mut marked = Settings { window_sizes_scaled: true, window_sizes: sizes(), ..old };
+        marked.scale_window_sizes();
+        assert_eq!(marked.window_sizes, sizes());
+    }
+
+    /// The marker goes into the file with the sizes it marks when the
+    /// desktop app saves over a file another Moonglow wrote since it was
+    /// read (`saved_over`, from the settings as they were read, before the
+    /// migration): read back, nothing is scaled again, and the other's
+    /// change is kept.
+    #[test]
+    fn the_marker_is_saved_with_the_sizes_over_another_s_file() {
+        let mut file = Settings {
+            window_sizes: vec![("script".to_string(), [1120, 700])],
+            ..Default::default()
+        }
+        .saved_text();
+        // (A file from before the marker.)
+        file = file.replace("window_sizes_scaled:false,", "");
+        assert!(!file.contains("window_sizes_scaled"), "{file}");
+        let (as_read, unread) = Settings::read_fields(&file).unwrap();
+        assert!(unread.is_empty());
+        let mut now = as_read.clone();
+        now.scale_window_sizes();
+        assert_eq!(now.window_sizes, [("script".to_string(), [1120, 756])]);
+        // A script's window resized since.
+        now.window_sizes[0].1 = [1000, 760];
+        // Another Moonglow's change, saved meanwhile.
+        let theirs = Settings { light_theme: true, ..as_read.clone() }.saved_text();
+        let text = now.saved_over(&as_read, &theirs);
+        let (mut back, unread) = Settings::read_fields(&text).unwrap();
+        assert!(unread.is_empty() && back.light_theme, "theirs kept: {text}");
+        assert!(back.window_sizes_scaled, "the marker saved: {text}");
+        back.scale_window_sizes();
+        assert_eq!(back.window_sizes, [("script".to_string(), [1000, 760])], "not scaled again");
+    }
+
+    /// `old` with its marker set and nothing else changed.
+    fn old_marked(old: &Settings) -> Settings {
+        Settings { window_sizes_scaled: true, ..old.clone() }
     }
 
     /// Open editors as it is read: a settings file without it (every
@@ -1783,8 +1932,13 @@ mod tests {
     fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
         // (The fields the shell added since 4.1.0: whatever their values,
         // a 4.1.0 file has none of them.)
-        const ADDED: [&str; 4] =
-            ["left_dock_width", "right_dock_width", "bottom_dock_height", "open_editors"];
+        const ADDED: [&str; 5] = [
+            "left_dock_width",
+            "right_dock_width",
+            "bottom_dock_height",
+            "open_editors",
+            "window_sizes_scaled",
+        ];
         let saved = Settings { light_theme: true, ..Default::default() };
         let mut ron_text = saved.saved_text();
         for field in ADDED {

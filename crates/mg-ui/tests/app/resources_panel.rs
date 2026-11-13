@@ -387,7 +387,9 @@ fn json_settings_with_a_resources_place_open_without_it() {
     assert_eq!(read.window_places.len(), 2, "read as it is");
     let app = Moonglow::with_settings(read, Box::new(NoDialogs::default()));
     assert_eq!(app.settings.window_places, [("script".to_string(), "middle".to_string())]);
-    assert_eq!(app.settings.window_sizes, [("dialog".to_string(), [900, 680])]);
+    // (The size kept before the theme, made as tall as a conversation's
+    // window is now, once: `Settings::scale_window_sizes`, M3 T11.)
+    assert_eq!(app.settings.window_sizes, [("dialog".to_string(), [900, 734])]);
 }
 
 /// A settings file of an older Moonglow that kept a place and a size for
@@ -419,7 +421,8 @@ fn old_settings_with_a_resources_place_open_without_it() {
     // (A kind kept in the palettes' pane, place `palettes`, is dropped
     // too since the palettes are the Right Dock's panel, M3 T5.)
     assert_eq!(places, &[("script".to_string(), "middle".to_string())]);
-    assert_eq!(app.settings.window_sizes, [("script".to_string(), [1100, 700])]);
+    // (The script's size kept before the theme, 8% taller once, M3 T11.)
+    assert_eq!(app.settings.window_sizes, [("script".to_string(), [1100, 756])]);
     let said: Vec<_> =
         (app.log.entries.iter()).filter(|(level, _)| *level != mg_ui::Level::Info).collect();
     assert!(said.is_empty(), "no warning: {said:?}");

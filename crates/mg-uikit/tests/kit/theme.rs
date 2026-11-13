@@ -33,7 +33,8 @@ fn apply_sets_both_styles_and_the_tokens_follow() {
         assert_eq!(v.panel_fill, t.panel);
         assert_eq!(v.window_fill, t.panel);
         assert_eq!(v.window_stroke.color, t.line_soft);
-        assert_eq!(v.window_shadow, egui::Shadow::NONE);
+        // (The boards' `--shadow` under windows as under popovers.)
+        assert_eq!(v.window_shadow, v.popup_shadow);
         assert_eq!(v.popup_shadow.color, t.shadow);
         assert_eq!(v.extreme_bg_color, t.inset);
         assert_eq!(v.text_edit_bg_color(), t.inset);

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T01:20:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T02:56:26Z }
 ---
 
 # The main window
@@ -704,8 +704,16 @@ only when you moved it (dragged it, or Split Editor did), not when the
 groups around it changed. With editors as windows, a window is where one
 opens anyway, and is not kept. The palettes are not a tab: they are the
 Right Dock's panel. A dialog (a question, a picker such as Select
-Portrait, a wizard) opens in the middle of the main window and is moved
-by its title.
+Portrait, a wizard) opens in the middle of the main window, whichever
+docks are open, and stays wholly inside it however small it is. Its
+**title row** runs across its top, the title at the left: drag the row to
+move the dialog (a drag on the rest of it, where no control is, moves
+nothing). A dialog that Escape closes (Find and Replace Text, Build
+Module, Rename, About) has a **Close** at the row's right, after its own
+buttons when you go through it with Tab; one that only its own buttons
+answer (a question, a wizard, a picker) has none. A job's window (a
+running command's progress, a plugin's question) has the same row, with
+no Close: its Cancel answers it.
 
 **Escape** closes the window in front: a dialog (as its Cancel or close
 button does; a picker opened from a Properties window closes alone, and
@@ -811,11 +819,20 @@ conversation's window, and the next conversation opens at that size (each
 kind of editor has its own, and each type of blueprint: a waypoint's
 Properties opens at the size the last waypoint's was left, not an
 encounter's), and a size dragged at its edge or corner is kept so.
-**Double-click a window's tab** (or the bar beside it) to maximize
+A window has a border, rounded corners and a shadow under it, and a
+**bar** across its top: the **Collapse** arrow at its left (folds the
+window to its bar; **Expand**, the same arrow, opens it again), its
+tabs, and at its right **Maximize** and **Close Window**, which closes
+the window and its tabs as closing each tab would (what asks before it
+closes asks, and **Closing a window cancels its changes** in Options ›
+General decides whether its changes are kept). A window split in panes
+has a bar on each, whose Close is **Close Pane**. The **grip** in its
+bottom right corner shows where to drag to resize it (any edge or corner
+does). **Double-click a window's tab** (or the bar beside it) to maximize
 it over the whole of Moonglow's window under the Top Bar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too, and the button at the
-right of the window's bar, before its close button, does it and shows which it is:
+right of the window's bar, before Close Window, does it and shows which it is:
 a maximize icon, or restore while the window is maximized. **Ctrl+Shift+M** (Maximize Window in Options ›
 Keyboard) does it for the window of the tab in front. Any window does
 this, one of a tab dragged out of a pane (the main pane's Module
@@ -856,7 +873,11 @@ tab does the same on a double click and a right click, and the window is
 dragged by it, and only by it: a drag on a part of the window that isn't
 a control doesn't move it (Options › General › **Move windows by
 dragging anywhere in them** does). The arrow at the bar's left folds the
-window to its bar.
+window to its bar. Window sizes kept by Moonglow 4.1.0 and earlier, taken
+when rows were shorter, are made as much taller as their windows now are,
+once, the first time this version reads them (a size kept 640 points high
+for a creature's Properties opens 792 high, a script's 700 opens 756);
+a window never opens larger than Moonglow's window.
 
 **A module opens again with its tabs**: the areas, scripts, blueprints,
 conversations, side editors and tools open when it was closed, in the

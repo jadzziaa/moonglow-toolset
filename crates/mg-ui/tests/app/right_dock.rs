@@ -606,7 +606,8 @@ fn old_settings_with_the_palettes_places_open_right() {
     let migrated = Moonglow::with_settings(read.settings, Box::new(NoDialogs::default()));
     let app = &migrated;
     assert_eq!(app.settings.window_places, [("manual".to_string(), "split below 330".to_string())]);
-    assert_eq!(app.settings.window_sizes, [("script".to_string(), [1100, 700])]);
+    // (The script's size kept before the theme, 8% taller once, M3 T11.)
+    assert_eq!(app.settings.window_sizes, [("script".to_string(), [1100, 756])]);
     let said: Vec<_> =
         (app.log.entries.iter()).filter(|(level, _)| *level != mg_ui::Level::Info).collect();
     assert!(said.is_empty(), "no warning: {said:?}");

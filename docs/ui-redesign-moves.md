@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T01:20:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T02:56:26Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -205,14 +205,14 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| A script in a window of its own (egui_dock surface) | A 1040 by 640 window over the main window, with a border, radius and shadow |
-| The tab row as the window's bar, with the collapse arrow | Bar row: collapse arrow, tabs with ×, Maximize, Close |
-| Double-click and right-click on the empty bar | Unchanged: Maximize or Restore |
+| A script in a window of its own (egui_dock surface) | A 1040 by 640 window over the main window, with a border, radius and shadow ✓ M3 T11 (the border, radius 4 and `--shadow`; the window opens at its kind's size as before) |
+| The tab row as the window's bar, with the collapse arrow | Bar row: collapse arrow, tabs with ×, Maximize, Close ✓ M3 T11 (Collapse, Maximize and Close Window, named and tipped) |
+| Double-click and right-click on the empty bar | Unchanged: Maximize or Restore ✓ M3 T11 |
 | Tab menu: Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right | Unchanged, not drawn |
 | Script header, Functions, Variables, Constants, Templates | Script board's header, and Reference as a right pane inside the window |
 | Help tab of the script's bottom pane | Under Reference, as on the Script board |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window |
-| Resize corner | A grip at the bottom right |
+| Resize corner | A grip at the bottom right ✓ M3 T11 |
 | Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties |
 
 
@@ -549,7 +549,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Window title, centered | Left-aligned in a bar row |
+| Window title, centered | Left-aligned in a bar row ✓ M3 T11 (moved by the row; a Close where Escape closes the dialog, the pickers' too; a job's window and a plugin's question the same row with no Close) |
 | Button row, left-aligned | Footer row with a rule above, buttons at the right, a setting or count at the left |
 | Main button | Accent fill. The order stays: action first, Cancel last |
 | Wizard steps (Creature Wizard has nine) | Step list at the left, with a check on done steps |
@@ -644,5 +644,5 @@ Every control of the screens mocked in the second round and its home in the mock
 
 - A Preview panel and an Appearance panel beside the Appearance Gallery.
 - Counts on the Tiles gallery's terrain and crosser headings.
-- A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs.
+- A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs (the close button ✓ M3 T11).
 
