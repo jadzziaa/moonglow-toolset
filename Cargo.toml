@@ -10,7 +10,7 @@ exclude = ["vendor/winit"]
 # the one line a release changes (packaging/README.md). The libraries
 # keep "0.0.0", so that a release rebuilds the programs alone; what they
 # say of the release they read from the program (mg_core::release).
-version = "4.1.0"
+version = "4.2.0"
 edition = "2024"
 rust-version = "1.98"
 license = "GPL-3.0-only"
