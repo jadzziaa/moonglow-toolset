@@ -918,8 +918,10 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
 /// Kills the process whose number is in `file` (written by the command
 /// it ran: `echo $$ > FILE; exec sleep …`), if it is still that command,
 /// when dropped: a test's command does not outlive it, failed or not.
+#[cfg(unix)]
 struct KillOnDrop(std::path::PathBuf);
 
+#[cfg(unix)]
 impl Drop for KillOnDrop {
     fn drop(&mut self) {
         let Ok(pid) = std::fs::read_to_string(&self.0) else { return };
