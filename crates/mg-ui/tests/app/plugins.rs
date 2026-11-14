@@ -241,16 +241,12 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("changed nothing")));
 
-    // The Command Palette finds it, under its plugin's name.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "tag conv");
-    h.get_by_label("Promote the Guards");
-    // (Escape clears the name typed, and closes the palette next.)
+    // The Command Palette (Quick Open among the commands) finds it, under
+    // its plugin's name.
+    command_palette(&mut h, "tag conv");
+    quick_open_row(&h, "Promote the Guards");
     h.key_press(egui::Key::Escape);
-    h.run();
-    h.key_press(egui::Key::Escape);
-    h.run();
+    settle(&mut h);
     // And it takes a key like any command: listed with the plugins'.
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
@@ -367,6 +363,8 @@ fn variables(
 #[test]
 fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     let Some((mut h, key)) = plugin_harness("ui-plugin-menus", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The area's objects: a chest.
     let git = ResKey::parse("start", ResType::GIT).unwrap();
     let mut placed = Gff::new(*b"GIT ");
@@ -409,7 +407,7 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
 
     // An area's row: its command above the Properties that end the menu,
     // run on the area.
-    h.get_by_label("start").click_secondary();
+    tree_row(&h, "start").click_secondary();
     h.run();
     assert!(h.query_by_label("Set Local Variable…").is_none(), "that one is for objects");
     let count = h.get_by_label("Count Objects").rect();
@@ -440,6 +438,8 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
 #[test]
 fn a_plugin_s_commands_are_grouped_into_submenus() {
     let Some((mut h, _)) = plugin_harness("ui-plugin-submenus", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let dir = mg_testkit::scratch_dir("ui-plugin-submenus-plugins");
     let plugin = dir.join("roles");
     std::fs::create_dir_all(&plugin).unwrap();
@@ -508,12 +508,10 @@ fn a_plugin_s_commands_are_grouped_into_submenus() {
     assert_eq!(ran(&h).as_deref(), Some("workbench"));
 
     // The Command Palette: by the whole path, found by a submenu's name.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "crafting workbench");
-    h.get_by_label("Make › Crafting › Workbench…");
+    command_palette(&mut h, "crafting workbench");
+    quick_open_row(&h, "Make › Crafting › Workbench…");
     h.key_press(egui::Key::Escape);
-    h.run();
+    settle(&mut h);
 
     // The Plugins window says where each is.
     h.state_mut().plugins.window = true;
@@ -530,6 +528,8 @@ fn a_plugin_s_commands_are_grouped_into_submenus() {
 #[test]
 fn a_plugin_s_command_is_for_placed_objects_blueprints_groups_and_the_pane_clicked() {
     let Some((mut h, _)) = plugin_harness("ui-plugin-menus-0-5", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let dir = mg_testkit::scratch_dir("ui-plugin-menus-0-5-plugins");
     let plugin = dir.join("where");
     std::fs::create_dir_all(&plugin).unwrap();
@@ -649,7 +649,7 @@ fn a_plugin_s_command_is_in_a_palette_s_menu() {
     let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
         app.palette.tiles = false;
         app.palette.filter = "nw_wp_tavern".into();
@@ -1331,7 +1331,7 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
     let dialogs = NoDialogs { folders: vec![export], ..Default::default() };
     let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.background_jobs = true;
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
@@ -1434,7 +1434,7 @@ fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static,
     app.plugin_answers = Some(dir.with_extension("answers.toml"));
     app.load_plugins();
     app.open_module(dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     Some(harness(app, 1200.0, 900.0))
 }
 
@@ -1743,7 +1743,7 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     let mut h = project_harness(&dir, false).unwrap();
     h.run();
     assert_eq!(h.state().plugins.project_asking, [id]);
-    h.get_by_label("This project comes with plugins");
+    h.get_by_label("This Project Comes with Plugins");
     h.get_by_label_contains("Its folder plugins/ holds plugins the team shares");
     h.get_by_label("Builder tags 1.0.0");
     h.get_by_label("Command: Prefix Tags (right-click: creature, placeable)");
@@ -1758,7 +1758,7 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     h.get_by_label("Decide Later").click();
     h.run();
     assert!(h.state().plugins.project_asking.is_empty() && !runs(&h, id));
-    assert!(h.query_by_label("This project comes with plugins").is_none());
+    assert!(h.query_by_label("This Project Comes with Plugins").is_none());
     h.state_mut().open_module(&dir);
     h.run();
     assert_eq!(h.state().plugins.project_asking, [id]);
@@ -1831,7 +1831,7 @@ fn answers_a_project_carries_are_not_taken() {
     h.run();
     assert_eq!(h.state().plugins.project_asking, ["example.builder-tags"]);
     assert!(!runs(&h, "example.builder-tags"));
-    h.get_by_label("This project comes with plugins");
+    h.get_by_label("This Project Comes with Plugins");
     let log = &h.state().log.entries;
     assert!(
         log.iter().any(|(l, m)| *l == mg_ui::Level::Warning
@@ -2150,7 +2150,7 @@ fn house_rules_harness(name: &str) -> Harness<'static, Moonglow> {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.plugin_dir = Some(example_plugins());
     app.load_plugins();
     app.enable_plugin("example.house-rules", true);
@@ -2180,7 +2180,7 @@ fn a_plugin_refuses_a_save_and_says_why() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run_steps(3);
     assert!(!saved(&h), "nothing written");
-    h.get_by_label("Not saved");
+    h.get_by_label("Not Saved");
     h.get_by_label("Refused");
     h.get_by_label_contains("its tag was TAVERN, now INN: players' places are kept by it");
     assert!(h.query_by_label("Save Anyway").is_none(), "a refusal is not saved anyway");
@@ -2238,7 +2238,7 @@ fn a_plugin_warns_before_a_save() {
     h.run_steps(2);
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run_steps(3);
-    h.get_by_label("Before saving");
+    h.get_by_label("Before Saving");
     h.get_by_label("Warning");
     h.get_by_label("tag Cellar is not upper case");
     h.get_by_label("Make it CELLAR");
@@ -2478,7 +2478,7 @@ fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
     h.get_by_label("Areas Not Yours");
     h.get_by_label("Save Anyway").click();
     h.run_steps(3);
-    h.get_by_label("Before saving");
+    h.get_by_label("Before Saving");
     h.get_by_label("tag Cellar is not upper case");
     h.get_by_label("Save Anyway").click();
     h.run_steps(3);
@@ -2513,7 +2513,7 @@ fn save_anyway_on_a_save_as_does_not_answer_the_claims_for_the_next_save() {
     h.run();
     h.state_mut().actions.push(mg_ui::Action::SaveAt(ModuleLocation::Folder(dir)));
     h.run_steps(3);
-    h.get_by_label("Before saving");
+    h.get_by_label("Before Saving");
     h.get_by_label("Save Anyway").click();
     h.run_steps(3);
     assert!(!h.state().has_unsaved_work(), "saved");

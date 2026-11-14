@@ -1,197 +1,163 @@
-//! The dock's look in the suite's theme (the mock's `.doctabs`,
-//! `.doctab`, `.docktab`): egui_dock's style made from the tokens, and what
-//! its style cannot say, painted over its tabs once they are drawn (the
-//! active tab's line along its top, the lines between tabs).
+//! The document tabs' look over egui_dock's tabs (M3's T9): each tab's
+//! kind icon, modified dot and close button, the lines between the tabs
+//! and along the top of each pane's tab in front (`mg_uikit::dock`, its
+//! `dock` feature, so that Moonglow Viewer takes them from the same
+//! place), the close buttons' clicks, the Split Editor button at the right
+//! end of the focused group's tab bar, and a tab bar of more tabs than it
+//! holds kept scrolled to its tab in front. Each tab's title is laid out
+//! by `tabs::prepare` before the dock is drawn.
 
-use egui_dock::{DockState, Style};
-use mg_uikit::{Tokens, TokensExt as _, metrics};
+use std::collections::{HashMap, HashSet};
 
-use crate::Tab;
+use mg_uikit::dock::DocTabMark;
+use mg_uikit::icons::ButtonState;
 
-/// egui_dock's style in the theme `ui` wears: the tab bars `bar`, 28 px
-/// high, a 1 px `line` under them; the active tab `panel` with its words
-/// in `text`, the others in `text-2` on the bar, hovered `tab-hover`;
-/// no outlines (the active tab's accent line and the lines between tabs
-/// are [`marks`]'), a tab reached with the keyboard ringed in `accent`;
-/// the seams between panes 1 px of `line`, `accent` held; the close
-/// buttons `text-2`, `text` and `raised` hovered.
-pub(crate) fn style(ui: &egui::Ui) -> Style {
-    let t = ui.tokens();
-    let mut s = Style::from_egui(ui.style());
-    s.main_surface_border_stroke = egui::Stroke::NONE;
-    let bar = &mut s.tab_bar;
-    bar.bg_fill = t.bar;
-    bar.height = metrics::DOCUMENT_TABS;
-    bar.hline_color = t.line;
-    bar.corner_radius = egui::CornerRadius::ZERO;
-    let tab = |fill, text, outline| egui_dock::TabInteractionStyle {
-        outline_color: outline,
-        corner_radius: egui::CornerRadius::ZERO,
-        bg_fill: fill,
-        text_color: text,
-    };
-    let none = egui::Color32::TRANSPARENT;
-    s.tab.active = tab(t.panel, t.text, none);
-    s.tab.focused = tab(t.panel, t.text, none);
-    s.tab.inactive = tab(t.bar, t.text_2, none);
-    s.tab.hovered = tab(t.tab_hover, t.text, none);
-    s.tab.active_with_kb_focus = tab(t.panel, t.text, t.accent);
-    s.tab.focused_with_kb_focus = tab(t.panel, t.text, t.accent);
-    s.tab.inactive_with_kb_focus = tab(t.bar, t.text, t.accent);
-    s.tab.hline_below_active_tab_name = false;
-    s.tab.spacing = 0.0;
-    s.tab.tab_body.bg_fill = t.panel;
-    s.tab.tab_body.stroke = egui::Stroke::NONE;
-    s.tab.tab_body.corner_radius = egui::CornerRadius::ZERO;
-    let b = &mut s.buttons;
-    b.close_tab_color = t.text_2;
-    b.close_tab_active_color = t.text;
-    b.close_tab_bg_fill = t.raised;
-    for (color, active, fill, border) in [
-        (
-            &mut b.add_tab_color,
-            &mut b.add_tab_active_color,
-            &mut b.add_tab_bg_fill,
-            &mut b.add_tab_border_color,
-        ),
-        (
-            &mut b.close_all_tabs_color,
-            &mut b.close_all_tabs_active_color,
-            &mut b.close_all_tabs_bg_fill,
-            &mut b.close_all_tabs_border_color,
-        ),
-        (
-            &mut b.collapse_tabs_color,
-            &mut b.collapse_tabs_active_color,
-            &mut b.collapse_tabs_bg_fill,
-            &mut b.collapse_tabs_border_color,
-        ),
-        (
-            &mut b.minimize_window_color,
-            &mut b.minimize_window_active_color,
-            &mut b.minimize_window_bg_fill,
-            &mut b.minimize_window_border_color,
-        ),
-    ] {
-        *color = t.text_2;
-        *active = t.text;
-        *fill = t.raised;
-        *border = t.line;
-    }
-    b.close_all_tabs_disabled_color = t.text_off;
-    b.show_tab_bar_color = t.text_2;
-    b.show_tab_bar_active_color = t.text;
-    let sep = &mut s.separator;
-    sep.width = 1.0;
-    sep.color_idle = t.line;
-    sep.color_hovered = t.accent;
-    sep.color_dragged = t.accent;
-    s.overlay.selection_color = t.accent.gamma_multiply(0.35);
-    s
-}
+use crate::{Action, Moonglow, Tab, tabs};
 
-/// What egui_dock's style cannot say, painted over the tabs once the dock
-/// is drawn (`tabs`: each tab's rectangle, layer and the part of it in
-/// sight, as its button was drawn this frame): a 1 px `line` at each
-/// tab's right (the mock's `border-right`), and along the top of each
-/// pane's tab in front a 2 px line, `accent` in the pane that has the
-/// focus and `line-soft` in the others (the mock's
-/// `.group.focus .doctab.active`). Each only where its tab is in sight:
-/// egui_dock scrolls a bar of more tabs than it holds and still gives
-/// those out of sight their buttons, whose marks were drawn over what
-/// lies beside the bar.
-pub(crate) fn marks(
-    ctx: &egui::Context,
-    dock: &DockState<Tab>,
-    tabs: &[(Tab, egui::Rect, egui::LayerId, egui::Rect)],
-) {
-    let t = ctx.tokens();
-    let focused = dock.focused_leaf();
-    for (_, rect, layer, shown) in tabs {
-        if !shown.is_positive() {
-            continue;
-        }
-        let painter = ctx.layer_painter(*layer).with_clip_rect(*shown);
-        painter.vline(rect.right() - 0.5, rect.y_range(), egui::Stroke::new(1.0, t.line));
-    }
-    for (path, leaf) in dock.iter_leaves() {
-        let Some(front) = leaf.tabs.get(leaf.active.0) else { continue };
-        let Some((_, rect, layer, shown)) = tabs.iter().find(|(t, ..)| t == front) else {
-            continue;
-        };
-        if !shown.is_positive() {
-            continue;
-        }
-        let color = front_line(&t, focused == Some(path));
-        let line = egui::Rect::from_min_size(
-            rect.min,
-            egui::vec2(rect.width() - 1.0, metrics::ACTIVE_TAB_LINE),
-        );
-        ctx.layer_painter(*layer).with_clip_rect(*shown).rect_filled(line, 0.0, color);
-    }
-}
+/// The Split Editor button's tip.
+pub(crate) const SPLIT_TIP: &str = "Move the tab in front to another editor group";
 
-/// The color of the line along the top of a pane's tab in front.
-fn front_line(t: &Tokens, focused: bool) -> egui::Color32 {
-    if focused { t.accent } else { t.line_soft }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The dock's style follows the theme the context wears, both ways.
-    #[test]
-    fn the_dock_s_style_follows_the_theme() {
-        let ctx = egui::Context::default();
-        for theme in [mg_uikit::Theme::Light, mg_uikit::Theme::Dark, mg_uikit::Theme::Light] {
-            mg_uikit::apply(&ctx, theme);
-            let t = theme.tokens();
-            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                let s = style(ui);
-                assert_eq!(s.tab_bar.bg_fill, t.bar, "{theme:?}");
-                assert_eq!(s.tab_bar.height, metrics::DOCUMENT_TABS);
-                assert_eq!(s.tab_bar.hline_color, t.line);
-                assert_eq!(s.tab.active.bg_fill, t.panel);
-                assert_eq!(s.tab.active.text_color, t.text);
-                assert_eq!(s.tab.inactive.text_color, t.text_2);
-                assert_eq!(s.tab.hovered.bg_fill, t.tab_hover);
-                assert_eq!(s.tab.tab_body.bg_fill, t.panel);
-                assert_eq!(s.separator.color_idle, t.line);
-                assert_eq!(s.buttons.close_tab_color, t.text_2);
+impl Moonglow {
+    /// After the dock is drawn: each tab's parts painted, its close button
+    /// where it shows (on the tab in front of its pane, always, and on the
+    /// tab under the pointer), named for its tab ("Close map_m1q1a") and
+    /// pressed to close it as its menu's Close does (asking first where
+    /// it has unsaved changes), and the Split Editor button.
+    pub(crate) fn doc_tab_parts(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let pointer = ctx.pointer_hover_pos();
+        let fronts: HashSet<Tab> = (self.dock.iter_leaves())
+            .filter_map(|(_, l)| l.tabs.get(l.active.0).cloned())
+            .collect();
+        let mut marks = Vec::new();
+        let mut close = None;
+        let mut rects = HashMap::new();
+        for (tab, rect, layer, shown) in self.tab_buttons.clone() {
+            rects.insert(tab.clone(), (rect, shown));
+            let Some(look) = self.doc_tabs.get(&tab) else { continue };
+            // (The tab being dragged has its parts where it is dragged.)
+            if self.dragged_tab.as_ref() == Some(&tab) {
+                continue;
+            }
+            let active = fronts.contains(&tab);
+            // (Under the pointer where nothing lies over it: a window over
+            // the main surface's tabs hides their close buttons.)
+            let hovered = pointer.is_some_and(|p| {
+                shown.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l == layer)
             });
-            out.textures_delta.clear();
+            let parts = mg_uikit::shell::doc_tab_parts(rect, look.title.width, look.modified);
+            let mut state = None;
+            if tab.closeable() && (active || hovered) && shown.contains_rect(parts.close) {
+                let id = egui::Id::new(("doc-tab-close", &tab));
+                let builder = egui::UiBuilder::new().layer_id(layer).max_rect(parts.close);
+                let r = ui
+                    .scope_builder(builder, |ui| {
+                        ui.set_clip_rect(shown);
+                        // (Registered after its tab: it takes the clicks.)
+                        ui.interact(parts.close, id, egui::Sense::click())
+                    })
+                    .inner;
+                let name = format!("Close {}", look.name);
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+                state = Some(if r.is_pointer_button_down_on() {
+                    ButtonState::Pressed
+                } else if r.hovered() || r.has_focus() {
+                    ButtonState::Hovered
+                } else {
+                    ButtonState::Rest
+                });
+                let r = r.on_hover_text("Close this tab");
+                if r.clicked() || r.middle_clicked() {
+                    close = Some(tab.clone());
+                }
+            }
+            marks.push(DocTabMark {
+                tab,
+                rect,
+                layer,
+                shown,
+                icon: look.icon,
+                title_width: look.title.width,
+                modified: look.modified,
+                active,
+                close: state,
+            });
         }
-        assert_eq!(front_line(&Tokens::DARK, true), Tokens::DARK.accent);
-        assert_eq!(front_line(&Tokens::LIGHT, false), Tokens::LIGHT.line_soft);
+        // (The focused group's front tab has the accent line, the one
+        // shown as the window opens too, before egui_dock has a focus.)
+        let focused = self.dock.focused_leaf().or_else(|| self.focused_group());
+        mg_uikit::dock::doc_tab_marks(&ctx, &self.dock, focused, &marks);
+        if let Some(tab) = close {
+            self.actions.push(Action::CloseTabs(vec![tab]));
+        }
+        self.tab_rects = rects;
+        self.split_button(ui);
     }
 
-    /// The marks of a tab scrolled partly or wholly out of its bar are
-    /// drawn only in the part in sight, and none for a tab out of sight
-    /// (they were drawn over what lies beside the bar).
-    #[test]
-    fn marks_stay_in_the_part_of_a_tab_in_sight() {
-        let ctx = egui::Context::default();
-        mg_uikit::apply(&ctx, mg_uikit::Theme::Dark);
-        let dock = DockState::new(vec![Tab::Welcome, Tab::Manual, Tab::Options]);
-        let layer = egui::LayerId::background();
-        let rect = |l: f32| egui::Rect::from_min_size(egui::pos2(l, 0.0), egui::vec2(100.0, 28.0));
-        let bar = egui::Rect::from_min_max(egui::pos2(150.0, 0.0), egui::pos2(400.0, 28.0));
-        let tabs = [
-            // In front, half out of sight at the bar's left; out of sight;
-            // whole.
-            (Tab::Welcome, rect(100.0), layer, rect(100.0).intersect(bar)),
-            (Tab::Manual, rect(-50.0), layer, rect(-50.0).intersect(bar)),
-            (Tab::Options, rect(200.0), layer, rect(200.0)),
-        ];
-        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| marks(ui.ctx(), &dock, &tabs));
-        out.textures_delta.clear();
-        let clips: Vec<egui::Rect> = out.shapes.iter().map(|c| c.clip_rect).collect();
-        // Two lines between tabs and the front tab's line, nothing for the
-        // tab out of sight.
-        assert_eq!(clips.len(), 3, "{clips:?}");
-        for clip in &clips {
-            assert!(bar.contains_rect(*clip), "{clip:?} outside the bar {bar:?}");
+    /// Split Editor at the right end of the focused group's tab bar (the
+    /// mock's `.doctabs .tools`), in the room egui_dock leaves there
+    /// ([`tabs::SPLIT_ROOM`]); none where the group has one tab (the boards
+    /// draw none beside a group's only tab, nor on the other groups' bars).
+    fn split_button(&mut self, ui: &mut egui::Ui) {
+        if !self.can_split() {
+            return;
         }
+        let Some(path) = self.focused_group() else { return };
+        let Ok(leaf) = self.dock.leaf(path) else { return };
+        let bar =
+            egui::Rect::from_x_y_ranges(leaf.rect.x_range(), leaf.rect.top()..=leaf.viewport.top());
+        // (Not in a bar narrower than its room: the editor area beside a
+        // dock unfolded by hand in the least window is narrow.)
+        if !bar.is_positive() || bar.width() < tabs::SPLIT_ROOM {
+            return;
+        }
+        let layer = (self.tab_buttons.iter())
+            .find(|(t, ..)| leaf.tabs.contains(t))
+            .map_or(ui.layer_id(), |b| b.2);
+        let side = mg_uikit::metrics::ICON_BUTTON.min(bar.height());
+        let at = egui::Rect::from_center_size(
+            egui::pos2(bar.right() - tabs::SPLIT_ROOM / 2.0, bar.center().y),
+            egui::vec2(side, side),
+        );
+        let button =
+            mg_uikit::IconButton::new(mg_uikit::Icon::Split, "Split Editor").icon_only(true);
+        let pressed = ui
+            .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
+                ui.set_clip_rect(at.expand(1.0));
+                ui.put(at, button).on_hover_text(SPLIT_TIP).clicked()
+            })
+            .inner;
+        if pressed {
+            self.actions.push(Action::SplitEditor);
+        }
+    }
+
+    /// Before the dock is drawn: a pane whose tab in front is another than
+    /// at the last frame (one clicked, opened, reached by the keys) has its
+    /// tab bar scrolled to show it whole, where its bar has more tabs than
+    /// it holds. (egui_dock scrolls a bar by the wheel alone.) A tab not
+    /// drawn yet (one just opened) is shown once it has been.
+    pub(crate) fn reveal_fronts(&mut self) {
+        let before = std::mem::take(&mut self.fronts_before);
+        let mut now = HashSet::new();
+        for (surface, node) in self.dock.iter_all_nodes_mut() {
+            let egui_dock::Node::Leaf(leaf) = node else { continue };
+            let Some(front) = leaf.tabs.get(leaf.active.0) else { continue };
+            let Some((rect, _)) = self.tab_rects.get(front) else { continue };
+            now.insert(front.clone());
+            if before.contains(front) {
+                continue;
+            }
+            // (A window's bar has egui_dock's arrow at its left.)
+            let main = surface.surface.is_main();
+            let left = leaf.rect.left() + if main { 0.0 } else { 24.0 };
+            let right = left + tabs::tab_room(main, leaf.rect.width());
+            if rect.right() > right {
+                leaf.scroll -= rect.right() - right;
+            } else if rect.left() < left {
+                leaf.scroll += left - rect.left();
+            }
+        }
+        self.fronts_before = now;
     }
 }

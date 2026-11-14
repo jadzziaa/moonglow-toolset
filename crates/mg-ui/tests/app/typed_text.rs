@@ -44,7 +44,7 @@ fn typed_harness(
     app.settings.no_last_area = true;
     app.settings.talk_typed = on;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     settle(&mut h);
     Some((h, user, path))
@@ -423,7 +423,7 @@ fn a_table_kept_in_the_module_takes_typed_lines_and_saves_with_it() {
     app.settings.no_last_area = true;
     app.settings.talk_typed = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     settle(&mut h);
     retype(&mut h, "Sample", "Castle Krezk");

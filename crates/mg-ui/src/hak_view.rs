@@ -955,8 +955,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 if r.double_clicked() {
                     todo = Some(Do::View(item.key));
                 }
-                r.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
+                mg_uikit::context_menu(&r, |ui| {
                     if ui.button("View").clicked() {
                         todo = Some(Do::View(item.key));
                     }

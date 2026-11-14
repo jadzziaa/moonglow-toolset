@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T22:14:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T08:51:04Z }
 ---
 
 # Coming from Aurora
@@ -147,7 +147,8 @@ own.
 - **Hak conflicts**: Module Properties › Custom Content › Check for
   Conflicts… lists the resources several haks provide (and which one the
   game uses) and the game's resources the haks replace.
-- **The resource browser** (Tools › Resource Browser) shows any resource
+- **The resource browser** (the Left Dock's Resources tab; Tools ›
+  Resource Browser shows it) shows any resource
   in the game, the haks or the module, and where it comes from; models
   open in the model viewer. A 2DA shows its StrRefs as text, which hak
   each row comes from, and what a hak changed; **Edit…** there (the

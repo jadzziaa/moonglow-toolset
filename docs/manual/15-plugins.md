@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
 ---
 
 # Plugins
@@ -218,8 +218,8 @@ text a line), a color (a swatch and its `#rrggbb`), or a path, whose
 
 ## Commands
 
-An enabled plugin's commands are in the **Plugins** menu and in the
-Command Palette (Ctrl+Shift+P), with the plugin's name. A plugin may
+An enabled plugin's commands are in the **Plugins** menu and in
+Quick Open (Ctrl+P; Ctrl+Shift+P among the commands alone), with the plugin's name. A plugin may
 suggest a key for a command; **Tools › Options › Keyboard** lists plugin
 commands with the rest, and any of them can be given a key or have it
 changed there. A command run by its key while you are typing in a field
@@ -289,7 +289,7 @@ one step of Undo; Cancel makes nothing.
 ## Panels
 
 A plugin's panels are panes of their own: **Plugins › Panels** shows and
-hides each (a tick beside those shown), and the Command Palette finds
+hides each (a tick beside those shown), and Quick Open finds
 them by name (since plugin API 0.6). A panel opens in a window, which
 you may dock beside the area or the palettes as any window, and it is
 reopened with the module's other windows. It shows what its plugin

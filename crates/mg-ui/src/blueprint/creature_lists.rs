@@ -2022,8 +2022,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     item: equipped[i].clone(),
                                 });
                             }
-                            r.context_menu(|ui| {
-                                mg_uikit::menu_rows(ui);
+                            mg_uikit::context_menu(&r, |ui| {
                                 if ui.button("To Backpack").clicked() {
                                     stow = Some((i, resref));
                                     ui.close();
@@ -2042,7 +2041,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     ui.close();
                                 }
                                 // Properties last, as in Aurora's menus.
-                                ui.separator();
+                                mg_uikit::menu_separator(ui);
                                 if ui.button("Properties").clicked() {
                                     open = Some(("Equip_ItemList", i));
                                     ui.close();

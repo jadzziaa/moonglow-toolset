@@ -310,10 +310,7 @@ fn row_ui(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
                 let text = egui::RichText::new(&row.name).strong();
                 let text = if missing { text.color(ui.visuals().error_fg_color) } else { text };
                 let name = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-                name.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
-                    menu(app, ui, row)
-                });
+                mg_uikit::context_menu(&name, |ui| menu(app, ui, row));
                 if ui.small_button("Copy").on_hover_text("Copy the texture's name").clicked() {
                     ui.ctx().copy_text(row.name.clone());
                 }

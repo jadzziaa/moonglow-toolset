@@ -360,9 +360,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
 - **A preview shown twice in a frame, the owner's call:** a 3D view
-  shown in two places in one frame (the Preview window over the
-  model's tab) is drawn in the first, and the second says "The preview
-  is shown elsewhere in the window." (the review's B19), rather than
+  shown in two places in one frame (the Right Dock's Preview panel and
+  the model's tab, which keeps it: the panel's body is drawn after the
+  editor area since M3 T6, as the Preview window was) is drawn in the
+  first, and the second says "The preview is shown elsewhere in the
+  window." (the review's B19), rather than
   getting targets of its own. The wording, and whether the second
   should draw too, are asked. (S) (the review of November 2026, B19)
 
@@ -909,30 +911,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   view's overlays are drawn over the 3D view, whatever the theme. What
   else a builder who uses it finds wanting waits on such a pass. (S) (a
   senior builder's review, October 2026)
-- **Panes folded away** (GitHub issue 10, open: waits on its reporter's
-  retest of the one-button rule, built on 1.31.0): a View menu (Module
-  Tree, Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
-  Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
-  pane folded away leaves a strip at its edge that brings it back, as
-  wide as it was; the palettes' pane closed by its ✕ counts as folded;
-  the state is kept in the settings. Each pane has one button of its
-  own to fold it away, by the reporter's rule: a chevron on the edge it
-  faces the middle by (the tree's right, the palettes' left, or right
-  where they were split off the middle's left, the log's top), centered
-  along it, in a thin strip that is all a folded pane leaves, the button
-  in the same place. egui_dock's arrow on the palettes' tab bar is
-  covered over and its clicks taken (egui_dock has it on every pane or
-  none, and windows fold to their bar by it), and the keyboard passes
-  it (Tab and Shift+Tab, `the_palettes_covered_arrow_is_passed_by_the_keyboard`).
-  Left for the reporter's word, as their rule shapes each (S each): the
-  strip names its pane only in the tip (a name along a 16-point strip
-  would be drawn turned); the palettes' bar keeps the arrow's blank room
-  before its first tab, and the middle's panes keep their arrows
-  (egui_dock offers no per-pane choice: a patched egui_dock, or the
-  middle's arrows covered the same way); palettes joined to the middle's
-  tabs, split above or below it or in a window have no edge button (View
-  and their ✕ fold them), and those split above or below leave their
-  strip on the right. (from builders' reports after 1.19.1)
+- **The docks' fold controls and a window dropped on the middle, by
+  hand** (GitHub issues 10 and 21, open: wait on a hand in the running
+  program). Issue 10's one-button rule is built as the shell's (M3, the
+  proposal's U3): each dock has one control of its own to fold it away,
+  the Left and Right Docks a button at the end of their tab bar (folded,
+  the chevron at the top of their strip, which brings the dock back as
+  wide as it was), the Bottom Dock its Log switch in the Status Bar;
+  View › Left Dock, Right Dock, Log, Hide All Panels and Reset Layout,
+  with their keys; the state kept in the settings. It waits on its
+  reporter's retest on the release that carries M3. Issue 21: a tool
+  window dragged from a window of its own onto a side target of the
+  middle was seen to move and not to dock, by the tests' drag, which
+  can't make a window of its own; it waits on a drag by hand, the
+  owner's (a tool's tab dropped on a side of the middle is docked there,
+  `a_tool_tab_dropped_on_a_side_is_docked_there`). (S) (GitHub issues 10
+  to 24, after 1.19.1 and 1.20.0; 21 after 1.30.2)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them (over an area's
   view F10 is Select Tiles', as in Aurora), Left and Right
@@ -948,22 +942,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   events). Waits: Alt alone on Windows, where the system may take Alt
   for its own menu (a Windows build). (S) (from builders' reports
   after 1.19.1)
-- **The middle with a tab beside the palettes** (issue 11): the middle
-  was let go where another tab (the resource browser) shared the
-  palettes' pane; the pane's tabs no longer count as the middle's. The
-  palettes dropped among the middle's areas are the middle's (issue 20:
-  they were taken for the side pane, and the areas pushed to the
-  right), and the resource browser's pane alone is a side pane once the
-  palettes are closed (issue 23: it took the whole window). Another
-  tool docked alone on the right (the talk table, a script) is not
-  known as a side pane. Issue 21's drop on a side target is docked
-  there from a pane; from a window of its own, the window was seen to
-  move and not to dock, by the tests' drag (not confirmed either way in
-  the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20, 21 and
-  23 after 1.30.2) (the window's drop waits on a drag by hand in the
-  running program, the owner's or issue 21's reporter's: the UI tests
-  can't make a window of its own, and issue 21 has no answer since
-  2026-10-10)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
   Left and fold the tree): after a click in a list (the module tree, a
@@ -1689,9 +1667,6 @@ is not taken for a new gap.
   keep the plain strong style; only section headings were made larger.
 - **Scripts and conversations by name:** they have no names; the tree
   lists them by ResRef.
-- **A window's bar:** egui_dock gives a folded window the height of its
-  tab bar, frame included, so the dock's windows are drawn without a
-  frame margin and their tabs' contents are given one instead.
 - **Copy… of a script** takes its compiled script along; its debug
   information (`.ndb`) is made when the copy is next compiled.
 - **Deleting a prefab** isn't Edit › Undo's: the palette's Undo Delete
@@ -2211,10 +2186,12 @@ is not taken for a new gap.
   set-up, not the walk, as the renders hold the GPU and the others read
   each area differently; no walk of the five together. (Settled by the
   owner, 2026-10-29.)
-- **The Command Palette's Undo in a script** is the module's (its field
-  has the keys), where Edit › Undo, the toolbar's Undo and Ctrl+Z are the
-  script's while its editor has the keyboard. (a builder's report on
-  1.25.1) (Settled by the owner, 2026-10-29.)
+- **Undo chosen in Quick Open, with a script in front,** is the module's
+  (the field has the keys), where Edit › Undo, the Top Bar's Undo and
+  Ctrl+Z are the script's while its editor has the keyboard. Ctrl+Z typed
+  in the field is the field's own (M3 T8's review). (a builder's report on
+  1.25.1, of the Command Palette Quick Open took the place of in M3 T8)
+  (Settled by the owner, 2026-10-29.)
 - **A module's files changed outside, read on a thread of their own**
   (`mg_module::outside`), leave the files' memory in that thread's
   allocator arena: the process keeps about 200 MB more after a 970-file

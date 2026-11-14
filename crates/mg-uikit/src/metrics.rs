@@ -38,8 +38,14 @@ pub const TOOL_SHELF: f32 = 36.0;
 pub const TOOL_BUTTON: f32 = 28.0;
 /// The status bar.
 pub const STATUS_BAR: f32 = 24.0;
+/// A menu's row (the mock's `.menu-row`), with no gap between rows.
+pub const MENU_ROW: f32 = 24.0;
+/// A menu's title in the top bar (the mock's `.menu`).
+pub const MENU_TITLE: f32 = 22.0;
 /// The active document tab's accent line along its top.
 pub const ACTIVE_TAB_LINE: f32 = 2.0;
+/// A dialog's title row (the mock's `.dlg-bar`).
+pub const TITLE_ROW: f32 = 28.0;
 
 /// Corner radius of controls, rows and tooltips.
 pub const RADIUS: u8 = 3;
@@ -71,6 +77,10 @@ pub const LEFT_DOCK: f32 = 260.0;
 pub const RIGHT_DOCK: f32 = 320.0;
 /// The bottom dock's default height.
 pub const BOTTOM_DOCK: f32 = 180.0;
+/// The height of the Left Dock's upper panel (Module or Resources, its tab
+/// bar included) over an Outliner, at first (`Main.html`'s
+/// `.module-panel`: `flex: 0 0 496px`); the Outliner takes the rest.
+pub const MODULE_PANEL: f32 = 496.0;
 
 /// Body text (Ubuntu Light): everything but what follows.
 pub const BODY_SIZE: f32 = 13.0;

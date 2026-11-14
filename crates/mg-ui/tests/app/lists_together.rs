@@ -31,7 +31,7 @@ pub(crate) fn together(
     let mut app = game_app(&root, None);
     app.open_module(&path);
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let game = app.game.clone().unwrap();
     let base = Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
     let keys: Vec<ResKey> = (0..n)

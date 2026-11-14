@@ -127,6 +127,22 @@ named!(FilesThere: Ask, Replace, Skip);
 named!(MissingFeats: Ask, Add, Refuse);
 named!(ShadowQuality: Fast, High);
 named!(GraphicsBackend: Automatic, Vulkan, Direct3d12, Metal);
+named!(OpenEditors: Tabs, Floating);
+
+/// Options › General › Editors › Open editors: where an editor opens
+/// when nothing of its kind has a place kept for it
+/// ([`Settings::window_places`]). Areas open as tabs either way. The
+/// default is the windows every Moonglow before the shell opened (an
+/// existing settings file names no value, and keeps them); a new
+/// installation starts with tabs ([`Settings::new_installation`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum OpenEditors {
+    /// As tabs of the focused editor group.
+    Tabs,
+    /// As windows of their own over the area.
+    #[default]
+    Floating,
+}
 
 /// What File › Export… does with an archive that is there already
 /// (Options › General): asks, appends to it or overwrites it.
@@ -603,10 +619,25 @@ pub struct Settings {
     /// The size each kind of editor window was last left at (its
     /// `Tab::kind`, width and height in points): the next one opens so.
     pub window_sizes: Vec<(String, [u32; 2])>,
+    /// Whether [`Settings::window_sizes`] were taken with the theme's
+    /// rows (22 points): false in a file from before the theme (a missing
+    /// field reads false), whose heights [`Settings::scale_window_sizes`]
+    /// makes as much taller as the theme made their windows, once; true
+    /// in a new installation and once scaled.
+    pub window_sizes_scaled: bool,
     /// Where each kind of window was last dragged to, when not a window
-    /// of its own: `middle` (a tab of the main pane) or `palettes` (a tab
-    /// of the palettes' pane). The next of its kind opens there.
+    /// of its own: `middle` (a tab of the main pane) or `split left 300`
+    /// (a pane split off a side of the middle). The next of its kind opens
+    /// there. (`palettes`, a tab of the palettes' pane before they were
+    /// the Right Dock's panel, is dropped by [`Settings::shell_migrate`].)
+    /// `window` (a window of its own) is kept where editors open as tabs
+    /// ([`Settings::open_editors`]): there it is not where one opens
+    /// anyway. View › Reset Layout forgets them all.
     pub window_places: Vec<(String, String)>,
+    /// Options › General › Editors › Open editors: as tabs of the focused
+    /// editor group, or as windows of their own (the default, which an
+    /// existing settings file without the field reads).
+    pub open_editors: OpenEditors,
     /// The 2DA columns given a width of their own by dragging the edge of
     /// their name: each table's (by name, lowercase; the last changed
     /// first) columns and widths in points. The 2DA editor and the
@@ -668,10 +699,51 @@ pub struct Settings {
     /// module, unticked: what nothing else names is deleted at once (what
     /// something names is still asked about, the window saying what).
     pub delete_without_asking: bool,
-    /// View: the module tree, the log and the palettes folded away.
+    /// View: the docks folded away: the Left Dock folded to its strip
+    /// (`hide_tree`), the Bottom Dock closed (`hide_log`), the Right Dock
+    /// (the palettes) folded to its strip (`hide_palettes`). As the builder
+    /// left them: a narrow window folds a side dock without writing them,
+    /// and a dock unfolded by hand there is not written either
+    /// (`shell::set_dock_open`).
     pub hide_tree: bool,
     pub hide_log: bool,
     pub hide_palettes: bool,
+    /// The docks' sizes as the builder chose them, in points: the Left
+    /// and Right Docks' widths and the Bottom Dock's height, as their edge
+    /// was dragged to. Each is drawn held to what the window allows, and
+    /// kept as chosen while the window is too small for it, so that the
+    /// dock is as large again when the window is. `None`: not chosen (View
+    /// › Reset Layout puts them back so), the size the window's layout
+    /// gives (`mg_uikit::shell::Yields`: the Left Dock 260, 320 in a wide
+    /// window; the Right Dock 320, 741 in a wide window, 280 in a narrow
+    /// one whatever is chosen; `shell::chosen_size`); a size kept by an
+    /// older version taken once ([`Settings::dock_sizes_taken`]). Whole
+    /// points, as the windows' sizes are kept.
+    pub left_dock_width: Option<u32>,
+    pub right_dock_width: Option<u32>,
+    pub bottom_dock_height: Option<u32>,
+    /// The Right Dock's width as dragged to in the wide layout (a window
+    /// from 2560, where it stands in two columns once wider than 560),
+    /// kept apart from `right_dock_width` (the one dragged to in a
+    /// narrower window), each the width of its own layout. `None`: not
+    /// chosen there, 741.
+    pub right_dock_width_wide: Option<u32>,
+    /// The Left Dock's seam over the Outliner, as the builder dragged it:
+    /// the height of the panel above it (Module or Resources, its tab bar
+    /// included), in whole points, kept as the docks' sizes are (drawn held
+    /// to what the dock's height allows, kept as chosen). `None`: not
+    /// chosen, the board's split (`mg_uikit::metrics::MODULE_PANEL`).
+    pub module_panel_height: Option<u32>,
+    /// The docks' sizes were looked at once in this version's way
+    /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
+    /// a dock's panel in a version before the chosen sizes were kept apart
+    /// (4.2.0 and older) taken as chosen, and a size that is only a size at
+    /// first (4.2.0's 240 and 120, this branch's 260, 320 and 180, which it
+    /// stored before anything was chosen) taken as not chosen, so that the
+    /// dock takes the width the window's layout gives it (320 in a wide
+    /// window). Marked done for good: from then on a size is chosen only
+    /// as an edge is dragged. A new installation has nothing to take.
+    pub dock_sizes_taken: bool,
     /// The area view's Fade Geometry (0 never, 1 in object mode only,
     /// 2 always), in views opened from now on.
     pub fade_geometry: u8,
@@ -737,9 +809,10 @@ pub struct Settings {
     /// changes ([`crate::renderer_check::lit_found`]). Options › General
     /// shows it again.
     pub graphics_notices_hidden: Vec<GraphicsFailure>,
-    /// Options > General: Toolbar buttons, Icons only: the main toolbar's
-    /// and the area view's buttons show their glyphs alone, their names
-    /// in their tips (the default: Icons and text).
+    /// Options > General: Editors' toolbar buttons, Icons only: the area
+    /// view's and the editors' toolbar buttons show their glyphs alone,
+    /// their names in their tips (the default: Icons and text). The Top
+    /// Bar is icons either way.
     pub toolbar_icons_only: bool,
     /// Options › Area › Toolbar: the area view's toolbar's buttons left
     /// out, by name ([`crate::icons::AREA_TOOLS`]; an objects' filter as
@@ -1021,6 +1094,24 @@ pub const AUTOSAVE_MINUTES: u32 = 5;
 pub const DIALOG_BACKUP_MINUTES: u32 = 5;
 
 impl Settings {
+    /// The settings of a new installation (no settings file yet: the
+    /// desktop app's first start, [`Settings::read_eframe`]): the shell as
+    /// the redesign has it, the Bottom Dock closed (the log's last line in
+    /// the Status Bar) and editors opening as tabs. [`Settings::default`]
+    /// keeps the meaning it had before the shell (the log open, editors in
+    /// windows of their own), which an existing file that does not name a
+    /// setting, or does not read, takes: an existing user's window stays as
+    /// it was.
+    pub fn new_installation() -> Settings {
+        Settings {
+            hide_log: true,
+            open_editors: OpenEditors::Tabs,
+            window_sizes_scaled: true,
+            dock_sizes_taken: true,
+            ..Settings::default()
+        }
+    }
+
     /// The minutes between recovery copies ([`AUTOSAVE_MINUTES`] unset).
     pub fn autosave_every(&self) -> u32 {
         self.autosave_minutes.unwrap_or(AUTOSAVE_MINUTES)
@@ -1069,6 +1160,45 @@ impl Settings {
             Ok(settings) => Ok((settings, unread)),
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// Settings an older Moonglow kept, made the shell's (the redesign's
+    /// M3): what a panel of the docks took the place of is dropped, the
+    /// place and size kept for the resource browser's window (kind
+    /// `resources`), now the Left Dock's Resources panel, and for the
+    /// palettes' (kind `palette`: `split left 300` where their pane was
+    /// split off the middle's left), now the Right Dock's Palette panel,
+    /// which neither moves nor has a window; and every kind kept in the
+    /// palettes' pane (place `palettes`), which then opens where its kind
+    /// opens. Nothing else changes, and run again it changes nothing
+    /// more. ([`crate::Moonglow::with_settings`] runs it.)
+    pub fn shell_migrate(&mut self) {
+        // (The kinds of window that are panels now.)
+        const PANELS: [&str; 2] = ["resources", "palette"];
+        let panel = |kind: &String| PANELS.contains(&kind.as_str());
+        self.window_places.retain(|(kind, place)| !panel(kind) && place.trim() != "palettes");
+        self.window_sizes.retain(|(kind, _)| !panel(kind));
+    }
+
+    /// The remembered window sizes ([`Settings::window_sizes`]) of a file
+    /// from before the theme, taken when rows were 18 points with 3
+    /// between: each height made as much taller as its kind's window is
+    /// now (`Tab::taller`, by the kind's name; a kind this version does
+    /// not know, or one with no window, as it was), the widths as they
+    /// were; then marked done ([`Settings::window_sizes_scaled`]), so
+    /// that run again it changes nothing. A size taller than the window
+    /// it opens in is fitted to it as the window opens, as any is.
+    /// ([`crate::Moonglow::with_settings`] runs it.)
+    pub fn scale_window_sizes(&mut self) {
+        if self.window_sizes_scaled {
+            return;
+        }
+        for (kind, [_, h]) in &mut self.window_sizes {
+            if let Some(taller) = crate::tabs::Tab::taller_of_kind(kind) {
+                *h = (*h as f32 * taller).round() as u32;
+            }
+        }
+        self.window_sizes_scaled = true;
     }
 
     /// The settings as they are saved: RON text.
@@ -1123,15 +1253,21 @@ impl Settings {
     /// The settings the desktop app starts with: those kept under `key`
     /// in eframe's settings file (`app.ron`: a RON map of keys to RON
     /// text), read before eframe opens it (the graphics backend is needed
-    /// before the window has a device). Without the file or the key, the
-    /// defaults. Where the file is there and does not read, or some of
+    /// before the window has a device). Without the file, a new
+    /// installation's ([`Settings::new_installation`]); with the file and
+    /// without the key, the defaults (an existing user's). Where the file is there and does not read, or some of
     /// its settings do not ([`Settings::read_fields`]), the file as it is
     /// is kept beside it first (`app.ron.unreadable-<time>`): eframe saves
     /// over it half a minute on, and what could not be read would be gone.
     pub fn read_eframe(path: &Path, key: &str) -> SettingsRead {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return SettingsRead::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return SettingsRead {
+                    settings: Settings::new_installation(),
+                    ..Default::default()
+                };
+            }
             Err(e) => {
                 let (unreadable, kept) = (Some(e.to_string()), keep_aside(path));
                 return SettingsRead { unreadable, kept, ..Default::default() };
@@ -1297,6 +1433,69 @@ pub fn expand_home(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shell's migration drops the resource browser's window place and
+    /// size (kind `resources`: the Left Dock's panel now), keeps every
+    /// other, and run again changes nothing more.
+    #[test]
+    fn shell_migrate_drops_the_browser_s_window_once() {
+        let mut s = Settings {
+            window_places: vec![
+                ("resources".into(), "split below 330".into()),
+                ("script".into(), "middle".into()),
+                ("palette".into(), "split left 300".into()),
+            ],
+            window_sizes: vec![("resources".into(), [920, 700]), ("dialog".into(), [900, 680])],
+            hide_tree: true,
+            ..Default::default()
+        };
+        let mut want = s.clone();
+        // (The palettes' own place goes too, since M3 T5.)
+        want.window_places = vec![("script".into(), "middle".into())];
+        want.window_sizes.remove(0);
+        s.shell_migrate();
+        assert_eq!(s, want);
+        s.shell_migrate();
+        assert_eq!(s, want, "run again: nothing more");
+        let mut new = Settings::default();
+        new.shell_migrate();
+        assert_eq!(new, Settings::default());
+    }
+
+    /// The palettes' settings of before the Right Dock (M3 T5): their own
+    /// place and size, and every kind kept in their pane (place
+    /// `palettes`), dropped; other places and sizes, and the palettes
+    /// folded (`hide_palettes`, now the Right Dock folded), kept. Run
+    /// again, nothing more; a file of today's is left as it is.
+    #[test]
+    fn shell_migrate_drops_the_palettes_places_once() {
+        let mut s = Settings {
+            window_places: vec![
+                ("palette".into(), "split left 300".into()),
+                ("factions".into(), "palettes".into()),
+                ("manual".into(), "split below 330".into()),
+                ("journal".into(), "palettes".into()),
+                ("script".into(), "window".into()),
+            ],
+            window_sizes: vec![("palette".into(), [400, 700]), ("factions".into(), [900, 680])],
+            hide_palettes: true,
+            ..Default::default()
+        };
+        let mut want = s.clone();
+        want.window_places =
+            vec![("manual".into(), "split below 330".into()), ("script".into(), "window".into())];
+        want.window_sizes = vec![("factions".into(), [900, 680])];
+        s.shell_migrate();
+        assert_eq!(s, want);
+        assert!(s.hide_palettes, "the Right Dock folded, as the palettes were");
+        s.shell_migrate();
+        assert_eq!(s, want, "run again: nothing more");
+        // (Read from an older file's text, the same.)
+        let old = r#"(window_places:[("palette","split left 300"),("factions","palettes")],hide_palettes:true)"#;
+        let mut read: Settings = ron::from_str(old).unwrap();
+        read.shell_migrate();
+        assert!(read.window_places.is_empty() && read.hide_palettes);
+    }
 
     /// A leading `~` is the home folder; `~name` and a `~` further in are
     /// left as they are.
@@ -1574,6 +1773,251 @@ mod tests {
         assert!(Settings::read_fields("not ron").is_err());
     }
 
+    /// A new installation's settings differ from the defaults (an existing
+    /// user's, before the shell) in the Bottom Dock closed and editors
+    /// opening as tabs (M3's T10), and in having nothing of an older
+    /// version to scale or take (its window sizes, M3's T11; its docks'
+    /// sizes, T14).
+    #[test]
+    fn a_new_installation_differs_from_the_defaults_only_in_the_log_closed() {
+        let new = Settings::new_installation();
+        let old = Settings::default();
+        assert!(new.hide_log && !old.hide_log);
+        assert_eq!(
+            (new.open_editors, old.open_editors),
+            (OpenEditors::Tabs, OpenEditors::Floating)
+        );
+        // (And its window sizes, none yet, are the theme's: never scaled;
+        // and it has no dock sizes of an older version to take.)
+        assert!(new.window_sizes_scaled && !old.window_sizes_scaled);
+        assert!(new.dock_sizes_taken && !old.dock_sizes_taken);
+        let back = Settings {
+            hide_log: false,
+            open_editors: OpenEditors::Floating,
+            window_sizes_scaled: false,
+            dock_sizes_taken: false,
+            ..new.clone()
+        };
+        assert_eq!(back, old);
+        // (Each alone is a difference.)
+        let untaken = Settings { dock_sizes_taken: false, ..new.clone() };
+        assert_ne!(
+            Settings { hide_log: false, window_sizes_scaled: false, ..untaken.clone() },
+            old
+        );
+        assert_ne!(
+            Settings {
+                open_editors: OpenEditors::Floating,
+                window_sizes_scaled: false,
+                ..untaken.clone()
+            },
+            old
+        );
+        assert_ne!(
+            Settings { hide_log: false, open_editors: OpenEditors::Floating, ..untaken },
+            old
+        );
+        assert_ne!(Settings { dock_sizes_taken: true, ..back }, old);
+    }
+
+    /// The window sizes kept before the theme (a file without
+    /// `window_sizes_scaled`, every Moonglow's to 4.1.0 and the branch's
+    /// before it) are made as much taller as their kind's windows are now,
+    /// once: a form's by `FORMS_TALLER`, a window of rows by
+    /// `ROWS_TALLER`, the widths as they were, a kind with no window (an
+    /// area) or one this version does not know as it was; marked, and run
+    /// again nothing changes. A file with the marker, and a new
+    /// installation, are never scaled.
+    #[test]
+    fn window_sizes_from_before_the_theme_are_scaled_once() {
+        use crate::tabs::{FORMS_TALLER, ROWS_TALLER};
+        let sizes = || {
+            vec![
+                ("creature".to_string(), [820, 640]),
+                ("area-properties".to_string(), [760, 600]),
+                ("script".to_string(), [1120, 700]),
+                ("blueprint".to_string(), [800, 500]),
+                ("area".to_string(), [900, 900]),
+                ("frobnicate".to_string(), [300, 200]),
+            ]
+        };
+        let old: Settings =
+            ron::from_str(&format!("(window_sizes:{})", ron::to_string(&sizes()).unwrap()))
+                .unwrap();
+        assert!(!old.window_sizes_scaled, "a file without the marker");
+        let mut s = old.clone();
+        s.scale_window_sizes();
+        let tall = |h: u32, by: f32| (h as f32 * by).round() as u32;
+        let want = vec![
+            ("creature".to_string(), [820, tall(640, FORMS_TALLER)]),
+            ("area-properties".to_string(), [760, tall(600, FORMS_TALLER)]),
+            ("script".to_string(), [1120, tall(700, ROWS_TALLER)]),
+            ("blueprint".to_string(), [800, tall(500, FORMS_TALLER)]),
+            ("area".to_string(), [900, 900]),
+            ("frobnicate".to_string(), [300, 200]),
+        ];
+        assert_eq!(s.window_sizes, want);
+        assert_eq!(s.window_sizes[0].1, [820, 792], "a creature's 640 by 26 / 21");
+        assert!(s.window_sizes_scaled, "marked");
+        assert_eq!(Settings { window_sizes: sizes(), ..s.clone() }, old_marked(&old));
+        let once = s.clone();
+        s.scale_window_sizes();
+        assert_eq!(s, once, "never twice");
+        // Written and read back: marked, not scaled again.
+        let mut back: Settings = ron::from_str(&once.saved_text()).unwrap();
+        back.scale_window_sizes();
+        assert_eq!(back, once);
+        // The branch's file before the marker (this version's text without
+        // it): read whole, nothing unread, and scaled once.
+        let text = once.saved_text();
+        assert!(text.contains("window_sizes_scaled:true,"), "{text}");
+        let before = text.replace("window_sizes_scaled:true,", "");
+        let (mut read, unread) = Settings::read_fields(&before).unwrap();
+        assert!(unread.is_empty() && !read.window_sizes_scaled, "{unread:?}");
+        read.scale_window_sizes();
+        assert!(read.window_sizes_scaled);
+        // A file with the marker (this version's), and a new installation.
+        let mut marked = Settings { window_sizes: sizes(), ..Settings::new_installation() };
+        marked.scale_window_sizes();
+        assert_eq!(marked.window_sizes, sizes());
+        let mut marked = Settings { window_sizes_scaled: true, window_sizes: sizes(), ..old };
+        marked.scale_window_sizes();
+        assert_eq!(marked.window_sizes, sizes());
+    }
+
+    /// The marker goes into the file with the sizes it marks when the
+    /// desktop app saves over a file another Moonglow wrote since it was
+    /// read (`saved_over`, from the settings as they were read, before the
+    /// migration): read back, nothing is scaled again, and the other's
+    /// change is kept.
+    #[test]
+    fn the_marker_is_saved_with_the_sizes_over_another_s_file() {
+        let mut file = Settings {
+            window_sizes: vec![("script".to_string(), [1120, 700])],
+            ..Default::default()
+        }
+        .saved_text();
+        // (A file from before the marker.)
+        file = file.replace("window_sizes_scaled:false,", "");
+        assert!(!file.contains("window_sizes_scaled"), "{file}");
+        let (as_read, unread) = Settings::read_fields(&file).unwrap();
+        assert!(unread.is_empty());
+        let mut now = as_read.clone();
+        now.scale_window_sizes();
+        assert_eq!(now.window_sizes, [("script".to_string(), [1120, 756])]);
+        // A script's window resized since.
+        now.window_sizes[0].1 = [1000, 760];
+        // Another Moonglow's change, saved meanwhile.
+        let theirs = Settings { light_theme: true, ..as_read.clone() }.saved_text();
+        let text = now.saved_over(&as_read, &theirs);
+        let (mut back, unread) = Settings::read_fields(&text).unwrap();
+        assert!(unread.is_empty() && back.light_theme, "theirs kept: {text}");
+        assert!(back.window_sizes_scaled, "the marker saved: {text}");
+        back.scale_window_sizes();
+        assert_eq!(back.window_sizes, [("script".to_string(), [1000, 760])], "not scaled again");
+    }
+
+    /// `old` with its marker set and nothing else changed.
+    fn old_marked(old: &Settings) -> Settings {
+        Settings { window_sizes_scaled: true, ..old.clone() }
+    }
+
+    /// Open editors as it is read: a settings file without it (every
+    /// Moonglow's before T10) reads As Floating Windows; each value reads
+    /// back as written, in RON and JSON; a value this version does not
+    /// know (a newer Moonglow's) reads as the default, nothing else lost;
+    /// no file at all, a new installation's As Tabs. And what this version
+    /// writes reads in a Moonglow without the field (4.1.0 reads with
+    /// `serde(default)` and no `deny_unknown_fields`): the field passed
+    /// over, the rest kept.
+    #[test]
+    fn open_editors_reads_floating_without_the_field_and_each_value_back() {
+        assert_eq!(Settings::default().open_editors, OpenEditors::Floating);
+        let old: Settings = ron::from_str("(light_theme:true)").unwrap();
+        assert_eq!(old.open_editors, OpenEditors::Floating);
+        let old: Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
+        assert_eq!(old.open_editors, OpenEditors::Floating);
+        for value in [OpenEditors::Tabs, OpenEditors::Floating] {
+            let s = Settings { open_editors: value, light_theme: true, ..Default::default() };
+            let text = s.saved_text();
+            assert!(text.contains(&format!("open_editors:{value:?}")), "{text}");
+            assert_eq!(ron::from_str::<Settings>(&text).unwrap(), s);
+            assert_eq!(Settings::read_fields(&text).unwrap(), (s.clone(), Vec::new()));
+            let json = serde_json::to_string(&s).unwrap();
+            assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), s);
+            // (As a Moonglow without the field reads it.)
+            #[derive(Deserialize, Default)]
+            #[serde(default)]
+            struct Older {
+                light_theme: bool,
+                hide_log: bool,
+            }
+            let older: Older = ron::from_str(&text).unwrap();
+            assert!(older.light_theme && !older.hide_log, "{text}");
+        }
+        let newer = Settings::default()
+            .saved_text()
+            .replace("open_editors:Floating", "open_editors:Docked");
+        let (read, unread) = Settings::read_fields(&newer).unwrap();
+        assert_eq!((read.open_editors, unread), (OpenEditors::Floating, Vec::<String>::new()));
+        let dir = mg_testkit::scratch_dir("settings-open-editors");
+        let read = Settings::read_eframe(&dir.join("app.ron"), "moonglow-settings");
+        assert_eq!(read.settings.open_editors, OpenEditors::Tabs, "no file");
+    }
+
+    /// The settings 4.1.0 kept (before the shell's dock sizes), as RON and
+    /// as JSON, read as the defaults with the log open, nothing unread and
+    /// nothing put aside; a setting this version no longer has (or never
+    /// had) reads the same, with no warning.
+    #[test]
+    fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
+        // (The fields the shell added since 4.1.0: whatever their values,
+        // a 4.1.0 file has none of them.)
+        const ADDED: [&str; 8] = [
+            "left_dock_width",
+            "right_dock_width",
+            "bottom_dock_height",
+            "right_dock_width_wide",
+            "module_panel_height",
+            "dock_sizes_taken",
+            "open_editors",
+            "window_sizes_scaled",
+        ];
+        let saved = Settings { light_theme: true, ..Default::default() };
+        let mut ron_text = saved.saved_text();
+        for field in ADDED {
+            let at = ron_text.find(&format!("{field}:")).expect(field);
+            let end = at + ron_text[at..].find(',').expect("a field after it") + 1;
+            ron_text.replace_range(at..end, "");
+        }
+        let mut json: serde_json::Value = serde_json::to_value(&saved).unwrap();
+        for field in ADDED {
+            assert!(json.as_object_mut().unwrap().remove(field).is_some(), "{field}");
+        }
+        let dir = mg_testkit::scratch_dir("settings-from-4-1");
+        let path = dir.join("app.ron");
+        let key = "moonglow-settings";
+        let retired = ron_text.replacen("(", "(a_retired_setting:true,", 1);
+        for text in [&ron_text, &retired] {
+            assert!(ADDED.iter().all(|f| !text.contains(f)), "{text}");
+            let kv = std::collections::HashMap::from([(key.to_string(), text.clone())]);
+            std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+            let read = Settings::read_eframe(&path, key);
+            assert_eq!(read.settings, saved, "{text}");
+            assert!(!read.settings.hide_log, "the log open");
+            assert!(read.unread.is_empty() && read.problem().is_none(), "{read:?}");
+            assert!(read.kept.is_none(), "nothing put aside");
+            let copies: Vec<_> = (std::fs::read_dir(&dir).unwrap().flatten())
+                .filter(|e| e.file_name().to_string_lossy().starts_with("app.ron.unreadable-"))
+                .collect();
+            assert!(copies.is_empty(), "no copy: {copies:?}");
+        }
+        let read: Settings = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(read, saved);
+        json.as_object_mut().unwrap().insert("a_retired_setting".into(), true.into());
+        assert_eq!(serde_json::from_value::<Settings>(json).unwrap(), saved);
+    }
+
     /// Where the saved settings do not read, the file as it was is kept
     /// beside it before eframe saves over it, once, and the log is told;
     /// settings that read (and no file at all) keep nothing aside.
@@ -1597,8 +2041,11 @@ mod tests {
             all.sort();
             all
         };
-        // No file, and a file without the settings: the defaults, quietly.
-        assert_eq!(Settings::read_eframe(&path, key), SettingsRead::default());
+        // No file: a new installation's, quietly; a file without the
+        // settings: the defaults (an existing user's), quietly.
+        let new = SettingsRead { settings: Settings::new_installation(), ..Default::default() };
+        assert_eq!(Settings::read_eframe(&path, key), new);
+        assert!(copies().is_empty());
         write("(light_theme:true)");
         assert_eq!(Settings::read_eframe(&path, "another-key"), SettingsRead::default());
         // Settings that read; a newer version's name among them too.

@@ -340,6 +340,38 @@ pub enum Label {
     WordsOnly,
 }
 
+/// Which side of an [`IconButton`] joins the button beside it (the mock's
+/// `.join`: a button and its arrow, Test Module's on the Top Bar, 1 px
+/// apart): the corners on that side square.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Join {
+    /// Joined to the button after it (its right corners square).
+    Next,
+    /// Joined to the button before it (its left corners square).
+    Previous,
+}
+
+impl Join {
+    fn corners(self) -> egui::CornerRadius {
+        let r = metrics::RADIUS;
+        match self {
+            Join::Next => egui::CornerRadius { nw: r, sw: r, ne: 0, se: 0 },
+            Join::Previous => egui::CornerRadius { nw: 0, sw: 0, ne: r, se: r },
+        }
+    }
+}
+
+/// The room at each side of a joined arrow's icon (`.btn` with `padding:
+/// 0 4px`).
+pub const JOINED_ARROW_PADDING: f32 = 4.0;
+
+/// The spacing to give between two joined buttons ([`IconButton::joined`])
+/// for their frames to stand 1 px apart (the mock's `.join`): each frame
+/// is drawn its state's expansion beyond its place.
+pub fn joined_spacing(ui: &Ui) -> f32 {
+    1.0 + 2.0 * ui.visuals().widgets.inactive.expansion
+}
+
 /// A button labelled with an icon, its words, or both (the mock's word
 /// button with a leading icon, or `.btn-icon`), as a widget: added with
 /// `ui.add` or `ui.add_enabled` (a disabled one fades whole, icon and
@@ -370,6 +402,8 @@ pub struct IconButton {
     name: Option<String>,
     expanded: Option<bool>,
     truncate: bool,
+    join: Option<Join>,
+    framed: bool,
 }
 
 impl IconButton {
@@ -389,7 +423,27 @@ impl IconButton {
             name: None,
             expanded: None,
             truncate: false,
+            join: None,
+            framed: false,
         }
+    }
+
+    /// An icon alone framed as a word button is (the mock's `.btn` with an
+    /// icon alone: the Top Bar's build actions in a narrow window),
+    /// `raised` at rest, 22 px square; a word button is framed already.
+    pub fn framed(mut self, framed: bool) -> Self {
+        self.framed = framed;
+        self
+    }
+
+    /// Joined on `join`'s side to the button beside it (the mock's
+    /// `.join`, 1 px apart: the caller's spacing), the corners there
+    /// square. An icon alone so joined is framed as a word button is,
+    /// `raised` at rest; joined to the one before it (a button's arrow),
+    /// its icon 4 px from each side.
+    pub fn joined(mut self, join: Join) -> Self {
+        self.join = Some(join);
+        self
     }
 
     /// Named `name` for a screen reader (and tests) in place of its words,
@@ -484,6 +538,11 @@ impl IconButton {
     /// words before laying it out).
     pub fn width(&self, ui: &Ui) -> f32 {
         if self.label == Label::IconOnly {
+            // (The arrow joined to the button before it: 4 px each side of
+            // its icon; else an icon button's square.)
+            if self.join == Some(Join::Previous) {
+                return metrics::ICON + 2.0 * JOINED_ARROW_PADDING;
+            }
             return ui.spacing().interact_size.y.clamp(metrics::ICON, metrics::ICON_BUTTON);
         }
         let galley = self.text.clone().into_galley(
@@ -522,6 +581,9 @@ impl IconButton {
         if self.truncate {
             button = button.truncate();
         }
+        if let Some(join) = self.join {
+            button = button.corner_radius(join.corners());
+        }
         button.sense(self.sense)
     }
 
@@ -549,17 +611,60 @@ impl IconButton {
         ui: &mut Ui,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
+        self.menu_closed_by(ui, None, add_contents)
+    }
+
+    /// [`Self::menu`] for a menu that holds a form ([`crate::menu_form`]:
+    /// a field to type into, an inspector, a list to search): `add`
+    /// laid out as a form, and the menu kept open by a click inside it (a
+    /// field clicked into, a row chosen, a section opened); a click
+    /// outside or Escape closes it, as an action that is done does
+    /// (`ui.close()`).
+    pub fn form_menu<R>(
+        self,
+        ui: &mut Ui,
+        add: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<Option<R>> {
+        let close = egui::PopupCloseBehavior::CloseOnClickOutside;
+        self.menu_closed_by(ui, Some(close), |ui| crate::menu_form(ui, add))
+    }
+
+    /// [`Self::menu`], closed by clicks as `close` says (the menu's own
+    /// config's way where `None`).
+    fn menu_closed_by<R>(
+        self,
+        ui: &mut Ui,
+        close: Option<egui::PopupCloseBehavior>,
+        add_contents: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<Option<R>> {
         use egui::containers::menu::{MenuConfig, SubMenu};
         if egui::containers::menu::is_in_menu(ui) {
             let response = submenu_row(ui, self);
-            let inner = SubMenu::default().show(ui, &response, add_contents);
+            let sub = match close {
+                Some(close) => {
+                    let found = MenuConfig::find(ui);
+                    SubMenu::new()
+                        .config(MenuConfig::new().close_behavior(close).style(found.style))
+                }
+                None => SubMenu::default(),
+            };
+            let inner = sub.show(ui, &response, add_contents);
             return egui::InnerResponse::new(inner.map(|i| i.inner), response);
         }
         let response = ui.add(self);
         // (The menu's own config, as egui's `MenuButton` gives it: not a
-        // bar's, whose rows would not open submenus.)
+        // bar's, whose rows would not open submenus. Outside any menu or
+        // bar, the crate's menu style rather than egui's default: the
+        // popover's padding is made from it, before the rows.)
         let found = MenuConfig::find(ui);
-        let config = MenuConfig::new().close_behavior(found.close_behavior).style(found.style);
+        let in_config =
+            ui.stack().iter().any(|s| s.info.tags.contains(MenuConfig::MENU_CONFIG_TAG));
+        let style = match in_config {
+            true => found.style,
+            false => crate::menu_style.into(),
+        };
+        let close = close.unwrap_or(found.close_behavior);
+        let config = MenuConfig::new().close_behavior(close).style(style);
         let inner = egui::Popup::menu(&response)
             .close_behavior(config.close_behavior)
             .style(config.style.clone())
@@ -576,6 +681,44 @@ impl egui::Widget for IconButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let text = self.name.clone().unwrap_or_else(|| self.text.text().to_string());
         match self.label {
+            Label::IconOnly if self.join.is_some() || self.framed => {
+                // (A button's arrow, or an icon framed: as a word button
+                // is.)
+                let height = ui.spacing().interact_size.y.max(metrics::ICON);
+                let size = Vec2::new(self.width(ui), height);
+                let (rect, response) = ui.allocate_exact_size(size, self.sense);
+                let enabled = ui.is_enabled();
+                response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &text));
+                if ui.is_rect_visible(rect) {
+                    let t = ui.tokens();
+                    let state = ButtonState::of(&response);
+                    let open = self.expanded == Some(true);
+                    let fill = match (state, open) {
+                        (ButtonState::Rest, false) => t.raised,
+                        _ => t.raised_hover,
+                    };
+                    let color = if !enabled {
+                        t.text_off
+                    } else if state == ButtonState::Rest {
+                        t.text_2
+                    } else {
+                        t.text
+                    };
+                    let corners = self.join.map_or(metrics::RADIUS.into(), Join::corners);
+                    let ring = if state == ButtonState::Pressed && response.has_focus() {
+                        Stroke::new(1.0, t.accent)
+                    } else {
+                        Stroke::NONE
+                    };
+                    // (Beyond its place as a word button's frame is.)
+                    let frame = rect.expand(ui.style().interact(&response).expansion);
+                    let painter = ui.painter();
+                    painter.rect(frame, corners, fill, ring, egui::StrokeKind::Inside);
+                    let square = Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON));
+                    self.icon.paint(painter, square, color);
+                }
+                self.described(response)
+            }
             Label::IconOnly => {
                 // (22 px, or as high as the rows it stands in where they
                 // are lower: a tree's arrow.)
@@ -711,6 +854,16 @@ pub fn menu_button<R>(
     IconButton::new(Icon::ChevronRight, text).label(Label::WordsOnly).menu(ui, add_contents)
 }
 
+/// [`menu_button`] for a menu that holds a form ([`IconButton::form_menu`]:
+/// laid out as a form, kept open by a click inside it).
+pub fn form_menu_button<R>(
+    ui: &mut Ui,
+    text: impl Into<egui::WidgetText>,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    IconButton::new(Icon::ChevronRight, text).label(Label::WordsOnly).form_menu(ui, add)
+}
+
 /// An icon (16 px, in `color`, or the text color) and words after it, as a
 /// label (not interactive): a warning's or a note's mark. Its accessible
 /// name is the words.
@@ -765,6 +918,9 @@ fn recording_id() -> egui::Id {
 #[derive(Default)]
 struct Drawn {
     icons: Vec<(Icon, Rect)>,
+    /// The lines along the top of the panes' tabs in front, and their
+    /// colors ([`front_lines_drawn`]).
+    lines: Vec<(Rect, egui::Color32)>,
 }
 
 type Recording = std::sync::Arc<std::sync::Mutex<Drawn>>;
@@ -781,6 +937,7 @@ pub fn record_icons(ctx: &egui::Context) {
                 && let Ok(mut drawn) = recording.lock()
             {
                 drawn.icons.clear();
+                drawn.lines.clear();
             }
         };
         ctx.on_begin_pass("mg-uikit-icons-drawn", std::sync::Arc::new(forget));
@@ -792,6 +949,27 @@ pub fn record_icons(ctx: &egui::Context) {
 pub fn icons_drawn(ctx: &egui::Context) -> Vec<(Icon, Rect)> {
     let recording = ctx.data(|d| d.get_temp::<Recording>(recording_id()));
     recording.map(|r| r.lock().map(|d| d.icons.clone()).unwrap_or_default()).unwrap_or_default()
+}
+
+/// The lines the last pass of `ctx` drew along the top of the panes'
+/// tabs in front ([`crate::dock::marks`], with the `dock` feature), each
+/// with its color (`accent` in the pane with the focus, `line-soft` in the
+/// others), while the icons are recorded ([`record_icons`]; else none).
+pub fn front_lines_drawn(ctx: &egui::Context) -> Vec<(Rect, egui::Color32)> {
+    let recording = ctx.data(|d| d.get_temp::<Recording>(recording_id()));
+    recording.map(|r| r.lock().map(|d| d.lines.clone()).unwrap_or_default()).unwrap_or_default()
+}
+
+/// Keeps a front tab's line, drawn in `rect` in `color`, where `ctx`
+/// records the icons.
+#[cfg_attr(not(feature = "dock"), allow(dead_code))]
+pub(crate) fn record_line(ctx: &egui::Context, rect: Rect, color: egui::Color32) {
+    let Some(recording) = ctx.data(|d| d.get_temp::<Recording>(recording_id())) else {
+        return;
+    };
+    if let Ok(mut drawn) = recording.lock() {
+        drawn.lines.push((rect, color));
+    }
 }
 
 /// Keeps `icon`, painted in `rect`, where `ctx` records them.

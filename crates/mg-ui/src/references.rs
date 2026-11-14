@@ -537,6 +537,13 @@ impl Moonglow {
         for (_, tab) in self.dock.iter_all_tabs_mut() {
             tab.retarget(&moved);
         }
+        // The module tree's keys at the row renamed: at its new row.
+        if let Some(crate::TreeAt::Resource(k)) = self.tree_cursor
+            && let Some(k) = moved(k)
+        {
+            self.tree_cursor = Some(crate::TreeAt::Resource(k));
+            self.tree_cursor_moved = true;
+        }
         let old_keys: Vec<ResKey> =
             self.scripts.keys().filter(|k| k.resref == from && with(k.restype)).copied().collect();
         for k in old_keys {
@@ -1061,8 +1068,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if let (Some(path), false) = (u.path.gff(), commands.is_empty()) {
                     let on = [crate::plugins::selected_at(u.from, path)];
                     if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
-                        r.context_menu(|ui| {
-                            mg_uikit::menu_rows(ui);
+                        mg_uikit::context_menu(&r, |ui| {
                             crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
                         });
                     }
@@ -1271,7 +1277,18 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             // (Once what names them is known, to be said first.)
             let delete = ui.add_enabled(named.is_some(), egui::Button::new("Delete"));
-            if delete.clicked() {
+            // (Enter is Delete, as the window's main button, unless a
+            // button of the window has the keyboard: the tree's row the
+            // keys asked from may have it, behind the window.)
+            let focus_here = (ui.memory(|m| m.focused()))
+                .and_then(|f| ui.ctx().read_response(f))
+                .is_some_and(|r| r.layer_id == ui.layer_id());
+            let enter = named.is_some()
+                && !focus_here
+                && ui.input_mut(|i| {
+                    i.modifiers.is_none() && i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                });
+            if delete.clicked() || enter {
                 // (Not asked again: Options' switch, from now on.)
                 if always {
                     app.settings.delete_without_asking = true;

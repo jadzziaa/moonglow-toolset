@@ -3,7 +3,8 @@
 //! and its draws encoded), and as long again for the GPU to draw it. Each
 //! view is timed as the desktop app runs it (no accessibility tree, the
 //! clock moving on by a 144th of a second a frame), at the development
-//! machine's screen (3440×1440): with the pointer moving over it, with the
+//! machine's screen (3440×1440, in a window 3440×1400: the screen less its
+//! taskbar, as a maximized window has it): with the pointer moving over it, with the
 //! wheel turning, and left alone (where it says how soon it asks to be
 //! drawn again). The views over the budget are named at the end, and a
 //! test fails where one is over it by more than [`MARGIN`] and not among
@@ -18,7 +19,9 @@
 //! `FRAME_DETAIL=1` prints each frame's time and who asked for the next,
 //! `FRAME_ACCESSKIT=1` builds the accessibility tree every frame, as the app
 //! does while an assistive client is connected (a screen reader, a desktop
-//! agent), and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
+//! agent), `FRAME_SCREEN=<width>x<height>` sizes the window (3440x1400
+//! unless given; the shell yields to it as to any window), and
+//! `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
 //! taken apart at the end, and `FRAME_SHADOWS=sun,creatures,lights`
 //! (any of them, or `off`) draws those kinds of shadow in every area, and
 //! `FRAME_SHADOW_QUALITY=high` draws them as stencil volumes (Options ›
@@ -36,13 +39,27 @@ mod world;
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT as _, Queryable};
 use mg_core::{ResRef, ResType};
 use mg_module::palette::BlueprintKind;
 use mg_resman::{GameInstall, ResKey};
 use mg_ui::{Action, Moonglow, NoDialogs, Tab};
 
-const SCREEN: egui::Vec2 = egui::vec2(3440.0, 1400.0);
+/// The window's size: the development machine's screen less its taskbar
+/// (3440 by 1400), or `FRAME_SCREEN=<width>x<height>` (the Narrow board's
+/// 1280x800, say: the shell then yields as it does there, M3's T14).
+fn screen_size() -> egui::Vec2 {
+    static SIZE: std::sync::OnceLock<egui::Vec2> = std::sync::OnceLock::new();
+    *SIZE.get_or_init(|| {
+        std::env::var("FRAME_SCREEN")
+            .ok()
+            .and_then(|s| {
+                let (w, h) = s.split_once('x')?;
+                Some(egui::vec2(w.parse().ok()?, h.parse().ok()?))
+            })
+            .unwrap_or(egui::vec2(3440.0, 1400.0))
+    })
+}
 const FPS: f64 = 144.0;
 const BUDGET: Duration = Duration::from_micros(6_944);
 const FRAMES: usize = 72;
@@ -388,13 +405,26 @@ fn view_with(
     r: &mut Report,
     what: &str,
     tab: Option<&Tab>,
+    each: impl FnMut(&mut Moonglow, usize),
+) {
+    let rect = tab.and_then(|t| rect_of(h.state(), t));
+    view_in(h, r, what, rect, each);
+}
+
+/// [`view_with`] with the pointer moved and the wheel turned over `rect`
+/// (the whole screen where `None`).
+fn view_in(
+    h: &mut App<'_>,
+    r: &mut Report,
+    what: &str,
+    rect: Option<egui::Rect>,
     mut each: impl FnMut(&mut Moonglow, usize),
 ) {
     if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
         return;
     }
-    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
-    let rect = tab.and_then(|t| rect_of(h.state(), t)).unwrap_or(screen);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    let rect = rect.unwrap_or(screen);
     if r.shots {
         // (The view as its frames have it: its first frame's change made;
         // an area's animations at a fixed clock, so that a run's pictures
@@ -593,6 +623,25 @@ fn click(h: &mut App<'_>, label: &str) {
     h.run_steps(2);
 }
 
+/// [`click`] on the first thing labelled `label` that is not in the group
+/// `group` (the Module panel's Properties, in the "Left Dock", beside a
+/// blueprint's Properties page).
+fn click_outside(h: &mut App<'_>, label: &str, group: &str) {
+    let inside = |n: &egui_kittest::Node<'_>| {
+        let mut up = n.accesskit_node().parent();
+        while let Some(p) = up {
+            if p.label().as_deref() == Some(group) {
+                return true;
+            }
+            up = p.parent();
+        }
+        false
+    };
+    let found = h.query_all_by_label(label).find(|n| !inside(n)).map(|n| n.click()).is_some();
+    assert!(found, "no {label:?} outside {group:?} to click: was the control renamed?");
+    h.run_steps(2);
+}
+
 /// Shows a blueprint palette (not the tileset's, which an open area
 /// brings up).
 fn palette(h: &mut App<'_>, kind: BlueprintKind, custom: bool, filter: &str) {
@@ -609,7 +658,91 @@ fn close(h: &mut App<'_>, tab: &Tab) {
     h.run_steps(2);
 }
 
+/// Shows the Left Dock's Resources panel (the resource browser), times it
+/// with the pointer and the wheel over it, and shows the Module panel
+/// again. Loudly: the panel must be shown and its list there.
+fn resources_panel(h: &mut App<'_>, r: &mut Report, what: &str) {
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Resources));
+    h.run_steps(3);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "{what}: shown");
+    // (The panel: under the dock's tab bar, from its first tab to its
+    // edge, down to the Status Bar.)
+    let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
+    let edge = h.state().left_dock_rect().expect("the Left Dock").right();
+    h.get_by_label("Filter Resources");
+    let bottom = screen_size().y - mg_uikit::metrics::STATUS_BAR;
+    let panel =
+        egui::Rect::from_min_max(egui::pos2(tab.left(), tab.bottom()), egui::pos2(edge, bottom));
+    view_in(h, r, what, Some(panel), |_, _| {});
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(2);
+}
+
 /// Opens `tab`, times it and closes it.
+/// Shows the palettes: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it. Loudly: they must be shown.
+fn show_palette(h: &mut App<'_>) {
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Palette));
+    h.run_steps(3);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Palette), "palettes not shown");
+    assert!(palette_rect(h).is_some(), "the Right Dock is not drawn");
+}
+
+/// Shows the Preview: the Right Dock unfolded on its Preview panel, as
+/// Tools › Preview shows it. Loudly: it must be drawn.
+fn show_preview(h: &mut App<'_>) {
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
+    // (Until its body is drawn: an area's view keeps the window asking
+    // for frames, so not until it stops.)
+    let started = std::time::Instant::now();
+    while h.state().preview_panel_rect().is_none() {
+        h.step();
+        assert!(started.elapsed().as_secs() < 30, "the Preview panel is not drawn");
+    }
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
+}
+
+/// Folds the palettes away: the Right Dock folded, as View › Right Dock
+/// folds it.
+fn fold_palette(h: &mut App<'_>) {
+    h.state_mut().actions.push(Action::FoldPalettes);
+    h.run_steps(2);
+}
+
+/// Where the palettes are drawn, while they are shown: the Right Dock's
+/// panel, under its tab bar (loudly: its fold button and tab must be
+/// there).
+fn palette_rect(h: &App<'_>) -> Option<egui::Rect> {
+    let dock = h.state().right_dock_rect()?;
+    h.query_by_label("Fold the Right Dock")?;
+    // (Under its tab bar: the Palette tab's.)
+    let tab =
+        (h.query_all_by_label("Palette")).map(|n| n.rect()).find(|r| dock.contains(r.center()))?;
+    // (In the wide layout's two columns, M3's T14, its own: the first.)
+    let dock = match h.query_by_label(mg_ui::RIGHT_COLUMN_TWO) {
+        Some(_) => {
+            let first = mg_uikit::shell::Yields::right_first_column(dock.width());
+            dock.with_max_x(dock.left() + first)
+        }
+        None => dock,
+    };
+    // (120 points from its left: the wheel turns at its middle, 60 points
+    // in, on the rows' words at every width of the dock, the worst case:
+    // M3 T14's review found the pointer past their end in a 320 dock and
+    // on them in a 280 one.)
+    let panel = dock.with_min_y(tab.bottom());
+    Some(panel.with_max_x(panel.left() + 120.0))
+}
+
+/// Times the palettes with the pointer and the wheel over them: shown,
+/// timed, folded away again.
+fn palette_view(h: &mut App<'_>, r: &mut Report, what: &str) {
+    show_palette(h);
+    let rect = palette_rect(h);
+    view_in(h, r, what, rect, |_, _| {});
+    fold_palette(h);
+}
+
 fn tab(h: &mut App<'_>, r: &mut Report, what: &str, tab: Tab) {
     open(h, tab.clone());
     view(h, r, what, Some(&tab));
@@ -666,11 +799,20 @@ fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
     // (A step a 144th of a second, as the window's frames go: with the
     // harness's quarter of a second, every frame of an area's opening
     // was an animation step's, the picture drawn again in each.)
-    Harness::builder()
-        .with_size(SCREEN)
+    let mut h = Harness::builder()
+        .with_size(screen_size())
         .with_step_dt((1.0 / FPS) as f32)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (In a window under 1500, `FRAME_SCREEN`, the Left Dock unfolded by
+    // hand, as a builder who works in the module tree there has it: the
+    // views click its buttons.)
+    if screen_size().x < mg_uikit::shell::LEFT_DOCK_FROM {
+        h.run_steps(2);
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Module));
+        h.run_steps(2);
+    }
+    h
 }
 
 /// A device as the desktop app asks for one (`apps/moonglow`): with BC
@@ -847,10 +989,28 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // The Outliner (M3's T13) with a kind of 200 objects or more opened
+    // (one of them selected: the Outliner opens its kind and brings it
+    // into sight), against its kinds closed, the same one selected.
+    let largest = h.state().area_views.get(&area).and_then(|v| v.model.as_ref()).and_then(|m| {
+        let count = |k: mg_area::ObjectKind| m.objects.iter().filter(|o| o.kind == k).count();
+        let kind = mg_area::ObjectKind::ALL.into_iter().max_by_key(|k| count(*k))?;
+        let first = m.objects.iter().find(|o| o.kind == kind)?;
+        Some((kind, first.index, count(kind)))
+    });
+    if let Some((kind, index, n)) = largest.filter(|l| l.2 >= 200) {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(kind, index)];
+        h.run_steps(30);
+        let open = format!("{name}, the Outliner's {} open ({n})", kind.label());
+        view(h, r, &open, Some(&tab));
+        h.state_mut().outliner_fold_all(false);
+        h.run_steps(30);
+        view(h, r, &format!("{name}, the Outliner's kinds closed, one selected"), Some(&tab));
+        h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    }
     // The tiles palette beside it with a search being typed: a letter
     // more each frame (the tileset searched again as each is).
-    h.state_mut().actions.push(Action::OpenTab(Tab::Palette));
-    h.run_steps(2);
+    show_palette(h);
     view_with(h, r, &format!("{name}, tiles palette searched as typed"), None, |app, n| {
         const TYPED: &str = "corner wall";
         let p = &mut app.palette;
@@ -861,7 +1021,35 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         let p = &mut h.state_mut().palette;
         (p.tiles, p.filter) = (false, String::new());
     }
-    close(h, &Tab::Palette);
+    // The Right Dock in two columns (M3's T14: the wide layout gives it
+    // 741 at 3440, the Palette and the Preview side by side), a blueprint
+    // chosen so that the Preview draws its model beside the area each
+    // frame, against one column of 320 with the Palette in front: the
+    // largest area alone, in a window of the wide layout.
+    if objects >= 500 && screen_size().x >= mg_uikit::shell::WIDE_FROM {
+        let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        h.state_mut().palette.selected = Some(chest);
+        let started = Instant::now();
+        while h.state().preview_panel_rect().is_none() {
+            assert!(started.elapsed().as_secs() < 30, "the Preview's column is not drawn");
+            h.step();
+        }
+        h.run_steps(30);
+        let both = format!("{name}, the Right Dock in two columns (741), the Preview's model");
+        view(h, r, &both, Some(&tab));
+        // The wide layout's own width (`right_dock_width_wide`).
+        h.state_mut().settings.right_dock_width_wide = Some(320);
+        let started = Instant::now();
+        while h.state().preview_panel_rect().is_some() {
+            assert!(started.elapsed().as_secs() < 30, "the Right Dock still in two columns");
+            h.step();
+        }
+        let one = format!("{name}, the Right Dock in one column (320), the Palette in front");
+        view(h, r, &one, Some(&tab));
+        h.state_mut().settings.right_dock_width_wide = None;
+        h.state_mut().palette.selected = None;
+    }
+    fold_palette(h);
     // Every object selected (Ctrl+A) and the ground's walkmesh shown,
     // turning: the overlays drawn for each, each frame.
     if let Some(v) = h.state_mut().area_views.get_mut(&area)
@@ -1476,7 +1664,7 @@ fn frames_at_144() {
         return;
     }
     let mut r = Report::new();
-    println!("{CAMPAIGN}: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    println!("{CAMPAIGN}: frames at {:?}, budget {:.2} ms", screen_size(), ms(BUDGET));
     let rs = render_state();
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
@@ -1499,9 +1687,19 @@ fn frames_at_144() {
     // frame, whatever is worked on in front of it), for each view's own
     // cost.
     view(&mut h, &mut r, "module as it opens (an area, the palettes)", None);
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     view(&mut h, &mut r, "module with its area, nothing else", None);
+    // The area beside the Right Dock with a creature chosen in the palette:
+    // the Preview's tab in front (its 3D view drawn again as it moves),
+    // then the Palette's: what the Preview costs.
+    h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    show_preview(&mut h);
+    view(&mut h, &mut r, "area, a creature in the Preview tab", None);
+    show_palette(&mut h);
+    view(&mut h, &mut r, "area, a creature, the Palette tab in front", None);
+    h.state_mut().palette.selected = None;
+    fold_palette(&mut h);
     let shown: Vec<Tab> = h
         .state()
         .dock
@@ -1535,14 +1733,14 @@ fn frames_at_144() {
         for custom in [false, true] {
             palette(&mut h, kind, custom, "");
             let which = if custom { "custom" } else { "standard" };
-            tab(&mut h, &mut r, &format!("{which} {name} palette"), Tab::Palette);
+            palette_view(&mut h, &mut r, &format!("{which} {name} palette"));
         }
     }
     // (A search opens every category with a find in it.)
     palette(&mut h, BlueprintKind::Placeable, false, "a");
-    tab(&mut h, &mut r, "standard placeable palette, searched for \"a\"", Tab::Palette);
+    palette_view(&mut h, &mut r, "standard placeable palette, searched for \"a\"");
     palette(&mut h, BlueprintKind::Item, false, "e");
-    tab(&mut h, &mut r, "standard item palette, searched for \"e\"", Tab::Palette);
+    palette_view(&mut h, &mut r, "standard item palette, searched for \"e\"");
     // The Gallery: its pictures are made a few a frame, then kept; their
     // models and textures read apart, as the desktop app reads them.
     let background = h.state().background_jobs;
@@ -1551,17 +1749,18 @@ fn frames_at_144() {
     for (side, what) in [(128, "Gallery"), (64, "Gallery, smallest pictures")] {
         h.state_mut().settings.gallery_tile = Some(side);
         palette(&mut h, BlueprintKind::Placeable, false, "a");
-        open(&mut h, Tab::Palette);
+        show_palette(&mut h);
         h.run_steps(300);
-        view(&mut h, &mut r, &format!("standard placeable palette, {what}"), Some(&Tab::Palette));
-        close(&mut h, &Tab::Palette);
+        let rect = palette_rect(&h);
+        view_in(&mut h, &mut r, &format!("standard placeable palette, {what}"), rect, |_, _| {});
+        fold_palette(&mut h);
     }
     h.state_mut().settings.palette_gallery = false;
     h.state_mut().settings.gallery_tile = None;
     h.state_mut().background_jobs = background;
     h.state_mut().palette.filter.clear();
 
-    tab(&mut h, &mut r, "resource browser", Tab::Resources);
+    resources_panel(&mut h, &mut r, "resource browser");
     tab(&mut h, &mut r, "Faction Editor", Tab::Factions);
     tab(&mut h, &mut r, "Journal Editor", Tab::Journal);
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
@@ -1606,7 +1805,7 @@ fn frames_at_144_in_a_persistent_world() {
     let root = mg_testkit::corpus!();
     let Some(w) = world::world(&root) else { return };
     let mut r = Report::new();
-    println!("a persistent world: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    println!("a persistent world: frames at {:?}, budget {:.2} ms", screen_size(), ms(BUDGET));
     let rs = render_state();
     let install = GameInstall::new(&root, Some(w.user.clone()), "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -1614,7 +1813,7 @@ fn frames_at_144_in_a_persistent_world() {
     app.open_module(&w.module);
     let mut h = harness(app, rs);
     h.run_steps(3);
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     let shown: Vec<Tab> = h
         .state()
@@ -1633,7 +1832,10 @@ fn frames_at_144_in_a_persistent_world() {
     // A word in the tree's Filter: every area's placed objects are read
     // for it (over some frames), and what it finds is then kept, not
     // looked for each frame (the review's S19).
-    let field = h.query_all_by_role(egui::accesskit::Role::TextInput).next().map(|n| n.click());
+    let field = h
+        .query_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .map(|n| n.click());
     assert!(field.is_some(), "the tree's Filter field");
     h.run_steps(2);
     h.event(egui::Event::Text("door".into()));
@@ -1646,11 +1848,11 @@ fn frames_at_144_in_a_persistent_world() {
     click(&mut h, "Collapse All");
 
     palette(&mut h, BlueprintKind::Item, true, "");
-    tab(&mut h, &mut r, "custom item palette (8,000)", Tab::Palette);
+    palette_view(&mut h, &mut r, "custom item palette (8,000)");
     palette(&mut h, BlueprintKind::Item, true, "pw_i");
-    tab(&mut h, &mut r, "custom item palette, all 8,000 shown", Tab::Palette);
+    palette_view(&mut h, &mut r, "custom item palette, all 8,000 shown");
     palette(&mut h, BlueprintKind::Placeable, false, "pw placeable");
-    tab(&mut h, &mut r, "standard placeable palette (+10,000)", Tab::Palette);
+    palette_view(&mut h, &mut r, "standard placeable palette (+10,000)");
     h.state_mut().palette.filter.clear();
 
     let store = Tab::Blueprint(ResKey::parse("pw_store", ResType::UTM).unwrap());
@@ -1672,16 +1874,17 @@ fn frames_at_144_in_a_persistent_world() {
     // An item's Properties page: every property it may take, by kind.
     let item = Tab::Blueprint(ResKey::parse("pw_i00001", ResType::UTI).unwrap());
     open(&mut h, item.clone());
-    click(&mut h, "Properties");
+    click_outside(&mut h, "Properties", "Left Dock");
     view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
     close(&mut h, &item);
-    // The same store in the Preview window (its stock by page).
+    // The same store in the Right Dock's Preview panel (its stock by
+    // page), under the palette.
     h.state_mut().palette.selected = ResKey::parse("pw_store", ResType::UTM);
-    h.state_mut().preview_window = true;
-    h.run_steps(3);
-    view(&mut h, &mut r, "Preview window, a store of 1,000 items", None);
-    h.state_mut().preview_window = false;
-    tab(&mut h, &mut r, "resource browser (300,000)", Tab::Resources);
+    show_preview(&mut h);
+    view(&mut h, &mut r, "Preview panel, a store of 1,000 items", None);
+    show_palette(&mut h);
+    fold_palette(&mut h);
+    resources_panel(&mut h, &mut r, "resource browser (300,000)");
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));
     // Advanced Search for any variable, every hit ticked: the rows in
@@ -1852,7 +2055,7 @@ fn reload_frames_at_144() {
     println!("a large nasher project: opened in {:.1?}", t.elapsed());
     let mut h = harness(app, rs);
     h.run_steps(3);
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
     close(&mut h, &Tab::ModuleProperties);
     view(&mut h, &mut r, "large nasher project open (21,000 files)", None);
 
@@ -1953,7 +2156,7 @@ fn reload_frames_at_144() {
             }
         }
     });
-    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
     let is_in = |app: &Moonglow, k: &ResKey| {
         let m = &app.ws.as_ref().unwrap().module;
         m.get(k) == expected[k].as_deref()
@@ -2192,8 +2395,9 @@ fn sound_ranges_frames_at_144() {
         best.unwrap()
     };
     println!(
-        "Sound Ranges: {CAMPAIGN}'s {area}, {sounds} positional sounds, frames at {SCREEN:?}, \
+        "Sound Ranges: {CAMPAIGN}'s {area}, {sounds} positional sounds, frames at {:?}, \
          budget {:.2} ms",
+        screen_size(),
         ms(BUDGET)
     );
     let mut h = harness(app, rs);
@@ -2223,7 +2427,7 @@ fn game_shaders_frames_at_144() {
     let mut r = Report::new();
     let only = std::env::var("FRAME_AREA").ok();
     let wanted = |name: &str| only.as_deref().is_none_or(|o| o == name);
-    println!("the Shaders switch: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    println!("the Shaders switch: frames at {:?}, budget {:.2} ms", screen_size(), ms(BUDGET));
     let path = root.join("data/nwm").join(CAMPAIGN);
     if wanted("stock") && path.is_file() {
         let rs = render_state();
@@ -2421,7 +2625,7 @@ fn shaders_opening(
 /// then taken apart, off and on.
 fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
     h.run_steps(3);
-    close(h, &Tab::Palette);
+    fold_palette(h);
     close(h, &Tab::ModuleProperties);
     let shown: Vec<Tab> = h
         .state()

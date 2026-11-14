@@ -14,8 +14,10 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
-    h.get_by_label("CHESS").click_secondary();
+    tree_row(&h, "CHESS").click_secondary();
     h.run();
     open_submenu(&mut h, "Export");
     h.get_by_label("Export Minimap…").click();
@@ -88,6 +90,8 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     let mut app = game_app_with(&root, None, NoDialogs::default());
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // A map note on the board, not saved: an edit of its GIT.
     let git_key = ResKey::new(chess, ResType::GIT);
@@ -120,7 +124,7 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     // One area, with its map notes: the note, unsaved, marked.
     let png = dir.join("one.png");
     h.state_mut().dialogs = Box::new(NoDialogs { save: vec![png.clone()], ..Default::default() });
-    h.get_by_label("chess").click_secondary();
+    tree_row(&h, "chess").click_secondary();
     h.run();
     open_submenu(&mut h, "Export");
     h.get_by_label("Export Minimap with Map Notes…").click();
@@ -134,9 +138,9 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     let into = |h: &mut Harness<'_, Moonglow>, item: &str| {
         h.state_mut().dialogs =
             Box::new(NoDialogs { folders: vec![folder.clone()], ..Default::default() });
-        h.get_by_label("chess").click();
+        tree_row(h, "chess").click();
         h.run_steps(2);
-        h.get_by_label("chess2").click_modifiers(egui::Modifiers::SHIFT);
+        tree_row(h, "chess2").click_modifiers(egui::Modifiers::SHIFT);
         h.run_steps(2);
         h.get_by_label("chess2").click_secondary();
         h.run_steps(2);
@@ -283,7 +287,10 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     h.get_by_label("None saved yet");
     h.get_by_label("Save This Lighting…").click();
     h.run_steps(3);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Dusk");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Dusk");
     h.run_steps(2);
     apart(&h, "Save").click();
     h.run_steps(2);
@@ -331,11 +338,17 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     open_menu(&mut h, "Rename");
     h.get_all_by_label("Dusk").last().unwrap().click();
     h.run_steps(3);
-    let input = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap();
+    let input = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     input.focus();
     h.run_steps(1);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Evening");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Evening");
     h.run_steps(2);
     h.get_by_label("Rename").click();
     h.run_steps(2);
@@ -374,7 +387,7 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     assert_eq!(saved.unwrap().get(row, "LABEL"), Some("Evening"));
 }
 
-/// Options › General › Toolbar buttons, Icons only: the area view's
+/// Options › General › Editors' toolbar buttons, Icons only: the area view's
 /// toolbar too, at once: icons alone, named in their tips (a button with
 /// no tip of its own: its name) and by their words for a screen reader;
 /// the toggles still toggling. All, None, Together, To Scratch and Save
@@ -429,6 +442,9 @@ fn the_area_toolbar_shows_icons_only_when_asked() {
 #[test]
 fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
     let Some((mut h, area)) = area_harness("area-toolbar-sweep") else { return };
+    // (The docks as a narrow window has them, M3 T14: the Left Dock folded
+    // under 1500, the Right Dock 280 under 1400 and folded under 796. The
+    // sweep folded the Left Dock by hand under 772 before.)
     let tab = Tab::Area(area);
     // (The tab's body, and the toolbar's controls: each widget in it.)
     let body = |h: &Harness<'_, Moonglow>| {
@@ -869,7 +885,7 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let first = mg_module::new::tilesets(app.game.as_deref().unwrap())[0].name.clone();
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
@@ -908,7 +924,7 @@ fn an_area_is_renamed_from_its_tab() {
     let Some((mut h, area)) = area_harness("rename-tab") else { return };
     h.run_steps(3);
     // Right click on the area's tab: Rename….
-    h.get_by_label(&area.to_string()).click_secondary();
+    doc_tab(&h, &area.to_string()).click_secondary();
     h.run_steps(2);
     h.get_by_label("Rename…").click();
     h.run_steps(2);

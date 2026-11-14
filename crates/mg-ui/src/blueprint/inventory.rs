@@ -630,8 +630,7 @@ pub(super) fn item_list(
                             item: it.clone(),
                         });
                     }
-                    r.context_menu(|ui| {
-                        mg_uikit::menu_rows(ui);
+                    mg_uikit::context_menu(&r, |ui| {
                         if equip && ui.button("Equip").clicked() {
                             asked = Some((i, Ask::Equip));
                             ui.close();
@@ -656,7 +655,7 @@ pub(super) fn item_list(
                             ui.close();
                         }
                         // Properties last, as in Aurora's menus.
-                        ui.separator();
+                        mg_uikit::menu_separator(ui);
                         if ui
                             .button("Properties")
                             .on_hover_text(

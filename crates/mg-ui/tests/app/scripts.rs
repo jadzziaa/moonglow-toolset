@@ -314,11 +314,17 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     };
     let type_in_wizard = |h: &mut Harness<'_, Moonglow>, text: &str| {
         let w = h.get_all_by_label("Script Wizard").find(window).unwrap();
-        let field = w.get_all_by_role(egui::accesskit::Role::TextInput).next().expect("a field");
+        let field = w
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .expect("a field");
         field.click();
         h.run();
         let w = h.get_all_by_label("Script Wizard").find(window).unwrap();
-        w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text(text);
+        w.get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .unwrap()
+            .type_text(text);
         h.run();
     };
 
@@ -523,7 +529,9 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
     // With the keys elsewhere (a click in the module tree) and the
     // pointer over the script, the module's, as the Save key is: the
-    // menu names the module's step.
+    // menu names the module's step. (The builder unfolds the Left Dock,
+    // folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label("Areas (1)").click();
     h.run_steps(2);
     assert!(!script_has_keys(&h, key));
@@ -683,6 +691,8 @@ fn a_menu_closed_unused_gives_the_keys_back_to_the_script() {
     h.run_steps(2);
     assert_eq!(script(&h), edited);
     // Closed by a click outside the editor (the module tree): nowhere.
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label("Edit").click();
     h.run_steps(2);
     h.get_by_label("Areas (1)").click();
@@ -1483,7 +1493,10 @@ fn the_script_editor_s_openers_go_to_the_external_editor_too() {
     let window =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
     let w = h.get_all_by_label("Save Script As").find(window).expect("the window");
-    w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("fresh_copy");
+    w.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("fresh_copy");
     h.run_steps(1);
     let w = h.get_all_by_label("Save Script As").find(window).unwrap();
     w.get_by_label("Save").click();
@@ -2453,10 +2466,11 @@ fn open_script_opens_the_scripts_selected_together() {
     assert_eq!(selected(&h), all);
     // While a name is typed in its field, they are the field's: Ctrl+A
     // selects its text, not the scripts.
-    (h.get_all_by_role(egui::accesskit::Role::TextInput))
-        .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
-        .expect("the name field")
-        .click();
+    (h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open")))
+    .find(|n| n.accesskit_node().placeholder() == Some("Find by name"))
+    .expect("the name field")
+    .click();
     h.run_steps(2);
     h.event(egui::Event::Text("s".into()));
     h.run_steps(2);
@@ -2528,27 +2542,6 @@ fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
     h.run_steps(3);
     let now = h.state().script_text(key).unwrap();
     assert_eq!(now, "void main()\n{\n    int n;\n    x\n}\n");
-}
-
-/// A double click at `at`: two clicks, a frame each.
-/// A double click on a widget: both clicks in one frame (the harness gives
-/// each event it queues a frame of its own, a quarter of a second by
-/// default, longer than egui's double-click time), a second past any
-/// click before at 60 frames a second (else the three are a triple click).
-fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
-    h.hover_at(at);
-    h.run_steps(60);
-    let button = egui::PointerButton::Primary;
-    for pressed in [true, false, true, false] {
-        let modifiers = egui::Modifiers::NONE;
-        h.input_mut().events.push(egui::Event::PointerButton {
-            pos: at,
-            button,
-            pressed,
-            modifiers,
-        });
-    }
-    h.run_steps(2);
 }
 
 /// Where a script editor shows the row that begins with `start` (the

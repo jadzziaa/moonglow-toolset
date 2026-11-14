@@ -359,57 +359,63 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(held) = app.plugins.save.held.clone() else { return };
     let refused = held.heard.iter().any(|h| h.refused);
     let (mut anyway, mut close, mut fixed) = (false, false, None);
-    let modal = egui::Modal::new(egui::Id::new("plugin-save")).show(ctx, |ui| {
-        ui.set_width(540.0);
-        ui.heading(if refused { "Not saved" } else { "Before saving" });
-        ui.add_space(4.0);
-        ui.label(if refused {
+    let modal = crate::widgets::modal_window(ctx, egui::Id::new("plugin-save")).show(ctx, |ui| {
+        crate::widgets::modal_titled(
+            ui,
+            if refused { "Not Saved" } else { "Before Saving" },
+            |ui| {
+                ui.set_width(540.0);
+                ui.label(if refused {
             "A plugin refuses what the save would write. Nothing was written; change it (or \
              make the fix offered), then save again."
         } else {
             "The plugins have warnings about what the save would write. Nothing is written yet."
         });
-        ui.add_space(6.0);
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            for (i, h) in held.heard.iter().enumerate() {
-                ui.separator();
-                ui.horizontal_wrapped(|ui| {
-                    let (word, color) = match h.refused {
-                        true => ("Refused", ui.visuals().error_fg_color),
-                        false => ("Warning", ui.visuals().warn_fg_color),
-                    };
-                    ui.colored_label(color, egui::RichText::new(word).strong());
-                    ui.label(egui::RichText::new(&h.plugin).strong());
-                    if let Some(r) = &h.resource {
-                        ui.weak(r.to_string());
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for (i, h) in held.heard.iter().enumerate() {
+                        ui.separator();
+                        ui.horizontal_wrapped(|ui| {
+                            let (word, color) = match h.refused {
+                                true => ("Refused", ui.visuals().error_fg_color),
+                                false => ("Warning", ui.visuals().warn_fg_color),
+                            };
+                            ui.colored_label(color, egui::RichText::new(word).strong());
+                            ui.label(egui::RichText::new(&h.plugin).strong());
+                            if let Some(r) = &h.resource {
+                                ui.weak(r.to_string());
+                            }
+                        });
+                        ui.label(&h.text);
+                        if let Some(fix) = &h.fix
+                            && ui
+                                .button(&fix.label)
+                                .on_hover_text(
+                                    "Make this change (Edit › Undo takes it back), and save again",
+                                )
+                                .clicked()
+                        {
+                            fixed = Some(i);
+                        }
                     }
                 });
-                ui.label(&h.text);
-                if let Some(fix) = &h.fix
-                    && ui
-                        .button(&fix.label)
-                        .on_hover_text(
-                            "Make this change (Edit › Undo takes it back), and save again",
-                        )
-                        .clicked()
-                {
-                    fixed = Some(i);
-                }
-            }
-        });
-        ui.separator();
-        ui.weak(
+                ui.separator();
+                ui.weak(
             "Plugins check a save as their manifests declare (Plugins › Manage Plugins lists \
              what each does, and disables one).",
         );
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if !refused {
-                anyway =
-                    ui.button("Save Anyway").on_hover_text("Write the module as it is").clicked();
-            }
-            close = ui.button(if refused { "Close" } else { "Cancel" }).clicked();
-        });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if !refused {
+                        anyway = ui
+                            .button("Save Anyway")
+                            .on_hover_text("Write the module as it is")
+                            .clicked();
+                    }
+                    close = ui.button(if refused { "Close" } else { "Cancel" }).clicked();
+                });
+            },
+        );
     });
     if let Some(i) = fixed {
         let fix = held.heard[i].fix.clone().expect("a fix was clicked");

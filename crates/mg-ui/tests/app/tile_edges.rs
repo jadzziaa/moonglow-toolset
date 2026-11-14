@@ -282,7 +282,7 @@ fn resize_area_to(h: &mut Harness<'_, Moonglow>, area: ResRef, columns: u32, row
 /// The tiles palette's Exact Tile with `model` chosen, clicked on the
 /// tile at `centre`; the brush put away after unless `keep`.
 fn exact_tile(h: &mut Harness<'_, Moonglow>, area: ResRef, model: &str, centre: Vec3, keep: bool) {
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     palette_type(h, "Tiles");
     h.run_steps(3);
@@ -612,7 +612,7 @@ fn harness(case: &Case) -> Option<(Harness<'static, Moonglow>, ResRef)> {
         app.settings.fade_geometry = 2;
         app.settings.tile_border = true;
     }
-    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    let mut h = area_gpu_harness(app, rs, AREA_HARNESS_WIDTH, 800.0);
     h.run_steps(3);
     settle(&mut h);
     Some((h, area))
@@ -781,7 +781,7 @@ struct Done {
 /// row's place.
 fn palette_row(h: &mut Harness<'_, Moonglow>, blueprint: &str, kind: ObjectKind) -> egui::Pos2 {
     let key = ResKey::parse(blueprint, rtype(kind)).unwrap();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     {
         let p = &mut h.state_mut().palette;

@@ -142,6 +142,23 @@ fn maximize_later(window: egui::ViewportBuilder, windows: bool) -> egui::Viewpor
     }
 }
 
+/// The window no smaller than [`mg_ui::LEAST_WINDOW_SIZE`] inside (where
+/// the Top Bar's menus fit): its least size, and a size kept from an
+/// earlier run that is smaller raised to it, side by side (eframe hands
+/// the kept size to the window as it is, which winit would make the
+/// window at). The larger side of a kept size stays. Both are in points,
+/// which egui-winit makes pixels at the zoom eframe restored (the last
+/// run's interface size); the application gives the least size again
+/// each time the interface size changes (`shell::keep_least_size`).
+fn at_least(window: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    let least = mg_ui::LEAST_WINDOW_SIZE;
+    let window = window.with_min_inner_size(least);
+    match window.inner_size {
+        Some(size) => window.with_inner_size(size.max(least)),
+        None => window,
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Closing the window asks about unsaved work like File > Exit.
@@ -614,7 +631,10 @@ fn main() -> eframe::Result<()> {
     // Without the file, or where it can't be read: Automatic. They are
     // read here once, for the app too: where they do not all read, what
     // does is kept, the file as it was is put aside before eframe saves
-    // over it, and the log says so (`Settings::read_eframe`).
+    // over it, and the log says so (`Settings::read_eframe`). With no
+    // file at all (Moonglow's first start here), a new installation's
+    // settings (`Settings::new_installation`: the log closed); a file
+    // that does not name a setting gives it its default, as before.
     let settings_file = eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron"));
     let read = settings_file
         .as_deref()
@@ -668,7 +688,8 @@ fn main() -> eframe::Result<()> {
         // The settings stay where they were before the window had an app
         // ID (eframe would otherwise name their folder after it).
         persistence_path: settings_file,
-        window_builder: Some(Box::new(|window| maximize_later(window, cfg!(windows)))),
+        // (Given the builder with the size kept from the last run.)
+        window_builder: Some(Box::new(|window| maximize_later(at_least(window), cfg!(windows)))),
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -862,6 +883,31 @@ mod tests {
         assert!(!super::MAXIMIZE.load(Ordering::Relaxed));
         assert_eq!(super::maximize_later(left(true), true).maximized, Some(false));
         assert!(super::MAXIMIZE.swap(false, Ordering::Relaxed));
+    }
+
+    /// The window is never smaller than the least size: that is its least
+    /// size, and a size kept smaller (from before there was one, or a
+    /// settings file edited) opens at it, side by side; a larger one
+    /// opens as it was, and so does no size kept.
+    #[test]
+    fn a_window_kept_smaller_than_the_least_size_opens_at_it() {
+        let least = mg_ui::LEAST_WINDOW_SIZE;
+        let kept = |w: f32, h: f32| egui::ViewportBuilder::default().with_inner_size([w, h]);
+        let small = super::at_least(kept(300.0, 200.0));
+        assert_eq!(small.min_inner_size, Some(least));
+        assert_eq!(small.inner_size, Some(least));
+        let narrow = super::at_least(kept(300.0, 900.0)).inner_size;
+        assert_eq!(narrow, Some(egui::vec2(least.x, 900.0)));
+        let low = super::at_least(kept(1600.0, 100.0)).inner_size;
+        assert_eq!(low, Some(egui::vec2(1600.0, least.y)));
+        assert_eq!(
+            super::at_least(kept(1280.0, 800.0)).inner_size,
+            Some(egui::vec2(1280.0, 800.0))
+        );
+        let none = super::at_least(egui::ViewportBuilder::default());
+        assert_eq!((none.inner_size, none.min_inner_size), (None, Some(least)));
+        // (The first run's size, 1280 by 800, is larger.)
+        assert!(least.x < 1280.0 && least.y < 800.0);
     }
 
     /// `--user-dir` takes the next argument (or the one after `=`), which

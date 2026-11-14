@@ -34,6 +34,64 @@ pub(crate) fn app_with(open: Vec<std::path::PathBuf>) -> Moonglow {
     Moonglow::new(None, Box::new(NoDialogs { open, ..Default::default() }))
 }
 
+/// The way editors open in a test's window (Options › General › Open
+/// editors): an existing user's settings (`Settings::default`, As
+/// Floating Windows), or a new installation's (`Settings::new_installation`:
+/// As Tabs, the Bottom Dock closed), which every new user starts with.
+/// A test family runs its body once for each ([`MODES`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    Floating,
+    Tabs,
+}
+
+/// Both ways, an existing user's first.
+pub(crate) const MODES: [Mode; 2] = [Mode::Floating, Mode::Tabs];
+
+impl Mode {
+    /// The settings a window of this mode starts with.
+    pub(crate) fn settings(self) -> mg_ui::Settings {
+        match self {
+            Mode::Floating => mg_ui::Settings::default(),
+            Mode::Tabs => mg_ui::Settings::new_installation(),
+        }
+    }
+
+    /// A scratch folder's name for this mode (`scratch_dir` empties its
+    /// folder: the two runs of a family must not share one).
+    pub(crate) fn dir(self, name: &str) -> String {
+        format!("{name}-{}", self.word())
+    }
+
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Mode::Floating => "floating",
+            Mode::Tabs => "tabs",
+        }
+    }
+
+    /// Whether editors open as tabs.
+    pub(crate) fn tabs(self) -> bool {
+        self == Mode::Tabs
+    }
+}
+
+/// Gives `app`, made with its own settings, the two a mode's differ in
+/// (Open editors and the Bottom Dock's fold).
+pub(crate) fn put_in(app: &mut Moonglow, mode: Mode) {
+    let s = mode.settings();
+    app.settings.open_editors = s.open_editors;
+    app.settings.hide_log = s.hide_log;
+}
+
+/// [`app_with`] in `mode`: its settings those of an existing user (As
+/// Floating Windows) or of a new installation (As Tabs).
+pub(crate) fn app_in(mode: Mode, open: Vec<std::path::PathBuf>) -> Moonglow {
+    let mut app = app_with(open);
+    app.settings = mode.settings();
+    app
+}
+
 /// The application on the game installed at `root`, in English, with
 /// `user` as the game's user folder (`None`: none), its dialogs answered
 /// by `dialogs`.
@@ -65,6 +123,56 @@ pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static
     h
 }
 
+/// The Left Dock unfolded by hand where the window's width folds it (a
+/// window under 1500 points, the shell's yields, M3 T14), as a builder who
+/// works in the module tree, the Resources panel or the Outliner at that
+/// width has it: its strip's chevron clicked, after a frame for the width
+/// to fold it; nothing where the dock is open already. Fails where it is
+/// neither open nor folded to a strip with its chevron (a dock that holds
+/// no panel), and unless it is open after. Under 962 points, where both
+/// side docks do not fit beside the editor area, unfolding it folds the
+/// Right Dock to its strip (`shell::BOTH_DOCKS_UNDER`).
+pub(crate) fn unfold_left_dock(h: &mut Harness<'_, Moonglow>) {
+    unfold_dock(h, "Left Dock", |app| app.left_dock_shows().is_some());
+}
+
+/// The window 1600 points wide, its height kept, and settled: wide enough
+/// that no width folds a side dock (the shell's yields, M3 T14), for a
+/// test of the builder's own fold of the docks (`hide_tree`,
+/// `hide_palettes`) or of both docks open as they are at first.
+pub(crate) fn wide_window(h: &mut Harness<'_, Moonglow>) {
+    let height = h.ctx.content_rect().height();
+    h.set_size(egui::vec2(1600.0, height));
+    settle(h);
+}
+
+/// The Right Dock unfolded by hand where the window's width folds it
+/// (under 796 points), as [`unfold_left_dock`] does the Left Dock's: under
+/// 962 points it folds the Left Dock to its strip.
+pub(crate) fn unfold_right_dock(h: &mut Harness<'_, Moonglow>) {
+    unfold_dock(h, mg_ui::RIGHT_DOCK, |app| app.right_dock_shows().is_some());
+}
+
+/// [`unfold_left_dock`] or [`unfold_right_dock`]: the dock named `dock`,
+/// `open` saying whether it shows a panel.
+fn unfold_dock(h: &mut Harness<'_, Moonglow>, dock: &str, open: fn(&Moonglow) -> bool) {
+    h.step();
+    if h.query_by_label(&format!("Fold the {dock}")).is_some() {
+        assert!(open(h.state()), "the {dock}'s fold button with no panel shown");
+        return;
+    }
+    let show = format!("Show the {dock}");
+    let chevron = h.query_by_label(&show);
+    let chevron = chevron.unwrap_or_else(|| panic!("the {dock} neither open nor with its chevron"));
+    chevron.click();
+    let started = std::time::Instant::now();
+    while h.query_by_label(&format!("Fold the {dock}")).is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the {dock} unfolded");
+        h.step();
+    }
+    assert!(open(h.state()), "the {dock} unfolded, a panel shown");
+}
+
 /// The game's data at `root`, in English, with no user folder: read
 /// before an application is (to make a module for it).
 pub(crate) fn game_data(root: &std::path::Path) -> mg_rules::GameData {
@@ -84,6 +192,93 @@ pub(crate) fn game_data_in(
 /// most of its tests draw it.
 pub(crate) fn window_harness(app: Moonglow) -> Harness<'static, Moonglow> {
     harness(app, 800.0, 600.0)
+}
+
+/// A double click on a widget: both clicks in one frame (the harness gives
+/// each event it queues a frame of its own, a quarter of a second by
+/// default, longer than egui's double-click time), a second past any
+/// click before at 60 frames a second (else the three are a triple click).
+pub(crate) fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.run_steps(60);
+    let button = egui::PointerButton::Primary;
+    for pressed in [true, false, true, false] {
+        let modifiers = egui::Modifiers::NONE;
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers,
+        });
+    }
+    h.run_steps(2);
+}
+
+/// The resource browser shown: the Left Dock unfolded on its Resources
+/// panel, as Tools › Resource Browser shows it (at the next frame).
+pub(crate) fn show_resources(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
+}
+
+/// The palettes shown: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it (at the next frame).
+pub(crate) fn show_palette(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+}
+
+/// The palette's row (or other widget) named `label`: the one in the
+/// Right Dock's Palette panel, which must be in front (the Preview's tab,
+/// which names the blueprint chosen too, behind it).
+#[track_caller]
+pub(crate) fn palette_row<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    label: &'t str,
+) -> egui_kittest::Node<'t> {
+    assert!(palette_shown(h.state()), "the Palette's tab in front");
+    let palette = right_dock_rect(h);
+    let mut found = h.query_all_by_label(label).filter(|n| palette.contains(n.rect().center()));
+    let Some(first) = found.next() else { panic!("no {label} in the palette") };
+    assert!(found.next().is_none(), "two or more {label} in the palette");
+    first
+}
+
+/// Whether the palettes are shown: the Right Dock unfolded on its Palette
+/// panel.
+pub(crate) fn palette_shown(app: &Moonglow) -> bool {
+    app.right_dock_shows() == Some(mg_ui::Panel::Palette)
+}
+
+/// The palettes folded away: the Right Dock folded, as View › Right Dock
+/// folds it.
+pub(crate) fn fold_palette(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::FoldPalettes);
+}
+
+/// The Right Dock `width` wide (its outer width, as its edge is dragged
+/// to: the width chosen, `Settings::right_dock_width`), from the next
+/// frame, where the window has the room.
+pub(crate) fn right_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.right_dock_width = Some(width.round() as u32);
+}
+
+/// Where the Right Dock is drawn: from its inner edge to its outer edge,
+/// the Top Bar to the Status Bar. It must be shown.
+pub(crate) fn right_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    h.state().right_dock_rect().expect("the Right Dock is shown")
+}
+
+/// Where the Left Dock is drawn: from its outer edge to its inner one
+/// (the line along it included), the Top Bar to the Status Bar. It must
+/// be shown.
+pub(crate) fn left_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    h.state().left_dock_rect().expect("the Left Dock is shown")
+}
+
+/// The Left Dock `width` wide (its outer width, as its edge is dragged to:
+/// the width chosen, `Settings::left_dock_width`), from the next frame,
+/// where the window has the room.
+pub(crate) fn left_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.left_dock_width = Some(width.round() as u32);
 }
 
 /// A scratch user folder for the game: `dir`'s `user`, with `subfolders`
@@ -242,6 +437,17 @@ pub(crate) fn blueprint_harness_with(
     t: ResType,
     user: Option<std::path::PathBuf>,
 ) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    blueprint_harness_in(Mode::Floating, name, copy, t, user)
+}
+
+/// [`blueprint_harness_with`] in `mode` (the editor a tab in As Tabs).
+pub(crate) fn blueprint_harness_in(
+    mode: Mode,
+    name: &str,
+    copy: &str,
+    t: ResType,
+    user: Option<std::path::PathBuf>,
+) -> Option<(Harness<'static, Moonglow>, ResKey)> {
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
         return None;
@@ -249,6 +455,7 @@ pub(crate) fn blueprint_harness_with(
     let dir = mg_testkit::scratch_dir(&format!("ui-bp-{copy}"));
     let path = sample_module(&dir);
     let mut app = game_app(&root, user);
+    put_in(&mut app, mode);
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();
@@ -261,7 +468,7 @@ pub(crate) fn blueprint_harness_with(
     // The editor alone on screen (Module Properties, docked when the module
     // opened, and the palette would show beside its window).
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let h = harness(app, 1000.0, 800.0);
     Some((h, key))
 }
@@ -293,6 +500,21 @@ pub(crate) const PALETTE_TYPES: [&str; 13] = [
     "Start Location",
 ];
 
+/// The palette's types as drawn: the row of their icons ("Palette
+/// types"), or under 300 points of panel (the Right Dock at its narrow
+/// 280, M3 T14) the dropdown showing the type's name; `None` where the
+/// palette is not drawn.
+pub(crate) fn palette_types<'t>(h: &'t Harness<'_, Moonglow>) -> Option<egui_kittest::Node<'t>> {
+    if let Some(row) = h.query_by_label("Palette types") {
+        return Some(row);
+    }
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    h.query_all(combo).find(|n| {
+        let value = n.accesskit_node().value().unwrap_or_default();
+        PALETTE_TYPES.contains(&value.as_str())
+    })
+}
+
 /// Chooses a type in the palette's header by its name: its icon in the
 /// row of them (a group of its own, "Palette types": the area toolbar
 /// names the kinds too), or, in a pane too narrow for the row, its name in
@@ -317,17 +539,58 @@ pub(crate) fn palette_type(h: &mut Harness<'_, Moonglow>, name: &str) {
     settle(h);
 }
 
-/// The main toolbar's button `name` (found within it: the editors have a
+/// The Top Bar's button `name` (found within it: the editors have a
 /// Save, an Undo, a Compile of their own).
 #[track_caller]
 pub(crate) fn tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
-    h.get_by_label("Toolbar").get_by_label(name)
+    h.get_by_label("Top Bar").get_by_label(name)
 }
 
-/// The buttons `name` that are not the main toolbar's or the area
-/// view's (an editor's own Save, Undo or Compile, a dialog's Open, a
-/// page's Properties, the palette's Grass): the nodes of that name that
-/// have no "Toolbar" or "Area toolbar" group above them.
+/// Chooses `row` in the Top Bar's menu `menu` ("View", "Go to Start
+/// Location"): the menu opened by its title, the row clicked (a button or
+/// a ticked row, named by its words, or by its words and its keys: of
+/// those that begin so, the shortest; not a bar's control of that name,
+/// the Log's switch say).
+#[track_caller]
+pub(crate) fn menu_command(h: &mut Harness<'_, Moonglow>, menu: &str, row: &str) {
+    h.get_by_label("Top Bar").get_by_label(menu).click();
+    settle(h);
+    let rect = menu_row(h, row).expect("the menu's row").1;
+    click_pos(h, rect.center());
+    settle(h);
+}
+
+/// The row `row` of the menu that is open ([`menu_command`]'s): its
+/// label and where it is.
+pub(crate) fn menu_row(h: &Harness<'_, Moonglow>, row: &str) -> Option<(String, egui::Rect)> {
+    use egui::accesskit::Role;
+    let keyed = format!("{row} ");
+    let is_row = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        matches!(n.role(), Role::Button | Role::CheckBox)
+            && n.label().is_some_and(|l| l == row || l.starts_with(&keyed))
+    };
+    let bars = ["Top Bar", "Status Bar", "Left Dock", mg_ui::RIGHT_DOCK, "Bottom Dock"];
+    h.query_all_by(is_row)
+        .filter(|n| !bars.iter().any(|b| in_group(n, b)))
+        .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
+        .min_by_key(|(l, _)| l.len())
+}
+
+/// The Module panel's header button `name` (today's toolbar's Properties
+/// and New Area), found within the Left Dock's tab bar.
+#[track_caller]
+pub(crate) fn module_tool<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    h.get_by_label("Left Dock").get_by_label(name)
+}
+
+/// The buttons `name` that are not the Top Bar's, the Module panel
+/// header's or the area view's (an editor's own Save, Undo or Compile, a
+/// dialog's Open, a page's Properties, the palette's Grass): the nodes of
+/// that name that have no "Top Bar", "Left Dock" or "Area toolbar" group
+/// above them.
 pub(crate) fn apart_all<'t>(
     h: &'t Harness<'_, Moonglow>,
     name: &'t str,
@@ -347,11 +610,14 @@ pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
     false
 }
 
-/// Whether `n` is in the main toolbar or the area view's.
+/// Whether `n` is on the Top Bar, a dock's tab bar (the Left Dock's, with
+/// the Module panel's header buttons; the Right Dock's Palette and Preview
+/// tabs) or the area view's toolbar.
 pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Toolbar" | "Area toolbar")) {
+        let bars = ["Top Bar", "Left Dock", "Area toolbar", mg_ui::RIGHT_DOCK];
+        if p.label().is_some_and(|l| bars.contains(&l.as_str())) {
             return true;
         }
         up = p.parent();
@@ -364,7 +630,7 @@ pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
 #[track_caller]
 pub(crate) fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
     let mut found = apart_all(h, name);
-    let Some(first) = found.next() else { panic!("no {name} apart from the toolbars") };
+    let Some(first) = found.next() else { panic!("no {name} apart from the bars") };
     let more = found.count();
     assert!(more == 0, "{} named {name:?} apart from the toolbars, not one", more + 1);
     first
@@ -383,12 +649,19 @@ pub(crate) fn area_tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui
 /// what appears there (the nodes that were not there before), or `None`
 /// if nothing appears in a second and a half of frames (a tip waits a
 /// moment; on a busy machine the same moment is more frames, so the wait
-/// is long for an absent tip and short for a present one).
+/// is long for an absent tip and short for a present one). What appears
+/// inside the Status Bar is not a tip: its hints follow the pointer.
 pub(crate) fn tip_at(h: &mut Harness<'_, Moonglow>, rect: egui::Rect) -> Option<String> {
     use std::collections::HashMap;
     fn words(h: &Harness<'_, Moonglow>) -> HashMap<String, usize> {
         let mut out = HashMap::new();
+        let bar: std::collections::HashSet<_> = (h.query_by_label("Status Bar"))
+            .map(|b| b.query_all_by(|_| true).map(|n| n.accesskit_node().id()).collect())
+            .unwrap_or_default();
         for n in h.query_all_by(|n| n.bounding_box().is_some()) {
+            if bar.contains(&n.accesskit_node().id()) {
+                continue;
+            }
             let a = n.accesskit_node();
             let text = a.label().or(a.value()).unwrap_or_default();
             if !text.trim().is_empty() {
@@ -429,9 +702,48 @@ pub(crate) fn icon_drawn(
         .any(|(i, r)| *i == icon && rect.expand(1.0).contains_rect(*r))
 }
 
+/// The module tree's Filter's accessible name (it says "Filter" while
+/// empty, as a dropdown's does).
+pub(crate) const TREE_FILTER: &str = "Filter Module Tree";
+
+/// Whether `n` is a dropdown's or a list's Filter field (its placeholder
+/// "Filter"), not the module tree's (which says the same, named
+/// [`TREE_FILTER`]).
+pub(crate) fn list_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
+    n.placeholder() == Some("Filter") && n.label().as_deref() != Some(TREE_FILTER)
+}
+
+/// Whether `n` is the module tree's Filter field.
+pub(crate) fn tree_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
+    n.label().as_deref() == Some(TREE_FILTER)
+}
+
+/// Types `text` into the module tree's Filter, and waits for what it shows.
+pub(crate) fn type_into_tree_filter(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.get(egui_kittest::kittest::by().predicate(tree_filter)).click();
+    settle(h);
+    h.get(egui_kittest::kittest::by().predicate(tree_filter)).type_text(text);
+    settle(h);
+}
+
+/// The module tree's row `label` (a resource's, a group's "Areas (1)",
+/// Module Properties: not the Module panel header's button of that name).
+#[track_caller]
+pub(crate) fn tree_row<'t>(h: &'t Harness<'_, Moonglow>, label: &'t str) -> egui_kittest::Node<'t> {
+    h.get_by_label("Module Tree Rows").get_by_label(label)
+}
+
+/// A document tab of the editor area by its name (its title, with no mark
+/// of unsaved changes): a node of role Tab, where a tree row or a field
+/// may have the same name.
+pub(crate) fn doc_tab<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.get_by_role_and_label(egui::accesskit::Role::Tab, name)
+}
+
 /// Types into the text field with placeholder `hint` (a live filter), and
 /// waits for what it shows ([`settle`]: a gallery's pictures, made a few
-/// milliseconds' worth a frame).
+/// milliseconds' worth a frame). A "Filter" is a dropdown's or a list's,
+/// not the module tree's ([`type_into_tree_filter`]).
 pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     // ("Find" is a list's search: the palette's says what it looks in.
     // A search field's glass is drawn, not in its hint.)
@@ -441,7 +753,9 @@ pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &s
         h.query_all(egui_kittest::kittest::by().predicate(by)).next().is_some()
     };
     let hint = if !has(h, hint) && hint == "Find" { palette } else { hint };
-    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.placeholder() == Some(hint) && (hint != "Filter" || list_filter(n))
+    };
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     settle(h);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);
@@ -498,6 +812,62 @@ pub(crate) fn module_gff(h: &mut Harness<'_, Moonglow>, name: &str, t: ResType) 
     ws.module.gff(&key).map(|g| g.unwrap())
 }
 
+/// The Left Dock's upper panel (the module tree) as tall as the Outliner
+/// under it lets it be (its least), in a window 300 points taller: for the
+/// module tree's tests with an area in front, written while the tree had
+/// the whole dock (M3's T13 split it, the Module panel 496 points tall at
+/// first): the tree as tall as it was, its Areas group's well too.
+pub(crate) fn tall_tree(h: &mut Harness<'_, Moonglow>) {
+    let size = h.ctx.content_rect().size();
+    h.set_size(size + egui::vec2(0.0, 300.0));
+    h.state_mut().settings.module_panel_height = Some(10_000);
+    // (Until the seam has come down and rests there: the Outliner's
+    // header in the same place three frames running, lower than it was;
+    // or there is no Outliner.)
+    let header = |h: &Harness<'_, Moonglow>| {
+        (h.query_by_label(mg_ui::OUTLINER))
+            .and_then(|o| o.query_by_label("Collapse All").map(|b| b.rect().center().y))
+    };
+    let was = header(h);
+    let (mut last, mut same) = (was, 0);
+    let started = std::time::Instant::now();
+    loop {
+        h.step();
+        let now = header(h);
+        same = if now == last { same + 1 } else { 0 };
+        last = now;
+        let lower = match (was, now) {
+            (Some(was), Some(now)) => now > was,
+            _ => true,
+        };
+        if lower && same >= 3 {
+            break;
+        }
+        assert!(started.elapsed().as_secs() < 10, "never: the tree as tall as it can be");
+    }
+}
+
+/// Module Properties docked in front of the area (opened again As Tabs):
+/// the Outliner not shown, the module tree following the area's
+/// selection as it does without it (the owner's ruling of 2026-11-14:
+/// while the Outliner shows, the tree stops following the selection). The
+/// area's view keeps its selection, which tests then set.
+pub(crate) fn outliner_away(h: &mut Harness<'_, Moonglow>) {
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::ModuleProperties]));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    let started = std::time::Instant::now();
+    while h.state().active_editor() != Some(&Tab::ModuleProperties)
+        || h.query_by_label(mg_ui::OUTLINER).is_some()
+    {
+        assert!(started.elapsed().as_secs() < 10, "never: Module Properties in front");
+        h.step();
+    }
+}
+
+/// The width of [`area_harness`]'s window.
+pub(crate) const AREA_HARNESS_WIDTH: f32 = 1160.0;
+
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
 /// and (30, 20), with the game's data and a GPU (`None` without either).
 pub(crate) fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
@@ -542,7 +912,10 @@ pub(crate) fn area_harness_with(
     prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let (app, rs, area) = area_app(name, tileset, tile, side, user, prepare)?;
-    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    // (1160 wide: the area's view as wide as it was at 1100 with the
+    // palettes' pane in the editor area, now that they are the Right
+    // Dock's 320 points beside it, M3 T5.)
+    let mut h = area_gpu_harness(app, rs, AREA_HARNESS_WIDTH, 800.0);
     h.run_steps(3);
     Some((h, area))
 }
@@ -743,8 +1116,17 @@ pub(crate) fn overlapping(h: &Harness<'_, Moonglow>) -> Vec<String> {
                 .filter(|w| w.interact_rect.area() > 1.0)
                 .filter_map(|w| Some((w.interact_rect, named.get(&w.id.value())?)))
                 .collect();
+            // (A document tab's close button lies in its tab, by design.)
+            let close_of = |close: &str, tab: &str| {
+                tab.strip_prefix("Tab ").is_some_and(|t| {
+                    close == format!("Button \"Close {}", t.trim_start_matches('"'))
+                })
+            };
             for (i, (a, name_a)) in shown.iter().enumerate() {
                 for (b, name_b) in &shown[i + 1..] {
+                    if close_of(name_a, name_b) || close_of(name_b, name_a) {
+                        continue;
+                    }
                     let both = a.intersect(*b);
                     let smaller = a.area().min(b.area());
                     if both.is_positive() && both.area() > 0.25 * smaller {
@@ -765,37 +1147,24 @@ pub(crate) fn close_tab(app: &mut Moonglow, tab: &Tab) {
 }
 
 /// Clicks a tab's close button as the pointer does (pressed, then let go a frame
-/// on). (egui_dock's close button has no name: it is the square at the
-/// right end of its tab, the tabs being what can be clicked and dragged
-/// in their pane's tab bar, in their order.)
+/// on): the tab hovered first, for one not in front shows its close
+/// button only under the pointer. (The close button is the square inside
+/// its tab, named "Close" and the tab's name; the tabs are what can be
+/// clicked and dragged in their pane's tab bar, in their order.)
 pub(crate) fn click_tab_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
-    let (band, index) = h
-        .state()
-        .dock
-        .iter_leaves()
-        .find_map(|(_, l)| {
-            let index = l.tabs.iter().position(|t| t == tab)?;
-            let band =
-                egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top());
-            Some((band, index))
-        })
-        .expect("the tab is open");
-    let (mut tabs, mut squares) = (Vec::new(), Vec::new());
-    h.ctx.viewport(|v| {
-        for (_, widgets) in v.prev_pass.widgets.layers() {
-            for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
-                let r = w.interact_rect;
-                if w.sense.senses_click() && w.sense.senses_drag() {
-                    tabs.push(r);
-                } else if w.sense.senses_click() && (r.width() - r.height()).abs() < 0.5 {
-                    squares.push(r);
-                }
-            }
-        }
-    });
-    tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
-    let own = tabs.get(index).expect("its tab");
-    let close = squares.iter().find(|r| own.contains_rect(**r) && r.right() >= own.right() - 0.5);
+    let (own, _) = tab_rects(h, tab);
+    h.hover_at(egui::pos2(own.left() + 12.0, own.center().y));
+    h.run_steps(1);
+    let (own, squares) = tab_rects(h, tab);
+    // (16 points square: the Top Bar's buttons under a window's bar are
+    // 22.)
+    let side = mg_uikit::shell::DOC_TAB_CLOSE;
+    // (Its own at its right end: another tab's under a floating window
+    // may lie within its rectangle too, the editor area's tab bar flush
+    // under the Top Bar since M3 T14.)
+    let close = (squares.iter())
+        .filter(|r| own.contains_rect(**r) && (r.width() - side).abs() < 0.5)
+        .max_by(|a, b| a.right().total_cmp(&b.right()));
     let at = close.expect("its close button").center();
     h.hover_at(at);
     h.run_steps(1);
@@ -805,9 +1174,81 @@ pub(crate) fn click_tab_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
     h.run_steps(1);
 }
 
-/// Clicks the close button of the window `tab` is in (egui_dock's, at
-/// the right end of its tab bar, unnamed: what can be clicked, not
-/// dragged, at the bar's right edge; Maximize is before it).
+/// Clicks a tab as the pointer does, left of its close button (pressed,
+/// then let go a frame on): brought to the front of its pane, the pane
+/// given the focus.
+pub(crate) fn click_tab(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
+    let (own, _) = tab_rects(h, tab);
+    let at = egui::pos2(own.left() + 12.0, own.center().y);
+    h.hover_at(at);
+    h.run_steps(1);
+    press(h, at, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    press(h, at, false, egui::Modifiers::NONE);
+    h.run_steps(1);
+}
+
+/// Where `tab`'s tab is drawn in its pane's tab bar, and the squares that
+/// can be clicked in that bar (the tabs' close buttons among them): of
+/// that bar's layer alone, the main window's for a docked tab and its own
+/// window's for a floating one, so that a floating window's tabs over the
+/// bar are neither counted among its tabs nor taken for its squares.
+pub(crate) fn tab_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> (egui::Rect, Vec<egui::Rect>) {
+    let (band, index, main, count) = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find_map(|(path, l)| {
+            let index = l.tabs.iter().position(|t| t == tab)?;
+            let band =
+                egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top());
+            Some((band, index, path.surface.is_main(), l.tabs.len()))
+        })
+        .expect("the tab is open");
+    // Each layer's tabs and squares in the band.
+    let mut layers: Vec<(egui::LayerId, Vec<egui::Rect>, Vec<egui::Rect>)> = Vec::new();
+    h.ctx.viewport(|v| {
+        for (layer, widgets) in v.prev_pass.widgets.layers() {
+            let (mut tabs, mut squares) = (Vec::new(), Vec::new());
+            for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
+                let r = w.interact_rect;
+                if w.sense.senses_click() && w.sense.senses_drag() {
+                    tabs.push(r);
+                } else if w.sense.senses_click() && (r.width() - r.height()).abs() < 0.5 {
+                    squares.push(r);
+                }
+            }
+            if !tabs.is_empty() {
+                layers.push((*layer, tabs, squares));
+            }
+        }
+    });
+    // (A docked tab's bar is in the main window's panels, under every
+    // window; a floating one's in its window's layer: a window whose area
+    // holds the bar, and of windows overlapping there the one with as
+    // many tabs there as its pane, else the first by its id, so that the
+    // choice does not hang on the order egui keeps its layers in.)
+    let holds = |layer: &egui::LayerId| {
+        h.ctx.memory(|m| m.area_rect(layer.id)).is_some_and(|r| r.contains(band.center()))
+    };
+    layers.retain(|(layer, ..)| match main {
+        true => layer.order != egui::Order::Middle,
+        false => layer.order == egui::Order::Middle && holds(layer),
+    });
+    layers.sort_by_key(|(layer, ..)| (layer.order, layer.id.value()));
+    let mine = (layers.iter().position(|(_, tabs, _)| tabs.len() == count)).unwrap_or(0);
+    assert!(!layers.is_empty(), "its tab bar's layer");
+    let (_, mut tabs, squares) = layers.swap_remove(mine);
+    tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
+    (*tabs.get(index).expect("its tab"), squares)
+}
+
+/// Clicks the Close of the window `tab` is in: the button named "Close
+/// Window" ("Close Pane" in a window split in panes) at the right end of
+/// its pane's tab bar (egui_dock's close all, which
+/// Moonglow paints and names: `tabs::paint_window_bar_button`), after
+/// Maximize. Fails, naming what it found, where there is none, or more
+/// than one, in that bar.
 pub(crate) fn click_window_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
     let band = h
         .state()
@@ -818,25 +1259,39 @@ pub(crate) fn click_window_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
             egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top())
         })
         .expect("the tab is open");
-    let mut close = None;
-    h.ctx.viewport(|v| {
-        for (_, widgets) in v.prev_pass.widgets.layers() {
-            for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
-                let r = w.interact_rect;
-                let clicks = w.sense.senses_click() && !w.sense.senses_drag();
-                if clicks && r.right() >= band.right() - 1.0 && r.width() < 40.0 {
-                    close = Some(r);
-                }
-            }
-        }
-    });
-    let at = close.expect("its close button").center();
+    let closes: Vec<egui::Rect> = (h.query_all_by_label("Close Window"))
+        .chain(h.query_all_by_label("Close Pane"))
+        .map(|n| n.rect())
+        .filter(|r| band.expand(1.0).contains_rect(*r))
+        .collect();
+    let [close] = closes[..] else {
+        panic!("one Close in the bar of {tab:?}'s window ({band:?}), found {closes:?}");
+    };
+    assert!(close.right() >= band.right() - 4.0, "the Close at the bar's right end: {close:?}");
+    let at = close.center();
     h.hover_at(at);
     h.run_steps(1);
     press(h, at, true, egui::Modifiers::NONE);
     h.run_steps(1);
     press(h, at, false, egui::Modifiers::NONE);
     h.run_steps(1);
+}
+
+/// Clicks the dialog `title`'s own Close button, at its foot (the Check
+/// for Updates window's, the Claims Table's): the lowest named "Close"
+/// in it, not its title row's at its top, which closes it too.
+pub(crate) fn click_dialog_s_own_close(h: &mut Harness<'_, Moonglow>, title: &str) {
+    let window = h.get_by_label(title).rect();
+    // (Not the title row's, in its top 28 points: that one is not the
+    // dialog's own.)
+    let below_row = window.top() + 28.0;
+    let own: Vec<egui::Rect> = (h.get_by_label(title).query_all_by_label("Close"))
+        .map(|n| n.rect())
+        .filter(|r| r.top() >= below_row)
+        .collect();
+    let [at] = own[..] else { panic!("one Close of {title}'s own under its row, found {own:?}") };
+    let node = (h.get_by_label(title).query_all_by_label("Close")).find(|n| n.rect() == at);
+    node.expect("the Close found").click();
 }
 
 /// Closes the editors' windows (the tabs not in the main dock), back to the
@@ -874,7 +1329,7 @@ pub(crate) fn plugin_harness(
         app_with(Vec::new())
     };
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let key = ResKey::parse("guard", ResType::UTC).unwrap();
     let mut guard = Gff::new(*b"UTC ");
     guard.root.set("Tag", mg_gff::Value::String(b"gate_guard".to_vec()));
@@ -1185,11 +1640,31 @@ pub(crate) fn drawn_tint(h: &Harness<'_, Moonglow>, area: ResRef) -> Option<Vec<
     })
 }
 
-/// Drags across a color picker's square under the swatch at `well` (just
-/// opened), from `from` to `to` points along it, a frame a step, and
-/// lets go: the picker stays open.
+/// Drags across the color picker's square opened from the swatch at
+/// `well`, from `from` to `to` points along it, a frame a step, and lets
+/// go: the picker stays open. (The square found by the picker's own
+/// parts, its #rrggbb field at its left under it and Paste Color beside
+/// that: the popover opens under the swatch, or beside it where there is
+/// no room under it.)
 pub(crate) fn drag_picker(h: &mut Harness<'_, Moonglow>, well: egui::Rect, from: f32, to: f32) {
-    let point = |x: f32| egui::pos2(well.left() + 20.0 + x, well.bottom() + 120.0);
+    let pastes: Vec<egui::Rect> = h.query_all_by_label("Paste Color").map(|n| n.rect()).collect();
+    let hex = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .filter(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with('#')))
+        .map(|n| n.rect())
+        // (The picker's own, with Paste Color beside it: a variable's
+        // value can be a #rrggbb too.)
+        .filter(|r| {
+            pastes.iter().any(|p| (p.center().y - r.center().y).abs() < 4.0 && p.left() > r.left())
+        })
+        .min_by(|a, b| {
+            let d = |r: &egui::Rect| r.center().distance(well.center());
+            d(a).total_cmp(&d(b))
+        })
+        .expect("the picker's #rrggbb field");
+    // (Above the field: the hue strip, then the square's lower part.)
+    let point = |x: f32| egui::pos2(hex.left() + 20.0 + x, hex.top() - 100.0);
     let button = |pos, pressed| egui::Event::PointerButton {
         pos,
         button: egui::PointerButton::Primary,
@@ -1232,4 +1707,73 @@ pub(crate) fn drawn(h: &Harness<'_, Moonglow>) -> Vec<egui::Shape> {
     let mut out = Vec::new();
     h.output().shapes.iter().for_each(|c| add(&c.shape, &mut out));
     out
+}
+
+/// Opens Quick Open by its key (Ctrl+P) and types `text` into its field
+/// (nothing typed for an empty `text`).
+pub(crate) fn quick_open(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
+    settle(h);
+    assert!(h.state().quick_open.is_open(), "Ctrl+P opens Quick Open");
+    if !text.is_empty() {
+        quick_open_field(h).type_text(text);
+        settle(h);
+    }
+}
+
+/// Quick Open's field (in the Top Bar, or over it where the bar shows
+/// its icon: not the icon, of the same name).
+#[track_caller]
+pub(crate) fn quick_open_field<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
+    use egui::accesskit::Role;
+    let mut fields = h
+        .query_all_by_label(mg_ui::quick_open::NAME)
+        .filter(|n| n.accesskit_node().role() != Role::Button);
+    fields.next().expect("Quick Open's field")
+}
+
+/// Opens Quick Open among the commands (Ctrl+Shift+P, the Command
+/// Palette's key) and types `text` after its `>`.
+pub(crate) fn command_palette(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    settle(h);
+    assert!(h.state().quick_open.is_open(), "Ctrl+Shift+P opens Quick Open");
+    assert_eq!(h.state().quick_open.text, ">", "among the commands");
+    if !text.is_empty() {
+        quick_open_field(h).type_text(text);
+        settle(h);
+    }
+}
+
+/// Quick Open's row `name` (found in its popover).
+#[track_caller]
+pub(crate) fn quick_open_row<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    h.get_by_label(mg_ui::quick_open::RESULTS).get_by_label(name)
+}
+
+/// Quick Open's rows as shown, top to bottom: each one's name.
+pub(crate) fn quick_open_rows(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    use egui::accesskit::Role;
+    let Some(group) = h.query_by_label(mg_ui::quick_open::RESULTS) else { return Vec::new() };
+    let mut rows: Vec<(f32, String)> = group
+        .query_all(egui_kittest::kittest::by().role(Role::Button))
+        .map(|n| (n.rect().top(), n.accesskit_node().label().unwrap_or_default()))
+        .collect();
+    rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    rows.into_iter().map(|(_, l)| l).collect()
+}
+
+/// The row Enter would run in Quick Open: its name.
+pub(crate) fn quick_open_chosen(h: &Harness<'_, Moonglow>) -> Option<String> {
+    let group = h.query_by_label(mg_ui::quick_open::RESULTS)?;
+    let chosen = group
+        .query_all(
+            egui_kittest::kittest::by()
+                .predicate(|n| n.toggled() == Some(egui::accesskit::Toggled::True)),
+        )
+        .next()?;
+    chosen.accesskit_node().label()
 }

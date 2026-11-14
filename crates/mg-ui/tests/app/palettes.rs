@@ -151,7 +151,7 @@ fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
     let before = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
     let mut app = game_app(&root, Some(user));
     app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Item;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -314,7 +314,7 @@ fn palette_edit_copy_and_delete() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     // The standard waypoints: the "Tavern" waypoint (nw_wp_tavern).
     let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
@@ -377,7 +377,7 @@ fn palette_edit_copy_and_delete() {
     close_windows(&mut h);
     h.state_mut().palette.filter = "wp_tavern001".into();
     h.run();
-    h.get_by_label(&name).click_secondary();
+    palette_row(&h, &name).click_secondary();
     h.run();
     h.get_by_label("Delete").click();
     h.run();
@@ -401,7 +401,7 @@ fn edit_copy_s_cancel_takes_the_copy_back() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
@@ -414,7 +414,7 @@ fn edit_copy_s_cancel_takes_the_copy_back() {
         h.state_mut().palette.custom = false;
         h.state_mut().palette.filter = "nw_wp_tavern".into();
         h.run();
-        h.get_by_label(&tavern).click_secondary();
+        palette_row(h, &tavern).click_secondary();
         h.run();
         h.get_by_label("Edit Copy…").click();
         h.run();
@@ -528,7 +528,7 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
         })
         .collect();
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -619,7 +619,7 @@ fn empty_palette_categories_are_hidden_when_asked() {
     g.root.set("PaletteID", mg_gff::Value::Byte(0));
     let edit = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(mg_edit::Command::new("setup", vec![edit])).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -652,77 +652,6 @@ fn empty_palette_categories_are_hidden_when_asked() {
     assert!(h.query_by_label("Custom 2").is_some(), "listed again");
 }
 
-/// The palette's types in a narrow pane: a row of icons (wrapped) down to
-/// the width where four fit, a dropdown with its icon below it; at every
-/// width across the change, nothing of either is cut at the pane's edge.
-/// (MG_SHOT: a picture at each width.)
-#[test]
-fn the_palette_s_types_fit_a_narrow_pane() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
-    let dir = mg_testkit::scratch_dir("ui-palette-types-narrow");
-    let path = sample_module(&dir);
-    let mut app = game_app(&root, None);
-    app.open_module(&path);
-    let mut h = harness(app, 900.0, 700.0);
-    h.run_steps(3);
-    let tab = Tab::Palette;
-    let at = h.state().dock.find_tab(&tab).expect("the palettes' pane");
-    let rect = egui::Rect::from_min_size(egui::pos2(300.0, 60.0), egui::vec2(200.0, 600.0));
-    h.state_mut().dock.detach_tab(at, rect);
-    settle(&mut h);
-    let shots = std::env::var_os("MG_SHOT").is_some();
-    let out = shots.then(|| mg_testkit::scratch_dir("ui-palette-types-narrow-shots"));
-    let (mut rows, mut lists) = (0, 0);
-    // (Across the change, at 96 px of pane: from a window of 90, its pane
-    // a little narrower.)
-    for width in (90..=130).step_by(2) {
-        let at = h.state().dock.find_tab(&tab).unwrap();
-        let state = h.state_mut().dock.get_window_state_mut(at.surface).unwrap();
-        state.set_size(egui::vec2(width as f32, 600.0));
-        settle(&mut h);
-        let body = (h.state().dock.iter_leaves())
-            .find(|(_, leaf)| leaf.tabs.contains(&tab))
-            .map(|(_, leaf)| leaf.viewport)
-            .unwrap();
-        let inside =
-            |r: egui::Rect| r.left() >= body.left() - 0.5 && r.right() <= body.right() + 0.5;
-        if let Some(row) = h.query_by_label("Palette types") {
-            rows += 1;
-            for n in row.query_all_by(|n| n.role() == egui::accesskit::Role::Button) {
-                let r = n.rect();
-                assert!(
-                    inside(r),
-                    "{:?} at {r:?}, past the pane {body:?}",
-                    n.accesskit_node().label()
-                );
-            }
-        } else {
-            lists += 1;
-            let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-            let is_type = |n: &egui_kittest::Node<'_>| {
-                PALETTE_TYPES.contains(&n.accesskit_node().value().unwrap_or_default().as_str())
-            };
-            let list = h.query_all(combo).find(is_type).expect("the types' dropdown").rect();
-            assert!(inside(list), "the dropdown at {list:?}, past the pane {body:?}");
-            // (Its icon before it, on its row.)
-            let icons = mg_uikit::icons_drawn(&h.ctx);
-            let lead = icons.iter().find(|(_, r)| {
-                (r.center().y - list.center().y).abs() < 4.0 && r.right() <= list.left() + 0.5
-            });
-            let lead = lead.expect("the type's icon before the dropdown").1;
-            assert!(inside(lead), "its icon at {lead:?}, past the pane {body:?}");
-        }
-        if let Some(out) = &out {
-            mg_testkit::gpu::hold();
-            h.render().unwrap().save(out.join(format!("types-{width}.png"))).unwrap();
-        }
-    }
-    assert!(rows > 0 && lists > 0, "both seen: {rows} rows, {lists} lists");
-}
-
 /// GitHub issue 16: the palette's header. The types are one row of icons
 /// (a dropdown in a pane too narrow for it), the one shown named under
 /// it; the search says what it looks in and has a button to clear it; the
@@ -741,11 +670,8 @@ fn the_palette_s_header() {
     let mut h = harness(app, 1800.0, 900.0);
     h.run_steps(3);
     // The row of icons: a click on the door shows the doors, named.
-    // (All of it inside the palettes' pane, at the width it has at first.)
-    let pane = {
-        let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
-        leaves.find(|l| l.tabs.contains(&Tab::Palette)).expect("the palettes' pane").rect
-    };
+    // (All of it inside the Right Dock, at the width it has at first.)
+    let pane = right_dock_rect(&h);
     let last = h.get_by_label("Palette types").get_by_label("Prefabs").rect();
     assert!(last.right() <= pane.right() && last.left() > pane.left(), "{last:?} in {pane:?}");
     palette_type(&mut h, "Doors");
@@ -841,7 +767,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         let app = h.state_mut();
         // (The chest's editor, a window, would lie over the palette.)
         close_tab(app, &Tab::Blueprint(key));
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = BlueprintKind::Placeable;
         app.palette.tiles = false;
         app.palette.custom = true;
@@ -1069,7 +995,7 @@ fn a_palette_category_is_named_by_a_talk_table_string() {
     {
         let app = h.state_mut();
         close_tab(app, &Tab::Blueprint(key));
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = BlueprintKind::Placeable;
         app.palette.tiles = false;
         app.palette.custom = true;
@@ -1327,7 +1253,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     let git_key = ResKey::parse("start", ResType::GIT).unwrap();
     edits.push(Edit::SetResource { key: git_key, data: Some(git.to_bytes().unwrap()) });
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Trigger;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -1454,7 +1380,7 @@ fn shift_click_chooses_a_range_of_custom_blueprints() {
     }
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
     app.settings.name_resrefs = true;
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Trigger;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -1603,7 +1529,7 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     // With the pointer elsewhere (the log, under the area), the keys are
     // the palette's still: they are until the pointer is in an area's
     // view (GitHub issue 12).
-    let palette_at = h.get_by_label(&tavern).rect().center();
+    let palette_at = palette_row(&h, &tavern).rect().center();
     h.hover_at(egui::pos2(300.0, 700.0));
     h.run_steps(2);
     press(&mut h, egui::Key::ArrowDown);
@@ -1674,7 +1600,7 @@ fn the_palette_s_hover_tells_of_blueprints_without_a_model() {
     let Some(mut h) = game_harness("palette-about") else { return };
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = mg_module::palette::BlueprintKind::Encounter;
         app.palette.tiles = false;
         app.palette.custom = false;
@@ -1706,7 +1632,7 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     let Some((mut h, area)) = area_harness("prefab-found") else { return };
     let prefabs = mg_testkit::scratch_dir("ui-prefab-found");
     h.state_mut().prefab_dir = Some(prefabs.clone());
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     // The palette's Prefabs: none yet, and how to make one.
     palette_type(&mut h, "Prefabs");
@@ -1776,8 +1702,12 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     assert!(h.query_by_label("Undo Delete").is_none());
 }
 
+/// The palettes come with a module, as in Aurora: the Right Dock on the
+/// Palette panel, 320 points wide at first (the board's), on the area's
+/// tiles. Folded, Tools › Palettes brings them back; folded with every
+/// tab of the editor area closed, the same.
 #[test]
-fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
+fn the_palette_opens_with_a_module_in_the_right_dock() {
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
         return;
@@ -1787,24 +1717,23 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     let mut h = harness(app, 1600.0, 900.0);
-    h.run_steps(3);
-    let palette_width = |h: &Harness<'_, Moonglow>| {
-        let path = h.state().dock.find_tab(&Tab::Palette).expect("the palette is open");
-        let pane = h.state().dock.iter_leaves().find(|(p, _)| p.node == path.node).unwrap().1;
-        pane.rect.width()
-    };
-    // The tree's default width, 240 points (give or take the separators).
-    let w = palette_width(&h);
-    assert!((w - 240.0).abs() <= 12.0, "the palette is {w} points wide");
+    settle(&mut h);
+    assert!(palette_shown(h.state()));
+    // The Right Dock's default width, 320 points (its line counted in).
+    let w = right_dock_rect(&h).width();
+    let want = mg_uikit::metrics::RIGHT_DOCK;
+    assert!((w - want).abs() <= 2.0, "the Right Dock is {w} points wide, not {want}");
     // On the area's tiles.
     assert!(h.state().palette.tiles);
-    // With every tab closed, the palette comes back as the only pane.
+    // With every tab closed and the dock folded, Tools › Palettes shows it.
     close_tab(h.state_mut(), &Tab::ModuleProperties);
-    close_tab(h.state_mut(), &Tab::Palette);
-    h.run();
-    tool(&h, "Palettes").click();
-    h.run();
-    assert!(h.state().dock.find_tab(&Tab::Palette).is_some());
+    fold_palette(h.state_mut());
+    settle(&mut h);
+    assert!(!palette_shown(h.state()) && h.state().settings.hide_palettes);
+    menu_command(&mut h, "Tools", "Palettes");
+    settle(&mut h);
+    assert!(palette_shown(h.state()) && !h.state().settings.hide_palettes);
+    h.get_by_label("Palette types");
 }
 
 /// The palette shown last is the one the palettes open on at the next
@@ -1813,7 +1742,7 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
 fn the_palette_shown_last_is_remembered() {
     use mg_module::palette::BlueprintKind;
     let Some((mut h, _)) = plugin_harness("ui-palette-remembered", true) else { return };
-    h.state_mut().open_palette = true;
+    h.state_mut().palette_dock = true;
     h.run_steps(3);
     assert_eq!(h.state().settings.palette_type, None);
     palette_type(&mut h, "Doors");
@@ -1850,7 +1779,7 @@ fn the_palette_shown_last_is_remembered() {
     let settings = h.state().settings.clone();
     let Some((mut again, _)) = plugin_harness("ui-palette-remembered-2", true) else { return };
     again.state_mut().settings = settings;
-    again.state_mut().open_palette = true;
+    again.state_mut().palette_dock = true;
     again.run_steps(3);
     assert_eq!(again.state().palette.kind, BlueprintKind::Door);
     assert!(!again.state().palette.tiles);
@@ -1927,7 +1856,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     app.settings.no_mod_beside_folder = true;
     app.settings.palette_gallery = false;
     app.open_module(&folder);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = kind;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -2501,7 +2430,7 @@ fn the_palette_s_item_pictures_are_kept_by_who_wears_them() {
         app.palette.kind = mg_module::palette::BlueprintKind::Item;
         (app.palette.tiles, app.palette.custom) = (false, false);
         app.palette.filter = "nw_aarcl001".into();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
     }
     h.run_steps(30);
     let drawn = |h: &Harness<'_, Moonglow>| h.state().thumbnails.drawn;
@@ -2626,7 +2555,7 @@ fn a_blueprint_s_resref_and_tag_are_copied_from_the_palette() {
     };
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = mg_module::palette::BlueprintKind::Item;
         app.palette.tiles = false;
         app.palette.custom = false;
@@ -2672,7 +2601,7 @@ fn the_palette_s_blueprint_menu_groups_its_commands_in_submenus() {
     g.root.set("Tag", mg_gff::Value::String(b"MG_GATE_A".to_vec()));
     let made = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(mg_edit::Command::new("setup", vec![made])).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     (app.palette.tiles, app.palette.custom) = (false, true);
     app.palette.filter = "Gate A".into();
@@ -2873,7 +2802,7 @@ fn the_palette_groups_blueprints_by_the_project_s_groupings() {
         })
         .collect();
     app.ws.as_mut().unwrap().apply(Command::new("gates", edits)).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = BlueprintKind::Placeable;
     (app.palette.tiles, app.palette.custom) = (false, false);
     app.palette.filter.clear();

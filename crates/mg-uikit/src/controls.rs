@@ -48,7 +48,7 @@ pub fn tokens_of(style: &Style) -> Tokens {
 
 /// How a check box or radio is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Look {
+pub(crate) struct Look {
     on: bool,
     hovered: bool,
     focused: bool,
@@ -58,7 +58,7 @@ struct Look {
 }
 
 impl Look {
-    fn of(ui: &Ui, response: &Response, on: bool, enabled: bool) -> Self {
+    pub(crate) fn of(ui: &Ui, response: &Response, on: bool, enabled: bool) -> Self {
         let read_only = is_read_only(ui);
         Look {
             on,
@@ -118,6 +118,160 @@ fn focus_ring(painter: &egui::Painter, t: &Tokens, rect: Rect, round: bool) {
         let radius = metrics::RADIUS + 2;
         painter.rect_stroke(rect.expand(2.0), radius, stroke, egui::StrokeKind::Inside);
     }
+}
+
+/// A segmented control: the mock's `.seg`, one of several choices side
+/// by side, 1 point apart, the outer corners rounded (Options › General ›
+/// Open editors). Each choice is drawn `raised` with its words in
+/// `text-2` (`raised-hover` and `text` under the pointer), the one chosen
+/// `accent-fill` with `on-fill` words; the keyboard's focus is an `accent`
+/// ring. `name` names the group to a screen reader (a radio group, as the
+/// label beside it says); `choices` are each a value, its words (its name
+/// as a radio button, selected where chosen) and its tooltip (empty:
+/// none). A click chooses one; as a radio group, the group is one stop of
+/// Tab (the choice chosen), and there Left and Right (Up and Down) go to
+/// the choice before or after and choose it, Home and End to the first and
+/// the last. The whole control's response, changed where a choice was
+/// made. Where no theme was applied, drawn in egui's selection colors.
+pub fn segmented<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+) -> Response {
+    let theme = theme::applied(ui.ctx());
+    let group = ui.make_persistent_id(("mg-segmented", name));
+    let ids: Vec<Id> = (0..choices.len()).map(|i| group.with(i)).collect();
+    let mut changed = false;
+    // (The keys of the choice with the focus: to another, chosen. The
+    // arrows are the group's there, not egui's moves of the focus.)
+    let focused = ids.iter().position(|id| ui.memory(|m| m.has_focus(*id)));
+    if let Some(at) = focused {
+        let arrows = egui::EventFilter {
+            horizontal_arrows: true,
+            vertical_arrows: true,
+            ..Default::default()
+        };
+        ui.memory_mut(|m| m.set_focus_lock_filter(ids[at], arrows));
+    }
+    if let (Some(at), n) = (focused, choices.len()) {
+        let none = egui::Modifiers::NONE;
+        let to = ui.input_mut(|i| {
+            let mut key = |k| i.consume_key(none, k);
+            if key(egui::Key::ArrowRight) || key(egui::Key::ArrowDown) {
+                Some((at + 1) % n)
+            } else if key(egui::Key::ArrowLeft) || key(egui::Key::ArrowUp) {
+                Some((at + n - 1) % n)
+            } else if key(egui::Key::Home) {
+                Some(0)
+            } else if key(egui::Key::End) {
+                Some(n - 1)
+            } else {
+                None
+            }
+        });
+        if let Some(to) = to {
+            if choices[to].0 != *value {
+                *value = choices[to].0;
+                changed = true;
+            }
+            ui.memory_mut(|m| m.request_focus(ids[to]));
+        }
+    }
+    let chosen = choices.iter().position(|c| c.0 == *value).unwrap_or(0);
+    let builder = egui::UiBuilder::new()
+        .id_salt(("mg-segmented-group", name))
+        .layout(egui::Layout::left_to_right(egui::Align::Center));
+    let mut inner = ui.scope_builder(builder, |ui| {
+        let enabled = ui.is_enabled();
+        ui.response().widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
+        ui.spacing_mut().item_spacing.x = if theme.is_some() { 1.0 } else { 2.0 };
+        for (i, (choice, words, tip)) in choices.iter().enumerate() {
+            let on = *value == *choice;
+            let ends = (i == 0, i + 1 == choices.len());
+            let t = theme.map(|t| t.tokens());
+            let mut response = segment(ui, ids[i], t.as_ref(), on, words, ends, i == chosen);
+            if !tip.is_empty() {
+                response = response.on_hover_text(*tip);
+            }
+            if response.clicked() && !on {
+                *value = *choice;
+                changed = true;
+            }
+        }
+    });
+    if changed {
+        inner.response.mark_changed();
+    }
+    inner.response
+}
+
+/// One choice of a [`segmented`] control, `id` its own; `ends` says
+/// whether it is the first and the last (their outer corners rounded);
+/// `stop` whether Tab stops at it (the choice chosen alone). Without the
+/// suite's tokens, in egui's selection and widget colors.
+fn segment(
+    ui: &mut Ui,
+    id: Id,
+    t: Option<&Tokens>,
+    on: bool,
+    words: &str,
+    ends: (bool, bool),
+    stop: bool,
+) -> Response {
+    let galley = egui::WidgetText::from(words).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    );
+    let height = metrics::CONTROL_HEIGHT.max(ui.spacing().interact_size.y);
+    let size = vec2(galley.size().x + 2.0 * metrics::CONTROL_PADDING_X, height);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let sense = if stop { Sense::click() } else { Sense::CLICK };
+    let response = ui.interact(rect, id, sense);
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, on, words));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let hovered = response.hovered() && enabled && !is_read_only(ui);
+    let (fill, text, ring) = match t {
+        Some(t) => {
+            let (fill, text) = match (on, hovered, enabled) {
+                (true, _, true) => (t.accent_fill, t.on_fill),
+                (true, _, false) => (t.accent_fill_off, t.on_fill_off),
+                (false, true, _) => (t.raised_hover, t.text),
+                (false, false, true) => (t.raised, t.text_2),
+                (false, false, false) => (t.raised, t.text_off),
+            };
+            (fill, text, t.accent)
+        }
+        None => {
+            let v = ui.visuals();
+            let w = ui.style().interact_selectable(&response, on);
+            let fill = if on { v.selection.bg_fill } else { w.weak_bg_fill };
+            let text = if on { v.selection.stroke.color } else { w.text_color() };
+            (fill, text, v.selection.stroke.color)
+        }
+    };
+    let r = |rounded: bool| if rounded { metrics::RADIUS } else { 0 };
+    let (first, last) = ends;
+    let corners = egui::CornerRadius { nw: r(first), sw: r(first), ne: r(last), se: r(last) };
+    let painter = box_painter(ui, enabled);
+    painter.rect_filled(rect, corners, fill);
+    let at = rect.center() - galley.size() / 2.0;
+    painter.galley(at, galley, text);
+    if response.has_focus() {
+        let stroke = Stroke::new(1.0, ring);
+        painter.rect_stroke(
+            rect.expand(2.0),
+            metrics::RADIUS + 2,
+            stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+    response
 }
 
 /// A check box: the mock's `.check` (on, `accent-fill` with a white mark;
@@ -308,6 +462,28 @@ fn paint_radio(painter: &egui::Painter, t: &Tokens, center: Pos2, look: Look) {
     }
 }
 
+/// A check box's box in a menu's row that may be lit (`accent-fill`
+/// under it): there, ringed in `on-fill`, so that a box filled
+/// `accent-fill` still shows on the row's fill.
+pub(crate) fn paint_check_lit(ui: &Ui, t: &Tokens, square: Rect, look: Look, lit: bool) {
+    let painter = box_painter(ui, look.enabled);
+    paint_check(&painter, t, square, look, false);
+    if lit {
+        let stroke = Stroke::new(1.0, t.on_fill);
+        painter.rect_stroke(square, metrics::RADIUS, stroke, egui::StrokeKind::Inside);
+    }
+}
+
+/// A radio's circle in a menu's row that may be lit (as
+/// [`paint_check_lit`]).
+pub(crate) fn paint_radio_lit(ui: &Ui, t: &Tokens, center: Pos2, look: Look, lit: bool) {
+    let painter = box_painter(ui, look.enabled);
+    paint_radio(&painter, t, center, look);
+    if lit {
+        painter.circle_stroke(center, BOX / 2.0 - 0.5, Stroke::new(1.0, t.on_fill));
+    }
+}
+
 /// `ui.check_box`, `ui.radio_button` and `ui.radio_choice`: the crate's
 /// [`Checkbox`] and [`RadioButton`] as egui's `ui.checkbox`, `ui.radio`
 /// and `ui.radio_value` are.
@@ -470,11 +646,19 @@ fn themed(style: &Style) -> bool {
 }
 
 /// A menu's style (egui's [`egui::containers::menu::menu_style`], with
-/// the mock's `.menu-row`): rows hovered or open in `accent-fill` with
-/// their words in `on-fill`, 8 px at each end. For `MenuConfig::style`,
-/// and inside a context menu, where egui's own is fixed, through
-/// [`menu_rows`]. Egui's own menu style where the style is not the
-/// theme's.
+/// the mock's `.menu-row`): rows [`metrics::MENU_ROW`] high with no gap
+/// between them, hovered or open in `accent-fill` with their words in
+/// `on-fill`, 8 px at each end; their fills drawn on the rows' own
+/// rectangles, square, so that a lit row meets its neighbors with neither
+/// overlap nor seam (egui's 1 px expansion, and a border, reached a pixel
+/// into the row beside). The menu's popover padded 4 px above and below
+/// and not at the sides ([`crate::menu::MENU_MARGIN`], `.menu-pop`), so
+/// that a lit row's fill reaches its edges: a popup's frame is made from
+/// the style its popup is given, so this is for `MenuConfig::style` and
+/// `Popup::style` (as [`crate::context_menu`] and
+/// [`crate::IconButton::menu`] give it); [`menu_rows`] gives the rows the
+/// rest inside a menu whose style egui fixed. Egui's own menu style where
+/// the style is not the theme's.
 pub fn menu_style(style: &mut Style) {
     egui::containers::menu::menu_style(style);
     if !themed(style) {
@@ -482,13 +666,24 @@ pub fn menu_style(style: &mut Style) {
     }
     let t = tokens_of(style);
     style.spacing.button_padding = vec2(metrics::CONTROL_PADDING_X, 0.0);
+    style.spacing.menu_margin = crate::menu::MENU_MARGIN;
+    style.spacing.item_spacing.y = 0.0;
+    // (Taller where a window made its controls taller with its text.)
+    style.spacing.interact_size.y = style.spacing.interact_size.y.max(metrics::MENU_ROW);
     let w = &mut style.visuals.widgets;
     for state in [&mut w.hovered, &mut w.active, &mut w.open] {
         state.weak_bg_fill = t.accent_fill;
         state.bg_fill = t.accent_fill;
         state.fg_stroke.color = t.on_fill;
     }
-    no_borders(w);
+    // (As `row_style`: no expansion, and so no border either, which egui
+    // takes from the padding and gives back by the expansion.)
+    for state in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        state.expansion = 0.0;
+        state.bg_stroke = Stroke::new(0.0, Color32::TRANSPARENT);
+        state.corner_radius = egui::CornerRadius::ZERO;
+    }
+    style.visuals.selection.stroke.width = 0.0;
 }
 
 /// The menu's style ([`menu_style`]) given to the rows that follow in
@@ -876,6 +1071,118 @@ mod tests {
             assert_eq!(fill.rect.y_range(), tops[0].y_range(), "{theme:?}");
             assert_eq!(fill.corner_radius, egui::CornerRadius::ZERO);
         }
+    }
+
+    /// A menu's rows are 24 apart with no gap (the mock's `.menu-row`;
+    /// they were 22 and a 4 px gap), a hovered row's fill exactly its own
+    /// rectangle, square, and a separator between rows still a line.
+    #[test]
+    fn menu_rows_are_24_apart_and_their_fills_meet() {
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let mut rects = Vec::new();
+            let out = frame(Some(theme), |ui| {
+                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    menu_rows(ui);
+                    assert_eq!(row_pitch(ui), metrics::MENU_ROW, "{theme:?}");
+                    rects.push(ui.button("Undo").rect);
+                    // (Drawn as hovered: the style's hovered state at rest.)
+                    ui.scope(|ui| {
+                        let w = &mut ui.visuals_mut().widgets;
+                        w.inactive = w.hovered;
+                        rects
+                            .push(ui.add(egui::Button::new("Redo").frame_when_inactive(true)).rect);
+                    });
+                    rects.push(ui.add(egui::Button::new("Cut").selected(true)).rect);
+                    ui.separator();
+                    rects.push(ui.button("Paste").rect);
+                });
+            });
+            assert_eq!(rects[0].height(), metrics::MENU_ROW, "{theme:?}");
+            assert_eq!(rects[1].top() - rects[0].top(), metrics::MENU_ROW);
+            assert_eq!(rects[2].top() - rects[1].top(), metrics::MENU_ROW);
+            // (The separator's own 6 between the rows, no gap beside it.)
+            assert_eq!(rects[3].top() - rects[2].bottom(), 6.0, "{rects:?}");
+            let fills: Vec<egui::epaint::RectShape> = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    Shape::Rect(r) if r.fill == t.accent_fill => Some(r.clone()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(fills.len(), 2, "the hovered and the selected rows' fills: {fills:?}");
+            for (fill, row) in fills.iter().zip([rects[1], rects[2]]) {
+                assert_eq!(fill.rect, row, "{theme:?}: a fill on its row alone");
+                assert_eq!(fill.corner_radius, egui::CornerRadius::ZERO);
+                assert!(fill.stroke.width == 0.0 || fill.stroke.color.a() == 0);
+            }
+        }
+    }
+
+    /// A menu holding a form keeps a control's height and the mock's
+    /// `.pop-body` gap (6) between its parts, its controls a form's (the
+    /// window's style: a button framed at rest, not a menu's flat row);
+    /// where the window made its controls taller with its text (the
+    /// context's style while the menu is drawn), theirs.
+    #[test]
+    fn a_menu_s_form_keeps_its_gaps() {
+        let _ = frame(Some(crate::Theme::Dark), |ui| {
+            let window = ui.ctx().global_style();
+            menu_style(ui.style_mut());
+            crate::menu_form(ui, |ui| {
+                assert_eq!(ui.spacing().item_spacing.y, crate::menu::MENU_FORM_GAP);
+                assert_eq!(ui.spacing().interact_size.y, metrics::CONTROL_HEIGHT);
+                let t = crate::Theme::Dark.tokens();
+                let w = &ui.visuals().widgets;
+                assert_eq!(w.inactive.weak_bg_fill, window.visuals.widgets.inactive.weak_bg_fill);
+                assert_ne!(w.inactive.weak_bg_fill, egui::Color32::TRANSPARENT);
+                assert_ne!(w.hovered.weak_bg_fill, t.accent_fill, "a form's button, not a row");
+            });
+        });
+        let _ = frame(None, |ui| {
+            let before = ui.style().clone();
+            crate::menu_form(ui, |ui| {
+                assert_eq!(*ui.style(), before, "egui's own without the theme");
+            });
+        });
+    }
+
+    /// A menu's form under a window's larger text (Options › Conversation
+    /// Editor's size: the context's style is the window's while it is
+    /// drawn) keeps the window's taller controls, not a control's 22.
+    #[test]
+    fn a_menu_s_form_keeps_a_larger_text_s_height() {
+        let ctx = egui::Context::default();
+        crate::apply(&ctx, crate::Theme::Dark);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let tall = 34.0;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.ctx().global_style_mut(|s| s.spacing.interact_size.y = tall);
+            ui.spacing_mut().interact_size.y = tall;
+            menu_style(ui.style_mut());
+            crate::menu_form(ui, |ui| {
+                assert_eq!(ui.spacing().interact_size.y, tall);
+                // (A button as tall; a field takes its height from its
+                // text, which a larger text makes taller itself.)
+                let button = ui.button("Paste").rect;
+                assert_eq!(button.height(), tall, "{button:?}");
+            });
+        });
+        out.textures_delta.clear();
+    }
+
+    /// A menu bar's titles keep the mock's 22 px (`.menu`), its rows'
+    /// 24 not reaching them.
+    #[test]
+    fn menu_titles_stay_22_high() {
+        let mut style = crate::theme::style(crate::Theme::Dark, &Style::default());
+        menu_bar_style(&mut style);
+        assert_eq!(style.spacing.interact_size.y, metrics::MENU_TITLE);
+        let mut rows = crate::theme::style(crate::Theme::Dark, &Style::default());
+        menu_style(&mut rows);
+        assert_eq!(rows.spacing.interact_size.y, metrics::MENU_ROW);
+        assert_eq!(rows.spacing.item_spacing.y, 0.0);
     }
 
     /// A table of fields: its rows 22 high, a 1 px line of the panel

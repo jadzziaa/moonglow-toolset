@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:10:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
 ---
 
 # Modules
@@ -23,8 +23,7 @@ a directory), nasher projects (see below) and the game's campaign files
   their own (a hak, a 2DA, a tileset: by their files), the Options,
   References (its search made again), the Placeable Gallery, Tile
   Properties, a tile's view and a hak's copy of a resource, in the same
-  order and places (the main pane, the palettes' pane, a pane split off
-  the main pane, the windows, each where it was, with the same tabs,
+  order and places (the main pane, a pane split off the main pane, the windows, each where it was, with the same tabs,
   and split into the same panes), each pane's tab in front in front,
   and the one that had the keys has them again. Each shows what it
   showed: an area's view its camera where it was, a script its scroll,
@@ -111,7 +110,7 @@ a directory), nasher projects (see below) and the game's campaign files
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
   are the scripts that include it, a few at a time while you go on
-  working, however many a checkout changed (the status bar says
+  working, however many a checkout changed (the Status Bar says
   *Compiling scripts changed outside Moonglow…*; with an external
   compiler, which is run once for them all, they are compiled as Compile
   All is, and the log says so). A module that had no unsaved
@@ -944,7 +943,7 @@ module's own (only a hak's, or the override's).
 
 A **grouping** shows a palette's blueprints under groups of the team's
 own, beside their categories: TDoD's placeables by what each one is
-(Tables, Seats, Food) as well as by theme. The palette pane's
+(Tables, Seats, Food) as well as by theme. The palette's
 [Group by](05-blueprints.md#grouped-another-way-group-by) offers each
 grouping in the palettes it is for. Nothing is copied and no palette
 file changes: the game, the DM's Creator and Aurora show the categories
@@ -1364,7 +1363,7 @@ the file, `run_tests` as Run tests), `key` (the keys it asks for, as
 Options › Keyboard writes them), `writes = false` (it writes none of
 the module's files, as a submit: the haks stay open while it runs) and
 `input = true` (it reads what you type: see step 4 below). The
-commands are in the **Command Palette** too, under Project, and in
+commands are in **Quick Open** too, under Project, and in
 **Options › Keyboard** under Project Commands, where the keys you choose
 take the place of `key` (kept by the command's name, so a team's
 `update` keeps its key from one project to the next; since Moonglow
@@ -1735,9 +1734,10 @@ module's talk table:
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do
-  Ctrl+Z and Ctrl+Y with the pointer over the editor. (The table is a
-  file of its own: elsewhere, and in the main toolbar, Undo is the
-  module's.)
+  Ctrl+Z and Ctrl+Y with the pointer over the editor, and the Top Bar's
+  and Edit › Undo after you last worked in it. (The table is a file of
+  its own: elsewhere, Undo is the module's: see Undo and redo in
+  [The main window](02-main-window.md#tabs-and-windows).)
 - **Export CSV…** writes the lines to a file for a spreadsheet or a
   translator: each line's StrRef, text (and feminine text), sound and
   sound length. **Import CSV…** reads such a file back: each row sets
@@ -1964,7 +1964,8 @@ A 2DA is edited where it lives, and the game's own tables are never
 changed:
 
 - **A table of one of the module's haks:** open the table in the
-  resource browser (Tools › Resource Browser, and its name) and choose
+  resource browser (the Left Dock's Resources tab, or Tools › Resource
+  Browser; its name in the Name field) and choose
   **Edit… › The Table of *name*.hak**: the hak opens in the hak editor
   and its table in the 2DA editor. (Or, with the hak open in the hak
   editor already, right-click the `.2da` there and choose **Edit

@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:38:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T04:39:23Z }
 ---
 
 # Plugin API reference
@@ -271,7 +271,7 @@ whole module anyway.
 
 | | |
 | --- | --- |
-| `ctx.selection` | What the command is run on: a list of entries (below), from 1. From a right-click menu (a command whose manifest says what it is `for`), what the menu was opened on: the objects selected in the area view (a right-click on an object selects it, as for every command of that menu), the blueprints chosen in a palette (Ctrl+click chooses several), the object or blueprint of a row of the module tree (or of each of the rows chosen), an area, the tiles selected in an area's view (since API 0.5), every blueprint of a palette's category or every resource of a group of the module tree (since 0.5), what a Properties window edits (its tab's menu; since 0.5), the script open (the script editor's menu; since 0.5), or what a row of Find References or of Advanced Search is on (the ticked ones, where it is one of them; since 0.5). From the Plugins menu, the Command Palette or a key: what is chosen in the pane last clicked in (the module tree, a palette, an area's view: its objects, or in tile mode its tiles; since 0.5), else the objects selected in the area view in front, else the blueprints selected in the palette, else none. Empty in a check and in an event's handler. |
+| `ctx.selection` | What the command is run on: a list of entries (below), from 1. From a right-click menu (a command whose manifest says what it is `for`), what the menu was opened on: the objects selected in the area view (a right-click on an object selects it, as for every command of that menu), the blueprints chosen in a palette (Ctrl+click chooses several), the object or blueprint of a row of the module tree (or of each of the rows chosen), an area, the tiles selected in an area's view (since API 0.5), every blueprint of a palette's category or every resource of a group of the module tree (since 0.5), what a Properties window edits (its tab's menu; since 0.5), the script open (the script editor's menu; since 0.5), or what a row of Find References or of Advanced Search is on (the ticked ones, where it is one of them; since 0.5). From the Plugins menu, Quick Open or a key: what is chosen in the pane last clicked in (the module tree, a palette, an area's view: its objects, or in tile mode its tiles; since 0.5), else the objects selected in the area view in front, else the blueprints selected in the palette, else none. Empty in a check and in an event's handler. |
 | `ctx.values` | The values of the fields of the panel the command was run from (a button's, a list item's or a field's command; since API 0.9), by field id, as a form's come back: text, a number, true or false, a choice's text, a color as `"#rrggbb"`. An empty table for a command run from anywhere else (a menu, a key, a fix, `mg plugin run`), and in every other handler. |
 | `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area; an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`); a copy the resource browser opened as one layer has it (an overridden copy, read-only), that resource with its type as `kind` and its `layer`. Several edited together in one Properties window: the first, with `together` listing them all (since API 0.5). |
 
@@ -342,7 +342,7 @@ would write what nobody saw. So around a save a plugin only reads: a
 `resource-saving` or `resource-saved` handler that edits fails (as one
 that sets a setting before a save does), and what it would change it
 offers as a fix, made only if the user clicks it. A fix made from the
-Before saving window is a step of Undo of its own, and the save is then
+Before Saving window is a step of Undo of its own, and the save is then
 asked again: the plugins read the module as it now is.
 
 **In what order.** Moonglow's own work comes first: the builder code in

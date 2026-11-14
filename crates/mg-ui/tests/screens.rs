@@ -49,8 +49,9 @@ fn picture_dir(dir: &std::path::Path) -> std::path::PathBuf {
         return dir.to_path_buf();
     }
     let name = dir.file_name().expect("a folder");
-    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output");
-    let light = out.join("screens-light").join(name);
+    // (Where the tests write, `MOONGLOW_TEST_OUTPUT` where it is set: the
+    // light pictures of a run beside another went to the other's folder.)
+    let light = mg_testkit::test_output().join("screens-light").join(name);
     std::fs::create_dir_all(&light).unwrap();
     light
 }
@@ -97,11 +98,12 @@ fn at_rest(h: &mut Harness<'_, Moonglow>, rect: impl Fn(&Harness<'_, Moonglow>) 
     }
 }
 
-/// Whether `n` is in the main toolbar or the area view's.
+/// Whether `n` is on the Top Bar, the Left Dock's tab bar (the Module
+/// panel's header buttons) or the area view's toolbar.
 fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Toolbar" | "Area toolbar")) {
+        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area toolbar")) {
             return true;
         }
         up = p.parent();
@@ -117,6 +119,13 @@ fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<
     h.query_all_by_label(name)
         .find(|n| !in_toolbar(n))
         .unwrap_or_else(|| panic!("no {name} apart from the toolbars"))
+}
+
+/// Whether `n` is a dropdown's or a list's Filter field (its placeholder
+/// "Filter"), not the module tree's, which says the same and is named
+/// "Filter Module Tree".
+fn list_filter(n: &egui_kittest::kittest::AccessKitNode<'_>) -> bool {
+    n.placeholder() == Some("Filter") && n.label().as_deref() != Some("Filter Module Tree")
 }
 
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
@@ -323,7 +332,7 @@ fn module_properties_haks() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -367,7 +376,7 @@ fn window_bar_maximize_and_an_older_hak() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -435,7 +444,7 @@ fn nwsync_publish_and_prune() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.background_jobs = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 640.0))
@@ -672,7 +681,7 @@ fn add_hak_filtered() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))
         .wgpu()
@@ -742,7 +751,7 @@ fn widgets_keys_searches_and_arrows() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 700.0))
         .wgpu()
@@ -777,12 +786,12 @@ fn widgets_keys_searches_and_arrows() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
 
-    let mut finder = mg_ui::commands::Finder::default();
-    finder.filter = "module".into();
-    h.state_mut().command_palette = Some(finder);
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run_steps(3);
+    h.event(egui::Event::Text("module".into()));
     h.run_steps(3);
     shoot(&mut h, &dir, "command-palette-typed");
-    h.state_mut().command_palette = None;
+    h.key_press(egui::Key::Escape);
     h.run_steps(2);
 
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(script)));
@@ -968,7 +977,12 @@ fn table_take_cells_and_strings() {
     h.run_steps(4);
     h.get_by_label("Choose String…").click();
     h.run_steps(3);
-    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .rect()
+        .center();
     h.hover_at(field);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
@@ -1062,7 +1076,10 @@ fn table_read_only_and_column_widths() {
     h.key_press(egui::Key::ArrowRight);
     h.run_steps(3);
     shoot(&mut h, &dir, "2da-read-only-selected");
-    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     let field = field.rect().center();
     h.hover_at(field);
     for pressed in [true, false] {
@@ -1177,7 +1194,10 @@ fn described_table() {
          \"row\"\ntable = \"classes\"\n",
     )
     .unwrap();
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The log closed: its first line, cut by the table's window, showed
+    // at the window's left.)
+    app.settings.hide_log = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280.0, 800.0))
         .wgpu()
@@ -1391,7 +1411,10 @@ fn dialog_parameter_sets() {
     h.run_steps(3);
     h.get_by_label("Save Set…").click();
     h.run_steps(3);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Strength check");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Strength check");
     shoot(&mut h, &dir, "dialog-parameter-sets-save");
     // (The name's Cancel, in its row: the editor has one too.)
     let row = h.get_by_label("Set name").rect().center().y;
@@ -1516,7 +1539,7 @@ fn talk_table_new_in_a_project() {
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 600.0))
         .wgpu()
@@ -1649,6 +1672,9 @@ fn options_window() {
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let automatic =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
+    // (Below the Editors section: brought into sight, its list below it.)
+    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    h.run();
     h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
     shoot(&mut h, &dir, "options-general-graphics-backend");
     h.key_press(egui::Key::Escape);
@@ -1735,6 +1761,7 @@ fn project_commands_and_team_prefix() {
     h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
     h.run();
     h.event(egui::Event::Text("pro".into()));
+    h.run();
     shoot(&mut h, &dir, "project-commands-palette");
     h.key_press(egui::Key::Escape);
     h.run();
@@ -2034,7 +2061,7 @@ fn area_creatures_game_shaders() {
         app.settings.game_shaders = Some(on);
         app.set_render_state(rs.clone());
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1400.0, 900.0))
@@ -2101,7 +2128,7 @@ fn palette_hover_preview() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     app.palette.tiles = false;
     app.palette.filter = "plc_chest1".into();
@@ -2191,7 +2218,7 @@ fn palettes() {
     let dir = mg_testkit::output_dir("screens");
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.filter = "bear".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
@@ -2220,7 +2247,7 @@ fn gallery_framed() {
     app.set_render_state(rs.clone());
     app.settings.palette_gallery = true;
     app.settings.game_shaders = Some(false);
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -2286,7 +2313,7 @@ fn palette_blueprint_copied_in() {
     app.settings.no_mod_beside_folder = true;
     app.settings.palette_gallery = false;
     app.open_module(&folder);
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Item;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -2672,7 +2699,7 @@ fn dds_only_icon() {
         );
         app.set_render_state(rs.clone());
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         let key = ResKey::parse(&format!("mg_icon_{n}"), ResType::UTI).unwrap();
         app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
@@ -2791,7 +2818,7 @@ fn pictured_blueprint(
     let path = dir.join(format!("{name}-pictured.mod"));
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let key = ResKey::parse(name, t).unwrap();
     app.blueprint_pages.insert((key, GffPath::root()), page);
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
@@ -2833,7 +2860,7 @@ fn hover_list_row(
     // (A long list's: its Filter field, at once above or below the box.
     // A short list's rows are all in sight.)
     let filter = h
-        .query_all_by(|n| n.placeholder() == Some("Filter"))
+        .query_all_by(list_filter)
         .map(|n| n.rect())
         .find(|r| (r.left() - list.left()).abs() < 20.0);
     let in_sight = |r: egui::Rect| match filter {
@@ -3027,7 +3054,7 @@ fn shown_on_a_woman() {
         app.palette.kind = mg_module::palette::BlueprintKind::Item;
         (app.palette.tiles, app.palette.custom) = (false, false);
         app.palette.filter = "nw_aarcl0".into();
-        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+        show_palette(app);
     }
     for woman in [false, true] {
         h.state_mut().settings.armor_on_woman = woman;
@@ -3048,7 +3075,7 @@ fn appearance_list_opened() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
-    app.open_palette = false;
+    app.palette_dock = false;
     let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
     let mut h = Harness::builder()
@@ -3098,7 +3125,7 @@ fn cast_spell_subtypes_opened() {
     let path = dir.join(format!("{name}.mod"));
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let key = ResKey::parse(name, t).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
     let mut h = Harness::builder()
@@ -3420,7 +3447,7 @@ fn inventory_pages_narrow() {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.settings.no_inventory_warning = true;
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         let (key, at) = match &tab {
             mg_ui::Tab::Instance { path, .. } => (git, path.clone()),
             _ => (bandit, GffPath::root()),
@@ -3457,7 +3484,7 @@ fn classes_narrow() {
     let path = mg_testkit::scratch_dir("screens-classes-narrow").join("classes.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.blueprint_pages.insert((key, GffPath::root()), "Classes");
     let tab = mg_ui::Tab::Blueprint(key);
     app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -3497,7 +3524,7 @@ fn gallery_far_appearance() {
     let path = mg_testkit::scratch_dir("screens-gallery-far").join("gallery.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
@@ -3529,7 +3556,7 @@ fn viewed_blueprint_typing() {
     m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
         .wgpu()
@@ -3620,7 +3647,7 @@ fn mixed_marks() {
         let path = mg_testkit::scratch_dir("screens-mixed-marks").join(format!("{name}.mod"));
         m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1000.0, 760.0))
@@ -3799,7 +3826,7 @@ fn lists_together() {
         let path = mg_testkit::scratch_dir("screens-lists-together").join(format!("{slug}.mod"));
         m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
         app.blueprint_pages.insert((keys[0], GffPath::root()), page);
         let mut h = Harness::builder()
@@ -4125,11 +4152,11 @@ fn script_beside_the_palette_pane() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    for tab in [
-        mg_ui::Tab::Palette,
-        mg_ui::Tab::Manual,
-        mg_ui::Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap()),
-    ] {
+    show_palette(h.state_mut());
+    h.run();
+    for tab in
+        [mg_ui::Tab::Manual, mg_ui::Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap())]
+    {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
         h.run();
     }
@@ -4960,7 +4987,7 @@ fn conversation_and_factions_in_both_themes() {
         app.settings.no_last_area = true;
         app.settings.light_theme = light;
         app.open_module(&root.join("data/nwm/Prelude.nwm"));
-        app.open_palette = false;
+        app.palette_dock = false;
         let dlg = ResKey::parse("m0q01a02olge", ResType::DLG).unwrap();
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(dlg)));
         let mut h = Harness::builder()
@@ -5128,7 +5155,7 @@ fn exact_tiles_and_tile_height() {
     h.run_steps(3);
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(5);
     if let Some(row) = h.query_by_label("Palette types") {
         row.get_by_label("Tiles").click();
@@ -5268,9 +5295,10 @@ fn view_menu() {
 #[test]
 #[ignore]
 fn toolbar_icons_only() {
-    // Options › General › Toolbar buttons: the main toolbar and an area's,
+    // Options › General › Editors' toolbar buttons: an area's toolbar
     // with icons and text, then icons only (in the same tab, and in a
-    // narrow one), and a glyph's tip.
+    // narrow one), and a glyph's tip; the Top Bar, icons either way, and
+    // one of its tips.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
@@ -5302,7 +5330,8 @@ fn toolbar_icons_only() {
     h.hover_at(center(&h, "Shaders"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-tip");
-    h.hover_at(center(&h, "Palettes"));
+    let save = h.get_by_label("Top Bar").get_by_label("Save").rect().center();
+    h.hover_at(save);
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-main-tip");
     h.set_size(egui::vec2(1000.0, 700.0));
@@ -5594,7 +5623,7 @@ fn palette_categories_window() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -5779,7 +5808,7 @@ fn creature_appearance_inline() {
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
-    app.open_palette = false;
+    app.palette_dock = false;
     let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
     app.blueprint_pages.insert((utc, mg_edit::GffPath::root()), "Appearance");
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
@@ -5830,7 +5859,9 @@ fn tiles_palette_group_search() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("Palette types").get_by_label("Tiles").click();
+    // (The tiles palette: in a window under 1400 its types are a
+    // dropdown, M3 T14.)
+    h.state_mut().palette.tiles = true;
     h.run_steps(2);
     h.state_mut().palette.filter = "tcm02_s01_05".into();
     h.run_steps(5);
@@ -5876,7 +5907,9 @@ fn crosser_cursor() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("Palette types").get_by_label("Tiles").click();
+    // (The tiles palette: in a window under 1400 its types are a
+    // dropdown, M3 T14.)
+    h.state_mut().palette.tiles = true;
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: tile (1, 1) slopes up to its
     // west.
@@ -6078,7 +6111,7 @@ fn area_properties_advanced() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Advanced");
     // (A loading screen with a picture, to see it under the choice.)
@@ -6130,7 +6163,7 @@ fn area_properties_grass() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Grass");
     let git = ResKey::new(area, ResType::GIT);
@@ -6744,14 +6777,21 @@ fn readme_screenshots() {
         app.open_module(&chapter);
         // (The area's shot opens the palette beside it; the others are
         // windows alone.)
-        app.open_palette = false;
+        app.palette_dock = false;
         let mut h = Harness::builder()
             // (The README's pictures are cut from (8, 8) to (1592, 808),
-            // above the log, as JPEG at quality 88 or PNG of 256 colors.)
-            .with_size(egui::vec2(1600.0, 976.0))
+            // above the log, as JPEG at quality 88 or PNG of 256 colors:
+            // 1022 high since the shell (M3), whose Bottom Dock begins 46
+            // points higher, under the editor area, over the Status Bar.)
+            .with_size(egui::vec2(1600.0, 1022.0))
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(3);
+        // (Module Properties, which the module opens in the editor area,
+        // closed: its OK and Cancel showed under the floating windows.)
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+        h.run_steps(3);
+        assert!(h.state().dock.find_tab(&mg_ui::Tab::ModuleProperties).is_none());
         h
     };
     let key = |name: &str, t: ResType| ResKey::parse(name, t).unwrap();
@@ -6761,7 +6801,7 @@ fn readme_screenshots() {
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.run_steps(3);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    show_palette(h.state_mut());
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
     h.state_mut().palette.tiles = false;
     h.run_steps(5);
@@ -6843,27 +6883,6 @@ fn narrow(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab) {
     }
     place(h, tab, (150.0, 60.0), (420.0, 620.0));
     h.run_steps(4);
-}
-
-/// The Command Palette over the window, something typed
-/// (`target/test-output/screens/command-palette.png`).
-#[test]
-#[ignore]
-fn command_palette() {
-    mg_testkit::gpu::hold();
-    let dir = mg_testkit::scratch_dir("screens-command-palette");
-    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    let mut finder = mg_ui::commands::Finder::default();
-    finder.filter = "mod".into();
-    app.command_palette = Some(finder);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
-    h.key_press(egui::Key::ArrowDown);
-    h.run();
-    shoot(&mut h, &dir, "command-palette");
 }
 
 /// The Plugins window with the plugin host's fixture plugins installed and
@@ -6955,7 +6974,7 @@ fn plugin_kinds() {
         app.enable_plugin(id, true);
     }
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -7070,7 +7089,7 @@ fn project_plugins() {
         Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
     app.load_plugins();
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))
         .wgpu()
@@ -7549,7 +7568,7 @@ fn nui_delete_and_rename() {
     h.run_steps(4);
     h.get_by_label("Edit Code").click();
     h.run();
-    assert!(h.query_by_label_contains("shop_e.nss").is_some(), "the event script opened");
+    assert!(h.query_by_label("shop_e.nss").is_some(), "the event script opened");
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();
     h.event(egui::Event::Text("// typed\n".into()));
@@ -7986,7 +8005,7 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
     for (name, folder) in [("aurora", &plain), ("project", &project)] {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.open_module(folder);
-        app.open_palette = false;
+        app.palette_dock = false;
         mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
         if name == "aurora" {
             app.store_wizard.as_mut().unwrap().store =
@@ -8128,7 +8147,7 @@ fn variable_sets() {
     let path = scratch.join("sets.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.var_set_dir = Some(sets.clone());
     let mut edit = VarTableEdit::new(FieldTarget::new(key, GffPath::root(), "VarTable"), &[]);
     edit.rows = vec![row("MG_LOOT", 1, "9"), row("MG_GREETING", 3, "Well met")];
@@ -8226,7 +8245,7 @@ fn described_variables_and_the_builder_code() {
     for (name, folder) in [("plain", &plain), ("described", &project)] {
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.open_module(folder);
-        app.open_palette = false;
+        app.palette_dock = false;
         let path = GffPath::root().item("Placeable List", 0);
         let mut edit = VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]);
         edit.rows = rows();
@@ -8325,7 +8344,7 @@ fn claims_and_project_commands() {
     app.settings.game_shaders = Some(false);
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(areas[0])));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 760.0))
@@ -8424,7 +8443,7 @@ fn plugin_save_warning() {
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.plugin_dir =
         Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples"));
     app.load_plugins();
@@ -8491,7 +8510,7 @@ fn armor_part_none() {
     let path = dir.join("armor.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
     app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
     let mut h = Harness::builder()
@@ -8580,7 +8599,7 @@ fn pictures_a_hak_and_the_module_both_have() {
     );
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
         .wgpu()
@@ -8633,8 +8652,8 @@ fn browser_overridden_copies() {
     );
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resources));
+    app.palette_dock = false;
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
     app.browser.filter = "portraits".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 700.0))
@@ -8658,10 +8677,10 @@ fn browser_overridden_copies() {
 #[test]
 #[ignore]
 fn panes_folded() {
-    // GitHub issue 10: each pane beside the area (the module tree, the
-    // palettes, the log) shown and folded away (View's keys: Ctrl+Alt+1, 2
-    // and 3; 0 for all), in a wide window, a narrow one and at a high-DPI
-    // scale.
+    // GitHub issue 10: each dock and pane beside the area (the Left
+    // Dock, the palettes, the Bottom Dock's log) shown and folded away
+    // (View's keys: Ctrl+Alt+1, 2 and 3; 0 for all), in a wide window, a
+    // narrow one and at a high-DPI scale.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
@@ -8687,13 +8706,16 @@ fn panes_folded() {
             .with_pixels_per_point(scale)
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        // (The Left Dock unfolded by hand, as a builder looking at it in a
+        // window under 1500 has it: M3 T14.)
+        unfold_left_dock(&mut h);
         h.run_steps(3);
         let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
         h.run_steps(10);
         shoot(&mut h, &dir, &format!("panes{name}-shown"));
-        // (The tree's button under the pointer, lit.)
-        h.get_by_label("Fold Module Tree").hover();
+        // (The Left Dock's fold button under the pointer, lit.)
+        h.get_by_label("Fold the Left Dock").hover();
         h.run_steps(30);
         shoot(&mut h, &dir, &format!("panes{name}-hover"));
         for (key, pane) in
@@ -8710,23 +8732,9 @@ fn panes_folded() {
         shoot(&mut h, &dir, &format!("panes{name}-all-folded"));
         h.key_press_modifiers(keys, egui::Key::Num0);
         h.run_steps(4);
-        if !name.is_empty() {
-            continue;
-        }
-        // The palettes split off the middle's left: their button on their
-        // right edge, and their strip at the left.
-        {
-            let dock = &mut h.state_mut().dock;
-            let palettes = dock.find_tab(&mg_ui::Tab::Palette).unwrap();
-            dock.remove_tab(palettes);
-            let node = dock.find_tab(&mg_ui::Tab::Area(area)).unwrap().node;
-            dock.main_surface_mut().split_left(node, 0.25, vec![mg_ui::Tab::Palette]);
-        }
-        h.run_steps(4);
-        shoot(&mut h, &dir, "panes-palettes-left-shown");
-        h.key_press_modifiers(keys, egui::Key::Num2);
-        h.run_steps(4);
-        shoot(&mut h, &dir, "panes-palettes-left-folded");
+        // (The palettes split off the middle's left, the pictures
+        // `panes-palettes-left-*` of before: the palettes are the Right
+        // Dock's panel since M3 T5, fixed there by ruling R5.)
     }
 }
 
@@ -8800,6 +8808,9 @@ fn module_tree_several_conversations() {
         .with_size(egui::vec2(1100.0, 700.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(3);
     let right_click = |h: &mut Harness<'_, Moonglow>, label: &str| {
         h.get_by_label(label).hover();
@@ -8885,6 +8896,9 @@ fn module_tree_long_names() {
         .with_size(egui::vec2(1100.0, 760.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(5);
     // (The Areas clicked, which gives the tree the keys, and opened.)
     h.get_by_label_contains("Areas (").click();
@@ -8960,7 +8974,7 @@ fn talk_table_kept_in_a_project() {
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -9009,7 +9023,7 @@ fn area_properties_audio_dropdown() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Audio");
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
@@ -9033,7 +9047,7 @@ fn area_properties_audio_dropdown() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     // The Filter field's width, and the widest row's under it.
     let widths = |h: &Harness<'_, Moonglow>| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -9100,7 +9114,7 @@ fn appearance_dropdown_frames() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let data = app.game.as_deref().unwrap().resman.get_named("plc_chest1", ResType::UTP).unwrap();
     let key = ResKey::parse("chest_width", ResType::UTP).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(data.into_owned()) };
@@ -9123,7 +9137,7 @@ fn appearance_dropdown_frames() {
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
     }
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let filter =
         |h: &Harness<'_, Moonglow>| h.get(egui_kittest::kittest::by().predicate(hint)).rect();
     // (The click opens it in a pass that measures it, unseen.)
@@ -9178,7 +9192,7 @@ fn area_shadows_menu() {
         app.settings.toolbar_icons_only = icons_only;
         app.set_render_state(rs.clone());
         app.open_module(&path);
-        app.open_palette = false;
+        app.palette_dock = false;
         app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
         let mut h = Harness::builder()
             .with_size(egui::vec2(1400.0, 700.0))
@@ -9204,11 +9218,12 @@ fn area_shadows_menu() {
 }
 
 /// The main window's log and module tree as the deferred sprint's third
-/// package left them (`w3-` pictures): the log's corner buttons; the tree
-/// following a script far down the list (brought up from below), Module
-/// Properties' tab, a tab of several blueprints and a script the Filter
-/// hides; the Filter finding placed objects in areas not opened out; rows
-/// chosen with Shift and Ctrl, and their menu.
+/// package left them (`w3-` pictures): the log's buttons on the Bottom
+/// Dock's tab bar; the tree following a script far down the list
+/// (brought up from below), Module Properties' tab, a tab of several
+/// blueprints and a script the Filter hides; the Filter finding placed
+/// objects in areas not opened out; rows chosen with Shift and Ctrl, and
+/// their menu.
 #[test]
 #[ignore]
 fn main_window_log_and_tree() {
@@ -9218,7 +9233,7 @@ fn main_window_log_and_tree() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
-    app.open_palette = false;
+    // (The Right Dock beside the tree, as the palettes' pane was.)
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     for n in 0..30 {
         app.log.info(format!("Line {n} of what was said"));
@@ -9228,6 +9243,9 @@ fn main_window_log_and_tree() {
         .with_size(egui::vec2(1100.0, 760.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(5);
     shoot(&mut h, &dir, "w3-log");
     // (Each window to the right, the tree in sight.)
@@ -9252,7 +9270,10 @@ fn main_window_log_and_tree() {
     // The Filter typed: placed objects found, then a script it hides
     // chosen.
     // (The tree's Filter is the first text field.)
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
     h.run_steps(2);
     h.event(egui::Event::Text("gangleader".into()));
     h.run_steps(8);
@@ -9262,6 +9283,24 @@ fn main_window_log_and_tree() {
     // Rows chosen with Shift and Ctrl, and their menu.
     h.get_by_label("Clear Filter").click();
     h.run_steps(4);
+    shoot(&mut h, &dir, "w3-tree-filter-cleared");
+    // (The tree stays at the tab chosen, a script far down the list:
+    // the areas' rows are up out of sight, and the tree lays out the rows
+    // in sight alone. Scrolled up to them by the wheel, as a builder
+    // would; a wheel's turn a step.)
+    let started = std::time::Instant::now();
+    let over_tree = egui::pos2(120.0, 300.0);
+    h.hover_at(over_tree);
+    while h.query_by_label("estate").is_none() {
+        assert!(started.elapsed().as_secs() < 30, "estate never came into sight");
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 200.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
     let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
         let at = h.get_by_label(label).rect().center();
         h.hover_at(at);
@@ -9391,7 +9430,7 @@ fn open_script_menu() {
     app.settings.no_last_area = true;
     app.settings.tree_stays = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(hello)));
     let mut h = Harness::builder()
@@ -9432,7 +9471,7 @@ fn script_selection_menu() {
     app.settings.no_last_area = true;
     app.settings.tree_stays = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 600.0))
@@ -9562,7 +9601,7 @@ fn setup_store_project_blueprint_far_down() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
@@ -9634,6 +9673,9 @@ fn module_tree_unlisted_area() {
         .with_size(egui::vec2(1100.0, 760.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(5);
     shoot(&mut h, &dir, "tree-unlisted-area");
     let row = h.get_all_by_label("chess2").last().unwrap().rect().center();
@@ -9702,7 +9744,7 @@ fn dialog_windows() {
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&folder);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -9845,7 +9887,7 @@ fn editors_ok_and_cancel() {
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .wgpu()
@@ -9920,7 +9962,7 @@ fn properties_window_at_125_percent() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let tab = mg_ui::Tab::AreaProperties(area);
     app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
     let mut h = Harness::builder()
@@ -10001,6 +10043,9 @@ fn grouped_context_menus() {
         .with_size(egui::vec2(1300.0, 820.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(8);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
@@ -10049,6 +10094,14 @@ fn grouped_context_menus() {
         shoot(&mut h, &dir, &format!("menu-palette-{file}"));
         close(&mut h);
     }
+    // (The Areas group's well at its top, its area's row in sight: the
+    // waypoint selected above scrolled it to the waypoint's row, which a
+    // well as short as the Module panel over the Outliner leaves it, M3
+    // T13. Home with the pointer over the well.)
+    let well = h.get_by_label_contains("Areas (").rect().center() + egui::vec2(0.0, 30.0);
+    h.hover_at(well);
+    h.key_press(egui::Key::Home);
+    h.run_steps(4);
     let row = h
         .get_all_by_label(&area.to_string())
         .map(|n| n.rect())
@@ -10109,7 +10162,7 @@ fn typed_text_talk_table() {
     app.settings.no_last_area = true;
     app.settings.talk_typed = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .wgpu()
@@ -10186,7 +10239,7 @@ fn script_editor_large() {
     let install = mg_testkit::nwn_root().map(|root| GameInstall::new(&root, None, "en"));
     let mut app = Moonglow::new(install, Box::new(NoDialogs::default()));
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
@@ -10301,8 +10354,8 @@ names = ["bed", "beds", "cot", "bedroll"]
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
-    app.open_palette = true;
-    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette_dock = true;
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     (app.palette.tiles, app.palette.custom) = (false, false);
     app.palette.filter.clear();
@@ -10351,7 +10404,7 @@ fn theme_read_only_focus_and_tabs() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
         .wgpu()
@@ -10430,8 +10483,8 @@ fn theme_read_only_focus_and_tabs() {
 
 /// Windows at the sizes they open at, on a screen with room for them
 /// (`target/test-output/screens-theme-rows/`): a conversation, a script,
-/// the Factions, a creature's blueprint and its raw fields, the Journal,
-/// the Resources and the manual, each alone, to see what each shows at
+/// the Factions, a creature's blueprint and its raw fields, the Journal
+/// and the manual, each alone, to see what each shows at
 /// its height (`Tab::window_size`).
 #[test]
 #[ignore]
@@ -10448,7 +10501,7 @@ fn windows_at_their_sizes() {
     app.set_render_state(rs.clone());
     app.settings.no_last_area = true;
     app.open_module(&root.join("data/nwm/Prelude.nwm"));
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1700.0, 1300.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -10464,7 +10517,6 @@ fn windows_at_their_sizes() {
         (mg_ui::Tab::Blueprint(*creature), "creature"),
         (mg_ui::Tab::Journal, "journal"),
         (mg_ui::Tab::Gff(*creature), "gff"),
-        (mg_ui::Tab::Resources, "resources"),
         (mg_ui::Tab::Manual, "manual"),
     ] {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -10474,4 +10526,1768 @@ fn windows_at_their_sizes() {
         h.state_mut().dock.remove_tab(at);
         settle(&mut h);
     }
+}
+
+// The shell's pictures, re-rendered by each task of the redesign's shell
+// milestone (M3, `docs/ui-redesign-proposal.md`) and compared with the
+// mock's boards Main, Narrow, WideArea, Floating and Welcome. Run them by
+// their prefix, in both themes:
+// `cargo test -p mg-ui --test screens -- --ignored shell_`
+// (`target/test-output/screens/shell/`, `screens-light/shell/`).
+
+/// The main window at `size` for the shell's pictures: `Chapter1` open
+/// with its area `map_m1q1a` in the middle, the module tree, the palettes
+/// and the log shown. Settled, with the area's shaders made.
+fn shell_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.log.info("Opened Chapter1.nwm");
+    let mut h = Harness::builder()
+        .with_size(size)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h
+}
+
+/// [`shell_window`] with the area open and an object of it selected, as
+/// the mock's Main board shows.
+fn shell_with_area(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
+    // (The palette shown in a window that folds no dock, then the window
+    // at its size: as a builder's window narrowed, the docks as its width
+    // has them. Shown in a narrower window, Tools › Palettes would have
+    // unfolded the Right Dock by hand there, M3 T14.)
+    let mut h = shell_window(root, size.max(egui::vec2(1600.0, 0.0)));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    show_palette(h.state_mut());
+    h.run_steps(5);
+    h.set_size(size);
+    h.run_steps(5);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Creature, 0)];
+    // (The game's programs are made on threads of their own while the
+    // view is drawn: time for them.)
+    for _ in 0..40 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    h
+}
+
+/// A crowded document tab bar (M3 T15, for the owner's ruling on where
+/// a cut title is cut): the Main board's window with Chapter1's twelve
+/// `at_m1q4…` scripts docked beside the area, their titles cut alike
+/// (`doc_tabs_crowded.png`).
+#[test]
+#[ignore]
+fn doc_tabs_crowded() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
+    let mut scripts: Vec<ResKey> = {
+        let ws = h.state().ws.as_ref().unwrap();
+        ws.module
+            .keys_of(ResType::NSS)
+            .filter(|k| k.resref.to_string().to_ascii_lowercase().starts_with("at_m1q4"))
+            .copied()
+            .collect()
+    };
+    scripts.sort_by_key(|k| k.resref.to_string().to_ascii_lowercase());
+    for key in scripts.into_iter().take(12) {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+        h.run_steps(2);
+    }
+    h.run_steps(10);
+    shoot(&mut h, &dir, "doc_tabs_crowded");
+}
+
+#[test]
+#[ignore]
+fn shell_main() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    shoot(&mut h, &dir, "shell_main");
+}
+
+/// Quick Open (M3's T8) opened by Ctrl+P and `typed` typed (nothing for
+/// an empty one), settled.
+fn quick_open_typed(h: &mut Harness<'_, Moonglow>, typed: &str) {
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::P);
+    h.run_steps(3);
+    if !typed.is_empty() {
+        h.event(egui::Event::Text(typed.into()));
+        h.run_steps(3);
+    }
+}
+
+/// Quick Open in the main window (`Main.png`'s Top Bar, the field at
+/// rest in `shell_main`): the areas opened lately with nothing typed;
+/// what "start" finds (the module's resources, a command, the game's
+/// resources); the commands after `>` with their key caps; the line of
+/// how many more (`target/test-output/screens/shell/quick_open*.png`).
+#[test]
+#[ignore]
+fn quick_open() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let module = h.state().module_path().unwrap();
+    let areas: Vec<String> = (h.state().ws.as_ref().unwrap().module.keys_of(ResType::ARE))
+        .take(3)
+        .map(|k| k.resref.to_string())
+        .collect();
+    for area in &areas {
+        h.state_mut().settings.remember_area(&module, area);
+    }
+    quick_open_typed(&mut h, "");
+    shoot(&mut h, &dir, "quick_open_recent");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    quick_open_typed(&mut h, "start");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(2);
+    shoot(&mut h, &dir, "quick_open");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "quick_open_commands");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    quick_open_typed(&mut h, "m1q");
+    shoot(&mut h, &dir, "quick_open_more");
+}
+
+/// Quick Open with no module open: the recent modules, then the commands
+/// that work without one (`quick_open_no_module.png`).
+#[test]
+#[ignore]
+fn quick_open_no_module() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    for name in ["Chapter1.nwm", "Prelude.nwm"] {
+        app.settings.remember(&root.join("data/nwm").join(name));
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    quick_open_typed(&mut h, "");
+    shoot(&mut h, &dir, "quick_open_no_module");
+}
+
+/// Quick Open as the window narrows: capped at 300 in a 1280 window (at
+/// rest and open), its icon at 760 and 420 with the field over the Top
+/// Bar and the popover inside the window, and the popover in a 3440 by
+/// 1440 window (`quick_open_1280*.png`, `_760`, `_420`, `_3440`).
+#[test]
+#[ignore]
+fn quick_open_widths() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (w, h_) in [(1280.0, 800.0), (760.0, 700.0), (420.0, 600.0), (3440.0, 1440.0)] {
+        let mut h = shell_window(&root, egui::vec2(w, h_));
+        h.run_steps(3);
+        if w == 1280.0 || w == 760.0 {
+            shoot(&mut h, &dir, &format!("quick_open_{w}_rest"));
+        }
+        quick_open_typed(&mut h, "formosa");
+        shoot(&mut h, &dir, &format!("quick_open_{w}"));
+    }
+}
+
+/// The area view's states, each as the Status Bar shows its hints (M3's
+/// T12; before it, the line under the area's toolbar): nothing selected,
+/// one selected, several, Shift held over one, a drag under way, a
+/// blueprint, a light and the start location being placed, the placeable
+/// brush, Select Tiles with tiles selected and a refusal's notice, and a
+/// tile brush (`shell_area_<state>.png`, the Main board's size).
+#[test]
+#[ignore]
+fn shell_area_states() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let rect = h.state().area_views[&area].rect;
+    let over = rect.center() + egui::vec2(-120.0, 60.0);
+    h.event(egui::Event::PointerMoved(over));
+    let reset = |h: &mut Harness<'_, Moonglow>| {
+        let app = h.state_mut();
+        app.palette.selected = None;
+        app.palette.chosen.clear();
+        app.palette.placing_light = None;
+        app.palette.placing_start = false;
+        app.palette.tile_brush = None;
+        app.paint = false;
+        let view = app.area_views.get_mut(&area).unwrap();
+        view.tile_mode = false;
+        view.tile_selection.clear();
+        view.selection.clear();
+    };
+    let creature = (mg_area::ObjectKind::Creature, 0);
+    reset(&mut h);
+    shoot(&mut h, &dir, "shell_area_idle");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![creature];
+    shoot(&mut h, &dir, "shell_area_one");
+    let several = vec![creature, (mg_area::ObjectKind::Creature, 1)];
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = several;
+    shoot(&mut h, &dir, "shell_area_several");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![creature];
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    shoot(&mut h, &dir, "shell_area_shift");
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(2);
+    // A drag of the creature under way.
+    let at = {
+        let view = &h.state().area_views[&area];
+        let o = view.model.as_ref().unwrap().object(creature.0, creature.1).unwrap();
+        view.screen_pos(o.position).unwrap()
+    };
+    let button = |h: &mut Harness<'_, Moonglow>, pos, pressed| {
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+        h.run_steps(1);
+    };
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(2);
+    button(&mut h, at, true);
+    for k in 1..=6 {
+        h.event(egui::Event::PointerMoved(at + egui::vec2(8.0 * k as f32, 4.0 * k as f32)));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "shell_area_drag");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    button(&mut h, at + egui::vec2(48.0, 24.0), false);
+    h.event(egui::Event::PointerMoved(over));
+    reset(&mut h);
+    h.state_mut().palette.selected = Some(ResKey::parse("plc_statue1", ResType::UTP).unwrap());
+    shoot(&mut h, &dir, "shell_area_placing");
+    reset(&mut h);
+    h.state_mut().palette.placing_light = Some(0);
+    shoot(&mut h, &dir, "shell_area_light");
+    reset(&mut h);
+    h.state_mut().palette.placing_start = true;
+    shoot(&mut h, &dir, "shell_area_start");
+    reset(&mut h);
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(ResKey::parse("plc_tree", ResType::UTP).unwrap());
+        app.palette.chosen = vec![ResKey::parse("plc_shrub", ResType::UTP).unwrap()];
+        app.paint = true;
+    }
+    shoot(&mut h, &dir, "shell_area_paint");
+    reset(&mut h);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.tile_mode = true;
+        view.tile_selection = vec![(1, 1), (2, 1), (1, 2), (2, 2), (1, 3), (2, 3)];
+    }
+    shoot(&mut h, &dir, "shell_area_tiles");
+    reset(&mut h);
+    let tileset = h.state().area_views[&area].model.as_ref().unwrap().tileset.unwrap();
+    h.state_mut().palette.tile_brush = Some(mg_ui::terrain_mode::TileBrush {
+        tileset,
+        label: "Raise/Lower".into(),
+        brush: mg_area::terrain::Brush::RaiseLower,
+        target: None,
+        exact: false,
+    });
+    shoot(&mut h, &dir, "shell_area_brush");
+}
+
+/// The Status Bar with an area's hints and counts (an object selected,
+/// the log closed, its last line said) in windows 420, 640, 1000 and 1600
+/// points wide (`shell_status_hints_<width>.png`): the folder, then the
+/// hints from the end, then the line, then the counts give way.
+#[test]
+#[ignore]
+fn shell_status_hints() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for width in [420.0, 640.0, 1000.0, 1600.0] {
+        let mut h = shell_with_area(&root, egui::vec2(width, 600.0));
+        h.state_mut().settings.hide_log = true;
+        h.state_mut().log.info("Opened map_m1q1a, 192 objects");
+        shoot(&mut h, &dir, &format!("shell_status_hints_{width}"));
+    }
+}
+
+/// The Outliner (M3's T13) as the LightArea crop board has it: the
+/// Main board's window with the Plague Victim Pyre selected (its kind
+/// opened, its row marked and brought into sight), Encounters, Sounds,
+/// Triggers and Waypoints hidden (their rows quiet, their eyes struck);
+/// the whole window (`shell_outliner.png`) and the Left Dock's lower part
+/// (`shell_outliner_crop.png`, beside `LightArea_crop_outl.png`).
+#[test]
+#[ignore]
+fn shell_outliner() {
+    use mg_area::ObjectKind;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    // (The board's: the pyre, else the first placeable.)
+    let git = ResKey::new(area, ResType::GIT);
+    let pyre = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap_or(&[]).to_vec();
+        let tag = |s: &mg_gff::Struct| {
+            String::from_utf8_lossy(s.string("Tag").unwrap_or_default()).to_string()
+        };
+        list.iter().position(|s| tag(s).to_lowercase().contains("pyre")).unwrap_or(0)
+    };
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        for kind in
+            [ObjectKind::Encounter, ObjectKind::Sound, ObjectKind::Trigger, ObjectKind::Waypoint]
+        {
+            view.show[kind.index()] = false;
+        }
+        view.selection = vec![(ObjectKind::Placeable, pyre)];
+    }
+    // (Its kind opened and scrolled to over a few frames.)
+    for _ in 0..30 {
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_outliner");
+    // The Left Dock's lower part: the seam, the Outliner.
+    let crop = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let header = h.get_by_label(mg_ui::OUTLINER).get_by_label("Collapse All").rect();
+        let image = h.render().expect("render");
+        let ppp = image.width() as f32 / 1600.0;
+        let (x, y) = (0, ((header.center().y - 13.0 - 22.0) * ppp) as u32);
+        let (w, hh) = ((272.0 * ppp) as u32, image.height() - y - (24.0 * ppp) as u32);
+        let crop = image::imageops::crop_imm(&image, x, y, w, hh).to_image();
+        crop.save(picture_dir(&dir).join(format!("{name}.png"))).unwrap();
+    };
+    crop(&mut h, "shell_outliner_crop");
+    // Every kind closed (Collapse All): the kinds alone, the hidden ones
+    // quiet with their eyes struck, those with nothing placed without an
+    // arrow.
+    h.get_by_label(mg_ui::OUTLINER).get_by_label("Collapse All").click();
+    for _ in 0..20 {
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_outliner_kinds");
+    crop(&mut h, "shell_outliner_kinds_crop");
+}
+
+#[test]
+#[ignore]
+fn shell_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    shoot(&mut h, &dir, "shell_narrow");
+}
+
+/// The Main board's window (the area open, an object selected, the log
+/// open) at each width the shell yields at, from the least window to the
+/// widest board (M3's T14): `shell_width_<width>.png`, 800 points high
+/// under 2560 and 1440 from 2560 (the wide boards').
+#[test]
+#[ignore]
+fn shell_widths() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for width in
+        [420, 640, 760, 796, 962, 1000, 1280, 1399, 1400, 1499, 1500, 1600, 2559, 2560, 3440]
+    {
+        let high = if width >= 2560 { 1440.0 } else { 800.0 };
+        let mut h = shell_with_area(&root, egui::vec2(width as f32, high));
+        shoot(&mut h, &dir, &format!("shell_width_{width}"));
+    }
+}
+
+/// A dock unfolded by hand where the window's width folds it (M3 T14):
+/// at 1280 the Left Dock (`shell_by_hand_1280_left.png`); at 420 the
+/// Right Dock (`shell_by_hand_420_right.png`), and the Left Dock after it,
+/// which folds the Right Dock there (`shell_by_hand_420_left.png`).
+#[test]
+#[ignore]
+fn shell_by_hand() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    unfold_left_dock(&mut h);
+    shoot(&mut h, &dir, "shell_by_hand_1280_left");
+    let mut h = shell_with_area(&root, egui::vec2(420.0, 800.0));
+    h.step();
+    h.get_by_label("Show the Right Dock").click();
+    frames_until(&mut h, "the Right Dock", |h| h.query_by_label("Fold the Right Dock").is_some());
+    shoot(&mut h, &dir, "shell_by_hand_420_right");
+    unfold_left_dock(&mut h);
+    shoot(&mut h, &dir, "shell_by_hand_420_left");
+}
+
+/// The Left Dock unfolded by hand where the window's width folds it (under
+/// 1500 points, M3 T14): its strip's chevron clicked, as a builder looking
+/// at the tree there does. Nothing where it is open or holds no panel.
+fn unfold_left_dock(h: &mut Harness<'_, Moonglow>) {
+    h.step();
+    let Some(chevron) = h.query_by_label("Show the Left Dock") else { return };
+    chevron.click();
+    frames_until(h, "the Left Dock unfolded", |h| h.query_by_label("Fold the Left Dock").is_some());
+}
+
+/// Frames until `done` says so, for 30 seconds at most, failing with
+/// `what` (an area's view asks for frames as it animates, so `settle`
+/// never ends beside one).
+fn frames_until(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    done: impl Fn(&Harness<'_, Moonglow>) -> bool,
+) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 30, "never: {what}");
+        h.step();
+    }
+}
+
+/// The WideArea board's tabs: Module Properties, the area (changed, its
+/// modified dot), Faribeth's blueprint in the area's group, and the script
+/// `m1q3_formosa_9` in a second group at its right (Split Editor), the
+/// focus back in the area's group.
+fn board_tabs(h: &mut Harness<'_, Moonglow>) {
+    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+    let area = mg_ui::Tab::Area(mg_core::ResRef::from_str("map_m1q1a").unwrap());
+    h.state_mut().settings.window_places =
+        ["script", "creature"].iter().map(|k| (k.to_string(), "middle".to_string())).collect();
+    for tab in [utc, script] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(h, "the tab drawn", |h| h.state().tab_rect(&tab).is_some());
+    }
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    frames_until(h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
+    // (The area changed: its tab's dot.)
+    let are = ResKey::parse("map_m1q1a", ResType::ARE).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key: are,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String("MAP_M1Q1A_X".into())),
+    };
+    h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Tag", vec![edit])).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
+    frames_until(h, "the area's group focused", |h| h.state().active_editor() == Some(&area));
+}
+
+#[test]
+#[ignore]
+fn shell_wide() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(3440.0, 1440.0));
+    board_tabs(&mut h);
+    shoot(&mut h, &dir, "shell_wide");
+}
+
+/// The document tabs (M3's T9), at the Main board's size: the board's
+/// tabs in two groups with the focus in each (`shell_groups_left`,
+/// `_right`); a modified script beside the modified area
+/// (`shell_tabs_modified`); an inactive tab hovered, its close button
+/// shown (`shell_tabs_hover`); a tab being dragged (`shell_tab_dragged`);
+/// and thirty tabs in an 800 point window (`shell_tabs_30`).
+#[test]
+#[ignore]
+fn shell_doc_tabs() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    board_tabs(&mut h);
+    shoot(&mut h, &dir, "shell_groups_left");
+    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+    let tab_rect =
+        |h: &Harness<'_, Moonglow>, tab: &mg_ui::Tab| h.state().tab_rect(tab).expect("drawn");
+    let at = tab_rect(&h, &script).center();
+    // (The press and the release in frames of their own, as a click.)
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+    }
+    frames_until(&mut h, "the script's group focused", |h| {
+        h.state().active_editor() == Some(&script)
+    });
+    shoot(&mut h, &dir, "shell_groups_right");
+    // The script typed in: its dot too.
+    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    let editor = egui::Id::new(("script", key));
+    let started = std::time::Instant::now();
+    while !h.ctx.memory(|m| m.has_focus(editor)) {
+        assert!(started.elapsed().as_secs() < 10, "the script's editor never had the keys");
+        h.step();
+    }
+    h.event(egui::Event::Text("// ".into()));
+    frames_until(&mut h, "the script's dot", |h| {
+        h.get_all_by_role(egui::accesskit::Role::Tab).any(|n| {
+            let node = n.accesskit_node();
+            node.label().as_deref() == Some("m1q3_formosa_9.nss")
+                && node.description().as_deref() == Some("Modified")
+        })
+    });
+    shoot(&mut h, &dir, "shell_tabs_modified");
+    // Module Properties under the pointer.
+    let module = tab_rect(&h, &mg_ui::Tab::ModuleProperties);
+    h.hover_at(module.center());
+    frames_until(&mut h, "its close button", |h| {
+        h.query_by_label("Close Module Properties").is_some()
+    });
+    shoot(&mut h, &dir, "shell_tabs_hover");
+    // Faribeth's tab held and dragged down over the area's view.
+    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+    let from = tab_rect(&h, &utc).center();
+    h.hover_at(from);
+    h.step();
+    // (A frame for each event of the drag: the press, then each move.)
+    h.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    for i in 1..=12 {
+        h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_tab_dragged");
+    h.event(egui::Event::PointerButton {
+        pos: from + egui::vec2(120.0, 240.0),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    frames_until(&mut h, "the drag over", |h| h.ctx.dragged_id().is_none());
+    // Thirty tabs in 800 points.
+    let mut h = shell_window(&root, egui::vec2(800.0, 600.0));
+    h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
+    let scripts: Vec<ResKey> =
+        (h.state().ws.as_ref().unwrap().module.keys_of(ResType::NSS)).take(30).copied().collect();
+    for key in scripts {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    }
+    settle(&mut h);
+    shoot(&mut h, &dir, "shell_tabs_30");
+}
+
+#[test]
+#[ignore]
+fn shell_floating() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    h.run_steps(3);
+    place(&mut h, &script, (420.0, 120.0), (820.0, 560.0));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_floating");
+}
+
+/// A script and a creature's Properties opened in each mode of Options ›
+/// General › Open editors (M3's T10), against the Main board (As Tabs:
+/// both tabs of the area's group, the Properties in front) and the
+/// Floating board (As Floating Windows: windows over the area):
+/// `shell_open_editors_tabs`, `shell_open_editors_floating`.
+#[test]
+#[ignore]
+fn shell_open_editors() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (mode, name) in [
+        (mg_ui::OpenEditors::Tabs, "shell_open_editors_tabs"),
+        (mg_ui::OpenEditors::Floating, "shell_open_editors_floating"),
+    ] {
+        let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+        h.state_mut().settings.open_editors = mode;
+        let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+        let faribeth = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+        for tab in [&script, &faribeth] {
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            frames_until(&mut h, "the tab drawn", |h| h.state().tab_rect(tab).is_some());
+        }
+        if mode == mg_ui::OpenEditors::Floating {
+            place(&mut h, &script, (330.0, 120.0), (820.0, 520.0));
+            place(&mut h, &faribeth, (760.0, 300.0), (700.0, 560.0));
+            let at = |h: &Harness<'_, Moonglow>| h.state().tab_rect(&faribeth).map(|r| r.left());
+            frames_until(&mut h, "the windows placed", |h| at(h).is_some_and(|x| x > 700.0));
+        }
+        // (The Properties' first page laid out, its portrait among it.)
+        frames_until(&mut h, "the Properties drawn", |h| h.query_by_label("First Name").is_some());
+        shoot(&mut h, &dir, name);
+    }
+}
+
+/// The Left Dock folded to its strip (the chevron, the Module panel's
+/// icon) at the narrow board's size.
+#[test]
+#[ignore]
+fn shell_left_folded() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    h.state_mut().settings.hide_tree = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_left_folded");
+}
+
+/// The palettes shown: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it (at the next frame).
+fn show_palette(app: &mut Moonglow) {
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+}
+
+/// The Left Dock `width` wide (its outer width, as its edge is dragged to:
+/// the width chosen, `Settings::left_dock_width`).
+fn left_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.left_dock_width = Some(width.round() as u32);
+}
+
+/// The Left Dock on its Resources panel, as the board Resources.png has it:
+/// "nw_c" typed in its Name, `nw_chicken.utc` open read-only in the editor
+/// area and its row the keys', the palettes folded away; the dock `width`
+/// wide where given (else its default, 260).
+fn shell_resources_window(
+    root: &std::path::Path,
+    size: egui::Vec2,
+    width: Option<f32>,
+) -> Harness<'static, Moonglow> {
+    let mut h = shell_with_area(root, size);
+    h.state_mut().actions.push(mg_ui::Action::FoldPalettes);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
+    h.state_mut().browser.filter = "nw_c".into();
+    if let Some(width) = width {
+        left_dock_width(&mut h, width);
+    }
+    h.run_steps(5);
+    // (Its row brought into sight by the wheel, and clicked: the keys'.
+    // Over the list, above the Outliner, which is under it while the area
+    // is in front, M3 T13.)
+    let list = egui::pos2(60.0, (size.y * 0.6).min(300.0));
+    for _ in 0..200 {
+        if h.query_by_label("nw_chicken.utc").is_some() {
+            break;
+        }
+        h.hover_at(list);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -300.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    // (The list at rest: the wheel's scroll goes on a while after it.)
+    h.run_steps(30);
+    h.get_by_label("nw_chicken.utc").click();
+    h.run_steps(3);
+    let key = ResKey::parse("nw_chicken", ResType::UTC).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run_steps(5);
+    h
+}
+
+/// The Resources panel at the main board's size and the dock's default
+/// width (Resources.png): Type, Name and Overridden copies on top, the
+/// count, the list's rows with their kinds' icons and layers; Export and
+/// Refresh in the header.
+#[test]
+#[ignore]
+fn shell_resources() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1600.0, 900.0), None);
+    shoot(&mut h, &dir, "shell_resources");
+}
+
+/// The Resources panel at the Left Dock's least width (190): the rows'
+/// names and layers cut with an ellipsis, nothing past the dock's edge;
+/// and at 500, wide enough for every name and layer whole. Overridden
+/// copies listed (the copies of `nw_chicken` under the game's own). Then
+/// the Module tab at the least width.
+#[test]
+#[ignore]
+fn shell_resources_least() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1600.0, 900.0), Some(190.0));
+    shoot(&mut h, &dir, "shell_resources_least");
+    left_dock_width(&mut h, 500.0);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_resources_500");
+    // (The Module tab at the least width: its tab bar's room beside it.)
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    left_dock_width(&mut h, 190.0);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_module_least");
+}
+
+/// The Left Dock folded on its Resources panel, at the narrow board's
+/// size: the strip's chevron and the two panels' icons (Module, Resources).
+#[test]
+#[ignore]
+fn shell_resources_folded() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1280.0, 800.0), None);
+    h.state_mut().settings.hide_tree = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_resources_folded");
+}
+
+/// The Left Dock 220 points wide, on its Resources tab and on its Module
+/// tab, at the narrow board's size: its tabs in the same form (words or
+/// icons) and the same place whichever panel is in front.
+#[test]
+#[ignore]
+fn shell_tabs_220() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1280.0, 800.0), Some(220.0));
+    shoot(&mut h, &dir, "shell_tabs_220_resources");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_tabs_220_module");
+}
+
+/// The Left Dock's fold button at the dock's default width, beside the
+/// scroll bar of the browser's list (`shell_fold_edge_resources`) and of
+/// the module tree with every group open (`shell_fold_edge_module`), at
+/// the narrow board's size; and folded, the control that unfolds it
+/// (`shell_fold_edge_folded`).
+#[test]
+#[ignore]
+fn shell_fold_edge() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_resources_window(&root, egui::vec2(1280.0, 800.0), None);
+    shoot(&mut h, &dir, "shell_fold_edge_resources");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(5);
+    h.get_by_label("Left Dock").get_by_label("Expand All").click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_fold_edge_module");
+    // (Folded by its button at the tab bar's end: the strip and its
+    // chevron, M3 T14's review.)
+    h.get_by_label("Fold the Left Dock").click();
+    frames_until(&mut h, "the strip", |h| h.query_by_label("Show the Left Dock").is_some());
+    shoot(&mut h, &dir, "shell_fold_edge_folded");
+}
+
+/// The Module panel with every group of the tree open (Expand All), at the
+/// main board's size: each group's icon and count, the Areas group
+/// scrolling in its own well over the groups below it.
+#[test]
+#[ignore]
+fn shell_tree_groups() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    // (The Left Dock's: the palette has an Expand All of its own.)
+    h.get_by_label("Left Dock").get_by_label("Expand All").click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_tree_groups");
+}
+
+/// The module tree's rows at the narrow board's size (1280 by 800): the
+/// Scripts group open with one of its scripts chosen, an area in the
+/// Areas group's well under the pointer (each row's fill across the whole
+/// row, the names where the board has them), and the well's rows with a
+/// group open under it.
+#[test]
+#[ignore]
+fn shell_tree_rows() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
+    frames_until(&mut h, "the Left Dock open", |h| {
+        h.query_by_label("Fold the Left Dock").is_some()
+            && h.query_by_label("Module Tree Rows").is_some()
+    });
+    let group = |h: &Harness<'_, Moonglow>, name: &str| {
+        let prefix = format!("{name} (");
+        let rows = h.get_by_label("Module Tree Rows");
+        let found = rows.query_all_by(move |n| n.label().is_some_and(|l| l.starts_with(&prefix)));
+        found.min_by(|a, b| a.rect().left().total_cmp(&b.rect().left())).unwrap().rect()
+    };
+    let scripts = group(&h, "Scripts");
+    h.get_by_label("Module Tree Rows")
+        .query_all_by(|n| n.label().is_some_and(|l| l.starts_with("Scripts (")))
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap()
+        .click();
+    h.run_steps(10);
+    // (A script a few rows down the group, chosen.)
+    let below = scripts.bottom() + 2.0 * mg_uikit::metrics::ROW_HEIGHT;
+    let rows = h.get_by_label("Module Tree Rows");
+    let mut under: Vec<_> = rows
+        .query_all_by(|n| n.label().is_some())
+        .filter(|n| n.rect().top() >= below - 0.5 && n.rect().left() > scripts.left())
+        .collect();
+    under.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    under[0].click();
+    h.run_steps(10);
+    // (The well's first row under the pointer.)
+    let areas = group(&h, "Areas");
+    h.hover_at(egui::pos2(areas.left() + 80.0, areas.bottom() + 11.0));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "shell_tree_rows");
+}
+
+/// The Left Dock widened by 300 points, then narrowed to its least width,
+/// and the tree wheeled sideways over the Scripts group's row: with no
+/// row wider than the dock, it does not scroll sideways (and has no bar
+/// across its foot).
+#[test]
+#[ignore]
+fn shell_tree_narrowed() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
+    frames_until(&mut h, "the Left Dock open", |h| {
+        h.query_by_label("Fold the Left Dock").is_some()
+            && h.query_by_label("Module Tree Rows").is_some()
+    });
+    let edge = |h: &Harness<'_, Moonglow>| h.state().left_dock_rect().unwrap().right() + 0.5;
+    let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
+        h.hover_at(from);
+        h.run_steps(2);
+        h.drag_at(from);
+        h.run_steps(1);
+        for step in 1..=8 {
+            h.hover_at(from + (to - from) * (step as f32 / 8.0));
+            h.run_steps(1);
+        }
+        h.drop_at(to);
+        h.run_steps(5);
+    };
+    // (Above the fold button, half way down the dock.)
+    let y = 250.0;
+    let w = edge(&h);
+    drag(&mut h, egui::pos2(w, y), egui::pos2(w + 300.0, y));
+    let w = edge(&h);
+    drag(&mut h, egui::pos2(w, y), egui::pos2(w - 600.0, y));
+    let rows = h.get_by_label("Module Tree Rows");
+    let scripts = rows
+        .query_all_by(|n| n.label().is_some_and(|l| l.starts_with("Scripts (")))
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap()
+        .rect();
+    h.hover_at(scripts.center());
+    for _ in 0..8 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(-100.0, 0.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    h.run_steps(10);
+    shoot(&mut h, &dir, "shell_tree_narrowed");
+}
+
+/// The Module panel with a word typed in its Filter ("m1q1"): the areas,
+/// conversations and scripts it finds, the placed objects of the areas
+/// opened out, and the Filter's clear button.
+#[test]
+#[ignore]
+fn shell_tree_filter() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.get_by_label("Filter Module Tree").click();
+    h.run_steps(2);
+    h.get_by_label("Filter Module Tree").type_text("m1q1");
+    for _ in 0..20 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    shoot(&mut h, &dir, "shell_tree_filter");
+}
+
+/// The Right Dock `width` wide (the width chosen,
+/// `Settings::right_dock_width`), from the next frame.
+fn right_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
+    h.state_mut().settings.right_dock_width = Some(width.round() as u32);
+}
+
+/// The Right Dock at its least width (280) on the tiles palette (the area
+/// open), then on the standard placeables, every category open (the
+/// list's toolbar and its rows inside the dock: the palettes' pane dragged
+/// to about 135 px spilled the toolbar under its fold button), then in
+/// the Gallery at the default 320 and wider (440, where three pictures go
+/// a row); and folded to its strip, at the narrow board's size.
+#[test]
+#[ignore]
+fn shell_right_dock() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    right_dock_width(&mut h, 280.0);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_least_tiles");
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, mg_module::palette::BlueprintKind::Placeable, false);
+    }
+    h.run_steps(5);
+    // (The palette's Expand All, not the Module panel's.)
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let expand = h.get_all_by_label("Expand All").find(|n| dock.contains(n.rect().center()));
+    expand.expect("the palette's Expand All").click();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_least_placeables");
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().background_jobs = true;
+    right_dock_width(&mut h, 320.0);
+    for _ in 0..60 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    shoot(&mut h, &dir, "shell_right_gallery");
+    right_dock_width(&mut h, 440.0);
+    for _ in 0..30 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    shoot(&mut h, &dir, "shell_right_gallery_440");
+    h.state_mut().settings.palette_gallery = false;
+    h.set_size(egui::vec2(1280.0, 800.0));
+    h.state_mut().settings.hide_palettes = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_folded");
+}
+
+/// The Right Dock in windows too narrow for its least width beside the
+/// Left Dock (both unfolded): 420 (the least window, the dock 190 wide),
+/// 460 and 500, on the standard placeables, every category open, and on
+/// the tiles at 420 (`shell_right_narrow_420.png` and the others).
+#[test]
+#[ignore]
+fn shell_right_dock_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 760.0));
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, mg_module::palette::BlueprintKind::Placeable, false);
+    }
+    h.run_steps(5);
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let expand = h.get_all_by_label("Expand All").find(|n| dock.contains(n.rect().center()));
+    expand.expect("the palette's Expand All").click();
+    h.run_steps(5);
+    for width in [420.0, 460.0, 500.0] {
+        h.set_size(egui::vec2(width, 760.0));
+        h.run_steps(5);
+        shoot(&mut h, &dir, &format!("shell_right_narrow_{width}"));
+    }
+    h.state_mut().palette.tiles = true;
+    h.set_size(egui::vec2(420.0, 760.0));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_right_narrow_tiles_420");
+}
+
+/// The Right Dock with no game data read: Tools › Palettes shows it, its
+/// Palette panel saying so, beside a module opened without the game.
+#[test]
+#[ignore]
+fn shell_right_dock_no_game() {
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-right-dock-no-game");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let path = scratch.join("no_game.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    shoot(&mut h, &dir, "shell_right_no_game");
+}
+
+/// The Right Dock's Preview tab in front (M3 T6), the Palette's beside
+/// it: a creature chosen in the palette at the dock's default 320 and
+/// least 280 (`shell_preview_320`, `_280`) and in the least window, 420
+/// wide, where the dock is 190 (`_420`); an item and a placeable at 320
+/// (`_item`, `_placeable`); folded, its strip with both panels' buttons
+/// (`_folded`); Module Properties in front, no Right Dock (`_no_dock`); and
+/// Tools › Preview beside it (`_asked`).
+#[test]
+#[ignore]
+fn shell_preview() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, mg_module::palette::BlueprintKind::Placeable, false);
+        p.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    }
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    // (The model's textures read, its view drawn.)
+    let wait = |h: &mut Harness<'_, Moonglow>| {
+        for _ in 0..20 {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    };
+    wait(&mut h);
+    let body = h.state().preview_panel_rect().expect("the Preview in front");
+    eprintln!("the Preview's body at 320 in 1600 by 900: {body:?}");
+    shoot(&mut h, &dir, "shell_preview_320");
+    for (name, key) in
+        [("item", ("nw_wswls001", ResType::UTI)), ("placeable", ("plc_chest1", ResType::UTP))]
+    {
+        h.state_mut().palette.selected = ResKey::parse(key.0, key.1);
+        wait(&mut h);
+        shoot(&mut h, &dir, &format!("shell_preview_{name}"));
+    }
+    h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
+    right_dock_width(&mut h, 280.0);
+    wait(&mut h);
+    shoot(&mut h, &dir, "shell_preview_280");
+    h.set_size(egui::vec2(420.0, 760.0));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_preview_420");
+    right_dock_width(&mut h, 320.0);
+    h.set_size(egui::vec2(1280.0, 800.0));
+    h.state_mut().settings.hide_palettes = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_preview_folded");
+    h.state_mut().settings.hide_palettes = false;
+    // (Module Properties docked as a tab in front of the area's.)
+    let props = mg_ui::Tab::ModuleProperties;
+    if let Some(at) = h.state().dock.find_tab(&props) {
+        h.state_mut().dock.remove_tab(at);
+    }
+    h.state_mut().settings.window_places = vec![("module-properties".into(), "middle".into())];
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(props));
+    h.run_steps(5);
+    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside Module Properties");
+    shoot(&mut h, &dir, "shell_preview_no_dock");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    h.run_steps(5);
+    assert!(h.state().preview_panel_rect().is_some(), "asked for, the Preview in front");
+    shoot(&mut h, &dir, "shell_preview_asked");
+}
+
+/// The frame at 760 by 600 with a module and its area open: the Top Bar's
+/// build actions icons alone, nothing overlapping.
+#[test]
+#[ignore]
+fn shell_760() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(760.0, 600.0));
+    shoot(&mut h, &dir, "shell_760");
+}
+
+/// The Status Bar with a long module name, modified, at 420, 600 and
+/// 1000 px: the name cut short with an ellipsis before "(modified)",
+/// clear of the Log switch and inside the window
+/// (`shell_long_name_420.png` and the others); and at 420 with the note of
+/// a look under way beside it, both cut short
+/// (`shell_long_name_note_420.png`).
+#[test]
+#[ignore]
+fn shell_long_name() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-shell-long-name");
+    let long = scratch.join("a_module_with_a_rather_long_file_name_for_the_status_bar_check.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &long).unwrap();
+    let note = "Reading files changed outside Moonglow…";
+    let cases = [(420.0, false), (600.0, false), (1000.0, false), (420.0, true)];
+    for (width, with_note) in cases {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.settings.no_last_area = true;
+        app.open_module(&long);
+        app.show_looking_note(with_note.then_some(note));
+        let key = ResKey::parse("mg_long_name", ResType::NSS).unwrap();
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(width, 600.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        themed(&mut h);
+        settle(&mut h);
+        let note = if with_note { "_note" } else { "" };
+        shoot(&mut h, &dir, &format!("shell_long_name{note}_{width}"));
+    }
+}
+
+/// A job held on its thread for a picture (`start_job_for_tests`): it
+/// says it is `done` of `total` (unknown where `total` is 0), and ends
+/// when the sender returned is dropped or sent to.
+fn held_job(
+    h: &mut Harness<'_, Moonglow>,
+    title: &str,
+    done: usize,
+    total: usize,
+) -> std::sync::mpsc::Sender<()> {
+    let (tell, told) = std::sync::mpsc::channel::<()>();
+    h.state_mut().start_job_for_tests(title, move |p| {
+        p.step(done, total);
+        _ = told.recv();
+    });
+    // (Until the Status Bar shows it: the job's thread says how far.)
+    let started = std::time::Instant::now();
+    let wanted = if total > 0 { format!("{title}, {done} of {total}") } else { title.to_string() };
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by(|n| n.role() == egui::accesskit::Role::ProgressIndicator)
+            .any(|n| n.accesskit_node().label().is_some_and(|l| l.starts_with(&wanted)))
+    };
+    while !shown(h) {
+        assert!(started.elapsed().as_secs() < 30, "the job never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    tell
+}
+
+/// The Status Bar completed (M3's T7), against the board's bottom row
+/// (Main.png, Main-status.png): the area open with the log closed, its
+/// last line beside the Log switch (`shell_status_last_line`), a warning
+/// as the last line (`shell_status_warning`), a job running with its
+/// progress (`shell_status_job`) and one whose progress is not known
+/// (`shell_status_job_unknown`), its window over the window as it is
+/// while a job runs.
+#[test]
+#[ignore]
+fn shell_status() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.hide_log = true;
+    h.state_mut().log.info("Opened map_m1q1a, 192 objects");
+    shoot(&mut h, &dir, "shell_status_last_line");
+    h.state_mut().log.warn("m1q1a_guard.nss: 2 warnings (see the log)");
+    shoot(&mut h, &dir, "shell_status_warning");
+    let tell = held_job(&mut h, "Compile All Scripts", 40, 312);
+    shoot(&mut h, &dir, "shell_status_job");
+    tell.send(()).unwrap();
+    while h.state().busy() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    let tell = held_job(&mut h, "Build Module", 0, 0);
+    shoot(&mut h, &dir, "shell_status_job_unknown");
+    tell.send(()).unwrap();
+    while h.state().busy() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+}
+
+/// The Status Bar at 420 and 640 points with long texts: a long module
+/// name (modified), a long last line, a job running and a long game
+/// folder (`shell_status_420.png`, `shell_status_640.png`): the folder
+/// goes first, then the hints, then the last line, the counts, the job's
+/// name is cut short, the module's name last (`shell::status_bar`).
+#[cfg(unix)]
+#[test]
+#[ignore]
+fn shell_status_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-shell-status-narrow");
+    let long = scratch.join("a_module_with_a_rather_long_file_name_for_the_status_bar_check.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &long).unwrap();
+    // (The game read through a folder of a long name.)
+    let game = scratch.join("Neverwinter Nights Enhanced Edition on the second drive");
+    std::os::unix::fs::symlink(&root, &game).unwrap();
+    for width in [420.0, 640.0, 1000.0] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&game, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.settings.no_last_area = true;
+        app.settings.hide_log = true;
+        app.open_module(&long);
+        let key = ResKey::parse("mg_long_name", ResType::NSS).unwrap();
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Add", vec![edit])));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(width, 600.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        themed(&mut h);
+        settle(&mut h);
+        h.state_mut().log.info(
+            "Compiled 312 scripts of the module and its haks, with 4 warnings about functions \
+             declared one way and defined another",
+        );
+        let tell = held_job(&mut h, "Compile All Scripts", 40, 312);
+        shoot(&mut h, &dir, &format!("shell_status_{width}"));
+        tell.send(()).unwrap();
+        while h.state().busy() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.step();
+        }
+    }
+}
+
+/// The Bottom Dock open beside the area with both side docks, in windows
+/// 420, 560 and 640 points wide (`shell_bottom_dock_420.png` and the
+/// others): its tab its icon alone, its tools giving way from the end,
+/// the bar empty where the dock is narrower than the tab's icon; the
+/// tab and the tools never over each other.
+#[test]
+#[ignore]
+fn shell_bottom_dock_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for width in [420.0, 560.0, 640.0] {
+        let mut h = shell_with_area(&root, egui::vec2(width, 760.0));
+        h.state_mut().settings.hide_log = false;
+        shoot(&mut h, &dir, &format!("shell_bottom_dock_{width}"));
+    }
+}
+
+/// A new installation's first window (no settings file:
+/// `Settings::new_installation`): the Welcome page, the Bottom Dock
+/// closed and the log's last line beside the Log switch.
+#[test]
+#[ignore]
+fn shell_new_installation() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.hide_log = mg_ui::Settings::new_installation().hide_log;
+    app.settings.recent = Vec::new();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_new_installation");
+}
+
+#[test]
+#[ignore]
+fn shell_welcome() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.recent = Vec::new();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "shell_welcome");
+}
+
+/// Wizards where they open (M3's T11, against the Welcome and Wizard
+/// boards): the New Module wizard over the Welcome page, the subtitle in
+/// sight (`shell_welcome_wizard`; the Area Wizard needs a module open,
+/// and with one the Welcome page is gone); the Area Wizard over the area
+/// with both docks open (`shell_area_wizard`); and the same in the least
+/// window, 420 points wide, where the editor area is narrower than the
+/// wizard (`shell_area_wizard_least`).
+#[test]
+#[ignore]
+fn shell_wizards() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.recent = Vec::new();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::NewModuleDialog);
+    frames_until(&mut h, "the wizard", |h| h.query_by_label("New Module").is_some());
+    h.run_steps(3);
+    shoot(&mut h, &dir, "shell_welcome_wizard");
+    for (size, name) in [
+        (egui::vec2(1600.0, 900.0), "shell_area_wizard"),
+        (egui::vec2(420.0, 700.0), "shell_area_wizard_least"),
+    ] {
+        let mut h = shell_with_area(&root, size);
+        h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+        frames_until(&mut h, "the wizard", |h| h.query_by_label("Area Wizard").is_some());
+        h.run_steps(3);
+        shoot(&mut h, &dir, name);
+    }
+}
+
+// Menus that hold more than rows (the shell milestone's T1, its fix
+// round): headings, notes, check boxes, fields and separators in the
+// application's own menus, each opened as a builder opens it, into
+// `screens/menus/`. And a row's keys under the pointer (the NUI
+// designer's Layer Actions).
+
+/// The pictures' folder of the menus' cases.
+fn menus_dir() -> std::path::PathBuf {
+    let dir = mg_testkit::output_dir("screens").join("menus");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// A right-click at `at`.
+fn right_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+}
+
+/// A module of one 4 by 4 field (ttr01) with two waypoints, open in a
+/// window of 1400 by 900 with a GPU, the lighting kept in `lighting`.
+fn menus_area_harness(
+    root: &std::path::Path,
+    name: &str,
+    lighting: &std::path::Path,
+) -> (Harness<'static, Moonglow>, mg_core::ResRef) {
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let install = GameInstall::new(root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Menus", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let bp = mg_gff::Gff::read(&bp).unwrap();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let waypoints = [20.0, 30.0]
+        .map(|x| {
+            let at = Placement { position: [x, 20.0, 0.0], rotation: 0.3 };
+            instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap()
+        })
+        .to_vec();
+    git.root.set("WaypointList", mg_gff::Value::List(waypoints));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir(name).join("menus.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    app.lighting_dir = Some(lighting.to_path_buf());
+    app.open_module(&path);
+    app.palette_dock = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    (h, area)
+}
+
+/// The NUI designer narrower than 760 px with its Properties menu open
+/// (the whole inspector in a menu), and wide, Layer Actions open with
+/// its first row under the pointer (a row's keys, lit).
+#[test]
+#[ignore]
+fn menus_nui_properties_and_layer_actions() {
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let key = ResKey::parse("menus", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("menus".into()));
+    let mut window = mg_nui::window();
+    window["root"]["children"] = json!([{
+        "type":"row","children":[
+            {"type":"label","id":"title","value":"Hello"},
+            {"type":"button","id":"ok","label":"OK"}
+        ]
+    }]);
+    app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
+    let mut h = nui_harness(app, key, (1130.0, 760.0));
+    themed(&mut h);
+    h.get_by_label_contains("Canvas Button").click();
+    h.run_steps(3);
+    h.get_by_label("Layer Actions").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Move up").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "menu-nui-layer-actions");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Nui(key), (20.0, 90.0), (700.0, 760.0));
+    h.run_steps(4);
+    // (The menu's button, beside Add element and Layers: the main
+    // toolbar has a Properties too.)
+    let button = h.get_all_by_label("Properties").find(|n| !in_toolbar(n));
+    button.unwrap().click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-nui-properties");
+}
+
+/// The NUI preview's Screen menu: a check box, rows to choose from and a
+/// note.
+#[test]
+#[ignore]
+fn menus_nui_screen() {
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let key = ResKey::parse("screen", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("screen".into()));
+    let mut h = nui_harness(app, key, (1130.0, 760.0));
+    themed(&mut h);
+    h.get_by_label("Screen").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-nui-screen");
+}
+
+/// An area's Add Grass to… (headings, one that wraps, and a line between
+/// the two groups), and Area Properties' Saved Lighting with nothing
+/// saved (a note) and with a lighting saved (a check box and the rows).
+#[test]
+#[ignore]
+fn menus_grass_and_saved_lighting() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = menus_dir();
+    let lighting = mg_testkit::scratch_dir("screens-menus-lighting");
+    let (mut h, area) = menus_area_harness(&root, "screens-menus-grass", &lighting);
+    let are = ResKey::new(area, ResType::ARE);
+    h.state_mut().blueprint_pages.insert((are, GffPath::root()), "Grass");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
+    h.run_steps(5);
+    place(&mut h, &mg_ui::Tab::AreaProperties(area), (700.0, 70.0), (620.0, 780.0));
+    h.run_steps(3);
+    h.get_by_label("Add Grass to…").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-add-grass");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label("Visual").click();
+    h.run_steps(3);
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-saved-lighting-none");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    let are_now = h.state_mut().ws.as_mut().unwrap().doc(&are).unwrap().root.clone();
+    mg_ui::lighting::save(Some(&lighting), "Dusk", &are_now).unwrap();
+    mg_ui::lighting::save(Some(&lighting), "Torchlit hall", &are_now).unwrap();
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-saved-lighting");
+}
+
+/// The module tree's menu on placed objects chosen together (a weak
+/// line saying how many, and a line under it).
+#[test]
+#[ignore]
+fn menus_tree_several_objects() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = menus_dir();
+    let lighting = mg_testkit::scratch_dir("screens-menus-tree-lighting");
+    let (mut h, area) = menus_area_harness(&root, "screens-menus-tree", &lighting);
+    // (The Left Dock unfolded by hand, as a builder looking at it in a
+    // window under 1500 has it: M3 T14.)
+    unfold_left_dock(&mut h);
+    // (The module tree as tall as the Outliner under it lets it be: its
+    // Areas group's well with room for the area's objects, as before the
+    // Outliner, M3 T13.)
+    h.state_mut().settings.module_panel_height = Some(10_000);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    h.get_by_label_contains("Placed Objects in ").click();
+    h.run_steps(30);
+    let kind = h.query_all_by_label_contains("Waypoints (").find(|n| !in_toolbar(n));
+    kind.expect("the tree's Waypoints").click();
+    h.run_steps(30);
+    let first = h.query_all_by_label("NW_WAYPOINT001").next().unwrap().rect().center();
+    h.hover_at(first);
+    h.run_steps(2);
+    h.query_all_by_label("NW_WAYPOINT001").next().unwrap().click();
+    h.run_steps(20);
+    h.query_all_by_label("NW_WAYPOINT001")
+        .nth(1)
+        .unwrap()
+        .click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(3);
+    let second = h.query_all_by_label("NW_WAYPOINT001").nth(1).unwrap().rect().center();
+    right_click(&mut h, second);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-tree-several-objects");
+}
+
+/// A sets menu with no sets saved (a conversation's Add Set: a note
+/// above its rows).
+#[test]
+#[ignore]
+fn menus_sets_none() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let scratch = mg_testkit::scratch_dir("screens-menus-sets");
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "You look strong. Lift this.");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("strong", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    let path = scratch.join("d.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.param_set_dir = Some(scratch.join("parameter-sets"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(key)));
+    h.run_steps(4);
+    h.get_by_label_contains("You look strong.").click();
+    h.run_steps(4);
+    h.get_by_label("Add Set").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "menu-sets-none");
+}
+
+/// The color picker (a menu holding a form) under a window's larger text,
+/// as Options › Conversation Editor makes the editor's (20 px: the
+/// context's style the window's while it is drawn): its controls as tall
+/// as the window's, not a control's 22. (The NUI designer's Rename… and
+/// How to open it… are never opened under it in the application: only
+/// the conversation editor makes its text larger. The kit sheet shows a
+/// form like theirs under it.)
+#[test]
+#[ignore]
+fn menus_color_picker_at_a_larger_text() {
+    mg_testkit::gpu::hold();
+    let dir = menus_dir();
+    let mut h = Harness::builder().with_size(egui::vec2(560.0, 620.0)).wgpu().build_ui_state(
+        |ui, rgb: &mut [u8; 3]| {
+            mg_uikit::apply(ui.ctx(), theme());
+            let by = 20.0 / mg_uikit::metrics::BODY_SIZE;
+            let mut style = (**ui.style()).clone();
+            for font in style.text_styles.values_mut() {
+                font.size *= by;
+            }
+            style.spacing.interact_size.y *= by;
+            ui.set_style(style.clone());
+            let usual = ui.ctx().global_style();
+            ui.ctx().set_global_style(style);
+            mg_ui::color_button::edit_srgb(ui, rgb);
+            ui.ctx().set_global_style(usual);
+        },
+        [158, 151, 211],
+    );
+    h.run();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    let image = h.render().expect("render");
+    image.save(picture_dir(&dir).join("menu-color-picker-font-20.png")).unwrap();
+}
+
+/// A tab held and dragged down over the area's view (Faribeth's blueprint
+/// beside the area in one group), the drop's targets drawn: egui_dock's
+/// overlay (`shell_tab_dragged_alone`).
+#[test]
+#[ignore]
+fn shell_tab_dragged_alone() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_places = vec![("creature".to_string(), "middle".to_string())];
+    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(utc.clone()));
+    frames_until(&mut h, "the tab drawn", |h| h.state().tab_rect(&utc).is_some());
+    // (Where egui_dock put the tab: the third of the group's bar.)
+    let leaf = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(&utc)).unwrap().1.rect;
+    let index = (h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(&utc)).unwrap().1)
+        .tabs
+        .iter()
+        .position(|t| *t == utc)
+        .unwrap();
+    let mut x = leaf.left();
+    let mut from = egui::pos2(x, leaf.top() + 14.0);
+    h.ctx.viewport(|v| {
+        let mut tabs: Vec<egui::Rect> = Vec::new();
+        for (_, widgets) in v.prev_pass.widgets.layers() {
+            for w in widgets.iter() {
+                let r = w.interact_rect;
+                if w.sense.senses_click()
+                    && w.sense.senses_drag()
+                    && (r.center().y - (leaf.top() + 14.0)).abs() < 3.0
+                {
+                    tabs.push(r);
+                }
+            }
+        }
+        tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        if let Some(r) = tabs.get(index) {
+            x = r.center().x;
+            from = r.center();
+        }
+    });
+    let _ = x;
+    h.hover_at(from);
+    h.step();
+    // (A frame for each event of the drag: the press, then each move.)
+    h.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    for i in 1..=12 {
+        h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_tab_dragged_alone");
 }

@@ -133,7 +133,7 @@ pub struct Plugins {
     /// (each file's path, size and time), to see that it changed.
     project_stamp: Option<u64>,
     /// The pane last clicked in, whose selection a command from the
-    /// Plugins menu, the Command Palette or a key runs on.
+    /// Plugins menu, Quick Open or a key runs on.
     pub pane: Option<Pane>,
     /// The open panels (API 0.6), by plugin and panel id: what each
     /// showed last, and its render under way.
@@ -302,7 +302,7 @@ pub struct Replace {
     pub installed: String,
 }
 
-/// A command a plugin adds, as the menus, the keys and the Command Palette
+/// A command a plugin adds, as the menus, the keys and Quick Open
 /// show it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginCommand {
@@ -332,7 +332,7 @@ impl PluginCommand {
     }
 
     /// Its title after the submenus it is in (`Make › Crafting ›
-    /// Workbench…`): how the Command Palette and Options › Keyboard name
+    /// Workbench…`): how Quick Open and Options › Keyboard name
     /// it, where it is found by name.
     pub fn path_title(&self) -> String {
         mg_plugin::path_title(&self.menu, &self.title)
@@ -425,7 +425,7 @@ pub(crate) fn menu_commands(
     if fitting.is_empty() {
         return None;
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     let mut chosen = None;
     nested_commands(ui, &fitting, 0, &mut chosen);
     chosen
@@ -1220,7 +1220,7 @@ impl Moonglow {
     }
 
     /// What is selected in the window, for a command chosen from the
-    /// Plugins menu, the Command Palette or a key: the objects selected in
+    /// Plugins menu, Quick Open or a key: the objects selected in
     /// the area view shown last, else the blueprints selected in the
     /// palette.
     pub fn plugin_selection(&self) -> Vec<mg_plugin::Selected> {
@@ -1925,7 +1925,8 @@ pub(crate) fn register_keys(keymap: &mut crate::keys::Keymap, commands: &[Plugin
     for c in commands {
         let keys = c.key.as_deref().and_then(crate::keys::from_text).into_iter().collect();
         keymap.set_default(&c.key_id, keys);
-    }
+    } // (Quick Open's Ctrl+P is theirs where they have it.)
+    keymap.give_way();
 }
 
 /// A running plugin's question, in the job's window: something to read, a
@@ -2693,76 +2694,85 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
     });
     let mut answers: Vec<(String, bool)> = Vec::new();
     let mut later = false;
-    let modal = egui::Modal::new(egui::Id::new("plugin-project")).show(ctx, |ui| {
-        ui.set_width(520.0);
-        ui.heading("This project comes with plugins");
-        ui.add_space(4.0);
-        ui.label(format!(
+    let modal =
+        crate::widgets::modal_window(ctx, egui::Id::new("plugin-project")).show(ctx, |ui| {
+            crate::widgets::modal_titled(ui, "This Project Comes with Plugins", |ui| {
+                ui.set_width(520.0);
+                ui.label(format!(
             "Its folder {}/ holds plugins the team shares. None of their code runs until you \
              allow it, and what you allow is each plugin as it is now: if it changes (a pull \
              brings another version), you are asked again. Your answers are yours alone, kept \
              in Moonglow's own settings, never in the project.",
             folder.unwrap_or_else(|| "plugins".into())
         ));
-        ui.add_space(6.0);
-        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-            for p in &asked {
-                let m = &p.manifest;
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                    for p in &asked {
+                        let m = &p.manifest;
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{} {}", m.name, m.version)).strong(),
+                            );
+                            ui.weak(&m.id);
+                        });
+                        if let Some(t @ mg_plugin::project::Trust::Changed { .. }) =
+                            app.project_trust(p)
+                        {
+                            trust_line(ui, &t);
+                        }
+                        if !m.description.is_empty() {
+                            ui.label(&m.description);
+                        }
+                        let by = match m.authors.as_slice() {
+                            [] => String::new(),
+                            authors => format!("By {}. ", authors.join(", ")),
+                        };
+                        ui.weak(format!("{by}License: {}.", m.license));
+                        adds(ui, m);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button("Allow")
+                                .on_hover_text("Its code runs: as it is now")
+                                .clicked()
+                            {
+                                answers.push((m.id.clone(), true));
+                            }
+                            if ui
+                                .button("Don't Allow")
+                                .on_hover_text("It stays off; Manage Plugins enables it later")
+                                .clicked()
+                            {
+                                answers.push((m.id.clone(), false));
+                            }
+                        });
+                    }
+                });
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("{} {}", m.name, m.version)).strong());
-                    ui.weak(&m.id);
-                });
-                if let Some(t @ mg_plugin::project::Trust::Changed { .. }) = app.project_trust(p) {
-                    trust_line(ui, &t);
-                }
-                if !m.description.is_empty() {
-                    ui.label(&m.description);
-                }
-                let by = match m.authors.as_slice() {
-                    [] => String::new(),
-                    authors => format!("By {}. ", authors.join(", ")),
-                };
-                ui.weak(format!("{by}License: {}.", m.license));
-                adds(ui, m);
-                ui.horizontal(|ui| {
-                    if ui.button("Allow").on_hover_text("Its code runs: as it is now").clicked() {
-                        answers.push((m.id.clone(), true));
-                    }
-                    if ui
-                        .button("Don't Allow")
-                        .on_hover_text("It stays off; Manage Plugins enables it later")
-                        .clicked()
-                    {
-                        answers.push((m.id.clone(), false));
-                    }
-                });
-            }
-        });
-        ui.separator();
-        ui.weak(
+                ui.weak(
             "Like any plugin, an allowed one runs sandboxed: it reads the module and the game's \
              data and hands back changes that Undo takes back, and it reads or writes a file of \
              yours only when you choose it or allow it.",
         );
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if asked.len() > 1
-                && ui
-                    .button("Allow All")
-                    .on_hover_text("Each one's code runs: as it is now")
-                    .clicked()
-            {
-                answers.extend(asked.iter().map(|p| (p.manifest.id.clone(), true)));
-            }
-            later = ui
-                .button("Decide Later")
-                .on_hover_text(
-                    "They stay off now, and you are asked when the project is next opened",
-                )
-                .clicked();
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if asked.len() > 1
+                        && ui
+                            .button("Allow All")
+                            .on_hover_text("Each one's code runs: as it is now")
+                            .clicked()
+                    {
+                        answers.extend(asked.iter().map(|p| (p.manifest.id.clone(), true)));
+                    }
+                    later = ui
+                        .button("Decide Later")
+                        .on_hover_text(
+                            "They stay off now, and you are asked when the project is next opened",
+                        )
+                        .clicked();
+                });
+            });
         });
-    });
     for (id, allow) in answers {
         app.allow_project_plugin(&id, allow);
     }
@@ -3016,26 +3026,27 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(r) = &app.plugins.replace else { return };
     let m = &r.package.manifest;
     let (mut yes, mut no) = (false, false);
-    let modal = egui::Modal::new(egui::Id::new("plugin-replace")).show(ctx, |ui| {
-        ui.set_width(400.0);
-        ui.heading(format!("Replace {}?", m.name));
-        ui.add_space(4.0);
-        let installed = match r.installed.as_str() {
-            "" => format!("{} is installed.", m.name),
-            version => format!("{} {version} is installed.", m.name),
-        };
-        ui.label(format!("{installed} Replace it with {} from {}?", m.version, r.file));
-        ui.label(if app.plugin_enabled(&m.id) {
-            "Its folder is replaced whole. It is enabled, and stays enabled."
-        } else {
-            "Its folder is replaced whole. It stays off until you enable it."
+    let modal =
+        crate::widgets::modal_window(ctx, egui::Id::new("plugin-replace")).show(ctx, |ui| {
+            crate::widgets::modal_titled(ui, &format!("Replace {}?", m.name), |ui| {
+                ui.set_width(400.0);
+                let installed = match r.installed.as_str() {
+                    "" => format!("{} is installed.", m.name),
+                    version => format!("{} {version} is installed.", m.name),
+                };
+                ui.label(format!("{installed} Replace it with {} from {}?", m.version, r.file));
+                ui.label(if app.plugin_enabled(&m.id) {
+                    "Its folder is replaced whole. It is enabled, and stays enabled."
+                } else {
+                    "Its folder is replaced whole. It stays off until you enable it."
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    yes = ui.button("Replace").clicked();
+                    no = crate::widgets::cancel(ui);
+                });
+            });
         });
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            yes = ui.button("Replace").clicked();
-            no = crate::widgets::cancel(ui);
-        });
-    });
     if yes {
         if let Some(r) = app.plugins.replace.take() {
             app.install_package(&r.package, &r.file, true);
@@ -3053,18 +3064,18 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
 pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(r) = &app.plugins.remove else { return };
     let (mut yes, mut no) = (false, false);
-    let modal = egui::Modal::new(egui::Id::new("plugin-remove")).show(ctx, |ui| {
-        ui.set_width(400.0);
-        ui.heading(format!("Remove {}?", r.name));
-        ui.add_space(4.0);
-        ui.label(
-            "Its folder is deleted from the plugins folder. Your modules are not touched: what \
+    let modal = crate::widgets::modal_window(ctx, egui::Id::new("plugin-remove")).show(ctx, |ui| {
+        crate::widgets::modal_titled(ui, &format!("Remove {}?", r.name), |ui| {
+            ui.set_width(400.0);
+            ui.label(
+                "Its folder is deleted from the plugins folder. Your modules are not touched: what \
              its commands changed in them stays.",
-        );
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            yes = ui.button("Remove").clicked();
-            no = crate::widgets::cancel(ui);
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                yes = ui.button("Remove").clicked();
+                no = crate::widgets::cancel(ui);
+            });
         });
     });
     if yes {

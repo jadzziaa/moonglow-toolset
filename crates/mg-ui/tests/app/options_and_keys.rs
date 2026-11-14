@@ -233,6 +233,8 @@ fn options_leave_the_module_open() {
     assert!(!h.state().has_unsaved_work());
 }
 
+/// The Command Palette is Quick Open among the commands: Ctrl+Shift+P
+/// opens the Top Bar's field with `>` typed.
 #[test]
 fn the_command_palette_finds_a_command_and_runs_it() {
     let dir = mg_testkit::scratch_dir("ui-command-palette");
@@ -241,65 +243,74 @@ fn the_command_palette_finds_a_command_and_runs_it() {
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
-    let open = |h: &mut Harness<'_, Moonglow>| {
-        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-        h.run();
-        assert!(h.state().command_palette.is_some(), "Ctrl+Shift+P opens it");
-    };
-    let hint = "Type a command's name";
 
-    // Every command is there until something is typed; then those whose
-    // name or menu has every word.
-    open(&mut h);
-    h.get_by_label("Verify Module");
-    type_into_hint(&mut h, hint, "mod build");
+    // The commands in the menus' order until something is typed (the
+    // first 50, and how many more); then those whose name or menu has
+    // every word.
+    command_palette(&mut h, "");
+    let rows = quick_open_rows(&h);
+    assert_eq!(rows.first().map(String::as_str), Some("New Module…"), "{rows:?}");
+    h.get_by_label_contains("more: type more to narrow them");
+    h.get_by_label(mg_ui::quick_open::NAME).type_text(" mod build");
+    settle(&mut h);
     assert!(h.query_by_label("Open Module…").is_none());
     // (By name first; then the Build menu's other commands with "mod".)
-    h.get_by_label("Build Module…");
-    h.get_by_label("Verify Module");
-    // Enter runs the one chosen, and the palette closes.
+    let rows = quick_open_rows(&h);
+    assert_eq!(rows.first().map(String::as_str), Some("Build Module…"), "{rows:?}");
+    assert!(rows.iter().any(|r| r == "Verify Module"), "{rows:?}");
+    // Enter runs the one chosen, and Quick Open closes.
     h.key_press(egui::Key::Enter);
-    h.run();
-    assert!(h.state().build.is_some() && h.state().command_palette.is_none());
+    settle(&mut h);
+    assert!(h.state().build.is_some() && !h.state().quick_open.is_open());
     h.state_mut().build = None;
-    h.run();
+    settle(&mut h);
 
-    // The arrows choose among several: the second of the two editors.
-    open(&mut h);
-    type_into_hint(&mut h, hint, "editor");
-    h.get_by_label("Faction Editor");
+    // The arrows choose among several: the third of the editors (Split
+    // Editor first, a shorter name of the same tier).
+    command_palette(&mut h, "editor");
+    assert_eq!(quick_open_rows(&h), ["Split Editor", "Faction Editor", "Journal Editor"]);
     h.key_press(egui::Key::ArrowDown);
-    h.run();
+    settle(&mut h);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
     h.key_press(egui::Key::Enter);
-    h.run();
+    settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Journal).is_some());
     assert!(h.state().dock.find_tab(&Tab::Factions).is_none());
 
     // A command that can't be chosen now is listed, and Enter leaves it.
-    open(&mut h);
-    type_into_hint(&mut h, hint, "redo");
+    command_palette(&mut h, "redo");
     h.key_press(egui::Key::Enter);
-    h.run();
-    assert!(h.state().command_palette.is_some(), "nothing to redo: nothing done");
-    // A click runs one; Escape clears what is typed (the palette stays),
-    // and Escape again closes without running anything.
+    settle(&mut h);
+    assert!(h.state().quick_open.is_open(), "nothing to redo: nothing done");
+    // Escape closes without running anything (it cleared what was typed
+    // first in the Command Palette's window).
     h.key_press(egui::Key::Escape);
-    h.run();
-    assert_eq!(h.state().command_palette.as_ref().map(|f| f.filter.as_str()), Some(""));
-    h.key_press(egui::Key::Escape);
-    h.run();
-    assert!(h.state().command_palette.is_none());
-    open(&mut h);
-    type_into_hint(&mut h, hint, "about");
-    h.get_by_label("About Moonglow Toolset").click();
-    h.run();
-    assert!(h.state().command_palette.is_none());
+    settle(&mut h);
+    assert!(!h.state().quick_open.is_open());
+    assert!(h.state().quick_open.text.is_empty());
+    // A click runs one.
+    command_palette(&mut h, "about");
+    quick_open_row(&h, "About Moonglow Toolset").click();
+    settle(&mut h);
+    assert!(!h.state().quick_open.is_open());
     h.get_by_label_contains("GNU General Public License");
-    // While it is open, keys are its own: Ctrl+N starts no module.
-    open(&mut h);
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
-    h.run();
-    assert!(h.state().command_palette.is_some() && h.state().ws.is_some());
+    h.state_mut().about = false;
+    settle(&mut h);
+    // While it is open, a key that types is its own: an A given to About
+    // types (as in any text field); with Ctrl, a key still runs its
+    // command (the Command Palette's window had held every key back), and
+    // Quick Open closes.
+    let about = vec!["A".to_string(), "Ctrl+B".to_string()];
+    h.state_mut().settings.key_bindings.insert("about".into(), about);
+    settle(&mut h);
+    command_palette(&mut h, "a");
+    assert_eq!(h.state().quick_open.text, ">a");
+    assert!(h.state().quick_open.is_open() && !h.state().about);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::B);
+    settle(&mut h);
+    assert!(h.state().about, "Ctrl+B runs About");
+    assert!(!h.state().quick_open.is_open(), "a command by its key closes it");
 }
 
 #[test]
@@ -465,6 +476,9 @@ fn menus_by_the_keyboard() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     h.run();
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
         h.key_press(key);
@@ -496,13 +510,15 @@ fn menus_by_the_keyboard() {
     key(&mut h, egui::Key::Enter);
     assert!(h.state().settings.hide_log && !h.state().settings.hide_tree);
     assert!(!shown(&h, "Hide All Panels"), "chosen, the menus close");
-    // Up from the first row is the last: Reset Layout brings the log back.
+    // Up from the first row is the last: Reset Layout, the shell's own
+    // layout (the Left Dock unfolded, the log closed).
+    h.state_mut().settings.hide_tree = true;
     key(&mut h, egui::Key::F10);
     key(&mut h, egui::Key::ArrowRight);
     key(&mut h, egui::Key::ArrowRight);
     key(&mut h, egui::Key::ArrowUp);
     key(&mut h, egui::Key::Space);
-    assert!(!h.state().settings.hide_log);
+    assert!(!h.state().settings.hide_tree && h.state().settings.hide_log, "Reset Layout");
 
     // A submenu: Tools, up to Options and three more to Tilesets; Right
     // opens it, Left closes it, and the menu stays.
@@ -531,13 +547,15 @@ fn menus_by_the_keyboard() {
     };
     alt(&mut h, egui::Key::V);
     assert!(shown(&h, "Hide All Panels") && !shown(&h, "Save As"));
+    let closed = h.state().settings.hide_log;
     key(&mut h, egui::Key::L);
     key(&mut h, egui::Key::Enter);
-    assert!(h.state().settings.hide_log, "the row the letter went to");
+    assert_ne!(h.state().settings.hide_log, closed, "the row the letter went to");
+    h.state_mut().settings.hide_tree = true;
     alt(&mut h, egui::Key::V);
     key(&mut h, egui::Key::R);
     key(&mut h, egui::Key::Enter);
-    assert!(!h.state().settings.hide_log, "Reset Layout");
+    assert!(!h.state().settings.hide_tree, "Reset Layout");
     // Alt and another menu's letter, with one open: that one.
     alt(&mut h, egui::Key::V);
     alt(&mut h, egui::Key::H);
@@ -691,7 +709,9 @@ fn the_graphics_backend_is_chosen_in_options() {
     h.run();
     h.get_by_label("General").click();
     h.run();
-    h.get_by_label("Takes effect the next time Moonglow starts.");
+    // (Below the Editors section: brought into sight, its list below it.)
+    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    h.run();
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let automatic =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
@@ -717,18 +737,29 @@ fn the_graphics_backend_is_chosen_in_options() {
     assert_eq!(back.graphics_backend, last);
 }
 
-/// Options › General › Toolbar buttons, Icons only: the toolbar's buttons
-/// show their icons alone at once, each named in its tip (with its key),
-/// and the toolbar takes less room; kept in the settings, and back to
-/// icons and text.
+/// The Top Bar draws its quick actions as icons alone, each with a tip
+/// that names it (with its key, disabled or not), whatever Options ›
+/// General › Editors' toolbar buttons says: that setting (Icons only,
+/// kept in the settings) is the editors' toolbars', and the area view's
+/// still honors it, its buttons icons alone at once.
 #[test]
-fn the_toolbar_shows_icons_only_when_asked() {
+fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
-    let width = |h: &Harness<'_, Moonglow>, first: &str, last: &str| {
-        tool(h, last).rect().right() - tool(h, first).rect().left()
-    };
-    let wide = width(&h, "New", "Verify");
+    let quick = [
+        ("New", mg_uikit::Icon::New),
+        ("Open", mg_uikit::Icon::Open),
+        ("Save", mg_uikit::Icon::Save),
+        ("Undo", mg_uikit::Icon::Undo),
+        ("Redo", mg_uikit::Icon::Redo),
+    ];
+    let rects = |h: &Harness<'_, Moonglow>| quick.map(|(n, _)| tool(h, n).rect());
+    let before = rects(&h);
+    for ((name, icon), r) in quick.iter().zip(before) {
+        assert!(icon_drawn(&h, *icon, r), "{name}'s icon");
+        // (An icon button, 22 square: no words.)
+        assert!(r.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{name} {r:?}");
+    }
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
     h.get_by_label("General").click();
@@ -737,7 +768,13 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let both = |n: &egui_kittest::Node<'_>| {
         n.accesskit_node().value().as_deref() == Some("Icons and text")
     };
-    h.query_all(combo).find(both).expect("the toolbar buttons' dropdown").click();
+    // (Below the Editors section: brought into sight, its list below it.)
+    h.query_all(combo.clone())
+        .find(both)
+        .expect("the editors' toolbar buttons' dropdown")
+        .scroll_to_me();
+    h.run();
+    h.query_all(combo).find(both).unwrap().click();
     h.run();
     h.get_by_label("Icons only").click();
     h.run();
@@ -750,19 +787,19 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
     assert!(!old.toolbar_icons_only, "icons and text in settings from before");
     h.run();
-    // The icons alone (named by their words for a screen reader, the words
-    // in their tips).
-    let (save, palettes) = (tool(&h, "Save").rect(), tool(&h, "Palettes").rect());
-    assert!(icon_drawn(&h, mg_uikit::Icon::Save, save), "Save's icon");
-    assert!(icon_drawn(&h, mg_uikit::Icon::Palette, palettes), "Palettes' icon");
-    let narrow = width(&h, "New", "Verify");
-    assert!(narrow < wide * 0.6, "the toolbar narrower: {narrow} of {wide}");
-    // A tip named for the button: first where it doesn't begin so.
-    let palettes = tool(&h, "Palettes").rect().center();
-    h.hover_at(palettes);
+    // The Top Bar as it was: the setting is not its.
+    assert_eq!(rects(&h), before, "the Top Bar's quick actions where they were");
+    // A tip named for the button, with its key.
+    let new = tool(&h, "New").rect().center();
+    h.hover_at(new);
     // (A tooltip waits a moment.)
     h.run_steps(60);
-    h.get_by_label("Palettes\nBlueprint palettes");
+    // (The tip, not the Status Bar's hint of the same command.)
+    let tips = h.query_all_by_label_contains("New module").map(|n| n.accesskit_node());
+    let tip = (tips.map(|n| n.label().or(n.value()).unwrap_or_default()))
+        .find(|t| !t.contains(": New module"))
+        .unwrap_or_default();
+    assert!(tip.starts_with("New module ("), "named, with its key: {tip}");
     // Save (disabled without a module): its tip too, with its key.
     let save = tool(&h, "Save").rect().center();
     h.hover_at(save);
@@ -770,10 +807,22 @@ fn the_toolbar_shows_icons_only_when_asked() {
     let tip = h.get_by_label_contains("Save module").accesskit_node();
     let tip = tip.label().or(tip.value()).unwrap_or_default();
     assert!(tip.starts_with("Save module ("), "named, with its key: {tip}");
-    // Back to icons and text.
     h.state_mut().settings.toolbar_icons_only = false;
     h.run();
-    assert!((width(&h, "New", "Verify") - wide).abs() < 1.0, "the toolbar as wide as it was");
+    assert_eq!(rects(&h), before, "and back");
+
+    // The area view's toolbar honors it: its words go, and come back.
+    let Some((mut h, _)) = area_harness("top-bar-area-icons") else { return };
+    let wide = area_tool(&h, "Reorient Camera").rect().width();
+    let top_bar = rects(&h);
+    h.state_mut().settings.toolbar_icons_only = true;
+    h.run_steps(2);
+    let now = area_tool(&h, "Reorient Camera").rect().width();
+    assert!(now < wide && now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{wide} -> {now}");
+    assert_eq!(rects(&h), top_bar, "the Top Bar as it was");
+    h.state_mut().settings.toolbar_icons_only = false;
+    h.run_steps(2);
+    assert_eq!(area_tool(&h, "Reorient Camera").rect().width(), wide);
 }
 
 /// Options › General › Light theme: the window's theme follows the
@@ -823,7 +872,7 @@ fn the_theme_is_set_in_options() {
     assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
 }
 
-/// Options › General › Toolbar buttons, Icons only, in the editors'
+/// Options › General › Editors' toolbar buttons, Icons only, in the editors'
 /// toolbars too (ShadowM's request): the script editor's and the
 /// conversation editor's buttons show their glyphs alone and take less
 /// room, each named in its tip and by its name for a screen reader; with
@@ -929,6 +978,8 @@ fn the_theme_s_chevrons_and_row_hover_are_drawn() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1100.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     settle(&mut h);
     // A chevron: three points, open, stroked in `color`, inside `rect`.
     let chevrons = |h: &Harness<'_, Moonglow>, rect: egui::Rect, color: egui::Color32| {
@@ -997,4 +1048,32 @@ fn the_theme_s_chevrons_and_row_hover_are_drawn() {
         h.get_all_by_label("Cancel").last().unwrap().click();
         settle(&mut h);
     }
+}
+
+/// Each Options page keeps its own place in its scroll: the Area page
+/// scrolled down to its Editing section, General opens at its top (its
+/// Editors heading in sight under the page's top), and Area comes back
+/// where it was left.
+#[test]
+fn each_options_page_keeps_its_own_scroll() {
+    use mg_ui::OptionsPage as P;
+    let mut h = harness(app_with(Vec::new()), 1100.0, 700.0);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    let page = |h: &mut Harness<'_, Moonglow>, p: P| {
+        h.state_mut().options.as_mut().unwrap().page = p;
+        settle(h);
+    };
+    page(&mut h, P::Area);
+    // (The page list's first row stands at the pages' top.)
+    let top = h.get_by_label("Folders").rect().top();
+    h.get_by_label("Editing").scroll_to_me();
+    settle(&mut h);
+    let editing = h.get_by_label("Editing").rect().top();
+    page(&mut h, P::General);
+    let editors = h.get_by_label("Editors").rect();
+    assert!(editors.top() >= top - 4.0, "General at its top: {editors:?}, the list's top {top}");
+    page(&mut h, P::Area);
+    let back = h.get_by_label("Editing").rect().top();
+    assert!((back - editing).abs() < 2.0, "Area where it was left: {back} against {editing}");
 }

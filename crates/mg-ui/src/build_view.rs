@@ -180,8 +180,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             go = f.about;
                         }
                         let Some(u) = f.unused else { continue };
-                        r.context_menu(|ui| {
-                            mg_uikit::menu_rows(ui);
+                        mg_uikit::context_menu(&r, |ui| {
                             let r =
                                 ui.add_enabled(place.is_some(), egui::Button::new("Mark as Used"));
                             if r.on_disabled_hover_text(NO_PLACE)

@@ -3,7 +3,7 @@ type: Manual
 title: 'Moonglow Toolset: User Manual'
 description: Front page and contents of the Moonglow Toolset user manual, which is also built into the program (Help, User Manual).
 tags: [manual]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:39:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T01:24:39Z }
 ---
 
 # Moonglow Toolset: User Manual
@@ -26,8 +26,9 @@ deliberately departs.
 
 1. [Getting started](01-getting-started.md): installing, the first start,
    finding the game.
-2. [The main window](02-main-window.md): menus, toolbar, the module tree,
-   tabs, palettes, the log; keyboard shortcuts.
+2. [The main window](02-main-window.md): the Top Bar, the module tree,
+   the Outliner, tabs, palettes, the log and the Status Bar; keyboard
+   shortcuts.
 3. [Modules](03-modules.md): creating, opening and saving; Module
    Properties; haks and talk tables; import and export; backups and
    recovery.

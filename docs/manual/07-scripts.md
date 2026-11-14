@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:22:33Z }
 ---
 
 # Scripts
@@ -69,7 +69,7 @@ have.
 | Tab | one step of indentation at the cursor, as the script is indented: a tab, or its step of spaces (to the next multiple of it); a script with no indented line to go by, as Options › Script Editor › Indent with says (four spaces); on several selected lines, indent each one a step (empty lines stay empty) |
 | Shift+Tab | outdent the selected lines, or the cursor's line, a step: a tab, or up to the indent width in spaces |
 | Page Down, Page Up | a page down or up, the text with the cursor; with Shift, selecting |
-| Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard; Edit › Undo and Redo and the toolbar's are the editor's then too (see below) |
+| Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard; Edit › Undo and Redo and the Top Bar's are the editor's then too (see below) |
 | F12, Ctrl+click | go to the definition of the name at the cursor |
 | Shift+F12 | list where the name at the cursor is used |
 | Ctrl+Shift+R | rename the name at the cursor everywhere |
@@ -83,10 +83,10 @@ what you type stays in the editor until **Save** (or File › Save)
 puts it into the module, and only that is a step of the module's
 history. While
 the editor has the keyboard (its cursor shows), Ctrl+Z and Ctrl+Y,
-**Edit › Undo** and **Redo** and the toolbar's Undo and Redo all take a step
+**Edit › Undo** and **Redo** and the Top Bar's Undo and Redo all take a step
 of the script's history, never the module's: the menu says plain
 "Undo" and "Redo" rather than naming a module step, and the click on
-the menu or the toolbar that takes the keyboard from the editor still
+the menu or the Top Bar that takes the keyboard from the editor still
 counts as being in it. After them the editor has the keyboard again,
 so Ctrl+Z goes on in the script; a menu opened from the editor and
 closed with nothing chosen (Escape, Alt, F10, or a click on its name)
@@ -96,9 +96,11 @@ the script's in the editor as Ctrl+Z and Ctrl+Y are (which stay the
 editor's whatever Undo's key is, as in any text field). With nothing to take back or give
 again in the script they do nothing (they are not grayed). With the
 keyboard anywhere else (after a click in the module tree, say), even
-with the pointer over the script, Edit › Undo and the toolbar's are
+with the pointer over the script, Edit › Undo and the Top Bar's are
 the module's and name its step, as the Save key saves the module
-there (Ctrl+Z in a field typed in is that field's). **Replace** and
+there (Ctrl+Z in a field typed in is that field's; after work in a
+hak's or a 2DA's editor they are that editor's: see Undo and redo in
+[The main window](02-main-window.md#tabs-and-windows)). **Replace** and
 **Replace All** are each a step of the script's history, and while the
 Replace (or Find) window is where you are at work (the keyboard in one
 of its fields, or its button just clicked) Edit › Undo and Redo are

@@ -20,6 +20,28 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
+/// A collapsing header's words (`text`), cut short with an ellipsis
+/// where they are wider than the room beside its arrow in `ui` (egui lays
+/// a header's words out on one line, as wide as they are). Its name for a
+/// screen reader is the whole of them.
+fn fitted(ui: &egui::Ui, text: String) -> egui::WidgetText {
+    let spacing = ui.spacing();
+    let room = ui.available_width()
+        - spacing.icon_width
+        - spacing.icon_spacing
+        - 2.0 * spacing.button_padding.x;
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let whole = ui.fonts_mut(|f| {
+        f.layout_no_wrap(text.clone(), font.clone(), egui::Color32::PLACEHOLDER).size().x
+    });
+    if whole <= room || room <= 0.0 {
+        return text.into();
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(text, font, egui::Color32::PLACEHOLDER);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+    ui.fonts_mut(|f| f.layout_job(job)).into()
+}
+
 /// Whether blueprints of a kind have pictures (a model to draw: their own,
 /// or a waypoint's flag).
 fn pictured(kind: BlueprintKind) -> bool {
@@ -41,7 +63,7 @@ type Tags = Arc<HashMap<ResRef, String>>;
 /// groupings as read, the grouping and whether by category within.
 type GroupedFor = (Arc<Palette>, u64, String, bool);
 
-/// The palette pane's state.
+/// The Palette panel's state (the Right Dock's).
 #[derive(Debug)]
 pub struct PaletteView {
     pub kind: BlueprintKind,
@@ -69,6 +91,12 @@ pub struct PaletteView {
     pub selected: Option<ResKey>,
     /// The hovered blueprint's thumbnail, once rendered.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    /// The blueprint under the pointer and since when (the window's
+    /// clock): its picture and what there is to say of it are asked for
+    /// only once the pointer has rested on its row for [`HOVER_REST`], not
+    /// for each row the list scrolls under a resting pointer (each would
+    /// make a picture: M3 T14's review).
+    hover_since: Option<(ResKey, f64)>,
     /// What there is to say of the hovered blueprint, where it has no
     /// model to show (a sound, a trigger, an encounter, a store, a
     /// waypoint).
@@ -370,6 +398,11 @@ pub(crate) enum Keys {
     Dialog,
     /// The log, scrolled by them (its lines are text to select and copy).
     Log,
+    /// The Right Dock's Preview: they turn its model
+    /// (`area_tools::preview_body`).
+    Preview,
+    /// The Outliner's rows, under the Left Dock's tabs (`outliner.rs`).
+    Outliner,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
@@ -393,6 +426,26 @@ pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
 #[doc(hidden)]
 pub fn keys_are_the_logs(ctx: &egui::Context) -> bool {
     keys_are(ctx, Keys::Log)
+}
+
+/// Which pane the arrow keys are, by name (`Area`, `Tree`, `Palette`,
+/// `Log`, `Browser`...: the area's view where no list took them). For
+/// the window's tests (F6's order).
+#[doc(hidden)]
+pub fn arrow_keys_are(ctx: &egui::Context) -> String {
+    let of = ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of")));
+    match of {
+        Some(keys) if has_arrows(ctx) => format!("{keys:?}"),
+        _ => format!("{:?}", Keys::Area),
+    }
+}
+
+/// Whether a list drawn before the editor area has the keys: the module
+/// tree's, the Resources panel's, the Outliner's, the log's (each takes
+/// Escape, and the tree and the Outliner Enter, before the editor area
+/// sees them).
+pub(crate) fn a_list_has_the_keys(ctx: &egui::Context) -> bool {
+    [Keys::Tree, Keys::Browser, Keys::Outliner, Keys::Log].into_iter().any(|k| keys_are(ctx, k))
 }
 
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
@@ -475,6 +528,7 @@ impl Default for PaletteView {
             grouped: HashMap::new(),
             selected: None,
             thumb: None,
+            hover_since: None,
             fold: None,
             about: None,
             found: None,
@@ -979,6 +1033,11 @@ fn start_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
     );
 }
 
+/// The Palette panel's width under which its types are a dropdown, not a
+/// row of icons (proposal section 5.2: "the palette's type strip becomes a
+/// combo under 300 px of panel width"; the Narrow board's 280 shows it).
+pub(crate) const TYPE_COMBO_UNDER: f32 = 300.0;
+
 /// The lights' page: the game's invisible light placeables ("Light,
 /// White" and the six others, and any a hak adds in the same way), one
 /// chosen to place with a click in an area's view, as the area's menu's
@@ -1037,6 +1096,15 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
          right-click menu gives it another color; selected, a ring shows where its light ends.",
     );
 }
+
+/// How long the pointer rests on a palette row before its blueprint's
+/// picture and what there is to say of it are asked for: long enough that
+/// a turning wheel, which scrolls another row under a resting pointer each
+/// frame, asks for none (each would make a picture: M3 T14's review), and
+/// well under the tooltip's delay (egui's half a second), so that the
+/// picture is being made, or made, as the tooltip opens, and the tooltip
+/// does not open without it and then grow.
+pub(crate) const HOVER_REST: f64 = 0.12;
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
@@ -1131,16 +1199,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "Click in an area to put the start location there",
         ));
         let mut chosen = None;
-        // Icon buttons (22 px), in rows where the pane is narrower than the
-        // twelve of them. (Named by their types within the row, a group
-        // of its own: the area view's toolbar names its filters so too.)
-        let each = mg_uikit::metrics::ICON_BUTTON + 2.0;
-        // (The button that folds the pane away is on its edge, not among
-        // these: GitHub issue 10, `Moonglow::palettes_edge`.)
-        if ui.available_width() >= each * 4.0 {
+        // Icon buttons (22 px, 1 apart: the board's `.seg.icons`, all
+        // thirteen on one row in the Right Dock's 320 px), in rows where the
+        // panel is narrower than them, down to [`TYPE_COMBO_UNDER`]: in a
+        // narrower panel (the Narrow board's 280) a dropdown of them,
+        // "Placeables". (Named by their types within the row, a group of
+        // its own: the area view's toolbar names its filters so too.)
+        let each = mg_uikit::metrics::ICON_BUTTON + 1.0;
+        // (The panel: this room and its body's margin, 8 each side.)
+        let panel = ui.available_width() + 2.0 * mg_uikit::metrics::PANEL_PADDING;
+        // (The button that folds the Right Dock away is beside its edge,
+        // not among these: GitHub issue 10, `shell::right_dock`.)
+        if panel >= TYPE_COMBO_UNDER && ui.available_width() >= each * 4.0 {
             ui.horizontal_wrapped(|ui| {
                 mg_uikit::name_group(ui, "Palette types");
-                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                ui.spacing_mut().item_spacing = egui::vec2(1.0, 2.0);
                 for (t, icon, name, tip) in &types {
                     let tip =
                         if tip.is_empty() { name.to_string() } else { format!("{name}\n{tip}") };
@@ -1237,19 +1310,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // The type shown, by name; the source beside it (a blueprint
         // type's: the game's, or the module's).
         let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
+        let sources = !view.tiles && !view.prefabs && !view.start && !view.lights;
+        // (The source on a row of its own under the name where the two do
+        // not fit side by side: the dock at its narrowest.)
+        let width = |text: &str, style: egui::TextStyle| {
+            let font = style.resolve(ui.style());
+            ui.fonts_mut(|f| f.layout_no_wrap(text.into(), font, egui::Color32::PLACEHOLDER))
+                .size()
+                .x
+        };
+        let pad = ui.spacing().button_padding.x * 2.0;
+        let gap = ui.spacing().item_spacing.x;
+        let toggles = width("Standard", egui::TextStyle::Button)
+            + width("Custom", egui::TextStyle::Button)
+            + 2.0 * pad
+            + gap;
+        let beside = width(name, egui::TextStyle::Body) + gap * 2.0 + toggles;
+        let apart = sources && beside > ui.available_width();
+        let mut source = |ui: &mut egui::Ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_enabled_ui(app.ws.is_some(), |ui| {
+                    ui.selectable_value(&mut view.custom, true, "Custom")
+                        .on_hover_text("The module's blueprints");
+                });
+                ui.selectable_value(&mut view.custom, false, "Standard")
+                    .on_hover_text("The game's blueprints");
+            });
+        };
         ui.horizontal(|ui| {
             ui.strong(name);
-            if !view.tiles && !view.prefabs && !view.start && !view.lights {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_enabled_ui(app.ws.is_some(), |ui| {
-                        ui.selectable_value(&mut view.custom, true, "Custom")
-                            .on_hover_text("The module's blueprints");
-                    });
-                    ui.selectable_value(&mut view.custom, false, "Standard")
-                        .on_hover_text("The game's blueprints");
-                });
+            if sources && !apart {
+                source(ui);
             }
         });
+        if apart {
+            ui.horizontal(&mut source);
+        }
     }
     if view.custom != custom_was {
         app.settings.palette_custom = view.custom;
@@ -1595,7 +1691,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if find.is_in_order() {
         ui.weak("No exact matches: close ones");
     }
-    let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // (A scroll place of its own: not the tiles palette's, nor another
+    // panel's.)
+    let scroll = egui::ScrollArea::vertical().id_salt("palette-list").auto_shrink([false, false]);
+    let mut list = scroll.show(ui, |ui| {
         // A row is one line: a name too long for the pane is cut short
         // (the pointer over it shows it whole, and its ResRef, tag and
         // challenge rating), as in the module tree. A wider pane shows
@@ -1618,8 +1717,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let rest = egui::vec2(ui.available_width(), ui.available_height().max(24.0));
         let (_, below) = ui.allocate_exact_size(rest, egui::Sense::click());
         if let Some(label) = tree.new {
-            below.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(&below, |ui| {
                 if ui.button(label).clicked() {
                     tree.picks.push(Pick::New);
                     ui.close();
@@ -1709,7 +1807,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (`model_view::make_thumbnails`).
     use crate::model_view::Pictured;
     app.thumbnails.show(shown.into_iter().map(Pictured::Resource));
-    // The hovered blueprint's picture, for its tooltip once it is made.
+    // The hovered blueprint's picture, for its tooltip once it is made,
+    // and what there is to say of it: asked for once the pointer has
+    // rested on its row for `HOVER_REST` (the same row a while: not the
+    // rows a turning wheel scrolls under it), well before the tooltip
+    // opens.
+    let now = ui.input(|i| i.time);
+    let delay = HOVER_REST;
+    let since = match (hovered, app.palette.hover_since) {
+        (Some(key), Some((was, since))) if was == key => Some(since),
+        (Some(key), _) => {
+            app.palette.hover_since = Some((key, now));
+            Some(now)
+        }
+        (None, _) => {
+            app.palette.hover_since = None;
+            None
+        }
+    };
+    let rested = since.is_some_and(|since| now - since >= delay);
+    if let Some(since) = since.filter(|_| !rested) {
+        ui.ctx().request_repaint_after_secs((since + delay - now).max(0.0) as f32);
+    }
+    let hovered = hovered.filter(|_| rested);
     if let Some(key) = hovered
         && let Some(id) = app.thumbnails.get(Pictured::Resource(key))
         && app.palette.thumb != Some((key, id))
@@ -2077,6 +2197,9 @@ impl Tree<'_> {
         } else {
             shown_name(&node.name, game)
         };
+        // (Cut short with an ellipsis where the panel is too narrow for it:
+        // a header's words never wrap, and would widen the dock.)
+        let title = fitted(ui, title);
         // (Finding opens every category with a match as it is typed,
         // through `fold`: they can be closed again after.)
         // (Open as it was left at the last start, until it is opened or
@@ -2111,8 +2234,7 @@ impl Tree<'_> {
         let plugins = self.commands.iter().any(|c| c.fits(&kinds));
         if !custom {
             if plugins {
-                shown.header_response.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
+                mg_uikit::context_menu(&shown.header_response, |ui| {
                     if let Some(i) = crate::plugins::menu_commands(ui, self.commands, &kinds) {
                         let mut keys = Vec::new();
                         all_under(node, kind, &mut keys);
@@ -2132,14 +2254,13 @@ impl Tree<'_> {
         // A custom category: Update Instances of everything in it.
         let new = self.new;
         let mut made = false;
-        shown.header_response.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&shown.header_response, |ui| {
             if let Some(label) = new {
                 if ui.button(label).clicked() {
                     made = true;
                     ui.close();
                 }
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             let mut keys = Vec::new();
             all_under(node, kind, &mut keys);
@@ -2296,14 +2417,13 @@ impl Tree<'_> {
         }
         let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
         let commands = self.commands;
-        r.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&r, |ui| {
             if let Some(label) = new {
                 if ui.button(label).on_hover_text("A new blueprint (the type's wizard)").clicked() {
                     picks.push(Pick::New);
                     ui.close();
                 }
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             if mine && ui.button("Edit").clicked() {
                 picks.push(Pick::Edit(key));
@@ -2782,8 +2902,7 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 if r.clicked() {
                     app.actions.push(Action::PlacePrefab(name.clone()));
                 }
-                r.context_menu(|ui| {
-                    mg_uikit::menu_rows(ui);
+                mg_uikit::context_menu(&r, |ui| {
                     if ui.button("Place").clicked() {
                         app.actions.push(Action::PlacePrefab(name.clone()));
                         ui.close();

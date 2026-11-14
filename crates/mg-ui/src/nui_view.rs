@@ -719,7 +719,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // text selections, sliders and canvas handles retain their own drag sense.
     // (Its own room only: OK and Cancel under it are not its body.)
     let body = ui.available_rect_before_wrap();
-    ui.interact(body, id.with("body-drag-guard"), egui::Sense::drag());
+    // (Not a stop of Tab: `Sense::DRAG` alone.)
+    ui.interact(body, id.with("body-drag-guard"), egui::Sense::DRAG);
     let mut state = app.nui_views.remove(&key).unwrap_or_default();
     if let Some(path) = state.select_next.take() {
         state.selected = path;
@@ -907,8 +908,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                     .on_hover_text("Build before testing: the game runs what was last built");
             }
             // The window opens from a script of yours: what to put in it.
-            let how = tools.word_widget(icon::HOW_TO_OPEN, "How to open it…").menu(ui, |ui| {
-                mg_uikit::menu_rows(ui);
+            let how = tools.word_widget(icon::HOW_TO_OPEN, "How to open it…").form_menu(ui, |ui| {
                 let code = format!(
                     "#include \"{name}_o\"\n\n\
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
@@ -972,7 +972,7 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                         state.page = Page::Images;
                         ui.close();
                     }
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                     let there = |k: &ResKey| app.ws.as_ref().is_some_and(|w| w.module.contains(k));
                     if let Some(k) = ResKey::parse(&format!("{name}_o"), ResType::NSS)
                         && ui.add_enabled(there(&k), egui::Button::new("Opener Script")).clicked()

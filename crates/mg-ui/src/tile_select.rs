@@ -525,7 +525,7 @@ pub(crate) fn context_menu(
     at: Option<Pos2>,
 ) {
     let Some(t) = at.and_then(|p| tile_at(view, p)) else {
-        ui.label("No tile here");
+        mg_uikit::menu_note(ui, "No tile here");
         return;
     };
     // In tile mode, the selection (made the tile clicked, if it isn't
@@ -563,7 +563,7 @@ pub(crate) fn context_menu(
         crate::plugins::menu_on(ui, &commands, &tiles, &mut app.actions);
     }
     // Properties last, as in Aurora's menus.
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     if ui.button("Tile Properties…").clicked() {
         properties_of(app, view, &cells);
         ui.close();
@@ -624,13 +624,13 @@ pub(crate) fn ground_items(
     ui: &mut egui::Ui,
     t: (u32, u32),
 ) {
-    ui.label(egui::RichText::new(format!("Tile ({}, {})", t.0, t.1)).weak());
+    mg_uikit::menu_heading(ui, format!("Tile ({}, {})", t.0, t.1));
     tile_items(app, view, ui, &[t]);
     if ui.button("Tile Properties…").clicked() {
         properties_of(app, view, &[t]);
         ui.close();
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
 }
 
 /// A step of a tile's look that keeps its terrain and crossers: the tiles

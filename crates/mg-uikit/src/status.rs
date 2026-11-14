@@ -1,0 +1,1170 @@
+//! The Status Bar's parts (the mock's `.statusbar` and `.sb-*`), each
+//! drawn once from the tokens, for the shell to compose into its 24 px
+//! row: [`bar`] (the row itself, named "Status Bar"), [`StatusSwitch`] (a
+//! Bottom Dock panel's switch, with a count badge), [`separator`],
+//! [`Hints`] (the active tool's keys as key caps with a word, dropping
+//! whole from the end where there is no room), [`StatusItem`] (the
+//! right-hand items: counts, the module's name with its modified dot, the
+//! game folder), [`StatusJob`] (a running job with its bar) and
+//! [`StatusLog`] (the log's last line, while the log is closed).
+//!
+//! ```
+//! # egui::__run_test_ui(|ui| {
+//! use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusSwitch};
+//! use mg_uikit::{Badge, BadgeKind, Icon};
+//! let mut log = false;
+//! let hints = [Hint::keys(["Drag"], "Move"), Hint::keys(["Shift", "Right Drag"], "Turn")];
+//! status::bar(
+//!     ui,
+//!     |ui| {
+//!         if ui.add(StatusSwitch::new(Icon::Log, "Log", log)).clicked() {
+//!             log = !log;
+//!         }
+//!         let problems = Badge::count(3).kind(BadgeKind::Error);
+//!         ui.add(StatusSwitch::new(Icon::Problems, "Problems", false).badge(problems));
+//!         status::separator(ui);
+//!     },
+//!     |ui, room| Hints::new(&hints).show(ui, room),
+//!     |ui| {
+//!         ui.add(StatusItem::new("Chapter1 (modified)").modified(true));
+//!         status::separator(ui);
+//!         ui.add(StatusItem::new(".../Neverwinter Nights").weak());
+//!     },
+//! );
+//! # });
+//! ```
+
+use std::sync::Arc;
+
+use egui::{
+    Color32, FontId, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo,
+    WidgetType, pos2, vec2,
+};
+
+use crate::icons::{ButtonState, Icon};
+use crate::marks::{self, Badge};
+use crate::metrics;
+use crate::theme::TokensExt as _;
+use crate::tokens::Tokens;
+
+/// The Status Bar's accessible name.
+pub const NAME: &str = "Status Bar";
+/// The gap between the Status Bar's parts (`.statusbar`: `gap: 8px`).
+pub const GAP: f32 = 8.0;
+/// The Status Bar's padding at each end (`padding: 0 6px`).
+pub const PADDING: f32 = 6.0;
+/// A switch's height (`.sb-switch`: 20 px).
+pub const SWITCH_HEIGHT: f32 = 20.0;
+/// A switch's padding at each side (6 px; 4 with its icon alone, as the
+/// narrow board's).
+pub const SWITCH_PADDING: f32 = 6.0;
+/// The gap between a switch's icon, words and badge (`gap: 5px`).
+pub const SWITCH_GAP: f32 = 5.0;
+/// A switch's icon (`.sb-switch .ic`: 14 px).
+pub const SWITCH_ICON: f32 = 14.0;
+/// The line under a switch that is on (`inset 0 -2px 0 var(--accent)`).
+pub const SWITCH_ON_LINE: f32 = 2.0;
+/// A separator's height (`.sb-sep`: 1 by 14).
+pub const SEPARATOR_HEIGHT: f32 = 14.0;
+/// The gap between hints (`.sb-hints`: `column-gap: 8px`).
+pub const HINT_GAP: f32 = 8.0;
+/// The hints' padding at each side (`padding: 0 4px`).
+pub const HINTS_PADDING: f32 = 4.0;
+/// The gap between a hint's keys, joiners and word (`.hint`: `gap: 3px`).
+pub const HINT_PART_GAP: f32 = 3.0;
+/// The word's own margin after the gap (`.hint .w`: `margin-left: 2px`).
+pub const HINT_WORD_MARGIN: f32 = 2.0;
+/// A hint's height (`.hint`: 20 px).
+pub const HINT_HEIGHT: f32 = 20.0;
+/// The least room a notice ([`Hint::note`]) that does not fit whole is
+/// shown cut short in (with an ellipsis, its whole words in its tip):
+/// under it, it drops as a hint does.
+pub const NOTE_LEAST: f32 = 48.0;
+/// A job's bar (`.sb-job .bar`: 60 by 4, radius 2).
+pub const JOB_BAR: Vec2 = Vec2::new(60.0, 4.0);
+/// The gap between a job's words and its bar (`gap: 6px`).
+pub const JOB_GAP: f32 = 6.0;
+/// The gap between a right-hand item's dot and words (`.sb-item`: 5 px).
+pub const ITEM_GAP: f32 = 5.0;
+
+fn small_font() -> FontId {
+    FontId::proportional(metrics::SMALL_SIZE)
+}
+
+fn body_font() -> FontId {
+    FontId::proportional(metrics::BODY_SIZE)
+}
+
+/// The Status Bar's frame: `bar`, 6 px at each end (`.statusbar`); for a
+/// bottom panel [`metrics::STATUS_BAR`] high.
+pub fn frame(t: &Tokens) -> egui::Frame {
+    egui::Frame::new().fill(t.bar).inner_margin(egui::Margin::symmetric(PADDING as i8, 0))
+}
+
+/// The Status Bar's row (`.statusbar`): `left` laid out from the left
+/// (the panels' switches), `right` against the right end in its own order
+/// (counts, a job, the module, the game folder), and `middle` given the
+/// width between them, [`GAP`] from each (for [`Hints::show`], which
+/// takes it whole); its parts [`GAP`] apart, centered in the row's height.
+/// A group named "Status Bar", its switches and items found within it by
+/// their own names. The caller gives it its 24 px and its [`frame`].
+///
+/// The right group's width is the last frame's (it is laid out after the
+/// middle); when it changes, the frame is drawn again.
+pub fn bar<L, M, R>(
+    ui: &mut Ui,
+    left: impl FnOnce(&mut Ui) -> L,
+    middle: impl FnOnce(&mut Ui, f32) -> M,
+    right: impl FnOnce(&mut Ui) -> R,
+) -> (L, M, R) {
+    crate::shell::three_parts(ui, NAME, (GAP, GAP), left, right, |ui, room| {
+        middle(ui, room.width())
+    })
+}
+
+/// [`bar`] with the right-hand group's width given (`right_width`: its
+/// items' widths, [`StatusItem::width`], [`SEPARATOR_WIDTH`] for each
+/// separator, and [`GAP`] between them), so that it is laid out by it at
+/// once: a module's name changing (its modified dot) asks for no second
+/// pass, which would run without the frame's input (a click on that frame
+/// would be lost).
+pub fn bar_sized<L, M, R>(
+    ui: &mut Ui,
+    right_width: f32,
+    left: impl FnOnce(&mut Ui) -> L,
+    middle: impl FnOnce(&mut Ui, f32) -> M,
+    right: impl FnOnce(&mut Ui) -> R,
+) -> (L, M, R) {
+    let gaps = (GAP, GAP);
+    crate::shell::three_parts_sized(ui, NAME, gaps, Some(right_width), left, right, |ui, room| {
+        middle(ui, room.width())
+    })
+}
+
+/// A separator's width ([`separator`]).
+pub const SEPARATOR_WIDTH: f32 = 1.0;
+
+/// A vertical line between the Status Bar's groups (`.sb-sep`: 1 by 14,
+/// `line-soft`).
+pub fn separator(ui: &mut Ui) -> Response {
+    let size = vec2(SEPARATOR_WIDTH, SEPARATOR_HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.painter().rect_filled(rect, 0.0, ui.tokens().line_soft);
+    }
+    response
+}
+
+/// A Bottom Dock panel's switch in the Status Bar (`.sb-switch`): its
+/// icon (14 px), its words and a count badge where it has one; 20 px
+/// high. At rest `text-2` with no fill; hovered `raised` and `text`; on
+/// (its panel shown), `raised`, `text` and a 2 px `accent` line along its
+/// bottom; reached with the keyboard, an `accent` ring. With its icon
+/// alone ([`StatusSwitch::icon_only`], the narrow window's), its words
+/// are its tooltip.
+///
+/// A button that says whether it is on (accesskit's toggled), named by
+/// its words alone: `get_by_label("Log")` finds it with or without a
+/// count, and its count is its value.
+#[derive(Clone, Debug)]
+#[must_use = "add it with ui.add"]
+pub struct StatusSwitch {
+    icon: Icon,
+    text: String,
+    on: bool,
+    badge: Option<Badge>,
+    icon_only: bool,
+    tooltip: Option<String>,
+    drawn_as: Option<ButtonState>,
+}
+
+impl StatusSwitch {
+    /// The switch of the panel `text`, shown with `icon`, on while `on`.
+    pub fn new(icon: Icon, text: impl Into<String>, on: bool) -> Self {
+        StatusSwitch {
+            icon,
+            text: text.into(),
+            on,
+            badge: None,
+            icon_only: false,
+            tooltip: None,
+            drawn_as: None,
+        }
+    }
+
+    /// With a count (or any badge) after its words.
+    pub fn badge(mut self, badge: Badge) -> Self {
+        self.badge = Some(badge);
+        self
+    }
+
+    /// With a badge only where `badge` is one (a count of none shows
+    /// none).
+    pub fn badge_if(mut self, badge: Option<Badge>) -> Self {
+        self.badge = badge;
+        self
+    }
+
+    /// Its icon alone where `only` (and its badge), its words then its
+    /// tooltip.
+    pub fn icon_only(mut self, only: bool) -> Self {
+        self.icon_only = only;
+        self
+    }
+
+    /// Shown on hover (and, with its icon alone, in place of its words).
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// Drawn as in `state` whatever the pointer does (a sheet of the
+    /// states).
+    pub fn drawn_as(mut self, state: ButtonState) -> Self {
+        self.drawn_as = Some(state);
+        self
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        let pad = if self.icon_only { 4.0 } else { SWITCH_PADDING };
+        let mut w = 2.0 * pad + SWITCH_ICON;
+        if !self.icon_only {
+            let galley =
+                ui.painter().layout_no_wrap(self.text.clone(), body_font(), Color32::WHITE);
+            w += SWITCH_GAP + galley.size().x;
+        }
+        if let Some(badge) = &self.badge {
+            w += SWITCH_GAP + badge.width(ui);
+        }
+        w
+    }
+}
+
+impl egui::Widget for StatusSwitch {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let size = vec2(self.width(ui), SWITCH_HEIGHT);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let enabled = ui.is_enabled();
+        let text = self.text.clone();
+        let on = self.on;
+        response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, &text));
+        if let Some(badge) = &self.badge {
+            let count = badge.text().to_owned();
+            response.ctx.accesskit_node_builder(response.id, |node| node.set_value(count));
+        }
+        if ui.is_rect_visible(rect) {
+            let t = ui.tokens();
+            let state = self.drawn_as.unwrap_or_else(|| ButtonState::of(&response));
+            let p = ui.painter();
+            let lit = state != ButtonState::Rest || self.on;
+            let (fill, color) =
+                if lit { (t.raised, t.text) } else { (Color32::TRANSPARENT, t.text_2) };
+            let color = if enabled { color } else { t.text_off };
+            p.rect_filled(rect, metrics::RADIUS, fill);
+            if self.on {
+                let line = Rect::from_min_max(
+                    pos2(rect.left(), rect.bottom() - SWITCH_ON_LINE),
+                    rect.right_bottom(),
+                );
+                p.rect_filled(line, egui::CornerRadius { sw: 3, se: 3, nw: 0, ne: 0 }, t.accent);
+            }
+            if state == ButtonState::Pressed && response.has_focus() {
+                p.rect_stroke(
+                    rect,
+                    metrics::RADIUS,
+                    Stroke::new(1.0, t.accent),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            let pad = if self.icon_only { 4.0 } else { SWITCH_PADDING };
+            let mut x = rect.left() + pad;
+            let icon = Rect::from_min_size(
+                pos2(x, rect.center().y - SWITCH_ICON / 2.0),
+                Vec2::splat(SWITCH_ICON),
+            );
+            self.icon.paint(p, icon, color);
+            x += SWITCH_ICON;
+            if !self.icon_only {
+                let galley = p.layout_no_wrap(self.text.clone(), body_font(), color);
+                x += SWITCH_GAP;
+                let pos = pos2(x, (rect.center().y - galley.size().y / 2.0).round());
+                x += galley.size().x;
+                p.galley(pos, galley, color);
+            }
+            if let Some(badge) = &self.badge {
+                x += SWITCH_GAP;
+                let r = Rect::from_min_size(
+                    pos2(x, rect.center().y - marks::MARK_HEIGHT / 2.0),
+                    vec2(badge.width(ui), marks::MARK_HEIGHT),
+                );
+                badge.paint(p, &t, r);
+            }
+        }
+        let tip = self.tooltip.clone().or_else(|| self.icon_only.then(|| self.text.clone()));
+        match tip {
+            Some(tip) => response.on_hover_text(tip),
+            None => response,
+        }
+    }
+}
+
+/// How a hint's own glyph is painted: into the rectangle given, with the
+/// tokens.
+pub type GlyphPainter = Arc<dyn Fn(&Painter, Rect, &Tokens) + Send + Sync>;
+
+/// A part of a [`Hint`] before its word.
+#[derive(Clone)]
+pub enum HintPart {
+    /// A key cap (`Shift`, `Right Drag`).
+    Key(String),
+    /// A key cap of a key held down now (`.kbd.held`: `accent-fill`, its
+    /// words in `on-fill`): Shift while the handles show.
+    Held(String),
+    /// A joiner between key caps, in 11 px `text-3` (`.hint .plus`: `+`,
+    /// or `/` between keys that do the same).
+    Join(&'static str),
+    /// An icon from the set, 16 px in `text-2`, unspoken (a screen reader
+    /// hears the keys and the word: the icon's file name is no word to
+    /// say). [`HintPart::NamedIcon`] for one to be said.
+    Icon(Icon),
+    /// An icon from the set as [`HintPart::Icon`], named `name` for a
+    /// screen reader (as a [`HintPart::Glyph`] is).
+    NamedIcon {
+        /// The icon.
+        icon: Icon,
+        /// What a screen reader says for it.
+        name: String,
+    },
+    /// A glyph of the caller's own (Main.png's gizmo ring before Turn):
+    /// its width in a 16 px high box, and how it is painted there (with
+    /// the tokens), named `name` for a screen reader.
+    Glyph {
+        /// Its width.
+        width: f32,
+        /// What a screen reader says for it.
+        name: String,
+        /// Paints it into the rectangle given.
+        paint: GlyphPainter,
+    },
+}
+
+impl std::fmt::Debug for HintPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HintPart::Key(k) => write!(f, "Key({k:?})"),
+            HintPart::Held(k) => write!(f, "Held({k:?})"),
+            HintPart::Join(j) => write!(f, "Join({j:?})"),
+            HintPart::Icon(i) => write!(f, "Icon({})", i.name()),
+            HintPart::NamedIcon { icon, name } => write!(f, "NamedIcon({}, {name:?})", icon.name()),
+            HintPart::Glyph { name, width, .. } => write!(f, "Glyph({name:?}, {width})"),
+        }
+    }
+}
+
+impl HintPart {
+    /// What a screen reader says for it (nothing for an unnamed icon).
+    fn spoken(&self) -> String {
+        match self {
+            HintPart::Key(k) | HintPart::Held(k) => k.clone(),
+            HintPart::Join(j) => (*j).to_string(),
+            HintPart::Icon(_) => String::new(),
+            HintPart::NamedIcon { name, .. } | HintPart::Glyph { name, .. } => name.clone(),
+        }
+    }
+}
+
+/// One of the Status Bar's hints (`.hint`): what to press, as key caps
+/// with joiners between them, and the word for what it does (`Shift` +
+/// `Right Drag` Turn), in 11 px `text-2`.
+#[derive(Clone, Debug)]
+pub struct Hint {
+    parts: Vec<HintPart>,
+    word: String,
+}
+
+impl Hint {
+    /// A hint of `word` with no keys yet (add them with [`Hint::key`],
+    /// [`Hint::plus`], [`Hint::or`], [`Hint::part`]).
+    pub fn new(word: impl Into<String>) -> Self {
+        Hint { parts: Vec::new(), word: word.into() }
+    }
+
+    /// `keys` pressed together (joined by `+`), then `word`: `Shift` +
+    /// `Right Drag` Turn.
+    pub fn keys<S: Into<String>>(
+        keys: impl IntoIterator<Item = S>,
+        word: impl Into<String>,
+    ) -> Self {
+        let mut hint = Hint::new(word);
+        for key in keys {
+            hint = hint.plus(key);
+        }
+        hint
+    }
+
+    /// Any one of `keys` (joined by `/`), then `word`: `Q` / `E` Turn.
+    pub fn either<S: Into<String>>(
+        keys: impl IntoIterator<Item = S>,
+        word: impl Into<String>,
+    ) -> Self {
+        let mut hint = Hint::new(word);
+        for key in keys {
+            hint = hint.or(key);
+        }
+        hint
+    }
+
+    /// A notice with no keys (`.hint.lead`: "Painting 2 placeables"): what
+    /// the tool in hand is doing, or why it refused, before its hints.
+    pub fn note(text: impl Into<String>) -> Self {
+        Hint::new(text)
+    }
+
+    /// Whether it is a notice: a word with no keys ([`Hint::note`]).
+    pub fn is_note(&self) -> bool {
+        self.parts.is_empty()
+    }
+
+    /// A key cap of a key held down now ([`HintPart::Held`]), after a `+`
+    /// where keys are before it.
+    pub fn held(mut self, key: impl Into<String>) -> Self {
+        if !self.parts.is_empty() {
+            self.parts.push(HintPart::Join("+"));
+        }
+        self.parts.push(HintPart::Held(key.into()));
+        self
+    }
+
+    /// Its parts before its word.
+    pub fn parts(&self) -> &[HintPart] {
+        &self.parts
+    }
+
+    /// A key cap, joined to what is before it by nothing.
+    pub fn key(mut self, key: impl Into<String>) -> Self {
+        self.parts.push(HintPart::Key(key.into()));
+        self
+    }
+
+    /// A key cap, after a `+` where keys are before it.
+    pub fn plus(self, key: impl Into<String>) -> Self {
+        self.joined("+", key)
+    }
+
+    /// A key cap, after a `/` where keys are before it.
+    pub fn or(self, key: impl Into<String>) -> Self {
+        self.joined("/", key)
+    }
+
+    fn joined(mut self, join: &'static str, key: impl Into<String>) -> Self {
+        if !self.parts.is_empty() {
+            self.parts.push(HintPart::Join(join));
+        }
+        self.key(key)
+    }
+
+    /// Any part ([`HintPart`]): an icon, a glyph of the caller's own.
+    pub fn part(mut self, part: HintPart) -> Self {
+        self.parts.push(part);
+        self
+    }
+
+    /// Its word.
+    pub fn word(&self) -> &str {
+        &self.word
+    }
+
+    /// What a screen reader says for it, and its accessible name: its
+    /// parts in order, keys pressed together after a comma and keys that
+    /// do the same after "or", then a colon and its word (`Shift, Right
+    /// Drag: Turn`, `Q or E: Turn by a step`); a notice its words alone.
+    pub fn spoken(&self) -> String {
+        let mut out = String::new();
+        let mut join = "";
+        for part in &self.parts {
+            let said = match part {
+                HintPart::Join("/") => {
+                    join = " or ";
+                    continue;
+                }
+                HintPart::Join(_) => {
+                    join = ", ";
+                    continue;
+                }
+                part => part.spoken(),
+            };
+            if said.is_empty() {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push_str(if join.is_empty() { ", " } else { join });
+            }
+            join = "";
+            out.push_str(&said);
+        }
+        if out.is_empty() {
+            return self.word.clone();
+        }
+        format!("{out}: {}", self.word)
+    }
+
+    /// Each part's width, then the word's, in `ui`'s fonts.
+    fn widths(&self, ui: &Ui) -> (Vec<f32>, f32) {
+        let painter = ui.painter();
+        let parts = self
+            .parts
+            .iter()
+            .map(|part| match part {
+                HintPart::Key(k) | HintPart::Held(k) => marks::key_cap_width(ui, k),
+                HintPart::Join(j) => {
+                    painter.layout_no_wrap((*j).to_string(), small_font(), Color32::WHITE).size().x
+                }
+                HintPart::Icon(_) | HintPart::NamedIcon { .. } => metrics::ICON,
+                HintPart::Glyph { width, .. } => *width,
+            })
+            .collect();
+        let word = painter.layout_no_wrap(self.word.clone(), small_font(), Color32::WHITE).size().x;
+        (parts, word)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        Self::width_of(&self.widths(ui))
+    }
+
+    /// The width of a hint of these parts' and word's widths.
+    fn width_of((parts, word): &(Vec<f32>, f32)) -> f32 {
+        // (A notice has no margin before its word: it is all there is.)
+        let margin = if parts.is_empty() { 0.0 } else { HINT_WORD_MARGIN };
+        let gaps = HINT_PART_GAP * parts.len() as f32;
+        parts.iter().sum::<f32>() + gaps + margin + word
+    }
+
+    /// Paints it from `left`, centered on `y`, its parts `widths` wide.
+    fn paint(&self, ui: &Ui, t: &Tokens, left: f32, y: f32, widths: &[f32]) {
+        let p = ui.painter();
+        let mut x = left;
+        for (part, &w) in self.parts.iter().zip(widths) {
+            let rect = Rect::from_min_size(pos2(x, y - marks::MARK_HEIGHT / 2.0), vec2(w, 16.0));
+            match part {
+                HintPart::Key(k) => marks::paint_key_cap(p, t, rect, k),
+                HintPart::Held(k) => marks::paint_held_key_cap(p, t, rect, k),
+                HintPart::Join(j) => {
+                    let galley = p.layout_no_wrap((*j).to_string(), small_font(), t.text_3);
+                    let pos = pos2(x, (y - galley.size().y / 2.0).round());
+                    p.galley(pos, galley, t.text_3);
+                }
+                HintPart::Icon(icon) | HintPart::NamedIcon { icon, .. } => {
+                    icon.paint(p, rect, t.text_2)
+                }
+                HintPart::Glyph { paint, .. } => paint(p, rect, t),
+            }
+            x += w + HINT_PART_GAP;
+        }
+        let margin = if self.parts.is_empty() { 0.0 } else { HINT_WORD_MARGIN };
+        let galley = p.layout_no_wrap(self.word.clone(), small_font(), t.text_2);
+        let pos = pos2(x + margin, (y - galley.size().y / 2.0).round());
+        p.galley(pos, galley, t.text_2);
+    }
+}
+
+/// How many of the hints of `widths` fit in `room`, `gap` apart, in
+/// order: they drop whole from the end, never one cut (the mock's
+/// `.sb-hints`, which wraps a hint that does not fit onto a hidden line).
+pub fn hints_that_fit(widths: &[f32], gap: f32, room: f32) -> usize {
+    let mut used = 0.0;
+    for (i, w) in widths.iter().enumerate() {
+        let next = used + if i > 0 { gap } else { 0.0 } + w;
+        if next > room + 0.01 {
+            return i;
+        }
+        used = next;
+    }
+    widths.len()
+}
+
+/// The active tool's hints in the Status Bar (`.sb-hints`), ordered by
+/// importance: as many as fit in the room given, whole, from the first;
+/// the rest dropped. A group named "Hints" whose each hint is a label
+/// named by its parts and word ([`Hint::spoken`]).
+#[derive(Clone, Copy, Debug)]
+#[must_use = "show it with .show(ui, room)"]
+pub struct Hints<'a> {
+    hints: &'a [Hint],
+}
+
+impl<'a> Hints<'a> {
+    /// The hints `hints`, the most important first.
+    pub fn new(hints: &'a [Hint]) -> Self {
+        Hints { hints }
+    }
+
+    /// Each hint measured in `ui`'s fonts, once: what [`MeasuredHints`]
+    /// lays out and draws from, however often it is asked.
+    pub fn measure(self, ui: &Ui) -> MeasuredHints<'a> {
+        let parts: Vec<(Vec<f32>, f32)> = self.hints.iter().map(|h| h.widths(ui)).collect();
+        let widths = parts.iter().map(Hint::width_of).collect();
+        MeasuredHints { hints: self.hints, parts, widths }
+    }
+
+    /// How many of them [`Hints::show`] draws in `room` (their padding
+    /// taken from it): those that fit whole, and a notice after them cut
+    /// short where it has [`NOTE_LEAST`].
+    pub fn fitting(&self, ui: &Ui, room: f32) -> usize {
+        self.measure(ui).fitting(room)
+    }
+
+    /// The width all of them take, with their padding (none for no hints).
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.measure(ui).width()
+    }
+
+    /// Draws those that fit in `room` ([`MeasuredHints::show`]); returns
+    /// how many were drawn.
+    pub fn show(self, ui: &mut Ui, room: f32) -> usize {
+        self.measure(ui).show(ui, room)
+    }
+}
+
+/// [`Hints`] measured once ([`Hints::measure`]): their width, how many fit
+/// a room and their drawing all from the same measures, for a caller
+/// that asks all three in a frame (the Status Bar).
+#[derive(Clone, Debug)]
+#[must_use = "show it with .show(ui, room)"]
+pub struct MeasuredHints<'a> {
+    hints: &'a [Hint],
+    parts: Vec<(Vec<f32>, f32)>,
+    widths: Vec<f32>,
+}
+
+impl MeasuredHints<'_> {
+    /// The width all of them take, with their padding (none for no hints).
+    pub fn width(&self) -> f32 {
+        if self.hints.is_empty() {
+            return 0.0;
+        }
+        let gaps = HINT_GAP * (self.hints.len() - 1) as f32;
+        self.widths.iter().sum::<f32>() + gaps + 2.0 * HINTS_PADDING
+    }
+
+    /// How many of them [`MeasuredHints::show`] draws in `room` (their
+    /// padding taken from it): those that fit whole, and a notice after
+    /// them cut short where it has [`NOTE_LEAST`].
+    pub fn fitting(&self, room: f32) -> usize {
+        let (shown, cut) = self.fit(room);
+        shown + usize::from(cut.is_some())
+    }
+
+    /// How many fit whole in `room`, and the room left for the notice
+    /// after them where it is shown cut short.
+    fn fit(&self, room: f32) -> (usize, Option<f32>) {
+        let inner = room - 2.0 * HINTS_PADDING;
+        let shown = hints_that_fit(&self.widths, HINT_GAP, inner);
+        let cut = self.hints.get(shown).filter(|h| h.is_note()).and_then(|_| {
+            let used: f32 = self.widths[..shown].iter().sum::<f32>() + HINT_GAP * shown as f32;
+            let left = inner - used;
+            (left >= NOTE_LEAST).then_some(left)
+        });
+        (shown, cut)
+    }
+
+    /// Draws those that fit in `room` (a width: what the right-hand items
+    /// leave), [`HINT_HEIGHT`] high; returns how many were drawn. Takes
+    /// the room whole (the hints are the Status Bar's part that gives).
+    /// A notice ([`Hint::note`]) is no key hint: the first that does not
+    /// fit whole is drawn cut short with an ellipsis where [`NOTE_LEAST`]
+    /// or more is left for it (named by its whole words, which its tip
+    /// shows), and what follows it dropped.
+    pub fn show(&self, ui: &mut Ui, room: f32) -> usize {
+        let (shown, cut) = self.fit(room);
+        let room = room.max(0.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(room, HINT_HEIGHT), Sense::hover());
+        let builder = egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center));
+        ui.scope_builder(builder, |ui| {
+            crate::icons::name_group(ui, "Hints");
+            ui.spacing_mut().item_spacing.x = HINT_GAP;
+            ui.add_space(HINTS_PADDING);
+            let t = ui.tokens();
+            for (i, hint) in self.hints[..shown].iter().enumerate() {
+                let size = vec2(self.widths[i], HINT_HEIGHT);
+                let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+                let spoken = hint.spoken();
+                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
+                if ui.is_rect_visible(rect) {
+                    hint.paint(ui, &t, rect.left(), rect.center().y, &self.parts[i].0);
+                }
+            }
+            if let Some(left) = cut {
+                let note = &self.hints[shown];
+                let mut job = egui::text::LayoutJob::simple_singleline(
+                    note.word.clone(),
+                    small_font(),
+                    t.text_2,
+                );
+                job.wrap = egui::text::TextWrapping::truncate_at_width(left);
+                let galley = ui.painter().layout_job(job);
+                let size = vec2(galley.size().x, HINT_HEIGHT);
+                let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+                let spoken = note.spoken();
+                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
+                let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
+                ui.painter().galley(pos, galley, t.text_2);
+                response.on_hover_text(note.word.clone());
+            }
+        });
+        shown + usize::from(cut.is_some())
+    }
+}
+
+/// One of the Status Bar's right-hand items (`.sb-item`): the editor's
+/// counts (`11 by 11 tiles`), the module's name with the modified dot
+/// before it, in 13 px `text-2`; weak ([`StatusItem::weak`], the game
+/// folder), 11 px `text-3`. A label named by its words (all of them, its
+/// [`kept`](StatusItem::kept) words too, however it is cut short), with a
+/// tooltip where given (the module's full path). Given a
+/// [`max_width`](StatusItem::max_width), its text is cut short with an
+/// ellipsis to fit, its kept words (" (modified)") drawn whole after it.
+#[derive(Clone, Debug)]
+#[must_use = "add it with ui.add"]
+pub struct StatusItem {
+    text: String,
+    kept: String,
+    weak: bool,
+    modified: bool,
+    max_width: Option<f32>,
+    tooltip: Option<String>,
+}
+
+impl StatusItem {
+    /// An item reading `text`.
+    pub fn new(text: impl Into<String>) -> Self {
+        StatusItem {
+            text: text.into(),
+            kept: String::new(),
+            weak: false,
+            modified: false,
+            max_width: None,
+            tooltip: None,
+        }
+    }
+
+    /// Weak: 11 px `text-3` (`.sb-item.weak`).
+    pub fn weak(mut self) -> Self {
+        self.weak = true;
+        self
+    }
+
+    /// The modified dot before its words where `modified`.
+    pub fn modified(mut self, modified: bool) -> Self {
+        self.modified = modified;
+        self
+    }
+
+    /// Words after its text that are never cut short (" (modified)"):
+    /// where it does not fit its [`max_width`](StatusItem::max_width), its
+    /// text is cut, not these.
+    pub fn kept(mut self, kept: impl Into<String>) -> Self {
+        self.kept = kept.into();
+        self
+    }
+
+    /// At most `width` wide: its text cut short with an ellipsis where the
+    /// whole of it (the dot and its kept words with it) is wider. Its kept
+    /// words and the dot are never cut, so it is wider than `width` only
+    /// where they and the ellipsis alone are.
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width.max(0.0));
+        self
+    }
+
+    /// Shown on hover.
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    fn font(&self) -> FontId {
+        if self.weak { small_font() } else { body_font() }
+    }
+
+    fn dot(&self) -> f32 {
+        if self.modified { marks::DOT + ITEM_GAP } else { 0.0 }
+    }
+
+    /// Its text and its kept words as laid out in `ui` (`color`), the text
+    /// cut short to its room.
+    fn galleys(&self, ui: &Ui, color: Color32) -> (Arc<egui::Galley>, Arc<egui::Galley>) {
+        let p = ui.painter();
+        let kept = p.layout_no_wrap(self.kept.clone(), self.font(), color);
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(self.text.clone(), self.font(), color);
+        if let Some(max) = self.max_width {
+            let room = (max - self.dot() - kept.size().x).max(0.0);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        }
+        (p.layout_job(job), kept)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        let (text, kept) = self.galleys(ui, Color32::WHITE);
+        self.dot() + text.size().x + kept.size().x
+    }
+
+    /// The words it shows in `ui`: its text, cut short with an ellipsis
+    /// where it does not fit, and its kept words.
+    pub fn shown(&self, ui: &Ui) -> String {
+        let (text, kept) = self.galleys(ui, Color32::WHITE);
+        // (A galley's `text` is the whole of it: its glyphs, what is drawn.)
+        let drawn: String = text.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect();
+        format!("{drawn}{}", kept.text())
+    }
+
+    /// Whether its text is cut short in `ui`.
+    pub fn is_cut(&self, ui: &Ui) -> bool {
+        self.galleys(ui, Color32::WHITE).0.elided
+    }
+}
+
+impl egui::Widget for StatusItem {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let t = ui.tokens();
+        let color = if self.weak { t.text_3 } else { t.text_2 };
+        let (galley, kept) = self.galleys(ui, color);
+        let height = galley.size().y.max(kept.size().y).max(marks::MARK_HEIGHT);
+        let size = vec2(self.width(ui), height);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+        let text = format!("{}{}", self.text, self.kept);
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
+        if ui.is_rect_visible(rect) {
+            let mut x = rect.left();
+            if self.modified {
+                let center = pos2(x + marks::DOT / 2.0, rect.center().y);
+                marks::paint_modified_dot(ui.painter(), &t, center);
+                x += marks::DOT + ITEM_GAP;
+            }
+            let y = (rect.center().y - galley.size().y / 2.0).round();
+            let after = x + galley.size().x;
+            ui.painter().galley(Pos2::new(x, y), galley, color);
+            if !kept.is_empty() {
+                let y = (rect.center().y - kept.size().y / 2.0).round();
+                ui.painter().galley(Pos2::new(after, y), kept, color);
+            }
+        }
+        match self.tooltip {
+            Some(tip) => response.on_hover_text(tip),
+            None => response,
+        }
+    }
+}
+
+/// The width of [`StatusJob`]'s moving mark, where how far the job is is
+/// not known: a quarter of its bar.
+pub const JOB_MARK: f32 = 16.0;
+/// How long [`StatusJob`]'s moving mark takes to cross its bar and come
+/// back, in seconds.
+pub const JOB_MARK_PERIOD: f64 = 1.6;
+/// How often a frame is asked for while [`StatusJob`]'s moving mark is
+/// drawn (20 a second: no more than a job's own window asks for).
+pub const JOB_MARK_FRAME: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// A running job in the Status Bar (`.sb-job`): its words in `text-2`, a
+/// 60 by 4 bar in an `inset` well with the part done in `accent` (none
+/// done where it is not given: the bar empty, still); made with
+/// [`StatusJob::unknown`], where how far it is is not known, a
+/// [`JOB_MARK`] wide `accent` mark going to and fro along the bar (a
+/// frame asked for every [`JOB_MARK_FRAME`] while it is drawn, and none
+/// once it is not). A progress indicator
+/// named by its words (or the name given it, [`StatusJob::name`]), the
+/// part done its value (none where it is not known). Given a
+/// [`max_width`](StatusJob::max_width), its words are cut short with an
+/// ellipsis to fit; its bar is never cut.
+#[derive(Clone, Debug)]
+#[must_use = "add it with ui.add"]
+pub struct StatusJob {
+    text: String,
+    done: Option<f32>,
+    moving: bool,
+    name: Option<String>,
+    tooltip: Option<String>,
+    max_width: Option<f32>,
+}
+
+impl StatusJob {
+    /// A job named `text`, `done` of it done (0 to 1) where known (else
+    /// its bar empty).
+    pub fn new(text: impl Into<String>, done: Option<f32>) -> Self {
+        StatusJob {
+            text: text.into(),
+            done,
+            moving: false,
+            name: None,
+            tooltip: None,
+            max_width: None,
+        }
+    }
+
+    /// A job named `text` whose progress is not known: the moving mark
+    /// along its bar.
+    pub fn unknown(text: impl Into<String>) -> Self {
+        StatusJob { moving: true, ..StatusJob::new(text, None) }
+    }
+
+    /// Named `name` for a screen reader (and tests) in place of its words
+    /// (the job and how far it is: "Verify Module, 12 of 30").
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Shown on hover.
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// At most `width` wide: its words cut short with an ellipsis where
+    /// they and the bar are wider (the bar is never cut, so it is wider
+    /// than `width` only where the bar and the ellipsis alone are).
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width.max(0.0));
+        self
+    }
+
+    /// Its words as laid out in `ui` (`color`), cut short to their room.
+    fn galley(&self, ui: &Ui, color: Color32) -> Arc<egui::Galley> {
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(self.text.clone(), body_font(), color);
+        if let Some(max) = self.max_width {
+            let room = (max - JOB_GAP - JOB_BAR.x).max(0.0);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        }
+        ui.painter().layout_job(job)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.galley(ui, Color32::WHITE).size().x + JOB_GAP + JOB_BAR.x
+    }
+
+    /// Whether its words are cut short in `ui`.
+    pub fn is_cut(&self, ui: &Ui) -> bool {
+        self.galley(ui, Color32::WHITE).elided
+    }
+
+    /// Where the moving mark's left end is along a bar `bar` wide, at
+    /// `time` seconds: from the bar's left end to its right and back,
+    /// once each [`JOB_MARK_PERIOD`].
+    pub fn mark_offset(time: f64, bar: f32) -> f32 {
+        let phase = (time / JOB_MARK_PERIOD).fract() as f32;
+        let to_and_fro = 1.0 - (2.0 * phase - 1.0).abs();
+        to_and_fro * (bar - JOB_MARK).max(0.0)
+    }
+}
+
+impl egui::Widget for StatusJob {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let t = ui.tokens();
+        let galley = self.galley(ui, t.text_2);
+        let size = vec2(galley.size().x + JOB_GAP + JOB_BAR.x, galley.size().y);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+        let done = self.done;
+        let name = self.name.clone().unwrap_or_else(|| self.text.clone());
+        response.widget_info(|| {
+            let mut info = WidgetInfo::labeled(WidgetType::ProgressIndicator, true, &name);
+            info.value = done.map(f64::from);
+            info
+        });
+        if ui.is_rect_visible(rect) {
+            let p = ui.painter();
+            let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
+            let words = galley.size().x;
+            p.galley(pos, galley, t.text_2);
+            let bar = Rect::from_min_size(
+                pos2(rect.left() + words + JOB_GAP, rect.center().y - JOB_BAR.y / 2.0),
+                JOB_BAR,
+            );
+            p.rect_filled(bar, 2, t.inset);
+            match self.done {
+                Some(done) => {
+                    let part =
+                        Rect::from_min_size(bar.min, vec2(JOB_BAR.x * done.clamp(0.0, 1.0), 4.0));
+                    p.rect_filled(part, 2, t.accent);
+                }
+                None if !self.moving => {}
+                None => {
+                    let time = ui.input(|i| i.time);
+                    let left = bar.left() + StatusJob::mark_offset(time, JOB_BAR.x);
+                    let mark = Rect::from_min_size(pos2(left, bar.top()), vec2(JOB_MARK, 4.0));
+                    p.rect_filled(mark, 2, t.accent);
+                    ui.ctx().request_repaint_after(JOB_MARK_FRAME);
+                }
+            }
+        }
+        match self.tooltip {
+            Some(tip) => response.on_hover_text(tip),
+            None => response,
+        }
+    }
+}
+
+/// The log's last line in the Status Bar (`.sb-log`), while the panel that
+/// shows it is closed: in 11 px, `text-3` (or the color given it, a
+/// warning's or an error's), cut short with an ellipsis to the room given
+/// it ([`StatusLog::max_width`]); pressed, it opens the log (the caller's
+/// to do). A button named by the name given it ([`StatusLog::name`]),
+/// else by its first line whole (however it is cut short), its tooltip
+/// where given. (The caller bounds what it is given: it is laid out each
+/// frame.)
+#[derive(Clone, Debug)]
+#[must_use = "add it with ui.add"]
+pub struct StatusLog {
+    text: String,
+    name: Option<String>,
+    color: Option<Color32>,
+    max_width: Option<f32>,
+    tooltip: Option<String>,
+}
+
+impl StatusLog {
+    /// The line `text` (its first line, where it has several).
+    pub fn new(text: impl Into<String>) -> Self {
+        StatusLog { text: text.into(), name: None, color: None, max_width: None, tooltip: None }
+    }
+
+    /// Named `name` for a screen reader (and tests) in place of its first
+    /// line ("Last log line: …": its words alone could be any control's).
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Drawn in `color` (a warning's, an error's) in place of `text-3`.
+    pub fn color(mut self, color: Color32) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// At most `width` wide: cut short with an ellipsis where wider.
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.max_width = Some(width.max(0.0));
+        self
+    }
+
+    /// Shown on hover (the whole line).
+    pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// Its first line.
+    fn line(&self) -> &str {
+        self.text.lines().next().unwrap_or("")
+    }
+
+    fn galley(&self, ui: &Ui, color: Color32) -> Arc<egui::Galley> {
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(self.line().to_owned(), small_font(), color);
+        if let Some(max) = self.max_width {
+            job.wrap = egui::text::TextWrapping::truncate_at_width(max);
+        }
+        ui.painter().layout_job(job)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.galley(ui, Color32::WHITE).size().x
+    }
+
+    /// The words it shows in `ui`, cut short with an ellipsis where they
+    /// do not fit.
+    pub fn shown(&self, ui: &Ui) -> String {
+        let galley = self.galley(ui, Color32::WHITE);
+        galley.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect()
+    }
+
+    /// Whether it is cut short in `ui`.
+    pub fn is_cut(&self, ui: &Ui) -> bool {
+        self.galley(ui, Color32::WHITE).elided
+    }
+}
+
+impl egui::Widget for StatusLog {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let t = ui.tokens();
+        let rest = self.color.unwrap_or(t.text_3);
+        // (Laid out with no color of its own: painted in the color of the
+        // moment, hovered or not.)
+        let galley = self.galley(ui, Color32::PLACEHOLDER);
+        let size = vec2(galley.size().x, SWITCH_HEIGHT);
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let enabled = ui.is_enabled();
+        let name = self.name.clone().unwrap_or_else(|| self.line().to_owned());
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &name));
+        if ui.is_rect_visible(rect) {
+            let p = ui.painter();
+            let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
+            // (Hovered, a plain line brightens; a warning's or an error's
+            // color stays: it is what says what it is.)
+            let color = if response.hovered() && self.color.is_none() { t.text_2 } else { rest };
+            p.galley(pos, galley, color);
+            if response.has_focus() {
+                p.rect_stroke(
+                    rect.expand(1.0),
+                    metrics::RADIUS,
+                    Stroke::new(1.0, t.accent),
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
+        match self.tooltip {
+            Some(tip) => response.on_hover_text(tip),
+            None => response,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hints drop whole from the end: at a width between two hints' ends
+    /// the first fits and the second is left out, never cut; at none,
+    /// none; with room for all, all.
+    #[test]
+    fn hints_drop_whole_from_the_end() {
+        let widths = [60.0, 80.0, 50.0];
+        assert_eq!(hints_that_fit(&widths, 8.0, 1000.0), 3);
+        assert_eq!(hints_that_fit(&widths, 8.0, 60.0 + 8.0 + 80.0 + 8.0 + 50.0), 3);
+        assert_eq!(hints_that_fit(&widths, 8.0, 60.0 + 8.0 + 80.0 + 8.0 + 49.0), 2);
+        assert_eq!(hints_that_fit(&widths, 8.0, 100.0), 1);
+        assert_eq!(hints_that_fit(&widths, 8.0, 59.0), 0);
+        assert_eq!(hints_that_fit(&widths, 8.0, 0.0), 0);
+        assert_eq!(hints_that_fit(&[], 8.0, 10.0), 0);
+        // A small hint after a wide one that does not fit stays out too:
+        // they are in order of importance.
+        assert_eq!(hints_that_fit(&[60.0, 300.0, 10.0], 8.0, 200.0), 1);
+    }
+
+    /// A hint's name is its keys in order, a comma between keys pressed
+    /// together and "or" between keys that do the same, then a colon and
+    /// its word; an icon's the name its caller gave it, and an unnamed
+    /// icon says nothing (not its file's name: "rotate Turn"); a notice is
+    /// its words.
+    #[test]
+    fn a_hint_says_its_keys_and_word() {
+        assert_eq!(Hint::keys(["Shift", "Right Drag"], "Turn").spoken(), "Shift, Right Drag: Turn");
+        assert_eq!(Hint::either(["Q", "E"], "Turn by a step").spoken(), "Q or E: Turn by a step");
+        assert_eq!(Hint::new("Turn by a step").key("Q").key("E").spoken(), "Q, E: Turn by a step");
+        assert_eq!(Hint::keys(["Drag"], "Move").spoken(), "Drag: Move");
+        assert_eq!(Hint::new("Held").held("Shift").spoken(), "Shift: Held");
+        let named = HintPart::NamedIcon { icon: Icon::Rotate, name: "Turn handle".into() };
+        assert_eq!(Hint::new("Turn").part(named).spoken(), "Turn handle: Turn");
+        assert_eq!(Hint::new("Turn").part(HintPart::Icon(Icon::Rotate)).spoken(), "Turn");
+        assert_eq!(Hint::note("Painting 2 placeables").spoken(), "Painting 2 placeables");
+        assert!(Hint::note("Painting").is_note() && !Hint::keys(["G"], "Drop").is_note());
+    }
+}

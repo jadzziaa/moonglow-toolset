@@ -12,10 +12,12 @@ fn welcome_then_open_a_module_through_the_dialog() {
     h.get_by_label("Open Module…").click();
     h.run();
     assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The tree lists the area and the script; Module Properties is open.
     h.get_by_label("Areas (1)");
     h.get_by_label_contains("Scripts (1)");
-    h.get_by_label("Module Properties");
+    tree_row(&h, "Module Properties");
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Opened")));
 }
 
@@ -307,6 +309,8 @@ fn new_module_and_area_through_the_wizards() {
     h.run();
     let key = ResKey::parse("area001", ResType::ARE).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "{:?}", h.state().log.entries);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label_contains("Areas (1)");
     // Open Area in the Area Viewer is on by default, as in Aurora.
     assert!(
@@ -1654,7 +1658,7 @@ fn turkish_harness(name: &str, table: bool) -> Option<(Harness<'static, Moonglow
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let h = harness(app, 1000.0, 800.0);
     Some((h, key))
 }

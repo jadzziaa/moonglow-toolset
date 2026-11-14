@@ -56,6 +56,9 @@ pub(crate) struct OutsideState {
     /// The watches walk the files rather than be told by the system (a
     /// test of the walk).
     pub(crate) walk: bool,
+    /// The Status Bar's note as a test sets it ([`Moonglow::show_looking_note`]),
+    /// over what a look under way says.
+    shown_note: Option<&'static str>,
 }
 
 impl OutsideState {
@@ -289,9 +292,21 @@ impl Moonglow {
         }
     }
 
+    /// Shows the Status Bar's note of a look under way (`Some("Reading
+    /// files changed outside Moonglow…")`) as if one took a while, or
+    /// leaves it to the looks again (`None`): for the window's tests and
+    /// pictures, a look's timing being the machine's.
+    #[doc(hidden)]
+    pub fn show_looking_note(&mut self, note: Option<&'static str>) {
+        self.outside.shown_note = note;
+    }
+
     /// What the status bar says of a look under way that takes a while,
     /// or of scripts read again being compiled.
     pub(crate) fn looking_note(&self) -> Option<&'static str> {
+        if let Some(note) = self.outside.shown_note {
+            return Some(note);
+        }
         if self.outside.compiling.as_ref().is_some_and(|c| c.queue.len() > 1) {
             return Some("Compiling scripts changed outside Moonglow…");
         }

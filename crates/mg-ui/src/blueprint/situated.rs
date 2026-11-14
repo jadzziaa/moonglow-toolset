@@ -277,7 +277,9 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         let (mut ok, mut cancel) = (false, false);
         // Most of the screen's width, the grid as many to a row as it holds.
         let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 900.0);
-        let window = crate::widgets::modal(ui.ctx(), "Select Portrait").id(pick_id.with("modal"));
+        let window = crate::widgets::modal(ui.ctx(), "Select Portrait")
+            .id(pick_id.with("modal"))
+            .close_as_cancel();
         window.show(ui.ctx(), |ui| {
             ui.set_width(wide);
             ui.horizontal(|ui| {

@@ -369,7 +369,7 @@ fn a_talk_table_that_cannot_be_read_is_tried_once() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run_steps(8);
@@ -398,7 +398,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -557,7 +557,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // category named by the new line, to be translated there.
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
         app.palette.tiles = false;
         app.palette.custom = true;
@@ -732,7 +732,7 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     press(&h, at, true, egui::Modifiers::NONE);
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(3);
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
     let row = (h.query_all_by_label_contains("300  "))
         .map(|n| n.rect().center().y)
@@ -829,7 +829,7 @@ fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
     let mut app = game_app(&root, Some(user.clone()));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -1368,7 +1368,7 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     settle(&mut h);
     assert!(h.state().tables[0].description().is_some(), "read from beside the .mod");
     assert_eq!(mg_ui::table_view::open_in_module(h.state_mut(), key), Some(id), "open once");
-    h.get_by_label("mystore.2da");
+    doc_tab(&h, "mystore.2da");
     // A click selects a cell and F2 (or Enter, or a double click) types
     // into it; Enter keeps what is typed.
     h.get_by_label("Cheese").click();
@@ -2069,6 +2069,8 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(3);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);
@@ -2172,7 +2174,12 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     h.get_by_label("no model of this name in the game, its haks or the module");
     h.get_by_label("Choose Model…").click();
     h.run_steps(3);
-    let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect().center();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .rect()
+        .center();
     click_pos(&h, field);
     h.run_steps(2);
     h.event(egui::Event::Text("plc_c0".into()));
@@ -2213,8 +2220,11 @@ fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
     });
     assert_eq!(copied, Some(format!("{}\n{}", label(1), label(2))));
     // Nothing is typed into or emptied.
-    let fields =
-        |h: &Harness<'_, Moonglow>| h.get_all_by_role(egui::accesskit::Role::TextInput).count();
+    let fields = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .count()
+    };
     let typing = fields(&h);
     h.key_press(egui::Key::Delete);
     h.key_press(egui::Key::Enter);
@@ -2226,7 +2236,10 @@ fn a_game_table_read_only_has_the_editor_s_keys_and_find() {
     assert_eq!(fields(&h), typing, "no cell is typed in");
     assert!(h.query_all_by_label(&label(1)).count() > 0, "not emptied");
     // Find narrows the rows; Escape clears it.
-    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let find = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     click_pos(&h, find.rect().center());
     h.run_steps(2);
     h.event(egui::Event::Text("fireball".into()));
@@ -2432,7 +2445,7 @@ fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1280.0, 1300.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();

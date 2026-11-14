@@ -103,6 +103,16 @@ impl std::fmt::Debug for Job {
     }
 }
 
+/// A job under way as the Status Bar shows it ([`Moonglow::job_shown`]).
+pub(crate) struct JobShown {
+    /// What the log calls it.
+    pub title: String,
+    /// The steps done and their total, where the total is known.
+    pub steps: Option<(usize, usize)>,
+    /// What it is doing now (empty where it has not said).
+    pub note: String,
+}
+
 /// Asks for a frame from a thread of the window's whose work is done (a
 /// look at the module's files, a watch that heard a change, the game's
 /// programs made): at once where the window keeps going (`at_once`:
@@ -311,6 +321,37 @@ impl Moonglow {
         }
     }
 
+    /// The job under way as the Status Bar shows it.
+    pub(crate) fn job_shown(&self) -> Option<JobShown> {
+        let job = self.job.as_ref()?;
+        let p = &job.progress;
+        let (done, total) = (p.done.load(Ordering::Relaxed), p.total.load(Ordering::Relaxed));
+        let steps = (total > 0).then_some((done.min(total), total));
+        Some(JobShown { title: job.title.clone(), steps, note: p.note() })
+    }
+
+    /// Starts `work` as a job titled `title` on a thread of its own, run in
+    /// the background whatever [`Moonglow::background_jobs`] says (a test
+    /// holds it there with a channel of its own, says how far it is with
+    /// [`Progress::step`], and lets it end, fail by a panic or be called
+    /// off); done, the log says "`title`: done". For the window's tests
+    /// and pictures of a job under way, a job's timing being the machine's.
+    #[doc(hidden)]
+    pub fn start_job_for_tests(
+        &mut self,
+        title: &str,
+        work: impl FnOnce(&Progress) + Send + 'static,
+    ) {
+        let was = std::mem::replace(&mut self.background_jobs, true);
+        let done = format!("{title}: done");
+        self.start_job_anywhere(
+            title,
+            move |cx| work(&cx.progress),
+            move |app, ()| app.log.info(done),
+        );
+        self.background_jobs = was;
+    }
+
     /// Each frame: hands a finished job's work over; else asks to be drawn
     /// again soon.
     pub(crate) fn poll_job(&mut self, ctx: &egui::Context) {
@@ -348,51 +389,61 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (title, progress, started) = (job.title.clone(), job.progress.clone(), job.started);
     let plugin = job.plugin.clone();
     let command = crate::project_commands::running(app);
-    let mut modal = egui::Modal::new(egui::Id::new("job"));
+    let mut modal = crate::widgets::modal_window(ctx, egui::Id::new("job"));
     if plugin.is_some() {
         modal = modal.backdrop_color(egui::Color32::TRANSPARENT);
     }
+    let heading = plugin.as_ref().map_or(title.as_str(), |(heading, _)| heading.as_str());
     modal.show(ctx, |ui| {
-        ui.set_width(if command { 640.0 } else { 320.0 });
-        match &plugin {
-            Some((heading, name)) => {
-                ui.heading(heading).on_hover_text(format!("From the plugin {name}"));
-            }
-            None => {
-                ui.heading(&title);
-            }
-        }
-        // A plugin waiting on the user shows its question here.
-        if crate::plugins::question_ui(app, ui) {
-            return;
-        }
-        // A project's command, its output as it comes (and its input).
-        if command {
-            crate::project_commands::job_ui(app, ui);
-        }
-        let (done, total) =
-            (progress.done.load(Ordering::Relaxed), progress.total.load(Ordering::Relaxed));
-        if total > 0 {
-            let bar = egui::ProgressBar::new(done as f32 / total as f32)
-                .text(format!("{done} of {total}"));
-            ui.add(bar);
-        } else {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(format!("{} s", started.elapsed().as_secs()));
-            });
-        }
-        let note = progress.note();
-        if !note.is_empty() {
-            ui.label(note);
-        }
-        ui.add_space(6.0);
-        if progress.cancelled() {
-            ui.weak("Canceling…");
-        } else if ui.button("Cancel").clicked() {
-            progress.cancel.store(true, Ordering::Relaxed);
+        let (_, named) = crate::widgets::modal_titled(ui, heading, |ui| {
+            job_body(app, ui, &progress, started, command)
+        });
+        if let Some((_, name)) = &plugin {
+            named.on_hover_text(format!("From the plugin {name}"));
         }
     });
+}
+
+/// The job window's body under its title row: a plugin's question, a
+/// project command's output, the progress and Cancel.
+fn job_body(
+    app: &mut Moonglow,
+    ui: &mut egui::Ui,
+    progress: &std::sync::Arc<Progress>,
+    started: std::time::Instant,
+    command: bool,
+) {
+    ui.set_width(if command { 640.0 } else { 320.0 });
+    // A plugin waiting on the user shows its question here.
+    if crate::plugins::question_ui(app, ui) {
+        return;
+    }
+    // A project's command, its output as it comes (and its input).
+    if command {
+        crate::project_commands::job_ui(app, ui);
+    }
+    let (done, total) =
+        (progress.done.load(Ordering::Relaxed), progress.total.load(Ordering::Relaxed));
+    if total > 0 {
+        let bar =
+            egui::ProgressBar::new(done as f32 / total as f32).text(format!("{done} of {total}"));
+        ui.add(bar);
+    } else {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(format!("{} s", started.elapsed().as_secs()));
+        });
+    }
+    let note = progress.note();
+    if !note.is_empty() {
+        ui.label(note);
+    }
+    ui.add_space(6.0);
+    if progress.cancelled() {
+        ui.weak("Canceling…");
+    } else if ui.button("Cancel").clicked() {
+        progress.cancel.store(true, Ordering::Relaxed);
+    }
 }
 
 #[cfg(test)]

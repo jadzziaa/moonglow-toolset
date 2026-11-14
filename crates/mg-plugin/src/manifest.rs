@@ -677,7 +677,7 @@ pub struct CommandDecl {
 
 impl CommandDecl {
     /// Its title with the submenus it is in before it (`Make › Crafting ›
-    /// Workbench…`): how the Command Palette and the keys name it.
+    /// Workbench…`): how Quick Open and the keys name it.
     pub fn path_title(&self) -> String {
         path_title(&self.menu, &self.title)
     }
@@ -1432,7 +1432,7 @@ severity = "error"
     }
 
     /// API 0.7: a command in a submenu, `menu`, nested at each › (or >),
-    /// in every menu it is in; the Command Palette names it by the whole
+    /// in every menu it is in; Quick Open names it by the whole
     /// path. A name left empty is refused, and so is `menu` in a manifest
     /// written for an earlier API.
     #[test]

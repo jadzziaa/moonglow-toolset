@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-11T07:06:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T13:30:18Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -26,7 +26,7 @@ How to read it:
 - "Right Dock", "Left Dock", "Bottom Dock", "Top Bar", "Status Bar", "Outliner" and "Quick Open" are the shell's regions and panels, defined in the proposal.
 - The three parts are ordered as the boards are: the first round (main window and the four editors of the first mock, the creature blueprint and the viewer), the second round, and the second round continued. A screen that appears twice (the viewer, the area editor) has a section in each part for the board that mocks it.
 
-Implementation ticks a row when its control has reached the home named here and its test (or picture, compared with the board) says so.
+Implementation ticks a row when its control has reached the home named here and its test (or picture, compared with the board) says so. A table with a **Done** column says which task ticked each row (✓), and where a row's control is until its task.
 
 ## Part 1: Where Things Moved (the first round)
 
@@ -35,28 +35,34 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 ### Main Toolbar and Window
 
-| Today | In the redesign |
-|---|---|
-| New, Open, Save, Undo, Redo | Top Bar, icon buttons after the menus |
-| Properties | Module panel header button (Module Properties) |
-| New Area | Module panel header button |
-| Start | Area view, camera button under the compass; also in the View menu |
-| Resources | Left Dock tab beside Module |
-| Palettes | Right Dock, Palette panel |
-| Preview | Right Dock, Preview panel |
-| Compile, Verify | Top Bar, right end |
-| Test Module (F9) | Top Bar, right end, with Choose Character under its arrow |
-| The eight menus | Top Bar, unchanged |
-| Module tree: Filter, groups, Expand All, Collapse All | Module panel |
-| Log panel | Bottom Dock tab, opened by the Log switch in the Status Bar |
-| Status line: module path, game folder | Status Bar, right |
+| Today | In the redesign | Done |
+|---|---|---|
+| New, Open, Save, Undo, Redo | Top Bar, icon buttons after the menus | ✓ M3 T2 |
+| Properties | Module panel header button (Module Properties) | ✓ M3 T2 (named Module Properties in M3 T3) |
+| New Area | Module panel header button | ✓ M3 T2 |
+| Start | Area view, camera button under the compass; also in the View menu | View menu ✓ M3 T2; the compass button is M4's |
+| Resources | Left Dock tab beside Module | ✓ M3 T4 (Tools › Resource Browser shows it) |
+| Palettes | Right Dock, Palette panel | ✓ M3 T5 (also Tools › Palettes, which shows the dock on it) |
+| Preview | Right Dock, Preview panel | ✓ M3 T6 (the tab beside the Palette's; Tools › Preview brings it to the front, by the Preview Window command's id) |
+| Compile, Verify | Top Bar, right end | ✓ M3 T2 |
+| Test Module (F9) | Top Bar, right end, with Choose Character under its arrow | ✓ M3 T2 |
+| The eight menus | Top Bar, unchanged | ✓ M3 T2 |
+| Module tree: Filter, groups, Expand All, Collapse All | Module panel | ✓ M3 T3 (Expand All and Collapse All on its tab bar; each group's icon and count; the Areas group scrolls in its own well) |
+| Log panel | Bottom Dock tab, opened by the Log switch in the Status Bar | ✓ M3 T2; T7: its last line beside the switch while the dock is closed, Copy Log, Save Log and Clear Log on its tab bar (they give way from the end in a narrow dock), closed for a new installation |
+| View › Module Tree | View › Left Dock: it folds the dock on whichever panel it shows (Module or Resources), its key (Ctrl+Alt+1) as before | ✓ M3 T4 (its review: the boards name no row; the dock holds both panels) |
+| View › Palettes Panel | View › Right Dock: it folds the Right Dock, its key (Ctrl+Alt+2) as before | ✓ M3 T5 (the boards name no row; the dock holds the Preview's tab too since T6, and is drawn beside an area's tab alone) |
+| Status line: module path, game folder | Status Bar, right | ✓ M3 T2 (the module's name, its path in the tip); T7: a running job, its name and bar, before the module's name |
+| Help › Command Palette… (Ctrl+Shift+P), a window over the toolset (no board draws it: the proposal's section 6.1 and the second rulings' third make it Quick Open) | Quick Open, the Top Bar's field "Go to resource or command" (Ctrl+P): resources and commands; Ctrl+Shift+P and Help › Command Palette… open it among the commands | ✓ M3 T8 (the window is gone) |
+| The main pane's tabs: name, " *" after a script's, the talk table's or a side editor's with unsaved changes, egui_dock's close button on every tab | Document tabs: the kind's icon, the name, the modified dot (for an area, conversation, blueprint or Module Properties changed since the module was saved too), a close button on the tab in front and the one under the pointer; titles cut alike with their whole name in their tip where the bar is crowded | ✓ M3 T9 (the tab menu's Close is Moonglow's own, first of the close rows) |
+| egui_dock's arrow at the left of the main pane's tab bar (folds a pane split above or below another to its tab bar) and its close all button at the bar's right (closes the pane's tabs; with Shift, a window's) | Gone from the editor groups' bars, which the boards draw with neither: the tab menu's Close All closes a group's tabs, and a group is made smaller by dragging its seam (no fold). A floating window's bar keeps both, as the Floating board draws them | ✓ M3 T9 (`vendor/egui_dock`: egui_dock decides them for every bar or none) |
+| Panes split off the middle by dragging a tab to a side | Editor groups: the same, and **Split Editor** at the right end of the focused group's tab bar (also View › Split Editor, Ctrl+\\); the docks and the tab keys follow the focused group | ✓ M3 T9 |
 
 
 ### Area Editor
 
 | Today | In the redesign |
 |---|---|
-| Show Creatures, Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints, Start | Header, a group of icon toggles; the same eyes in the Outliner |
+| Show Creatures, Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints, Start | Header, a group of icon toggles; the same eyes in the Outliner ✓ M3 T13 (the eyes: one state with the toggles, which stay on the toolbar until M4's header; nine eyes, no row for Start, as the boards draw them) |
 | All, None | The arrow at the end of that group |
 | Snap, Turn | Header combos (magnet and rotate icons) |
 | Together, Onto Objects | Header icon toggles beside Turn |
@@ -70,8 +76,8 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Select Tiles (F10), Paint (B) | Tool shelf at the left of the 3D view |
 | Paint's second strip (Scatter, Row, Fill, Erase, Radius, Density and the rest) | Takes the header's left group while Paint is the active tool (not drawn) |
 | Reorient Camera, Go to Start Location | Buttons under the compass |
-| "11 by 11 tiles, 192 objects" | Status Bar, right |
-| Hint line | Status Bar, as key caps |
+| "11 by 11 tiles, 192 objects" | Status Bar, right ✓ M3 T12 (two counts, "11 by 11 tiles" and "192 objects", after what is selected; they follow the active editor; "problems" and "N missing" stay on the toolbar, beside its tools) |
+| Hint line | Status Bar, as key caps ✓ M3 T12 (each state's hints, a note of what is in hand or why a step was refused at their head; the line under the toolbar is gone) |
 | The strip's right-click menu (which buttons to show) | The header's right-click menu |
 | Palette: type picker, Standard and Custom, search, List and Gallery, New…, More, Group By | Palette panel, in the same order |
 | A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab |
@@ -80,7 +86,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 #### At 3440 by 1440
 
 - The three popovers unfold into the header row. Day, Night, Lighting, Shadows, Fog, Grid, Minimap, Walkmesh and Sound Ranges carry their words. Fade Geometry is a combo. Animations, Grass, Tile Border, Shaders and the three Audio switches are icon toggles.
-- The Right Dock stands two columns wide (Palette, Properties), a script is open in a second editor group, and the Log is open in the Bottom Dock.
+- The Right Dock stands two columns wide (Palette, Properties), a script is open in a second editor group, and the Log is open in the Bottom Dock. (M3 T14: the two columns are built with the Palette and the Preview, where the dock is wider than 560 in a window from 2560, 741 at first there; the Properties column is M4's area editor, S2. The Left Dock 320 and the Module panel 760 high there at first ✓ M3 T14.)
 
 ### Script Editor
 
@@ -93,12 +99,12 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Definition, References, Rename Symbol…, Used By | Header icons |
 | To Scratch | Header, More button |
 | Codepage label | Header, right end |
-| "modified" label | The dot on the document tab |
+| "modified" label | The dot on the document tab ✓ M3 T9 (the dot; the editor's own label goes with its header, M4) |
 | Live error line under the toolbar | Status Bar message, and a wavy underline on the line |
 | Functions, Variables, Constants, Templates and the filter | Right Dock, Reference panel |
 | Help tab (bottom) | Right Dock, Help under Reference |
 | Compiler, Bookmarks, Search Results tabs (bottom) | Bottom Dock tabs, with switches in the Status Bar |
-| Key hints | Status Bar, as key caps |
+| Key hints | Status Bar, as key caps ✓ M3 T12 (Find, Find next, Definition, References, Complete, Bookmark, Compile all, Replace, as bound, while a script's tab is the active editor; the line and column count is M4's) |
 
 
 ### Conversation Editor
@@ -126,7 +132,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel |
+| The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) |
 | The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll |
 | Basic: First name, Last name (languages button, Random name), Tag | Identity section |
 | Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section |
@@ -171,55 +177,55 @@ Every control of the screens mocked in the second round and its home in the mock
 
 ### Options
 
-| Today | In the redesign |
-|---|---|
+| Today | In the redesign | Done |
+|---|---|---|
 | Ten pages: Folders, Area, General, Script Editor, Conversation Editor, Sounds, Verify, Language, Keyboard, Updates | Page list at the left, styled like Creature's, with icons |
 | OK, Cancel | Editor header, right end |
-| Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field (no Esc, it does nothing docked) |
-| Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order |
+| Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field; Esc cancels Options docked too (ruling R1), so the hints show Esc | Esc: ✓ M3 T10; the hints ✓ M3 T12 (with Esc Cancel where an Escape would cancel it; Enter OK while the pointer is over it and nothing has the keys) |
+| Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order | Editors first: ✓ M3 T10 (the columns are M4's) |
 | Windows and Tabs, Module Tree and Palettes, Appearance | Column 2 |
 | Questions, Warnings, Troubleshooting | Column 3 |
 | Toolbar buttons | Retired: the Top Bar's buttons are icons with tooltips |
-| Open Properties as tabs of one window, Closing a window cancels its changes, Move windows by dragging anywhere | Editors section, under the switch |
+| Open Properties as tabs of one window, Closing a window cancels its changes, Move windows by dragging anywhere | Editors section, under the switch | ✓ M3 T10 (under "Floating windows", as the Options board) |
 | Right Dock | None on this screen |
 
 
 #### New
 
-- Open editors: As Tabs | As Floating Windows, with a note that areas always open as tabs and moved kinds open where you last put one, until View › Reset Layout.
+- Open editors: As Tabs | As Floating Windows, with a note that areas always open as tabs and moved kinds open where you last put one, until View › Reset Layout. ✓ M3 T10
 - The page icons in the page list.
 - The General page bar, as on Creature.
 
 #### Findings for the Design Notes
 
-- Today a kind of editor moved to a window is never stored, so it would be lost once As Tabs is the default.
-- Today Esc cancels Options only when it floats.
+- Today a kind of editor moved to a window is never stored, so it would be lost once As Tabs is the default. Settled in M3 T10: stored where editors open as tabs.
+- Today Esc cancels Options only when it floats. Settled in M3 T10 (ruling R1): docked too.
 
 ### Floating Editors
 
 | Today | In the redesign |
 |---|---|
-| A script in a window of its own (egui_dock surface) | A 1040 by 640 window over the main window, with a border, radius and shadow |
-| The tab row as the window's bar, with the collapse arrow | Bar row: collapse arrow, tabs with ×, Maximize, Close |
-| Double-click and right-click on the empty bar | Unchanged: Maximize or Restore |
+| A script in a window of its own (egui_dock surface) | A 1040 by 640 window over the main window, with a border, radius and shadow ✓ M3 T11 (the border, radius 4 and `--shadow`; the window opens at its kind's size as before) |
+| The tab row as the window's bar, with the collapse arrow | Bar row: collapse arrow, tabs with ×, Maximize, Close ✓ M3 T11 (Collapse, Maximize and Close Window, named and tipped) |
+| Double-click and right-click on the empty bar | Unchanged: Maximize or Restore ✓ M3 T11 |
 | Tab menu: Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right | Unchanged, not drawn |
 | Script header, Functions, Variables, Constants, Templates | Script board's header, and Reference as a right pane inside the window |
 | Help tab of the script's bottom pane | Under Reference, as on the Script board |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window |
-| Resize corner | A grip at the bottom right |
-| Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties |
+| Resize corner | A grip at the bottom right ✓ M3 T11 |
+| Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties ✓ M3 (Module Properties and the area as document tabs, T9 and T10; the Right Dock's Palette, T5, with the Preview beside it, T6; its Properties panel is M4's, S2) |
 
 
 #### New
 
-- The docks and Status Bar follow the active docked editor, and a floating editor brings its own panels.
+- The docks and Status Bar follow the active docked editor, and a floating editor brings its own panels. ✓ M3 (the docks T6, the Status Bar's hints and counts T12; a floating editor keeps its own panes inside its window, the plan's Part 2, decision 3)
 
 ### 2DA Table Editor
 
 | Today | In the redesign |
 |---|---|
 | Save, Add Row with its count | Header, left |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | Empty Row, Delete Row, Add Column… | Header, icon buttons |
 | Find, Go to, "N cells are wrong" | Header |
 | Values as names, Strings as text | Header, right, icon toggles |
@@ -248,7 +254,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Today | In the redesign |
 |---|---|
 | Find, Go to, Add Line, Find References | Header |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | Remove Last Line, Save | Header, icon buttons |
 | Only lines with text | Header, icon toggle |
 | Export CSV…, Export JSON… | Export menu |
@@ -307,7 +313,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | Save beside the pages | Editor header, left of the command group: it saves the tileset file |
 | Five pages | Page switch in the header |
 | Make Palette, Check, Render Minimap Pictures | Header |
@@ -337,10 +343,10 @@ Every control of the screens mocked in the second round and its home in the mock
 | Count All, Spacing, By Size, Flow, Turn, Scale, Height, Lock | Brush popover |
 | Gap (Row and Fill only) | Brush popover in those modes, with a note |
 | "N chosen" and its tip | Palette's Brush section, "2 chosen" and the tip as a note |
-| Show toggles while Paint is on | The Outliner's eyes |
+| Show toggles while Paint is on | The Outliner's eyes ✓ M3 T13 (they work with Paint on; the toolbar's toggles stay beside them until M4) |
 | Snap, Turn | Brush popover, under "Placing, as with the Select tool" |
 | Together, Onto Objects | Back in the header when Select is the active tool |
-| Paint hints | Status Bar: Drag Paint, Shift + Wheel Brush size, Q / E Turn, Right Click / Esc Stop |
+| Paint hints | Status Bar: Drag Paint, Shift + Wheel Brush size, Q / E Turn, Right Click / Esc Stop ✓ M3 T12 (after "Painting 2 placeables", the board's lead; Erase, Fill and Row their own) |
 
 
 #### New
@@ -365,7 +371,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Tiles palette: search, List and Gallery, Exact Tile | Palette panel, in the same order |
 | Tile Properties: lights, loops, Height, Replacement texture, Defaults, Textures | Properties panel, same fields |
 | Tile Properties OK, Cancel | Gone: the step is one undo step, Cancel becomes Ctrl+Z |
-| Tile hints | Status Bar: Click, Drag Box, Shift + Click, Ctrl + Click, Right Click |
+| Tile hints | Status Bar: Click, Drag Box, Shift + Click, Ctrl + Click, Right Click ✓ M3 T12 (and Shift + Right Click Next tile, Shift + Drag Add a box; a refusal's notice first; "2 by 3 tiles selected" at the right) |
 
 
 #### New
@@ -385,19 +391,19 @@ Every control of the screens mocked in the second round and its home in the mock
 
 ### Window at 1280 by 800
 
-| Today | In the redesign |
-|---|---|
-| Compile, Verify, Test Module with words | Icon buttons with tooltips; Quick Open at 300 px |
-| Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge |
-| The ten kind toggles and All, None | Show popover, "5 of 10" |
-| Day \| Night | One moon toggle |
-| Lighting, Overlays, Audio, Area Properties | Icon buttons |
-| Palette type strip | Combo, "Placeables" |
-| Expand All, Collapse All | End of the Group By row |
-| Palette, Preview, Properties | Three tabs of one Right Dock panel |
-| Log, Problems, Search Results switches | Icons only |
-| Game folder in the Status Bar | Dropped at this width |
-| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged |
+| Today | In the redesign | Done |
+|---|---|---|
+| Compile, Verify, Test Module with words | Icon buttons with tooltips; Quick Open at 300 px | ✓ the icons M3 T2; Quick Open at 300 px, and its icon where it would be under 240, M3 T8 |
+| Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge | The strip ✓ M3 T4, the Outliner's icon on it ✓ M3 T13; folded by the window's width under 1500 ✓ M3 T14 (unfolded by hand, by F6 or by View until the window is 1500 wide; `hide_tree` never written by a width; the strip's chevron is the button beside its edge, T5's) |
+| The ten kind toggles and All, None | Show popover, "5 of 10" |  |
+| Day \| Night | One moon toggle |  |
+| Lighting, Overlays, Audio, Area Properties | Icon buttons |  |
+| Palette type strip | Combo, "Placeables" | ✓ M3 T14 (a dropdown with the type's icon under 300 px of dock; Standard and Custom stay on the name's row: M4's palette change puts them beside it) |
+| Expand All, Collapse All | End of the Group By row |  |
+| Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; Properties is M4's (S2) |
+| Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4 |
+| Game folder in the Status Bar | Dropped at this width | ✓ M3 T14 (under 1400) |
+| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn, More, the shelf and the compass are M4's area header |
 
 
 #### How the Shell Yields
@@ -407,6 +413,7 @@ Every control of the screens mocked in the second round and its home in the mock
 - Right Dock: below 1400, it narrows from 320 to 280 px and its panels become tabs. Under 300 px of panel width, the palette's type strip becomes a combo.
 - Header: below an editor width of 990, it goes compact. Below 550, Snap and Turn lose their value text. Below 490, Together and Onto Objects move into More. At 1280 the editor is 974 wide.
 - Status Bar: below a window width of 1400, the panel switches become icons. Then the game folder drops, then hints drop from the end. At 1280 all six hints fit.
+- Built: the Top Bar's in M3 T2 and T8; the Left Dock's, the Right Dock's and the Status Bar's in M3 T14, from one `Yields` decided once a frame. T14 adds what no board draws: below 796 the Right Dock folds to its strip too (the editor area's least, 490, beside the Left Dock's strip), and below 962 a dock unfolded by hand folds the other. The header's (E 990, 550, 490) are M4's area header.
 
 #### New
 
@@ -421,8 +428,8 @@ Every control of the screens mocked in the second round and its home in the mock
 | Recent modules | Recent Modules list, the full path as a weak second line |
 | "No game data…" warning, Options… | Status section |
 | Update bar: What's New…, Install Now, Later | Status section |
-| Left Dock | Not drawn: today it shows only with a module open |
-| Build actions, Save, Undo, Redo | Drawn disabled |
+| Left Dock | Not drawn: today it shows only with a module open ✓ M3 T4 (with no module it holds no panel and is not drawn; Tools › Resource Browser shows it with the Resources panel alone) |
+| Build actions, Save, Undo, Redo | Drawn disabled ✓ M3 T2 (`the_top_bar_s_buttons_are_named_tipped_and_enabled_as_their_commands`) |
 | "No area open" page (today's no_area) | A centered empty state with Area Wizard… and Go to Start; recent areas go to Quick Open and the Module panel |
 
 
@@ -432,7 +439,7 @@ Every control of the screens mocked in the second round and its home in the mock
 - Links to the manual's chapters, and a Help group: Command Palette…, Check for Updates…, About.
 - A "Game data found" line.
 - A note about dropping a module on the window.
-- Status Bar hints for Ctrl+N, Ctrl+O and Ctrl+P.
+- Status Bar hints for Ctrl+N, Ctrl+O and Ctrl+P. ✓ M3 T12 (as bound: a key changed shows changed, a command without one has no hint)
 
 #### Not Drawn
 
@@ -448,7 +455,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Compile Models | Editor header |
 | Path and description memo | Details › File and Description |
 | Add Files…, Add Folder…, Remove, Extract…, Extract All…, Save, Save As…, Find | Editor header, same names |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | OK, Cancel | Editor header, right end |
 | By name, By type, By size | Sortable column headers |
 | Name, size and "from path" in each row | Columns Name, Size and Source |
@@ -468,16 +475,16 @@ Every control of the screens mocked in the second round and its home in the mock
 
 ### Resources
 
-| Today | In the redesign |
-|---|---|
-| Type dropdown, Name filter, Overridden copies | Left Dock, Resources tab, top of the panel |
-| Refresh | Icon in the panel header |
-| "N of M resources; double-click to open" | Count in the panel; the hint in the Status Bar |
-| Export N as Files… | Icon in the panel header |
-| List rows: name, layer, indented overridden copies | Same rows with a kind icon |
-| Up, Down, Page, Home, End, Enter, Esc | Status Bar hints |
-| Read-only tab: Copy to Module, Save As… | Editor header, with a note |
-| Tab title "name (read-only)" | Kept as the document tab's name |
+| Today | In the redesign | Done |
+|---|---|---|
+| Type dropdown, Name filter, Overridden copies | Left Dock, Resources tab, top of the panel | ✓ M3 T4 (Models as text under them, where models are listed) |
+| Refresh | Icon in the panel header | ✓ M3 T4 |
+| "N of M resources; double-click to open" | Count in the panel; the hint in the Status Bar | Count ✓ M3 T4; the hint ✓ M3 T12 (Double Click Open in the Status Bar while the panel is in use; the count's tip is gone) |
+| Export N as Files… | Icon in the panel header | ✓ M3 T4 |
+| List rows: name, layer, indented overridden copies | Same rows with a kind icon | ✓ M3 T4 (cut with an ellipsis at the dock's width, whole in the row's tip) |
+| Up, Down, Page, Home, End, Enter, Esc | Status Bar hints | ✓ M3 T12 (Up or Down Move in the list and Enter Open while its list has the keys, Double Click Open, Right Click More, Find's key with the pointer over it: the Resources board's) |
+| Read-only tab: Copy to Module, Save As… | Editor header, with a note | M4 |
+| Tab title "name (read-only)" | Kept as the document tab's name | ✓ (as it was) |
 | Read-only GFF tree | The GFF view's three columns, read-only |
 
 
@@ -543,7 +550,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Window title, centered | Left-aligned in a bar row |
+| Window title, centered | Left-aligned in a bar row ✓ M3 T11 (moved by the row; a Close where Escape closes the dialog, the pickers' too; a job's window and a plugin's question the same row with no Close) |
 | Button row, left-aligned | Footer row with a rule above, buttons at the right, a setting or count at the left |
 | Main button | Accent fill. The order stays: action first, Cancel last |
 | Wizard steps (Creature Wizard has nine) | Step list at the left, with a check on done steps |
@@ -638,5 +645,5 @@ Every control of the screens mocked in the second round and its home in the mock
 
 - A Preview panel and an Appearance panel beside the Appearance Gallery.
 - Counts on the Tiles gallery's terrain and crosser headings.
-- A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs.
+- A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs (the close button ✓ M3 T11).
 

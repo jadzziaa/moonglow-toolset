@@ -81,7 +81,7 @@ fn check_for_updates_says_what_is_newest() {
     h.run();
     h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
     h.get_by_label("This copy is updated by Scoop: scoop update moonglow.");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Check for Updates");
     h.run();
     assert!(h.query_by_label("Check Again").is_none());
     // And from Help › About.
@@ -96,7 +96,7 @@ fn check_for_updates_says_what_is_newest() {
 /// newer release: the notice under the toolbar stays.
 fn close_window(h: &mut Harness<'_, Moonglow>) {
     assert!(h.state().updates.window, "the window opened on the release");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(h, "Check for Updates");
     h.run();
 }
 
@@ -139,7 +139,7 @@ fn a_newer_release_found_at_start_opens_the_window_asking() {
     assert!(h.state().settings.update_auto_install, "Options › Updates' switch");
     let getting = h.state().updates.getting.as_ref().expect("this release, downloading");
     assert!(!getting.now, "installed as Moonglow closes, as Later");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Check for Updates");
     h.run();
     assert!(h.query_by_label("Always install updates").is_none(), "the window's alone");
 
@@ -176,6 +176,26 @@ fn the_update_notice_appears_and_is_dismissed() {
     h.get_by_label(&told);
     close_window(&mut h);
     h.get_by_label(&told);
+    // A strip under the Top Bar, over the docks (the M3 shell, T7).
+    let notice = h.get_by_label(&told).rect();
+    let menus = h.get_by_label("Top Bar").get_by_label("File").rect();
+    assert!(notice.top() >= menus.bottom(), "under the Top Bar: {notice:?} {menus:?}");
+    // (The docks and the editor area start where the strip ends: with a
+    // module open, the Left Dock's tab bar and, closed and opened, the
+    // Bottom Dock's under the editor area.)
+    let dir = mg_testkit::scratch_dir("ui-update-notice-docks");
+    h.state_mut().settings.no_last_area = true;
+    h.state_mut().open_module(&sample_module(&dir));
+    settle(&mut h);
+    let notice = h.get_by_label(&told).rect();
+    let area = h.state().editor_area_rect().expect("the editor area");
+    assert!(notice.bottom() <= area.top(), "over the editor area: {notice:?} {area:?}");
+    let left = h.get_by_label("Left Dock").get_by_label("Module").rect();
+    assert!(notice.bottom() <= left.top(), "over the Left Dock: {notice:?} {left:?}");
+    if let Some(bottom) = h.state().bottom_dock_rect() {
+        assert!(notice.bottom() <= bottom.top(), "over the Bottom Dock: {bottom:?}");
+    }
+    assert!(h.state().right_dock_rect().is_none(), "no Right Dock without the game");
     h.get_by_label("Release Page");
     assert_eq!(asked.load(Ordering::SeqCst), 1);
     let checked = h.state().settings.update_checked.expect("the check's time is kept");

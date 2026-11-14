@@ -62,7 +62,7 @@ fn browse_view_and_copy_a_game_resource() {
     let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&path);
     let mut h = window_harness(app);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.run();
     // Those listed go out as loose files.
     h.state_mut().browser.filter = "nw_it_torch00".into();
@@ -110,7 +110,7 @@ fn export_as_files_asks_about_files_there() {
     let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&path);
     let mut h = window_harness(app);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.run();
     h.state_mut().browser.filter = "nw_it_torch00".into();
     h.run();
@@ -139,7 +139,10 @@ fn export_as_files_asks_about_files_there() {
 /// A module with two haks of our own in `user`'s hak folder, each with a
 /// portraits.2da (its one row's label the hak's name), the first over
 /// the second.
-fn module_with_two_tables(dir: &std::path::Path, user: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn module_with_two_tables(
+    dir: &std::path::Path,
+    user: &std::path::Path,
+) -> std::path::PathBuf {
     std::fs::create_dir_all(user.join("hak")).unwrap();
     for name in ["mg_top", "mg_low"] {
         let mut w = mg_erf::ErfWriter::new(*b"HAK ");
@@ -174,7 +177,7 @@ fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1400.0, 900.0);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.state_mut().browser.filter = "portraits".into();
     h.state_mut().browser.restype = Some(ResType::TWODA);
     h.run();
@@ -257,7 +260,7 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.state_mut().browser.filter = "portraits".into();
     h.state_mut().browser.restype = Some(ResType::TWODA);
     h.run();
@@ -303,7 +306,7 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     // Exported as files: the copy the game reads, and each it overrides
     // in a folder of its layer's.
     close_tab(h.state_mut(), &tab);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.run();
     h.get_by_label_contains("as Files…").click();
     h.run();
@@ -317,7 +320,7 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains(&said)), "said");
 
     // Without the overridden copies: the one the game reads.
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.state_mut().browser.show_copies = false;
     h.run();
     assert_eq!(h.query_all_by_label_contains(", overridden by ").count(), 0);
@@ -362,7 +365,7 @@ fn an_overridden_copy_is_previewed_as_its_layer_has_it() {
     assert_eq!(rm.origin(&key), Some("override"));
     let game_layer = rm.copies(&key).into_iter().nth(1).map(|i| rm.layers()[i].label.clone());
     let game_layer = game_layer.expect("the game's own under it");
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(&mut app);
     app.browser.filter = "plc_a01".into();
     app.browser.restype = Some(ResType::MDL);
     let mut h = gpu_harness(app, rs, 1100.0, 800.0);
@@ -559,7 +562,7 @@ fn an_older_module_s_single_hak_is_layered_and_said() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "the hak is layered");
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
@@ -602,7 +605,7 @@ fn a_hak_s_name_is_its_file_s_bytes() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
@@ -657,7 +660,7 @@ fn a_hak_named_in_another_case_is_not_found_on_linux() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let said = (app.log.entries.iter()).find(|(_, m)| m.starts_with("Hak MG_PLAIN not found"));
     let said = said.map(|(_, m)| m.clone()).unwrap_or_default();
     assert!(said.contains("exact name") && said.contains("mg_plain.hak"), "{said}");
@@ -696,7 +699,7 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -864,7 +867,7 @@ fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
     let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -941,7 +944,7 @@ fn add_hak_takes_the_arrow_keys() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -1003,7 +1006,7 @@ fn add_hak_filters_a_long_list() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -1103,7 +1106,7 @@ fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
@@ -1956,7 +1959,7 @@ fn a_model_of_a_hak_the_game_doesn_t_read_is_drawn() {
     let dialogs = NoDialogs { open: vec![hak], open_many: vec![vec![file]], ..Default::default() };
     let mut app = game_app_with(&root, None, dialogs);
     app.set_render_state(rs.clone());
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::hak_view::open_hak(&mut app);
     let mut h = gpu_harness(app, rs, 1100.0, 800.0);
     h.run_steps(2);
@@ -2296,7 +2299,7 @@ fn the_resource_browser_s_filter_and_list_take_the_keys() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    show_resources(h.state_mut());
     h.run_steps(4);
     let over = h.get_by_label("Refresh").rect().center();
     h.hover_at(over);

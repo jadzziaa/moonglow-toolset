@@ -44,6 +44,7 @@ use mg_resman::ResKey;
 use crate::area_view::AreaView;
 use crate::settings::PaintSettings;
 use crate::{Action, Moonglow};
+use mg_uikit::status::Hint;
 
 /// A placeable the brush puts down (or would): of which blueprint, where,
 /// turned how far from as its blueprint stands (radians, anticlockwise),
@@ -942,45 +943,52 @@ pub(crate) fn overlay(app: &Moonglow, ui: &egui::Ui, view: &AreaView) {
     }
 }
 
-/// The status line while Paint is on.
-pub(crate) fn status(app: &Moonglow) -> Option<String> {
+/// The Status Bar's hints while Paint is on (the AreaPaint board's): what
+/// the brush is doing as a notice, then its keys.
+pub(crate) fn hints(app: &Moonglow, k: &crate::shell::HintKeys) -> Option<Vec<Hint>> {
     if !app.paint {
         return None;
     }
+    use crate::keys::Cmd;
     let keys = keys(app);
     let s = &app.settings.paint;
+    let several = Hint::keys([k.ctrl(), "Click"], "Choose several in the palette");
+    let stop = Hint::either(["Right Click", "Esc"], "Stop");
+    let size = Hint::keys(["Shift", "Wheel"], "Brush size");
     let what = match keys.len() {
         0 => {
-            return Some(
-                "Paint: choose placeables in the palette (Ctrl + click for several); Escape: stop"
-                    .to_string(),
-            );
+            let choose = Hint::note("Paint: choose placeables in the palette");
+            return Some(vec![choose, several, Hint::keys(["Esc"], "Stop")]);
         }
         1 => keys[0].resref.to_string(),
         n => format!("{n} placeables"),
     };
-    Some(if s.erase {
-        format!(
-            "Erasing {what}: drag over them to take them out (not locked ones), Shift + wheel: \
-             the brush's size; right click or Escape: stop"
-        )
+    let turn = |word: &str| k.either(Cmd::TurnLeft, Cmd::TurnRight, word);
+    let mut out = Vec::new();
+    if s.erase {
+        out.push(Hint::note(format!("Erasing {what}")));
+        out.push(Hint::keys(["Drag"], "Take them out (not locked ones)"));
+        out.push(size);
+        out.push(stop);
     } else if s.fill {
-        format!(
-            "Filling with {what}: drag a rectangle from one corner to the other, Q and E: turn \
-             the grid; right click or Escape: stop"
-        )
+        out.push(Hint::note(format!("Filling with {what}")));
+        out.push(Hint::keys(["Drag"], "Fill a rectangle"));
+        out.extend(turn("Turn the grid"));
+        out.push(stop);
     } else if s.row {
-        format!(
-            "Laying a row of {what}: drag from one end to the other (from the last row's end, \
-             its ring, to go on from it), Q and E: turn the pieces on the row; right click or \
-             Escape: stop"
-        )
+        out.push(Hint::note(format!("Laying a row of {what}")));
+        out.push(Hint::keys(["Drag"], "Lay a row, or go on from the last one's ring"));
+        out.extend(turn("Turn the pieces"));
+        out.push(stop);
     } else {
-        format!(
-            "Painting {what}: drag to paint, Shift + wheel: the brush's size, Q and E: turn; \
-             right click or Escape: stop"
-        )
-    })
+        out.push(Hint::note(format!("Painting {what}")));
+        out.push(Hint::keys(["Drag"], "Paint"));
+        out.push(size);
+        out.extend(turn("Turn"));
+        out.push(stop);
+        out.push(several);
+    }
+    Some(out)
 }
 
 /// A length kept in centimeters, edited in meters.

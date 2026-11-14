@@ -39,6 +39,9 @@ use mg_set::Tileset;
 
 use crate::{Action, Moonglow};
 
+mod bar;
+pub(crate) use bar::status;
+
 /// How far from a door hook a click places a door on it, metres.
 const DOOR_REACH: f32 = 4.0;
 
@@ -1774,6 +1777,13 @@ impl AreaView {
         Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
     }
 
+    /// Says `notice` as a step refused would (Select Tiles' and a brush's
+    /// notice): for the tests of the Status Bar.
+    #[doc(hidden)]
+    pub fn notice_for_tests(&mut self, notice: &str) {
+        self.notice = Some(notice.to_string());
+    }
+
     /// Where the turning rings are and which way each is marked: for the
     /// tests.
     pub fn ring_places(&self) -> Vec<(Vec3, f32)> {
@@ -3037,12 +3047,42 @@ fn hidden_of(show: [bool; 9], show_start: bool) -> Vec<String> {
 /// other open ones and those opened later. (`view` is out of
 /// `app.area_views` while it is drawn.)
 fn share_shown(app: &mut Moonglow, view: &AreaView) {
-    app.settings.hidden_in_areas = hidden_of(view.show, view.show_start);
+    share(app, view.show, view.show_start);
+}
+
+/// Each kind shown (`show`) and the start location's marker
+/// (`show_start`), made what every area view shows and what those opened
+/// later will ([`share_shown`]); an object of a kind hidden is no longer
+/// selected in any.
+fn share(app: &mut Moonglow, show: [bool; 9], show_start: bool) {
+    app.settings.hidden_in_areas = hidden_of(show, show_start);
     for other in app.area_views.values_mut() {
-        (other.show, other.show_start) = (view.show, view.show_start);
-        let show = other.show;
+        (other.show, other.show_start) = (show, show_start);
         other.selection.retain(|(k, _)| show[k.index()]);
     }
+}
+
+/// What `area`'s view shows of each kind (by [`ObjectKind::index`]): the
+/// area toolbar's Show toggles' state, which the Outliner's eyes show too;
+/// as every view will (Options' kept state) where its view is not open.
+pub(crate) fn kinds_shown(app: &Moonglow, area: mg_core::ResRef) -> [bool; 9] {
+    match app.area_views.get(&area) {
+        Some(view) => view.show,
+        None => shown_of(&app.settings.hidden_in_areas).0,
+    }
+}
+
+/// `kind` shown (`on`) or hidden in `area`'s view, and so in every area
+/// view, as its Show toggle on the area toolbar does: one state, which the
+/// toolbar and the Outliner's eye both show, from this frame on where the
+/// Outliner is drawn before the view (the Left Dock is).
+pub(crate) fn show_kind(app: &mut Moonglow, area: mg_core::ResRef, kind: ObjectKind, on: bool) {
+    let (mut show, start) = match app.area_views.get(&area) {
+        Some(view) => (view.show, view.show_start),
+        None => shown_of(&app.settings.hidden_in_areas),
+    };
+    show[kind.index()] = on;
+    share(app, show, start);
 }
 
 fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
@@ -3056,8 +3096,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     let row_id = ui.id().with("area-toolbar-row");
     if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(row_id)) {
         let behind = ui.interact(rect, row_id.with("menu"), egui::Sense::click());
-        behind.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&behind, |ui| {
             egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
                 toolbar_menu(ui, &mut app.settings.hidden_area_tools, false);
             });
@@ -3376,10 +3415,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
         }
+        // (The area's counts are the Status Bar's, `bar`; what is wrong
+        // with what it reads stays here, beside its tools.)
         if let Some(m) = &view.model {
-            ui.separator();
-            let n = m.objects.iter().filter(|o| view.show[o.kind.index()]).count();
-            ui.weak(format!("{} by {} tiles, {n} objects", m.width, m.height));
             if !m.problems.is_empty() {
                 ui.colored_label(ui.visuals().warn_fg_color, "problems")
                     .on_hover_text(m.problems.join("\n"));
@@ -3398,141 +3436,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     if app.paint {
         crate::paint_mode::strip(app, ui);
     }
-    // One line, never wrapped, so that the view does not move when the
-    // selection changes.
-    let status = if let Some(paint) = crate::paint_mode::status(app) {
-        match view.paint.more {
-            0 => paint,
-            more => format!("{paint} · {more} more are laid than are drawn"),
-        }
-    } else if let Some(b) = crate::terrain_mode::active(app, view) {
-        // (Over an object a tile's or group's press would leave to it:
-        // what the press does there, after the brush's name.)
-        let leaves = view.over_object && crate::terrain_mode::objects_keep_their_presses(&b);
-        let how = match b.brush {
-            _ if leaves && b.exact => {
-                "Exact Tile: a click or drag here goes to the object (select, move or turn it) and \
-                 places nothing"
-            }
-            _ if leaves => {
-                "a click or drag here goes to the object (select, move or turn it) and places nothing"
-            }
-            mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
-            mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
-            mg_area::terrain::Brush::Eraser => {
-                "click a tile (Shift + click: its next variant); right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Appearance { back: false } => {
-                "click a tile for another of its kind; right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Appearance { back: true } => {
-                "click a tile for the one before of its kind; right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Rotate => {
-                "click a tile to turn it a quarter (Shift: clockwise); right click: the tile menu"
-            }
-            mg_area::terrain::Brush::Refine if b.target.is_some() => {
-                "click a tile, or drag, to make those it fits the tile chosen"
-            }
-            mg_area::terrain::Brush::Refine => {
-                "click a tile for the next that fits there; drag: the first's, in every tile of \
-                 its kind passed"
-            }
-            mg_area::terrain::Brush::Group(_) => "click to place, right click to turn",
-            mg_area::terrain::Brush::Tile(_) if b.exact => {
-                "Exact Tile: click or drag to place this tile alone, its neighbors left as they \
-                 are; right click to turn it"
-            }
-            mg_area::terrain::Brush::Tile(_) => {
-                "click or drag to place this tile, right click to turn it"
-            }
-            _ => "click a corner; right click: the tile menu",
-        };
-        // (The tile under the pointer after, where there is one.)
-        match crate::terrain_mode::status(view) {
-            Some(at) => format!("{}: {how}; Escape: stop. {at}", b.label),
-            None => format!("{}: {how}; Escape: stop.", b.label),
-        }
-    } else if view.redraw.is_some() {
-        "Redraw Polygon: click its corners, double click to close (after the first, press Alt: \
-         the next click makes a rectangle to there); right click or Escape: stop"
-            .to_string()
-    } else if view.pasting {
-        "Pasting: click to place the copies; Q and E turn them; right click or Escape: stop"
-            .to_string()
-    } else if app.palette.placing_start {
-        "Placing the start location: click to put it here, facing the way the view looks \
-         (Shift + click: and again); right click or Escape: stop"
-            .to_string()
-    } else if let Some(taken) = &app.palette.placing_appearance {
-        format!(
-            "Placing {}: click to put it here (Shift + click: place more); Q and E turn it; right \
-             click or Escape: stop",
-            taken.name
-        )
-    } else if let Some(light) = app.palette.placing_light {
-        let name = light_of_row(app, light).map(|l| l.name);
-        format!(
-            "Placing a light ({}): click to put it here (Shift + click: place more); right click \
-             or Escape: stop",
-            name.unwrap_or_else(|| light.to_string())
-        )
-    } else if let Some(key) = brush(app) {
-        let what = match ObjectKind::from_restype(key.restype) {
-            Some(k) if k.has_outline() => {
-                "click its corners, double click to close (after the first, press Alt: the next \
-                 click makes a rectangle to there); right click or Escape: stop"
-            }
-            Some(ObjectKind::Door) => {
-                "click to place (Shift + click: place more); right click or Escape: stop"
-            }
-            _ => {
-                "click to place (Shift + click: place more); Page Up, Page Down: onto the next \
-                 surface up or down; right click or Escape: stop"
-            }
-        };
-        format!("Placing {}: {what}", key.resref)
-    } else if let Some(visual) = view.wheel_scale.as_ref().and(view.scaled().first()) {
-        format!(
-            "Scale {:.2} (Ctrl + wheel; let Ctrl go to keep it, Escape to drop it)",
-            visual.1.scale.x
-        )
-    } else if view.wheel_refused.is_some_and(|at| ui.input(|i| i.time) - at < 4.0) {
-        "A static placeable takes no scale: clear Static in its properties first. (Ctrl + \
-         wheel zooms slowly meanwhile.)"
-            .to_string()
-    } else if view.tile_mode {
-        // (And why a step was refused, as a brush's line says it: first,
-        // where a narrow view doesn't cut it short.)
-        let how = "Select Tiles: click a tile (Shift + click: add one, Ctrl + click: add or take \
-                   it out), drag a box (with Shift: add it); Shift + right \
-                   click: its next tile; right click: the tile menu";
-        match &view.notice {
-            Some(n) => format!("{n} · {how}"),
-            None => how.to_string(),
-        }
-    } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
-        && let Some(o) = m.object(*kind, *index)
-    {
-        format!(
-            "{:?} {} ({}) at {:.2}, {:.2}, {:.2}, facing {:.0}°",
-            kind,
-            o.tag,
-            o.template.map(|t| t.to_string()).unwrap_or_default(),
-            o.position.x,
-            o.position.y,
-            o.position.z,
-            o.facing().to_degrees().rem_euclid(360.0),
-        )
-    } else if view.selection.len() > 1 {
-        format!("{} objects selected", view.selection.len())
-    } else {
-        "Click to select, drag to move or to select in a box, Alt + right drag to turn, \
-         Alt + drag to raise the selection; Ctrl + drag moves the view (Alt + drag too, with \
-         nothing selected), Ctrl + right drag turns it."
-            .to_string()
-    };
-    ui.add(egui::Label::new(egui::RichText::new(&status).weak()).truncate()).on_hover_text(status);
+    // (What the view's state lets the builder do is the Status Bar's
+    // hints: `bar`, M3's T12. The line of words that stood here is gone,
+    // and the view has its height.)
 }
 
 /// The tiles' outlines (Display Grid), drawn in the scene so that what
@@ -4484,7 +4390,12 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
     }));
     let mut tick = |ui: &mut egui::Ui, (id, label): &(String, String)| {
         let mut shown = !hidden.contains(id);
-        if ui.check_box(&mut shown, label).changed() {
+        // (In the menu, rows of it; on the Options page, check boxes.)
+        let r = match wrapped {
+            true => ui.check_box(&mut shown, label),
+            false => mg_uikit::menu_check(ui, &mut shown, label),
+        };
+        if r.changed() {
             hidden.retain(|h| h != id);
             if !shown {
                 hidden.push(id.clone());
@@ -4505,14 +4416,14 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
             }
         });
     } else {
-        ui.label(egui::RichText::new("Show on the Toolbar").strong());
+        mg_uikit::menu_heading(ui, "Show on the Toolbar");
         for (i, t) in ticks.iter().enumerate() {
             if i == ObjectKind::ALL.len() {
-                ui.separator();
+                mg_uikit::menu_separator(ui);
             }
             tick(ui, t);
         }
-        ui.separator();
+        mg_uikit::menu_separator(ui);
     }
     if ui.button("Show All").on_hover_text("Every button on the area's toolbar").clicked() {
         hidden.clear();
@@ -5363,8 +5274,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.tile_menu_at = response.interact_pointer_pos();
             }
             let at = view.tile_menu_at;
-            response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(response, |ui| {
                 crate::tile_select::context_menu(app, view, ui, at)
             });
         }
@@ -5382,8 +5292,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         if !shift {
             let at = view.tile_menu_at;
-            response.context_menu(|ui| {
-                mg_uikit::menu_rows(ui);
+            mg_uikit::context_menu(response, |ui| {
                 crate::tile_select::context_menu(app, view, ui, at)
             });
         }
@@ -5675,10 +5584,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             .and_then(|p| crate::tile_select::tile_at(view, p))
             .filter(|_| view.terrain.is_some());
     }
-    response.context_menu(|ui| {
-        mg_uikit::menu_rows(ui);
-        context_menu(app, view, ui)
-    });
+    mg_uikit::context_menu(response, |ui| context_menu(app, view, ui));
 
     // Moving, turning, raising; selecting by a box. A drag starts once the
     // pointer has moved: pick where it was pressed. It goes on until its
@@ -7448,13 +7354,13 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     // A read-only area's: what looks at it, nothing that changes it.
     match view.read_only.clone() {
         Some(why) => {
-            ui.weak(format!("{why}: read-only here"));
+            mg_uikit::menu_note(ui, format!("{why}: read-only here"));
             preview_item(app, view, ui, single);
         }
         None => editing_items(app, view, ui, single),
     }
     // Variables, then Properties: the menu's last, as in Aurora.
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     if let Some((kind, index)) = single
         && view.read_only.is_none()
         && ui.button("Variables…").clicked()
@@ -7780,7 +7686,7 @@ fn editing_items(
                 if custom {
                     let made = made_lights(app);
                     if !made.is_empty() {
-                        ui.separator();
+                        mg_uikit::menu_separator(ui);
                     }
                     for light in made.iter() {
                         if light_button(ui, light).clicked() {
@@ -7794,7 +7700,7 @@ fn editing_items(
                             ui.close();
                         }
                     }
-                    ui.separator();
+                    mg_uikit::menu_separator(ui);
                     if ui
                         .button("Custom Light…")
                         .on_hover_text(
@@ -7946,14 +7852,14 @@ fn editing_items(
         view.set_name = Some(String::new());
         ui.close();
     }
-    ui.separator();
+    mg_uikit::menu_separator(ui);
     if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
         delete(app, view);
         ui.close();
     }
     // Where the menu was opened (not when it is opened from the keys).
     if let Some(at) = view.menu_at {
-        ui.separator();
+        mg_uikit::menu_separator(ui);
         // The module's start location, here, facing the way the camera
         // looks (Aurora places it from the palette).
         if ui

@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:21:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
 ---
 
 # Getting started
@@ -66,8 +66,10 @@ the registry, where its installer notes the folder. On macOS only
 Steam's and Beamdog's folders are looked in: a game from GOG there is
 set in Options, as below.
 
-The log at the bottom of the window says where it found the game ("Game
-data loaded from …"); the status bar shows the folder. If the game is
+The log says where it found the game ("Game data loaded from …"): at
+first it is closed, and its last line shows in the Status Bar at the
+bottom of the window, beside the **Log** switch that opens it. The
+Status Bar shows the folder at its right. If the game is
 somewhere else (a folder of your own, say), choose
 **Tools › Options… › Folders** and set **Neverwinter Nights installation**
 (the folder with `data/` and `bin/` in it) and, if needed, the **NWN user
@@ -80,7 +82,8 @@ also lists your recent modules.
 
 1. **File › New Module…** (Ctrl+N) asks for a name and makes an empty
    module, as Aurora's module wizard does.
-2. **Wizards › Area Wizard…** (Ctrl+Alt+A, or **New Area** on the toolbar)
+2. **Wizards › Area Wizard…** (Ctrl+Alt+A, or **New Area** on the module
+   tree's tab bar)
    makes an area: pick a tileset, a size and a name. The area opens in the
    area viewer.
 3. Choose a blueprint in the palette on the right (a creature, a

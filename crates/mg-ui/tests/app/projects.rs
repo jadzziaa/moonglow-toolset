@@ -125,7 +125,9 @@ fn a_nui_window_s_scripts_go_into_a_nasher_project() {
     h.run();
     assert!(project.join("nasher.cfg").is_file(), "{:?}", h.state().log.entries);
     h.state_mut().actions.push(mg_ui::Action::NewNui("zz_win".into()));
-    h.run();
+    // (The Right Dock's palettes beside it, their groups opening: settled,
+    // not a count of frames.)
+    settle(&mut h);
     h.get_by_label("Build & compile").click();
     h.run();
     let log = format!("{:?}", h.state().log.entries);
@@ -268,7 +270,7 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     let mut app = game_app(&root, Some(user.clone()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -335,7 +337,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
@@ -464,7 +466,7 @@ fn the_project_file_is_read_again_with_reloading_off() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_auto_reload = true;
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     // (Changed before the window's first frame, which looks at it.)
     std::fs::write(
@@ -492,7 +494,7 @@ fn setup_store_follows_the_project_file() {
     };
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     assert!(app.log.entries.iter().any(|e| e.1.contains("read from moonglow.toml")));
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = harness(app, 1000.0, 800.0);
@@ -579,7 +581,7 @@ fn setup_store_s_list_shows_the_project_s_blueprint_far_down() {
         .unwrap();
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
@@ -1333,7 +1335,7 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     let dir = project_folder("ui-builder-code", &[]);
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
     h.get_by_label("Edit").click();
@@ -1497,7 +1499,7 @@ fn a_resref_typed_in_a_wizard_is_offered_the_builder_code() {
     mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 900.0);
     h.run();
     h.state_mut().blueprint_wizard =
@@ -1576,7 +1578,7 @@ fn a_team_s_prefix_by_kind_begins_the_resrefs_proposed() {
     let dir = project_folder("ui-team-prefix", &[("moonglow.toml", rules)]);
     let mut app = game_app(&root, None);
     app.open_module(&dir);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
     h.get_by_label("Edit").click();
@@ -1956,6 +1958,8 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
         &claims_table("cd", "claimed"),
     );
     let mut h = harness(app, 1000.0, 700.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // The tree's mark: whose it is (a lock, and its builder code).
     let mark = h.get_by_label("cd").rect().expand2(egui::vec2(24.0, 4.0));
@@ -2140,7 +2144,7 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     // The window follows the table: another's again.
     h.get_by_label_contains("ef since");
     assert!(h.query_by_label("Hand To…").is_none());
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Claims Table");
     h.run();
     assert!(h.query_by_label("Claims Table").is_none());
 }
@@ -2156,6 +2160,8 @@ fn claim_this_area_and_release_claim_edit_the_claims_table() {
         "",
     );
     let mut h = harness(app, 1000.0, 700.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     assert!(logged(&h, "the claims table builders/claims.2da is not there"));
     h.get_by_label("start").click_secondary();
@@ -2215,6 +2221,8 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
         &claims_table("ab", "merged"),
     );
     let mut h = harness(app, 1000.0, 700.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // Merged: the check of yours before ab, and the pin after it.
     let ab = h.get_by_label("ab").rect();
@@ -2640,11 +2648,10 @@ fn a_project_s_command_is_in_the_palette_and_takes_keys() {
     app.open_module(&dir);
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    // The palette finds them, under Project, and runs one.
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
-    h.run();
-    type_into_hint(&mut h, "Type a command's name", "submit");
-    h.get_by_label("Submit for Review…").click();
+    // The palette (Quick Open among the commands) finds them, under
+    // Project, and runs one.
+    command_palette(&mut h, "submit");
+    quick_open_row(&h, "Submit for Review…").click();
     h.run();
     h.run();
     h.get_by_label("Run a Project Command?");
@@ -2868,7 +2875,7 @@ fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
     h.get_by_label("empty:");
     h.get_by_label("warned");
     assert!(h.query_by_label("got:Hipólito").is_none(), "the last command's alone");
-    h.get_by_label("Close").click();
+    click_dialog_s_own_close(&mut h, "Command Output");
     h.run();
     assert!(h.query_by_label("Command Output").is_none(), "closed");
 }
@@ -3042,7 +3049,7 @@ fn the_nwsync_repository_is_uploaded_part_by_part() {
     h.run();
     h.get_by_label("Command Output");
     assert!(h.query_all_by_label_contains("Sending latest: ").count() >= 1);
-    h.get_all_by_label("Close").last().unwrap().click();
+    click_dialog_s_own_close(&mut h, "Command Output");
     h.run();
 
     // A part that fails: nothing after it is sent.

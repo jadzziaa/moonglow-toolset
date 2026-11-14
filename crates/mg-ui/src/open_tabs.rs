@@ -2,8 +2,8 @@
 //! Open a module with the tabs it had): the areas, scripts, blueprints,
 //! conversations, side editors and tools that were open when it was
 //! closed open again with it, in their order and their places (the
-//! middle, the palettes' pane, a pane split off the middle, a window of
-//! their own where it was, split as it was), each pane's tab in front in
+//! middle, a pane split off the middle, a window of their own where it
+//! was, split as it was), each pane's tab in front in
 //! front, and each view as it was left: an area's camera, a model view's,
 //! a script's scroll and cursor, a conversation's selected line,
 //! bookmarks and folded branches, a Properties window's page, a hak's
@@ -52,6 +52,13 @@ struct Record {
     /// finds each again in its area's list if the list changed since.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     objects: BTreeMap<String, Placed>,
+    /// Whether its windows' rectangles were taken with the theme's rows
+    /// (22 points): absent (false) in a record from before the theme,
+    /// whose windows' heights are made as much taller as their kind's
+    /// windows are now as it is read (`Tab::taller`), once; this version
+    /// writes it. (4.1.0 passes over it.)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    rects_scaled: bool,
 }
 
 /// A pane's tabs (a window's: all its panes'), as [`Moonglow::tab_text`]
@@ -59,8 +66,10 @@ struct Record {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 struct Pane {
-    /// `middle`, `palettes`, `split left 300` (the side of the middle, and
-    /// thousandths of the two) or `window`.
+    /// `middle`, `split left 300` (the side of the middle, and thousandths
+    /// of the two) or `window`. (`palettes`, the palettes' pane's, written
+    /// before they were the Right Dock's panel, is read as "where its kind
+    /// opens".)
     place: String,
     tabs: Vec<String>,
     /// The tab in front.
@@ -228,7 +237,7 @@ struct TilesWaiting {
 #[derive(Debug, Default)]
 pub(crate) struct OpenTabs {
     /// The tabs kept, to open once the module's first frame has drawn
-    /// its panes (the palettes' among them), the one in front, and what
+    /// its panes, the one in front, and what
     /// the views showed and the placed objects were.
     pending: Option<Pending>,
     /// What the views opened again showed, until each is first drawn and
@@ -405,14 +414,12 @@ fn parse_row(text: &str) -> Option<Row> {
 }
 
 /// How a tab that is a [`Tab`] as it is, is kept; `None` for those that
-/// are not: the start page, the pane that says no area is open, the
-/// palettes (shown or folded away as they were left, for every module),
-/// what shows the result of a search, and those whose text needs the app
+/// are not: the start page, the pane that says no area is open, what
+/// shows the result of a search, and those whose text needs the app
 /// ([`Moonglow::tab_text`]).
 fn plain_text(tab: &Tab) -> Option<String> {
     Some(match tab {
         Tab::ModuleProperties => "module-properties".into(),
-        Tab::Resources => "resources".into(),
         Tab::Factions => "factions".into(),
         Tab::Journal => "journal".into(),
         Tab::TalkTable => "talk-table".into(),
@@ -442,7 +449,6 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::PluginPanel { plugin, panel } => format!("plugin-panel:{plugin}/{panel}"),
         Tab::Welcome
         | Tab::NoArea
-        | Tab::Palette
         | Tab::TileProperties
         | Tab::References
         | Tab::Hak(_)
@@ -450,6 +456,17 @@ fn plain_text(tab: &Tab) -> Option<String> {
         | Tab::Tileset(_) => return None,
     })
 }
+
+/// How the resource browser's tab was kept, before the browser was the
+/// Left Dock's Resources panel (the redesign's M3 T4): a record that has
+/// it shows the panel ([`Moonglow::read_open_tabs`]); nothing writes it.
+const RESOURCES_TAB: &str = "resources";
+
+/// The palettes' tab, before the palettes were the Right Dock's Palette
+/// panel (M3 T5). No Moonglow wrote it (the palettes were shown or folded
+/// for every module, not kept with a module's tabs); a record that has it
+/// shows the panel all the same, and nothing writes it.
+const PALETTE_TAB: &str = "palette";
 
 /// The tab a text names.
 fn parse_tab(text: &str) -> Option<Want> {
@@ -461,7 +478,6 @@ fn parse_tab(text: &str) -> Option<Want> {
     let file = |rest: &str| (!rest.is_empty()).then(|| PathBuf::from(rest));
     Some(Want::Tab(match kind {
         "module-properties" => Tab::ModuleProperties,
-        "resources" => Tab::Resources,
         "factions" => Tab::Factions,
         "journal" => Tab::Journal,
         "talk-table" => Tab::TalkTable,
@@ -807,7 +823,20 @@ impl Moonglow {
         let kept: BTreeMap<String, Placed> =
             record.objects.into_iter().map(|(k, p)| (object_key(&k), p)).collect();
         let mut objects = Vec::new();
+        // (The resource browser, a tab before it was the Left Dock's
+        // Resources panel: the panel shown, the tab never kept again.)
+        let mut resources = false;
+        // (And the palettes', the Palette panel.)
+        let mut palette = false;
         let mut found = |text: &str| -> Option<(String, Want)> {
+            if text == RESOURCES_TAB {
+                resources = true;
+                return None;
+            }
+            if text == PALETTE_TAB {
+                palette = true;
+                return None;
+            }
             let passed = |why: &str| trace::note(format!("open tabs: {text} passed over: {why}"));
             let Some(want) = parse_tab(text) else {
                 passed("not understood");
@@ -832,7 +861,9 @@ impl Moonglow {
         };
         // (Each kept text, as it is named now.)
         let mut renamed: HashMap<String, String> = HashMap::new();
-        let mut panes = Vec::new();
+        // (Every pane's tabs found first: the middle's pane's tree of the
+        // editor groups names the other groups' tabs.)
+        let mut found_tabs = Vec::new();
         for pane in &record.panes {
             let mut tabs = Vec::new();
             for text in &pane.tabs {
@@ -841,9 +872,12 @@ impl Moonglow {
                     tabs.push((now, want));
                 }
             }
-            if tabs.is_empty() {
-                continue;
+            if !tabs.is_empty() {
+                found_tabs.push((pane, tabs));
             }
+        }
+        let mut panes = Vec::new();
+        for (pane, tabs) in found_tabs {
             let rename = |t: &Option<String>| t.as_ref().and_then(|t| renamed.get(t)).cloned();
             let mut split = pane.split.clone();
             fn rename_split(s: &mut Split, renamed: &HashMap<String, String>) {
@@ -854,11 +888,29 @@ impl Moonglow {
             if let Some(s) = &mut split {
                 rename_split(s, &renamed);
             }
-            let rect = pane
-                .rect
-                .map(|[x, y, w, h]| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h)));
+            // (A record from before the theme: the window as much taller as
+            // its first tab's kind's are now, once, as the remembered sizes
+            // are: `Settings::scale_window_sizes`.)
+            let taller = match (record.rects_scaled, tabs.first()) {
+                (false, Some((_, Want::Tab(tab)))) => tab.taller(),
+                _ => 1.0,
+            };
+            let rect = pane.rect.map(|[x, y, w, h]| {
+                egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, (h * taller).round()))
+            });
             let active = rename(&pane.active);
             panes.push(Kept { place: Place::parse(&pane.place), tabs, active, rect, split });
+        }
+        // (The record says which panel each dock had in front, never how
+        // the builder left the dock: its fold, `hide_tree` and
+        // `hide_palettes`, stands, as do a narrow window's yields. The
+        // Right Dock on the Palette is not asked for by name: it is drawn
+        // as the active editor has it, beside an area.)
+        if resources {
+            self.left_panel = crate::Panel::Resources;
+        }
+        if palette {
+            self.right_panel = crate::Panel::Palette;
         }
         if panes.is_empty() {
             return false;
@@ -1039,12 +1091,18 @@ impl Moonglow {
                 panes.push(Pane { place: Place::Window.text(), tabs, active, rect, split });
                 continue;
             }
-            let place = if leaf.tabs.contains(&Tab::Palette) {
-                Place::Palettes
-            } else {
-                self.split_of(path.node).unwrap_or(Place::Middle)
-            };
+            let place = self.split_of(path.node).unwrap_or(Place::Middle);
             panes.push(Pane { place: place.text(), tabs, active, ..Default::default() });
+        }
+        // The editor groups as they lie, on the middle's pane, where there
+        // are two or more: each group has its place too (`split right
+        // 500`), which an older Moonglow reads, and which is the whole of it
+        // for two groups; the tree keeps three or more in their order.
+        if self.editor_groups().len() > 1
+            && let Some(middle) = panes.iter_mut().find(|p| p.place == Place::Middle.text())
+        {
+            middle.split = split_of(self, self.dock.main_surface(), NodeIndex::root())
+                .filter(|s| !s.parts.is_empty());
         }
         // Tile Properties still waiting for its area's view (its tab not
         // shown since the module opened): kept as it was read, beside the
@@ -1074,7 +1132,7 @@ impl Moonglow {
             }
             self.objects_of(tab, &mut objects);
         }
-        Record { panes, front, views, objects }
+        Record { panes, front, views, objects, rects_scaled: true }
     }
 
     /// Writes the open module's tabs, if they are kept and changed since
@@ -1105,12 +1163,6 @@ impl Moonglow {
     /// first; then, the tabs written whenever they change, and a second
     /// after the windows were last moved or resized.
     pub(crate) fn open_tabs_frame(&mut self, ctx: &egui::Context) {
-        // (Not in the frame a module was opened in from a menu: its
-        // palettes' pane opens at the next, as the module tree shows.)
-        if self.open_tabs.pending.is_some() && self.open_palette && self.ws.is_some() {
-            ctx.request_repaint();
-            return;
-        }
         if let Some(Pending { panes, front, views }) = self.open_tabs.pending.take() {
             if self.ws.is_some() {
                 self.restore_tabs(panes, front, views);
@@ -1219,7 +1271,6 @@ impl Moonglow {
             Some(Place::Middle) => (self.dock.find_tab(&Tab::NoArea))
                 .map(|p| NodePath { surface: p.surface, node: p.node })
                 .or_else(|| middle(self)),
-            Some(Place::Palettes) => pane_of(self, &Tab::Palette),
             Some(Place::Split(side, share)) => self.split_middle(side, share, &first),
             Some(Place::Window) => {
                 // (Its panes as they were, if all their tabs are to come.)
@@ -1320,6 +1371,31 @@ impl Moonglow {
                 }
             }
         }
+        // The editor groups laid out first, as they lay, from the middle's
+        // tree where the record has one (where the pane that says no area
+        // is open holds the middle's place): the groups' own places then
+        // find their tabs placed. (Module Properties, docked as the module
+        // opened, goes where the tree has it.)
+        let groups = (panes.iter())
+            .find(|p| p.place == Some(Place::Middle))
+            .and_then(|p| p.split.as_ref())
+            .and_then(|s| Laid::of(s, &opened));
+        if let Some(groups) = groups {
+            for tab in groups.tabs() {
+                if let Some(path) = self.dock.find_tab(&tab) {
+                    self.dock.remove_tab(path);
+                }
+            }
+            let at = (self.dock.find_tab(&Tab::NoArea))
+                .map(|p| NodePath { surface: p.surface, node: p.node })
+                .or_else(|| self.middle_pane())
+                .filter(|p| p.surface.is_main());
+            if let Some(at) = at {
+                self.dock.set_focused_node_and_surface(at);
+                self.dock.push_to_focused_leaf(groups.first().clone());
+                groups.build(self.dock.main_surface_mut(), at.node);
+            }
+        }
         for pane in panes {
             let tabs: Vec<Tab> =
                 pane.tabs.iter().filter_map(|(t, _)| opened.get(t).cloned()).collect();
@@ -1385,6 +1461,13 @@ impl Moonglow {
                 }
                 tab => _ = self.open_tabs.views.insert(tab.clone(), view),
             }
+        }
+        // (The main surface's pane with the focus, whose tab in front is the
+        // active editor that the docks follow: the middle's, not the pane
+        // made last; the tab in front, where it is in the main surface,
+        // takes it to its own.)
+        if let Some(middle) = self.middle_pane() {
+            self.dock.main_surface_mut().set_focused_node(middle.node);
         }
         if let Some(front) = front.and_then(|t| opened.get(&t).cloned()) {
             self.show_tab(front);
@@ -1480,9 +1563,13 @@ mod tests {
             let text = plain_text(&tab).unwrap();
             assert_eq!(parse_tab(&text), Some(Want::Tab(tab)), "{text}");
         }
-        assert_eq!(plain_text(&Tab::Palette), None);
         assert_eq!(parse_tab("script:"), None);
         assert_eq!(parse_tab("something-new:x"), None);
+        // (The resource browser's tab of before: not a tab now, the
+        // Resources panel shown by `read_open_tabs`.)
+        assert_eq!(parse_tab(RESOURCES_TAB), None);
+        // (Nor the palettes': the Palette panel shown.)
+        assert_eq!(parse_tab(PALETTE_TAB), None);
         // The side editors' files, and what the tools showed.
         let wants = [
             ("hak:/x/my.hak", Want::Hak("/x/my.hak".into())),
@@ -1506,10 +1593,12 @@ mod tests {
 
     #[test]
     fn places_are_named_and_read_back() {
-        for place in [Place::Window, Place::Middle, Place::Palettes, Place::Split(Side::Above, 300)]
-        {
+        for place in [Place::Window, Place::Middle, Place::Split(Side::Above, 300)] {
             assert_eq!(Place::parse(&place.text()), Some(place));
         }
+        // (The palettes' pane, a place before the palettes were the Right
+        // Dock's panel: no place now, "where its kind opens".)
+        assert_eq!(Place::parse("palettes"), None);
         assert_eq!(Place::parse("split sideways 300"), None);
         assert_eq!(Place::parse("split left 2000"), Some(Place::Split(Side::Left, 950)));
     }

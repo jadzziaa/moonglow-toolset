@@ -353,7 +353,7 @@ fn an_item_property_s_spells_have_a_filter() {
     h.run();
     // Opened at the chosen spell (far down the list: Aid, Barkskin… come
     // first), under the Filter field.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
     let row = (h.query_all_by_label_contains("Cure Light Wounds"))
         .map(|n| n.rect().center().y)
@@ -788,7 +788,7 @@ fn an_item_s_and_a_body_s_parts_without_models_are_said() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(blade)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1100.0, 700.0);
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-part-no-model-shot");
@@ -843,7 +843,7 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = gpu_harness(app, rs, 1100.0, 700.0);
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
@@ -863,7 +863,7 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(2);
     // (Typed into its Filter: frames are stepped, as the preview plays.)
-    let filter = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let filter = list_filter;
     h.get(egui_kittest::kittest::by().predicate(filter)).click();
     h.run_steps(2);
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
@@ -2555,7 +2555,7 @@ fn several_blueprints_are_edited_together() {
         })
         .collect();
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(&mut app);
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
     app.palette.tiles = false;
     app.palette.custom = true;
@@ -2612,7 +2612,7 @@ fn fields_that_differ_among_blueprints_edited_together_are_marked() {
     let mut app = game_app(&root, None);
     app.open_module(&path);
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.open_palette = false;
+    app.palette_dock = false;
     let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
     let keys: Vec<ResKey> =
@@ -2712,7 +2712,10 @@ fn the_variables_page_edits_them_in_place() {
     h.run();
     // (The row's name, then its value: the last two fields.)
     let field_from_end = |h: &Harness<'_, Moonglow>, back: usize| {
-        let all: Vec<_> = h.get_all_by_role(egui::accesskit::Role::TextInput).collect();
+        let all: Vec<_> = h
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+            .collect();
         all[all.len() - back].click();
     };
     field_from_end(&h, 2);
@@ -2782,7 +2785,10 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     h.run();
     h.get_by_label("Save Set…").click();
     h.run();
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Loot");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("Loot");
     h.run();
     apart(&h, "Save").click();
     h.run();
@@ -3346,7 +3352,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
 
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
@@ -3526,7 +3532,7 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     let mut h = harness(app, 1000.0, 900.0);
     h.run();
     h.get_by_label("Wizards").click();
@@ -4114,7 +4120,7 @@ fn the_creature_wizard_offers_real_races_and_monsters_portraits() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     app.creature_wizard = Some(Default::default());
     let mut h = harness(app, 1000.0, 900.0);
     h.run();
@@ -4203,7 +4209,11 @@ fn the_gallery_opens_at_a_far_appearance() {
     h.run_steps(4);
     let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 60.0;
     let chosen = h.get_all_by_label(&far.text).find(tile).expect("its picture, in sight").rect();
-    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect();
+    let find = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .rect();
     let below = chosen.top() - find.bottom();
     assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
 }
@@ -4322,8 +4332,11 @@ fn a_placeable_s_and_a_door_s_page_show_the_model() {
             app.settings.window_places = vec![(kind.to_string(), "middle".to_string())];
             app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
         }
-        // Too narrow for the fields and the model: a Preview button.
-        h.set_size(egui::vec2(900.0, 800.0));
+        // Too narrow for the fields and the model: a Preview button. (800
+        // wide: the Left Dock a strip and the Right Dock 280 there, M3
+        // T14, the editor area about 480 points, as 900 had it with both
+        // docks open before.)
+        h.set_size(egui::vec2(800.0, 800.0));
         h.run_steps(10);
         assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
         assert!(apart_all(&h, "Preview").next().is_some(), "{key}");

@@ -127,7 +127,7 @@ fn an_effect_worn_as_a_tail_shows_its_particles() {
 
     // Its blueprint's picture, and the plain one's.
     close_windows(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     {
         let p = &mut h.state_mut().palette;
         p.kind = mg_module::palette::BlueprintKind::Creature;

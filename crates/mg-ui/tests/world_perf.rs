@@ -73,6 +73,24 @@ fn frames(
     }
 }
 
+/// Shows the palettes: the Right Dock unfolded on its Palette panel, as
+/// Tools › Palettes shows it (at the next frame).
+fn show_palette(app: &mut Moonglow) {
+    app.actions.push(Action::ShowPanel(mg_ui::Panel::Palette));
+}
+
+/// Whether the palettes are shown.
+fn palette_shown(app: &Moonglow) -> bool {
+    app.right_dock_shows() == Some(mg_ui::Panel::Palette)
+}
+
+/// Folds the palettes away: the Right Dock folded, as View › Right Dock
+/// folds it.
+fn fold_palette(h: &mut Harness<'_, Moonglow>) {
+    h.state_mut().actions.push(Action::FoldPalettes);
+    h.run_steps(1);
+}
+
 fn close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
     let dock = &mut h.state_mut().dock;
     if let Some(at) = dock.find_tab(tab) {
@@ -121,12 +139,14 @@ fn persistent_world_stays_within_budget() {
 
     // Palettes.
     frames(&mut h, &mut b, "custom item palette (8,000)", MS(500), MS(33), |app| {
-        app.actions.push(Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = BlueprintKind::Item;
         app.palette.custom = true;
     });
     // Every item listed: a filter that matches them all opens every
     // category.
+    // (Loudly: the palettes must be shown.)
+    assert!(palette_shown(h.state()), "the palettes are not shown");
     frames(&mut h, &mut b, "custom item palette, all 8,000 shown", MS(500), MS(33), |app| {
         app.palette.filter = "pw_i".into();
     });
@@ -139,7 +159,7 @@ fn persistent_world_stays_within_budget() {
         app.palette.custom = false;
     });
     h.state_mut().palette.filter.clear();
-    close(&mut h, &Tab::Palette);
+    fold_palette(&mut h);
 
     // Inventories: a store with 1,000 items, its picker over 8,000.
     let store = ResKey::parse("pw_store", ResType::UTM).unwrap();
@@ -215,11 +235,15 @@ fn persistent_world_stays_within_budget() {
     b.check("frame (area view)", median(v), MS(50));
     close(&mut h, &Tab::Area(last));
 
-    // The resource browser over everything.
+    // The resource browser over everything: the Left Dock's Resources
+    // panel (loudly: the panel shown, its list there).
     frames(&mut h, &mut b, "resource browser", S(1), MS(33), |app| {
-        app.actions.push(Action::OpenTab(Tab::Resources));
+        app.actions.push(Action::ShowPanel(mg_ui::Panel::Resources));
     });
-    close(&mut h, &Tab::Resources);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "the panel shown");
+    h.get_by_label("Filter Resources");
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Module));
+    h.run_steps(2);
 
     // Whole-module work.
     let app = h.state_mut();

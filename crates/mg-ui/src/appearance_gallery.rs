@@ -301,8 +301,7 @@ fn grid(
                         pick.click = Some(c.row as i64);
                     }
                     if give {
-                        r.context_menu(|ui| {
-                            mg_uikit::menu_rows(ui);
+                        mg_uikit::context_menu(&r, |ui| {
                             if ui.button("Give to the Selection").clicked() {
                                 pick.give = Some(c.row as i64);
                                 ui.close();

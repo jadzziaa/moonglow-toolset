@@ -1453,8 +1453,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             (&alone, fits(&alone))
                         };
                         if fits {
-                            r.context_menu(|ui| {
-                                mg_uikit::menu_rows(ui);
+                            mg_uikit::context_menu(&r, |ui| {
                                 crate::plugins::menu_on(ui, &commands, on, &mut app.actions);
                             });
                         }

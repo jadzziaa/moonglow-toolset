@@ -283,7 +283,7 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         let shown = STATES.get(state.preview_state).copied().unwrap_or("Follow pointer");
         let states = ui
             .add_enabled(!state.preview_interactive, egui::Button::new(format!("State: {shown}")));
-        egui::Popup::menu(&states).show(|ui| {
+        egui::Popup::menu(&states).style(mg_uikit::menu_style).show(|ui| {
             for (i, label) in STATES.iter().enumerate() {
                 if ui.selectable_value(&mut state.preview_state, i, *label).clicked() {
                     ui.close();
@@ -298,7 +298,7 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         ui.toggle_value(&mut state.preview_clean, "Clean view");
         mg_uikit::menu_button(ui, "Screen", |ui| {
             mg_uikit::menu_rows(ui);
-            ui.check_box(&mut state.screen_preview, "Preview on screen");
+            mg_uikit::menu_check(ui, &mut state.screen_preview, "Preview on screen");
             for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
                 if ui
                     .selectable_value(&mut state.screen_size, vec2(w, h), format!("{w} × {h}"))
@@ -308,7 +308,7 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
                     ui.close();
                 }
             }
-            ui.weak("Drag the window title to set its position.");
+            mg_uikit::menu_note(ui, "Drag the window title to set its position.");
         });
     });
     if state.preview_info {

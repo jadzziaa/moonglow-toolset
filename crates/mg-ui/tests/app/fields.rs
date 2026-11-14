@@ -131,7 +131,7 @@ fn multi_line_text_keeps_its_line_ends() {
         .unwrap()
         .type_text("First\nSecond\nThird");
     h.run();
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     let ws = h.state_mut().ws.as_mut().unwrap();
     let g = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
@@ -141,6 +141,14 @@ fn multi_line_text_keeps_its_line_ends() {
 
 /// The sample module with `description` for its description, open on its
 /// Description page in a harness `size` big; and the description's box.
+/// Leaves the field that has the keyboard, what it holds set, by a click
+/// on the Left Dock below the module tree's rows. (Escape there is Module
+/// Properties' Cancel, docked as floating: ruling R1.)
+fn leave_field(h: &mut Harness<'_, Moonglow>) {
+    let area = h.state().editor_area_rect().unwrap();
+    click_away(h, egui::pos2(area.left() - 100.0, area.bottom() - 60.0));
+}
+
 fn module_description_harness(
     name: &str,
     description: &str,
@@ -238,7 +246,7 @@ fn page_keys_move_through_a_description() {
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::PageDown);
     h.run();
     assert_eq!(typed(&mut h, "Z"), up);
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     let stored = module_description(&mut h);
     assert!(!stored.contains('Y') && stored.lines().count() <= 110, "{stored:.300}");
@@ -264,7 +272,7 @@ fn a_description_with_both_line_ends_keeps_each_line_s() {
     h.event(egui::Event::Paste("\r\nSix".into()));
     h.run();
     multiline_input(&h, "One\nTwo\nThree\nFour\nFive\nSix");
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     assert_eq!(module_description(&mut h), "One\r\nTwo\nThree\r\nFour\r\nFive\r\nSix");
 }
@@ -281,7 +289,7 @@ fn a_description_of_one_line_gets_a_plain_line_end() {
     h.key_press(egui::Key::Enter);
     h.event(egui::Event::Text("Two".into()));
     h.run();
-    h.key_press(egui::Key::Escape);
+    leave_field(&mut h);
     h.run();
     assert_eq!(module_description(&mut h), "One\nTwo");
 }
@@ -523,6 +531,8 @@ fn undo_in_a_text_field_is_the_field_s() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let key = ResKey::parse("mg_note", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() {}\n".to_vec()) };
@@ -533,7 +543,10 @@ fn undo_in_a_text_field_is_the_field_s() {
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
     // Typing in a field (the module tree's Filter), then Ctrl+Z and
     // Ctrl+Y: the module's history is as it was.
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().focus();
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .focus();
     h.run();
     filter_type(&mut h, "ab");
     assert!(h.ctx.egui_wants_keyboard_input());
@@ -836,8 +849,11 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     h.key_press(egui::Key::Enter);
     h.run_steps(2);
     click_tab_close(&mut h, &tab);
-    h.run_steps(3);
-    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    let started = std::time::Instant::now();
+    while h.state().dock.find_tab(&tab).is_some() {
+        assert!(started.elapsed().as_secs() < 10, "never closed");
+        h.step();
+    }
     assert_eq!(tag(&mut h), format!("{original}_K"), "kept");
     let kept = tag(&mut h);
 
@@ -850,8 +866,11 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     assert_eq!(tag(&mut h), format!("{kept}_X"));
     assert_ne!(field(&mut h, &key).integer("Plot"), before.integer("Plot"));
     click_tab_close(&mut h, &tab);
-    h.run_steps(3);
-    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    let started = std::time::Instant::now();
+    while h.state().dock.find_tab(&tab).is_some() {
+        assert!(started.elapsed().as_secs() < 10, "never closed");
+        h.step();
+    }
     assert_eq!(tag(&mut h), kept, "the tag is set back");
     assert_eq!(field(&mut h, &key).integer("Plot"), before.integer("Plot"), "and Plot");
     assert_eq!(undoable(&h).as_deref(), Some("Cancel Changes"), "as one step");
@@ -1776,7 +1795,7 @@ fn a_dropdown_opens_at_what_is_chosen() {
     open(&mut h);
     // The chosen row is in the list's window, a little under its Filter
     // field (the list has hundreds of rows before "Chest").
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     let in_sight = |h: &Harness<'_, Moonglow>| {
         let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
         let row = h
@@ -1825,7 +1844,7 @@ fn an_open_dropdown_keeps_its_width() {
     // (Measured from the first frame that draws it: `run` would step past
     // a frame that grew.)
     h.step();
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     // The Filter field's width, and a row's (its highlight) under it.
     let widths = |h: &Harness<'_, Moonglow>, row: &str| {
         let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
@@ -1889,7 +1908,7 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query_by_label("Altar").is_none(), "what doesn't match is left out");
     // Escape clears what is typed, the list still open; Escape again
     // closes it, the appearance as it was.
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let hint = list_filter;
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_some(), "open");
@@ -2549,7 +2568,7 @@ fn filters_find_names_case_and_accents_aside() {
             .to_vec();
         app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
         close_tab(&mut app, &Tab::ModuleProperties);
-        app.open_palette = false;
+        app.palette_dock = false;
         // (The tree by name, Options › General.)
         app.settings.area_names = true;
         harness(app, 900.0, 700.0)
@@ -2557,6 +2576,8 @@ fn filters_find_names_case_and_accents_aside() {
 
     // The module tree's filter, its first text field.
     let mut h = app("ui-filter-accents-tree");
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let field = egui::accesskit::Role::TextInput;
     h.get_all_by_role(field).next().unwrap().click();
@@ -2566,8 +2587,8 @@ fn filters_find_names_case_and_accents_aside() {
     // Every row the filter leaves, from the tree's top to its foot (it
     // lays out only the rows in sight, so a row out of sight is not there
     // to be found or missed): Árbol among them, Roble not.
-    let tree = h.get_by_label("Module Properties").rect().center();
-    let top = |h: &Harness<'_, Moonglow>| h.get_by_label("Module Properties").rect().top();
+    let tree = tree_row(&h, "Module Properties").rect().center();
+    let top = |h: &Harness<'_, Moonglow>| tree_row(h, "Module Properties").rect().top();
     let (mut found, mut was) = (false, f32::NAN);
     let deadline = std::time::Instant::now() + SETTLE_TIME;
     while top(&h) != was {
@@ -2588,7 +2609,7 @@ fn filters_find_names_case_and_accents_aside() {
 
     // The palette's search.
     let mut h = app("ui-filter-accents-palette");
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     h.state_mut().palette.tiles = false;
     h.state_mut().palette.custom = true;
@@ -2664,13 +2685,30 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
 /// leaves the field; again, it is the window's Cancel.
 #[test]
 fn escape_in_a_field_is_the_window_s_cancel_but_in_a_search_field() {
-    let Some((mut h, key)) = blueprint_harness("nw_chicken", "esc_field", ResType::UTC) else {
+    escape_in_a_field(Mode::Floating);
+}
+
+/// [`escape_in_a_field_is_the_window_s_cancel_but_in_a_search_field`]
+/// where editors open as tabs (a new installation's): the Properties a
+/// docked tab, Escape its Cancel as a window's (ruling R1), and a search
+/// field's in it first.
+#[test]
+fn escape_in_a_field_is_the_tab_s_cancel_but_in_a_search_field_as_tabs() {
+    escape_in_a_field(Mode::Tabs);
+}
+
+fn escape_in_a_field(mode: Mode) {
+    let copy = if mode.tabs() { "esc_field_tabs" } else { "esc_field" };
+    let Some((mut h, key)) = blueprint_harness_in(mode, "nw_chicken", copy, ResType::UTC, None)
+    else {
         return;
     };
     let is_input =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
     let open = |h: &Harness<'_, Moonglow>| h.state().dock.find_tab(&Tab::Blueprint(key)).is_some();
     h.run();
+    let main = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap().surface.is_main();
+    assert_eq!(main, mode.tabs(), "a tab or a window");
     // A tag typed into: Escape closes the window, the tag set back.
     let tag = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
     h.get_all_by_value(&tag).find(is_input).expect("the tag's field").click();

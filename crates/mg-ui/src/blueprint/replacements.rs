@@ -574,7 +574,8 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 960.0);
     let tall = (ui.ctx().content_rect().height() * 0.6).clamp(300.0, 700.0);
     let side = crate::appearance_gallery::tile_side(f.app);
-    let window = crate::widgets::modal(ui.ctx(), "Select Texture").id(id.with("modal"));
+    let window =
+        crate::widgets::modal(ui.ctx(), "Select Texture").id(id.with("modal")).close_as_cancel();
     window.show(ui.ctx(), |ui| {
         ui.set_width(wide);
         ui.label(format!("To draw {} with", state.old));

@@ -941,8 +941,12 @@ fn area_viewer_places_draws_boxes_and_turns() {
 
     // A waypoint from the palette, placed on the ground where clicked.
     h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
-    h.run_steps(1);
-    h.get_by_label_contains("Placing nw_waypoint001");
+    // (The Status Bar says it once the frame after has drawn it.)
+    let started = std::time::Instant::now();
+    while h.query_by_label_contains("Placing nw_waypoint001").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the Status Bar's Placing");
+        h.step();
+    }
     click(&mut h, Vec3::new(15.0, 30.0, 0.0));
     h.run_steps(1);
     let waypoints = git_list(&mut h, "WaypointList");
@@ -2191,6 +2195,8 @@ fn the_area_view_plays_the_area_s_sounds() {
 #[test]
 fn blueprints_drag_from_the_module_tree_into_the_area() {
     let Some((mut h, area)) = area_harness("drag-tree") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // A waypoint blueprint of the module's own (the game's Tavern's copy).
     let key = ResKey::parse("mg_tree_wp", ResType::UTW).unwrap();
     let tavern = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
@@ -2246,6 +2252,8 @@ fn blueprints_drag_from_the_module_tree_into_the_area() {
 #[test]
 fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
     let Some((mut h, area)) = area_harness("drag-ghost") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let key = ResKey::parse("mg_ghost_chest", ResType::UTP).unwrap();
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
     let data = h.state().game.as_deref().unwrap().resman.get(&chest).unwrap().into_owned();
@@ -2438,7 +2446,7 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     h.state_mut().palette.tiles = false;
     h.state_mut().palette.filter = "nw_wp_tavern".into();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    show_palette(h.state_mut());
     h.run_steps(3);
     let count = |h: &mut Harness<'_, Moonglow>| {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -2512,8 +2520,9 @@ fn the_start_location_shows_on_raised_ground() {
     assert_eq!(stored(&mut h), (area, 0.0), "the module's start is as it was");
 }
 
-/// The main toolbar's Start opens the area the module starts in, with its
-/// view at the start location (as Aurora's Go to Start Location does).
+/// View › Go to Start Location (today's toolbar's Start) opens the area
+/// the module starts in, with its view at the start location (as
+/// Aurora's Go to Start Location does).
 #[test]
 fn go_to_start_location_opens_the_start_s_area() {
     let Some((mut h, area)) = area_harness_on("start-go", "trm02", None) else { return };
@@ -2530,12 +2539,14 @@ fn go_to_start_location_opens_the_start_s_area() {
     close_tab(h.state_mut(), &Tab::Area(area));
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
-    tool(&h, "Start").click();
+    // (Today's toolbar's Start: View › Go to Start Location, the
+    // redesign's M3.)
+    menu_command(&mut h, "View", "Go to Start Location");
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is opened");
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!(target.truncate().distance(start) < 0.01, "{target} is not at {start}");
-    // (The command is in the View menu and the command palette too.)
+    // (The command is in the View menu and Quick Open too.)
     assert!(mg_ui::commands::Id::all().contains(&mg_ui::commands::Id::GoToStart));
 }
 
@@ -2700,10 +2711,31 @@ fn w_a_s_d_drive_the_camera_like_the_arrows() {
     hold(&mut h, egui::Key::W, none);
     let by_w = target(&h) - start;
     assert!((by_w - by_arrow).length() < 0.05 * by_arrow.length(), "{by_w} like {by_arrow}");
-    // Ctrl+W is not a move.
+    // Ctrl+W is not a move: it is Close Tab, and closes the tab in front,
+    // here the Faction Editor's window (before the palettes were the Right
+    // Dock's panel, M3 T5, the palettes' tab), the area's view left open
+    // under the pointer, its camera where it was.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    settle(&mut h);
+    // (Its window over the Left Dock, clear of the view, and in front: as
+    // after a click in it.)
+    own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 420.0), egui::vec2(240.0, 300.0));
+    let at = h.state().dock.find_tab(&Tab::Factions).unwrap();
+    let (surface, node) = (at.surface, at.node);
+    h.state_mut().dock.set_focused_node_and_surface(egui_dock::NodePath { surface, node });
+    h.hover_at(centre);
+    settle(&mut h);
+    assert_eq!(h.state().front_tab(), Some(Tab::Factions), "the Faction Editor in front");
     let start = target(&h);
     hold(&mut h, egui::Key::W, egui::Modifiers::COMMAND);
-    assert_eq!(target(&h), start);
+    assert!(h.state().dock.find_tab(&Tab::Factions).is_none(), "Ctrl+W closed the editor");
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area's view still open");
+    assert_eq!(target(&h), start, "Ctrl+W moved the camera");
+    // W alone still drives it as the arrow does.
+    let start = target(&h);
+    hold(&mut h, egui::Key::W, none);
+    let by_w = target(&h) - start;
+    assert!((by_w - by_arrow).length() < 0.05 * by_arrow.length(), "{by_w} like {by_arrow}");
     // The pointer gone to the module tree: the keys still drive the view.
     h.hover_at(egui::pos2(60.0, 300.0));
     h.run_steps(2);
@@ -4294,10 +4326,16 @@ fn delete_typed_in_a_field_deletes_no_object_under_the_pointer() {
     assert_eq!(count(&mut h), 2);
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     // The module tree's filter takes the keyboard, with text to delete.
-    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    let filter = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap();
     filter.click();
     h.run_steps(2);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("ab");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("ab");
     h.run_steps(2);
     h.key_press(egui::Key::Home);
     h.run_steps(1);
@@ -4373,7 +4411,7 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
     let Some((mut h, area)) = area_harness("wheel-window") else { return };
     {
         let app = h.state_mut();
-        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        show_palette(app);
         app.palette.kind = BlueprintKind::Placeable;
         app.palette.tiles = false;
     }
@@ -5520,7 +5558,10 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     assert!(h.get_by_label("Write and Place").accesskit_node().is_disabled());
     h.get_by_label("A new hak:").click();
     h.run_steps(2);
-    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("mg_lights");
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("mg_lights");
     h.run_steps(3);
     let hak = user.join("hak/mg_lights.hak");
     let said = format!("Writes into {}", hak.display());
@@ -6371,6 +6412,9 @@ fn onto_objects_places_on_the_placeable_under_the_pointer() {
 fn shift_g_drops_the_selection_onto_the_placeable_below() {
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("drop-onto") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
+    tall_tree(&mut h);
     let git = ResKey::new(area, ResType::GIT);
     let chest = {
         let game = h.state().game.clone().unwrap();
@@ -6425,8 +6469,13 @@ fn shift_g_drops_the_selection_onto_the_placeable_below() {
     h.run_steps(3);
     assert!((z(&mut h) - ground).abs() < 0.3, "on the ground: {}", z(&mut h));
     // The chest's row in the module tree has Preview: the model viewer, as
-    // it is placed. (The area is opened out there: its waypoint was
-    // selected.)
+    // it is placed. (The area opened out there by its arrow: with the
+    // Outliner shown the tree does not open it out to follow the
+    // selection, the owner's ruling of 2026-11-14.)
+    if h.query_by_label("Placeables (1)").is_none() {
+        h.get_by_label_contains("Placed Objects in ").click();
+        h.run_steps(3);
+    }
     h.get_by_label("Placeables (1)").click();
     h.run_steps(6);
     let row = h.get_by_label_contains("Chest").rect().center();
@@ -6454,6 +6503,9 @@ fn shift_g_drops_the_selection_onto_the_placeable_below() {
 fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("properties-last") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
+    tall_tree(&mut h);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {
@@ -6537,6 +6589,8 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
 fn the_area_menus_group_related_commands_in_submenus() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("menu-submenus") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {
@@ -6837,12 +6891,13 @@ fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
 fn what_follows_the_pointer_stops_under_a_window() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness_on("under-window", "tic01", None) else { return };
-    // The palette in a window of its own, out of the way for now (the
-    // view as wide as it will be).
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    // A window of its own (the Faction Editor's: the palettes, the window
+    // of before, are the Right Dock's panel and have none), out of the way
+    // for now (the view as wide as it will be).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     h.run_steps(3);
     let size = egui::vec2(300.0, 260.0);
-    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // A tile copied and about to be pasted.
     area_tool(&h, "Select Tiles").click();
@@ -6875,7 +6930,7 @@ fn what_follows_the_pointer_stops_under_a_window() {
     assert!(h.state().area_views[&area].pointer.is_some(), "the coordinates over the view");
     // The window moved over the view, the pointer on it near its left
     // edge: the tile under the pointer lies partly outside the window.
-    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    own_window(&mut h, &Tab::Factions, centre - egui::vec2(20.0, size.y / 2.0), size);
     h.run();
     h.hover_at(centre + egui::vec2(10.0, 0.0));
     h.run_steps(3);
@@ -8110,10 +8165,12 @@ fn a_paste_s_outlines_stop_under_a_window_as_its_copies_do() {
     use glam::Vec3;
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("paste-under-window") else { return };
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    // (A window of its own: the Faction Editor's, the palettes' of before
+    // being the Right Dock's panel.)
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     h.run_steps(3);
     let size = egui::vec2(300.0, 260.0);
-    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // The two waypoints copied, about to be pasted.
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
@@ -8142,7 +8199,7 @@ fn a_paste_s_outlines_stop_under_a_window_as_its_copies_do() {
     assert!(over > 50, "the outlines over the view: {over}");
     assert_eq!(h.state().area_views[&area].pasted_shown, 2, "and the copies");
     // The window over the view, the pointer on it near its left edge.
-    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    own_window(&mut h, &Tab::Factions, centre - egui::vec2(20.0, size.y / 2.0), size);
     h.run();
     h.hover_at(centre + egui::vec2(10.0, 0.0));
     h.run_steps(3);

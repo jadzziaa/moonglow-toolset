@@ -42,7 +42,7 @@ pub(crate) fn watch_fonts(ctx: &egui::Context) {
 }
 
 /// How many times egui has made its fonts again ([`watch_fonts`]).
-fn fonts_made(ctx: &egui::Context) -> u64 {
+pub(crate) fn fonts_made(ctx: &egui::Context) -> u64 {
     ctx.data(|d| d.get_temp::<(Arc<Galley>, u64)>(fonts_id()).map_or(0, |(_, made)| made))
 }
 

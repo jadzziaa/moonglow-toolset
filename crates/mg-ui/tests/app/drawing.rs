@@ -758,6 +758,8 @@ fn a_stock_interior_looks_alike_with_the_shaders_on_and_off() {
     else {
         return;
     };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let dir = mg_testkit::scratch_dir("ui-interior-shaders");
     let (w, d) = (are.root.int("Width").unwrap() as f32, are.root.int("Height").unwrap() as f32);
     {
@@ -1195,48 +1197,6 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
 }
 
 #[test]
-fn preview_window_shows_the_chosen_blueprint() {
-    // (A creature of the module's with a first and a last name.)
-    let guard = |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
-        let text = |t: &str| {
-            mg_gff::Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, t))
-        };
-        let mut guard = Gff::new(*b"UTC ");
-        guard.root.set("FirstName", text("Hent"));
-        guard.root.set("LastName", text("Fynolds"));
-        m.set(ResKey::parse("guard001", ResType::UTC).unwrap(), guard.to_bytes().unwrap());
-    };
-    let Some((mut h, _area)) = area_harness_with("preview", "ttr01", None, 4, None, &guard) else {
-        return;
-    };
-    tool(&h, "Preview").click();
-    h.run_steps(2);
-    h.get_by_label("Choose a blueprint in the palette.");
-    // A waypoint: its fields.
-    h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
-    h.run_steps(2);
-    h.get_by_label("Blueprint ResRef");
-    h.get_by_label("nw_waypoint001");
-    // A chest: also in 3D.
-    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
-    h.state_mut().palette.selected = Some(chest);
-    h.run_steps(3);
-    h.get_by_label("plc_chest1");
-    assert!(
-        h.state().model_views.contains_key(&mg_ui::model_view::Source::Resource(chest)),
-        "the 3D view"
-    );
-    // An item: also its inventory icon.
-    h.state_mut().palette.selected = ResKey::parse("nw_wswls001", ResType::UTI);
-    h.run_steps(3);
-    h.get_by_label("Item icon");
-    // A creature: by its first and last names, as the module tree names it.
-    h.state_mut().palette.selected = ResKey::parse("guard001", ResType::UTC);
-    h.run_steps(3);
-    h.get_by_label("Hent Fynolds");
-}
-
-#[test]
 fn a_preview_follows_its_blueprint_s_editor() {
     let root = mg_testkit::corpus!();
     let Some(rs) = gpu() else { return };
@@ -1350,7 +1310,7 @@ fn a_store_s_preview_lists_what_it_sells() {
     let path = sample_module(&dir);
     let mut app = game_app(&root, None);
     app.open_module(&path);
-    app.open_palette = false;
+    app.palette_dock = false;
     // The thieves' store of Hordes of the Underdark (its jewelry page has
     // rings and amulets), as the palette's double click opens it.
     let key = ResKey::parse("x2_storethief001", ResType::UTM).unwrap();
@@ -2047,31 +2007,172 @@ fn a_tint_being_picked_draws_on_the_rug() {
     assert!(differ > 15.0, "drawn as picked: {before:?} then {picking:?}");
 }
 
-/// One source shown in two places in a frame (the Preview window's
+/// One source shown in two places in a frame (the Preview panel's
 /// blueprint, and its model's own tab) shared one view and one set of
 /// targets, made twice a frame at two sizes, both pictures sampling the
 /// last (the review's B19): the second place says where the preview is.
+/// The tab keeps its view (the Preview panel is drawn after the editor
+/// area, as the Preview window was), the Preview panel saying so.
 #[test]
 fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     let Some((mut h, _area)) = area_harness("preview-twice") else { return };
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(chest)));
     h.state_mut().palette.selected = Some(chest);
-    h.state_mut().preview_window = true;
-    h.run_steps(12);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    settle(&mut h);
     let dir = mg_testkit::scratch_dir("ui-preview-twice");
     h.render().expect("render").save(dir.join("twice.png")).unwrap();
     let source = mg_ui::model_view::Source::Resource(chest);
     assert!(h.state().model_views[&source].holds_targets(), "drawn in the one place");
-    assert_eq!(
-        h.query_all_by_label("The preview is shown elsewhere in the window.").count(),
-        1,
-        "and said in the other"
-    );
-    // Its tab closed: the Preview window draws it.
+    let said: Vec<egui::Rect> = (h
+        .query_all_by_label("The preview is shown elsewhere in the window."))
+    .map(|n| n.rect())
+    .collect();
+    assert_eq!(said.len(), 1, "and said in the other");
+    let preview = h.state().preview_panel_rect().expect("the Preview panel");
+    assert!(preview.contains(said[0].center()), "said in the Preview panel: {said:?} {preview:?}");
+    // Its tab closed: the Preview panel draws it.
     close_tab(h.state_mut(), &Tab::Model(chest));
-    h.run_steps(6);
+    settle(&mut h);
     assert!(h.query_by_label("The preview is shown elsewhere in the window.").is_none());
     assert!(h.state().model_views[&source].holds_targets());
     h.render().expect("render").save(dir.join("once.png")).unwrap();
+}
+
+/// The same with the blueprint's own editor on its Appearance page (a
+/// creature's), which shows the model the palette's chosen blueprint has
+/// (the same source): docked in the editor area and as a floating window,
+/// the tab keeps its view and the Preview panel says the model is shown
+/// elsewhere (the Preview's body is drawn after the editor area while an
+/// open tab may show its model, `model_view::a_tab_may_show`).
+#[test]
+fn a_blueprint_s_appearance_page_keeps_its_view_beside_the_preview() {
+    const ELSEWHERE: &str = "The preview is shown elsewhere in the window.";
+    for docked in [true, false] {
+        let name = if docked { "preview-page-docked" } else { "preview-page-floating" };
+        let Some((mut h, _area)) = area_harness(name) else { return };
+        let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+        if docked {
+            // (Creatures' editors dock in the middle, in front of the area.)
+            let middle = ("creature".to_string(), "middle".to_string());
+            h.state_mut().settings.window_places = vec![middle];
+        }
+        {
+            let app = h.state_mut();
+            let data = app.game.as_ref().unwrap().resman.get(&bandit).unwrap();
+            app.ws.as_mut().unwrap().view(bandit, mg_gff::Gff::read(&data).unwrap());
+            app.blueprint_pages.insert((bandit, mg_edit::GffPath::root()), "Appearance");
+            app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(bandit)));
+            app.palette.selected = Some(bandit);
+            app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+        }
+        settle(&mut h);
+        let at = h.state().dock.find_tab(&Tab::Blueprint(bandit)).expect("the editor");
+        assert_eq!(at.surface.is_main(), docked, "{name}: where the editor is");
+        let source = mg_ui::model_view::Source::Resource(bandit);
+        let view = h.state().model_views.get(&source).expect("a view of the bandit");
+        assert!(view.holds_targets(), "{name}: drawn in the one place");
+        let said: Vec<egui::Rect> = h.query_all_by_label(ELSEWHERE).map(|n| n.rect()).collect();
+        assert_eq!(said.len(), 1, "{name}: said in the other place");
+        let preview = h.state().preview_panel_rect().expect("the Preview panel");
+        assert!(preview.contains(said[0].center()), "{name}: said in the Preview: {said:?}");
+        // The editor closed: the Preview panel draws the model.
+        close_tab(h.state_mut(), &Tab::Blueprint(bandit));
+        settle(&mut h);
+        assert!(h.query_by_label(ELSEWHERE).is_none(), "{name}: the Preview draws it");
+        assert!(h.state().model_views[&source].holds_targets());
+    }
+}
+
+/// The sky under a high camera: Chapter1's `map_m1q1a` seen whole, from
+/// above, in a window 2559 by 800 (the widest before the wide layout, its
+/// area view about four times as wide as it is high), with Moonglow's
+/// shaders and the game's. The view's sides look about 57° off straight
+/// down: the skybox stood at ground level around a camera 151 m up, and
+/// the game's horizon fade, in the area's fog color (khaki), filled them
+/// (M3 T15, seen in T14's pictures). The sky now stands under the camera
+/// as under the game's farthest at that pitch (`GAME_CAMERA_REACH`, 25 m
+/// from its target: here 25 m over the sky's ground), whose picture at
+/// that angle is the fade's dark lower band over the sky: the sides show
+/// 44% of the fog color's sum. Held from both sides: the sky at the
+/// camera itself showed 27%, 12 m under it 35%, 100 m under it 99% (the
+/// fog color), so it is between 39% and 50%. Pictures in
+/// `target/test-output/ui-sky-high/`.
+#[test]
+fn the_sky_under_a_camera_higher_than_the_game_s() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let area = ResRef::from_str("map_m1q1a").unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = area_gpu_harness(app, rs, 2559.0, 800.0);
+    let dir = mg_testkit::scratch_dir("ui-sky-high");
+    // (The area's sun fog color, as the view draws the fade in it.)
+    let fog = [152.0, 145.0, 103.0];
+    // The mean of a strip 20 points wide at `x0` across the view `r`'s
+    // middle half.
+    let strip = |img: &image::RgbaImage, r: egui::Rect, x0: f32| -> [f64; 3] {
+        let mut sum = [0.0; 3];
+        let mut n = 0.0;
+        for y in (r.min.y + r.height() / 4.0) as u32..(r.max.y - r.height() / 4.0) as u32 {
+            for x in x0 as u32..x0 as u32 + 20 {
+                let p = img.get_pixel(x, y);
+                for c in 0..3 {
+                    sum[c] += p[c] as f64;
+                }
+                n += 1.0;
+            }
+        }
+        sum.map(|s| s / n)
+    };
+    for shaders in [false, true] {
+        h.state_mut().settings.game_shaders = Some(shaders);
+        if shaders {
+            until_the_game_draws(&mut h);
+        }
+        // Until the view has drawn and its picture rests: the strips the
+        // same in two pictures a step apart (its textures, read apart,
+        // come in over some frames).
+        let start = std::time::Instant::now();
+        let mut last = None;
+        let (img, r) = loop {
+            h.run_steps(1);
+            let Some(view) = h.state().area_views.get(&area).filter(|v| v.pictures > 0) else {
+                assert!(start.elapsed().as_secs() < 60, "the view never drew");
+                continue;
+            };
+            let r = view.rect;
+            let img = h.render().expect("render");
+            let now =
+                [r.min.x + 4.0, r.center().x - 10.0, r.max.x - 24.0].map(|x| strip(&img, r, x));
+            if last == Some(now) {
+                break (img, r);
+            }
+            last = Some(now);
+            assert!(start.elapsed().as_secs() < 60, "the picture never rested: {now:?}");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let view = &h.state().area_views[&area];
+        let eye = view.orbit.as_ref().map(|o| o.camera().eye).unwrap();
+        assert!(eye.z > 100.0, "seen whole from high up: {eye}");
+        assert!(r.width() > 3.5 * r.height(), "a wide view: {r:?}");
+        img.save(dir.join(format!("shaders-{shaders}.png"))).unwrap();
+        let strip = |x0: f32| strip(&img, r, x0);
+        let middle = strip(r.center().x - 10.0);
+        assert!(middle.iter().sum::<f64>() > 60.0, "the area drawn: {middle:?}");
+        for (side, x0) in [("left", r.min.x + 4.0), ("right", r.max.x - 24.0)] {
+            let seen = strip(x0);
+            let share = seen.iter().sum::<f64>() / fog.iter().sum::<f64>();
+            assert!(
+                (0.39..0.5).contains(&share),
+                "{side}, shaders {shaders}: the fade's dark band over the sky as under the \
+                 game's farthest camera (44% of the fog color), not {:.0}%: {seen:?}",
+                share * 100.0
+            );
+        }
+    }
 }

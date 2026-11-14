@@ -466,8 +466,7 @@ impl Tree<'_> {
         if kind == BlueprintKind::Item && r.drag_started() {
             r.dnd_set_drag_payload(super::inventory::Dragged::Palette(b.resref));
         }
-        r.context_menu(|ui| {
-            mg_uikit::menu_rows(ui);
+        mg_uikit::context_menu(&r, |ui| {
             if ui.button(add).clicked() {
                 *self.taken = Some(b.resref);
                 ui.close();
@@ -480,7 +479,7 @@ impl Tree<'_> {
                 ui.close();
             }
             // Properties last, as in Aurora's menus.
-            ui.separator();
+            mg_uikit::menu_separator(ui);
             if ui
                 .button("Properties")
                 .on_hover_text(
