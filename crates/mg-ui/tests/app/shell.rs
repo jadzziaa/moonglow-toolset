@@ -274,28 +274,10 @@ fn inside(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Pos2 {
 
 /// A point on `tab`'s tab, clear of its close button (egui_dock's tabs
 /// are what can be clicked and dragged in their pane's tab bar, in their
-/// order: `click_tab_close`'s way).
+/// order, in that bar's own layer: `common::tab_rects`, as
+/// `click_tab_close` finds them).
 fn tab_title(h: &Harness<'_, Moonglow>, tab: &Tab) -> egui::Pos2 {
-    let (band, index) = (h.state().dock.iter_leaves())
-        .find_map(|(_, l)| {
-            let index = l.tabs.iter().position(|t| t == tab)?;
-            let band =
-                egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top());
-            Some((band, index))
-        })
-        .expect("the tab is open");
-    let mut tabs = Vec::new();
-    h.ctx.viewport(|v| {
-        for (_, widgets) in v.prev_pass.widgets.layers() {
-            for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
-                if w.sense.senses_click() && w.sense.senses_drag() {
-                    tabs.push(w.interact_rect);
-                }
-            }
-        }
-    });
-    tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
-    let own = tabs.get(index).expect("its tab");
+    let (own, _) = tab_rects(h, tab);
     egui::pos2(own.left() + 12.0, own.center().y)
 }
 

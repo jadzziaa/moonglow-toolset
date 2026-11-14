@@ -280,8 +280,6 @@ fn new_module_and_area_through_the_wizards() {
     let app =
         game_app_with(&root, None, NoDialogs { save: vec![path.clone()], ..Default::default() });
     let mut h = window_harness(app);
-    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
-    unfold_left_dock(&mut h);
     h.run();
 
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);

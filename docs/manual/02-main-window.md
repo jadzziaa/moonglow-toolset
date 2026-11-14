@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T09:47:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T11:27:11Z }
 ---
 
 # The main window
@@ -576,8 +576,8 @@ an area is in front one for the **Outliner** under them, which brings
 the dock back with the arrow keys in the Outliner. It comes back as
 wide as it was. Its panels stay in it: neither can be dragged to
 another side or into the middle. The **Right Dock** is the same,
-mirrored: its arrow at the end of its tab bar (**Fold the Right
-Dock**), its edge dragged to make it wider (at least 280 points, at
+mirrored: its arrow at the end of its tab bar by the window's edge
+(**Fold the Right Dock**), its edge dragged to make it wider (at least 280 points, at
 most two fifths of the window); folded, a thin strip at the window's
 right with **Show the Right Dock** at its top and a button for each of
 its panels (**Palette**, and **Preview**, an eye), which brings it back
@@ -631,9 +631,12 @@ window is 796 or wider. Under **962** both side docks don't fit beside
 the middle: bringing one back folds the other ("Show the Right Dock in
 place of the Left Dock", its arrow says). The arrows and View's rows
 say what they do in a narrow window ("Show the Left Dock in this narrow
-window"; "Fold the Left Dock back to its strip"). Where a dock that has
-the arrow keys folds (by the window's width or by you), they go to the
-tab you work in, and stay there when the dock comes back. Opening a
+window"; "Fold the Left Dock back to its strip"). Where the panel that
+has the arrow keys is no longer shown (its dock folded, by the window's
+width or by you; the Right Dock gone beside a tab that brings none; the
+Outliner gone with the area's tab), they go to the tab you work in, and
+stay there when the panel comes back; another tab of the same dock
+chosen, they go with the tab. Opening a
 module's tabs as you left them changes no dock's fold. The smallest window, 420 points wide, has both docks as
 strips and the middle between them. In a window **2560** points or
 wider (the wide layout), a dock whose width you haven't chosen is
@@ -643,9 +646,11 @@ Dock's width you drag there is kept apart from the one you drag in a
 narrower window: each layout gives back its own. There a Right
 Dock wider than 560 (at its width at first, or dragged so) stands in
 two columns, the Palette in the first (340, or half the dock) and the
-Preview in the second, each with its own tab, a line between them; F6
-stops at each, and the one you press in or reach is the dock's panel
-(the one its strip and View › Right Dock bring back).
+Preview in the second, each with its own tab, a line between them, the
+arrow that folds the dock at the end of the second's tab bar, by the
+window's edge as in one column; F6 stops at each, and the one you press
+in or reach is the dock's panel (the one its strip and View › Right Dock
+bring back).
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,

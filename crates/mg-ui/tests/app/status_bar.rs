@@ -811,17 +811,19 @@ fn the_status_bar_holds_at_every_width() {
     }
 }
 
-/// The Bottom Dock's tab bar at every window width from the least (420)
-/// to 1000, in 4 point steps, beside an area with the Right Dock unfolded
-/// by hand where the width folds it (the narrowest the dock under the
-/// editor area is since the yields, M3 T14: about 100 points in the least
-/// window; it was 24 with both docks open): its Log tab and its tools
-/// (Copy Log, Save Log, Clear Log) never over each other nor outside the
-/// dock; and, as the dock narrows, the stages it reaches in turn: the
-/// tab's words with all three tools; the tab its icon alone with the tools
-/// going from the end (the icon alone, and nothing under its width, are
-/// no longer reached in the window). The tab is "Log" whatever its form;
-/// each tool not shown is in the View menu.
+/// The Bottom Dock's tab bar at every window width from 300 to 1000, in 4
+/// point steps, beside an area with the Right Dock unfolded by hand where
+/// the width folds it: its Log tab and its tools (Copy Log, Save Log,
+/// Clear Log) never over each other nor outside the dock; and, as the
+/// dock narrows, each stage in turn: the tab's words with all three
+/// tools; the tab its icon alone with the tools going one by one from the
+/// end; the icon alone with no tools; nothing under the icon's width. The
+/// tab is "Log" whatever its form; each tool not shown is in the View
+/// menu. (Since the yields, M3 T14, the dock under the editor area is
+/// about 100 points at its narrowest in the least window, 420, where the
+/// icon keeps two tools: the narrower stages are reached under it, in a
+/// window smaller than the least the app asks for, which a window manager
+/// need not hold, and which the harness does not.)
 #[test]
 fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     let Some((mut h, _area)) = area_harness("bottom-dock-narrow") else { return };
@@ -832,7 +834,7 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     let stages = [("none", 0), ("icon", 0), ("icon", 1), ("icon", 2), ("icon", 3), ("words", 3)];
     let mut wrong = Vec::new();
     let mut seen = Vec::new();
-    for width in (420..=1000).step_by(4) {
+    for width in (300..=1000).step_by(4) {
         let width = width as f32;
         h.set_size(egui::vec2(width, 800.0));
         settle(&mut h);
@@ -901,7 +903,7 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
         // (The icon with all three tools is a few points of the dock's
         // width at most: not every sweep lands on it. The icon with fewer
         // than two tools and nothing are under the narrowest dock now.)
-        if !matches!(*stage, ("icon", 3) | ("icon", 1) | ("icon", 0) | ("none", 0)) {
+        if *stage != ("icon", 3) {
             assert!(reached.contains(&i), "{stage:?} never seen: {seen:?}");
         }
     }

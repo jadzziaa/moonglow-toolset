@@ -76,13 +76,30 @@ fn tools_resources_and_its_key_show_the_panel_folded_or_not() {
         egui::Key::F12,
     );
     h.state_mut().keymap.set_of("resources", vec![key]);
+    // (At 1280 the dock folds by the width: folded by its fold button
+    // there, the builder's `hide_tree` not read below 1500, M3 T14.)
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(Panel::Module));
+    settle(&mut h);
+    h.get_by_label("Fold the Left Dock").click();
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), None, "folded by the width");
+    h.key_press_modifiers(key.modifiers, key.logical_key);
+    settle(&mut h);
+    shown(&h);
+    // In a window no width folds the dock: the builder's fold, then open.
+    wide_window(&mut h);
     for folded in [true, false] {
+        // (The panel asked for unfolds the dock: the fold set after it.)
         h.state_mut().actions.push(mg_ui::Action::ShowPanel(Panel::Module));
+        settle(&mut h);
         h.state_mut().settings.hide_tree = folded;
         settle(&mut h);
+        let shows = h.state().left_dock_shows();
+        assert_eq!(shows, (!folded).then_some(Panel::Module), "folded {folded}");
         h.key_press_modifiers(key.modifiers, key.logical_key);
         settle(&mut h);
         shown(&h);
+        assert!(!h.state().settings.hide_tree, "unfolded by its key");
     }
 }
 
@@ -92,6 +109,8 @@ fn tools_resources_and_its_key_show_the_panel_folded_or_not() {
 #[test]
 fn the_left_dock_s_tabs_switch_by_click_keyboard_and_strip() {
     let Some(mut h) = browser_harness("ui-panel-tabs", 1280.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     dock_tab(&h, "Resources").click();
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(Panel::Resources));
@@ -112,15 +131,16 @@ fn the_left_dock_s_tabs_switch_by_click_keyboard_and_strip() {
         assert_eq!(h.state().left_dock_shows(), Some(panel), "{key:?}");
         assert!(selected(&h, to));
     }
-    // Folded: a button a panel on the strip.
-    h.state_mut().settings.hide_tree = true;
-    settle(&mut h);
+    // Folded (by its fold button: at 1280 the width folds it, and
+    // `hide_tree` is not read): a button a panel on the strip.
     for (name, panel) in [("Resources", Panel::Resources), ("Module", Panel::Module)] {
+        h.get_by_label("Fold the Left Dock").click();
+        settle(&mut h);
+        assert_eq!(h.state().left_dock_shows(), None, "folded before {name}");
+        h.get_by_label("Show the Left Dock");
         dock_tab(&h, name).click();
         settle(&mut h);
         assert_eq!(h.state().left_dock_shows(), Some(panel), "{name} from the strip");
-        h.state_mut().settings.hide_tree = true;
-        settle(&mut h);
     }
 }
 
@@ -684,7 +704,7 @@ fn drag_bar(h: &mut Harness<'_, Moonglow>, by: f32) {
 /// well (every group open), and the tree itself (scrolled past the well).
 /// The edge still drags.
 #[test]
-fn a_press_on_a_list_s_scroll_bar_by_the_fold_button_scrolls_it() {
+fn a_press_on_a_list_s_scroll_bar_scrolls_it_and_folds_nothing() {
     let Some(mut h) = chapter1_harness() else { return };
     // (A window wide enough that no width folds a dock: the test reads the
     // docks as the builder left them, M3 T14.)

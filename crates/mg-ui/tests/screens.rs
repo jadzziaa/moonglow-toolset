@@ -10922,12 +10922,6 @@ fn shell_by_hand() {
     shoot(&mut h, &dir, "shell_by_hand_420_left");
 }
 
-/// The WideArea board's tabs: Module Properties, the area (changed, its
-/// modified dot), Faribeth's blueprint in the area's group, and the script
-/// `m1q3_formosa_9` in a second group at its right (Split Editor), the
-/// focus back in the area's group.
-/// Frames until `done` says so, for 30 seconds at most, failing with
-/// `what` (an area's view asks for frames as it animates, so `settle`
 /// The Left Dock unfolded by hand where the window's width folds it (under
 /// 1500 points, M3 T14): its strip's chevron clicked, as a builder looking
 /// at the tree there does. Nothing where it is open or holds no panel.
@@ -10938,6 +10932,8 @@ fn unfold_left_dock(h: &mut Harness<'_, Moonglow>) {
     frames_until(h, "the Left Dock unfolded", |h| h.query_by_label("Fold the Left Dock").is_some());
 }
 
+/// Frames until `done` says so, for 30 seconds at most, failing with
+/// `what` (an area's view asks for frames as it animates, so `settle`
 /// never ends beside one).
 fn frames_until(
     h: &mut Harness<'_, Moonglow>,
@@ -10951,6 +10947,10 @@ fn frames_until(
     }
 }
 
+/// The WideArea board's tabs: Module Properties, the area (changed, its
+/// modified dot), Faribeth's blueprint in the area's group, and the script
+/// `m1q3_formosa_9` in a second group at its right (Split Editor), the
+/// focus back in the area's group.
 fn board_tabs(h: &mut Harness<'_, Moonglow>) {
     let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
     let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());

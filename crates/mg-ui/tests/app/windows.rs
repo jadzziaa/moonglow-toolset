@@ -312,8 +312,8 @@ fn tabs_by_when_they_were_last_used_with_ctrl_held() {
 
 /// GitHub issue 10: the docks fold away and come back (View, Ctrl+Alt+1,
 /// 2, 3 and 0, and each one's own control: the Left and Right Docks' fold
-/// buttons beside their inner edges and, folded, the buttons beside their
-/// strips' edges; the Log's switch in the Status Bar), each as wide as it
+/// buttons at their tab bars' ends and, folded, the chevrons at their
+/// strips' tops; the Log's switch in the Status Bar), each as wide as it
 /// was.
 #[test]
 fn panels_fold_away_and_come_back() {
@@ -414,8 +414,8 @@ fn panels_fold_away_and_come_back() {
 
 /// Tab reaches the Right Dock's fold button on its tab bar, after the
 /// tabs and before the panel's body (M3 T14's review: the button is at the
-/// bar's end, inside the dock), then goes on into the body and round the
-/// window; Shift+Tab from the body comes back to it. With each tab in
+/// bar's end, inside the dock), then goes on into the body; Shift+Tab from
+/// the body comes back to it. With each tab in
 /// front: the palettes' types, search and list; the Preview's body (a
 /// creature chosen: its model viewer's controls), drawn in the dock in its
 /// place. Enter on it folds the dock.
@@ -473,16 +473,18 @@ fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
 /// GitHub issue 10, as its reporter put it on 1.31.0, kept by the shell:
 /// one control per dock or pane to fold it away or close it. Since M3
 /// T14's review, where the boards put it: the open side dock's fold button
-/// at its tab bar's inner end, inside the dock (no board draws one; beside
-/// the dock's edge it lay over the editor area's view, taking its clicks),
-/// and folded, the chevron at its strip's top (`Narrow.png`'s rail), the
-/// strip's one control that unfolds it, with its panels' buttons under
-/// it. Each is named and tipped by what it does, and its click folds or
-/// unfolds the dock; the dock's edge drags, high and low. The Bottom
-/// Dock's is the Log's switch in the Status Bar, which says whether it is
-/// on and stays where it is.
+/// on its tab bar, inside the dock (the Left Dock's at the bar's end
+/// toward the editor area, the Right Dock's at the bar's end by the
+/// window's edge; no board draws one; beside the dock's edge it lay over
+/// the editor area's view, taking its clicks), and folded, the chevron at
+/// its strip's top (`Narrow.png`'s rail), the strip's one control that
+/// unfolds it, with its panels' buttons under it. Each is named and tipped
+/// by what it does, and a click of the pointer where it is drawn folds or
+/// unfolds the dock (nothing over it takes the click); the dock's edge
+/// drags, high and low. The Bottom Dock's is the Log's switch in the
+/// Status Bar, which says whether it is on and stays where it is.
 #[test]
-fn each_pane_folds_by_one_button_on_its_inner_edge() {
+fn each_side_dock_folds_by_one_button_on_its_tab_bar() {
     let Some(mut h) = game_harness("pane-edges") else { return };
     // (1600 wide: no width folds a dock, and the Right Dock's edge drags.)
     wide_window(&mut h);
@@ -493,7 +495,7 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
         let all: Vec<egui::Rect> = (h.query_all_by_label(&fold).chain(h.query_all_by_label(&show)))
             .map(|n| n.rect())
             .collect();
-        assert_eq!(all.len(), 1, "one button for the {name}: {all:?}");
+        assert_eq!(all.len(), 1, "one button for {name}: {all:?}");
         all[0]
     };
     // The middle (the editor area's panes).
@@ -511,16 +513,23 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
         ("Left Dock", "the Left Dock", left_dock_rect as fn(&Harness<'_, Moonglow>) -> egui::Rect),
         (mg_ui::RIGHT_DOCK, "the Right Dock", right_dock_rect),
     ] {
-        // Open: on the dock's tab bar, at its inner end, inside the dock,
-        // over nothing of the editor area.
+        // Open: on the dock's tab bar, inside the dock, over nothing of
+        // the editor area.
         let shown = button(&h, name);
         let tab = if dock == "Left Dock" { "Module" } else { "Palette" };
         let bar = h.get_by_label(dock).get_by_label(tab).rect();
         let area = middle(&h);
         assert!(rect(&h).contains_rect(shown), "{name}: inside the dock {shown:?}");
         assert!(bar.y_range().contains(shown.center().y), "{name}: on its tab bar {shown:?}");
+        // (The Left Dock's at its bar's end toward the editor area, the
+        // Right Dock's at its bar's end by the window's edge: each at the
+        // dock's right, within the tools' few points of room.)
+        let end = rect(&h).right() - shown.right();
+        assert!((0.0..=6.0).contains(&end), "{name}: at its bar's right end, {end} short");
         assert!(!shown.intersects(area), "{name}: over nothing of the editor area");
-        h.get_by_label(&format!("Fold {name}")).click();
+        // (The pointer's click where the button is drawn: a widget over
+        // it would take it.)
+        click_pos(&h, shown.center());
         h.run_steps(2);
         let folded = match dock {
             "Left Dock" => h.state().settings.hide_tree,
@@ -536,7 +545,7 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
         assert!(strip.query_by_label(&format!("Show {name}")).is_some(), "{name}: on the strip");
         assert!(chevron.bottom() <= first_panel.rect().top(), "{name}: at the strip's top");
         assert!(window.contains_rect(chevron), "{name}: in the window {chevron:?}");
-        h.get_by_label(&format!("Show {name}")).click();
+        click_pos(&h, chevron.center());
         h.run_steps(2);
         let folded = match dock {
             "Left Dock" => h.state().settings.hide_tree,
@@ -1628,7 +1637,9 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
 /// browser's tab open (`resources`, before the browser was the Left
 /// Dock's Resources panel): the module opens with the dock on that panel
 /// and the record's other tabs where they were; kept again, the record
-/// has no such tab. A record with that tab alone shows the panel too.
+/// has no such tab. A record with that tab alone shows the panel too. The
+/// record never unfolds the dock: folded by the width or by the builder,
+/// it stays folded, on the panel.
 #[test]
 fn an_old_record_with_the_resource_browser_shows_the_panel() {
     let (path, app, kept) = tabs_app("ui-open-tabs-resources");
@@ -1660,6 +1671,30 @@ fn an_old_record_with_the_resource_browser_shows_the_panel() {
     wide_window(&mut h);
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
+    drop(h);
+    // The record puts the panel in front and writes no fold of the dock
+    // (M3 T14's second review): in a window that folds it by the width
+    // (1400), it stays its strip; in a wide one with the builder's fold,
+    // the fold stands, and View › Left Dock unfolds it on the panel.
+    write(r#""resources""#);
+    let mut h = tabs_session(&path, &kept);
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), None, "still folded by the width");
+    h.get_by_label("Show the Left Dock");
+    drop(h);
+    write(r#""resources""#);
+    let mut app = app_with(Vec::new());
+    show_palette(&mut app);
+    app.open_tabs_dir = Some(kept.to_path_buf());
+    app.settings.hide_tree = true;
+    let mut h = harness(app, 1600.0, 900.0);
+    h.state_mut().open_module(&path);
+    settle(&mut h);
+    assert!(h.state().settings.hide_tree, "the builder's fold stands");
+    assert_eq!(h.state().left_dock_shows(), None, "folded");
+    menu_command(&mut h, "View", "Left Dock");
+    settle(&mut h);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "on the panel");
 }
 
 /// An older record with the resource browser's tab in front of a pane

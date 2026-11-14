@@ -75,18 +75,19 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     // The Left Dock at its least width: its tabs as icons, on both tabs.
     left_dock_width(&mut h, 190.0);
     settle(&mut h);
-    let before = seen.len();
-    counts.push(("Left Dock", walk(&mut h, "Left Dock (Module)", &mut seen, &mut wrong)));
+    // (Walked afresh, not passed over as seen in the main window's walk:
+    // since M3 T14's review the fold button stands on the tab bar, and at
+    // the dock's first 260 its tabs are icons already, where they are at
+    // 190.)
+    let mut at_least = Vec::new();
+    counts.push(("Left Dock", walk(&mut h, "Left Dock (Module)", &mut at_least, &mut wrong)));
     show_resources(h.state_mut());
     settle(&mut h);
-    counts.push(("Resources", walk(&mut h, "Left Dock (Resources)", &mut seen, &mut wrong)));
-    // (Walked as icons at 190, or already in the main window's walk: since
-    // M3 T14's review the dock's fold button stands on its tab bar, and at
-    // its first 260 the tabs show their icons too.)
-    let _ = before;
+    counts.push(("Resources", walk(&mut h, "Left Dock (Resources)", &mut at_least, &mut wrong)));
     let tabs: Vec<&String> =
-        seen.iter().map(|(n, _)| n).filter(|n| *n == "Module" || *n == "Resources").collect();
-    assert_eq!(tabs.len(), 2, "the icon tabs walked: {seen:?}");
+        (at_least.iter()).map(|(n, _)| n).filter(|n| *n == "Module" || *n == "Resources").collect();
+    assert_eq!(tabs.len(), 2, "the icon tabs walked at 190: {at_least:?}");
+    seen.extend(at_least);
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
     left_dock_width(&mut h, 260.0);
     settle(&mut h);

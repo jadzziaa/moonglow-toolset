@@ -10,13 +10,11 @@
 //! - a dock's tab bar, [`DockTabs`] (26 px, its tools at the right), and a
 //!   panel's header where it has one tab, [`PanelHeader`];
 //! - a folded dock's strip, [`FoldStrip`] (24 px of its panels' icons
-//!   under a chevron that unfolds it, or without the chevron where the
-//!   strip's edge has that control: [`FoldStrip::chevron`]), and the
-//!   button that folds it, [`fold_button`], or beside the dock's inner
-//!   edge, [`edge_fold_button`], with [`edge_unfold_button`] in the same
-//!   place beside the strip's ([`edge_fold_rect_beside`]); a dock's tabs
-//!   show their icons alone where their words and the tools do not fit
-//!   ([`DockTabs::tools_width`]);
+//!   under a chevron that unfolds it, or without the chevron:
+//!   [`FoldStrip::chevron`]), and the button that folds it,
+//!   [`fold_button`] (with its tip, [`fold_button_tip`], among a tab bar's
+//!   tools); a dock's tabs show their icons alone where their words and
+//!   the tools do not fit ([`DockTabs::tools_width`]);
 //! - the document tabs' parts, painted over egui_dock's tabs:
 //!   [`doc_tab_parts`], [`paint_doc_tab_icon`], [`paint_doc_tab_close`],
 //!   with [`crate::paint_modified_dot`];
@@ -446,9 +444,8 @@ pub enum StripClick {
 /// which unfolds it on that panel. A group named by its dock; the chevron
 /// named "Show the Left Dock" and said closed (accesskit's expanded), each
 /// panel's button by its name, with its tooltip. Without the chevron (and
-/// its line) where the dock is unfolded by a control on the strip's edge
-/// ([`FoldStrip::chevron`], [`edge_unfold_button`]): one control to
-/// unfold it, where the one that folds it was.
+/// its line) where the dock is unfolded by a control of its own elsewhere
+/// ([`FoldStrip::chevron`]): one control to unfold it.
 #[derive(Clone, Debug)]
 #[must_use = "show it with .show(ui)"]
 pub struct FoldStrip {
@@ -467,10 +464,9 @@ impl FoldStrip {
     }
 
     /// Whether the strip has its chevron (and the line under it) at its
-    /// top: it has, unless `shown` is false, where the strip's inner edge
-    /// has the control that unfolds the dock ([`edge_unfold_button`]),
-    /// so that the strip does not show a second. Its panels' buttons then
-    /// start at its top.
+    /// top: it has, unless `shown` is false, where the application draws
+    /// the control that unfolds the dock elsewhere, so that the strip does
+    /// not show a second. Its panels' buttons then start at its top.
     pub fn chevron(mut self, shown: bool) -> Self {
         self.chevron = shown;
         self
@@ -534,9 +530,9 @@ impl FoldStrip {
     }
 }
 
-/// The button on a dock's inner edge that folds it (the one fold button a
-/// dock has, issue 10's rule): a chevron pointing out of the window,
-/// named "Fold the Left Dock" (`dock`) and said open.
+/// The button that folds a dock (the one fold button a dock has, issue
+/// 10's rule), among its tab bar's tools: a chevron pointing out of the
+/// window, named "Fold the Left Dock" (`dock`) and said open.
 pub fn fold_button(ui: &mut Ui, side: Side, dock: &str) -> Response {
     fold_button_tip(ui, side, dock, &format!("Fold the {dock}"))
 }
@@ -544,96 +540,12 @@ pub fn fold_button(ui: &mut Ui, side: Side, dock: &str) -> Response {
 /// [`fold_button`] with `tip` as its tooltip in place of its name (its
 /// name and the keys that do it, say: "Fold the Left Dock (Ctrl+Alt+1)"),
 /// for a fold button laid out among other buttons (a dock's tab bar or
-/// a panel header's tools). Moonglow Toolset's Left Dock folds by the
-/// button beside its edge instead ([`edge_fold_button`], whose `tip` is
-/// the same kind of words); this stays for a dock or panel that keeps
-/// the button among its tools.
+/// a panel header's tools): Moonglow Toolset's side docks have it at
+/// their tab bar's end.
 pub fn fold_button_tip(ui: &mut Ui, side: Side, dock: &str, tip: &str) -> Response {
     let name = format!("Fold the {dock}");
     let button = IconButton::new(side.outward(), name.as_str()).icon_only(true).expanded(true);
     ui.add(button).on_hover_text(tip)
-}
-
-/// The width of a dock's fold button on its inner edge
-/// ([`edge_fold_button`]), across the 1 px edge, half each side.
-pub const EDGE_FOLD_WIDTH: f32 = 12.0;
-/// Its length along the edge.
-pub const EDGE_FOLD_LENGTH: f32 = 44.0;
-
-/// Where a dock's fold button stands on its inner edge (the line at `x`,
-/// the dock's height `along`): across the edge, half on each side of it,
-/// half way down ([`EDGE_FOLD_LENGTH`] long, or the dock's height where
-/// that is less). Half of it is then over the dock's own content (its
-/// lists' scroll bars at its edge): [`edge_fold_rect_beside`] keeps
-/// clear of it.
-pub fn edge_fold_rect(x: f32, along: egui::Rangef) -> Rect {
-    let length = EDGE_FOLD_LENGTH.min(along.span().max(0.0));
-    Rect::from_center_size(pos2(x, along.center()), vec2(EDGE_FOLD_WIDTH, length))
-}
-
-/// Where a dock's fold button stands beside its inner edge, a dock at
-/// `side` whose outer bound on that edge is `x` (the Left Dock's right,
-/// the line along it included), `along` its height: [`EDGE_FOLD_WIDTH`]
-/// wide from `x` toward the middle of the window, so that it is never
-/// over the dock's own content or scroll bars, half way down
-/// ([`EDGE_FOLD_LENGTH`] long, or the dock's height where that is less).
-/// Folded, the strip's edge gives the button that unfolds it the same
-/// height and size ([`edge_unfold_button`]).
-pub fn edge_fold_rect_beside(x: f32, along: egui::Rangef, side: Side) -> Rect {
-    let length = EDGE_FOLD_LENGTH.min(along.span().max(0.0));
-    let left = match side {
-        Side::Left => x,
-        Side::Right => x - EDGE_FOLD_WIDTH,
-    };
-    let top = along.center() - length / 2.0;
-    Rect::from_min_size(pos2(left, top), vec2(EDGE_FOLD_WIDTH, length))
-}
-
-/// The button that folds an open dock, on its inner edge (issue 10's one
-/// button a pane has, on the edge it faces the middle by), at `rect`
-/// ([`edge_fold_rect`]): a narrow, long button over the edge, its chevron
-/// pointing out of the window, `bar` at rest with a `line` border, lit
-/// (`raised-hover`, the chevron `text`) under the pointer or with the
-/// keyboard's focus. Named "Fold the Left Dock" (`dock`) and said open, as
-/// [`fold_button`]; `tip` under the pointer. Drawn after what lies under
-/// it (the editor area beside the dock), so that it is over the edge and
-/// takes the pointer there; the edge stays the dock's to drag above and
-/// below it.
-pub fn edge_fold_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str) -> Response {
-    edge_button(ui, rect, side, dock, tip, true)
-}
-
-/// The button that unfolds a folded dock, on its strip's inner edge, at
-/// `rect` ([`edge_fold_rect_beside`] of the strip's edge: where the
-/// button that folded it was, as high and as large): [`edge_fold_button`]
-/// pointing the other way, into the window, named "Show the Left Dock"
-/// (`dock`) and said closed, as the strip's chevron is (the strip is then
-/// drawn without one: [`FoldStrip::chevron`]).
-pub fn edge_unfold_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str) -> Response {
-    edge_button(ui, rect, side, dock, tip, false)
-}
-
-/// [`edge_fold_button`] (`open`: the dock is open, the button folds it)
-/// or [`edge_unfold_button`].
-fn edge_button(ui: &mut Ui, rect: Rect, side: Side, dock: &str, tip: &str, open: bool) -> Response {
-    let t = ui.tokens();
-    let name = if open { format!("Fold the {dock}") } else { format!("Show the {dock}") };
-    let id = ui.id().with(("mg-uikit-edge-fold", dock));
-    let r = ui.interact(rect, id, Sense::click());
-    r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), &name));
-    crate::say_expanded(&r, open);
-    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
-    if ui.is_rect_visible(rect) {
-        let lit = r.hovered() || r.has_focus() || r.is_pointer_button_down_on();
-        let (fill, color) = if lit { (t.raised_hover, t.text) } else { (t.bar, t.text_2) };
-        let p = ui.painter();
-        p.rect(rect, 3.0, fill, Stroke::new(1.0, t.line), egui::StrokeKind::Inside);
-        let side_len = metrics::ICON_SMALL;
-        let icon = Rect::from_center_size(rect.center(), vec2(side_len, side_len));
-        let chevron = if open { side.outward() } else { side.inward() };
-        chevron.paint(p, icon, color);
-    }
-    r
 }
 
 // ------------------------------------------------------------------ dock tabs

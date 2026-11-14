@@ -17,19 +17,19 @@
 //!   the panel under it: the Module panel (the Filter over the module
 //!   tree, whose Areas group scrolls in a well of its own: M3's T3) or the
 //!   Resources panel (the resource browser: T4); the one button that
-//!   folds the dock beside its inner edge, half way down; folded, a strip
-//!   with a button for each panel, and beside its edge, where the fold
-//!   button was, the button that brings it back. Which panels a dock
-//!   holds is the registry's, [`Panel`];
+//!   folds the dock at its tab bar's end toward the editor area (M3 T14's
+//!   review); folded, a strip with the chevron that brings it back at its
+//!   top and a button for each panel under it. Which panels a dock holds
+//!   is the registry's, [`Panel`];
 //! - the **Right Dock** ([`right_dock`]): the active docked editor's
 //!   panels on the tabs of one bar: the Palette panel (the blueprint and
 //!   tile palettes, `palette_view`: M3's T5) and the Preview panel (the
 //!   blueprint chosen in the palette: `area_tools::preview_panel`, T6);
 //!   drawn only where the active editor brings them (an area's tab, or the
 //!   placeholder in its place) or the Palette was asked for by name; its
-//!   fold button beside its inner edge, half way down, as the Left Dock's,
-//!   mirrored; folded, a strip with a button for each panel and the button
-//!   that brings it back beside its edge;
+//!   fold button at its tab bar's end by the window's edge (in two
+//!   columns, the last column's bar); folded, a strip with the chevron
+//!   that brings it back at its top and a button for each panel;
 //! - the **Bottom Dock** ([`bottom_dock`]): its tab bar (the Log's tab,
 //!   with the log's Copy, Save… and Clear), the log under it; opened and
 //!   closed by the Log's switch in the Status Bar (issue 10's one control
@@ -363,24 +363,48 @@ pub(crate) fn right_folded(app: &Moonglow) -> bool {
     right || (!left && squeezed(app) == Some(Side::Right))
 }
 
-/// The arrow keys never stay with a panel that is not drawn: where a side
-/// dock holding them is folded (by the window's width or by the builder),
-/// they go to the editor area's active editor ([`Moonglow::editor_keys`]),
-/// and stay there when the dock unfolds (the orchestrator's decision of
-/// T14's review, reversible). Run once a frame before the docks.
-pub(crate) fn keys_leave_folded_docks(app: &mut Moonglow, ctx: &egui::Context) {
+/// The arrow keys never stay with a panel that is not drawn: where the
+/// side dock panel holding them is not drawn this frame (its dock folded
+/// by the window's width or by the builder, its dock holding no panel, as
+/// beside a script's tab, or the Outliner no longer brought by the editor
+/// in front), they go to the editor area's active editor
+/// ([`Moonglow::editor_keys`]), and stay there when it is drawn again (the
+/// orchestrator's decision of T14's review, reversible). Where its dock is
+/// drawn on another of its tabs, they go with the tab, to that tab's
+/// panel, in either side dock: the Left Dock's tab bar hands them over as
+/// it draws ([`left_dock`]), the Right Dock's here (the Palette's to the
+/// Preview and back). Run once a frame before the docks. (Whether the
+/// Right Dock stands in two columns, each drawing its panel, is the last
+/// frame's: in two columns the keys' column is the dock's panel,
+/// [`Moonglow::right_panel`], so the frame it changes moves no keys.)
+pub(crate) fn keys_leave_panels_not_drawn(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::palette_view::{Keys, give_keys, keys_are};
-    let left = left_shown(app).is_some() && left_folded(app);
-    let right = right_shown(app).is_some() && right_folded(app);
-    let held = |keys: &[Keys]| keys.iter().any(|k| keys_are(ctx, *k));
-    let lost = (left && held(&[Keys::Tree, Keys::Browser, Keys::Outliner]))
-        || (right && held(&[Keys::Palette, Keys::Preview]));
-    if lost {
-        let (keys, table) = app.editor_keys();
-        give_keys(ctx, keys);
-        if let Some(id) = table {
-            crate::table_view::take_keys(ctx, id);
+    let left = left_shown(app).filter(|_| !left_folded(app));
+    let right = right_shown(app).filter(|_| !right_folded(app));
+    let drawn = |keys: Keys| match keys {
+        // (The Left Dock drawn on its other tab: its tab bar hands them
+        // to that tab's panel, the tree's to the browser's list and back,
+        // as it draws, [`left_dock`].)
+        Keys::Tree | Keys::Browser => left.is_some(),
+        Keys::Outliner => left.is_some() && Panel::OUTLINER.available(app),
+        Keys::Palette | Keys::Preview => {
+            right.is_some_and(|p| p.keys() == keys || app.right_columns)
         }
+        _ => true,
+    };
+    let panels = [Keys::Tree, Keys::Browser, Keys::Outliner, Keys::Palette, Keys::Preview];
+    let held = panels.into_iter().find(|k| keys_are(ctx, *k));
+    let Some(held) = held.filter(|k| !drawn(*k)) else { return };
+    // (The Right Dock on its other tab: to that tab's panel.)
+    if let Some(shown) = right.filter(|_| matches!(held, Keys::Palette | Keys::Preview)) {
+        give_keys(ctx, shown.keys());
+        app.palette.to_first |= shown == Panel::Palette;
+        return;
+    }
+    let (keys, table) = app.editor_keys();
+    give_keys(ctx, keys);
+    if let Some(id) = table {
+        crate::table_view::take_keys(ctx, id);
     }
 }
 
@@ -1388,25 +1412,29 @@ pub(crate) fn chosen_size(kept: Option<u32>, default: f32) -> f32 {
     kept.map_or(default, |s| s as f32)
 }
 
-/// The sets of sizes at first that versions before this one kept as
-/// though chosen, (tree, Right Dock, log), each whole: this branch's 260,
-/// 320 and 180, stored on its first frame before anything was dragged
-/// (with the tree's and the log's 240 and 120 where it took them from
-/// 4.2.0); and 4.2.0's own untouched pair, the module tree's 240 and the
-/// log's 120, which its egui panels kept (it had no Right Dock). A dock a
-/// version never drew has no size in the set.
-const SIZES_AT_FIRST: [(u32, u32, u32); 2] = [(260, 320, 180), (240, 320, 120)];
+/// Each dock's sizes at first, (tree, Right Dock, log), that versions
+/// before this one kept as though chosen while nothing was dragged: the
+/// module tree's 260 (this branch, M3 T5 to T13: its default stored on
+/// the first frame the dock was drawn) or 240 (every release to 4.2.0:
+/// the default its egui panel kept, which this branch then stored in
+/// place of its own); the Right Dock's 320 (this branch alone: no release
+/// had it); the log's 180 (this branch) or 120 (every release). Each was
+/// written apart, where the dock was drawn on that first frame, so an
+/// untouched file holds any of them in any mix, (240, 320, 180) and (260,
+/// 320, 120) among them, or one alone (the tree folded, no area open for
+/// the Right Dock, and since M3 T7 a new installation's log closed).
+const SIZES_AT_FIRST: [&[u32]; 3] = [&[260, 240], &[320], &[180, 120]];
 
 /// Once for good (`Settings::dock_sizes_taken`), on the first frame: the
 /// size an older version's egui panel kept for each dock taken as chosen
 /// where none is (4.2.0 and older kept the module tree's width and the
-/// log's height so); then, where what is kept is only one of the sets of
-/// sizes at first ([`SIZES_AT_FIRST`]: the tree's among them, and every
-/// other size kept of the same set), none of it is taken as chosen. A
-/// file with one of them dragged to another size keeps them all; what
-/// can still be lost is a builder's drag to exactly a set's sizes, every
-/// one of them. Then a size is chosen only as an edge is dragged; what a
-/// narrow window draws is never taken.
+/// log's height so); then, where every size kept is one of its dock's
+/// sizes at first ([`SIZES_AT_FIRST`], in any mix, or one alone), none of
+/// it is taken as chosen. A file with any size other than those keeps
+/// them all, as dragged to (a builder who dragged one may have dragged
+/// another to a size at first); what can still be lost is a builder's drag
+/// of every dock kept to exactly a size at first. Then a size is chosen
+/// only as an edge is dragged; what a narrow window draws is never taken.
 pub(crate) fn take_dock_sizes(app: &mut Moonglow, ctx: &egui::Context) {
     if app.settings.dock_sizes_taken {
         return;
@@ -1423,10 +1451,9 @@ pub(crate) fn take_dock_sizes(app: &mut Moonglow, ctx: &egui::Context) {
             *kept = was.map(|s| s.size()[axis].round().max(0.0) as u32);
         }
     }
-    let (tree, right, log) = (s.left_dock_width, s.right_dock_width, s.bottom_dock_height);
-    let at_first = SIZES_AT_FIRST.iter().any(|&(t, r, l)| {
-        tree == Some(t) && right.is_none_or(|v| v == r) && log.is_none_or(|v| v == l)
-    });
+    let kept = [s.left_dock_width, s.right_dock_width, s.bottom_dock_height];
+    let at_first = kept.iter().any(Option::is_some)
+        && kept.iter().zip(SIZES_AT_FIRST).all(|(k, at)| k.is_none_or(|v| at.contains(&v)));
     if at_first {
         (s.left_dock_width, s.right_dock_width, s.bottom_dock_height) = (None, None, None);
     }
@@ -1560,7 +1587,8 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     // is shown, so that the tabs keep their form (words, or their icons
     // alone where the words and those tools do not fit) and their place
     // when another tab is chosen: the dock's width alone decides it.
-    // (And the fold button after them, at the bar's inner end.)
+    // (And the fold button after them, at the bar's end toward the
+    // editor area.)
     let button = mg_uikit::IconButton::new(Icon::Plus, "").icon_only(true).width(ui);
     let most = held.iter().map(|p| p.tools()).max().unwrap_or(0);
     let tools_width = button * (most + 1) as f32;
@@ -1682,8 +1710,9 @@ fn upper_panel(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect, u: &Upper<'_>)
     }
     // (The tools are the panel's shown: the Module panel's four, or the
     // Resources panel's Export and Refresh; then the dock's fold button,
-    // at the bar's inner end, inside the dock: no board draws one for the
-    // open dock, and beside the edge it was over the editor area.)
+    // at the bar's end toward the editor area, inside the dock: no board
+    // draws one for the open dock, and beside the edge it was over the
+    // editor area.)
     let bar = tabs.show(ui, &mut tab, |ui| {
         let tools = match u.browser {
             None => (module_tools(ui, u.tools, keymap), None),
@@ -1711,7 +1740,7 @@ fn upper_panel(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect, u: &Upper<'_>)
 }
 
 /// The tip of a side dock's fold control (open: the button at its tab
-/// bar's inner end; folded: the chevron at its strip's top): what it does
+/// bar's end; folded: the chevron at its strip's top): what it does
 /// (`dock_tip` where a narrow window has a say), with View's key for it.
 fn fold_tip(app: &Moonglow, ctx: &egui::Context, side: Side, open: bool) -> String {
     let (dock, view) = match side {
@@ -1738,11 +1767,11 @@ fn fold_tip(app: &Moonglow, ctx: &egui::Context, side: Side, open: bool) -> Stri
 /// Preview (its body drawn after the editor area,
 /// `area_tools::preview_panel`, in the room kept for it here). 320 px at
 /// first, at least [`RIGHT_DOCK_LEAST`], at most two fifths of the window
-/// (as the Left Dock), resized by its inner edge; its fold button beside
-/// that edge, half way down, as the Left Dock's, mirrored. Folded
-/// (`Settings::hide_palettes`), the strip of its panels' icons, each
-/// unfolding it on its panel, and the button that unfolds it beside the
-/// strip's edge, where the one that folded it was. A press in the dock
+/// (as the Left Dock), resized by its inner edge; its fold button at its
+/// tab bar's end by the window's edge (in two columns, the last column's
+/// bar). Folded (`Settings::hide_palettes`, or by the window's width), the
+/// strip: the chevron that unfolds it at its top, then its panels' icons,
+/// each unfolding it on its panel. A press in the dock
 /// makes the palette the plugins' "pane last clicked in"
 /// (`plugins::Pane::Palette`), as a press in the palettes' tab did.
 pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
@@ -1860,13 +1889,15 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 column.set_clip_rect(rect.intersect(ui.clip_rect()));
                 let mut tab = 0;
                 let mut tabs = DockTabs::new(name).with(DockTab::new(p.name()).icon(p.icon()));
-                // (The dock's fold button on the first column's bar.)
-                let first = name == RIGHT_DOCK;
-                if first {
+                // (The dock's fold button at the outer end of the last
+                // column's bar, by the window's edge: where it is in one
+                // column, and not mid-dock, where WideArea draws none.)
+                let last = name == RIGHT_COLUMN_TWO;
+                if last {
                     tabs = tabs.tools_width(tools_width);
                 }
                 let bar = tabs.show(&mut column, &mut tab, |ui| {
-                    first && kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
+                    last && kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
                 });
                 folded |= bar.inner;
                 right_body(app, &mut column, p, pane_id);

@@ -1930,7 +1930,7 @@ impl Moonglow {
         // docks drawn below.)
         shell::frame_yields(self, ui.ctx());
         shell::take_dock_sizes(self, ui.ctx());
-        shell::keys_leave_folded_docks(self, ui.ctx());
+        shell::keys_leave_panels_not_drawn(self, ui.ctx());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
@@ -1972,9 +1972,9 @@ impl Moonglow {
         // was left (their sizes are kept between runs): the log at most
         // half the window's height, each side dock at most two fifths of
         // its width. Each has one control that folds or closes it (GitHub
-        // issue 10): a side dock's button beside its inner edge (folded,
-        // in the same place beside its strip), the Bottom Dock's switch in
-        // the Status Bar.
+        // issue 10): a side dock's button at its tab bar's end (folded,
+        // the chevron at its strip's top), the Bottom Dock's switch in the
+        // Status Bar.
         shell::status_bar(self, ui);
         // (Set again where the Left Dock draws the Resources panel.)
         self.resources_here = None;
@@ -2903,13 +2903,6 @@ impl Moonglow {
         self.show_tab(tab);
     }
 
-    /// Next Pane and Previous Pane (F6): the arrow keys given to the next
-    /// of the panes shown, round from the last, left to right and then
-    /// down: the Left Dock's panel shown (the module tree, at the row they
-    /// were at, else its first; or the resource browser's list), the
-    /// Outliner under it where the area is in front (its row, else its
-    /// first), the editor area (an area's view has them, as after a click in it), the
-    /// Right Dock's Palette panel, the Bottom Dock's log.
     /// The editor area's keys: what its tab used last (a window's too)
     /// has: a talk table's lines, a table's cells (and which table), else
     /// an area's.
@@ -2922,6 +2915,13 @@ impl Moonglow {
         }
     }
 
+    /// Next Pane and Previous Pane (F6): the arrow keys given to the next
+    /// of the panes shown, round from the last, left to right and then
+    /// down: the Left Dock's panel shown (the module tree, at the row they
+    /// were at, else its first; or the resource browser's list), the
+    /// Outliner under it where the area is in front (its row, else its
+    /// first), the editor area (an area's view has them, as after a click
+    /// in it), the Right Dock's Palette panel, the Bottom Dock's log.
     pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
         use palette_view::Keys;
         // Each pane's keys are what its tab in front has: the Left Dock's

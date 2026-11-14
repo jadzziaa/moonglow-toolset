@@ -93,9 +93,9 @@ pub struct PaletteView {
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
     /// The blueprint under the pointer and since when (the window's
     /// clock): its picture and what there is to say of it are asked for
-    /// only once the pointer has rested on its row for a tooltip's delay,
-    /// not for each row the list scrolls under a resting pointer (each
-    /// would make a picture: M3 T14's review).
+    /// only once the pointer has rested on its row for [`HOVER_REST`], not
+    /// for each row the list scrolls under a resting pointer (each would
+    /// make a picture: M3 T14's review).
     hover_since: Option<(ResKey, f64)>,
     /// What there is to say of the hovered blueprint, where it has no
     /// model to show (a sound, a trigger, an encounter, a store, a
@@ -1097,6 +1097,15 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
     );
 }
 
+/// How long the pointer rests on a palette row before its blueprint's
+/// picture and what there is to say of it are asked for: long enough that
+/// a turning wheel, which scrolls another row under a resting pointer each
+/// frame, asks for none (each would make a picture: M3 T14's review), and
+/// well under the tooltip's delay (egui's half a second), so that the
+/// picture is being made, or made, as the tooltip opens, and the tooltip
+/// does not open without it and then grow.
+pub(crate) const HOVER_REST: f64 = 0.12;
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
         ui.label("No game data.");
@@ -1800,10 +1809,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     app.thumbnails.show(shown.into_iter().map(Pictured::Resource));
     // The hovered blueprint's picture, for its tooltip once it is made,
     // and what there is to say of it: asked for once the pointer has
-    // rested on its row for the tooltip's delay (the same row a while:
-    // not the rows a turning wheel scrolls under it).
+    // rested on its row for `HOVER_REST` (the same row a while: not the
+    // rows a turning wheel scrolls under it), well before the tooltip
+    // opens.
     let now = ui.input(|i| i.time);
-    let delay = f64::from(ui.style().interaction.tooltip_delay);
+    let delay = HOVER_REST;
     let since = match (hovered, app.palette.hover_since) {
         (Some(key), Some((was, since))) if was == key => Some(since),
         (Some(key), _) => {

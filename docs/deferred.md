@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T00:24:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T11:27:11Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -926,7 +926,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pane's covered egui_dock arrow, its blank room before the first tab,
   and the palettes joined to the middle's tabs, split above, below or
   left of it, or in a window with no edge button, are gone with the
-  pane (`each_pane_folds_by_one_button_on_its_inner_edge` holds the
+  pane (`each_side_dock_folds_by_one_button_on_its_tab_bar` holds the
   Right Dock to the Left's assertions). The middle's panes' egui_dock arrows
   are gone with M3 T9's editor groups (egui_dock patched, `vendor/egui_dock`:
   the main surface's tab bars draw no arrow and no close all; a floating

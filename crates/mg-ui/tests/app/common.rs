@@ -127,42 +127,50 @@ pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static
 /// window under 1500 points, the shell's yields, M3 T14), as a builder who
 /// works in the module tree, the Resources panel or the Outliner at that
 /// width has it: its strip's chevron clicked, after a frame for the width
-/// to fold it. Nothing where the dock is open, or holds no panel.
+/// to fold it; nothing where the dock is open already. Fails where it is
+/// neither open nor folded to a strip with its chevron (a dock that holds
+/// no panel), and unless it is open after. Under 962 points, where both
+/// side docks do not fit beside the editor area, unfolding it folds the
+/// Right Dock to its strip (`shell::BOTH_DOCKS_UNDER`).
 pub(crate) fn unfold_left_dock(h: &mut Harness<'_, Moonglow>) {
-    h.step();
-    let Some(chevron) = h.query_by_label("Show the Left Dock") else { return };
-    chevron.click();
-    let started = std::time::Instant::now();
-    while h.query_by_label("Fold the Left Dock").is_none() {
-        assert!(started.elapsed().as_secs() < 10, "never: the Left Dock unfolded");
-        h.step();
-    }
+    unfold_dock(h, "Left Dock", |app| app.left_dock_shows().is_some());
 }
 
-/// The window 1600 points wide, its height kept: wide enough that no
-/// width folds a side dock (the shell's yields, M3 T14), for a test of the
-/// builder's own fold of the docks (`hide_tree`, `hide_palettes`) or of
-/// both docks open as they are at first.
+/// The window 1600 points wide, its height kept, and settled: wide enough
+/// that no width folds a side dock (the shell's yields, M3 T14), for a
+/// test of the builder's own fold of the docks (`hide_tree`,
+/// `hide_palettes`) or of both docks open as they are at first.
 pub(crate) fn wide_window(h: &mut Harness<'_, Moonglow>) {
     let height = h.ctx.content_rect().height();
     h.set_size(egui::vec2(1600.0, height));
-    // (A frame at the new size lays the docks out by it; one more, the
-    // panels in them.)
-    h.step();
-    h.step();
+    settle(h);
 }
 
 /// The Right Dock unfolded by hand where the window's width folds it
-/// (under 796 points), as [`unfold_left_dock`] does the Left Dock's.
+/// (under 796 points), as [`unfold_left_dock`] does the Left Dock's: under
+/// 962 points it folds the Left Dock to its strip.
 pub(crate) fn unfold_right_dock(h: &mut Harness<'_, Moonglow>) {
+    unfold_dock(h, mg_ui::RIGHT_DOCK, |app| app.right_dock_shows().is_some());
+}
+
+/// [`unfold_left_dock`] or [`unfold_right_dock`]: the dock named `dock`,
+/// `open` saying whether it shows a panel.
+fn unfold_dock(h: &mut Harness<'_, Moonglow>, dock: &str, open: fn(&Moonglow) -> bool) {
     h.step();
-    let Some(chevron) = h.query_by_label("Show the Right Dock") else { return };
+    if h.query_by_label(&format!("Fold the {dock}")).is_some() {
+        assert!(open(h.state()), "the {dock}'s fold button with no panel shown");
+        return;
+    }
+    let show = format!("Show the {dock}");
+    let chevron = h.query_by_label(&show);
+    let chevron = chevron.unwrap_or_else(|| panic!("the {dock} neither open nor with its chevron"));
     chevron.click();
     let started = std::time::Instant::now();
-    while h.query_by_label("Fold the Right Dock").is_none() {
-        assert!(started.elapsed().as_secs() < 10, "never: the Right Dock unfolded");
+    while h.query_by_label(&format!("Fold the {dock}")).is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the {dock} unfolded");
         h.step();
     }
+    assert!(open(h.state()), "the {dock} unfolded, a panel shown");
 }
 
 /// The game's data at `root`, in English, with no user folder: read
@@ -253,9 +261,8 @@ pub(crate) fn right_dock_width(h: &mut Harness<'_, Moonglow>, width: f32) {
     h.state_mut().settings.right_dock_width = Some(width.round() as u32);
 }
 
-/// Where the Right Dock is drawn: from its inner edge (where its fold
-/// button stands beside it) to its outer edge, the Top Bar to the Status
-/// Bar. It must be shown.
+/// Where the Right Dock is drawn: from its inner edge to its outer edge,
+/// the Top Bar to the Status Bar. It must be shown.
 pub(crate) fn right_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
     h.state().right_dock_rect().expect("the Right Dock is shown")
 }
@@ -1182,22 +1189,27 @@ pub(crate) fn click_tab(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
 }
 
 /// Where `tab`'s tab is drawn in its pane's tab bar, and the squares that
-/// can be clicked in that bar (the tabs' close buttons among them).
-fn tab_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> (egui::Rect, Vec<egui::Rect>) {
-    let (band, index) = h
+/// can be clicked in that bar (the tabs' close buttons among them): of
+/// that bar's layer alone, the main window's for a docked tab and its own
+/// window's for a floating one, so that a floating window's tabs over the
+/// bar are neither counted among its tabs nor taken for its squares.
+pub(crate) fn tab_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> (egui::Rect, Vec<egui::Rect>) {
+    let (band, index, main, count) = h
         .state()
         .dock
         .iter_leaves()
-        .find_map(|(_, l)| {
+        .find_map(|(path, l)| {
             let index = l.tabs.iter().position(|t| t == tab)?;
             let band =
                 egui::Rect::from_x_y_ranges(l.rect.x_range(), l.rect.top()..=l.viewport.top());
-            Some((band, index))
+            Some((band, index, path.surface.is_main(), l.tabs.len()))
         })
         .expect("the tab is open");
-    let (mut tabs, mut squares) = (Vec::new(), Vec::new());
+    // Each layer's tabs and squares in the band.
+    let mut layers: Vec<(egui::LayerId, Vec<egui::Rect>, Vec<egui::Rect>)> = Vec::new();
     h.ctx.viewport(|v| {
-        for (_, widgets) in v.prev_pass.widgets.layers() {
+        for (layer, widgets) in v.prev_pass.widgets.layers() {
+            let (mut tabs, mut squares) = (Vec::new(), Vec::new());
             for w in widgets.iter().filter(|w| band.contains_rect(w.interact_rect)) {
                 let r = w.interact_rect;
                 if w.sense.senses_click() && w.sense.senses_drag() {
@@ -1206,8 +1218,27 @@ fn tab_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> (egui::Rect, Vec<egui::Rec
                     squares.push(r);
                 }
             }
+            if !tabs.is_empty() {
+                layers.push((*layer, tabs, squares));
+            }
         }
     });
+    // (A docked tab's bar is in the main window's panels, under every
+    // window; a floating one's in its window's layer: a window whose area
+    // holds the bar, and of windows overlapping there the one with as
+    // many tabs there as its pane, else the first by its id, so that the
+    // choice does not hang on the order egui keeps its layers in.)
+    let holds = |layer: &egui::LayerId| {
+        h.ctx.memory(|m| m.area_rect(layer.id)).is_some_and(|r| r.contains(band.center()))
+    };
+    layers.retain(|(layer, ..)| match main {
+        true => layer.order != egui::Order::Middle,
+        false => layer.order == egui::Order::Middle && holds(layer),
+    });
+    layers.sort_by_key(|(layer, ..)| (layer.order, layer.id.value()));
+    let mine = (layers.iter().position(|(_, tabs, _)| tabs.len() == count)).unwrap_or(0);
+    assert!(!layers.is_empty(), "its tab bar's layer");
+    let (_, mut tabs, squares) = layers.swap_remove(mine);
     tabs.sort_by(|a, b| a.left().total_cmp(&b.left()));
     (*tabs.get(index).expect("its tab"), squares)
 }

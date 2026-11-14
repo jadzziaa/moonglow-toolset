@@ -1919,6 +1919,9 @@ fn resources_deleted_or_renamed_are_chosen_no_more() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = harness(app, 1280.0, 800.0);
+    // (A window no width folds the tree's dock in: `hide_tree` is read
+    // there, M3 T14.)
+    wide_window(&mut h);
     h.run();
     let chosen = |h: &Harness<'_, Moonglow>| h.state().tree_selected.iter().copied().collect();
     let gone = |k: ResKey| mg_edit::Edit::SetResource { key: k, data: None };
@@ -1926,6 +1929,7 @@ fn resources_deleted_or_renamed_are_chosen_no_more() {
         h.state_mut().settings.hide_tree = hidden;
         h.state_mut().tree_selected = [key("one"), key("two"), key("three")].into();
         h.run();
+        assert_eq!(h.state().left_dock_shows().is_none(), hidden, "the tree folded: {hidden}");
         let all: Vec<ResKey> = chosen(&h);
         assert_eq!(all.len(), 3, "all in the module: all chosen");
         let delete = mg_edit::Command::new("Delete", vec![gone(key("one")), gone(key("two"))]);

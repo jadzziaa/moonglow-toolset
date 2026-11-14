@@ -732,11 +732,10 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
     }
 }
 
-/// The palette's scroll bar, at the height of the Right Dock's fold
-/// button (the button stands beside the dock's inner edge, the bar at its
-/// outer one): a press on it scrolls the list and folds nothing. (The
-/// edge dragged above and below the button, and a press beside it:
-/// `windows::each_pane_folds_by_one_button_on_its_inner_edge`.)
+/// The palette's scroll bar, half way down the Right Dock at its outer
+/// edge: a press on it scrolls the list and folds nothing. (The dock's
+/// fold button, on its tab bar, and its edge dragged high and low:
+/// `windows::each_side_dock_folds_by_one_button_on_its_tab_bar`.)
 #[test]
 fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
     let Some((mut h, _)) = area_harness("right-dock-scroll-bar") else { return };
@@ -821,17 +820,19 @@ fn reset_layout_puts_the_right_dock_back_at_320() {
     assert!((width - want).abs() < 1.5, "{width}, not {want}");
 }
 
-/// In the least window (and at 460, 480, 500 and 600), the Right Dock
-/// unfolded by hand after the Left Dock (which it folds there, both not
-/// fitting, M3 T14): nothing panics, the Right Dock inside the window (narrower than its least
-/// width where the window has not the room: never past its edge), nothing
-/// in the Right Dock outside it or over another of its widgets, nothing
-/// else drawn across its edges ([`dock_wrong`]), and at 600 nothing in the
-/// window overlaps. (The
-/// Bottom Dock's tab bar gives way in a narrow dock since T7:
-/// status_bar.rs's `the_bottom_dock_s_tab_and_tools_never_overlap`.)
+/// In the least window (and at 460, 480, 500 and 600), where both side
+/// docks do not fit (under 962, M3 T14), the Right Dock unfolded by hand
+/// after the Left Dock, which it folds to its strip: nothing panics, the
+/// Left Dock's strip and its chevron left of the Right Dock's fold button
+/// and apart from it, the Right Dock inside the window (narrower than its
+/// least width where the window has not the room: never past its edge),
+/// nothing in the Right Dock outside it or over another of its widgets,
+/// nothing else drawn across its edges ([`dock_wrong`]), and at 600
+/// nothing in the window overlaps. (The Bottom Dock's tab bar gives way in
+/// a narrow dock since T7: status_bar.rs's
+/// `the_bottom_dock_s_tab_and_tools_never_overlap`.)
 #[test]
-fn the_least_window_holds_both_docks() {
+fn the_least_window_holds_the_right_dock_beside_the_left_dock_s_strip() {
     let Some(mut h) = dock_harness("ui-right-dock-least-window", 1400.0) else { return };
     // (Every group of the palette open: its rows in the dock to look at,
     // now that its types are one dropdown under 300 points of panel, M3
@@ -859,9 +860,17 @@ fn the_least_window_holds_both_docks() {
         unfold_left_dock(&mut h);
         unfold_right_dock(&mut h);
         settle(&mut h);
-        assert!(!h.state().settings.hide_tree && !h.state().settings.hide_palettes);
-        assert!(h.query_by_label("Show the Left Dock").is_some(), "at {size:?}: one dock open");
+        let shows = (h.state().left_dock_shows(), h.state().right_dock_shows());
+        assert!(
+            shows.0.is_none() && shows.1.is_some(),
+            "at {size:?}: the Right Dock alone {shows:?}"
+        );
         let window = h.ctx.content_rect();
+        let left = h.get_by_label("Show the Left Dock").rect();
+        let right = h.get_by_label("Fold the Right Dock").rect();
+        let both = left.intersect(right);
+        assert!(!both.is_positive(), "at {size:?}: {left:?} {right:?}");
+        assert!(left.right() <= right.left() + 0.5, "the Left Dock's first: {left:?} {right:?}");
         let dock = right_dock_rect(&h);
         assert!(window.expand(0.5).contains_rect(dock), "at {size:?}: {dock:?} in {window:?}");
         let wrong = dock_wrong(&h, &format!("{size:?}"), &mut seen);
@@ -874,8 +883,8 @@ fn the_least_window_holds_both_docks() {
     assert!(seen > 100, "the dock's nodes looked at: {seen}");
 }
 
-/// The Right Dock's inner edge dragged by `by` (to the left, wider), above
-/// its fold button.
+/// The Right Dock's inner edge dragged by `by` (to the left, wider), 150
+/// points down from its top.
 fn drag_edge(h: &mut Harness<'_, Moonglow>, by: f32) {
     let dock = right_dock_rect(h);
     let from = egui::pos2(dock.left() + 1.0, dock.top() + 150.0);
@@ -1503,8 +1512,8 @@ fn the_active_editor_is_the_new_module_s_after_another_opens() {
 /// The wheel turning over the palette's list with the pointer resting on
 /// its rows asks for no picture of each row it scrolls under the pointer
 /// (M3 T14's review: one was made each frame, 8 to 12 ms a frame with
-/// 8,000 rows); the pointer resting on one row for the tooltip's delay,
-/// that row's picture is asked for.
+/// 8,000 rows); the pointer resting on one row a moment
+/// (`palette_view::HOVER_REST`), that row's picture is asked for.
 #[test]
 fn a_wheel_over_the_palette_asks_for_no_pictures_of_the_rows_it_passes() {
     let Some((mut h, _)) = area_harness("right-dock-wheel-pictures") else { return };
@@ -1541,4 +1550,43 @@ fn a_wheel_over_the_palette_asks_for_no_pictures_of_the_rows_it_passes() {
         h.step();
     }
     assert_eq!(h.state().thumbnails.asked() - before, 1, "the one row's");
+}
+
+/// The pointer resting on a palette row: its picture is asked for after a
+/// short rest, before the row's tooltip opens (egui's tooltip delay), so
+/// that the tooltip does not open without its picture and then grow (M3
+/// T14's second review: it was asked for only after the tooltip's whole
+/// delay).
+#[test]
+fn a_rested_row_s_picture_is_asked_for_before_its_tooltip_opens() {
+    let Some((mut h, _)) = area_harness("right-dock-rest-picture") else { return };
+    h.set_size(egui::vec2(1400.0, 800.0));
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, BlueprintKind::Placeable, false);
+    }
+    settle(&mut h);
+    expand_all_in_the_dock(&mut h);
+    let dock = right_dock_rect(&h);
+    let row = top_row(&h);
+    let at = egui::pos2(row.left() + 20.0, dock.bottom() - 120.0);
+    let tooltip_shown = |h: &Harness<'_, Moonglow>| {
+        h.ctx.memory(|m| {
+            m.areas().visible_layer_ids().iter().any(|l| l.order == egui::Order::Tooltip)
+        })
+    };
+    let before = h.state().thumbnails.asked();
+    h.hover_at(at);
+    h.step();
+    let rested = h.ctx.input(|i| i.time);
+    let delay = f64::from(h.ctx.global_style().interaction.tooltip_delay);
+    let started = std::time::Instant::now();
+    while h.state().thumbnails.asked() == before {
+        assert!(started.elapsed().as_secs() < 10, "never: the rested row's picture");
+        assert!(!tooltip_shown(&h), "the tooltip open before the picture was asked for");
+        h.step();
+    }
+    let after = h.ctx.input(|i| i.time) - rested;
+    assert!(after < delay, "asked for {after:.3} s after the rest, the tooltip's delay {delay}");
+    assert!(!tooltip_shown(&h), "asked for before the tooltip opened");
 }

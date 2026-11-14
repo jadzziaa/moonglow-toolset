@@ -184,10 +184,15 @@ fn a_dialog_closes_by_its_close_by_escape_and_by_its_cancel_alike() {
 #[test]
 fn a_dialog_opens_in_the_middle_of_the_main_window_whatever_the_docks() {
     let Some((mut h, _)) = area_harness("dialog-middle") else { return };
+    // (A window no width folds a dock in: the builder's folds are read
+    // there, M3 T14.)
+    wide_window(&mut h);
     for (tree, palettes) in [(false, false), (true, false), (false, true), (true, true)] {
         h.state_mut().settings.hide_tree = tree;
         h.state_mut().settings.hide_palettes = palettes;
         settle(&mut h);
+        let docks = (h.state().left_dock_shows().is_none(), h.state().right_dock_shows().is_none());
+        assert_eq!(docks, (tree, palettes), "the docks folded as set");
         h.state_mut().actions.push(mg_ui::Action::AreaWizard);
         settle(&mut h);
         let window = window_rect(&h, "Area Wizard");

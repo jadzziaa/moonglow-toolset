@@ -490,10 +490,13 @@ fn both_docks_where_they_do_not_fit_and_f6() {
 /// been a choice (M3 T14's review: one size equal to a size at first was
 /// lost): this branch's whole set at first (260, 320, 180), with the Right
 /// Dock dragged to 400 kept whole; 4.2.0's untouched pair kept by egui
-/// (240 and 120), and with the tree dragged to 300 kept; a lone Right Dock
-/// width of 320 with nothing else kept (no tree's width: a set needs it);
-/// and taken only once, so that a width a narrow window drew is never
-/// taken.
+/// (240 and 120), and with the tree dragged to 300 kept; the mixed sets
+/// this branch wrote where one dock's size came from 4.2.0's egui and
+/// another's from its own default ((240, 320, 180), (260, 320, 120), M3
+/// T14's second review: the whole-set rule kept them, and the 240 then
+/// beat the wide layout's 320), with one of them dragged kept whole; each
+/// size at first alone (the other docks never drawn), 320 among them; and
+/// taken only once, so that a width a narrow window drew is never taken.
 #[test]
 fn sizes_kept_by_older_versions_are_taken_once() {
     let Some((mut h, _)) = yielding("yields-taken", Mode::Tabs) else { return };
@@ -537,8 +540,30 @@ fn sizes_kept_by_older_versions_are_taken_once() {
     assert_eq!(take(&mut h, none, old), none, "4.2.0's pair at first");
     let old_dragged = (Some(300), None, Some(120));
     assert_eq!(take(&mut h, none, old_dragged), old_dragged, "4.2.0's tree dragged: kept");
-    let lone = (None, Some(320), None);
-    assert_eq!(take(&mut h, lone, none), lone, "a lone 320: kept");
+    for mixed in [(Some(240), Some(320), Some(180)), (Some(260), Some(320), Some(120))] {
+        assert_eq!(take(&mut h, mixed, none), none, "a mixed set at first: {mixed:?}");
+        let dragged = (Some(330), mixed.1, mixed.2);
+        assert_eq!(take(&mut h, dragged, none), dragged, "{mixed:?}, the tree dragged");
+    }
+    // (This branch's 240 stored, 4.2.0's 120 kept by egui: the same.)
+    assert_eq!(take(&mut h, (Some(240), Some(320), None), (None, None, Some(120))), none);
+    for lone in [
+        (Some(260), None, None),
+        (Some(240), None, None),
+        (None, Some(320), None),
+        (None, None, Some(180)),
+        (None, None, Some(120)),
+    ] {
+        assert_eq!(take(&mut h, lone, none), none, "a lone size at first: {lone:?}");
+    }
+    assert_eq!(take(&mut h, (None, Some(330), None), none).1, Some(330), "a lone 330: kept");
+    // The wide layout's sizes where an untouched mixed set was kept: the
+    // Left Dock 320 at 3440, not the 240 kept.
+    take(&mut h, (Some(240), Some(320), Some(180)), none);
+    size(&mut h, 3440.0, 1440.0);
+    let left = h.state().left_dock_rect().expect("the Left Dock").width();
+    assert!((left - 320.0).abs() <= 1.5, "the wide layout's 320: {left}");
+    size(&mut h, 1600.0, 900.0);
     assert_eq!(take(&mut h, (Some(410), None, None), none).0, Some(410), "a width dragged to");
     // Once: a narrow window's drawn width, kept by egui, is not taken.
     {
@@ -638,6 +663,57 @@ fn keys_leave_a_dock_that_folds() {
     assert_eq!(keys(&h), "Area", "the editor's with the Right Dock folded");
 }
 
+/// The arrow keys never stay with a panel that is no longer drawn though
+/// its dock is not folded (M3 T14's second review): the palette's, given
+/// by F6, go to the editor area's active editor when a tab that brings no
+/// Right Dock panel comes to the front (Module Properties: the dock holds
+/// none and is not drawn); the Outliner's likewise when such a tab takes
+/// the area's place (the Outliner is brought by an area's tab alone), the
+/// Left Dock still open on the Module panel. Neither is handed back when
+/// the area comes to the front again. The Right Dock drawn on its other
+/// tab, they go with the tab, as the Left Dock's do: the Palette's to the
+/// Preview and back.
+#[test]
+fn keys_leave_a_panel_no_longer_drawn() {
+    let Some((mut h, area)) = yielding("yields-keys-panels", Mode::Tabs) else { return };
+    size(&mut h, 1600.0, 900.0);
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    h.hover_at(egui::pos2(800.0, 20.0));
+    let to = |h: &mut Harness<'_, Moonglow>, want: &str| {
+        for _ in 0..8 {
+            if keys(h) == want {
+                break;
+            }
+            h.key_press(egui::Key::F6);
+            at_rest(h);
+        }
+        assert_eq!(keys(h), want);
+    };
+    let front = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        until(h, "the tab in front", |h| h.state().active_editor() == Some(&tab));
+        at_rest(h);
+    };
+    for (panel, gone) in [("Palette", "the Right Dock holds no panel"), ("Outliner", "no Outliner")]
+    {
+        front(&mut h, Tab::Area(area));
+        to(&mut h, panel);
+        front(&mut h, Tab::ModuleProperties);
+        let shows = (h.state().left_dock_shows(), h.state().right_dock_shows());
+        assert_eq!(shows, (Some(mg_ui::Panel::Module), None), "{panel}: the docks");
+        assert_eq!(keys(&h), "Area", "{panel}: the editor's, {gone}");
+        front(&mut h, Tab::Area(area));
+        assert_eq!(keys(&h), "Area", "{panel}: not handed back");
+    }
+    to(&mut h, "Palette");
+    for (panel, name) in [(mg_ui::Panel::Preview, "Preview"), (mg_ui::Panel::Palette, "Palette")] {
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
+        at_rest(&mut h);
+        assert_eq!(h.state().right_dock_shows(), Some(panel));
+        assert_eq!(keys(&h), name, "with the Right Dock's tab");
+    }
+}
+
 /// The wide layout's two columns with a blueprint chosen (3440 by 1440):
 /// the Palette's list in the first and, beside it at once, the chest in
 /// the Preview's column (its ResRef there, its model's view made: no tab
@@ -659,6 +735,16 @@ fn the_wide_dock_s_columns_by_the_keys_and_a_chosen_blueprint() {
     let preview = h.state().preview_panel_rect().expect("the Preview's column");
     let named = h.query_all_by_label("plc_chest1").any(|n| preview.contains(n.rect().center()));
     assert!(named, "the chest's ResRef in the Preview's column");
+    // The dock's fold button at the outer end of the last column's tab
+    // bar, by the window's edge, as in one column (M3 T14's second
+    // review: it stood mid-dock, at the first column's bar's end).
+    let fold = h.get_by_label("Fold the Right Dock").rect();
+    let tab = h.get_by_label(mg_ui::RIGHT_COLUMN_TWO).get_by_label("Preview").rect();
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let end = dock.right() - fold.right();
+    let on_bar = tab.y_range().contains(fold.center().y) && fold.left() >= tab.right();
+    assert!(on_bar, "on the last column's bar, after its tab: {fold:?} {tab:?}");
+    assert!((0.0..=6.0).contains(&end), "at its outer end, {end} short: {fold:?} {dock:?}");
     // F6, from the editor area: the Palette's column, then the Preview's.
     let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
     h.hover_at(egui::pos2(1200.0, 20.0));

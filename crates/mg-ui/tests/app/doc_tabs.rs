@@ -183,6 +183,52 @@ fn each_tab_shows_its_kind_s_icon() {
     }
 }
 
+/// `common::click_tab_close` closes the docked tab it is given with a
+/// floating window's tab over the same tab bar, left of it (its tabs are
+/// counted in the bar's own layer alone: M3 T14's second review, where a
+/// floating window's tabs shifted which tab it took).
+#[test]
+fn a_docked_tab_closes_by_its_button_with_a_window_s_tab_over_its_bar() {
+    let dir = mg_testkit::scratch_dir("ui-doc-tab-close-under-window");
+    let path = module_with(&dir, 0);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.window_places = vec![("manual".into(), "middle".into())];
+    app.open_module(&path);
+    let start = Tab::Area(ResRef::from_str("start").unwrap());
+    app.actions.push(mg_ui::Action::OpenTab(start.clone()));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Manual));
+    let mut h = harness(app, 1200.0, 800.0);
+    settle(&mut h);
+    assert_eq!(groups(&h), [vec![Tab::ModuleProperties, start.clone(), Tab::Manual]]);
+    // The Faction Editor in a window of its own, its tab over the editor
+    // area's tab bar, its window wholly left of the manual's tab.
+    let target = h.state().tab_rect(&Tab::Manual).expect("the manual's tab");
+    let bar = h.state().dock.iter_leaves().find(|(p, _)| p.surface.is_main()).unwrap().1.rect;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    settle(&mut h);
+    {
+        let dock = &mut h.state_mut().dock;
+        let found = dock.find_tab(&Tab::Factions).unwrap();
+        let tab = dock.remove_tab(found).unwrap();
+        let surface = dock.add_window(vec![tab]);
+        let window = dock.get_window_state_mut(surface).unwrap();
+        let width = 214.0;
+        window
+            .set_position(egui::pos2(target.left() - width - 6.0, bar.top() - 1.0))
+            .set_size(egui::vec2(width, 300.0));
+    }
+    settle(&mut h);
+    let factions = h.state().tab_rect(&Tab::Factions).expect("the window's tab");
+    let over = factions.top() >= bar.top() - 0.5 && factions.right() < target.left();
+    assert!(over, "over the bar, left of the manual's tab: {factions:?} {target:?} {bar:?}");
+    click_tab_close(&mut h, &Tab::Manual);
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::Manual).is_none(), "the manual's tab closed");
+    assert!(h.state().dock.find_tab(&Tab::Factions).is_some(), "the window's tab open");
+    assert!(h.state().dock.find_tab(&start).is_some(), "the area's tab open");
+}
+
 /// The close button: on the tab in front of its pane always, on another
 /// only under the pointer, named for its tab; its room kept whether shown
 /// or not, so the tab and its name do not move as it comes; pressed, it
@@ -746,9 +792,11 @@ fn a_title_cut_short_shows_whole_in_its_tip() {
 
 /// From the narrowest editor area (the 420 point window with the Right
 /// Dock unfolded by hand, the Left Dock folded by the width: the yields
-/// keep both from standing side by side there, M3 T14) to 1600 points, with 1, 3 and 12 tabs: every tab and button of
-/// the group's tab bar inside the bar or cut by it, none over another but
-/// a close button in its own tab, and Split Editor where it is reached.
+/// keep both from standing side by side under 962, M3 T14) to 1600
+/// points, both docks open from 962 (the Left Dock unfolded by hand too
+/// under 1500), with 1, 3 and 12 tabs: every tab and button of the
+/// group's tab bar inside the bar or cut by it, none over another but a
+/// close button in its own tab, and Split Editor where it is reached.
 #[test]
 fn the_tab_bar_holds_at_every_width() {
     let s = |n: usize| Tab::Script(ResKey::parse(&format!("s{n:02}"), ResType::NSS).unwrap());
@@ -770,11 +818,24 @@ fn the_tab_bar_holds_at_every_width() {
         while width <= 1600.0 {
             h.set_size(egui::vec2(width, 600.0));
             settle(&mut h);
+            // (From 962, `shell::BOTH_DOCKS_UNDER`, both side docks fit
+            // beside the editor area's least: the Left Dock unfolded too.)
+            let both = width >= 962.0;
+            if both {
+                unfold_left_dock(&mut h);
+                settle(&mut h);
+            }
             assert!(h.state().right_dock_rect().is_some(), "{count} at {width}: the Right Dock");
+            let left = h.state().left_dock_shows().is_some();
+            assert_eq!(left, both, "{count} at {width}: the Left Dock");
             let front = groups(&h)[0].last().cloned().unwrap();
             let bar = bar_of(&h, &front);
             let right = h.state().right_dock_rect().unwrap();
             assert!(bar.right() <= right.left() + 0.5, "{count} at {width}: {bar:?} {right:?}");
+            if let Some(left) = h.state().left_dock_rect().filter(|_| both) {
+                let beside = bar.left() >= left.right() - 0.5;
+                assert!(beside, "{count} at {width}: {bar:?} beside {left:?}");
+            }
             // The tabs, as they take the pointer, between the bar's left
             // end and the room kept for Split Editor at its right.
             // (`tabs::SPLIT_ROOM`: a 22 point button and 3 at each side.)
