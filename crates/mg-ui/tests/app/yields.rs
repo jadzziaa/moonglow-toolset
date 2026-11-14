@@ -932,3 +932,49 @@ fn a_panel_asked_for_by_name_unfolds_its_dock() {
     let s = &h.state().settings;
     assert!(!s.hide_tree && !s.hide_palettes, "nothing written");
 }
+
+/// The kit's editor header holds every control at every width from its
+/// widest down to its least (OK, Cancel, More and the left group's first
+/// icon): on the row, or in More (`common::header_holds`, which each
+/// editor's narrowing test runs from U3 on).
+#[test]
+fn a_header_holds_its_controls_down_to_its_least_width() {
+    use mg_uikit::header::{EditorHeader, Item};
+    use mg_uikit::{Icon, KitButton};
+    let names =
+        ["Save", "Compile", "Open…", "External Editor", "Find…", "Bookmark", "To Scratch", "Day"];
+    let mut bookmark = false;
+    let mut day = true;
+    let mut h = Harness::builder().with_size(egui::vec2(1200.0, 300.0)).build_ui(move |ui| {
+        mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
+        let _ = EditorHeader::new("Kit header")
+            .left(Item::button(Icon::Save, "Save"))
+            .left(Item::button(Icon::Compile, "Compile"))
+            .left(Item::separator())
+            .left(Item::icon(Icon::Open, "Open…"))
+            .left(Item::icon(Icon::ExternalEditor, "External Editor"))
+            .left(Item::button(Icon::Find, "Find…"))
+            .left(Item::toggle(Some(Icon::Bookmark), "Bookmark", &mut bookmark).icon_only())
+            .left(Item::icon(Icon::ToScratch, "To Scratch").in_more())
+            .right(Item::toggle(Some(Icon::Sun), "Day", &mut day))
+            .show_with_end(ui, 116.0, |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let _ = ui.add(KitButton::new(None, "OK"));
+                let _ = ui.add(KitButton::new(None, "Cancel"));
+            });
+    });
+    // (The least: 6 + More 22 + 4 + the line 9 + 4 + 116 + 6, the
+    // harness's margins 16.)
+    let least = 6.0 + 22.0 + 4.0 + 9.0 + 4.0 + 116.0 + 6.0 + 16.0;
+    let mut width = 1200.0;
+    let mut seen_more = false;
+    while width >= least {
+        h.set_size(egui::vec2(width, 300.0));
+        h.run();
+        header_holds(&mut h, "Kit header", &names);
+        let places = mg_uikit::header::places(&h.ctx, "Kit header");
+        seen_more |= places.iter().any(|(n, p)| n == "Save" && *p == mg_uikit::header::Place::More);
+        width -= 30.0;
+    }
+    assert!(seen_more, "the sweep never reached Save in More");
+}

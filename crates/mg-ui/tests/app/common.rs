@@ -636,6 +636,58 @@ pub(crate) fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kit
     first
 }
 
+/// That the editor header named `group` (`mg_uikit::header`) holds each
+/// of `names`, wherever it put them at this width: on the row (with its
+/// words, as an icon, or a popover's rows unfolded into it), found there
+/// by its name within the header's group, or in More, found in its
+/// popover once More is opened (and More closed again with Escape).
+/// What the header cut (a row too narrow even with everything yielded)
+/// or never had fails, naming it. Each editor's narrowing test runs it
+/// at its least width (proposal section 6.1, M4's U1).
+#[track_caller]
+pub(crate) fn header_holds<S>(h: &mut Harness<'_, S>, group: &str, names: &[&str]) {
+    use mg_uikit::header::{self, Place};
+    let places = header::places(&h.ctx, group);
+    let mut in_more = Vec::new();
+    for name in names {
+        let place = places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+        match place {
+            None => panic!("{name} is not in {group} ({places:?})"),
+            Some(Place::Cut) => panic!("{name} is cut from {group}: the row is too narrow"),
+            Some(Place::More) => in_more.push(*name),
+            Some(Place::Row | Place::Icon | Place::Unfolded) => {
+                let shown = h.get_by_label(group).query_by_label(name).is_some();
+                // (A popover unfolded into the row shows its rows, not its
+                // button: one of them, at least.)
+                let unfolded = place == Some(Place::Unfolded) && {
+                    let rows = places.iter().skip_while(|(n, _)| n != name).skip(1);
+                    let rows: Vec<_> =
+                        rows.take_while(|(_, p)| *p == Place::Unfolded).map(|(n, _)| n).collect();
+                    rows.iter().any(|r| h.get_by_label(group).query_by_label(r).is_some())
+                };
+                assert!(shown || unfolded, "{name} is not shown on {group}'s row ({place:?})");
+            }
+        }
+    }
+    if in_more.is_empty() {
+        return;
+    }
+    let more = header::more_name(group);
+    if h.query_by_label(&more).is_none() {
+        h.get_by_label(group).get_by_label(header::MORE).click();
+        h.run();
+    }
+    for name in &in_more {
+        assert!(
+            h.get_by_label(&more).query_by_label(name).is_some(),
+            "{name} is not in {group}'s More"
+        );
+    }
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label(&more).is_none(), "{group}'s More stayed open");
+}
+
 /// The area view's toolbar's button `name` (found within it: the palette
 /// names the kinds of objects too). The objects' filters are "Show
 /// Creatures"…, "Show Start"; the switch that plays the placed sounds is

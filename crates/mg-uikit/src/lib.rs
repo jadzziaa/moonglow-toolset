@@ -5,8 +5,12 @@
 //! use, and the shell's parts: the [Top Bar's, the docks' and the
 //! document tabs'](shell), the [Status Bar's](status), the key caps,
 //! badges and modified dot ([marks]), a [menu]'s parts beyond its
-//! rows (headings, notes, separators, check boxes, keys, forms), and a
-//! [window]'s (a dialog's title row, the resize grip).
+//! rows (headings, notes, separators, check boxes, keys, forms), a
+//! [window]'s (a dialog's title row, the resize grip), and an editor's:
+//! its [header] row (which yields against its width and keeps a More
+//! popover), the [popover] hung from a button (or unfolded into the
+//! header), the tool [shelf], and the kit's own [button], drawn disabled
+//! in its own tokens rather than faded.
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
@@ -20,15 +24,19 @@
 //! assert_eq!(mg_uikit::tokens(&ctx), mg_uikit::Tokens::LIGHT);
 //! ```
 
+pub mod button;
 pub mod controls;
 #[cfg(feature = "dock")]
 pub mod dock;
 pub mod fonts;
 pub mod form;
+pub mod header;
 pub mod icons;
 pub mod marks;
 pub mod menu;
 pub mod metrics;
+pub mod popover;
+pub mod shelf;
 pub mod shell;
 pub mod status;
 pub mod theme;
@@ -40,6 +48,7 @@ pub mod window;
 #[allow(dead_code)]
 mod svg;
 
+pub use button::{ButtonLook, KitButton};
 pub use controls::{
     Checkbox, Controls, RadioButton, code_frame, collapsing_icon, combo_icon, is_read_only,
     list_rows, menu_bar_style, menu_rows, menu_style, read_only, row_height, row_metrics,

@@ -8,6 +8,7 @@
 
 // (It runs the packaging script with python3: where the packages are
 // made, and not on Windows's CI.)
+mod header;
 #[cfg(unix)]
 mod licenses;
 mod menus;

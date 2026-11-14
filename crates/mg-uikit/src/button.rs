@@ -1,0 +1,383 @@
+//! The kit's own button (the mock's `.btn`, `.btn.flat`, `.btn.primary`,
+//! `.btn-icon` and `.toggle`), drawn from the tokens in every state and
+//! measured before it is laid out, for the parts that lay themselves out
+//! against the width they have: the editor header ([`crate::header`]),
+//! a popover's row unfolded into it ([`crate::popover`]).
+//!
+//! Unlike egui's button (and the kit's [`crate::IconButton`], which is
+//! egui's), a disabled `KitButton` does not fade whole: it is drawn in
+//! the disabled tokens (`text-off` on `raised`, or on nothing where it is
+//! flat; a toggle that is on in `accent-fill-off` and `on-fill-off`),
+//! with any opacity a parent gave kept (a fading window's).
+
+use egui::{
+    Color32, FontId, Rect, Response, Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
+};
+
+use crate::icons::{ButtonState, Icon};
+use crate::metrics;
+use crate::theme::TokensExt as _;
+use crate::tokens::Tokens;
+
+/// The room between a button's icon and its words, and between its words
+/// and its chevron (`.btn`: `gap: 6px`).
+pub const BUTTON_GAP: f32 = 6.0;
+/// How far a word button's icon reaches into its padding, and its
+/// chevron into the padding at its right (`.btn .ic { margin-left: -2px
+/// }`, `.btn .chev { margin: 0 -2px 0 0 }`).
+pub const BUTTON_INSET: f32 = 2.0;
+/// The padding at each side of an icon alone with a chevron (a popover's
+/// button where its words do not fit: the narrow board's Lighting).
+pub const ICON_CHEVRON_PADDING: f32 = 4.0;
+/// The room between an icon alone and its chevron.
+pub const ICON_CHEVRON_GAP: f32 = 2.0;
+
+/// How a [`KitButton`] looks at rest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ButtonLook {
+    /// A word button (`.btn`): `raised`, `raised-hover` under the pointer;
+    /// an icon alone is drawn [`ButtonLook::Flat`].
+    #[default]
+    Raised,
+    /// Frameless until hovered (`.btn.flat`, `.btn-icon`): an icon alone
+    /// in `text-2`, words in `text`.
+    Flat,
+    /// A toggle (`.toggle`): `raised` while off, `accent-fill` while on
+    /// ([`KitButton::on`]).
+    Toggle,
+    /// The main action (`.btn.primary`): `accent-fill` and `on-fill`.
+    Primary,
+}
+
+/// A button drawn by the kit in its own tokens (module comment): an icon,
+/// words, or both, and a chevron where it opens a popover or a menu.
+/// Its accessible name is its words (or [`KitButton::name`]) however it
+/// is labelled; an icon alone shows them as its tooltip unless given one.
+///
+/// ```
+/// # egui::__run_test_ui(|ui| {
+/// use mg_uikit::{ButtonLook, Icon, KitButton};
+/// let save = KitButton::new(Some(Icon::Save), "Save").enabled(false);
+/// let width = save.width(ui);
+/// let response = ui.add(save);
+/// assert_eq!(response.rect.width(), width);
+/// # });
+/// ```
+#[derive(Clone, Debug)]
+#[must_use = "add it with ui.add"]
+pub struct KitButton {
+    icon: Option<Icon>,
+    words: String,
+    name: Option<String>,
+    tip: Option<String>,
+    icon_only: bool,
+    look: ButtonLook,
+    on: bool,
+    chevron: bool,
+    open: Option<bool>,
+    enabled: bool,
+    drawn_as: Option<ButtonState>,
+}
+
+impl KitButton {
+    /// A button showing `icon` (where given) before `words`.
+    pub fn new(icon: Option<Icon>, words: impl Into<String>) -> Self {
+        KitButton {
+            icon,
+            words: words.into(),
+            name: None,
+            tip: None,
+            icon_only: false,
+            look: ButtonLook::Raised,
+            on: false,
+            chevron: false,
+            open: None,
+            enabled: true,
+            drawn_as: None,
+        }
+    }
+
+    /// Showing its icon alone where `only` (it has one): its words are
+    /// its accessible name and, unless [`KitButton::tip`] gives one, its
+    /// tooltip.
+    pub fn icon_only(mut self, only: bool) -> Self {
+        self.icon_only = only && self.icon.is_some();
+        self
+    }
+
+    /// Looking so ([`ButtonLook`]).
+    pub fn look(mut self, look: ButtonLook) -> Self {
+        self.look = look;
+        self
+    }
+
+    /// A toggle that is on (`on`) or off.
+    pub fn toggle(mut self, on: bool) -> Self {
+        self.look = ButtonLook::Toggle;
+        self.on = on;
+        self
+    }
+
+    /// With a chevron after it: it opens a popover or a menu, said open
+    /// (`open`) or closed, and drawn open while it is (`.btn.open`:
+    /// `raised-hover` and an `accent` ring).
+    pub fn opens(mut self, open: bool) -> Self {
+        self.chevron = true;
+        self.open = Some(open);
+        self
+    }
+
+    /// Said open (`open`) or closed, and drawn open while it is, without a
+    /// chevron: an icon alone that opens a popover (More's `⋯`).
+    pub fn open_state(mut self, open: bool) -> Self {
+        self.open = Some(open);
+        self
+    }
+
+    /// Enabled (`true`, the default) or drawn and said disabled, which
+    /// also makes it ignore clicks.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Named `name` for a screen reader (and tests) in place of its words.
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Its tooltip (also shown while disabled).
+    pub fn tip(mut self, tip: impl Into<String>) -> Self {
+        self.tip = Some(tip.into());
+        self
+    }
+
+    /// Drawn in `state` whatever the pointer does (a catalog's hovered
+    /// button).
+    pub fn drawn_as(mut self, state: ButtonState) -> Self {
+        self.drawn_as = Some(state);
+        self
+    }
+
+    /// Its accessible name.
+    pub fn accessible_name(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.words)
+    }
+
+    /// Whether it shows its icon alone.
+    pub fn is_icon_only(&self) -> bool {
+        self.icon_only
+    }
+
+    fn font() -> FontId {
+        FontId::proportional(metrics::BODY_SIZE)
+    }
+
+    fn words_width(&self, ui: &Ui) -> f32 {
+        let galley = ui.painter().layout_no_wrap(self.words.clone(), Self::font(), Color32::WHITE);
+        galley.size().x
+    }
+
+    /// The width it takes (the same in every state): 22 for an icon
+    /// alone, 36 for an icon alone with a chevron; words 8 px from each
+    /// side, an icon 6 px before them and a chevron 6 px after.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        if self.icon_only {
+            return match self.chevron {
+                false => metrics::ICON_BUTTON,
+                true => {
+                    2.0 * ICON_CHEVRON_PADDING
+                        + metrics::ICON
+                        + ICON_CHEVRON_GAP
+                        + metrics::ICON_SMALL
+                        - BUTTON_INSET
+                }
+            };
+        }
+        let mut width = 2.0 * metrics::CONTROL_PADDING_X + self.words_width(ui);
+        if self.icon.is_some() {
+            width += metrics::ICON - BUTTON_INSET + BUTTON_GAP;
+        }
+        if self.chevron {
+            width += BUTTON_GAP + metrics::ICON_SMALL - BUTTON_INSET;
+        }
+        width.ceil()
+    }
+
+    /// The fill, the color of its icon and words, the color of its
+    /// chevron and its ring, in `state`.
+    fn colors(&self, t: &Tokens, state: ButtonState) -> (Color32, Color32, Color32, Stroke) {
+        let open = self.open == Some(true);
+        let lit = state != ButtonState::Rest;
+        let none = Color32::TRANSPARENT;
+        let flat =
+            self.look == ButtonLook::Flat || (self.icon_only && self.look == ButtonLook::Raised);
+        let (fill, text) = if !self.enabled {
+            match self.look {
+                ButtonLook::Toggle if self.on => (t.accent_fill_off, t.on_fill_off),
+                ButtonLook::Primary => (t.accent_fill_off, t.on_fill_off),
+                _ if flat => (none, t.text_off),
+                _ => (t.raised, t.text_off),
+            }
+        } else {
+            let quiet = if self.icon_only { t.text_2 } else { t.text };
+            match self.look {
+                ButtonLook::Toggle if self.on => {
+                    (if lit { t.accent_fill_hover } else { t.accent_fill }, t.on_fill)
+                }
+                ButtonLook::Primary => {
+                    (if lit { t.accent_fill_hover } else { t.accent_fill }, t.on_fill)
+                }
+                ButtonLook::Toggle => match lit {
+                    true => (t.raised_hover, t.text),
+                    false => (t.raised, quiet),
+                },
+                _ if flat => match (state, open) {
+                    (ButtonState::Rest, false) => (none, quiet),
+                    (ButtonState::Hovered, false) => (t.raised, t.text),
+                    _ => (t.raised_hover, t.text),
+                },
+                _ => match lit || open {
+                    true => (t.raised_hover, t.text),
+                    false => (t.raised, t.text),
+                },
+            }
+        };
+        let chevron = if !self.enabled {
+            text
+        } else if text == t.on_fill {
+            t.on_fill
+        } else {
+            t.text_2
+        };
+        let ring = if self.enabled && (open || state == ButtonState::Pressed) {
+            Stroke::new(1.0, t.accent)
+        } else {
+            Stroke::NONE
+        };
+        (fill, text, chevron, ring)
+    }
+}
+
+impl egui::Widget for KitButton {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let width = self.width(ui);
+        let height = metrics::CONTROL_HEIGHT;
+        let sense = if self.enabled { Sense::click() } else { Sense::hover() };
+        let (rect, response) = ui.allocate_exact_size(vec2(width, height), sense);
+        let name = self.accessible_name().to_string();
+        let enabled = self.enabled && ui.is_enabled();
+        let toggle = self.look == ButtonLook::Toggle;
+        response.widget_info(|| match toggle {
+            true => WidgetInfo::selected(WidgetType::Button, enabled, self.on, &name),
+            false => WidgetInfo::labeled(WidgetType::Button, enabled, &name),
+        });
+        if let Some(open) = self.open {
+            crate::icons::say_expanded(&response, open);
+        }
+        if ui.is_rect_visible(rect) {
+            let t = ui.tokens();
+            let state = self.drawn_as.unwrap_or_else(|| match self.enabled {
+                true => ButtonState::of(&response),
+                false => ButtonState::Rest,
+            });
+            let mut look = self.clone();
+            look.enabled = enabled;
+            let (fill, text, chevron, ring) = look.colors(&t, state);
+            let painter = crate::controls::box_painter(ui, enabled);
+            painter.rect(rect, metrics::RADIUS, fill, ring, egui::StrokeKind::Inside);
+            let y = rect.center().y;
+            if self.icon_only {
+                let icon = self.icon.unwrap_or(Icon::Help);
+                let x = match self.chevron {
+                    false => rect.center().x,
+                    true => rect.left() + ICON_CHEVRON_PADDING + metrics::ICON / 2.0,
+                };
+                let square = Rect::from_center_size(pos2(x, y), Vec2::splat(metrics::ICON));
+                icon.paint(&painter, square, text);
+                if self.chevron {
+                    let cx = square.right() + ICON_CHEVRON_GAP + metrics::ICON_SMALL / 2.0;
+                    crate::controls::paint_chevron(&painter, pos2(cx, y), 1.0, chevron);
+                }
+            } else {
+                let mut x = rect.left() + metrics::CONTROL_PADDING_X;
+                if let Some(icon) = self.icon {
+                    x -= BUTTON_INSET;
+                    let square = Rect::from_min_size(
+                        pos2(x, y - metrics::ICON / 2.0),
+                        Vec2::splat(metrics::ICON),
+                    );
+                    icon.paint(&painter, square, text);
+                    x += metrics::ICON + BUTTON_GAP;
+                }
+                let galley = painter.layout_no_wrap(self.words.clone(), KitButton::font(), text);
+                let at = pos2(x, y - galley.size().y / 2.0);
+                x += galley.size().x;
+                painter.galley(at, galley, text);
+                if self.chevron {
+                    let cx = x + BUTTON_GAP + metrics::ICON_SMALL / 2.0;
+                    crate::controls::paint_chevron(&painter, pos2(cx, y), 1.0, chevron);
+                }
+            }
+        }
+        let tip = match (&self.tip, self.icon_only) {
+            (Some(tip), _) => Some(tip.clone()),
+            (None, true) => Some(name),
+            (None, false) => None,
+        };
+        match tip {
+            Some(tip) => response.on_hover_text(&tip).on_disabled_hover_text(&tip),
+            None => response,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Theme;
+
+    fn colors(button: KitButton, theme: Theme, state: ButtonState) -> (Color32, Color32) {
+        let (fill, text, _, _) = button.colors(&theme.tokens(), state);
+        (fill, text)
+    }
+
+    /// A disabled button is drawn in the disabled tokens, in each look
+    /// and theme (the mock's `:disabled` rules), not a fade of its
+    /// enabled colors.
+    #[test]
+    fn a_disabled_button_takes_the_disabled_tokens() {
+        for theme in Theme::ALL {
+            let t = theme.tokens();
+            let none = Color32::TRANSPARENT;
+            let off = |b: KitButton| colors(b.enabled(false), theme, ButtonState::Rest);
+            let words = KitButton::new(Some(Icon::Save), "Save");
+            assert_eq!(off(words.clone()), (t.raised, t.text_off), "{theme:?}");
+            assert_eq!(off(words.clone().look(ButtonLook::Flat)), (none, t.text_off));
+            assert_eq!(off(words.clone().icon_only(true)), (none, t.text_off));
+            assert_eq!(off(words.clone().toggle(false)), (t.raised, t.text_off));
+            assert_eq!(off(words.clone().toggle(true)), (t.accent_fill_off, t.on_fill_off));
+            assert_eq!(off(words.look(ButtonLook::Primary)), (t.accent_fill_off, t.on_fill_off));
+        }
+    }
+
+    /// The enabled looks at rest and hovered (`.btn`, `.btn-icon`,
+    /// `.toggle`, `.toggle.on`).
+    #[test]
+    fn the_enabled_looks_follow_the_stylesheet() {
+        let t = Theme::Dark.tokens();
+        let rest = ButtonState::Rest;
+        let hover = ButtonState::Hovered;
+        let words = KitButton::new(Some(Icon::Save), "Save");
+        assert_eq!(colors(words.clone(), Theme::Dark, rest), (t.raised, t.text));
+        assert_eq!(colors(words.clone(), Theme::Dark, hover), (t.raised_hover, t.text));
+        let icon = words.clone().icon_only(true);
+        assert_eq!(colors(icon.clone(), Theme::Dark, rest), (Color32::TRANSPARENT, t.text_2));
+        assert_eq!(colors(icon, Theme::Dark, hover), (t.raised, t.text));
+        let on = words.clone().toggle(true);
+        assert_eq!(colors(on, Theme::Dark, rest), (t.accent_fill, t.on_fill));
+        let off = words.toggle(false).icon_only(true);
+        assert_eq!(colors(off, Theme::Dark, rest), (t.raised, t.text_2));
+    }
+}

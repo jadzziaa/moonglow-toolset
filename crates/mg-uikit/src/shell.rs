@@ -379,10 +379,13 @@ fn at_right_end<R>(
     r
 }
 
+/// The width [`vsep`] takes: its line and 4 px at each side.
+pub const VSEP_WIDTH: f32 = 9.0;
+
 /// A vertical line between groups of a bar (`.vsep`: 1 by 16 of
 /// `line-soft`, 4 px of room at each side).
 pub fn vsep(ui: &mut Ui) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(9.0, 16.0), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(vec2(VSEP_WIDTH, 16.0), Sense::hover());
     if ui.is_rect_visible(rect) {
         let line = Rect::from_center_size(rect.center(), vec2(1.0, 16.0));
         ui.painter().rect_filled(line, 0.0, ui.tokens().line_soft);

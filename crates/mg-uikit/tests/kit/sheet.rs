@@ -14,7 +14,7 @@ use mg_uikit::status::{self, Hint, Hints, StatusItem, StatusJob, StatusLog, Stat
 use mg_uikit::{Badge, BadgeKind, Icon, IconButton, KeyCap, Theme, TokensExt as _, metrics};
 
 /// The sheet's size.
-const SIZE: egui::Vec2 = egui::vec2(1600.0, 1400.0);
+const SIZE: egui::Vec2 = egui::vec2(1600.0, 1720.0);
 /// A cell's width.
 const CELL: f32 = 376.0;
 
@@ -719,6 +719,113 @@ fn top_bar(ui: &mut Ui) {
     });
 }
 
+/// An editor header at four widths (its popover unfolded, as given, its
+/// words gone and things in More), the kit button in its states, a
+/// popover drawn in place (Foundations' Lighting) and a tool shelf.
+fn header_parts(ui: &mut Ui, s: &mut State) {
+    use mg_uikit::header::{EditorHeader, Item};
+    use mg_uikit::popover::{PopAction, PopCheck, Popover};
+    use mg_uikit::shelf::{Tool, ToolShelf};
+    use mg_uikit::{ButtonLook, KitButton};
+    let full = 2.0 * CELL + 16.0;
+    for width in [2.0 * full, full, 640.0, 330.0] {
+        let (mut grid, mut minimap, mut walk) = (false, true, false);
+        ui.allocate_ui(vec2(width, metrics::EDITOR_HEADER), |ui| {
+            ui.set_width(width);
+            let overlays = Popover::new("Overlays")
+                .title(Some(Icon::Overlays), "Overlays")
+                .check(PopCheck::new(&mut grid, "Grid").icon(Icon::Grid).unfolded_words(true))
+                .check(
+                    PopCheck::new(&mut minimap, "Minimap").icon(Icon::Minimap).unfolded_words(true),
+                )
+                .separator()
+                .check(PopCheck::new(&mut walk, "Ground walkmesh").icon(Icon::Walkmesh));
+            let mut day = s.day;
+            EditorHeader::new(format!("Sheet header {width}"))
+                .left(Item::button(Icon::Save, "Save").enabled(false))
+                .left(Item::button(Icon::Compile, "Compile"))
+                .left(Item::separator())
+                .left(Item::icon(Icon::Open, "Open…"))
+                .left(Item::icon(Icon::Print, "Print…"))
+                .left(Item::icon(Icon::ExternalEditor, "External Editor").enabled(false))
+                .left(Item::separator())
+                .left(Item::button(Icon::Find, "Find…"))
+                .left(Item::icon(Icon::ToScratch, "To Scratch").in_more())
+                .right(Item::toggle(Some(Icon::Sun), "Day", &mut day))
+                .right(Item::popover(Some(Icon::Overlays), overlays).unfolds())
+                .right(Item::words("Area Properties"))
+                .show_with_end(ui, 116.0, |ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let _ = ui.add(KitButton::new(None, "OK"));
+                    let _ = ui.add(KitButton::new(None, "Cancel"));
+                });
+        });
+        ui.add_space(4.0);
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let rest = KitButton::new(Some(Icon::Compile), "Compile");
+        let _ = ui.add(rest.clone());
+        let _ = ui.add(rest.clone().drawn_as(ButtonState::Hovered));
+        let _ = ui.add(rest.clone().enabled(false));
+        let _ = ui.add(KitButton::new(None, "Overlays").opens(true));
+        let _ = ui.add(KitButton::new(Some(Icon::Light), "Lighting").icon_only(true).opens(false));
+        let _ = ui
+            .add(KitButton::new(Some(Icon::Compile), "Build & Compile").look(ButtonLook::Primary));
+        let _ = ui.add(KitButton::new(Some(Icon::Fog), "Fog").toggle(true));
+        let _ = ui.add(KitButton::new(Some(Icon::Fog), "Fog").toggle(true).enabled(false));
+        let _ = ui.add(KitButton::new(Some(Icon::Grass), "Grass").toggle(false).icon_only(true));
+        let _ = ui.add(KitButton::new(Some(Icon::Grass), "Grass").toggle(true).icon_only(true));
+        let _ = ui.add(KitButton::new(Some(Icon::Cut), "Cut").icon_only(true));
+        let _ = ui.add(
+            KitButton::new(Some(Icon::Cut), "Cut").icon_only(true).drawn_as(ButtonState::Hovered),
+        );
+        let _ = ui.add(KitButton::new(Some(Icon::Cut), "Cut").icon_only(true).enabled(false));
+        let _ = ui.add(KitButton::new(None, "Inventory…").enabled(false));
+        // (In a disabled `Ui`: the same tokens, not faded.)
+        ui.add_enabled_ui(false, |ui| ui.add(KitButton::new(Some(Icon::Save), "Save")));
+    });
+    ui.add_space(4.0);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 16.0;
+        let (mut sun, mut creature, mut light) = (true, false, false);
+        let mut on = s.on;
+        let mut fast = s.fast;
+        Popover::new("Lighting")
+            .title(Some(Icon::Light), "Lighting")
+            .switch(&mut on, "Show the lighting")
+            .heading("Shadows")
+            .check(PopCheck::new(&mut sun, "Sun and moon shadows"))
+            .check(PopCheck::new(&mut creature, "Creature shadows"))
+            .check(PopCheck::new(&mut light, "Light shadows").sub().enabled(false))
+            .custom(|ui| {
+                ui.label("Quality");
+                ui.add_space(ui.available_width() - 82.0);
+                let choices = [(true, "Fast", ""), (false, "High", "")];
+                mg_uikit::segmented(ui, "Quality", &mut fast, &choices);
+            })
+            .show_in_place(ui);
+        s.fast = fast;
+        let mut brush = false;
+        Popover::new("Brush")
+            .action(PopAction::new("Brush").icon(Icon::Brush).end("Scatter"))
+            .separator()
+            .check(PopCheck::new(&mut brush, "Count all").icon(Icon::Dice))
+            .action(PopAction::new("Disabled action").enabled(false))
+            .show_in_place(ui);
+        ui.allocate_ui(vec2(metrics::TOOL_SHELF, 200.0), |ui| {
+            ui.set_height(200.0);
+            ToolShelf::new()
+                .tool(Tool::new(Icon::Select, "Select Objects").on(true))
+                .tool(Tool::new(Icon::SelectTiles, "Select Tiles").drawn_as(ButtonState::Hovered))
+                .tool(Tool::new(Icon::Paint, "Paint").enabled(false))
+                .separator()
+                .tool(Tool::new(Icon::Terrain, "Terrain"))
+                .show(ui);
+        });
+    });
+}
+
 /// The whole set, names beside.
 fn icon_grid(ui: &mut Ui) {
     let t = ui.tokens();
@@ -809,6 +916,12 @@ fn sheet(ui: &mut Ui, theme: Theme, s: &mut State) {
         ui,
         "a menu's parts: headings (one wrapped), separators, a note, check and radio rows (hovered, disabled); a menu holding a form, and one under a 20 px text",
         |ui| menu_parts(ui, s),
+    );
+    ui.add_space(8.0);
+    cell_wide(
+        ui,
+        "editor header: unfolded, as given, words gone and More; kit buttons (rest, hovered, disabled, open, primary, toggles, icons); popovers in place; tool shelf",
+        |ui| header_parts(ui, s),
     );
     ui.add_space(8.0);
     cell(

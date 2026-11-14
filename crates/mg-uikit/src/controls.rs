@@ -96,7 +96,7 @@ impl Look {
 /// disabled, without the fade egui gives a disabled widget (the disabled
 /// colors are the tokens' own, not a fade of the enabled ones), but still
 /// with any opacity a parent gave (a fading window's).
-fn box_painter(ui: &Ui, enabled: bool) -> egui::Painter {
+pub(crate) fn box_painter(ui: &Ui, enabled: bool) -> egui::Painter {
     let mut painter = ui.painter().clone();
     if !enabled {
         // (egui multiplies the disabled fade into the parent's opacity:
