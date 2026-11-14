@@ -3,7 +3,7 @@ type: Gotcha
 title: "The palette's 8,000 rows under the wheel cost 8.8 ms in a 280 dock, 2.6 in a 320 one (found in M3 T14, cause open)"
 description: "frame_perf at FRAME_SCREEN=1280x800 fails on the custom item palette with all 8,000 rows under the wheel because the Right Dock is 280 there; what was ruled out and how to measure it."
 tags: []
-status: stable
+status: deprecated
 generated: { by: agdb/0.2.0, at: 2026-11-14T07:18:28Z }
 touches: [crates/mg-ui/src/palette_view.rs, "crates/mg-ui/tests/frame_perf.rs:palette_rect"]
 asks:

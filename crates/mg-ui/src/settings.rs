@@ -722,6 +722,12 @@ pub struct Settings {
     pub left_dock_width: Option<u32>,
     pub right_dock_width: Option<u32>,
     pub bottom_dock_height: Option<u32>,
+    /// The Right Dock's width as dragged to in the wide layout (a window
+    /// from 2560, where it stands in two columns once wider than 560),
+    /// kept apart from `right_dock_width` (the one dragged to in a
+    /// narrower window), each the width of its own layout. `None`: not
+    /// chosen there, 741.
+    pub right_dock_width_wide: Option<u32>,
     /// The Left Dock's seam over the Outliner, as the builder dragged it:
     /// the height of the panel above it (Module or Resources, its tab bar
     /// included), in whole points, kept as the docks' sizes are (drawn held
@@ -1967,10 +1973,11 @@ mod tests {
     fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
         // (The fields the shell added since 4.1.0: whatever their values,
         // a 4.1.0 file has none of them.)
-        const ADDED: [&str; 7] = [
+        const ADDED: [&str; 8] = [
             "left_dock_width",
             "right_dock_width",
             "bottom_dock_height",
+            "right_dock_width_wide",
             "module_panel_height",
             "dock_sizes_taken",
             "open_editors",

@@ -91,6 +91,8 @@ fn outliner_app_with(
     // room for its kinds and some rows.)
     let mut h = area_gpu_harness(app, rs, AREA_HARNESS_WIDTH, HEIGHT);
     until(&mut h, "the area in front", |h| h.state().area_views.contains_key(&area));
+    // (The builder unfolds the Left Dock, folded at this width.)
+    unfold_left_dock(&mut h);
     until(&mut h, "the Outliner", |h| h.query_by_label(mg_ui::OUTLINER).is_some());
     rest(&mut h);
     Some((h, area, other.get()))
@@ -382,6 +384,8 @@ fn seam(h: &Harness<'_, Moonglow>) -> f32 {
 #[test]
 fn the_seam_is_kept_across_a_restart_and_a_short_window() {
     let Some((mut h, _)) = outliner_harness("outliner-seam", 0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     assert_eq!(h.state().settings.module_panel_height, None);
     let board = mg_uikit::metrics::MODULE_PANEL;
     assert!((seam(&h) - board).abs() < 1.5, "the board's: {}", seam(&h));
@@ -420,6 +424,8 @@ fn the_seam_is_kept_across_a_restart_and_a_short_window() {
     until(&mut again, "after a restart", |h| (seam(h) - chosen).abs() < 1.5);
     // Reset Layout: the board's again.
     menu_command(&mut again, "View", "Reset Layout");
+    // (Folded by the width again, as designed: unfolded by hand.)
+    unfold_left_dock(&mut again);
     until(&mut again, "reset", |h| {
         h.state().settings.module_panel_height.is_none() && (seam(h) - board).abs() < 1.5
     });
@@ -511,6 +517,8 @@ fn the_outliner_s_keys() {
 #[test]
 fn a_read_only_area_s_outliner_hides_and_deletes_nothing() {
     let Some((mut h, area)) = read_only_area_harness("outliner-read-only") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     until(&mut h, "the Outliner", |h| h.query_by_label(mg_ui::OUTLINER).is_some());
     let shown =
         |h: &Harness<'_, Moonglow>| h.state().area_views[&area].show[ObjectKind::Placeable.index()];
@@ -726,7 +734,11 @@ fn with_the_outliner_shown_the_tree_stays_where_it_was() {
 #[test]
 fn a_dock_unfolded_by_hand_in_a_narrow_window_keeps_the_tree_still() {
     let Some((mut h, area)) = outliner_harness("outliner-narrow", 3) else { return };
-    h.state_mut().docks_fold_by_width = true;
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
+    // (By way of 1600, where the dock unfolded by hand at the harness's
+    // width is the builder's own fold again.)
+    wide_window(&mut h);
     h.state_mut().settings.hide_tree = true;
     h.set_size(egui::vec2(1280.0, HEIGHT));
     // (Folded, the strip's button of the Outliner's name stands for it;

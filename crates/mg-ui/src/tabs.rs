@@ -777,9 +777,10 @@ impl TabViewer for Viewer<'_> {
                 .clicked()
         {
             self.app.tree_reveal = Some((key, true));
-            // (The Left Dock on the Module panel, the tree's, where it
-            // showed the Resources panel.)
-            self.app.left_panel = crate::Panel::Module;
+            // (The Left Dock unfolded on the Module panel, the tree's,
+            // where it showed the Resources panel or was folded, by the
+            // window's width too: asked for by name.)
+            self.app.show_dock_panel(crate::Panel::Module);
             ui.close();
         }
         // Claim This Area or Release Claim (the project's claims table).

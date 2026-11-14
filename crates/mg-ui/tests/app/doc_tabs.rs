@@ -744,8 +744,9 @@ fn a_title_cut_short_shows_whole_in_its_tip() {
     assert!(module.width() < mg_uikit::shell::doc_tab_width(110.0, false), "all cut alike");
 }
 
-/// From the narrowest editor area (the 420 point window with both docks
-/// open) to 1600 points, with 1, 3 and 12 tabs: every tab and button of
+/// From the narrowest editor area (the 420 point window with the Right
+/// Dock unfolded by hand, the Left Dock folded by the width: the yields
+/// keep both from standing side by side there, M3 T14) to 1600 points, with 1, 3 and 12 tabs: every tab and button of
 /// the group's tab bar inside the bar or cut by it, none over another but
 /// a close button in its own tab, and Split Editor where it is reached.
 #[test]
@@ -760,8 +761,8 @@ fn the_tab_bar_holds_at_every_width() {
             h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::ModuleProperties]));
             settle(&mut h);
         }
-        // (Both docks open: the Right Dock asked for by name, as Tools ›
-        // Palettes does, without the game's data.)
+        // (The Right Dock asked for by name, as Tools › Palettes does,
+        // without the game's data: unfolded by hand in the least window.)
         h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
         settle(&mut h);
         assert_eq!(groups(&h)[0].len(), count.max(1));
@@ -769,7 +770,7 @@ fn the_tab_bar_holds_at_every_width() {
         while width <= 1600.0 {
             h.set_size(egui::vec2(width, 600.0));
             settle(&mut h);
-            assert!(h.state().right_dock_rect().is_some() && h.state().left_dock_shows().is_some());
+            assert!(h.state().right_dock_rect().is_some(), "{count} at {width}: the Right Dock");
             let front = groups(&h)[0].last().cloned().unwrap();
             let bar = bar_of(&h, &front);
             let right = h.state().right_dock_rect().unwrap();

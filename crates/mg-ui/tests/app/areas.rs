@@ -14,6 +14,8 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     tree_row(&h, "CHESS").click_secondary();
     h.run();
@@ -88,6 +90,8 @@ fn minimaps_are_exported_together_and_with_their_map_notes() {
     let mut app = game_app_with(&root, None, NoDialogs::default());
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // A map note on the board, not saved: an edit of its GIT.
     let git_key = ResKey::new(chess, ResType::GIT);
@@ -441,7 +445,6 @@ fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
     // (The docks as a narrow window has them, M3 T14: the Left Dock folded
     // under 1500, the Right Dock 280 under 1400 and folded under 796. The
     // sweep folded the Left Dock by hand under 772 before.)
-    h.state_mut().docks_fold_by_width = true;
     let tab = Tab::Area(area);
     // (The tab's body, and the toolbar's controls: each widget in it.)
     let body = |h: &Harness<'_, Moonglow>| {

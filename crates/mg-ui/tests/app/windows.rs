@@ -11,6 +11,8 @@ use crate::common::*;
 #[test]
 fn the_middle_keeps_its_place_with_no_area_open() {
     let Some(mut h) = game_harness("no-area") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.state_mut().settings.no_last_area = true;
     h.run();
     let width = |h: &Harness<'_, Moonglow>, tab: &Tab| {
@@ -316,6 +318,9 @@ fn tabs_by_when_they_were_last_used_with_ctrl_held() {
 #[test]
 fn panels_fold_away_and_come_back() {
     let Some(mut h) = game_harness("panels") else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     h.run();
     h.run();
     let keys = egui::Modifiers::COMMAND | egui::Modifiers::ALT;
@@ -407,28 +412,25 @@ fn panels_fold_away_and_come_back() {
     assert!(palette(&h).is_some());
 }
 
-/// Tab reaches the Right Dock's fold button after the dock's own controls
-/// and goes on round the window: the button is drawn right after the
-/// dock, in a layer of its own over the editor area. With each tab in
+/// Tab reaches the Right Dock's fold button on its tab bar, after the
+/// tabs and before the panel's body (M3 T14's review: the button is at the
+/// bar's end, inside the dock), then goes on into the body and round the
+/// window; Shift+Tab from the body comes back to it. With each tab in
 /// front: the palettes' types, search and list; the Preview's body (a
-/// creature chosen: its model viewer's controls), drawn in the dock in
-/// its place. Shift+Tab from the button goes back into the panel's body.
-/// (In place of `the_palettes_covered_arrow_is_passed_by_the_keyboard`:
-/// the palettes' pane and egui_dock's arrow on its tab bar, which the
-/// keyboard was moved past, are gone with the pane, M3 T5.)
+/// creature chosen: its model viewer's controls), drawn in the dock in its
+/// place. Enter on it folds the dock.
 #[test]
 fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
     let Some((mut h, _)) = area_harness("right-dock-tab-order") else { return };
+    // (1600 wide: no width folds a dock.)
+    wide_window(&mut h);
     h.state_mut().palette.selected = ResKey::parse("nw_bandit001", ResType::UTC);
     for (name, panel) in [("Palette", mg_ui::Panel::Palette), ("Preview", mg_ui::Panel::Preview)] {
         h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
         settle(&mut h);
         let dock = right_dock_rect(&h);
-        let fold = h.get_by_label("Fold the Right Dock").rect();
         // (Under the tab bar: the panel's body.)
         let body = h.get_by_label("Right Dock").get_by_label(name).rect().bottom();
-        // From the panel's tab, Tab by Tab: each control in the dock until
-        // the fold button.
         h.get_by_label("Right Dock").get_by_label(name).focus();
         settle(&mut h);
         let fold_is_focused = |h: &Harness<'_, Moonglow>| {
@@ -437,45 +439,29 @@ fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
         let focused = |h: &Harness<'_, Moonglow>| {
             h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id))
         };
-        let (mut steps, mut in_body) = (0, 0);
+        // From the panel's tab: the tabs, then the fold button, nothing of
+        // the body before it.
+        let mut steps = 0;
         while !fold_is_focused(&h) {
             h.key_press(egui::Key::Tab);
             settle(&mut h);
             steps += 1;
-            assert!(steps < 200, "{name}: never reached the fold button");
-            // (The dock's own: its controls, and the edge it is resized by.)
+            assert!(steps < 4, "{name}: the fold button after the tabs");
             if let Some(r) = focused(&h).filter(|_| !fold_is_focused(&h)) {
-                assert!(
-                    r.rect.right() >= dock.left() - 1.0,
-                    "{name}: {steps}: left the dock first: {:?}",
-                    r.rect
-                );
-                in_body += usize::from(r.rect.top() >= body - 0.5 && dock.contains_rect(r.rect));
+                assert!(r.rect.bottom() <= body + 0.5, "{name}: the body first: {:?}", r.rect);
             }
         }
-        assert!(steps > 3 && in_body > 2, "{name}: the panel's controls first: {steps}, {in_body}");
-        // On from it, out of the dock; Shift+Tab back to it, and on into
-        // the panel's body.
+        // On from it into the body; Shift+Tab back to it.
         h.key_press(egui::Key::Tab);
         settle(&mut h);
-        assert!(focused(&h).is_some_and(|r| r.rect != fold), "{name}: Tab goes on past it");
+        let next = focused(&h).expect("a control after it");
+        assert!(
+            next.rect.top() >= body - 0.5 && dock.contains_rect(next.rect),
+            "{name}: into the body: {next:?}"
+        );
         h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
         settle(&mut h);
         assert!(fold_is_focused(&h), "{name}: Shift+Tab back to it");
-        // (Past the dock's edge, which it is resized by, registered after
-        // its panel's controls.)
-        for step in 0..3 {
-            h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
-            settle(&mut h);
-            let back = focused(&h).expect("a control");
-            let edge = back.rect.width() < 8.0 && (back.rect.center().x - dock.left()).abs() < 4.0;
-            assert!(edge || dock.contains_rect(back.rect), "{name}: {step}: {back:?}");
-            if !edge {
-                assert!(back.rect.top() >= body - 0.5, "{name}: into the body: {back:?}");
-                break;
-            }
-            assert!(step < 2, "{name}: never back into the body");
-        }
     }
     h.get_by_label("Fold the Right Dock").focus();
     settle(&mut h);
@@ -485,26 +471,21 @@ fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
 }
 
 /// GitHub issue 10, as its reporter put it on 1.31.0, kept by the shell:
-/// one control per dock or pane to fold it away or close it, on the side
-/// it faces the middle by, and in the same place folded, in the window.
-/// The Left Dock's fold button beside its inner edge, by the middle, half
-/// way along it, never over the dock's lists (a click where the dock is
-/// resized above and below it is the button's); folded, the button that
-/// unfolds it beside the strip's edge, as high and as large, and the
-/// strip has no chevron of its own (the owner's ruling on the review of
-/// M3 T4). The edge moves as the dock folds, so the second click is at
-/// the same height, beside the strip. The Right Dock's (the palettes',
-/// since M3 T5) the same, mirrored: beside its left edge, by the middle,
-/// its edge dragged above and below it. The Bottom Dock's is the Log's
-/// switch in the Status Bar, which says whether it is on and stays where
-/// it is.
+/// one control per dock or pane to fold it away or close it. Since M3
+/// T14's review, where the boards put it: the open side dock's fold button
+/// at its tab bar's inner end, inside the dock (no board draws one; beside
+/// the dock's edge it lay over the editor area's view, taking its clicks),
+/// and folded, the chevron at its strip's top (`Narrow.png`'s rail), the
+/// strip's one control that unfolds it, with its panels' buttons under
+/// it. Each is named and tipped by what it does, and its click folds or
+/// unfolds the dock; the dock's edge drags, high and low. The Bottom
+/// Dock's is the Log's switch in the Status Bar, which says whether it is
+/// on and stays where it is.
 #[test]
 fn each_pane_folds_by_one_button_on_its_inner_edge() {
     let Some(mut h) = game_harness("pane-edges") else { return };
-    // (1400 wide: under it the Right Dock is held at its narrow 280 and
-    // its edge is not dragged, M3 T14.)
-    h.set_size(egui::vec2(1400.0, 800.0));
-    h.run_steps(3);
+    // (1600 wide: no width folds a dock, and the Right Dock's edge drags.)
+    wide_window(&mut h);
     // A dock's or pane's button, folded or not (and that there is one).
     let button = |h: &Harness<'_, Moonglow>, name: &str| {
         let fold = format!("Fold {name}");
@@ -524,106 +505,67 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     let window = h.ctx.content_rect();
     let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 1.5, "{what}: {a} and {b}");
     // (The editor area's panes reach the docks' edges: flush, as the
-    // boards draw it, since M3 T14; they stood 8 points inside egui's
-    // margin before.)
+    // boards draw it, since M3 T14.)
     const MARGIN: f32 = 0.0;
-
-    // The Left Dock: beside its inner edge, by the middle, half way along
-    // it; folded, the button that unfolds it in the same place beside the
-    // strip's edge.
-    let (shown, mid) = (button(&h, "the Left Dock"), middle(&h));
-    assert!(shown.left() > window.left() + 150.0, "right of the tree: {shown:?}");
-    near(shown.left(), mid.left() - MARGIN, "beside the dock's inner edge, not over the dock");
-    let dock_top = h.get_by_label("Left Dock").get_by_label("Module").rect().top();
-    let dock_bottom = h.get_by_label("Status Bar").get_by_label("Log").rect().top();
-    let half = (dock_top + dock_bottom) / 2.0;
-    assert!((shown.center().y - half).abs() < 3.0, "half way along it: {shown:?} {half}");
-    assert!(shown.width() >= 12.0 && shown.height() >= 12.0, "{shown:?}");
-    assert!(
-        h.get_by_label("Left Dock").query_by_label("Fold the Left Dock").is_none(),
-        "not on the tab bar"
-    );
-    // (A click by the edge, where the dock is resized, is the button's.)
-    let at = egui::pos2(shown.left() + 2.0, shown.center().y);
-    h.hover_at(at);
-    h.run();
-    press(&h, at, true, egui::Modifiers::NONE);
-    press(&h, at, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    assert!(h.state().settings.hide_tree, "folded by the click at its edge");
-    let folded = button(&h, "the Left Dock");
-    assert!(h.query_by_label("Fold the Left Dock").is_none());
-    assert!(window.contains_rect(folded), "in the window: {folded:?}");
-    let mid = middle(&h);
-    near(folded.left(), mid.left() - MARGIN, "beside the strip's edge, by the middle");
-    assert!(folded.left() < window.left() + 40.0, "at the window's left: {folded:?}");
-    assert!(folded.width() >= 12.0 && folded.height() >= 12.0, "{folded:?}");
-    assert_eq!(folded.size(), shown.size());
-    assert!((folded.center().y - shown.center().y).abs() < 4.0, "where it was: {folded:?}");
-    // (One control to unfold it: the strip's own chevron is gone.)
-    let strip = h.get_by_label("Left Dock");
-    assert!(strip.query_by_label("Show the Left Dock").is_none(), "no chevron on the strip");
-    // The second click at the height of the first, beside the strip.
-    let again = egui::pos2(folded.left() + 2.0, at.y);
-    h.hover_at(again);
-    h.run();
-    press(&h, again, true, egui::Modifiers::NONE);
-    press(&h, again, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    assert!(!h.state().settings.hide_tree, "unfolded by the click at its height");
-    assert_eq!(button(&h, "the Left Dock"), shown, "back where it was");
-
-    // The Right Dock: the same, mirrored. Beside its inner (left) edge,
-    // by the middle, half way along it; folded, the button that unfolds it
-    // in the same place beside the strip's edge.
-    let (shown, mid) = (button(&h, "the Right Dock"), middle(&h));
-    assert!(shown.right() < window.right() - 150.0, "left of the palettes: {shown:?}");
-    near(shown.right(), mid.right() + MARGIN, "beside the dock's inner edge, not over the dock");
-    let dock_top = h.get_by_label("Right Dock").get_by_label("Palette").rect().top();
-    let half = (dock_top + dock_bottom) / 2.0;
-    assert!((shown.center().y - half).abs() < 3.0, "half way along it: {shown:?} {half}");
-    assert!(shown.width() >= 12.0 && shown.height() >= 12.0, "{shown:?}");
-    assert!(
-        h.get_by_label("Right Dock").query_by_label("Fold the Right Dock").is_none(),
-        "not on the tab bar"
-    );
-    // (A click by the edge, where the dock is resized, is the button's.)
-    let at = egui::pos2(shown.right() - 2.0, shown.center().y);
-    h.hover_at(at);
-    h.run();
-    press(&h, at, true, egui::Modifiers::NONE);
-    press(&h, at, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    assert!(h.state().settings.hide_palettes, "folded by the click at its edge");
-    let folded = button(&h, "the Right Dock");
-    assert!(h.query_by_label("Fold the Right Dock").is_none());
-    assert!(window.contains_rect(folded), "in the window: {folded:?}");
-    let mid = middle(&h);
-    near(folded.right(), mid.right() + MARGIN, "beside the strip's edge, by the middle");
-    assert!(folded.right() > window.right() - 40.0, "at the window's right: {folded:?}");
-    assert_eq!(folded.size(), shown.size());
-    assert!((folded.center().y - shown.center().y).abs() < 4.0, "where it was: {folded:?}");
-    let strip = h.get_by_label("Right Dock");
-    assert!(strip.query_by_label("Show the Right Dock").is_none(), "no chevron on the strip");
-    let again = egui::pos2(folded.right() - 2.0, at.y);
-    h.hover_at(again);
-    h.run();
-    press(&h, again, true, egui::Modifiers::NONE);
-    press(&h, again, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    assert!(!h.state().settings.hide_palettes, "unfolded by the click at its height");
-    assert_eq!(button(&h, "the Right Dock"), shown, "back where it was");
-    // The edge drags above and below the button (the dock wider by a drag
-    // to the left).
-    for y in [shown.top() - 12.0, shown.bottom() + 12.0] {
-        let edge = h.get_by_label("Fold the Right Dock").rect().right();
+    for (dock, name, rect) in [
+        ("Left Dock", "the Left Dock", left_dock_rect as fn(&Harness<'_, Moonglow>) -> egui::Rect),
+        (mg_ui::RIGHT_DOCK, "the Right Dock", right_dock_rect),
+    ] {
+        // Open: on the dock's tab bar, at its inner end, inside the dock,
+        // over nothing of the editor area.
+        let shown = button(&h, name);
+        let tab = if dock == "Left Dock" { "Module" } else { "Palette" };
+        let bar = h.get_by_label(dock).get_by_label(tab).rect();
+        let area = middle(&h);
+        assert!(rect(&h).contains_rect(shown), "{name}: inside the dock {shown:?}");
+        assert!(bar.y_range().contains(shown.center().y), "{name}: on its tab bar {shown:?}");
+        assert!(!shown.intersects(area), "{name}: over nothing of the editor area");
+        h.get_by_label(&format!("Fold {name}")).click();
+        h.run_steps(2);
+        let folded = match dock {
+            "Left Dock" => h.state().settings.hide_tree,
+            _ => h.state().settings.hide_palettes,
+        };
+        assert!(folded, "{name}: folded by its button");
+        // Folded: the chevron at the strip's top, in the strip's group,
+        // over its panels' buttons.
+        let chevron = button(&h, name);
+        let strip = h.get_by_label(dock);
+        let first_panel =
+            strip.get_by_label(if dock == "Left Dock" { "Module" } else { "Palette" });
+        assert!(strip.query_by_label(&format!("Show {name}")).is_some(), "{name}: on the strip");
+        assert!(chevron.bottom() <= first_panel.rect().top(), "{name}: at the strip's top");
+        assert!(window.contains_rect(chevron), "{name}: in the window {chevron:?}");
+        h.get_by_label(&format!("Show {name}")).click();
+        h.run_steps(2);
+        let folded = match dock {
+            "Left Dock" => h.state().settings.hide_tree,
+            _ => h.state().settings.hide_palettes,
+        };
+        assert!(!folded, "{name}: unfolded by its chevron");
+        assert_eq!(button(&h, name), shown, "{name}: back where it was");
+    }
+    // The Right Dock's edge drags (wider by a drag to the left), high and
+    // low; and the Left Dock's.
+    let dock = right_dock_rect(&h);
+    for y in [dock.top() + 150.0, dock.bottom() - 150.0] {
+        let edge = right_dock_rect(&h).left();
         let from = egui::pos2(edge + 1.0, y);
         drag(&mut h, from, from - egui::vec2(30.0, 0.0));
         settle(&mut h);
-        let now = h.get_by_label("Fold the Right Dock").rect().right();
+        let now = right_dock_rect(&h).left();
         assert!((edge - now - 30.0).abs() < 2.0, "dragged at {y}: {edge} {now}");
     }
-    assert!(!h.state().settings.hide_palettes);
+    let dock = left_dock_rect(&h);
+    for y in [dock.top() + 150.0, dock.bottom() - 150.0] {
+        let edge = left_dock_rect(&h).right();
+        let from = egui::pos2(edge - 1.0, y);
+        drag(&mut h, from, from + egui::vec2(30.0, 0.0));
+        settle(&mut h);
+        let now = left_dock_rect(&h).right();
+        assert!((now - edge - 30.0).abs() < 2.0, "dragged at {y}: {edge} {now}");
+    }
+    assert!(!h.state().settings.hide_palettes && !h.state().settings.hide_tree);
 
     // The Bottom Dock: under the middle, its tab bar over the log's lines;
     // its one control the Log's switch in the Status Bar, on while it is
@@ -806,6 +748,8 @@ fn a_tool_tab_dropped_on_a_side_is_docked_there() {
 #[test]
 fn the_resource_browser_is_a_panel_not_a_tab() {
     let Some((mut h, area)) = area_harness("browser-panel") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     settle(&mut h);
     let leaves = |h: &Harness<'_, Moonglow>| -> Vec<(Vec<Tab>, egui::Rect)> {
         let dock = &h.state().dock;
@@ -841,10 +785,13 @@ fn the_resource_browser_is_a_panel_not_a_tab() {
 #[test]
 fn the_middle_keeps_the_editor_area_whatever_the_left_dock_shows() {
     let Some((mut h, area)) = area_harness("browser-panel-middle") else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     show_resources(h.state_mut());
     settle(&mut h);
-    // (The dock's inner edge: where its fold button stands beside it.)
-    let edge = |h: &Harness<'_, Moonglow>| h.get_by_label("Fold the Left Dock").rect().left();
+    // (The dock's inner edge.)
+    let edge = |h: &Harness<'_, Moonglow>| left_dock_rect(h).right();
     let dock = edge(&h);
     for tab in [Tab::Area(area), Tab::ModuleProperties] {
         h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab]));
@@ -1599,16 +1546,22 @@ fn a_kept_tab_whose_resource_is_gone_is_passed_over() {
 /// `palettes`, before the palettes were the Right Dock's panel) open where
 /// their kind opens (the Faction Editor: a window of its own), the module
 /// opened again from a menu; and the palettes' own tab in a record
-/// (`palette`, which no Moonglow wrote) shows the Palette panel, the Right
-/// Dock unfolded. Kept again, the record has neither. (In place of
-/// `a_tab_kept_in_the_palettes_pane_opens_there_again`: the pane is gone.)
+/// (`palette`, which no Moonglow wrote) puts the Palette panel in front of
+/// the Right Dock, the builder's fold of the dock standing (folded, it
+/// stays folded on the Palette; M3 T14's review: until then the record
+/// unfolded it, past the builder's own fold). Kept again, the record has
+/// neither. (In place of `a_tab_kept_in_the_palettes_pane_opens_there_again`:
+/// the pane is gone.)
 #[test]
 fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     let Some((mut h, area)) = area_harness("open-tabs-palettes") else { return };
     let path = h.state().module_path().expect("saved");
     let kept = mg_testkit::scratch_dir("ui-open-tabs-palettes");
     h.state_mut().open_tabs_dir = Some(kept.clone());
-    // (Folded, so that the record's `palette` is seen to unfold it.)
+    // (Folded by the builder, with the Preview in front, so that the
+    // record's `palette` is seen to leave the fold and choose the panel.)
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    settle(&mut h);
     fold_palette(h.state_mut());
     settle(&mut h);
     assert!(!palette_shown(h.state()));
@@ -1626,7 +1579,16 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     assert!(app.dock.find_tab(&Tab::Area(area)).is_some());
     let factions = app.dock.find_tab(&Tab::Factions).expect("the Faction Editor open");
     assert!(!factions.surface.is_main(), "in a window of its own, where its kind opens");
-    assert!(palette_shown(app), "the palettes' tab: the Palette panel shown");
+    assert!(app.settings.hide_palettes, "the builder's fold stands");
+    assert!(!palette_shown(app), "folded");
+    let strip = h.get_by_label(mg_ui::RIGHT_DOCK);
+    strip.get_by_label("Palette");
+    // (Unfolded as the builder left it, View › Right Dock's: on the
+    // panel the record put in front, not the Preview it had.)
+    menu_command(&mut h, "View", "Right Dock");
+    settle(&mut h);
+    let app = h.state();
+    assert!(palette_shown(app), "unfolded: the Palette panel in front, the record's");
     h.state_mut().actions.push(mg_ui::Action::Close);
     settle(&mut h);
     let text = std::fs::read_to_string(&file).unwrap();
@@ -1654,7 +1616,9 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
     assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the Faction Editor");
     assert!(h.query_by_label("Show the Right Dock").is_none(), "nor its strip");
-    assert!(!h.state().settings.hide_palettes, "unfolded for the next area");
+    assert!(h.state().settings.hide_palettes, "the builder's fold stands");
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+    settle(&mut h);
     click_tab(&mut h, &Tab::Area(area));
     settle(&mut h);
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Palette), "beside the area");
@@ -1678,6 +1642,9 @@ fn an_old_record_with_the_resource_browser_shows_the_panel() {
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     write(r#""script:hello.nss","resources""#);
     let mut h = tabs_session(&path, &kept);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
     assert!(h.state().dock.find_tab(&Tab::Script(hello)).is_some(), "its other tab");
@@ -1690,6 +1657,7 @@ fn an_old_record_with_the_resource_browser_shows_the_panel() {
     // The tab alone.
     write(r#""resources""#);
     let mut h = tabs_session(&path, &kept);
+    wide_window(&mut h);
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
 }
@@ -1710,6 +1678,8 @@ fn an_old_record_with_the_browser_in_front_of_a_split_shows_the_panel() {
     ],"front":"resources"}"#;
     std::fs::write(&file, record).unwrap();
     let mut h = tabs_session(&path, &kept);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
     let script = |n: &str| Tab::Script(ResKey::parse(n, ResType::NSS).unwrap());
@@ -1748,6 +1718,8 @@ fn an_old_record_with_the_browser_in_a_window_shows_the_panel() {
     ]}"#;
     std::fs::write(&file, record).unwrap();
     let mut h = tabs_session(&path, &kept);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     settle(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
     let script = |n: &str| Tab::Script(ResKey::parse(n, ResType::NSS).unwrap());
@@ -2905,7 +2877,7 @@ fn a_properties_window_s_buttons_stay_put() {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1000.0, 800.0))
             .with_pixels_per_point(scale)
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(8);
         // (The editors of files of their own: a talk table and a new hak.)
         let mut words = mg_module::talk::Table::create("words", &dir, Language::ENGLISH, false);

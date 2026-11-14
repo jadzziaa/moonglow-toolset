@@ -65,6 +65,8 @@ fn undo_over_a_tileset_editor_is_the_tileset_s() {
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
     let mut h = harness(app, 1300.0, 900.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     mg_ui::tileset_view::new_tileset(h.state_mut());
     h.run();
@@ -2746,22 +2748,34 @@ fn tile_variant_pictures_take_the_size_set() {
         assert_eq!(a.top(), b.top(), "on one row");
         b.left() - a.left()
     };
-    // (A column: the picture and the grid's gap of 6, and where the
-    // column holds the chosen picture, framed, its button's padding either
-    // side: a grid's column is as wide as its widest. Which column holds
-    // it depends on how many go across, which the window's width decides:
-    // M3 T14's narrower Right Dock moved it out of the first two.)
+    // (The first column's width and the grid's gap of 6: the picture's
+    // side, and its button's padding either side where the column holds
+    // the chosen picture, framed (a grid's column is as wide as its
+    // widest). Which column holds it depends on how many go across, which
+    // the window's width decides: worked out from where it is drawn.)
     let padding = 2.0 * h.ctx.global_style().spacing.button_padding.x;
-    let fits =
-        |apart: f32, side: f32| (side + 6.0 - 1.0..=side + 6.0 + padding + 1.0).contains(&apart);
-    assert!(fits(apart(&h), 200.0), "200 points and the gaps: {}", apart(&h));
+    let current = (variants.iter())
+        .position(|(p, _)| Some(*p) == h.state().tile_props.as_ref().and_then(|t| t.variant));
+    let in_first = |h: &Harness<'_, Moonglow>| {
+        let rect = |k: usize| {
+            let (p, model) = &variants[k];
+            let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
+            h.get_by_label(&format!("{model}{turn}")).rect()
+        };
+        current.is_some_and(|c| (rect(c).left() - rect(0).left()).abs() < 1.0)
+    };
+    let fits = |h: &Harness<'_, Moonglow>, side: f32| {
+        let want = side + 6.0 + if in_first(h) { padding } else { 0.0 };
+        (apart(h) - want).abs() < 1.0
+    };
+    assert!(fits(&h, 200.0), "200 points and the gaps: {}", apart(&h));
     h.get_by_label("Size");
     let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
     h.render().unwrap().save(dir.join("large.png")).unwrap();
     // The usual size, unless set.
     h.state_mut().settings.tile_variant_side = None;
     h.run_steps(3);
-    assert!(fits(apart(&h), 84.0), "{}", apart(&h));
+    assert!(fits(&h, 84.0), "84 points and the gaps: {}", apart(&h));
     // Small, a picture under the pointer shows at its largest beside it.
     let (p, model) = &variants[1];
     let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];

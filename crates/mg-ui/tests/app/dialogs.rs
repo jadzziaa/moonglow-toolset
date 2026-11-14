@@ -243,6 +243,8 @@ fn reachable(h: &mut Harness<'_, Moonglow>, title: &str, buttons: &[&str], at: e
 #[test]
 fn a_tall_dialog_stays_whole_and_scrolls_in_a_short_window() {
     let Some((mut h, _)) = area_harness("dialog-least") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     for at in SHORT_WINDOWS {
         h.set_size(at);
         settle(&mut h);

@@ -665,10 +665,9 @@ fn resources_panel(h: &mut App<'_>, r: &mut Report, what: &str) {
     h.run_steps(3);
     assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources), "{what}: shown");
     // (The panel: under the dock's tab bar, from its first tab to its
-    // edge, where its fold button stands beside it, down to the Status
-    // Bar.)
+    // edge, down to the Status Bar.)
     let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
-    let edge = h.get_by_label("Fold the Left Dock").rect().left();
+    let edge = h.state().left_dock_rect().expect("the Left Dock").right();
     h.get_by_label("Filter Resources");
     let bottom = screen_size().y - mg_uikit::metrics::STATUS_BAR;
     let panel =
@@ -726,7 +725,12 @@ fn palette_rect(h: &App<'_>) -> Option<egui::Rect> {
         }
         None => dock,
     };
-    Some(dock.with_min_y(tab.bottom()))
+    // (120 points from its left: the wheel turns at its middle, 60 points
+    // in, on the rows' words at every width of the dock, the worst case:
+    // M3 T14's review found the pointer past their end in a 320 dock and
+    // on them in a 280 one.)
+    let panel = dock.with_min_y(tab.bottom());
+    Some(panel.with_max_x(panel.left() + 120.0))
 }
 
 /// Times the palettes with the pointer and the wheel over them: shown,
@@ -1032,7 +1036,8 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         h.run_steps(30);
         let both = format!("{name}, the Right Dock in two columns (741), the Preview's model");
         view(h, r, &both, Some(&tab));
-        h.state_mut().settings.right_dock_width = Some(320);
+        // The wide layout's own width (`right_dock_width_wide`).
+        h.state_mut().settings.right_dock_width_wide = Some(320);
         let started = Instant::now();
         while h.state().preview_panel_rect().is_some() {
             assert!(started.elapsed().as_secs() < 30, "the Right Dock still in two columns");
@@ -1040,7 +1045,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         }
         let one = format!("{name}, the Right Dock in one column (320), the Palette in front");
         view(h, r, &one, Some(&tab));
-        h.state_mut().settings.right_dock_width = None;
+        h.state_mut().settings.right_dock_width_wide = None;
         h.state_mut().palette.selected = None;
     }
     fold_palette(h);

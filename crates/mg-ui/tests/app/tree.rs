@@ -9,6 +9,8 @@ fn filtering_the_tree_opens_its_groups() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // Scripts start closed.
     assert!(h.query_by_label("hello").is_none());
@@ -43,6 +45,8 @@ fn the_tree_s_filter_finds_every_word_and_takes_find_s_keys() {
     app.settings.key_bindings.insert("find".into(), vec!["Ctrl+Shift+F".into()]);
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     h.get_by_label_contains("Scripts (").click();
     h.run_steps(2);
@@ -69,6 +73,8 @@ fn a_tree_row_s_menu_opens_it_in_its_editor() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let script = ResKey::parse("hello", ResType::NSS).unwrap();
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_none());
@@ -188,6 +194,8 @@ fn the_module_tree_by_the_keyboard() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let start = ResKey::parse("start", ResType::ARE).unwrap();
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
@@ -314,6 +322,8 @@ fn the_module_tree_by_the_keyboard() {
 #[test]
 fn the_module_tree_s_groups_open_and_close_together() {
     let Some((mut h, area)) = area_harness("fold-tree") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(2);
     let listed = |h: &Harness<'_, Moonglow>| h.query_all_by_label(&area.to_string()).count();
     let before = listed(&h);
@@ -494,6 +504,8 @@ fn deleting_says_what_names_it_and_takes_those_chosen_together() {
 fn the_module_tree_lists_what_is_placed_in_an_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-contents") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     assert!(h.query_by_label("Waypoints (2)").is_none());
     h.get_by_label_contains("Placed Objects in ").click();
@@ -615,6 +627,8 @@ fn areas_are_listed_by_name_when_asked() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // By ResRef, as Aurora lists them.
     tree_row(&h, "area467");
@@ -673,6 +687,8 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     h.state_mut().settings.area_names = true;
     h.run();
@@ -717,6 +733,8 @@ fn blueprints_are_listed_by_name_when_asked() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // Open the groups (the filter opens every group with a match).
     h.get_all_by_role(egui::accesskit::Role::TextInput)
@@ -796,6 +814,8 @@ fn the_module_tree_never_takes_the_window() {
 #[test]
 fn delete_on_a_tree_row_asks_first() {
     let Some((mut h, key)) = plugin_harness("ui-tree-delete-key", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // The guard's row (its type opened out), under the pointer.
     module_tool(&h, "Expand All").click();
@@ -822,6 +842,8 @@ fn delete_on_a_tree_row_asks_first() {
 #[test]
 fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
     let Some((mut h, area)) = area_harness("tree-reveal") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The area opened is the one marked (a double click, View Area).
     assert_eq!(h.state().tree_area, Some(area));
     h.state_mut().tree_area = None;
@@ -856,6 +878,8 @@ fn every_kind_of_tab_chosen_moves_the_module_tree() {
     else {
         return;
     };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let script = |n: u32| ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
     let area_key = ResKey::new(area, ResType::ARE);
     let marked = |h: &Harness<'_, Moonglow>| h.state().tree_marked;
@@ -918,6 +942,8 @@ fn every_kind_of_tab_chosen_moves_the_module_tree() {
 fn a_tree_object_s_menu_opens_its_variables_listed_by_name() {
     use mg_gff::{Struct, Value};
     let Some((mut h, area)) = area_harness("tree-variables") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let git = ResKey::new(area, ResType::GIT);
     let var = |name: &str, value: i32| {
         let mut s = Struct::new(0);
@@ -955,6 +981,8 @@ fn a_tree_object_s_menu_opens_its_variables_listed_by_name() {
 fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-shows-selected") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     // (The tree follows the selection where the Outliner is not shown.)
     outliner_away(&mut h);
@@ -1016,6 +1044,8 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
 fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-sorted") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     // Forty waypoints, tagged WP_39 to WP_00 in the area's order, each
     // named alike.
@@ -1128,7 +1158,9 @@ fn the_module_tree_s_letters_typed_quickly() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .with_step_dt(0.25)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     if h.query_by_label("sewer").is_none() {
         h.get_by_label_contains("Scripts (").click();
@@ -1197,7 +1229,9 @@ fn the_module_tree_s_keys_at_placed_objects() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .with_step_dt(0.25)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let start = ResRef::from_str("start").unwrap();
     let at = |h: &Harness<'_, Moonglow>| h.state().tree_cursor;
@@ -1290,6 +1324,8 @@ fn several_resources_are_chosen_in_the_tree_and_exported_together() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     h.get_by_label_contains("Scripts (").click();
     h.run_steps(3);
@@ -1365,6 +1401,8 @@ fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1100.0, 760.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(3);
     let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
@@ -1430,6 +1468,8 @@ fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
 fn placed_objects_are_chosen_together_and_found_in_areas_not_opened_out() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-objects-several") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "not opened out");
     // The Filter: what is placed there, without opening the area out.
@@ -1492,6 +1532,8 @@ fn placed_objects_are_chosen_together_and_found_in_areas_not_opened_out() {
 #[test]
 fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
     let Some((mut h, area)) = area_harness("tree-copy-closed") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let git = ResKey::new(area, ResType::GIT);
     let ws = h.state_mut().ws.as_mut().unwrap();
     let z = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].float("ZPosition").unwrap();
@@ -1531,6 +1573,8 @@ fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
 #[test]
 fn empty_groups_are_hidden_when_asked() {
     let Some((mut h, _area)) = area_harness("tree-hide-empty") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     let empty = |h: &Harness<'_, Moonglow>| -> Vec<String> {
@@ -1560,6 +1604,8 @@ fn empty_groups_are_hidden_when_asked() {
 fn adjust_location_from_a_placed_object_s_row() {
     use mg_area::ObjectKind::Waypoint;
     let Some((mut h, area)) = area_harness("tree-adjust-location") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
     h.get_by_label_contains("Placed Objects in ").click();
@@ -1585,6 +1631,8 @@ fn adjust_location_from_a_placed_object_s_row() {
 #[test]
 fn a_placed_object_is_exported_as_a_blueprint() {
     let Some((mut h, area)) = area_harness("tree-export-object") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     let erf = mg_testkit::scratch_dir("ui-tree-export-object").join("waypoint.erf");
     let _ = std::fs::remove_file(&erf);
@@ -1628,6 +1676,8 @@ fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     assert_eq!(h.get_all_by_label("(not in the area list)").count(), 1);
     tree_row(&h, "lost").click_secondary();
@@ -1651,6 +1701,8 @@ fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
 fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-tab-closed") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     // Forty waypoints, for a tree that scrolls.
     let git = ResKey::new(area, ResType::GIT);
@@ -1728,6 +1780,8 @@ fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
 #[test]
 fn the_kinds_the_filter_opens_close_again() {
     let Some((mut h, _)) = area_harness("tree-filter-kinds") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let filter = h
         .get_all_by_role(egui::accesskit::Role::TextInput)
         .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
@@ -1767,6 +1821,8 @@ fn the_kinds_the_filter_opens_close_again() {
 #[test]
 fn an_area_the_filter_opens_out_closes_again() {
     let Some((mut h, _)) = area_harness("tree-filter-area") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let typed = |h: &mut Harness<'_, Moonglow>, text: &str| {
         let filter = h
             .get_all_by_role(egui::accesskit::Role::TextInput)
@@ -1809,6 +1865,8 @@ fn an_area_the_filter_opens_out_closes_again() {
 #[test]
 fn the_filter_follows_what_is_placed_as_it_changes() {
     let Some((mut h, _)) = area_harness("tree-filter-follows") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let filter = h
         .get_all_by_role(egui::accesskit::Role::TextInput)
         .find(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
@@ -2036,6 +2094,8 @@ fn several_of_every_kind_have_delete_and_export_in_their_menu() {
     app.load_plugins();
     app.enable_plugin("test.each", true);
     let mut h = harness(app, 1400.0, 900.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let label = |k: &ResKey| match k.restype {
         ResType::ARE | ResType::DLG | ResType::NSS => k.resref.to_string(),
@@ -2143,6 +2203,8 @@ fn several_chosen_stay_when_an_editor_opened_before_is_clicked_in() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1400.0, 900.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let k = |name: &str| ResKey::parse(name, ResType::DLG).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenResource(k("talk_1")));
@@ -2203,6 +2265,8 @@ fn several_conversations_are_exported_as_ink_twine_text_and_csv() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1400.0, 900.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // The inn's editor open, with a change not saved.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(k("inn"))));
@@ -2391,6 +2455,8 @@ fn tree_rows_with<'t>(h: &'t Harness<'_, Moonglow>, words: &'t str) -> Vec<egui_
 fn a_read_only_area_s_object_is_not_deleted_from_the_tree() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = read_only_area_harness("tree-read-only-delete") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // (The tree its old height: the area's kinds and rows in the well's sight.)
     tall_tree(&mut h);
     let chests = |h: &mut Harness<'_, Moonglow>| {
@@ -2448,6 +2514,8 @@ fn a_read_only_area_s_object_is_not_deleted_from_the_tree() {
 fn an_object_of_a_hidden_kind_gone_to_from_the_tree_shows_its_kind() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-hidden-kind") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // (The tree its old height: the area's kinds and rows in the well's sight.)
     tall_tree(&mut h);
     let shown =
@@ -2485,6 +2553,8 @@ fn an_object_of_a_hidden_kind_gone_to_from_the_tree_shows_its_kind() {
 fn the_module_tree_s_placed_objects_at_the_size_at_first() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-default-size") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let w = |i: usize| (ObjectKind::Waypoint, i);
     h.get_by_label_contains("Placed Objects in ").click();
     until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Waypoints (2)").is_empty());

@@ -59,11 +59,9 @@ fn size(h: &mut Harness<'_, Moonglow>, width: f32, height: f32) {
 }
 
 /// [`area_harness`]'s window (an area open in front, the game's data, the
-/// log open) with the docks folding by the window's width as the
-/// application's do, and the Open editors switch as `mode` has it.
+/// log open), the Open editors switch as `mode` has it.
 fn yielding(name: &str, mode: Mode) -> Option<(Harness<'static, Moonglow>, mg_core::ResRef)> {
     let (mut h, area) = area_harness(name)?;
-    h.state_mut().docks_fold_by_width = true;
     h.state_mut().settings.open_editors = match mode {
         Mode::Floating => mg_ui::OpenEditors::Floating,
         Mode::Tabs => mg_ui::OpenEditors::Tabs,
@@ -337,7 +335,8 @@ fn a_window_narrowed_and_widened_writes_nothing_and_gives_all_back() {
         {
             let s = &mut h.state_mut().settings;
             (s.left_dock_width, s.right_dock_width, s.module_panel_height) =
-                (Some(300), Some(420), Some(400));
+                (Some(300), Some(380), Some(400));
+            s.right_dock_width_wide = Some(620);
             (s.hide_tree, s.hide_palettes) = (folded, folded);
         }
         size(&mut h, 3440.0, 1000.0);
@@ -346,15 +345,20 @@ fn a_window_narrowed_and_widened_writes_nothing_and_gives_all_back() {
         if folded {
             assert_eq!((left_as(&h), right_as(&h)), ("strip", "strip"), "folded as chosen");
         } else {
-            assert_eq!(h.state().right_dock_rect().map(|r| r.width()), Some(420.0));
+            // (Each layout's width: 620 in the wide one, 380 under it.)
+            assert_eq!(h.state().right_dock_rect().map(|r| r.width()), Some(620.0));
             let left = h.state().editor_area_rect().unwrap().left() - HARNESS_MARGIN;
             assert!((left - 300.0).abs() <= 1.0, "the Left Dock as chosen: {left}");
+            size(&mut h, 1600.0, 1000.0);
+            assert_eq!(h.state().right_dock_rect().map(|r| r.width()), Some(380.0));
+            size(&mut h, 3440.0, 1000.0);
         }
     }
     // Nothing chosen: the widths each layout gives, nothing stored.
     {
         let s = &mut h.state_mut().settings;
         (s.left_dock_width, s.right_dock_width, s.module_panel_height) = (None, None, None);
+        s.right_dock_width_wide = None;
         (s.hide_tree, s.hide_palettes) = (false, false);
     }
     size(&mut h, 3440.0, 1440.0);
@@ -393,7 +397,7 @@ fn a_dock_folded_by_the_width_unfolds_until_the_window_is_wide_again() {
     size(&mut h, 1280.0, 800.0);
     assert_eq!(left_as(&h), "strip");
     let tip = edge_tip(&mut h, "Show the Left Dock");
-    assert!(tip.starts_with("Show the Left Dock, which this narrow window folds"), "{tip}");
+    assert!(tip.starts_with("Show the Left Dock in this narrow window"), "{tip}");
     h.get_by_label("Show the Left Dock").click();
     at_rest(&mut h);
     assert_eq!(left_as(&h), "open");
@@ -401,7 +405,7 @@ fn a_dock_folded_by_the_width_unfolds_until_the_window_is_wide_again() {
     let editor = h.state().editor_area_rect().unwrap();
     assert!(editor.left() >= mg_uikit::metrics::LEFT_DOCK - 1.0, "pushed: {editor:?}");
     let tip = edge_tip(&mut h, "Fold the Left Dock");
-    assert!(tip.starts_with("Fold the Left Dock again, as this narrow window has it"), "{tip}");
+    assert!(tip.starts_with("Fold the Left Dock back to its strip"), "{tip}");
     for width in [1450.0, 1300.0] {
         size(&mut h, width, 800.0);
         assert_eq!(left_as(&h), "open", "still unfolded at {width}");
@@ -427,11 +431,13 @@ fn a_dock_folded_by_the_width_unfolds_until_the_window_is_wide_again() {
 /// In a 900 window (the Right Dock open, the Left Dock folded by the
 /// width) both docks do not fit beside the editor area's least: the Left
 /// Dock unfolded by View › Left Dock folds the Right Dock to its strip,
-/// whose button says it shows the Right Dock in place of the Left Dock;
-/// that button unfolds the Right Dock and folds the Left Dock. Neither
-/// fold is written. F6 in a 1280 window, the keys in the editor area,
-/// stops at the Left Dock folded by the width and unfolds it, the keys
-/// its panel's.
+/// whose chevron says it shows the Right Dock in place of the Left Dock;
+/// that chevron unfolds the Right Dock and folds the Left Dock. Neither
+/// fold is written. F6 moves only among what is drawn (the orchestrator's
+/// decision of M3 T14's review, reversible): in a 1280 window, once round,
+/// it never unfolds the Left Dock folded by the width, nor gives the keys
+/// to its panels; the strip's buttons are reached by Tab, named, and View
+/// › Left Dock unfolds it.
 #[test]
 fn both_docks_where_they_do_not_fit_and_f6() {
     let Some((mut h, _)) = yielding("yields-both", Mode::Tabs) else { return };
@@ -447,9 +453,8 @@ fn both_docks_where_they_do_not_fit_and_f6() {
     assert_eq!((left_as(&h), right_as(&h)), ("strip", "tabs"));
     let s = &h.state().settings;
     assert!(!s.hide_tree && !s.hide_palettes, "nothing written");
-    // F6 at 1280: the editor area's, then the Left Dock's, unfolded. (By
-    // way of 1600, where the window no longer folds it: unfolded by hand
-    // under 1500, it stays so until the window is that wide.)
+    // F6 at 1280 (by way of 1600, where the window no longer folds the
+    // dock: unfolded by hand under 1500, it stays so until then).
     size(&mut h, 1600.0, 800.0);
     size(&mut h, 1280.0, 800.0);
     assert_eq!(left_as(&h), "strip");
@@ -457,52 +462,89 @@ fn both_docks_where_they_do_not_fit_and_f6() {
     // while the pointer is in it.)
     let view = h.state().editor_area_rect().unwrap().center();
     h.hover_at(egui::pos2(view.x, 20.0));
-    h.key_press(egui::Key::F6);
-    at_rest(&mut h);
-    // (F6 goes from the editor area to the Right Dock, then the log, then
-    // round to the Left Dock and the Outliner: once round at most.)
-    for _ in 0..5 {
-        if left_as(&h) == "open" {
-            break;
-        }
+    let mut seen = Vec::new();
+    for _ in 0..6 {
         h.key_press(egui::Key::F6);
         at_rest(&mut h);
+        seen.push(mg_ui::palette_view::arrow_keys_are(&h.ctx));
+        assert_eq!(left_as(&h), "strip", "F6 never unfolds it: {seen:?}");
     }
-    assert_eq!(left_as(&h), "open", "F6 unfolds the Left Dock folded by the width");
-    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Tree", "the keys its panel's");
+    let lefts = ["Tree", "Browser", "Outliner"];
+    assert!(seen.iter().all(|k| !lefts.contains(&k.as_str())), "only what is drawn: {seen:?}");
+    assert!(seen.iter().any(|k| k == "Palette"), "the Right Dock's stop: {seen:?}");
+    // The strip's buttons by Tab, named: from its Module button, Shift+Tab
+    // to its chevron.
+    let strip = h.get_by_label("Left Dock");
+    strip.get_by_label("Module").focus();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+    h.run_steps(2);
+    assert!(h.get_by_label("Show the Left Dock").accesskit_node().is_focused());
+    menu_command(&mut h, "View", "Left Dock");
+    at_rest(&mut h);
+    assert_eq!(left_as(&h), "open", "View › Left Dock unfolds it");
     assert!(!h.state().settings.hide_tree);
 }
 
-/// The sizes older versions kept, taken once: 4.2.0's module tree width
-/// kept by egui (its 240 at first: not chosen; a width dragged to, 300:
-/// chosen), this branch's sizes stored before anything was chosen (260,
-/// 320, 180: not chosen), a width dragged to and stored (410: chosen);
+/// The sizes older versions kept, taken once, and only what cannot have
+/// been a choice (M3 T14's review: one size equal to a size at first was
+/// lost): this branch's whole set at first (260, 320, 180), with the Right
+/// Dock dragged to 400 kept whole; 4.2.0's untouched pair kept by egui
+/// (240 and 120), and with the tree dragged to 300 kept; a lone Right Dock
+/// width of 320 with nothing else kept (no tree's width: a set needs it);
 /// and taken only once, so that a width a narrow window drew is never
 /// taken.
 #[test]
 fn sizes_kept_by_older_versions_are_taken_once() {
     let Some((mut h, _)) = yielding("yields-taken", Mode::Tabs) else { return };
-    let take = |h: &mut Harness<'_, Moonglow>, kept: Option<u32>, egui_width: Option<f32>| {
-        h.state_mut().settings.left_dock_width = kept;
-        h.state_mut().settings.dock_sizes_taken = false;
-        if let Some(width) = egui_width {
-            let rect = egui::Rect::from_min_size(egui::pos2(0.0, 30.0), egui::vec2(width, 600.0));
-            let state = egui::containers::panel::PanelState { outer_rect: rect };
-            h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));
+    type Kept = (Option<u32>, Option<u32>, Option<u32>);
+    let take = |h: &mut Harness<'_, Moonglow>, kept: Kept, egui_sizes: Kept| -> Kept {
+        {
+            let s = &mut h.state_mut().settings;
+            (s.left_dock_width, s.right_dock_width, s.bottom_dock_height) = kept;
+            s.dock_sizes_taken = false;
+        }
+        for (id, axis, size) in
+            [("tree", 0, egui_sizes.0), ("right-dock", 0, egui_sizes.1), ("log", 1, egui_sizes.2)]
+        {
+            let id = egui::Id::new(id);
+            match size {
+                Some(size) => {
+                    let mut wh = egui::vec2(600.0, 600.0);
+                    wh[axis] = size as f32;
+                    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 30.0), wh);
+                    let state = egui::containers::panel::PanelState { outer_rect: rect };
+                    h.ctx.data_mut(|d| d.insert_persisted(id, state));
+                }
+                None => {
+                    h.ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(id));
+                }
+            }
         }
         // (One frame: they are taken as it begins.)
         h.step();
-        assert!(h.state().settings.dock_sizes_taken, "marked taken");
-        h.state().settings.left_dock_width
+        let s = &h.state().settings;
+        assert!(s.dock_sizes_taken, "marked taken");
+        (s.left_dock_width, s.right_dock_width, s.bottom_dock_height)
     };
     size(&mut h, 1600.0, 900.0);
-    assert_eq!(take(&mut h, None, Some(240.0)), None, "4.2.0's width at first");
-    assert_eq!(take(&mut h, None, Some(300.0)), Some(300), "4.2.0's width dragged to");
-    assert_eq!(take(&mut h, Some(260), None), None, "this branch's width at first");
-    assert_eq!(take(&mut h, Some(240), None), None, "4.2.0's taken by this branch");
-    assert_eq!(take(&mut h, Some(410), None), Some(410), "a width dragged to");
+    let none = (None, None, None);
+    let set = (Some(260), Some(320), Some(180));
+    assert_eq!(take(&mut h, set, none), none, "this branch's set at first");
+    let dragged = (Some(260), Some(400), Some(180));
+    assert_eq!(take(&mut h, dragged, none), dragged, "one of it dragged: all kept");
+    let old = (Some(240), None, Some(120));
+    assert_eq!(take(&mut h, none, old), none, "4.2.0's pair at first");
+    let old_dragged = (Some(300), None, Some(120));
+    assert_eq!(take(&mut h, none, old_dragged), old_dragged, "4.2.0's tree dragged: kept");
+    let lone = (None, Some(320), None);
+    assert_eq!(take(&mut h, lone, none), lone, "a lone 320: kept");
+    assert_eq!(take(&mut h, (Some(410), None, None), none).0, Some(410), "a width dragged to");
     // Once: a narrow window's drawn width, kept by egui, is not taken.
-    h.state_mut().settings.left_dock_width = None;
+    {
+        let s = &mut h.state_mut().settings;
+        (s.left_dock_width, s.right_dock_width, s.bottom_dock_height) = none;
+    }
     size(&mut h, 1280.0, 800.0);
     h.get_by_label("Show the Left Dock").click();
     size(&mut h, 700.0, 800.0);
@@ -544,45 +586,56 @@ fn the_palette_s_types_are_a_dropdown_in_the_narrow_dock() {
     assert_eq!((row(&h), dropdown(&h)), (13, None), "the row again");
 }
 
-/// Nothing takes the keys away as the window is resized: the arrow keys
-/// given to the module tree by F6 at 1600 are still the tree's with the
-/// dock folded by a 1280 window, and the tree's as the window widens
-/// again; nor does a resize move them to the dock folded by it.
+/// The arrow keys never stay with a panel that is not drawn (the
+/// orchestrator's decision of M3 T14's review, reversible): given to the
+/// module tree by F6 at 1600, they go to the editor area's active editor
+/// (the area's) when a 1280 window folds the dock, and stay there when the
+/// window widens again and the dock is back; given to the tree again and
+/// the dock folded by its button, the same; the Right Dock's palette's
+/// keys likewise when the dock is folded by hand. Keys elsewhere (the
+/// palette's, the Right Dock open) are left where they are by a resize
+/// that folds the Left Dock.
 #[test]
-fn a_resize_leaves_the_keys_where_they_are() {
+fn keys_leave_a_dock_that_folds() {
     let Some((mut h, _)) = yielding("yields-keys", Mode::Tabs) else { return };
     size(&mut h, 1600.0, 900.0);
     let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
     // (The pointer over the Top Bar: the area's view takes the keys back
     // while the pointer is in it.)
     h.hover_at(egui::pos2(800.0, 20.0));
-    for _ in 0..5 {
-        if keys(&h) == "Tree" {
-            break;
+    let to = |h: &mut Harness<'_, Moonglow>, want: &str| {
+        for _ in 0..6 {
+            if keys(h) == want {
+                break;
+            }
+            h.key_press(egui::Key::F6);
+            at_rest(h);
         }
-        h.key_press(egui::Key::F6);
-        at_rest(&mut h);
-    }
-    assert_eq!(keys(&h), "Tree");
+        assert_eq!(keys(h), want);
+    };
+    to(&mut h, "Tree");
     size(&mut h, 1280.0, 800.0);
     assert_eq!(left_as(&h), "strip");
-    assert_eq!(keys(&h), "Tree", "kept with the dock folded by the width");
+    assert_eq!(keys(&h), "Area", "the editor's with the dock folded by the width");
     size(&mut h, 1600.0, 900.0);
     assert_eq!(left_as(&h), "open");
-    assert_eq!(keys(&h), "Tree", "kept as the window widens");
-    // The keys elsewhere (the Right Dock's palette), the Left Dock folded
-    // and unfolded by the width: they stay there.
-    for _ in 0..6 {
-        if keys(&h) == "Palette" {
-            break;
-        }
-        h.key_press(egui::Key::F6);
-        at_rest(&mut h);
-    }
-    assert_eq!(keys(&h), "Palette");
+    assert_eq!(keys(&h), "Area", "not handed back as the dock comes back");
+    // Folded by its button: the same.
+    to(&mut h, "Tree");
+    h.get_by_label("Fold the Left Dock").click();
+    at_rest(&mut h);
+    assert_eq!(keys(&h), "Area", "the editor's with the dock folded by hand");
+    h.get_by_label("Show the Left Dock").click();
+    at_rest(&mut h);
+    // The palette's keys: left alone by the Left Dock folding by the
+    // width; the editor's once the Right Dock is folded.
+    to(&mut h, "Palette");
     size(&mut h, 1280.0, 800.0);
     size(&mut h, 1600.0, 900.0);
-    assert_eq!(keys(&h), "Palette");
+    assert_eq!(keys(&h), "Palette", "a resize that folds another dock leaves them");
+    h.get_by_label("Fold the Right Dock").click();
+    at_rest(&mut h);
+    assert_eq!(keys(&h), "Area", "the editor's with the Right Dock folded");
 }
 
 /// The wide layout's two columns with a blueprint chosen (3440 by 1440):
@@ -646,9 +699,9 @@ fn the_wide_dock_s_columns_by_the_keys_and_a_chosen_blueprint() {
 /// each time no two named widgets over each other, no control of the bars
 /// or the Left Dock outside the window or over another, the docks inside
 /// the window and at their least where the window has the room, never
-/// both open where they do not fit, and the editor area never less than
-/// nothing (it is narrow beside a dock asked for in the least windows:
-/// the builder's choice there).
+/// both open where they do not fit, and the editor area at its least
+/// (490) where the window allows it, and where it does not, all the room
+/// the dock unfolded, at its least, and the other's strip leave it.
 #[test]
 fn a_dock_unfolded_by_hand_in_a_narrow_window_is_whole() {
     let Some((mut h, _)) = yielding("yields-by-hand", Mode::Tabs) else { return };
@@ -682,11 +735,22 @@ fn a_dock_unfolded_by_hand_in_a_narrow_window_is_whole() {
                 wrong.push(at(found));
             }
             let editor = h.state().editor_area_rect().unwrap();
-            if editor.width() < 0.0 {
-                wrong.push(at(format!("the editor area {editor:?}")));
-            }
             let left_open = left_as(&h) == "open";
             let right = h.state().right_dock_rect();
+            // The editor area: its least where the window allows it, and
+            // where it does not, all the room the open dock at its least
+            // and the other's strip leave it (the window's width less
+            // theirs, each with its line).
+            let open_least = match (left_open, right.is_some()) {
+                (true, false) => 190.0 + 1.0 + kit::STRIP + 1.0,
+                (false, true) => kit::STRIP + 1.0 + kit::RIGHT_DOCK_NARROW,
+                (false, false) => 2.0 * (kit::STRIP + 1.0),
+                (true, true) => 190.0 + 1.0 + kit::RIGHT_DOCK_NARROW,
+            };
+            let must = kit::EDITOR_LEAST.min(width - open_least);
+            if editor.width() + 2.0 * HARNESS_MARGIN < must - 1.0 {
+                wrong.push(at(format!("the editor area {} under {must}", editor.width())));
+            }
             if let Some(dock) = right {
                 if !window.expand(0.5).contains_rect(dock) {
                     wrong.push(at(format!("the Right Dock {dock:?} outside")));
@@ -708,4 +772,77 @@ fn a_dock_unfolded_by_hand_in_a_narrow_window_is_whole() {
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The Right Dock's width dragged to in the wide layout and the one
+/// dragged to under it are kept apart, each its own layout's (M3 T14's
+/// review: one width served both, so a dock dragged to 700 in two columns
+/// came back 640 at 1600, and one dragged to 400 at 1600 never stood in
+/// two columns at 3440): dragged to 700 at 3440 and to 400 at 1600, the
+/// window crossing 2560 each way gives each back, two columns at 3440;
+/// and a width dragged at 1600 alone leaves the wide layout its 741.
+#[test]
+fn each_layout_keeps_its_own_right_dock_width() {
+    let Some((mut h, _)) = yielding("yields-two-widths", Mode::Tabs) else { return };
+    let width = |h: &Harness<'_, Moonglow>| h.state().right_dock_rect().unwrap().width();
+    let drag_to = |h: &mut Harness<'_, Moonglow>, want: f32| {
+        let dock = h.state().right_dock_rect().unwrap();
+        let from = egui::pos2(dock.left() + 1.0, dock.top() + 150.0);
+        drag(h, from, from - egui::vec2(want - dock.width(), 0.0));
+        at_rest(h);
+    };
+    // A width at 1600 alone: the wide layout keeps its 741, in columns.
+    size(&mut h, 1600.0, 900.0);
+    drag_to(&mut h, 400.0);
+    assert!((width(&h) - 400.0).abs() < 2.0, "dragged at 1600: {}", width(&h));
+    size(&mut h, 3440.0, 1000.0);
+    assert_eq!(width(&h), kit::RIGHT_DOCK_WIDE, "the wide layout's own");
+    assert_eq!(right_as(&h), "columns");
+    // Dragged in the wide layout too: each back across 2560, both ways.
+    drag_to(&mut h, 700.0);
+    let wide = width(&h);
+    assert!((wide - 700.0).abs() < 2.0, "dragged at 3440: {wide}");
+    for _ in 0..2 {
+        size(&mut h, 1600.0, 900.0);
+        assert!((width(&h) - 400.0).abs() < 2.0, "1600's: {}", width(&h));
+        size(&mut h, 3440.0, 1000.0);
+        assert!((width(&h) - wide).abs() < 1.0, "3440's: {}", width(&h));
+        assert_eq!(right_as(&h), "columns");
+    }
+    let s = &h.state().settings;
+    let near = |k: Option<u32>, want: f32| k.is_some_and(|k| (k as f32 - want).abs() < 2.5);
+    assert!(near(s.right_dock_width, 400.0), "1600's kept: {:?}", s.right_dock_width);
+    assert!(near(s.right_dock_width_wide, wide), "3440's kept: {:?}", s.right_dock_width_wide);
+}
+
+/// What asks for a dock's panel by name unfolds the dock it lives in,
+/// wherever the window's width folds it (M3 T14's review: Show in Module
+/// Tree left the dock folded at the default 1280): Tools › Resource
+/// Browser at 1280 (the Left Dock, on Resources); Tools › Palettes and
+/// Tools › Preview at 700 (the Right Dock, on each); each without writing
+/// the builder's fold. (Show in Module Tree's is `module_panel.rs`'s
+/// `show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below`.)
+#[test]
+fn a_panel_asked_for_by_name_unfolds_its_dock() {
+    let Some((mut h, _)) = yielding("yields-asked", Mode::Tabs) else { return };
+    size(&mut h, 1280.0, 800.0);
+    assert_eq!(left_as(&h), "strip");
+    menu_command(&mut h, "Tools", "Resource Browser");
+    at_rest(&mut h);
+    assert_eq!(h.state().left_dock_shows(), Some(mg_ui::Panel::Resources));
+    size(&mut h, 700.0, 800.0);
+    assert_eq!(right_as(&h), "strip");
+    for (row, panel) in [("Palettes", mg_ui::Panel::Palette), ("Preview", mg_ui::Panel::Preview)] {
+        // (Folded again by its chevron's opposite: the button on its bar.)
+        if h.query_by_label("Fold the Right Dock").is_some() {
+            h.get_by_label("Fold the Right Dock").click();
+            at_rest(&mut h);
+        }
+        assert_eq!(right_as(&h), "strip");
+        menu_command(&mut h, "Tools", row);
+        at_rest(&mut h);
+        assert_eq!(h.state().right_dock_shows(), Some(panel), "Tools › {row}");
+    }
+    let s = &h.state().settings;
+    assert!(!s.hide_tree && !s.hide_palettes, "nothing written");
 }

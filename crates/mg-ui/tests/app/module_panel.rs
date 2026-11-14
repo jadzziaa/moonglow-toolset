@@ -22,6 +22,8 @@ fn chapter1(width: f32, height: f32) -> Option<Harness<'static, Moonglow>> {
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     let mut h = harness(app, width, height);
     settle(&mut h);
+    // (The builder unfolds the Left Dock where the width folds it: M3 T14.)
+    unfold_left_dock(&mut h);
     Some(h)
 }
 
@@ -105,6 +107,8 @@ fn wheel(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, dy: f32, times: usize) {
 #[test]
 fn the_areas_group_scrolls_in_its_own_well_and_the_groups_below_stay() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     assert_eq!(all.len(), 113);
     group(&h, "Areas");
@@ -177,17 +181,20 @@ fn the_module_panel_s_header_buttons_act_on_the_tree_with_tips() {
     // (With the game and an area: the palette and its own Expand All and
     // Collapse All.)
     let Some((mut h, _)) = area_harness("module-panel-header") else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     settle(&mut h);
-    // The four, in the board's order, the last at the tab bar's end (the
-    // fold button is on the dock's edge, not on the bar).
+    // The four, in the board's order, then the dock's fold button at the
+    // tab bar's end (M3 T14's review: beside the dock's edge it was over
+    // the editor area).
     let names = ["Module Properties", "New Area", "Expand All", "Collapse All"];
     let lefts: Vec<f32> = names.iter().map(|n| module_tool(&h, n).rect().left()).collect();
     assert!(lefts.windows(2).all(|w| w[0] < w[1]), "in order: {lefts:?}");
-    assert!(h.get_by_label("Left Dock").query_by_label("Fold the Left Dock").is_none());
-    // (The fold button beside the dock's edge, from its outer side.)
-    let fold = h.get_by_label("Fold the Left Dock").rect();
+    let fold = h.get_by_label("Left Dock").get_by_label("Fold the Left Dock").rect();
     let last = module_tool(&h, "Collapse All").rect();
-    assert!(last.right() <= fold.left() && fold.left() - last.right() < 6.0, "{last:?}");
+    assert!(last.right() <= fold.left() + 0.5 && fold.left() - last.right() < 6.0, "{last:?}");
+    assert!(fold.right() <= left_dock_rect(&h).right() + 0.5, "inside the dock: {fold:?}");
     for (name, tip) in [
         ("Module Properties", "Open the module's properties"),
         ("New Area", "Make a new area with the Area Wizard"),
@@ -254,6 +261,8 @@ fn the_module_panel_s_header_buttons_act_on_the_tree_with_tips() {
 #[test]
 fn the_keys_walk_out_of_the_areas_well_and_back() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     let (first, last) = (all[0], all[all.len() - 1]);
     group(&h, "Conversations").click();
@@ -311,6 +320,8 @@ fn the_tree_follows_an_area_tab_into_the_well() {
     let all = areas_of(&app);
     let (deep, other) = (all[90], all[40]);
     let mut h = area_gpu_harness(app, rs, 1000.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // Two areas opened one after the other, each a tab of its own (as a
     // double click on its row opens it).
     for area in [deep, other] {
@@ -390,6 +401,8 @@ fn the_tree_follows_an_area_tab_into_the_well() {
 #[test]
 fn a_row_in_the_well_has_its_menu_and_a_blueprint_row_drags() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     let x = group(&h, "Areas").rect().center().x;
     let (a, c) = (*well(&h).start(), *well(&h).end());
@@ -470,6 +483,8 @@ fn a_row_in_the_well_has_its_menu_and_a_blueprint_row_drags() {
 #[test]
 fn the_filter_finds_rows_in_every_group_and_clear_filter_restores_them() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let whole: Vec<String> = ["Areas", "Conversations", "Scripts"]
         .iter()
         .map(|g| group(&h, g).accesskit_node().label().unwrap())
@@ -513,6 +528,8 @@ fn an_object_selected_in_an_area_brings_its_row_into_the_well_s_view() {
     let area = ResRef::from_str("map_m1q1a").unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(5);
     settle(&mut h);
     let git = ResKey::new(area, ResType::GIT);
@@ -575,6 +592,8 @@ fn small(name: &str, n: usize, width: f32, height: f32) -> Harness<'static, Moon
     app.open_module(&n_areas(name, n));
     let mut h = harness(app, width, height);
     settle(&mut h);
+    // (The builder unfolds the Left Dock where the width folds it: M3 T14.)
+    unfold_left_dock(&mut h);
     h
 }
 
@@ -628,10 +647,10 @@ fn sideways(h: &mut Harness<'_, Moonglow>) -> f32 {
     moved
 }
 
-/// The Left Dock's right edge (where it is dragged wider or narrower):
-/// its fold button stands beside it, from the line along it.
+/// The Left Dock's right edge (where it is dragged wider or narrower),
+/// just past the line along it.
 fn dock_edge(h: &Harness<'_, Moonglow>) -> f32 {
-    h.get_by_label("Fold the Left Dock").rect().left() + 0.5
+    left_dock_rect(h).right() + 0.5
 }
 
 /// The Left Dock widened by 300 points, then narrowed to its least width:
@@ -644,6 +663,8 @@ fn dock_edge(h: &Harness<'_, Moonglow>) -> f32 {
 fn a_narrowed_dock_leaves_the_tree_no_wider_than_its_rows() {
     for areas_open in [true, false] {
         let Some(mut h) = chapter1(1280.0, 800.0) else { return };
+        // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+        unfold_left_dock(&mut h);
         if !areas_open {
             group(&h, "Areas").click();
             settle(&mut h);
@@ -676,6 +697,8 @@ fn a_narrowed_dock_leaves_the_tree_no_wider_than_its_rows() {
 #[test]
 fn the_well_keeps_its_rows_whatever_else_is_open() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let rows = well_rows(&h);
     assert_eq!(rows, 14.0, "with the groups closed");
     group(&h, "Scripts").click();
@@ -714,6 +737,8 @@ fn the_well_keeps_its_rows_whatever_else_is_open() {
 #[test]
 fn home_and_end_go_to_the_well_s_ends_over_it_and_the_tree_s_elsewhere() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     let (first, last) = (all[0].to_string(), all[all.len() - 1].to_string());
     let (a, c) = (*well(&h).start(), *well(&h).end());
@@ -764,6 +789,8 @@ fn home_and_end_go_to_the_well_s_ends_over_it_and_the_tree_s_elsewhere() {
 #[test]
 fn the_well_and_the_tree_keep_their_places_through_the_filter() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let (a, c) = (*well(&h).start(), *well(&h).end());
     let x = group(&h, "Areas").rect().center().x;
     wheel(&mut h, egui::pos2(x, (a + c) / 2.0), -200.0, 5);
@@ -829,6 +856,8 @@ fn every_group_is_reached_in_the_least_window() {
     // (A test's window has a 16 px frame: `shell::TEST_FRAME`.)
     let least = mg_ui::LEAST_WINDOW_SIZE + egui::Vec2::splat(16.0);
     let Some(mut h) = chapter1(least.x, least.y) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     assert_eq!(well_rows(&h), 5.0);
     let view = |h: &Harness<'_, Moonglow>| {
         let filter = h.get(egui_kittest::kittest::by().predicate(tree_filter)).rect();
@@ -882,6 +911,8 @@ fn every_group_is_reached_in_the_least_window() {
 #[test]
 fn f2_renames_an_area_in_the_well() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     let deep = all[60];
     let at = |k: ResRef| Some(TreeAt::Resource(ResKey::new(k, ResType::ARE)));
@@ -952,6 +983,8 @@ fn f2_renames_an_area_in_the_well() {
 #[test]
 fn deleting_an_area_in_the_well_leaves_the_well_in_place() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     let deep = all[60];
     let at = |k: ResRef| Some(TreeAt::Resource(ResKey::new(k, ResType::ARE)));
@@ -1011,7 +1044,10 @@ fn deleting_an_area_in_the_well_leaves_the_well_in_place() {
 /// A tab's menu's Show in Module Tree, for an area deep in the well (its
 /// row brought into the well's view, the area opened out) and for a
 /// script far down the Scripts group under the well (the group opened,
-/// the tree scrolled to the script's row).
+/// the tree scrolled to the script's row); each time from the Left Dock
+/// folded in the 1000 window (by the window's width, the dock folded
+/// back by its button after the tree was set up), which it unfolds (M3
+/// T14's review: it marked the row and left the dock folded).
 #[test]
 fn show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -1032,6 +1068,8 @@ fn show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below() {
         scripts[1500]
     };
     let mut h = area_gpu_harness(app, rs, 1000.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(deep)));
     h.run_steps(5);
     settle(&mut h);
@@ -1044,7 +1082,9 @@ fn show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below() {
     let x = group(&h, "Areas").rect().center().x;
     wheel(&mut h, egui::pos2(x, (a + c) / 2.0), 400.0, 12);
     assert!(!in_well(&h, &deep.to_string()));
+    fold_left_dock(&mut h);
     show_in_tree_from_tab(&mut h, &Tab::Area(deep), &deep.to_string());
+    assert!(h.query_by_label("Fold the Left Dock").is_some(), "the dock unfolded");
     assert_eq!(h.state().tree_marked, Some(ResKey::new(deep, ResType::ARE)));
     assert!(in_well(&h, &deep.to_string()), "the area's row in the well's view");
     let arrow = format!("Placed Objects in {deep}");
@@ -1059,12 +1099,22 @@ fn show_in_module_tree_from_a_tab_s_menu_reaches_into_the_well_and_below() {
     settle(&mut h);
     group(&h, "Areas").click();
     settle(&mut h);
+    fold_left_dock(&mut h);
     show_in_tree_from_tab(&mut h, &Tab::Script(script), &script.resref.to_string().to_lowercase());
+    assert!(h.query_by_label("Fold the Left Dock").is_some(), "the dock unfolded");
     assert_eq!(h.state().tree_marked, Some(script));
     let filter = h.get(egui_kittest::kittest::by().predicate(tree_filter)).rect();
     let bottom = h.ctx.content_rect().bottom() - mg_uikit::metrics::STATUS_BAR;
     let row = h.get_by_label("Module Tree Rows").get_by_label(&script.resref.to_string()).rect();
     assert!(row.top() >= filter.bottom() - 0.5 && row.bottom() <= bottom + 0.5, "{row:?}");
+}
+
+/// The Left Dock folded by its button, back to the strip a narrow window
+/// folds it to.
+fn fold_left_dock(h: &mut Harness<'_, Moonglow>) {
+    h.get_by_label("Fold the Left Dock").click();
+    settle(h);
+    assert!(h.query_by_label("Show the Left Dock").is_some(), "folded");
 }
 
 /// Show in Module Tree from the menu of `tab`'s tab (its title `title`,
@@ -1127,6 +1177,8 @@ fn show_in_module_tree_with_the_resources_panel_chooses_the_module_tab() {
 #[test]
 fn f6_and_tab_into_and_out_of_the_module_panel_with_a_row_in_the_well() {
     let Some(mut h) = chapter1(1000.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let all = areas(&h);
     let deep = ResKey::new(all[60], ResType::ARE);
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key, m: egui::Modifiers| {
@@ -1188,6 +1240,8 @@ fn f6_and_tab_into_and_out_of_the_module_panel_with_a_row_in_the_well() {
 #[test]
 fn several_are_chosen_across_the_well_s_border() {
     let mut h = small("ui-module-panel-several", 30, 1000.0, 600.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let names: Vec<String> = (0..30).map(|i| format!("area_{i:03}")).collect();
     let keys: Vec<ResKey> =
         (0..30).map(|i| ResKey::new(ResRef::from_str(&names[i]).unwrap(), ResType::ARE)).collect();
@@ -1233,6 +1287,8 @@ fn several_are_chosen_across_the_well_s_border() {
 fn the_keys_go_on_past_resources_deleted() {
     let script = |n: usize| ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
     let mut h = small("ui-module-panel-deleted", 1, 1000.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
         h.key_press(key);
         h.run_steps(2);

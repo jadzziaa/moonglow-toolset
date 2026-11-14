@@ -65,6 +65,8 @@ fn walk(
 #[test]
 fn every_icon_only_button_has_a_name_and_a_tooltip() {
     let Some((mut h, _area)) = area_harness("icon-tips") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.state_mut().settings.toolbar_icons_only = true;
     settle(&mut h);
     let (mut seen, mut wrong) = (Vec::new(), Vec::new());
@@ -78,12 +80,13 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     show_resources(h.state_mut());
     settle(&mut h);
     counts.push(("Resources", walk(&mut h, "Left Dock (Resources)", &mut seen, &mut wrong)));
-    let tabs: Vec<&String> = seen[before..]
-        .iter()
-        .map(|(n, _)| n)
-        .filter(|n| *n == "Module" || *n == "Resources")
-        .collect();
-    assert_eq!(tabs.len(), 2, "the icon tabs walked: {:?}", &seen[before..]);
+    // (Walked as icons at 190, or already in the main window's walk: since
+    // M3 T14's review the dock's fold button stands on its tab bar, and at
+    // its first 260 the tabs show their icons too.)
+    let _ = before;
+    let tabs: Vec<&String> =
+        seen.iter().map(|(n, _)| n).filter(|n| *n == "Module" || *n == "Resources").collect();
+    assert_eq!(tabs.len(), 2, "the icon tabs walked: {seen:?}");
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Module));
     left_dock_width(&mut h, 260.0);
     settle(&mut h);

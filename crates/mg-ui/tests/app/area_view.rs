@@ -2195,6 +2195,8 @@ fn the_area_view_plays_the_area_s_sounds() {
 #[test]
 fn blueprints_drag_from_the_module_tree_into_the_area() {
     let Some((mut h, area)) = area_harness("drag-tree") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // A waypoint blueprint of the module's own (the game's Tavern's copy).
     let key = ResKey::parse("mg_tree_wp", ResType::UTW).unwrap();
     let tavern = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
@@ -2250,6 +2252,8 @@ fn blueprints_drag_from_the_module_tree_into_the_area() {
 #[test]
 fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
     let Some((mut h, area)) = area_harness("drag-ghost") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let key = ResKey::parse("mg_ghost_chest", ResType::UTP).unwrap();
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
     let data = h.state().game.as_deref().unwrap().resman.get(&chest).unwrap().into_owned();
@@ -6408,6 +6412,8 @@ fn onto_objects_places_on_the_placeable_under_the_pointer() {
 fn shift_g_drops_the_selection_onto_the_placeable_below() {
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("drop-onto") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     let git = ResKey::new(area, ResType::GIT);
     let chest = {
@@ -6497,6 +6503,8 @@ fn shift_g_drops_the_selection_onto_the_placeable_below() {
 fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("properties-last") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     tall_tree(&mut h);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
@@ -6581,6 +6589,8 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
 fn the_area_menus_group_related_commands_in_submenus() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("menu-submenus") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {

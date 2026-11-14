@@ -612,6 +612,8 @@ fn escape_on_a_docked_tab_gives_way_as_tabs() {
 fn gives_way(mode: Mode) {
     let places = [("waypoint", "window"), ("module-properties", "middle")];
     let mut h = window(mode, "ui-open-escape-way", &places);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     edit_tag(&mut h);
     // An open menu: its Escape, then the tab's.
     h.get_by_label("View").click();
@@ -832,6 +834,8 @@ fn the_esc_hint_shows_where_the_escape_is_the_tab_s_as_tabs() {
 fn esc_hint(mode: Mode) {
     let places = [("module-properties", "middle"), ("waypoint", "window")];
     let mut h = window(mode, "ui-open-esc-hint", &places);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     if !open_tab(&h, &Tab::ModuleProperties) {
         open(&mut h, &Tab::ModuleProperties);
     }
@@ -939,6 +943,8 @@ fn the_esc_hint_names_another_tab_than_the_active_editor_as_tabs() {
 fn other_tab(mode: Mode) {
     let places = [("module-properties", "split right 500")];
     let mut h = window(mode, "ui-open-esc-other", &places);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // (Opened again where its kind's place puts it, beside the area.)
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::ModuleProperties]));
     settle(&mut h);
@@ -978,6 +984,8 @@ fn other_tab(mode: Mode) {
 #[test]
 fn docked_options_hints_enter_where_it_is_ok() {
     let mut h = window(Mode::Tabs, "ui-open-enter-hint", &[("options", "middle")]);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     settle(&mut h);
     assert_eq!(in_main(&h, &Tab::Options), Some(true), "docked");

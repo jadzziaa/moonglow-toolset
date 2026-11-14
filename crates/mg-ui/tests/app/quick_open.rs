@@ -212,6 +212,8 @@ fn the_command_palette_s_key_and_menu_row_look_among_the_commands() {
 #[test]
 fn escape_gives_the_keys_back_to_a_field() {
     let (mut h, _) = quick_harness("escape-field", 1400.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     type_into_tree_filter(&mut h, "in");
     let filter = h.ctx.memory(|m| m.focused()).expect("the Filter has the keys");
     quick_open(&mut h, "zz");

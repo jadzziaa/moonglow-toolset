@@ -1103,10 +1103,7 @@ fn advanced_search_finds_a_spell_by_its_class_and_the_game_s_blueprints() {
     tlk.entries.push(mg_tlk::TlkEntry::text("Bad Strref"));
     tlk.entries.push(mg_tlk::TlkEntry::text("Fighter"));
     app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
-    let mut h = Harness::new_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        crate::common::docks_as_set(app),
-    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
     h.run_steps(2);

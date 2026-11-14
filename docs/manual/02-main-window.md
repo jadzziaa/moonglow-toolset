@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T07:37:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T09:47:34Z }
 ---
 
 # The main window
@@ -564,26 +564,24 @@ shown, and **Hide All Panels** (beside a tab that brings no Right Dock,
 it hides and shows the other two and leaves the Right Dock folded or
 not as it was, for the next area; View › Right Dock is grayed and not
 ticked then). Each also has one control of its own for
-it. The **Left Dock** has a small arrow beside its inner edge, by the
-middle, half way down (**Fold the Left Dock**), clear of the dock's
-lists and their scroll bars; drag the edge above or below it to make
-the dock wider or narrower. Tab reaches it after the dock's own
-controls. Folded, the dock leaves a thin strip at the window's left,
-with the arrow that brings it back (**Show the Left Dock**) beside the
-strip's edge, at the same height and size, pointing the other way: it
-brings the dock back on the panel it showed. At the strip's top is a
-button for each of its panels (**Module**, a box; **Resources**, a
-folder), which brings it back on that panel, and while an area is in
-front one for the **Outliner** under them, which brings the dock back
-with the arrow keys in the Outliner. It comes back as wide as
-it was. Its panels stay in it: neither can be
-dragged to another side or into the middle. The **Right Dock** is the
-same, mirrored: its arrow beside its inner (left) edge, half way down
-(**Fold the Right Dock**), its edge dragged above or below it to make it
-wider (at least 280 points, at most two fifths of the window); folded,
-a thin strip at the window's right with **Show the Right Dock** beside
-its edge and a button for each of its panels (**Palette**, and
-**Preview**, an eye), which brings it back on that panel. It holds the
+it. The **Left Dock** has a small arrow at the end of its tab bar,
+after its panel's buttons (**Fold the Left Dock**); drag the dock's
+edge to make it wider or narrower. Tab reaches the arrow after the tab
+bar's other controls. Folded, the dock leaves a thin strip at the
+window's left with the arrow that brings it back (**Show the Left
+Dock**) at its top: it brings the dock back on the panel it showed.
+Under it is a button for each of its panels (**Module**, a box;
+**Resources**, a folder), which brings it back on that panel, and while
+an area is in front one for the **Outliner** under them, which brings
+the dock back with the arrow keys in the Outliner. It comes back as
+wide as it was. Its panels stay in it: neither can be dragged to
+another side or into the middle. The **Right Dock** is the same,
+mirrored: its arrow at the end of its tab bar (**Fold the Right
+Dock**), its edge dragged to make it wider (at least 280 points, at
+most two fifths of the window); folded, a thin strip at the window's
+right with **Show the Right Dock** at its top and a button for each of
+its panels (**Palette**, and **Preview**, an eye), which brings it back
+on that panel. It holds the
 palettes and the Preview, each on a tab of its tab bar, the one in
 front filling the dock (their words, or their icons alone where the
 dock is too narrow for the words; Left and Right on a tab go to the
@@ -616,8 +614,10 @@ folds, the docks' widths and the seam over the Outliner are as you left
 them once the window is wide again, and a narrow window writes none of
 them. Under **1500 points** the Left Dock folds to its strip by itself
 (Module, Resources and, beside an area, the Outliner). Its arrow, a
-strip button, View › Left Dock, its key (Ctrl+Alt+1) or F6 bring it
-back beside the middle, which gives it the room as at any width; it
+strip button, View › Left Dock, its key (Ctrl+Alt+1), Show in Module
+Tree or Tools › Resource Browser bring it back beside the middle, which
+gives it the room as at any width (F6 goes only among what is shown:
+it passes a folded dock by); it
 stays so while the window is under 1500, and from 1500 it is as you
 left it yourself (unfolded, or folded if you folded it), so a window
 narrowed again folds it again. Under **1400** the Right Dock is 280
@@ -630,13 +630,17 @@ middle keeps at least 490 points; brought back, it stays so until the
 window is 796 or wider. Under **962** both side docks don't fit beside
 the middle: bringing one back folds the other ("Show the Right Dock in
 place of the Left Dock", its arrow says). The arrows and View's rows
-say what they do in a narrow window ("Show the Left Dock, which this
-narrow window folds"; "Fold the Left Dock again, as this narrow window
-has it"). The smallest window, 420 points wide, has both docks as
+say what they do in a narrow window ("Show the Left Dock in this narrow
+window"; "Fold the Left Dock back to its strip"). Where a dock that has
+the arrow keys folds (by the window's width or by you), they go to the
+tab you work in, and stay there when the dock comes back. Opening a
+module's tabs as you left them changes no dock's fold. The smallest window, 420 points wide, has both docks as
 strips and the middle between them. In a window **2560** points or
 wider (the wide layout), a dock whose width you haven't chosen is
 wider: the Left Dock 320 and the Right Dock 741, and the Module panel
-760 high over the Outliner unless you dragged the seam. There a Right
+760 high over the Outliner unless you dragged the seam. The Right
+Dock's width you drag there is kept apart from the one you drag in a
+narrower window: each layout gives back its own. There a Right
 Dock wider than 560 (at its width at first, or dragged so) stands in
 two columns, the Palette in the first (340, or half the dock) and the
 Preview in the second, each with its own tab, a line between them; F6

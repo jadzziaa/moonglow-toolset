@@ -250,8 +250,8 @@ fn tools_preview_and_the_strip_show_the_preview() {
 
 /// The Right Dock's tabs show their words where the dock has the room and
 /// their icons alone where it has not, by its width alone, whichever tab
-/// is in front: words at 320 and 280, and at the 190 of the least window
-/// (the two words fit there too, the bar having no tools), each in the
+/// is in front: words at 320 and 280 (beside the fold button at the bar's
+/// end), in a wide window, a narrow one and the least one, each in the
 /// same place on either panel.
 #[test]
 fn the_right_dock_s_tabs_keep_their_form_by_its_width() {
@@ -261,10 +261,14 @@ fn the_right_dock_s_tabs_keep_their_form_by_its_width() {
         // (A tab with its words is wider than an icon's 32 points.)
         (a.width() > 40.0 && b.width() > 40.0, a, b)
     };
-    for (width, window) in [(320.0, 1400.0), (280.0, 1400.0), (190.0, 420.0)] {
+    // (The dock's least, 280, in the narrow window's and, unfolded by
+    // hand, in the least window's: under 962 it never stands beside the
+    // Left Dock, so it is never narrower, M3 T14.)
+    for (width, window) in [(320.0, 1600.0), (280.0, 1600.0), (280.0, 1280.0), (280.0, 420.0)] {
         h.set_size(egui::vec2(window, 800.0));
         right_dock_width(&mut h, width);
         settle(&mut h);
+        unfold_right_dock(&mut h);
         assert!((right_dock_rect(&h).width() - width).abs() < 2.0, "{width}");
         let mut each = Vec::new();
         for panel in [Panel::Palette, Panel::Preview] {
@@ -364,6 +368,8 @@ fn escape_over_the_preview_does_as_over_the_palette() {
 #[test]
 fn f6_reaches_the_right_dock_with_either_tab_in_front() {
     let Some((mut h, area)) = area_harness("preview-f6") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.state_mut().settings.hide_log = false;
     let creature = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
     h.state_mut().palette.selected = Some(creature);

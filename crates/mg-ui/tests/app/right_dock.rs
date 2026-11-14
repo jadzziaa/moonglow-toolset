@@ -276,7 +276,10 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
         if past {
             wrong.push(format!("{at}: {name} at {r:?}, past {dock:?}"));
         }
-        if r.intersects(fold) {
+        // (The fold button is the dock's own, at its tab bar's end since
+        // M3 T14's review: nothing else of the dock under it.)
+        let is_fold = name.contains("Fold the Right Dock");
+        if !is_fold && r.intersects(fold) && r.intersect(fold).area() > 1.0 {
             wrong.push(format!("{at}: {name} at {r:?}, under the fold button {fold:?}"));
         }
     }
@@ -484,6 +487,8 @@ fn sweep(
 #[test]
 fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
     let Some((mut h, _)) = area_harness("right-dock-sweep") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.set_size(egui::vec2(1600.0, 900.0));
     settle(&mut h);
     let widths: Vec<f32> = (280..=600).step_by(8).map(|w| w as f32).collect();
@@ -498,40 +503,27 @@ fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
 }
 
-/// The palette in the Right Dock where the window is too narrow for its
-/// least width beside the Left Dock (both unfolded): from the least
-/// window, 420 points, where the dock is 190 wide, a window 8 points
-/// wider at a time to where the dock has its 280, on every type of
-/// palette, with each tab in front, as
+/// The palette in the Right Dock in the narrowest windows, where the
+/// window's width folds it and the builder unfolds it by hand (M3 T14):
+/// from the least window, 420 points, to 796, a window 8 points wider at
+/// a time, the dock at its 280 beside the Left Dock's strip (the yields
+/// keep the Left Dock and the Right Dock from standing side by side under
+/// 962, so the dock is never narrower than 280 now: it was 190 in the
+/// least window beside the Left Dock, before the yields), on every type
+/// of palette, with each tab in front, as
 /// `the_palette_fits_the_right_dock_from_its_least_width_to_600`.
-/// (Both docks unfolded as the settings have them at every width,
-/// `common::docks_as_set`: the shell's yields, M3 T14, fold them in
-/// such a window, `yields.rs`.)
 #[test]
 fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
     let Some((mut h, _)) = area_harness("right-dock-sweep-narrow") else { return };
-    let least = mg_ui::LEAST_WINDOW_SIZE.x;
     let set = |h: &mut Harness<'_, Moonglow>, window: f32| {
         h.set_size(egui::vec2(window, 800.0));
         settle(h);
-        assert!(!h.state().settings.hide_tree && !h.state().settings.hide_palettes);
+        unfold_right_dock(h);
+        settle(h);
+        let dock = right_dock_rect(h).width();
+        assert!((dock - mg_ui::RIGHT_DOCK_LEAST).abs() < 1.0, "{window}: the dock {dock}");
     };
-    set(&mut h, least);
-    let narrowest = right_dock_rect(&h).width();
-    assert!((narrowest - 190.0).abs() < 2.0, "the dock at the least window: {narrowest}");
-    // (The windows from the least to where the dock is 280.)
-    let mut windows = Vec::new();
-    let mut window = least;
-    loop {
-        set(&mut h, window);
-        windows.push(window);
-        if right_dock_rect(&h).width() >= mg_ui::RIGHT_DOCK_LEAST - 0.5 {
-            break;
-        }
-        window += 8.0;
-        assert!(window < 800.0, "the dock never reached its least width");
-    }
-    assert!(windows.len() >= 10, "{windows:?}");
+    let windows: Vec<f32> = (420..=796).step_by(8).map(|w| w as f32).collect();
     let (wrong, seen) = sweep(&mut h, &windows, &set);
     assert!(seen > 5_000, "the panel's nodes looked at: {seen}");
     assert!(wrong.is_empty(), "{} found:\n{}", wrong.len(), wrong.join("\n"));
@@ -545,6 +537,8 @@ fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
 #[test]
 fn f6_steps_through_the_docks_and_the_editor_area() {
     let Some((mut h, area)) = area_harness("right-dock-f6") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.state_mut().settings.hide_log = false;
     settle(&mut h);
     // (The pointer in the area's view: the keys are its.)
@@ -696,6 +690,9 @@ fn a_press_in_the_palette_makes_it_the_plugins_pane() {
 #[test]
 fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
     let Some((mut h, area)) = area_harness("right-dock-maximized") else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     let props = Tab::AreaProperties(area);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
     settle(&mut h);
@@ -704,7 +701,7 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
         h.state().dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1.rect
     };
     let first = pane(&h);
-    let left = h.get_by_label("Fold the Left Dock").rect().left() - 40.0;
+    let left = left_dock_rect(&h).right() - 40.0;
     let middle = h.state().area_views[&area].rect.center().x;
     let right = right_dock_rect(&h).center().x;
     for x in [left, middle, right] {
@@ -754,12 +751,10 @@ fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
     // Every category open: a list longer than the dock.
     expand_all_in_the_dock(&mut h);
     let dock = right_dock_rect(&h);
-    let fold = h.get_by_label("Fold the Right Dock").rect();
     let before = top_label(&h);
     // The bar inside the panel's 8 px margin, at the dock's outer edge,
-    // at the button's height (the kit's bar: 4 wide, 2 from the list's
-    // side).
-    let at = egui::pos2(dock.right() - 12.0, fold.center().y);
+    // half way down (the kit's bar: 4 wide, 2 from the list's side).
+    let at = egui::pos2(dock.right() - 12.0, dock.center().y);
     drag(&mut h, at, at + egui::vec2(0.0, 120.0));
     settle(&mut h);
     assert!(!h.state().settings.hide_palettes, "the dock left open");
@@ -826,15 +821,13 @@ fn reset_layout_puts_the_right_dock_back_at_320() {
     assert!((width - want).abs() < 1.5, "{width}, not {want}");
 }
 
-/// In the least window (and at 460, 480, 500 and 600), both side docks
-/// unfolded: nothing panics, the two fold buttons stand apart, the Left
-/// Dock's first, the Right Dock inside the window (narrower than its least
+/// In the least window (and at 460, 480, 500 and 600), the Right Dock
+/// unfolded by hand after the Left Dock (which it folds there, both not
+/// fitting, M3 T14): nothing panics, the Right Dock inside the window (narrower than its least
 /// width where the window has not the room: never past its edge), nothing
 /// in the Right Dock outside it or over another of its widgets, nothing
 /// else drawn across its edges ([`dock_wrong`]), and at 600 nothing in the
-/// window overlaps. (Both docks unfolded as the settings have them at
-/// every width, `common::docks_as_set`: the shell's yields, M3 T14, fold
-/// them in such windows, and let one be unfolded by hand at a time. The
+/// window overlaps. (The
 /// Bottom Dock's tab bar gives way in a narrow dock since T7:
 /// status_bar.rs's `the_bottom_dock_s_tab_and_tools_never_overlap`.)
 #[test]
@@ -860,15 +853,17 @@ fn the_least_window_holds_both_docks() {
     for size in sizes {
         h.set_size(size);
         settle(&mut h);
-        assert!(!h.state().settings.hide_tree && !folded(&h));
+        // (Folded by the window's width there: unfolded by hand, the Left
+        // Dock first, then the Right Dock, which folds the Left Dock, both
+        // not fitting: M3 T14.)
+        unfold_left_dock(&mut h);
+        unfold_right_dock(&mut h);
+        settle(&mut h);
+        assert!(!h.state().settings.hide_tree && !h.state().settings.hide_palettes);
+        assert!(h.query_by_label("Show the Left Dock").is_some(), "at {size:?}: one dock open");
         let window = h.ctx.content_rect();
-        let left = h.get_by_label("Fold the Left Dock").rect();
-        let right = h.get_by_label("Fold the Right Dock").rect();
-        let both = left.intersect(right);
-        assert!(!both.is_positive(), "at {size:?}: {left:?} {right:?}");
         let dock = right_dock_rect(&h);
         assert!(window.expand(0.5).contains_rect(dock), "at {size:?}: {dock:?} in {window:?}");
-        assert!(left.right() <= right.left() + 0.5, "the Left Dock's first: {left:?} {right:?}");
         let wrong = dock_wrong(&h, &format!("{size:?}"), &mut seen);
         assert!(wrong.is_empty(), "in the Right Dock:\n{}", wrong.join("\n"));
         if size.x >= 600.0 {
@@ -907,9 +902,12 @@ fn right_width(h: &Harness<'_, Moonglow>) -> f32 {
 #[test]
 fn the_right_dock_keeps_its_width_through_a_narrow_window() {
     let Some(mut h) = dock_harness("ui-right-dock-width-kept", 1400.0) else { return };
+    // (Under 796 the window's width folds it: unfolded there by hand, as a
+    // builder would, M3 T14.)
     let size = |h: &mut Harness<'_, Moonglow>, width: f32| {
         h.set_size(egui::vec2(width, 800.0));
         settle(h);
+        unfold_right_dock(h);
     };
     let first = right_width(&h);
     drag_edge(&mut h, 150.0);
@@ -957,6 +955,7 @@ fn the_right_dock_keeps_its_width_through_a_narrow_window() {
     app.open_module(&sample_module(&dir));
     let mut h = harness(app, 700.0, 800.0);
     settle(&mut h);
+    unfold_right_dock(&mut h);
     assert!(right_width(&h) < dragged - 20.0, "held to the narrow window");
     assert_eq!(h.state().settings.right_dock_width, Some(dragged.round() as u32), "not lost");
     size(&mut h, 1400.0);
@@ -980,6 +979,8 @@ fn a_width_kept_by_an_earlier_run_is_the_right_dock_s() {
         assert_eq!(app.settings.right_dock_width, None);
         app.open_module(&path);
         let mut h = harness(app, window, 800.0);
+        // (Folded by the width at 700: the builder unfolds it, M3 T14.)
+        unfold_right_dock(&mut h);
         // (Settings with no width chosen, and the width egui kept for the
         // panel: as an earlier version's run left them, its sizes not yet
         // taken, `Settings::dock_sizes_taken`.)
@@ -1360,11 +1361,14 @@ fn tools_palettes_beside_a_tab_that_brings_none() {
 /// the front by a click) and the frame it comes back, step by step:
 /// nothing of it is left the frame after it goes (its fold button, its
 /// edge, the place of its Preview), the editor area reaching the window's
-/// edge; and the frame it is drawn again its fold button stands beside
-/// its edge, half way down, and the editor area ends at its edge.
+/// edge; and the frame it is drawn again its fold button stands on its tab
+/// bar, inside it (M3 T14's review), and the editor area ends at its edge.
 #[test]
 fn nothing_of_the_right_dock_is_left_the_frame_after_it_goes() {
     let Some((mut h, area)) = follow_harness("right-dock-leftovers") else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
     settle(&mut h);
     click_tab(&mut h, &Tab::Area(area));
@@ -1391,8 +1395,9 @@ fn nothing_of_the_right_dock_is_left_the_frame_after_it_goes() {
     }
     let dock = right_dock_rect(&h);
     let fold = h.get_by_label("Fold the Right Dock").rect();
-    assert!((fold.right() - dock.left()).abs() < 1.5, "beside its edge: {fold:?} {dock:?}");
-    assert!((fold.center().y - dock.center().y).abs() < 1.5, "half way down: {fold:?} {dock:?}");
+    let tab = h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Palette").rect();
+    assert!(dock.contains_rect(fold), "inside the dock: {fold:?} {dock:?}");
+    assert!(tab.y_range().contains(fold.center().y), "on its tab bar: {fold:?} {tab:?}");
     assert!(editor_right(&h) <= dock.left() + 0.5, "the editor area beside it");
     assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
 }
@@ -1405,6 +1410,9 @@ fn nothing_of_the_right_dock_is_left_the_frame_after_it_goes() {
 #[test]
 fn hide_all_panels_leaves_an_absent_right_dock_as_it_was() {
     let Some((mut h, area)) = follow_harness("right-dock-hide-all") else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     let right_row = |h: &mut Harness<'_, Moonglow>| {
         h.get_by_label("Top Bar").get_by_label("View").click();
         settle(h);
@@ -1490,4 +1498,47 @@ fn the_active_editor_is_the_new_module_s_after_another_opens() {
     assert!(at(&h, &hello).is_some_and(|p| p.surface.is_main()), "its script beside it");
     assert!(at(&h, &Tab::Factions).is_some_and(|p| !p.surface.is_main()), "in a window");
     assert_eq!(h.state().active_editor(), Some(&Tab::Area(start)));
+}
+
+/// The wheel turning over the palette's list with the pointer resting on
+/// its rows asks for no picture of each row it scrolls under the pointer
+/// (M3 T14's review: one was made each frame, 8 to 12 ms a frame with
+/// 8,000 rows); the pointer resting on one row for the tooltip's delay,
+/// that row's picture is asked for.
+#[test]
+fn a_wheel_over_the_palette_asks_for_no_pictures_of_the_rows_it_passes() {
+    let Some((mut h, _)) = area_harness("right-dock-wheel-pictures") else { return };
+    h.set_size(egui::vec2(1400.0, 800.0));
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, BlueprintKind::Placeable, false);
+    }
+    settle(&mut h);
+    expand_all_in_the_dock(&mut h);
+    // (The pointer on a row's words, low in the list.)
+    let dock = right_dock_rect(&h);
+    let row = top_row(&h);
+    let at = egui::pos2(row.left() + 20.0, dock.bottom() - 120.0);
+    h.hover_at(at);
+    let before = h.state().thumbnails.asked();
+    // (One step for each turn of the wheel: the list scrolls under the
+    // resting pointer every frame.)
+    for _ in 0..40 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -30.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+    }
+    let during = h.state().thumbnails.asked() - before;
+    assert_eq!(during, 0, "pictures asked for as the list scrolled");
+    // Resting: the row under the pointer's picture, once.
+    let started = std::time::Instant::now();
+    while h.state().thumbnails.asked() == before {
+        assert!(started.elapsed().as_secs() < 10, "never: the rested row's picture");
+        h.step();
+    }
+    assert_eq!(h.state().thumbnails.asked() - before, 1, "the one row's");
 }

@@ -173,6 +173,8 @@ fn the_top_bar_s_buttons_run_their_commands() {
 #[test]
 fn verify_and_the_module_panel_s_buttons_run_their_commands() {
     let Some(mut h) = game_harness("top-bar-verify") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     settle(&mut h);
     // (What Verify Module from the Build menu says, the Top Bar's says.)
     let verify = |h: &mut Harness<'_, Moonglow>, by_bar: bool| {
@@ -653,10 +655,9 @@ fn undo_on_the_top_bar_with_a_floating_editor() {
     undo_is_the_module_s(&mut h, tree, Some(1));
 }
 
-/// The Left Dock's inner edge (the middle of the 1 px line along it):
-/// its fold button stands beside it, from the line's outer side.
+/// The Left Dock's inner edge (the middle of the 1 px line along it).
 fn fold_edge(h: &Harness<'_, Moonglow>) -> f32 {
-    h.get_by_label("Fold the Left Dock").rect().left() - 0.5
+    left_dock_rect(h).right() - 0.5
 }
 
 /// Drags from `from` by `by`, a frame a step.
@@ -685,6 +686,9 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1400.0, 900.0);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     settle(&mut h);
     let keys = egui::Modifiers::COMMAND | egui::Modifiers::ALT;
     // Widened by its edge, above its button (which is half way down).
@@ -699,7 +703,7 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
         assert_eq!(strip, h.state().settings.hide_tree);
         strip
     };
-    // By its button, back by the one beside the strip's edge.
+    // By its button, back by the chevron at the strip's top.
     h.get_by_label("Fold the Left Dock").click();
     settle(&mut h);
     assert!(folded(&h));
@@ -707,12 +711,13 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
     assert!(strip.query_by_label("Module").is_some(), "the strip's Module button");
     let chevron = h.get_by_label("Show the Left Dock");
     assert_eq!(chevron.accesskit_node().data().is_expanded(), Some(false));
-    // (The window's frame round it in a test: 8 points; the strip 24
-    // points and its line, the button beside it.)
+    // (The window's frame round it in a test: 8 points; the chevron in
+    // the 24-point strip, over its Module button: `Narrow.png`'s.)
     let edge = h.ctx.content_rect().left() + 8.0;
     let at = chevron.rect();
-    let beside = at.left() - (edge + mg_uikit::shell::STRIP + 1.0);
-    assert!(beside.abs() <= 1.0, "beside a strip at the window's edge: {at:?}");
+    let in_strip = at.left() >= edge && at.right() <= edge + mg_uikit::shell::STRIP;
+    let module = strip.get_by_label("Module").rect();
+    assert!(in_strip && at.bottom() <= module.top(), "at the strip's top: {at:?} {module:?}");
     chevron.click();
     settle(&mut h);
     assert!(!folded(&h));
@@ -747,7 +752,8 @@ fn the_left_dock_folds_to_its_strip_and_back_as_wide() {
 /// past the dock's inner edge or overlaps, the Module panel's buttons are
 /// all on it, the tabs show their words or their icons the same on every
 /// frame at one width, icons below a width and words above it; and its
-/// fold button stands on the edge, half way down the dock. So too in the
+/// fold button stands at the bar's end, after the panel's buttons, inside
+/// the dock (M3 T14's review). So too in the
 /// least window (420 points wide), where two fifths of the window would be
 /// less than 190.
 #[test]
@@ -759,8 +765,10 @@ fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
         app.settings.no_last_area = true;
         app.open_module(&path);
         let mut h = harness(app, width, 700.0);
+        // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+        unfold_left_dock(&mut h);
         settle(&mut h);
-        // (Above the fold button, half way down.)
+        // (High on the edge.)
         let edge = fold_edge(&h) + 1.0;
         let y = h.ctx.content_rect().top() + 150.0;
         drag(&mut h, egui::pos2(edge, y), egui::vec2(-400.0, 0.0));
@@ -803,14 +811,16 @@ fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
                         assert!(r.left() >= left - 0.5 && r.right() <= edge + 0.5, "{at}: {name}");
                     }
                 }
-                // The fold button: on the edge, half way down the dock.
+                // The fold button: at the tab bar's end, inside the dock,
+                // after the panel's buttons (M3 T14's review).
                 let fold = h.get_by_label("Fold the Left Dock").rect();
-                let top = h.get_by_label("Left Dock").get_by_label("Module").rect().top();
-                let bottom = h.get_by_label("Status Bar").get_by_label("Log").rect().top();
-                assert!(h.ctx.content_rect().contains_rect(fold), "{at}: {fold:?}");
-                assert!(fold.top() > top && fold.bottom() < bottom, "{at}: {fold:?}");
-                let middle = (top + bottom) / 2.0;
-                assert!((fold.center().y - middle).abs() <= 3.0, "{at}: {fold:?} {middle}");
+                let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
+                let inside = fold.left() >= left - 0.5 && fold.right() <= edge + 0.5;
+                assert!(inside && tab.y_range().contains(fold.center().y), "{at}: {fold:?}");
+                if panel == mg_ui::Panel::Module {
+                    let last = module_tool(&h, "Collapse All").rect();
+                    assert!(fold.left() >= last.right() - 0.5, "{at}: {fold:?} after {last:?}");
+                }
             }
             let words = icons_seen.iter().position(|i| !i).unwrap_or(icons_seen.len());
             assert!(icons_seen[..words].iter().all(|i| *i), "{width}, {panel:?}: icons below");
@@ -878,7 +888,8 @@ fn settings_from_before_open_with_the_tree_shown_and_the_log_open() {
         app.settings = settings;
         app.settings.no_last_area = true;
         app.open_module(&path);
-        let mut h = harness(app, 1200.0, 800.0);
+        // (1600 wide: no width folds a dock, the settings' fold read.)
+        let mut h = harness(app, 1600.0, 800.0);
         settle(&mut h);
         let tree = h.query_by_label("Fold the Left Dock").is_some();
         let log = h.query_by_label("Bottom Dock").is_some();
@@ -938,6 +949,9 @@ fn the_view_menu_s_rows_fold_the_docks_and_say_so() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     settle(&mut h);
     let ticked = |h: &mut Harness<'_, Moonglow>, row: &str| {
         h.get_by_label("Top Bar").get_by_label("View").click();
@@ -1344,10 +1358,17 @@ fn left_width(h: &Harness<'_, Moonglow>) -> f32 {
 #[test]
 fn the_left_dock_keeps_its_width_through_a_narrow_window() {
     let mut h = module_window("ui-left-dock-width", mg_ui::Settings::default(), 1400.0, 800.0);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
+    // (Under 1500 the dock folds by the window's width: the builder
+    // unfolds it there, and it stays so until the window is 1500 wide.)
     let size = |h: &mut Harness<'_, Moonglow>, width: f32| {
         h.set_size(egui::vec2(width, 800.0));
         settle(h);
+        unfold_left_dock(h);
     };
+    size(&mut h, 1400.0);
     let first = left_width(&h);
     let y = h.ctx.content_rect().top() + 150.0;
     let from = egui::pos2(fold_edge(&h) + 1.0, y);
@@ -1375,6 +1396,7 @@ fn the_left_dock_keeps_its_width_through_a_narrow_window() {
     let read = next_run(&h.state().settings, "ui-left-dock-width-again");
     assert_eq!(read.left_dock_width, Some(dragged.round() as u32));
     let mut h = module_window("ui-left-dock-width-next", read, 700.0, 800.0);
+    unfold_left_dock(&mut h);
     assert!(left_width(&h) < dragged - 20.0, "held to the narrow window: {}", left_width(&h));
     assert_eq!(h.state().settings.left_dock_width, Some(dragged.round() as u32), "not lost");
     size(&mut h, 1400.0);
@@ -1396,6 +1418,8 @@ fn a_width_kept_by_an_earlier_run_is_the_left_dock_s() {
         assert_eq!(app.settings.left_dock_width, None);
         app.open_module(&path);
         let mut h = harness(app, window, 800.0);
+        // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+        unfold_left_dock(&mut h);
         // (Settings with no width chosen, and the width egui kept for the
         // panel: as an earlier version's run left them, its sizes not yet
         // taken, `Settings::dock_sizes_taken`.)
@@ -1411,10 +1435,12 @@ fn a_width_kept_by_an_earlier_run_is_the_left_dock_s() {
         } else {
             assert!(left_width(&h) < 300.0, "held to the window at {window}: {}", left_width(&h));
         }
-        // Reset Layout: its first width, kept so when the window widens.
+        // Reset Layout: its first width, kept so when the window widens
+        // (to 1600, where no width folds it: Reset Layout folds it again
+        // by the width under 1500, as designed).
         menu_command(&mut h, "View", "Reset Layout");
         settle(&mut h);
-        h.set_size(egui::vec2(1400.0, 800.0));
+        h.set_size(egui::vec2(1600.0, 800.0));
         settle(&mut h);
         let want = mg_uikit::metrics::LEFT_DOCK;
         assert!((left_width(&h) - want).abs() < 1.0, "{} after Reset Layout", left_width(&h));

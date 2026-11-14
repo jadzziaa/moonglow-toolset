@@ -1958,6 +1958,8 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
         &claims_table("cd", "claimed"),
     );
     let mut h = harness(app, 1000.0, 700.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // The tree's mark: whose it is (a lock, and its builder code).
     let mark = h.get_by_label("cd").rect().expand2(egui::vec2(24.0, 4.0));
@@ -2158,6 +2160,8 @@ fn claim_this_area_and_release_claim_edit_the_claims_table() {
         "",
     );
     let mut h = harness(app, 1000.0, 700.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     assert!(logged(&h, "the claims table builders/claims.2da is not there"));
     h.get_by_label("start").click_secondary();
@@ -2217,6 +2221,8 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
         &claims_table("ab", "merged"),
     );
     let mut h = harness(app, 1000.0, 700.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     // Merged: the check of yours before ab, and the pin after it.
     let ab = h.get_by_label("ab").rect();

@@ -476,6 +476,9 @@ fn menus_by_the_keyboard() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     h.run();
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
         h.key_press(key);
@@ -975,6 +978,8 @@ fn the_theme_s_chevrons_and_row_hover_are_drawn() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1100.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     settle(&mut h);
     // A chevron: three points, open, stroked in `color`, inside `rect`.
     let chevrons = |h: &Harness<'_, Moonglow>, rect: egui::Rect, color: egui::Color32| {

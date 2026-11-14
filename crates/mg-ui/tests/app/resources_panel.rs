@@ -43,6 +43,8 @@ fn export<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
 #[test]
 fn tools_resources_and_its_key_show_the_panel_folded_or_not() {
     let Some(mut h) = browser_harness("ui-panel-shows", 1280.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(Panel::Module));
     assert!(selected(&h, "Module") && !selected(&h, "Resources"));
     let shown = |h: &Harness<'_, Moonglow>| {
@@ -354,6 +356,8 @@ fn f6_steps_into_and_out_of_the_resources_panel() {
 #[test]
 fn a_click_in_the_resources_panel_leaves_the_plugins_pane() {
     let Some((mut h, area)) = area_harness("panel-plugins-pane") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The tree clicked: its pane.
     tree_row(&h, "Module Properties").click();
     settle(&mut h);
@@ -559,6 +563,8 @@ fn in_sight(h: &Harness<'_, Moonglow>, name: &str, top: f32) -> bool {
 #[test]
 fn the_tree_and_the_list_keep_their_own_scroll_places() {
     let Some(mut h) = chapter1_harness() else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The tree: the Scripts group opened, scrolled, a script chosen.
     let scripts = |h: &Harness<'_, Moonglow>| {
         let rows = h.get_by_label("Module Tree Rows");
@@ -659,31 +665,36 @@ fn dock_right(h: &Harness<'_, Moonglow>) -> f32 {
     state.expect("the dock drawn").outer_rect.right()
 }
 
-/// A press on a list's scroll bar at the fold button's height, dragged.
+/// A press on a list's scroll bar half way down the dock, dragged.
 fn drag_bar(h: &mut Harness<'_, Moonglow>, by: f32) {
-    let fold = h.get_by_label("Fold the Left Dock").rect();
+    let dock = left_dock_rect(h);
     // (The scroll bar runs along the list's right, a few points in from
     // the dock's edge.)
-    let at = egui::pos2(dock_right(h) - 6.0, fold.center().y);
+    let at = egui::pos2(dock_right(h) - 6.0, dock.center().y);
     drag(h, at, at + egui::vec2(0.0, by));
     settle(h);
 }
 
-/// The fold button stands beside the Left Dock's inner edge, on the
-/// editor area's side, never over the dock's lists or their scroll bars
-/// (the review of M3 T4: across the edge it covered the browser's scroll
-/// bar but 2 points of it, and a press there folded the dock): a press on
-/// a list's scroll bar at the button's height, dragged, scrolls the list
+/// The fold button stands at the end of the Left Dock's tab bar, inside
+/// the dock, never over its lists or their scroll bars (the review of M3
+/// T4: across the edge it covered the browser's scroll bar but 2 points of
+/// it; M3 T14's review: beside the edge it was over the editor area): a
+/// press on a list's scroll bar half way down, dragged, scrolls the list
 /// and leaves the dock open: the browser's list, the module tree's Areas
 /// well (every group open), and the tree itself (scrolled past the well).
-/// The edge still drags above and below the button.
+/// The edge still drags.
 #[test]
 fn a_press_on_a_list_s_scroll_bar_by_the_fold_button_scrolls_it() {
     let Some(mut h) = chapter1_harness() else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     show_resources(h.state_mut());
     settle(&mut h);
     let fold = h.get_by_label("Fold the Left Dock").rect();
-    assert!(fold.left() >= dock_right(&h) - 0.01, "beside the dock: {fold:?} {}", dock_right(&h));
+    let bar = h.get_by_label("Left Dock").get_by_label("Module").rect();
+    let in_bar = left_dock_rect(&h).contains_rect(fold) && fold.bottom() <= bar.bottom() + 0.5;
+    assert!(in_bar, "on the dock's tab bar: {fold:?} {bar:?}");
     // The browser's list.
     let before = list_place(&h);
     drag_bar(&mut h, 120.0);
@@ -708,8 +719,9 @@ fn a_press_on_a_list_s_scroll_bar_by_the_fold_button_scrolls_it() {
     still(&mut h, &tree_place);
     assert!(!h.state().settings.hide_tree, "the dock left open");
     assert_ne!(tree_place(&h), before, "the tree scrolled");
-    // The edge drags above and below the button.
-    for y in [fold.top() - 12.0, fold.bottom() + 12.0] {
+    // The edge drags, high and low.
+    let dock = left_dock_rect(&h);
+    for y in [dock.top() + 150.0, dock.bottom() - 150.0] {
         let was = dock_right(&h);
         drag(&mut h, egui::pos2(was - 1.0, y), egui::pos2(was + 29.0, y));
         settle(&mut h);
@@ -722,13 +734,18 @@ fn a_press_on_a_list_s_scroll_bar_by_the_fold_button_scrolls_it() {
     assert!(!h.state().settings.hide_tree);
 }
 
-/// The keyboard reaches the fold button after the Left Dock's own
-/// controls, before the editor area's (the review of M3 T4: drawn after
-/// the editor area, it came after the whole of it); Enter there folds the
-/// dock, and the button that unfolds it is reached the same way.
+/// The keyboard reaches the fold button among the Left Dock's own
+/// controls, at its tab bar's end, before the editor area's (the review of
+/// M3 T4: drawn after the editor area, it came after the whole of it);
+/// Enter there folds the dock; folded, the strip's chevron, its first
+/// control (M3 T14's review: `Narrow.png`'s), is reached by Shift+Tab from
+/// its panels' buttons, and Enter there unfolds it.
 #[test]
 fn tab_reaches_the_fold_button_after_the_dock_s_controls() {
     let Some(mut h) = browser_harness("ui-panel-fold-tab", 1280.0, 800.0) else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     let right = dock_right(&h);
     // From the Module tab, Tab by Tab: each control in the dock until the
     // fold button.
@@ -753,13 +770,13 @@ fn tab_reaches_the_fold_button_after_the_dock_s_controls() {
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     assert!(h.state().settings.hide_tree, "Enter folds it");
-    // Folded: from the strip's last button, the one that unfolds it.
-    h.get_by_label("Left Dock").get_by_label("Resources").focus();
+    // Folded: from the strip's first panel button back to its chevron.
+    h.get_by_label("Left Dock").get_by_label("Module").focus();
     h.run_steps(2);
-    h.key_press(egui::Key::Tab);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
     h.run_steps(2);
     let show = h.get_by_label("Show the Left Dock");
-    assert!(show.accesskit_node().is_focused(), "after the strip's buttons");
+    assert!(show.accesskit_node().is_focused(), "before the strip's buttons");
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     assert!(!h.state().settings.hide_tree, "Enter unfolds it");
@@ -770,6 +787,8 @@ fn tab_reaches_the_fold_button_after_the_dock_s_controls() {
 #[test]
 fn the_arrow_keys_on_a_dock_tab_choose_the_other_tab() {
     let Some(mut h) = browser_harness("ui-panel-tab-arrows", 1280.0, 800.0) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     assert_eq!(h.state().left_dock_shows(), Some(Panel::Module));
     let cursor = h.state().tree_cursor;
     dock_tab(&h, "Module").focus();
@@ -796,6 +815,9 @@ fn the_arrow_keys_on_a_dock_tab_choose_the_other_tab() {
 fn without_a_module_the_view_row_its_key_and_f6_reach_the_resources_panel() {
     let Some(root) = mg_testkit::nwn_root() else { return };
     let mut h = harness(game_app(&root, None), 1280.0, 800.0);
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     settle(&mut h);
     menu_command(&mut h, "Tools", "Resource Browser");
     assert_eq!(h.state().left_dock_shows(), Some(Panel::Resources));
@@ -844,6 +866,9 @@ fn without_a_module_the_view_row_its_key_and_f6_reach_the_resources_panel() {
 #[test]
 fn view_left_dock_folds_the_dock_on_whichever_panel() {
     let Some(mut h) = browser_harness("ui-panel-view-row", 1280.0, 800.0) else { return };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     show_resources(h.state_mut());
     settle(&mut h);
     assert_eq!(menu_row_tip(&mut h), "Show the Left Dock, or fold it away");
@@ -1025,15 +1050,17 @@ fn a_name_longer_than_its_row_is_cut_in_its_middle() {
     assert!(head.len() >= 4 && tail.len() >= 6, "{cut}: its start and end in sight");
 }
 
-/// A window of the editor area moved over the Left Dock's edge is over
-/// its fold button too, which is over the editor area beside the dock but
-/// under the windows (a layer of its own just over the window's panels):
-/// a click there is the window's, and the dock stays open.
+/// A window of the editor area moved over the Left Dock's tab bar is over
+/// its fold button too, which is the dock's (under the windows): a click
+/// there is the window's, and the dock stays open.
 #[test]
 fn a_window_over_the_fold_button_takes_its_clicks() {
     let Some(mut h) = browser_harness("ui-panel-fold-under-window", 1280.0, 800.0) else {
         return;
     };
+    // (A window wide enough that no width folds a dock: the test reads the
+    // docks as the builder left them, M3 T14.)
+    wide_window(&mut h);
     let fold = h.get_by_label("Fold the Left Dock").rect();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     settle(&mut h);
@@ -1042,7 +1069,7 @@ fn a_window_over_the_fold_button_takes_its_clicks() {
         let found = dock.find_tab(&Tab::Factions).unwrap();
         let tab = dock.remove_tab(found).unwrap();
         let surface = dock.add_window(vec![tab]);
-        let at = egui::pos2(fold.left() - 100.0, fold.top() - 150.0);
+        let at = egui::pos2(fold.left() - 100.0, fold.top() - 10.0);
         let window = dock.get_window_state_mut(surface).unwrap();
         window.set_position(at).set_size(egui::vec2(400.0, 400.0));
     }

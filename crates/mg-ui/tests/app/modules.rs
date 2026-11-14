@@ -12,6 +12,8 @@ fn welcome_then_open_a_module_through_the_dialog() {
     h.get_by_label("Open Module…").click();
     h.run();
     assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The tree lists the area and the script; Module Properties is open.
     h.get_by_label("Areas (1)");
     h.get_by_label_contains("Scripts (1)");
@@ -278,6 +280,8 @@ fn new_module_and_area_through_the_wizards() {
     let app =
         game_app_with(&root, None, NoDialogs { save: vec![path.clone()], ..Default::default() });
     let mut h = window_harness(app);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
 
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
@@ -307,6 +311,8 @@ fn new_module_and_area_through_the_wizards() {
     h.run();
     let key = ResKey::parse("area001", ResType::ARE).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "{:?}", h.state().log.entries);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label_contains("Areas (1)");
     // Open Area in the Area Viewer is on by default, as in Aurora.
     assert!(
@@ -1804,7 +1810,7 @@ fn build_module_marks_an_unused_script_as_used() {
     app.build = Some(w);
     let mut h = Harness::builder()
         .with_size([900.0, 900.0])
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(2);
     h.get_all_by_label("Build").last().unwrap().click();
     h.run_steps(3);

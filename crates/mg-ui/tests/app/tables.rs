@@ -1924,7 +1924,7 @@ fn a_game_table_read_only_scrolls() {
         .with_size(egui::vec2(1280.0, 800.0))
         .with_step_dt(1.0 / 60.0)
         .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     let key = ResKey::parse("spells", ResType::TWODA).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
@@ -2069,6 +2069,8 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run_steps(3);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);

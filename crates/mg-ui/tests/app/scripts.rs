@@ -529,7 +529,9 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
     // With the keys elsewhere (a click in the module tree) and the
     // pointer over the script, the module's, as the Save key is: the
-    // menu names the module's step.
+    // menu names the module's step. (The builder unfolds the Left Dock,
+    // folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label("Areas (1)").click();
     h.run_steps(2);
     assert!(!script_has_keys(&h, key));
@@ -689,6 +691,8 @@ fn a_menu_closed_unused_gives_the_keys_back_to_the_script() {
     h.run_steps(2);
     assert_eq!(script(&h), edited);
     // Closed by a click outside the editor (the module tree): nowhere.
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.get_by_label("Edit").click();
     h.run_steps(2);
     h.get_by_label("Areas (1)").click();

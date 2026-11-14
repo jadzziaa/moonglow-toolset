@@ -901,14 +901,16 @@ impl Moonglow {
             let active = rename(&pane.active);
             panes.push(Kept { place: Place::parse(&pane.place), tabs, active, rect, split });
         }
+        // (The record says which panel each dock had in front, never how
+        // the builder left the dock: its fold, `hide_tree` and
+        // `hide_palettes`, stands, as do a narrow window's yields. The
+        // Right Dock on the Palette is not asked for by name: it is drawn
+        // as the active editor has it, beside an area.)
         if resources {
-            self.show_dock_panel(crate::Panel::Resources);
+            self.left_panel = crate::Panel::Resources;
         }
-        // (The Right Dock unfolded on the Palette, not asked for by name:
-        // it is drawn as the active editor has it, beside an area.)
         if palette {
             self.right_panel = crate::Panel::Palette;
-            self.settings.hide_palettes = false;
         }
         if panes.is_empty() {
             return false;

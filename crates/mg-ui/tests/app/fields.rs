@@ -531,6 +531,8 @@ fn undo_in_a_text_field_is_the_field_s() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let key = ResKey::parse("mg_note", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() {}\n".to_vec()) };
@@ -2574,6 +2576,8 @@ fn filters_find_names_case_and_accents_aside() {
 
     // The module tree's filter, its first text field.
     let mut h = app("ui-filter-accents-tree");
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     h.run();
     let field = egui::accesskit::Role::TextInput;
     h.get_all_by_role(field).next().unwrap().click();

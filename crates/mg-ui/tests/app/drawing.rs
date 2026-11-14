@@ -758,6 +758,8 @@ fn a_stock_interior_looks_alike_with_the_shaders_on_and_off() {
     else {
         return;
     };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let dir = mg_testkit::scratch_dir("ui-interior-shaders");
     let (w, d) = (are.root.int("Width").unwrap() as f32, are.root.int("Height").unwrap() as f32);
     {

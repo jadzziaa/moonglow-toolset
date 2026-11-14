@@ -115,7 +115,6 @@ pub(crate) fn game_app(
 /// `render`, `snapshot`) on a GPU device of kittest's own: a test that
 /// draws takes the GPU first (`mg_testkit::gpu::hold`).
 pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
-    let app = docks_as_set(app);
     let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -124,14 +123,46 @@ pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static
     h
 }
 
-/// `app` with its side docks as their settings have them at every width
-/// (`Moonglow::docks_fold_by_width` off): the tests written before the
-/// shell yields (M3's T14) look at the docks' contents in windows under
-/// 1500 points wide, as though the builder had unfolded them there. The
-/// yields' own tests (`yields.rs`) turn it back on.
-pub(crate) fn docks_as_set(mut app: Moonglow) -> Moonglow {
-    app.docks_fold_by_width = false;
-    app
+/// The Left Dock unfolded by hand where the window's width folds it (a
+/// window under 1500 points, the shell's yields, M3 T14), as a builder who
+/// works in the module tree, the Resources panel or the Outliner at that
+/// width has it: its strip's chevron clicked, after a frame for the width
+/// to fold it. Nothing where the dock is open, or holds no panel.
+pub(crate) fn unfold_left_dock(h: &mut Harness<'_, Moonglow>) {
+    h.step();
+    let Some(chevron) = h.query_by_label("Show the Left Dock") else { return };
+    chevron.click();
+    let started = std::time::Instant::now();
+    while h.query_by_label("Fold the Left Dock").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the Left Dock unfolded");
+        h.step();
+    }
+}
+
+/// The window 1600 points wide, its height kept: wide enough that no
+/// width folds a side dock (the shell's yields, M3 T14), for a test of the
+/// builder's own fold of the docks (`hide_tree`, `hide_palettes`) or of
+/// both docks open as they are at first.
+pub(crate) fn wide_window(h: &mut Harness<'_, Moonglow>) {
+    let height = h.ctx.content_rect().height();
+    h.set_size(egui::vec2(1600.0, height));
+    // (A frame at the new size lays the docks out by it; one more, the
+    // panels in them.)
+    h.step();
+    h.step();
+}
+
+/// The Right Dock unfolded by hand where the window's width folds it
+/// (under 796 points), as [`unfold_left_dock`] does the Left Dock's.
+pub(crate) fn unfold_right_dock(h: &mut Harness<'_, Moonglow>) {
+    h.step();
+    let Some(chevron) = h.query_by_label("Show the Right Dock") else { return };
+    chevron.click();
+    let started = std::time::Instant::now();
+    while h.query_by_label("Fold the Right Dock").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the Right Dock unfolded");
+        h.step();
+    }
 }
 
 /// The game's data at `root`, in English, with no user folder: read
@@ -229,6 +260,13 @@ pub(crate) fn right_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
     h.state().right_dock_rect().expect("the Right Dock is shown")
 }
 
+/// Where the Left Dock is drawn: from its outer edge to its inner one
+/// (the line along it included), the Top Bar to the Status Bar. It must
+/// be shown.
+pub(crate) fn left_dock_rect(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    h.state().left_dock_rect().expect("the Left Dock is shown")
+}
+
 /// The Left Dock `width` wide (its outer width, as its edge is dragged to:
 /// the width chosen, `Settings::left_dock_width`), from the next frame,
 /// where the window has the room.
@@ -286,7 +324,6 @@ pub(crate) fn gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
-    let app = docks_as_set(app);
     let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -304,7 +341,6 @@ pub(crate) fn area_gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
-    let app = docks_as_set(app);
     let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .with_step_dt(1.0 / 60.0)

@@ -4332,8 +4332,11 @@ fn a_placeable_s_and_a_door_s_page_show_the_model() {
             app.settings.window_places = vec![(kind.to_string(), "middle".to_string())];
             app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
         }
-        // Too narrow for the fields and the model: a Preview button.
-        h.set_size(egui::vec2(900.0, 800.0));
+        // Too narrow for the fields and the model: a Preview button. (800
+        // wide: the Left Dock a strip and the Right Dock 280 there, M3
+        // T14, the editor area about 480 points, as 900 had it with both
+        // docks open before.)
+        h.set_size(egui::vec2(800.0, 800.0));
         h.run_steps(10);
         assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
         assert!(apart_all(&h, "Preview").next().is_some(), "{key}");

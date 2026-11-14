@@ -1728,6 +1728,13 @@ impl Thumbnails {
         self.wanted.len()
     }
 
+    /// How many pictures were asked for and are made or still to make:
+    /// for the tests of what asks for them.
+    #[doc(hidden)]
+    pub fn asked(&self) -> usize {
+        self.made.len() + self.wanted.len()
+    }
+
     /// How many pictures are being read apart, or wait to be drawn for
     /// their textures ([`make_thumbnail`]).
     pub fn reading(&self) -> usize {

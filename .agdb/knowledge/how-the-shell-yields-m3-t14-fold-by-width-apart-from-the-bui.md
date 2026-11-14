@@ -22,7 +22,8 @@ created: 2026-11-14
 - The editor area is flush (CentralPanel frame without egui's 8 px margin): the boards' 974 at 1280.
 - The Outliner rule (T13 review ruling) reads `left_folded`, not `hide_tree` (tree.rs `follow_selection`).
 ## Watch out
-- `Moonglow::docks_fold_by_width` (hidden, default true) is turned off by `common::docks_as_set` in every app-test harness builder: about 160 tests written before T14 look at dock contents at 1000-1400 wide. Tests of the yields turn it back on (`yields.rs`, the area toolbar sweep, the Outliner's narrow test). screens.rs and frame_perf run with it on.
+- Superseded by T14's review (`m3-t14-review-the-yields-on-in-every-ui-test-fold-controls-i`): the hook below is gone, the yields are on in every test; and `take_dock_sizes` now drops only whole sets of sizes at first.
+- (Was:) `Moonglow::docks_fold_by_width` (hidden, default true) is turned off by `common::docks_as_set` in every app-test harness builder: about 160 tests written before T14 look at dock contents at 1000-1400 wide. Tests of the yields turn it back on (`yields.rs`, the area toolbar sweep, the Outliner's narrow test). screens.rs and frame_perf run with it on.
 - kittest's harness keeps an 8 point outer margin round the app: editor/dock rects in app tests are 8 in, and the window's thresholds see 16 points more than the room.
 - The Outliner's strip button is named "Outliner" like the Outliner group (`mg_ui::OUTLINER`): a folded dock still answers `query_by_label(OUTLINER)`.
 - An area's view takes the arrow keys back while the pointer is over it: to test F6, hover the Top Bar.

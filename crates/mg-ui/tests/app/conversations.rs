@@ -425,7 +425,7 @@ fn a_conversation_link_goes_to_its_line() {
     // click in a frame each.)
     let mut h = Harness::builder()
         .with_step_dt(1.0 / 60.0)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     // The greeting folded: only the link's row shows.
     h.state_mut().dialog_views.get_mut(&key).unwrap().collapsed.insert((Kind::Entry, hello));
@@ -857,6 +857,8 @@ fn dialog_from_tree(name: &str, g: &Gff) -> (Harness<'static, Moonglow>, ResKey)
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
+    // (The builder unfolds the Left Dock, folded at this width.)
+    unfold_left_dock(&mut h);
     h.get_by_label_contains("Conversations").click();
     h.run();
     h.get_by_label("talk").click();
@@ -2048,6 +2050,8 @@ fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
     else {
         return;
     };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let target = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().target;
     // W held a few frames, as typed: its key, then its letter.
     let hold = |h: &mut Harness<'_, Moonglow>, key: egui::Key, text: &str| {
@@ -2162,7 +2166,7 @@ fn a_line_s_actions_taken_page_holds_still() {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1200.0, 900.0))
             .with_pixels_per_point(scale)
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(6);
         h.get_by_label_contains("Hello there, traveller").click();
         h.run_steps(3);

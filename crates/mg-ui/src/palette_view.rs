@@ -91,6 +91,12 @@ pub struct PaletteView {
     pub selected: Option<ResKey>,
     /// The hovered blueprint's thumbnail, once rendered.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    /// The blueprint under the pointer and since when (the window's
+    /// clock): its picture and what there is to say of it are asked for
+    /// only once the pointer has rested on its row for a tooltip's delay,
+    /// not for each row the list scrolls under a resting pointer (each
+    /// would make a picture: M3 T14's review).
+    hover_since: Option<(ResKey, f64)>,
     /// What there is to say of the hovered blueprint, where it has no
     /// model to show (a sound, a trigger, an encounter, a store, a
     /// waypoint).
@@ -522,6 +528,7 @@ impl Default for PaletteView {
             grouped: HashMap::new(),
             selected: None,
             thumb: None,
+            hover_since: None,
             fold: None,
             about: None,
             found: None,
@@ -1791,7 +1798,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (`model_view::make_thumbnails`).
     use crate::model_view::Pictured;
     app.thumbnails.show(shown.into_iter().map(Pictured::Resource));
-    // The hovered blueprint's picture, for its tooltip once it is made.
+    // The hovered blueprint's picture, for its tooltip once it is made,
+    // and what there is to say of it: asked for once the pointer has
+    // rested on its row for the tooltip's delay (the same row a while:
+    // not the rows a turning wheel scrolls under it).
+    let now = ui.input(|i| i.time);
+    let delay = f64::from(ui.style().interaction.tooltip_delay);
+    let since = match (hovered, app.palette.hover_since) {
+        (Some(key), Some((was, since))) if was == key => Some(since),
+        (Some(key), _) => {
+            app.palette.hover_since = Some((key, now));
+            Some(now)
+        }
+        (None, _) => {
+            app.palette.hover_since = None;
+            None
+        }
+    };
+    let rested = since.is_some_and(|since| now - since >= delay);
+    if let Some(since) = since.filter(|_| !rested) {
+        ui.ctx().request_repaint_after_secs((since + delay - now).max(0.0) as f32);
+    }
+    let hovered = hovered.filter(|_| rested);
     if let Some(key) = hovered
         && let Some(id) = app.thumbnails.get(Pictured::Resource(key))
         && app.palette.thumb != Some((key, id))

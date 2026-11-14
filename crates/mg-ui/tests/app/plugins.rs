@@ -363,6 +363,8 @@ fn variables(
 #[test]
 fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     let Some((mut h, key)) = plugin_harness("ui-plugin-menus", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     // The area's objects: a chest.
     let git = ResKey::parse("start", ResType::GIT).unwrap();
     let mut placed = Gff::new(*b"GIT ");
@@ -436,6 +438,8 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
 #[test]
 fn a_plugin_s_commands_are_grouped_into_submenus() {
     let Some((mut h, _)) = plugin_harness("ui-plugin-submenus", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let dir = mg_testkit::scratch_dir("ui-plugin-submenus-plugins");
     let plugin = dir.join("roles");
     std::fs::create_dir_all(&plugin).unwrap();
@@ -524,6 +528,8 @@ fn a_plugin_s_commands_are_grouped_into_submenus() {
 #[test]
 fn a_plugin_s_command_is_for_placed_objects_blueprints_groups_and_the_pane_clicked() {
     let Some((mut h, _)) = plugin_harness("ui-plugin-menus-0-5", false) else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
     let dir = mg_testkit::scratch_dir("ui-plugin-menus-0-5-plugins");
     let plugin = dir.join("where");
     std::fs::create_dir_all(&plugin).unwrap();

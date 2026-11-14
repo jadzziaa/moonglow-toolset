@@ -779,6 +779,23 @@ fn the_status_bar_holds_at_every_width() {
     }
     tell.send(Step::End).unwrap();
     wait_for(&mut h, "the job's end", |h| !h.state().busy());
+    // With short texts (no hints, counts, line or job: the room's rule
+    // alone would keep the switches' words and the folder), from 1300 to
+    // 1500 by 4: the switches' icons and no folder under 1400, the words
+    // and the folder from 1400 (the window's width's rule, M3 T14).
+    h.state_mut().status_for_tests(Some((Vec::new(), Vec::new())));
+    h.state_mut().log.clear();
+    for width in (1300..=1500).step_by(4) {
+        let width = width as f32;
+        h.set_size(egui::vec2(width, 600.0));
+        settle(&mut h);
+        let nodes = bar_controls(&h, "Status Bar");
+        let has = |n: &str| nodes.iter().find(|c| c.0 == n).map(|c| c.1);
+        let icons = has("Log").is_some_and(|r| r.width() < 30.0);
+        if icons != (width < 1400.0) || has(folder).is_some() != (width >= 1400.0) {
+            wrong.push(format!("{width}, short texts: icons {icons}, folder {:?}", has(folder)));
+        }
+    }
     assert!(wrong.is_empty(), "{wrong:#?}");
     for stage in [
         "everything",
@@ -795,14 +812,16 @@ fn the_status_bar_holds_at_every_width() {
 }
 
 /// The Bottom Dock's tab bar at every window width from the least (420)
-/// to 1000, in 4 point steps, beside an area with both side docks open
-/// (the dock under the editor area only, 24 points wide in the least
-/// window): its Log tab and its tools (Copy Log, Save Log, Clear Log)
-/// never over each other nor outside the dock; and, as the dock narrows,
-/// each stage in turn: the tab's words with all three tools; the tab its
-/// icon alone with the tools going one by one from the end; the icon
-/// alone with no tools; nothing under the icon's width. The tab is "Log"
-/// whatever its form; each tool not shown is in the View menu.
+/// to 1000, in 4 point steps, beside an area with the Right Dock unfolded
+/// by hand where the width folds it (the narrowest the dock under the
+/// editor area is since the yields, M3 T14: about 100 points in the least
+/// window; it was 24 with both docks open): its Log tab and its tools
+/// (Copy Log, Save Log, Clear Log) never over each other nor outside the
+/// dock; and, as the dock narrows, the stages it reaches in turn: the
+/// tab's words with all three tools; the tab its icon alone with the tools
+/// going from the end (the icon alone, and nothing under its width, are
+/// no longer reached in the window). The tab is "Log" whatever its form;
+/// each tool not shown is in the View menu.
 #[test]
 fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     let Some((mut h, _area)) = area_harness("bottom-dock-narrow") else { return };
@@ -816,6 +835,8 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     for width in (420..=1000).step_by(4) {
         let width = width as f32;
         h.set_size(egui::vec2(width, 800.0));
+        settle(&mut h);
+        unfold_right_dock(&mut h);
         settle(&mut h);
         let dock = h.state().bottom_dock_rect().expect("the Bottom Dock");
         let bar = h.get_by_label("Bottom Dock");
@@ -878,8 +899,9 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
     let reached: Vec<usize> = seen.iter().map(|s| s.1).collect();
     for (i, stage) in stages.iter().enumerate() {
         // (The icon with all three tools is a few points of the dock's
-        // width at most: not every sweep lands on it.)
-        if *stage != ("icon", 3) {
+        // width at most: not every sweep lands on it. The icon with fewer
+        // than two tools and nothing are under the narrowest dock now.)
+        if !matches!(*stage, ("icon", 3) | ("icon", 1) | ("icon", 0) | ("none", 0)) {
             assert!(reached.contains(&i), "{stage:?} never seen: {seen:?}");
         }
     }

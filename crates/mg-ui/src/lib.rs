@@ -814,11 +814,6 @@ pub struct Moonglow {
     pub(crate) undo_worked: Option<Tab>,
     /// The side editor whose tab the pointer was pressed on this frame.
     pub(crate) pressed_side_tab: Option<Tab>,
-    /// The Left Dock's fold button as last drawn, or folded the button
-    /// that unfolds it, in the same place beside the strip's edge (the
-    /// dock is resized from its edge, but not under the button:
-    /// `shell::left_dock`).
-    pub(crate) left_fold: Option<egui::Rect>,
     /// What the shell yields at this frame's width (`shell::frame_yields`,
     /// decided once as the frame begins).
     pub(crate) yields: mg_uikit::shell::Yields,
@@ -846,9 +841,10 @@ pub struct Moonglow {
     /// The Resources panel was asked for with no module open: from then
     /// on the Left Dock holds it with no module open too, for the run.
     pub(crate) resources_alone: bool,
-    /// The Right Dock's fold button as last drawn, or folded the button
-    /// that unfolds it, beside the strip's edge (`shell::right_dock`).
-    pub(crate) right_fold: Option<egui::Rect>,
+    /// Where the Left Dock was drawn at this frame, unfolded
+    /// (`shell::left_dock`; `None` from the start of each frame until it
+    /// is drawn).
+    pub(crate) left_rect: Option<egui::Rect>,
     /// Where the Right Dock was drawn at this frame, unfolded
     /// (`shell::right_dock`; `None` from the start of each frame until it
     /// is drawn).
@@ -885,14 +881,6 @@ pub struct Moonglow {
     /// other windows turn it off, so that the dock is not drawn beside
     /// what they look at.
     pub palette_dock: bool,
-    /// Whether a narrow window folds the side docks (true: the shell's
-    /// yields, `shell::left_folded`). The tests written for the windows
-    /// before the yields, whose docks' contents they look at in windows
-    /// under 1500 points wide, turn it off, as though the builder had
-    /// unfolded both docks there; what a narrow window does to the docks
-    /// is the yields' tests' (`tests/app/yields.rs`).
-    #[doc(hidden)]
-    pub docks_fold_by_width: bool,
     /// The script whose editor has the keys, or had them when the menu
     /// still open was opened (the click on it takes them): Edit › Undo
     /// and Redo and the Top Bar's are that editor's, as its keys are
@@ -1474,17 +1462,16 @@ impl Moonglow {
             pointer_on_bars: false,
             undo_worked: None,
             pressed_side_tab: None,
-            left_fold: None,
             yields: mg_uikit::shell::Yields::of(1600.0, 1600.0),
             left_unfolded_here: false,
             right_unfolded_here: false,
             unfolded_last: None,
             right_columns: false,
+            left_rect: None,
             left_panel: Panel::Module,
             left_drawn: None,
             outliner: Default::default(),
             resources_alone: false,
-            right_fold: None,
             right_rect: None,
             bottom_rect: None,
             last_line_tips: 0,
@@ -1493,7 +1480,6 @@ impl Moonglow {
             preview_slot: None,
             palettes_asked: false,
             palette_dock: true,
-            docks_fold_by_width: true,
             undo_script: None,
             test_checked: None,
             model_views: HashMap::new(),
@@ -1944,6 +1930,7 @@ impl Moonglow {
         // docks drawn below.)
         shell::frame_yields(self, ui.ctx());
         shell::take_dock_sizes(self, ui.ctx());
+        shell::keys_leave_folded_docks(self, ui.ctx());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
@@ -2720,6 +2707,13 @@ impl Moonglow {
         self.right_rect
     }
 
+    /// Where the Left Dock was drawn at the last frame, from its outer
+    /// edge to its inner one (the line along it included) and the Top Bar
+    /// to the Status Bar: `None` where it was folded, or not drawn.
+    pub fn left_dock_rect(&self) -> Option<egui::Rect> {
+        self.left_rect
+    }
+
     /// Where the Bottom Dock was drawn at the last frame, its tab bar and
     /// the log under it: `None` where it was closed.
     pub fn bottom_dock_rect(&self) -> Option<egui::Rect> {
@@ -2792,6 +2786,7 @@ impl Moonglow {
         self.settings.dock_sizes_taken = true;
         self.settings.left_dock_width = None;
         self.settings.right_dock_width = None;
+        self.settings.right_dock_width_wide = None;
         self.settings.bottom_dock_height = None;
         self.settings.module_panel_height = None;
         self.settings.window_places.clear();
@@ -2915,6 +2910,18 @@ impl Moonglow {
     /// Outliner under it where the area is in front (its row, else its
     /// first), the editor area (an area's view has them, as after a click in it), the
     /// Right Dock's Palette panel, the Bottom Dock's log.
+    /// The editor area's keys: what its tab used last (a window's too)
+    /// has: a talk table's lines, a table's cells (and which table), else
+    /// an area's.
+    pub(crate) fn editor_keys(&self) -> (palette_view::Keys, Option<u32>) {
+        use palette_view::Keys;
+        match self.tabs_recent.first() {
+            Some(Tab::TalkTable) => (Keys::Talk, None),
+            Some(Tab::Table(id)) => (Keys::Table, Some(*id)),
+            _ => (Keys::Area, None),
+        }
+    }
+
     pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
         use palette_view::Keys;
         // Each pane's keys are what its tab in front has: the Left Dock's
@@ -2922,26 +2929,11 @@ impl Moonglow {
         // editor area's (the tab used last, a window's too) a talk table's
         // lines or a table's cells, else an area's; the Right Dock's the
         // palette.
-        let front = self.tabs_recent.first().cloned();
-        let keys_of = |tab: Option<Tab>| match tab {
-            Some(Tab::TalkTable) => (Keys::Talk, None),
-            Some(Tab::Table(id)) => (Keys::Table, Some(id)),
-            _ => (Keys::Area, None),
-        };
         let mut panes = Vec::new();
-        // (A side dock folded by the window's width is a stop too: F6
-        // unfolds it there, as its strip's buttons do. One the builder
-        // folded is passed by.)
-        use mg_uikit::shell::Side;
-        let reached = |app: &Moonglow, side| {
-            let folded = match side {
-                Side::Left => shell::left_folded(app),
-                Side::Right => shell::right_folded(app),
-            };
-            !folded || shell::folded_by_width(app, side)
-        };
-        let left = shell::left_shown(self).filter(|_| reached(self, Side::Left));
-        if let Some(panel) = left {
+        // (Only what is drawn: a folded dock, by the window's width or by
+        // the builder, is passed by; its strip's buttons, View's rows and
+        // their keys unfold it.)
+        if let Some(panel) = self.left_dock_shows() {
             panes.push((panel.keys(), None));
             // (The Outliner under its tabs' panel, before the editor
             // area: left to right, then down.)
@@ -2951,14 +2943,13 @@ impl Moonglow {
         }
         // (The editor area's place among them.)
         let middle = panes.len();
-        panes.push(keys_of(front));
+        panes.push(self.editor_keys());
         // (The Right Dock's one stop: its panel in front's, the palette's
         // rows or the Preview's model.)
-        let right = shell::right_shown(self).filter(|_| reached(self, Side::Right));
-        if let Some(panel) = right {
+        if let Some(panel) = self.right_dock_shows() {
             // (In two columns, a stop for each: the Palette's, then the
             // Preview's.)
-            match self.right_columns && !shell::right_folded(self) {
+            match self.right_columns {
                 true => panes.extend(Panel::RIGHT.map(|p| (p.keys(), None))),
                 false => panes.push((panel.keys(), None)),
             }
@@ -2972,15 +2963,6 @@ impl Moonglow {
         let now = now.unwrap_or(middle.min(panes.len() - 1));
         let (next, table) = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
         palette_view::give_keys(ctx, next);
-        // (Reached folded by the window's width: unfolded, as by hand.)
-        let left_keys = left.map(|p| p.keys());
-        if Some(next) == left_keys || next == Keys::Outliner {
-            if shell::left_folded(self) {
-                shell::set_dock_open(self, Side::Left, true);
-            }
-        } else if Some(next) == right.map(|p| p.keys()) && shell::right_folded(self) {
-            shell::set_dock_open(self, Side::Right, true);
-        }
         if let Some(id) = table {
             table_view::take_keys(ctx, id);
             // (At its first cell, where none is selected: the arrows go
