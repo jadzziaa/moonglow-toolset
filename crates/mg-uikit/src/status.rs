@@ -600,48 +600,84 @@ impl<'a> Hints<'a> {
         Hints { hints }
     }
 
+    /// Each hint measured in `ui`'s fonts, once: what [`MeasuredHints`]
+    /// lays out and draws from, however often it is asked.
+    pub fn measure(self, ui: &Ui) -> MeasuredHints<'a> {
+        let parts: Vec<(Vec<f32>, f32)> = self.hints.iter().map(|h| h.widths(ui)).collect();
+        let widths = parts.iter().map(Hint::width_of).collect();
+        MeasuredHints { hints: self.hints, parts, widths }
+    }
+
     /// How many of them [`Hints::show`] draws in `room` (their padding
     /// taken from it): those that fit whole, and a notice after them cut
     /// short where it has [`NOTE_LEAST`].
     pub fn fitting(&self, ui: &Ui, room: f32) -> usize {
-        let widths: Vec<f32> = self.hints.iter().map(|h| h.width(ui)).collect();
-        let (shown, cut) = self.fit(&widths, room);
+        self.measure(ui).fitting(room)
+    }
+
+    /// The width all of them take, with their padding (none for no hints).
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.measure(ui).width()
+    }
+
+    /// Draws those that fit in `room` ([`MeasuredHints::show`]); returns
+    /// how many were drawn.
+    pub fn show(self, ui: &mut Ui, room: f32) -> usize {
+        self.measure(ui).show(ui, room)
+    }
+}
+
+/// [`Hints`] measured once ([`Hints::measure`]): their width, how many fit
+/// a room and their drawing all from the same measures, for a caller
+/// that asks all three in a frame (the Status Bar).
+#[derive(Clone, Debug)]
+#[must_use = "show it with .show(ui, room)"]
+pub struct MeasuredHints<'a> {
+    hints: &'a [Hint],
+    parts: Vec<(Vec<f32>, f32)>,
+    widths: Vec<f32>,
+}
+
+impl MeasuredHints<'_> {
+    /// The width all of them take, with their padding (none for no hints).
+    pub fn width(&self) -> f32 {
+        if self.hints.is_empty() {
+            return 0.0;
+        }
+        let gaps = HINT_GAP * (self.hints.len() - 1) as f32;
+        self.widths.iter().sum::<f32>() + gaps + 2.0 * HINTS_PADDING
+    }
+
+    /// How many of them [`MeasuredHints::show`] draws in `room` (their
+    /// padding taken from it): those that fit whole, and a notice after
+    /// them cut short where it has [`NOTE_LEAST`].
+    pub fn fitting(&self, room: f32) -> usize {
+        let (shown, cut) = self.fit(room);
         shown + usize::from(cut.is_some())
     }
 
-    /// How many of the hints `widths` wide fit whole in `room`, and the
-    /// room left for the notice after them where it is shown cut short.
-    fn fit(&self, widths: &[f32], room: f32) -> (usize, Option<f32>) {
+    /// How many fit whole in `room`, and the room left for the notice
+    /// after them where it is shown cut short.
+    fn fit(&self, room: f32) -> (usize, Option<f32>) {
         let inner = room - 2.0 * HINTS_PADDING;
-        let shown = hints_that_fit(widths, HINT_GAP, inner);
+        let shown = hints_that_fit(&self.widths, HINT_GAP, inner);
         let cut = self.hints.get(shown).filter(|h| h.is_note()).and_then(|_| {
-            let used: f32 = widths[..shown].iter().sum::<f32>() + HINT_GAP * shown as f32;
+            let used: f32 = self.widths[..shown].iter().sum::<f32>() + HINT_GAP * shown as f32;
             let left = inner - used;
             (left >= NOTE_LEAST).then_some(left)
         });
         (shown, cut)
     }
 
-    /// The width all of them take, with their padding (none for no hints).
-    pub fn width(&self, ui: &Ui) -> f32 {
-        if self.hints.is_empty() {
-            return 0.0;
-        }
-        let widths = self.hints.iter().map(|h| h.width(ui));
-        widths.sum::<f32>() + HINT_GAP * (self.hints.len() - 1) as f32 + 2.0 * HINTS_PADDING
-    }
-
     /// Draws those that fit in `room` (a width: what the right-hand items
     /// leave), [`HINT_HEIGHT`] high; returns how many were drawn. Takes
     /// the room whole (the hints are the Status Bar's part that gives).
-    /// Each hint is measured once. A notice ([`Hint::note`]) is no key
-    /// hint: the first that does not fit whole is drawn cut short with an
-    /// ellipsis where [`NOTE_LEAST`] or more is left for it (named by its
-    /// whole words, which its tip shows), and what follows it dropped.
-    pub fn show(self, ui: &mut Ui, room: f32) -> usize {
-        let measured: Vec<(Vec<f32>, f32)> = self.hints.iter().map(|h| h.widths(ui)).collect();
-        let widths: Vec<f32> = measured.iter().map(Hint::width_of).collect();
-        let (shown, cut) = self.fit(&widths, room);
+    /// A notice ([`Hint::note`]) is no key hint: the first that does not
+    /// fit whole is drawn cut short with an ellipsis where [`NOTE_LEAST`]
+    /// or more is left for it (named by its whole words, which its tip
+    /// shows), and what follows it dropped.
+    pub fn show(&self, ui: &mut Ui, room: f32) -> usize {
+        let (shown, cut) = self.fit(room);
         let room = room.max(0.0);
         let (rect, _) = ui.allocate_exact_size(vec2(room, HINT_HEIGHT), Sense::hover());
         let builder = egui::UiBuilder::new()
@@ -653,12 +689,12 @@ impl<'a> Hints<'a> {
             ui.add_space(HINTS_PADDING);
             let t = ui.tokens();
             for (i, hint) in self.hints[..shown].iter().enumerate() {
-                let size = vec2(widths[i], HINT_HEIGHT);
+                let size = vec2(self.widths[i], HINT_HEIGHT);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
                 let spoken = hint.spoken();
                 response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
                 if ui.is_rect_visible(rect) {
-                    hint.paint(ui, &t, rect.left(), rect.center().y, &measured[i].0);
+                    hint.paint(ui, &t, rect.left(), rect.center().y, &self.parts[i].0);
                 }
             }
             if let Some(left) = cut {

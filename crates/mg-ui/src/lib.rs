@@ -1086,21 +1086,25 @@ pub struct Moonglow {
     escape_docked_next: Option<Tab>,
     /// The docked tab with OK and Cancel an Escape would be the Cancel of
     /// now (the Status Bar's Esc hint, M3's T12), as `tabs::Viewer::body`
-    /// foresaw it while the editor area was drawn last (`_next`, taken as
-    /// the frame begins): by T10's rule where nothing has the keyboard
-    /// (where something has, where the key goes is known only at the
-    /// Escape, and no hint is shown). (A window in front with OK and
-    /// Cancel takes an Escape only where no docked tab does.)
-    pub(crate) escape_hint: Option<Tab>,
+    /// foresees it while the editor area is drawn (cleared as each frame
+    /// begins): by T10's rule where nothing has the keyboard (where
+    /// something has, where the key goes is known only at the Escape, and
+    /// no hint is shown). (A window in front with OK and Cancel takes an
+    /// Escape only where no docked tab does.)
     pub(crate) escape_hint_next: Option<Tab>,
-    /// The pointer over the Options tab as the editor area was drawn last
-    /// (its Enter is OK then, with nothing typed in): the Status Bar's
-    /// Enter hint.
-    pub(crate) options_hovered: bool,
+    /// The pointer over a floating model's window as the editor area was
+    /// drawn: an Escape closes that window, whatever docked tab would
+    /// take it otherwise (`tabs::Viewer::body`'s `model`).
+    pub(crate) model_under_pointer_next: bool,
+    /// The pointer over the Options tab as the editor area was drawn (its
+    /// Enter is OK then, with nothing typed in): the Status Bar's Enter
+    /// hint.
     pub(crate) options_hovered_next: bool,
-    /// What the Status Bar said this frame ([`shell::Shown::said`]): the
-    /// next frame is asked for where the editor area changed it.
-    pub(crate) bar_said: Vec<String>,
+    /// What the Status Bar shows ([`shell::shown`]), made once a frame
+    /// after the editor area is drawn and shown by the next frame's bar
+    /// (drawn before the editor area, whose state it reads); a frame is
+    /// asked for where it changed.
+    pub(crate) bar_shown: shell::Shown,
     /// The Resources panel in use as the Left Dock was drawn last (the
     /// pointer over it, or its list with the keys): `Some(over)`, where
     /// `over` says the pointer is over it. The Status Bar's hints are the
@@ -1542,11 +1546,10 @@ impl Moonglow {
             escape_taken: false,
             escape_docked: None,
             escape_docked_next: None,
-            escape_hint: None,
             escape_hint_next: None,
-            options_hovered: false,
+            model_under_pointer_next: false,
             options_hovered_next: false,
-            bar_said: Vec::new(),
+            bar_shown: shell::Shown::default(),
             resources_here: None,
             status_for_tests: None,
             last_press: None,
@@ -1754,8 +1757,9 @@ impl Moonglow {
         self.escape_taken = false;
         // (The Status Bar's Esc and Enter hints, as the editor area was
         // drawn last.)
-        self.escape_hint = self.escape_hint_next.take();
-        self.options_hovered = std::mem::take(&mut self.options_hovered_next);
+        self.escape_hint_next = None;
+        self.model_under_pointer_next = false;
+        self.options_hovered_next = false;
         let pressed = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()));
         if let Some(at) = pressed.flatten() {
             self.last_press = Some((at, ui.ctx().layer_id_at(at)));
@@ -2051,12 +2055,10 @@ impl Moonglow {
             self.window_bars(ui);
         });
         ui.set_clip_rect(whole_clip);
-        // (The Status Bar, drawn before the editor area, shows its state
-        // as the frame began: where the editor area changed what it says,
-        // the next frame shows it.)
-        if shell::said_next(self, ui.ctx()) != self.bar_said {
-            ui.ctx().request_repaint();
-        }
+        // (What the Status Bar shows, made once a frame from the editor
+        // area as this frame left it; the bar was drawn before it, so where
+        // it changed, the next frame shows it.)
+        shell::update_shown(self, ui.ctx());
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
@@ -2610,10 +2612,20 @@ impl Moonglow {
         });
     }
 
-    /// What the Status Bar said at the last frame: each hint as a screen
-    /// reader says it, then each count.
-    pub fn status_said(&self) -> &[String] {
-        &self.bar_said
+    /// How long making what the Status Bar shows takes, once
+    /// (`shell::update_shown`, run once a frame after the editor area):
+    /// for the hand-run cost test.
+    #[doc(hidden)]
+    pub fn time_status_for_tests(&mut self, ctx: &egui::Context) -> std::time::Duration {
+        let started = std::time::Instant::now();
+        shell::update_shown(self, ctx);
+        started.elapsed()
+    }
+
+    /// What the Status Bar shows (from the last frame on): each hint as a
+    /// screen reader says it, then each count.
+    pub fn status_said(&self) -> Vec<String> {
+        self.bar_shown.said()
     }
 
     /// Where the Right Dock's Preview panel's body was drawn at the last

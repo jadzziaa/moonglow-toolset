@@ -15,26 +15,25 @@ fn said(h: &Harness<'_, Moonglow>) -> Vec<String> {
 }
 
 /// Frames until the Status Bar says each of `what` (a hint or a count)
-/// and none of `not`, for ten seconds at most; then each said hint is a
-/// node of the bar's "Hints" group, named so (a screen reader reaches it,
-/// and it takes no focus).
+/// and none of `not`, each said one a node of the bar named so (a screen
+/// reader reaches it, and it takes no focus), for ten seconds at most.
+/// (What it says is made after the editor area is drawn, and drawn by the
+/// next frame's bar.)
 fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
     let started = std::time::Instant::now();
     loop {
         let now = said(h);
         let has = |w: &&str| now.iter().any(|s| s == w);
-        if what.iter().all(has) && !not.iter().any(has) {
+        let drawn = |w: &&str| h.get_by_label("Status Bar").query_by_label(w).is_some();
+        if what.iter().all(has) && !not.iter().any(has) && what.iter().all(drawn) {
             break;
         }
+        let missing: Vec<&&str> = what.iter().filter(|w| !drawn(w)).collect();
         assert!(
             started.elapsed().as_secs() < 10,
-            "never said {what:?} without {not:?}: it says {now:?}"
+            "never said {what:?} without {not:?}: it says {now:?}; not drawn: {missing:?}"
         );
         h.step();
-    }
-    for w in what {
-        let in_hints = h.get_by_label("Status Bar").query_by_label(w);
-        assert!(in_hints.is_some(), "{w} in the Status Bar");
     }
 }
 
@@ -318,7 +317,7 @@ fn hints_cost() {
 /// Find's key; a row clicked (the list has the keys), Up or Down and
 /// Enter too, kept with the pointer away (no Find then: its key goes to
 /// the Name field only with the pointer over the panel); the keys given
-/// back (Escape), the editor's hints again.
+/// back (Escape), the editor's hints again (Module Properties' Tab).
 #[test]
 fn the_resources_panel_in_use_shows_its_hints() {
     let Some(root) = mg_testkit::nwn_root() else { return };
@@ -344,7 +343,9 @@ fn the_resources_panel_in_use_shows_its_hints() {
     says(&mut h, &["Up or Down: Move in the list", "Double Click: Open"], &["Ctrl, F: Find"]);
     h.key_press(egui::Key::Escape);
     settle(&mut h);
-    says(&mut h, &[], &["Double Click: Open", "Enter: Open"]);
+    // (The editor's own again: Module Properties' in front.)
+    assert_eq!(h.state().active_editor(), Some(&Tab::ModuleProperties));
+    says(&mut h, &["Tab: Next field"], &["Double Click: Open", "Enter: Open"]);
 }
 
 /// A script's tab in front (As Tabs) shows the Script board's keys, as
@@ -372,4 +373,326 @@ fn a_script_tab_shows_its_keys() {
         "Ctrl, R: Replace",
     ];
     says(&mut h, &keys, &["4 by 4 tiles"]);
+}
+
+/// Places `resref`'s blueprint (of type `t`) in `area`'s GIT list `list`
+/// at each of `at`, one command; settled.
+fn put(
+    h: &mut Harness<'_, Moonglow>,
+    area: ResRef,
+    t: ResType,
+    resref: &str,
+    list: &str,
+    at: &[glam::Vec3],
+) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let first = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list(list).map_or(0, |l| l.len())
+    };
+    let edits = {
+        let game = h.state().game.as_deref().unwrap();
+        let key = ResKey::parse(resref, t).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        (at.iter().enumerate())
+            .map(|(i, p)| mg_edit::Edit::InsertItem {
+                key: ResKey::new(area, ResType::GIT),
+                path: mg_edit::GffPath::root(),
+                list: list.into(),
+                index: first + i,
+                item: instance(
+                    &placing,
+                    t,
+                    &bp,
+                    Placement { position: p.to_array(), rotation: 0.0 },
+                    &[],
+                )
+                .unwrap(),
+            })
+            .collect()
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    settle(h);
+}
+
+/// Frames until `done`, for ten seconds at most.
+fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 10, "never: {what}: {:?}", said(h));
+        h.step();
+    }
+}
+
+/// The area view's other states (the review of M3 T12): what is selected
+/// decides what is hinted (a sound turns not: no ring, no Q and E; a
+/// creature is not raised: no Raise; a creature's model tilts and scales:
+/// Shift shows Tilt and Scale); pasting objects and tiles; Redraw Polygon;
+/// placing an appearance, a trigger (an outline) and a door; a tile brush
+/// over an object; Select Tiles' notice; Ctrl + wheel's scale, and a
+/// static placeable's refusal for its four seconds.
+#[test]
+fn the_other_area_states_show_their_hints() {
+    use glam::Vec3;
+    use mg_area::ObjectKind::{Creature, Placeable, Sound, Waypoint};
+    let Some((mut h, area)) = area_harness("status-hints-more") else { return };
+    put(&mut h, area, ResType::UTC, "nw_chicken", "Creature List", &[Vec3::new(10.0, 10.0, 0.0)]);
+    put(&mut h, area, ResType::UTS, "animalcriesday", "SoundList", &[Vec3::new(30.0, 30.0, 0.0)]);
+    put(&mut h, area, ResType::UTP, "plc_chest1", "Placeable List", &[Vec3::new(10.0, 30.0, 0.0)]);
+    let select = |h: &mut Harness<'_, Moonglow>, sel: Vec<(mg_area::ObjectKind, usize)>| {
+        let v = view(h, area);
+        v.selection = sel;
+    };
+    // A sound alone: it moves, takes no turn.
+    select(&mut h, vec![(Sound, 0)]);
+    let turning = ["Turning ring: Turn", "Q, E: Turn by a step", "Alt, Right Drag: Turn"];
+    says(&mut h, &["Drag: Move", "Alt, Drag: Raise"], &turning);
+    // A creature alone: turned, not raised; Shift: its model tilts and
+    // scales.
+    select(&mut h, vec![(Creature, 0)]);
+    says(&mut h, &["Turning ring: Turn", "Q, E: Turn by a step"], &["Alt, Drag: Raise"]);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    says(&mut h, &["Tilt rings: Tilt", "Scale handle: Scale"], &[]);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    says(&mut h, &["Drag: Move"], &["Shift: Held"]);
+    // Ctrl + wheel over the creature: its scale.
+    let ctrl = egui::Modifiers::COMMAND;
+    let over = screen(&h, area, Vec3::new(10.0, 10.0, 0.3));
+    let wheel = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        h.step();
+        h.event(egui::Event::ModifiersChanged(ctrl));
+        for _ in 0..3 {
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, 100.0),
+                modifiers: ctrl,
+                phase: egui::TouchPhase::Move,
+            });
+            h.step();
+        }
+    };
+    wheel(&mut h, over);
+    until(&mut h, "the scale's note", |h| said(h).iter().any(|s| s.starts_with("Scale 1.")));
+    says(&mut h, &["Ctrl, Wheel: Scale", "Ctrl: Let go to keep", "Esc: Drop"], &[]);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    settle(&mut h);
+    // A static placeable: refused, said for four seconds.
+    let git = ResKey::new(area, ResType::GIT);
+    let set = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("Placeable List", 0),
+        label: "Static".into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Static", vec![set])));
+    settle(&mut h);
+    select(&mut h, vec![(Placeable, 0)]);
+    let refused = "A static placeable takes no scale: clear Static in its properties first";
+    let chest = screen(&h, area, Vec3::new(10.0, 30.0, 0.3));
+    wheel(&mut h, chest);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    says(&mut h, &[refused, "Ctrl, Wheel: Zoom slowly"], &[]);
+    // (The window's own time: a frame a 60th of a second.)
+    let (started, from) = (std::time::Instant::now(), h.ctx.input(|i| i.time));
+    loop {
+        if !said(&h).iter().any(|s| s == refused) {
+            break;
+        }
+        assert!(started.elapsed().as_secs() < 30, "the refusal said for good");
+        h.step();
+    }
+    let said_for = h.ctx.input(|i| i.time) - from;
+    assert!((3.0..5.0).contains(&said_for), "said for its four seconds: {said_for}");
+    // Pasting objects: a waypoint copied and pasted over the view.
+    select(&mut h, vec![(Waypoint, 0)]);
+    let ground = screen(&h, area, Vec3::new(25.0, 10.0, 0.0));
+    h.hover_at(ground);
+    h.step();
+    h.event(egui::Event::Copy);
+    h.step();
+    h.event(egui::Event::Paste("Moonglow Toolset: 1 object".into()));
+    until(&mut h, "pasting", |h| h.state().area_views[&area].pasting);
+    says(&mut h, &["Pasting", "Click: Place the copies", "Right Click or Esc: Stop"], &[]);
+    h.key_press(egui::Key::Escape);
+    until(&mut h, "pasting stopped", |h| !h.state().area_views[&area].pasting);
+    // Redraw Polygon.
+    view(&mut h, area).redraw = Some((Waypoint, 0));
+    says(&mut h, &["Redraw Polygon", "Click: Corner", "Double Click: Close"], &[]);
+    view(&mut h, area).redraw = None;
+    select(&mut h, Vec::new());
+    // Placing an appearance, a trigger, a door.
+    h.state_mut().palette.placing_appearance =
+        Some(mg_ui::appearance_gallery::DraggedAppearance { row: 0, name: "Dwarf".into() });
+    says(&mut h, &["Placing Dwarf", "Click: Place", "Shift, Click: Place more"], &[]);
+    h.state_mut().palette.placing_appearance = None;
+    h.state_mut().palette.selected = Some(ResKey::parse("newgeneric", ResType::UTT).unwrap());
+    let outline =
+        ["Placing newgeneric", "Click: Corner", "Alt, Click: Rectangle from the first corner"];
+    says(&mut h, &outline, &["Click: Place"]);
+    h.state_mut().palette.selected = Some(ResKey::parse("nw_door_strong", ResType::UTD).unwrap());
+    says(&mut h, &["Placing nw_door_strong", "Click: Place"], &["Q or E: Turn"]);
+    h.state_mut().palette.selected = None;
+    // A tile brush over an object: the press is the object's.
+    h.state_mut().palette.tile_brush = Some(mg_ui::terrain_mode::TileBrush {
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        label: "ttr01_a01_01".into(),
+        brush: mg_area::terrain::Brush::Tile(0),
+        target: None,
+        exact: false,
+    });
+    let on_waypoint = screen(&h, area, Vec3::new(20.0, 20.0, 0.5));
+    h.hover_at(on_waypoint);
+    h.step();
+    until(&mut h, "the object's note", |h| {
+        said(h).iter().any(|s| s.contains("goes to the object"))
+    });
+    h.state_mut().palette.tile_brush = None;
+    // Select Tiles: its notice first; copied and pasted, pasting tiles.
+    view(&mut h, area).tile_mode = true;
+    view(&mut h, area).tile_selection = vec![(0, 0)];
+    view(&mut h, area).notice_for_tests("No tile fits there");
+    until(&mut h, "the notice first", |h| {
+        said(h).first().is_some_and(|s| s == "No tile fits there")
+    });
+    h.hover_at(ground);
+    h.step();
+    h.event(egui::Event::Copy);
+    h.step();
+    h.event(egui::Event::Paste("Moonglow Toolset: tiles".into()));
+    until(&mut h, "pasting tiles", |h| h.state().area_views[&area].tile_pasting);
+    says(&mut h, &["Pasting tiles", "Click: Place", "Right Click or Esc: Stop"], &[]);
+}
+
+/// While a modal, a dialog or a menu is in front, the area's keys and
+/// presses do nothing (the view is not hovered): no area hints, the
+/// counts kept; closed, the hints are back.
+#[test]
+fn nothing_in_front_or_no_area_hints() {
+    let Some((mut h, area)) = area_harness("status-hints-in-front") else { return };
+    view(&mut h, area).selection = vec![(mg_area::ObjectKind::Waypoint, 0)];
+    let selected = ["Drag: Move", "G: Drop to ground"];
+    says(&mut h, &selected, &[]);
+    // A menu.
+    h.get_by_label("View").click();
+    until(&mut h, "no hints, a menu open", |h| {
+        let s = said(h);
+        !s.iter().any(|s| s == "Drag: Move") && s.iter().any(|s| s == "4 by 4 tiles")
+    });
+    h.key_press(egui::Key::Escape);
+    says(&mut h, &selected, &[]);
+    // A dialog.
+    menu_command(&mut h, "Edit", "Resize Area…");
+    until(&mut h, "no hints, a dialog open", |h| {
+        let s = said(h);
+        !s.iter().any(|s| s == "Drag: Move") && s.iter().any(|s| s == "1 selected")
+    });
+    h.key_press(egui::Key::Escape);
+    says(&mut h, &selected, &[]);
+    // A modal: a job's window.
+    let (tell, told) = std::sync::mpsc::channel::<()>();
+    h.state_mut().start_job_for_tests("Held", move |_| {
+        let _ = told.recv();
+    });
+    until(&mut h, "no hints, a modal in front", |h| {
+        let s = said(h);
+        !s.iter().any(|s| s == "Drag: Move") && s.iter().any(|s| s == "2 objects")
+    });
+    tell.send(()).unwrap();
+    until(&mut h, "the job's end", |h| !h.state().busy());
+    says(&mut h, &selected, &[]);
+}
+
+/// While one object is moved or turned, where it is now leads the hints,
+/// read as it changes (the posed model the drag moves): its place along a
+/// drag, its facing under Q's turning.
+#[test]
+fn the_object_moved_reads_where_it_is() {
+    let Some((mut h, area)) = area_harness("status-hints-readout") else { return };
+    view(&mut h, area).selection = vec![(mg_area::ObjectKind::Waypoint, 0)];
+    settle(&mut h);
+    let readout = |h: &Harness<'_, Moonglow>| {
+        said(h).into_iter().find(|s| s.starts_with("Waypoint ") && s.contains(" at "))
+    };
+    assert!(readout(&h).is_none(), "at rest, no readout: {:?}", said(&h));
+    let at = screen(&h, area, glam::Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(at);
+    h.step();
+    press(&h, at, true, egui::Modifiers::NONE);
+    // (One step a move: a drag starts past egui's threshold.)
+    let mut seen = Vec::new();
+    for k in 1..=12 {
+        h.hover_at(at + egui::vec2(8.0 * k as f32, 0.0));
+        h.step();
+        h.step();
+        seen.extend(readout(&h));
+    }
+    seen.dedup();
+    assert!(seen.len() >= 3, "the place read as it moves: {seen:?}");
+    press(&h, at + egui::vec2(96.0, 0.0), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert!(readout(&h).is_none(), "the drag over: {:?}", said(&h));
+    // Q held: the facing read as it turns.
+    let facing = |s: &str| s.rsplit("facing ").next().unwrap_or_default().to_string();
+    h.hover_at(at + egui::vec2(96.0, 0.0));
+    h.step();
+    h.key_down(egui::Key::Q);
+    let mut facings = Vec::new();
+    for _ in 0..6 {
+        h.step();
+        facings.extend(readout(&h).map(|s| facing(&s)));
+    }
+    h.key_up(egui::Key::Q);
+    facings.dedup();
+    assert!(!facings.is_empty(), "read while Q turns it: {:?}", said(&h));
+    rest_turn_keys(&mut h, area);
+}
+
+/// What making the Status Bar's hints and counts costs on a large area,
+/// by hand (`cargo test -p mg-ui --release --test app
+/// shown_cost_on_a_large_area -- --ignored --nocapture`): 549 objects
+/// (area084's count), made once a frame after the editor area; the
+/// median of 300 makings with nothing selected, all 549 selected, and all
+/// selected with Shift held (each selected object's handles asked).
+#[test]
+#[ignore]
+fn shown_cost_on_a_large_area() {
+    let Some((mut h, area)) = area_harness("status-hints-cost") else { return };
+    let at: Vec<glam::Vec3> = (0..547)
+        .map(|i| glam::Vec3::new(2.0 + (i % 30) as f32 * 1.2, 2.0 + (i / 30) as f32 * 1.9, 0.0))
+        .collect();
+    put(&mut h, area, ResType::UTW, "nw_waypoint001", "WaypointList", &at);
+    let n = h.state().area_views[&area].model.as_ref().unwrap().objects.len();
+    assert_eq!(n, 549);
+    let ctx = h.ctx.clone();
+    let mut out = Vec::new();
+    for (label, all, shift) in [
+        ("nothing selected", false, false),
+        ("549 selected", true, false),
+        ("549, Shift", true, true),
+    ] {
+        view(&mut h, area).selection = if all {
+            (0..549).map(|i| (mg_area::ObjectKind::Waypoint, i)).collect()
+        } else {
+            Vec::new()
+        };
+        let m = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        h.event(egui::Event::ModifiersChanged(m));
+        h.step();
+        h.step();
+        let said = h.state().status_said();
+        assert!(said.iter().any(|s| s == "549 objects"), "the area's: {said:?}");
+        if all {
+            assert!(said.iter().any(|s| s == "549 selected"), "{said:?}");
+        }
+        let mut times: Vec<f64> = (0..300)
+            .map(|_| h.state_mut().time_status_for_tests(&ctx).as_secs_f64() * 1000.0)
+            .collect();
+        times.sort_by(f64::total_cmp);
+        out.push(format!("{label}: {:.4} ms (worst {:.4})", times[150], times[299]));
+    }
+    println!("making the Status Bar's content, 549 objects: {}", out.join("; "));
 }

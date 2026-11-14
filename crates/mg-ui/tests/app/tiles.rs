@@ -4833,13 +4833,20 @@ fn a_brush_s_tiles_are_drawn_by_the_game_s_shaders() {
     app.settings.game_shaders = Some(true);
     let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
     h.run_steps(3);
-    // The models the game's programs draw, once they are all made.
+    // The models the game's programs draw, once they are all made (for at
+    // most half a minute: on a loaded machine they are made later, and a
+    // count of frames gave up on them).
     let drawn = |h: &mut Harness<'_, Moonglow>| -> std::collections::BTreeSet<String> {
-        for _ in 0..40 {
+        let started = std::time::Instant::now();
+        loop {
             h.state_mut().viewport.as_mut().unwrap().renderer.wait_for_game_programs();
             h.step();
             let r = &h.state().viewport.as_ref().unwrap().renderer;
-            if r.drawn.game_pending == 0 && r.drawn.textures_pending == 0 {
+            let made = r.game_programs.iter().flatten().next().is_some();
+            if made && r.drawn.game_pending == 0 && r.drawn.textures_pending == 0 {
+                break;
+            }
+            if started.elapsed().as_secs() >= 30 {
                 break;
             }
         }

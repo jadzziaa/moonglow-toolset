@@ -583,8 +583,8 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(ui.ctx());
     let size = metrics::STATUS_BAR + panel_line(ui);
     let ctx = ui.ctx().clone();
-    let shown = shown_now(app, &ctx);
-    app.bar_said = shown.said();
+    // (Made after the editor area, last frame: `update_shown`.)
+    let shown = std::mem::take(&mut app.bar_shown);
     let cap = last_line_cap(app);
     let log_on = !app.settings.hide_log;
     let log_tip = format!("Show the log, or close it{}", key_note(app, &ctx, Id::ViewLog));
@@ -633,7 +633,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         };
         job.name(name).tooltip(tip)
     });
-    let hints = shown.hints;
+    let hints = &shown.hints;
     let (clicked, last_clicked) = egui::Panel::bottom("status")
         .exact_size(size)
         .resizable(false)
@@ -667,7 +667,10 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             let between = 2.0 * status::GAP + status::SEPARATOR_WIDTH;
             let line_full =
                 last.as_ref().map(|(_, text, _)| StatusLog::new(text).width(ui).min(cap));
-            let hints_full = Hints::new(&hints).width(ui);
+            // (Each hint measured once, for its width, its fit and its
+            // drawing.)
+            let measured = Hints::new(hints).measure(ui);
+            let hints_full = measured.width();
             let middle_full = match (line_full, hints.is_empty()) {
                 (None, true) => 0.0,
                 (None, false) => status::SEPARATOR_WIDTH + status::GAP + hints_full,
@@ -746,7 +749,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                         Some((.., width)) => inner - width - status::GAP,
                         None => inner,
                     };
-                    let any_hint = Hints::new(&hints).fitting(ui, hints_room) > 0;
+                    let any_hint = measured.fitting(hints_room) > 0;
                     if line.is_none() && !any_hint {
                         return None;
                     }
@@ -766,7 +769,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                         pressed = Some(shown.clicked());
                     }
                     if any_hint {
-                        Hints::new(&hints).show(ui, hints_room);
+                        measured.show(ui, hints_room);
                     }
                     pressed
                 },
@@ -794,6 +797,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         })
         .inner;
     app.last_line_tips += tips_made.get();
+    app.bar_shown = shown;
     if clicked {
         app.show_panel(Id::ViewLog, !log_on);
     } else if last_clicked {
@@ -1008,23 +1012,30 @@ impl<'a> HintKeys<'a> {
     }
 }
 
-/// [`shown`] as the bar shows it now: the Escape a docked tab would take
-/// and the pointer over Options as the last frame drew the editor area.
-fn shown_now(app: &mut Moonglow, ctx: &egui::Context) -> Shown {
-    let escape = app.escape_hint.clone();
-    let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
-    shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), app.options_hovered)
-}
-
-/// What the Status Bar says the next frame, from the editor area as this
-/// frame left it: where it differs from what it showed, that frame is
-/// asked for (the bar is drawn before the editor area, whose state it
-/// reads).
-pub(crate) fn said_next(app: &mut Moonglow, ctx: &egui::Context) -> Vec<String> {
-    let escape = app.escape_hint_next.clone();
+/// What the Status Bar shows from the next frame on ([`shown`]), made
+/// once a frame after the editor area is drawn, from the state it left
+/// (the Escape a docked tab would take, none where the pointer is over a
+/// floating model's window, which an Escape closes; the pointer over
+/// Options); where it differs from what the bar showed, that frame is
+/// asked for.
+pub(crate) fn update_shown(app: &mut Moonglow, ctx: &egui::Context) {
+    let escape = app.escape_hint_next.clone().filter(|_| !app.model_under_pointer_next);
     let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
     let hovered = app.options_hovered_next;
-    shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered).said()
+    let next = shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered);
+    if next.said() != app.bar_shown.said() {
+        ctx.request_repaint();
+    }
+    app.bar_shown = next;
+}
+
+/// Whether something in front takes the keys and presses the views'
+/// would: an `egui::Modal` (a job's window, a plugin's question), a
+/// dialog, a menu or popup.
+pub(crate) fn keys_blocked(ctx: &egui::Context) -> bool {
+    ctx.memory(|m| m.top_modal_layer()).is_some()
+        || crate::widgets::dialog_open(ctx)
+        || egui::Popup::is_any_open(ctx)
 }
 
 /// What the Status Bar shows for the active docked editor
@@ -1057,11 +1068,18 @@ pub(crate) fn shown(
     let active = app.active_editor();
     let esc_mine = escape.is_some_and(|(t, _)| Some(t) == active);
     let mut shown = match active {
-        Some(Tab::Area(area)) => app
-            .area_views
-            .get(area)
-            .map(|v| crate::area_view::status(app, v, ctx))
-            .unwrap_or_default(),
+        Some(Tab::Area(area)) => {
+            let mut shown = (app.area_views.get(area))
+                .map(|v| crate::area_view::status(app, v, ctx))
+                .unwrap_or_default();
+            // (A modal, a dialog or a menu in front: the view's keys and
+            // presses do nothing, `response.hovered()` false. The counts
+            // stay.)
+            if keys_blocked(ctx) {
+                shown.hints.clear();
+            }
+            shown
+        }
         Some(Tab::Welcome) => {
             let hints = [
                 k.hint(Cmd::NewModule, "New module"),
@@ -1089,7 +1107,11 @@ pub(crate) fn shown(
             // (Not while Options › Keyboard waits for a key: it takes the
             // keys itself.)
             let recording = app.options.as_ref().is_some_and(|o| o.recording.is_some());
-            if *tab == Tab::Options && options_hovered && !typing && !recording {
+            // (Nor while a list drawn before the editor area has the keys:
+            // the module tree takes Enter first. A dropdown open has the
+            // keyboard: `typing`.)
+            let list = crate::palette_view::a_list_has_the_keys(ctx);
+            if *tab == Tab::Options && options_hovered && !typing && !recording && !list {
                 hints.push(Hint::keys(["Enter"], "OK"));
             }
             if esc_mine {

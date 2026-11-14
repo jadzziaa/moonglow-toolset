@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T23:49:17Z }
 ---
 
 # The main window
@@ -1163,16 +1163,26 @@ each a key cap or two and a word: **Drag** Move, **Alt** + **Drag**
 Raise, **Q** **E** Turn by a step. They change as you work: in an area
 with nothing selected they are Click Select, Drag Move or box, Ctrl +
 Drag Move view and Ctrl + Right Drag Turn view; with objects selected,
-Drag Move, the turning ring Turn, Shift Handles, Alt + Drag Raise, Q
-and E Turn by a step and G Drop to ground; with Shift held, the
+Drag Move, the turning ring Turn and Q and E Turn by a step (where
+something selected turns: a sound does not), Shift Handles, Alt + Drag
+Raise (where something selected is not a creature: creatures stand on
+the ground) and G Drop to ground (Alt + Right Drag turns the selection
+too; the ring is what is hinted while it shows); with Shift held, the
 handles' (Move along an axis, and Tilt and Scale where the selection's
-models take them); during a drag, Esc Cancel, Middle Drag Turn view and
-the snap; and for each tool in hand (a blueprint, a light or the start
+models take them); during a drag, where the one object dragged or
+turned is now (its kind, tag, blueprint, place and facing, read as it
+moves, also while Q or E turns it), then Esc Cancel, Middle Drag Turn
+view and the snap; and for each tool in hand (a blueprint, a light or the start
 location being placed, a paste, Paint, Select Tiles, a tile brush,
 Redraw Polygon, Ctrl + wheel's scaling) its own, after a note of what is
 in hand ("Placing nw_chicken", "In hand: Raise/Lower", "Painting 2
 placeables"). A reason a step was refused (a tile stroke, a static
-placeable's scale) is a note at the head of the hints. The keys shown
+placeable's scale) is a note at the head of the hints. The area's keys
+(Q, E, G, Page Up and Page Down, B) and presses act while the pointer is
+over the area's view: the hints say what they do there, wherever the
+pointer is. While a dialog, a menu or a job's window is in front, the
+view takes neither, and the area shows no hints (its counts stay). The
+keys shown
 are yours: a command you gave another key in Options › Keyboard shows
 that key, and one you left without a key has no hint; on a Mac,
 Ctrl and Alt show as Cmd and Option. The Welcome page shows New module,
@@ -1186,8 +1196,10 @@ Shift + Tab for its fields, Esc Cancel where an Escape would cancel it
 (by the rule under [Tabs and windows](#tabs-and-windows): not while a
 field has the keys, where which tab the Escape is for shows only as you
 press it, nor while the module tree, the Resources panel or the log has
-the keys, which take it first), and, for Options, Enter OK while the
-pointer is over it. Where an Escape would cancel a tab other than the
+the keys, which take it first, nor while a menu is open, nor with the
+pointer over a floating model's window, which an Escape closes), and,
+for Options, Enter OK while the pointer is over it and neither a field
+nor the module tree has the keys (the tree takes Enter first). Where an Escape would cancel a tab other than the
 one you work in (a Properties tab beside the area, the pointer over
 it), its hint comes first and names it ("Esc: Cancel Module
 Properties"). A
@@ -1197,7 +1209,8 @@ Turn"); the hints take no Tab stop.
 **Counts.** An area's tab shows its size and how many objects it holds
 ("11 by 11 tiles", "192 objects"; the objects of the kinds shown), and
 before them what is selected ("1 selected", rest the pointer on it for
-the object's kind, tag, blueprint, place and facing; "3 selected";
+the object's kind, tag, blueprint, place and facing, which a drag of it
+shows among the hints as it moves; "3 selected";
 in Select Tiles "2 by 3 tiles selected" or "Tile (4, 4) selected") and,
 with a tile brush, the tile under the pointer. Another tab has none.
 

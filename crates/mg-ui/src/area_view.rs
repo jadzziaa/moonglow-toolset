@@ -1777,6 +1777,13 @@ impl AreaView {
         Some(self.scene.as_ref()?.bounds(self.model.as_ref()?, i))
     }
 
+    /// Says `notice` as a step refused would (Select Tiles' and a brush's
+    /// notice): for the tests of the Status Bar.
+    #[doc(hidden)]
+    pub fn notice_for_tests(&mut self, notice: &str) {
+        self.notice = Some(notice.to_string());
+    }
+
     /// Where the turning rings are and which way each is marked: for the
     /// tests.
     pub fn ring_places(&self) -> Vec<(Vec3, f32)> {

@@ -432,6 +432,13 @@ pub fn arrow_keys_are(ctx: &egui::Context) -> String {
     }
 }
 
+/// Whether a list drawn before the editor area has the keys: the module
+/// tree's, the Resources panel's, the log's (each takes Escape, and the
+/// tree Enter, before the editor area sees them).
+pub(crate) fn a_list_has_the_keys(ctx: &egui::Context) -> bool {
+    [Keys::Tree, Keys::Browser, Keys::Log].into_iter().any(|k| keys_are(ctx, k))
+}
+
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
     has_arrows(ctx)
         && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)

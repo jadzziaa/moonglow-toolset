@@ -941,8 +941,12 @@ fn area_viewer_places_draws_boxes_and_turns() {
 
     // A waypoint from the palette, placed on the ground where clicked.
     h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
-    h.run_steps(1);
-    h.get_by_label_contains("Placing nw_waypoint001");
+    // (The Status Bar says it once the frame after has drawn it.)
+    let started = std::time::Instant::now();
+    while h.query_by_label_contains("Placing nw_waypoint001").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the Status Bar's Placing");
+        h.step();
+    }
     click(&mut h, Vec3::new(15.0, 30.0, 0.0));
     h.run_steps(1);
     let waypoints = git_list(&mut h, "WaypointList");

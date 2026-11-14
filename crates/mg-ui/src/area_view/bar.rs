@@ -5,9 +5,10 @@
 //! hand, why a stroke was refused), and the counts at the bar's right
 //! (what is selected, the tile under a brush, the area's tiles and
 //! objects). It replaces the line of words that stood under the area's
-//! toolbar. Read from the view's state as the frame begins, before the
-//! view is drawn: what the view changes in its frame shows in the next
-//! (`Moonglow::ui` asks for that frame where the hints differ).
+//! toolbar. Made once a frame, after the editor area is drawn, from the
+//! view's state as that left it (`shell::update_shown`), and drawn by the
+//! next frame's Status Bar (drawn before the editor area); `Moonglow::ui`
+//! asks for that frame where what the bar says changed.
 
 use std::sync::{Arc, OnceLock};
 
@@ -15,7 +16,7 @@ use egui::{Color32, Painter, Rect, Stroke, pos2};
 use mg_area::ObjectKind;
 use mg_uikit::status::{GlyphPainter, Hint, HintPart};
 
-use super::{AreaView, Drag, brush, light_of_row};
+use super::{AreaView, Drag, brush, light_of_row, turns};
 use crate::Moonglow;
 use crate::keys::Cmd;
 use crate::shell::{Count, HintKeys, Shown};
@@ -220,6 +221,8 @@ fn hints(
             Hint::keys(["Shift", "Drag"], "Add a box"),
         ]);
     } else if let Some(drag) = view.drag.filter(|d| !matches!(d, Drag::Box { .. })) {
+        // (One object moved or turned: where it is now, first.)
+        out.extend(readout(view));
         out.push(Hint::keys(["Esc"], "Cancel"));
         out.push(if app.settings.middle_drag_moves {
             Hint::keys([k.alt(), "Middle Drag"], "Turn view")
@@ -266,19 +269,64 @@ fn hints(
         }
         out.push(Hint::keys(["Right Drag"], "Turn view"));
     } else {
-        // Selected (the Main board's).
+        // Selected (the Main board's): what turns only where something
+        // selected turns (a sound does not, `turns`), and Raise where
+        // something is not a creature (they stand on the ground). With the
+        // ring on, the board hints the ring alone for turning (Alt + right
+        // drag still turns: Main-status's idle board hints it, the
+        // selected board does not).
+        // (During Q and E's turning of one object, its readout first.)
+        out.extend(view.key_turn.as_ref().and_then(|_| readout(view)));
+        let model = view.model.as_ref();
+        let chosen =
+            |f: &dyn Fn(&mg_area::AreaObject) -> bool| model.is_some_and(|m| view.chosen(m).any(f));
+        let turnable = chosen(&|o| turns(o.kind));
+        let raisable = chosen(&|o| o.kind != ObjectKind::Creature);
         out.push(Hint::keys(["Drag"], "Move"));
         if view.turn_ring {
-            out.push(Hint::new("Turn").part(glyph(Glyph::Ring)));
+            if turnable {
+                out.push(Hint::new("Turn").part(glyph(Glyph::Ring)));
+            }
             out.push(Hint::keys(["Shift"], "Handles"));
-        } else {
+        } else if turnable {
             out.push(Hint::keys([k.alt(), "Right Drag"], "Turn"));
         }
-        out.push(Hint::keys([k.alt(), "Drag"], "Raise"));
-        out.extend(k.both(Cmd::TurnLeft, Cmd::TurnRight, "Turn by a step"));
+        if raisable {
+            out.push(Hint::keys([k.alt(), "Drag"], "Raise"));
+        }
+        if turnable {
+            out.extend(k.both(Cmd::TurnLeft, Cmd::TurnRight, "Turn by a step"));
+        }
         out.extend(k.hint(Cmd::DropToGround, "Drop to ground"));
     }
     out
+}
+
+/// The one object selected as it stands now, while it is moved or turned
+/// (a drag, or Q and E's turning: the view's posed model, which the drag
+/// has moved), else as the area has it: its kind, tag, blueprint, place
+/// and facing ("Waypoint WP_A (nw_waypoint001) at 20.00, 20.00, 0.00,
+/// facing 17°"), the readout the line under the toolbar had.
+fn readout(view: &AreaView) -> Option<Hint> {
+    let [(kind, index)] = view.selection.as_slice() else { return None };
+    let moving = view.drag.is_some() || view.key_turn.is_some();
+    let posed = view.posed.as_ref().map(|(m, _)| m).filter(|_| moving);
+    let o = posed.or(view.model.as_ref())?.object(*kind, *index)?;
+    Some(Hint::note(describe(*kind, o)))
+}
+
+/// An object's kind, tag, blueprint, place and facing.
+fn describe(kind: ObjectKind, o: &mg_area::AreaObject) -> String {
+    format!(
+        "{:?} {} ({}) at {:.2}, {:.2}, {:.2}, facing {:.0}°",
+        kind,
+        o.tag,
+        o.template.map(|t| t.to_string()).unwrap_or_default(),
+        o.position.x,
+        o.position.y,
+        o.position.z,
+        o.facing().to_degrees().rem_euclid(360.0),
+    )
 }
 
 /// What is selected, at the bar's right before the area's counts: the
@@ -308,18 +356,8 @@ fn selection_counts(view: &AreaView) -> Vec<Count> {
     match view.selection.as_slice() {
         [] => Vec::new(),
         [(kind, index)] => {
-            let tip = view.model.as_ref().and_then(|m| m.object(*kind, *index)).map(|o| {
-                format!(
-                    "{:?} {} ({}) at {:.2}, {:.2}, {:.2}, facing {:.0}°",
-                    kind,
-                    o.tag,
-                    o.template.map(|t| t.to_string()).unwrap_or_default(),
-                    o.position.x,
-                    o.position.y,
-                    o.position.z,
-                    o.facing().to_degrees().rem_euclid(360.0),
-                )
-            });
+            let tip = view.model.as_ref().and_then(|m| m.object(*kind, *index));
+            let tip = tip.map(|o| describe(*kind, o));
             vec![Count { text: "1 selected".into(), tip }]
         }
         many => vec![Count::new(format!("{} selected", many.len()))],

@@ -868,6 +868,25 @@ fn esc_hint(mode: Mode) {
     until(&mut h, "the menu open", |h| h.query_by_label("Reset Layout").is_some());
     until(&mut h, "no Esc hint, a menu open", |h| !esc_hinted(h));
     escape(&mut h);
+    // The tab's own menu open (a right click on its tab, nothing with the
+    // keyboard), the pointer over its body: the menu takes Escape, none.
+    let title = h.state().tab_rect(&Tab::ModuleProperties).unwrap().center();
+    hover(&mut h, title);
+    for pressed in [true, false] {
+        let button = egui::PointerButton::Secondary;
+        let modifiers = egui::Modifiers::NONE;
+        h.event(egui::Event::PointerButton { pos: title, button, pressed, modifiers });
+        h.step();
+    }
+    assert!(egui::Popup::is_any_open(&h.ctx), "{mode:?}: the tab's menu open");
+    assert_eq!(h.ctx.memory(|m| m.focused()), None, "{mode:?}: nothing has the keyboard");
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    hover(&mut h, over);
+    assert!(egui::Popup::is_any_open(&h.ctx), "{mode:?}: the menu still open");
+    until(&mut h, "no Esc hint, the tab's menu open", |h| !esc_hinted(h));
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the menu's Escape, as hinted");
+    assert!(!egui::Popup::is_any_open(&h.ctx), "{mode:?}: the menu closed");
     // The last press in a floating window with OK and Cancel (its bar):
     // none, and Escape is the window's.
     let wp = waypoint("wp_a");
@@ -895,6 +914,7 @@ fn esc_hint(mode: Mode) {
         settle(&mut h);
     }
     assert_eq!(keys(&h), "Tree", "{mode:?}: the tree's keys");
+    assert_eq!(h.ctx.memory(|m| m.focused()), None, "{mode:?}: nothing has the keyboard");
     let over = visible_in(&h, &Tab::ModuleProperties);
     hover(&mut h, over);
     until(&mut h, "no Esc hint, the tree's keys", |h| !esc_hinted(h));
@@ -963,7 +983,104 @@ fn docked_options_hints_enter_where_it_is_ok() {
     });
     h.state_mut().options.as_mut().unwrap().recording = None;
     until(&mut h, "Enter once more", |h| said(h).iter().any(|s| s == "Enter: OK"));
+    // A dropdown of its own open (pressed in it, the pointer over it):
+    // neither Esc nor Enter, which the dropdown takes; Escape closes it
+    // and leaves Options open.
+    h.get_by_label("General").click();
+    settle(&mut h);
+    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    settle(&mut h);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let area = h.state().editor_area_rect().unwrap();
+    let at = (h.query_all(combo).map(|n| n.rect()))
+        .find(|r| area.contains_rect(*r))
+        .expect("a dropdown of Options in sight")
+        .center();
+    click_at(&mut h, at);
+    assert!(egui::Popup::is_any_open(&h.ctx), "the dropdown open");
+    until(&mut h, "no Esc nor Enter, a dropdown open", |h| {
+        !esc_hinted(h) && !said(h).iter().any(|s| s == "Enter: OK")
+    });
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::Options), "the dropdown's Escape, as hinted");
+    hover(&mut h, over);
+    until(&mut h, "Enter and Esc back", |h| {
+        said(h).iter().any(|s| s == "Enter: OK") && esc_hinted(h)
+    });
+    // The module tree with the keys (a press on the Left Dock, F6), the
+    // pointer over Options, nothing with the keyboard: it takes Enter and
+    // Escape first, so neither is hinted, and Enter leaves Options open.
+    let dock = in_left_dock(&h);
+    click_at(&mut h, dock);
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    for _ in 0..4 {
+        if keys(&h) == "Tree" {
+            break;
+        }
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+    }
+    assert_eq!(keys(&h), "Tree", "the tree's keys");
+    assert_eq!(h.ctx.memory(|m| m.focused()), None, "nothing has the keyboard");
+    hover(&mut h, over);
+    until(&mut h, "no Enter, the tree's keys", |h| !said(h).iter().any(|s| s == "Enter: OK"));
+    assert!(!esc_hinted(&h), "nor Esc");
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(open_tab(&h, &Tab::Options), "the tree's Enter, as hinted");
+    // (Escape lets the tree's row go: the keys are nobody's list's again.)
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::Options), "the tree's Escape");
+    hover(&mut h, over);
+    until(&mut h, "Enter once more", |h| said(h).iter().any(|s| s == "Enter: OK"));
     h.key_press(egui::Key::Enter);
     settle(&mut h);
     assert!(!open_tab(&h, &Tab::Options), "Enter was its OK");
+}
+
+/// A floating model's window under the pointer takes an Escape (it
+/// closes), whatever docked tab with OK and Cancel the keyboard is in: no
+/// Esc hint for that tab then; the pointer back over the tab, its hint.
+#[test]
+fn a_model_window_under_the_pointer_takes_the_esc_hint() {
+    model_window(Mode::Floating);
+}
+
+#[test]
+fn a_model_window_under_the_pointer_takes_the_esc_hint_as_tabs() {
+    model_window(Mode::Tabs);
+}
+
+fn model_window(mode: Mode) {
+    let mut h = window(mode, "ui-open-esc-model", &[("module-properties", "middle")]);
+    if !open_tab(&h, &Tab::ModuleProperties) {
+        open(&mut h, &Tab::ModuleProperties);
+    }
+    click_tab(&mut h, &Tab::ModuleProperties);
+    settle(&mut h);
+    let over = visible_in(&h, &Tab::ModuleProperties);
+    click_at(&mut h, over);
+    until(&mut h, "the Esc hint", esc_hinted);
+    let model = Tab::Model(ResKey::parse("hello", ResType::NSS).unwrap());
+    open(&mut h, &model);
+    assert_eq!(in_main(&h, &model), Some(false), "{mode:?}: a window");
+    // (Its window set away from the press, over the area.)
+    let path = h.state().dock.find_tab(&model).unwrap();
+    let w = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
+    w.set_position(egui::pos2(900.0, 420.0)).set_size(egui::vec2(420.0, 360.0));
+    settle(&mut h);
+    let bar = h.state().tab_rect(&model).expect("its tab drawn");
+    let inside = egui::pos2(bar.center().x, bar.bottom() + 80.0);
+    assert_eq!(
+        h.ctx.layer_id_at(inside).map(|l| l.order),
+        Some(egui::Order::Middle),
+        "{mode:?}: the window there"
+    );
+    hover(&mut h, inside);
+    until(&mut h, "no Esc hint, the model's window under the pointer", |h| !esc_hinted(h));
+    escape(&mut h);
+    assert!(!open_tab(&h, &model), "{mode:?}: the window's Escape, as hinted");
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the tab stays");
+    hover(&mut h, over);
+    until(&mut h, "the Esc hint back", esc_hinted);
 }

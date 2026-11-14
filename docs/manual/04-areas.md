@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T23:49:17Z }
 ---
 
 # Areas
@@ -23,8 +23,13 @@ Select Tiles, a tile brush), each tool's after a note of what is in
 hand. Its right end shows the area's size and how many objects it holds
 ("11 by 11 tiles", "192 objects"), and before them what is selected
 ("1 selected": rest the pointer on it for the object's tag, blueprint,
-place and facing). They were a line of words under the toolbar before;
-the view has its height now.
+place and facing; while you drag or turn the one object, where it is
+now leads the hints, read as it moves). The view's keys (Q and E, G,
+Page Up and Page Down, B) act while the pointer is over the view; the
+hints say what they do there wherever the pointer is, and show nothing
+while a dialog, a menu or a job's window is in front, which takes them.
+They were a line of words under the toolbar before; the view has its
+height now.
 
 Each button shows an icon and its name. With **Tools › Options ›
 General › Editors' toolbar buttons: Icons only** the buttons that have an icon

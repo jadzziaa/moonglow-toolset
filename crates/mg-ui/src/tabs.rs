@@ -459,9 +459,7 @@ impl Viewer<'_> {
     fn foresee_escape(&mut self, ui: &Ui, tab: &Tab, layer: egui::LayerId, busy: bool) {
         // (A list drawn before the editor area with the keys takes Escape
         // first: the module tree's, the Resources panel's, the log's.)
-        use crate::palette_view::{Keys, keys_are};
-        let list =
-            [Keys::Tree, Keys::Browser, Keys::Log].into_iter().any(|k| keys_are(ui.ctx(), k));
+        let list = crate::palette_view::a_list_has_the_keys(ui.ctx());
         let quiet = !busy
             && !list
             && !crate::widgets::dialog_open(ui.ctx())
@@ -516,6 +514,11 @@ impl Viewer<'_> {
                     | Tab::Tile { .. }
             )
             && ui.rect_contains_pointer(ui.max_rect());
+        // (Under the pointer, an Escape closes it: the Status Bar shows no
+        // docked tab's Esc then.)
+        if model {
+            self.app.model_under_pointer_next = true;
+        }
         // (The keyboard in a docked tab with OK and Cancel, drawn before
         // the windows: that tab's Escape, not the window's in front.)
         let front = floating
