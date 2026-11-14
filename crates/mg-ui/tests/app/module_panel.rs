@@ -495,8 +495,9 @@ fn the_filter_finds_rows_in_every_group_and_clear_filter_restores_them() {
 }
 
 /// An object selected in an area's view (Chapter1's `map_m1q1a`, one of
-/// its creatures far down their list) opens its area out in the tree and
-/// brings its row into view inside the Areas group's well, marked.
+/// its creatures far down their list), the Outliner not shown (another
+/// tab in front), opens its area out in the tree and brings its row into
+/// view inside the Areas group's well, marked.
 #[test]
 fn an_object_selected_in_an_area_brings_its_row_into_the_well_s_view() {
     use mg_area::ObjectKind;
@@ -525,6 +526,9 @@ fn an_object_selected_in_an_area_brings_its_row_into_the_well_s_view() {
             .filter(|(l, _)| *l != "map_m1q1a")
             .collect()
     };
+    // (Without the Outliner, which follows the selection where it is
+    // shown, the owner's ruling of 2026-11-14.)
+    outliner_away(&mut h);
     for index in [many - 2, 1] {
         h.state_mut().area_views.get_mut(&area).unwrap().selection =
             vec![(ObjectKind::Creature, index)];

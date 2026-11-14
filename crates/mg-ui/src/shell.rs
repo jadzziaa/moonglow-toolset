@@ -1398,20 +1398,29 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             // keep their ids (the tree's open groups, where it is
             // scrolled to) as the Outliner comes and goes.
             let whole = ui.max_rect().height();
+            // (A dock too short for both at their least: the Outliner
+            // folds to its header first, the panel over it keeping at
+            // least its own least, and the seam rests.)
+            let folded = outliner && whole - MODULE_PANEL_LEAST < OUTLINER_LEAST;
             let most = (whole - OUTLINER_LEAST).max(MODULE_PANEL_LEAST);
             let range = MODULE_PANEL_LEAST..=most;
             let chosen =
                 app.settings.module_panel_height.map_or(metrics::MODULE_PANEL, |h| h as f32);
-            let tall = if outliner { chosen.clamp(*range.start(), *range.end()) } else { whole };
+            let tall = match (outliner, folded) {
+                (true, false) => chosen.clamp(*range.start(), *range.end()),
+                (true, true) => (whole - metrics::DOCK_TABS).max(0.0),
+                (false, _) => whole,
+            };
             draw_at(&ctx, MODULE_PANEL_ID, 1, tall);
-            let seam_dragged = outliner && edge_dragged(&ctx, MODULE_PANEL_ID);
+            let resizable = outliner && !folded;
+            let seam_dragged = resizable && edge_dragged(&ctx, MODULE_PANEL_ID);
             let mut top = egui::Panel::top(MODULE_PANEL_ID)
-                .resizable(outliner)
+                .resizable(resizable)
                 .show_separator_line(false)
                 .frame(egui::Frame::new());
-            top = match outliner {
+            top = match resizable {
                 true => top.default_size(metrics::MODULE_PANEL).size_range(range),
-                false => top.exact_size(whole),
+                false => top.exact_size(tall),
             };
             let top = top.show(ui, |ui| {
                 let pane = ui.max_rect();

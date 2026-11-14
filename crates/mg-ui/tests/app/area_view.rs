@@ -6463,8 +6463,13 @@ fn shift_g_drops_the_selection_onto_the_placeable_below() {
     h.run_steps(3);
     assert!((z(&mut h) - ground).abs() < 0.3, "on the ground: {}", z(&mut h));
     // The chest's row in the module tree has Preview: the model viewer, as
-    // it is placed. (The area is opened out there: its waypoint was
-    // selected.)
+    // it is placed. (The area opened out there by its arrow: with the
+    // Outliner shown the tree does not open it out to follow the
+    // selection, the owner's ruling of 2026-11-14.)
+    if h.query_by_label("Placeables (1)").is_none() {
+        h.get_by_label_contains("Placed Objects in ").click();
+        h.run_steps(3);
+    }
     h.get_by_label("Placeables (1)").click();
     h.run_steps(6);
     let row = h.get_by_label_contains("Chest").rect().center();

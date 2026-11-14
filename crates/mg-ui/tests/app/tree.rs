@@ -956,6 +956,8 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-shows-selected") else { return };
     tall_tree(&mut h);
+    // (The tree follows the selection where the Outliner is not shown.)
+    outliner_away(&mut h);
     h.state_mut().settings.tree_keeps_areas_closed = true;
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_none());
@@ -1081,11 +1083,24 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
         .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
         .collect();
     assert_eq!(marked, ["WP_01"]);
-    // One far down: its row is brought into view.
+    // One far down, with the Outliner shown (the area in front): the tree
+    // stays where it is, the row marked though out of view (the owner's
+    // ruling of 2026-11-14: the Outliner follows the selection).
     assert!(h.query_by_label("WP_39").is_none(), "out of view");
+    let still = h.get_by_label("WP_01").rect();
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     h.run_steps(8);
-    assert!(h.query_by_label("WP_39").is_some(), "scrolled to");
+    assert!(h.query_by_label("WP_39").is_none(), "not scrolled to");
+    assert_eq!(h.get_by_label("WP_01").rect(), still, "the tree as it was");
+    assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 0)), "marked");
+    // Without the Outliner (another tab in front): brought into view.
+    outliner_away(&mut h);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    let started = std::time::Instant::now();
+    while h.query_by_label("WP_38").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: scrolled to");
+        h.step();
+    }
     assert!(!h.state().tree_object_pending);
 }
 
@@ -1661,21 +1676,39 @@ fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
     h.run_steps(3);
     h.get_by_label("Waypoints (40)").click();
     h.run_steps(6);
-    // Scrolled down to the last (selected in the area: brought into view).
+    // Scrolled down to the last (End over the Areas group's well: with the
+    // Outliner shown, the tree no longer scrolls to an object selected in
+    // the view, the owner's ruling of 2026-11-14).
+    h.hover_at(h.get_by_label("WP_00").rect().center());
+    h.key_press(egui::Key::End);
+    let started = std::time::Instant::now();
+    while h.query_by_label("WP_39").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: scrolled to");
+        h.step();
+    }
+    // (And selected in the view: its row marked, the tree still.)
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 39)];
-    h.run_steps(8);
-    assert!(h.query_by_label("WP_39").is_some(), "scrolled to");
+    let started = std::time::Instant::now();
+    while h.state().tree_object != Some((area, ObjectKind::Waypoint, 39)) {
+        assert!(started.elapsed().as_secs() < 10, "never: marked");
+        h.step();
+    }
     let row = h.get_by_label("WP_39").rect();
+    // (How high the Outliner is, which the tree gains as it goes.)
+    let outliner = h.get_by_label(mg_ui::OUTLINER).get_by_label("Collapse All").rect();
+    let gained = h.ctx.content_rect().bottom() - 24.0 - (outliner.center().y - 13.0);
     // The area closed: Module Properties (opened with the module) in front.
     assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_some());
     h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Area(area)));
     h.run_steps(8);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
-    // (The Outliner gone with the area, the tree is taller: the last row
-    // stays in sight, as low as it was or lower, the tree's end in sight;
-    // scrolled to the top, it would be out of sight, 40 rows further.)
+    // (The Outliner gone with the area, the tree is taller by its height:
+    // the last row stays in sight, as low as it was or lower by no more
+    // than that, the tree's end in sight; scrolled to the top, it would be
+    // out of sight, 40 rows further.)
     let now = h.query_by_label("WP_39").map(|n| n.rect()).expect("the area closed: in sight");
-    assert!(now.top() >= row.top(), "{row:?} → {now:?}");
+    let moved = now.top() - row.top();
+    assert!((0.0..=gained + 1.0).contains(&moved), "{row:?} → {now:?}, {gained} gained");
     // A placed object's Properties, opened from its row, then closed: Module
     // Properties in front again.
     let path = mg_edit::GffPath::root().item("WaypointList", 39);
@@ -2329,4 +2362,251 @@ fn opened_out(h: &Harness<'_, Moonglow>) -> usize {
         said
     };
     h.query_all_by_label_contains("Placed Objects in ").filter(open).count()
+}
+
+/// Frames until `done`, for ten seconds at most (an area's view asks for
+/// frames as it draws).
+fn until_tree(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    done: impl Fn(&Harness<'_, Moonglow>) -> bool,
+) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 10, "never: {what}");
+        h.step();
+    }
+}
+
+/// The module tree's rows (`Module Tree Rows`) whose names contain `words`.
+fn tree_rows_with<'t>(h: &'t Harness<'_, Moonglow>, words: &'t str) -> Vec<egui_kittest::Node<'t>> {
+    h.get_by_label("Module Tree Rows").query_all_by_label_contains(words).collect()
+}
+
+/// A placed object of a read-only area (another builder's) is not
+/// deleted from the module tree, by its Delete key or its menu's Delete:
+/// the claims' gate refuses it and says why, and what was selected,
+/// marked and the keys' row stay as they were.
+#[test]
+fn a_read_only_area_s_object_is_not_deleted_from_the_tree() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = read_only_area_harness("tree-read-only-delete") else { return };
+    // (The tree its old height: the area's kinds and rows in the well's sight.)
+    tall_tree(&mut h);
+    let chests = |h: &mut Harness<'_, Moonglow>| {
+        let git = ResKey::new(area, ResType::GIT);
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("Placeable List").map_or(0, |l| l.len())
+    };
+    h.get_by_label_contains("Placed Objects in ").click();
+    until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Placeables (1)").is_empty());
+    tree_rows_with(&h, "Placeables (1)")[0].click();
+    until_tree(&mut h, "the chest's row", |h| !tree_rows_with(h, "Chest").is_empty());
+    tree_rows_with(&h, "Chest")[0].click();
+    let chosen = [(ObjectKind::Placeable, 0)];
+    until_tree(&mut h, "selected", |h| h.state().area_views[&area].selection == chosen);
+    let marked = |h: &Harness<'_, Moonglow>| {
+        tree_rows_with(h, "Chest")
+            .first()
+            .is_some_and(|n| n.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True))
+    };
+    let refused = |h: &Harness<'_, Moonglow>, since: usize| {
+        h.state().log.entries.iter().skip(since).any(|e| e.1.contains("read-only"))
+    };
+    // Its key, the keys the tree's (the row clicked), the pointer away.
+    let cursor = h.state().tree_cursor;
+    h.hover_at(egui::pos2(600.0, 20.0));
+    let said = h.state().log.entries.len();
+    h.key_press(egui::Key::Delete);
+    until_tree(&mut h, "refused by the key", |h| refused(h, said));
+    assert_eq!(chests(&mut h), 1, "not deleted");
+    assert_eq!(h.state().area_views[&area].selection, chosen, "still selected");
+    assert_eq!(h.state().tree_cursor, cursor, "the keys' row as it was");
+    assert!(marked(&h), "its row marked");
+    // Its menu's Delete.
+    let row = tree_rows_with(&h, "Chest")[0].rect().center();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        let (button, modifiers) = (egui::PointerButton::Secondary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos: row, button, pressed, modifiers });
+        // (One step for each input event.)
+        h.step();
+    }
+    let said = h.state().log.entries.len();
+    h.get_all_by_label("Delete").last().unwrap().click();
+    until_tree(&mut h, "refused by the menu", |h| refused(h, said));
+    assert_eq!(chests(&mut h), 1, "not deleted");
+    assert_eq!(h.state().area_views[&area].selection, chosen, "still selected");
+    assert!(marked(&h), "its row marked");
+}
+
+/// Going to or selecting an object of a kind hidden in the view, from the
+/// module tree (a click, a Ctrl+click), shows its kind, in every view, as
+/// its Show toggle would, and the object stays selected (one rule with
+/// the Outliner's).
+#[test]
+fn an_object_of_a_hidden_kind_gone_to_from_the_tree_shows_its_kind() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-hidden-kind") else { return };
+    // (The tree its old height: the area's kinds and rows in the well's sight.)
+    tall_tree(&mut h);
+    let shown =
+        |h: &Harness<'_, Moonglow>| h.state().area_views[&area].show[ObjectKind::Waypoint.index()];
+    h.get_by_label_contains("Placed Objects in ").click();
+    until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Waypoints (2)").is_empty());
+    tree_rows_with(&h, "Waypoints (2)")[0].click();
+    until_tree(&mut h, "its rows", |h| tree_rows_with(h, "NW_WAYPOINT001").len() == 2);
+    area_tool(&h, "Show Waypoints").click();
+    until_tree(&mut h, "hidden", |h| !shown(h));
+    tree_rows_with(&h, "NW_WAYPOINT001")[0].click();
+    until_tree(&mut h, "shown and selected", |h| {
+        shown(h) && h.state().area_views[&area].selection.len() == 1
+    });
+    // With Ctrl.
+    area_tool(&h, "Show Waypoints").click();
+    until_tree(&mut h, "hidden again", |h| {
+        !shown(h) && h.state().area_views[&area].selection.is_empty()
+    });
+    tree_rows_with(&h, "NW_WAYPOINT001")[1].click_modifiers(egui::Modifiers::COMMAND);
+    until_tree(&mut h, "shown and chosen", |h| {
+        shown(h) && h.state().area_views[&area].selection.len() == 1
+    });
+}
+
+/// At the window's size at first (the Outliner under the tree, the Areas
+/// group's well five rows high), a builder still reaches a placed
+/// object's row in the module tree and does there what the tree does:
+/// the well scrolled by the wheel to the area's last kind and its rows; a
+/// click selects, Ctrl+click chooses another with it; the menu of one of
+/// them deletes both (Undo brings them back); one's menu has Export as
+/// Blueprint…; and by the keys, from the kind's row, Down and Enter go to
+/// an object.
+#[test]
+fn the_module_tree_s_placed_objects_at_the_size_at_first() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-default-size") else { return };
+    let w = |i: usize| (ObjectKind::Waypoint, i);
+    h.get_by_label_contains("Placed Objects in ").click();
+    until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Waypoints (2)").is_empty());
+    // (The last kind under the well's foot: the wheel over the well until
+    // its row ends above the next group's row, which is under the well.)
+    let in_well = |h: &Harness<'_, Moonglow>, words: &str| {
+        let rows = h.get_by_label("Module Tree Rows");
+        let next = rows.get_by_label("Conversations (0)").rect().top();
+        tree_rows_with(h, words).first().is_some_and(|n| n.rect().bottom() <= next + 0.5)
+    };
+    let wheel = |h: &mut Harness<'_, Moonglow>| {
+        // (Over the well: between the Areas group's row and the next's.)
+        let rows = h.get_by_label("Module Tree Rows");
+        let (top, foot) =
+            (rows.get_by_label("Areas (1)").rect(), rows.get_by_label("Conversations (0)").rect());
+        let at = egui::pos2(top.center().x, (top.bottom() + foot.top()) / 2.0);
+        h.hover_at(at);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -40.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        // (One step for the wheel's event.)
+        h.step();
+    };
+    // (The wheel's scroll goes on a while after it: until a row rests.)
+    let rest = |h: &mut Harness<'_, Moonglow>, words: &str| {
+        let at = |h: &Harness<'_, Moonglow>| tree_rows_with(h, words).first().map(|n| n.rect());
+        let (mut was, mut same) = (at(h), 0);
+        let started = std::time::Instant::now();
+        while same < 3 {
+            assert!(started.elapsed().as_secs() < 10, "never at rest: {words}");
+            h.step();
+            let now = at(h);
+            same = if now == was { same + 1 } else { 0 };
+            was = now;
+        }
+    };
+    let started = std::time::Instant::now();
+    while !in_well(&h, "Waypoints (2)") {
+        assert!(started.elapsed().as_secs() < 10, "never: Waypoints in the well's sight");
+        wheel(&mut h);
+        rest(&mut h, "Waypoints (2)");
+    }
+    tree_rows_with(&h, "Waypoints (2)")[0].click();
+    // (Both waypoints' rows brought into the well's sight by the wheel.)
+    let into_sight = |h: &mut Harness<'_, Moonglow>| {
+        let seen = |h: &Harness<'_, Moonglow>| {
+            let rows = tree_rows_with(h, "NW_WAYPOINT001");
+            let next = h.get_by_label("Module Tree Rows").get_by_label("Conversations (0)");
+            rows.len() == 2 && rows.iter().all(|n| n.rect().bottom() <= next.rect().top() + 0.5)
+        };
+        let started = std::time::Instant::now();
+        loop {
+            rest(h, "NW_WAYPOINT001");
+            if seen(h) {
+                break;
+            }
+            assert!(started.elapsed().as_secs() < 10, "never: both rows in the well's sight");
+            wheel(h);
+        }
+    };
+    into_sight(&mut h);
+    // A click, then Ctrl+click.
+    tree_rows_with(&h, "NW_WAYPOINT001")[0].click();
+    until_tree(&mut h, "one selected", |h| h.state().area_views[&area].selection.len() == 1);
+    tree_rows_with(&h, "NW_WAYPOINT001")[1].click_modifiers(egui::Modifiers::COMMAND);
+    until_tree(&mut h, "both chosen", |h| {
+        let mut s = h.state().area_views[&area].selection.clone();
+        s.sort();
+        s == [w(0), w(1)]
+    });
+    // The menu of one of them: Delete, on both; Undo.
+    let row = tree_rows_with(&h, "NW_WAYPOINT001")[1].rect().center();
+    let menu = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            let (button, modifiers) = (egui::PointerButton::Secondary, egui::Modifiers::NONE);
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+            // (One step for each input event.)
+            h.step();
+        }
+    };
+    menu(&mut h, row);
+    h.get_by_label("2 objects chosen");
+    h.get_all_by_label("Delete").last().unwrap().click();
+    let placed = |h: &Harness<'_, Moonglow>| {
+        let git = ResKey::new(area, ResType::GIT);
+        let ws = h.state().ws.as_ref().unwrap();
+        ws.loaded(&git).and_then(|g| g.root.list("WaypointList").map(|l| l.len()))
+    };
+    until_tree(&mut h, "both deleted", |h| placed(h) == Some(0));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    until_tree(&mut h, "back", |h| placed(h) == Some(2));
+    // One alone: Export as Blueprint… on its menu.
+    into_sight(&mut h);
+    tree_rows_with(&h, "NW_WAYPOINT001")[0].click();
+    until_tree(&mut h, "one selected", |h| h.state().area_views[&area].selection.len() == 1);
+    into_sight(&mut h);
+    let row = tree_rows_with(&h, "NW_WAYPOINT001")[0].rect().center();
+    menu(&mut h, row);
+    assert!(h.query_by_label("Export as Blueprint…").is_some(), "on one's menu");
+    h.key_press(egui::Key::Escape);
+    // (One step for the key's event.)
+    h.step();
+    // The keys: from the kind's row, Down and Enter.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    tree_rows_with(&h, "Waypoints (2)")[0].click();
+    until_tree(&mut h, "the tree's keys", |h| {
+        mg_ui::palette_view::arrow_keys_are(&h.ctx) == "Tree"
+    });
+    h.hover_at(egui::pos2(600.0, 20.0));
+    // (Its kind closed again by the click: open it by Right.)
+    if tree_rows_with(&h, "NW_WAYPOINT001").is_empty() {
+        h.key_press(egui::Key::ArrowRight);
+        // (One step for the key's event.)
+        h.step();
+    }
+    h.key_press(egui::Key::ArrowDown);
+    // (One step for the key's event.)
+    h.step();
+    h.key_press(egui::Key::Enter);
+    until_tree(&mut h, "gone to", |h| h.state().area_views[&area].selection.len() == 1);
 }

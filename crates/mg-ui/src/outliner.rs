@@ -68,8 +68,22 @@ pub(crate) struct Outliner {
     fold: Option<(TreeAt, bool)>,
     /// Expand All or Collapse All by their keys, for the next frame.
     pub(crate) fold_all: Option<bool>,
-    /// The object a Shift+click chooses from.
-    anchor: Option<Placed>,
+    /// The object a Shift+click chooses from (`tree::Anchor`: in its area,
+    /// while none of its objects came or went): set by a click here, let
+    /// go of as the selection changes elsewhere and with another area
+    /// listed.
+    anchor: Option<tree::Anchor>,
+    /// The area listed last: its rows' state (the keys' row, the anchor,
+    /// what the keys open) is let go of with another area in front.
+    listed_area: Option<ResRef>,
+}
+
+/// The area a row of the Outliner (or the module tree) is in.
+fn area_of(at: TreeAt) -> Option<ResRef> {
+    match at {
+        TreeAt::Kind(area, _) | TreeAt::Object(area, ..) => Some(area),
+        TreeAt::Group(_) | TreeAt::Resource(_) => None,
+    }
 }
 
 /// The area the Outliner lists: the active editor's, where it is an
@@ -106,6 +120,23 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
     let Some(area) = area(app) else { return };
     let ctx = ui.ctx().clone();
     mg_uikit::name_group(ui, OUTLINER);
+    // Another area listed: what was kept of the rows of the one before
+    // goes (the keys' row, the anchor, a kind to open, what was typed),
+    // so that no key acts on a row of an area not shown; the keys, if
+    // they are the Outliner's, at its first row.
+    if app.outliner.listed_area != Some(area) {
+        let o = &mut app.outliner;
+        o.listed_area = Some(area);
+        o.anchor = None;
+        o.fold = None;
+        o.to_first = keys_are(&ctx, Keys::Outliner);
+        o.cursor = None;
+        ctx.data_mut(|d| d.remove_temp::<(String, f64)>(egui::Id::new("outliner-typed")));
+    }
+    // (A row of another area kept anyhow: not the keys'.)
+    if app.outliner.cursor.and_then(area_of).is_some_and(|a| a != area) {
+        app.outliner.cursor = None;
+    }
     // The view's selection followed: changed (in the view, or by a row
     // here), the one selected last revealed. (Compared in place, copied
     // only as it changes.)
@@ -116,6 +147,9 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
     if changed {
         let now = now.to_vec();
         app.outliner.reveal = !now.is_empty();
+        // (Selected elsewhere: a Shift+click goes from the one selected
+        // last there, not from a row clicked here before.)
+        app.outliner.anchor = None;
         // (The keys' row at an object goes to the one selected now, as
         // the module tree's does; nothing selected, as after a delete, it
         // stays where it was put.)
@@ -142,6 +176,11 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
         app.outliner.fold_all = Some(asked);
         ctx.request_repaint();
     }
+    // (Folded to its header, in a dock too short for its rows and the
+    // panel over it: `shell::left_dock`. Its rows come back with the room.)
+    if ui.available_height() < mg_uikit::row_height(ui) {
+        return;
+    }
     let shown = crate::area_view::kinds_shown(app, area);
     let menu_commands = app.plugin_menu_commands();
     let in_hand = last.map(|(kind, index)| (kind, index, app.outliner.reveal));
@@ -156,6 +195,7 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
     let chosen = (outliner.chosen.len() > 1).then_some(&outliner.chosen);
     let Some(ws) = ws.as_ref() else { return };
     let contents = tree::fresh_contents(area_contents, area_names, ws, game.as_deref(), area);
+
     let mut rows =
         egui::ScrollArea::vertical().id_salt("outliner-rows").auto_shrink(false).show(ui, |ui| {
             mg_uikit::list_rows(ui);
@@ -192,10 +232,6 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
     // A row clicked with Ctrl (added to or taken from those selected) or
     // Shift (those from the one clicked before): selected in the view.
     if let Some((TreeAt::Object(_, kind, index), command, shift)) = keys.picked {
-        // (A kind hidden in the view: shown, as a plain click shows it.)
-        if !shown[kind.index()] {
-            crate::area_view::show_kind(app, area, kind, true);
-        }
         let objects: Vec<Placed> = (listed.iter())
             .filter_map(|r| match r.0 {
                 TreeAt::Object(_, k, i) => Some((k, i)),
@@ -203,7 +239,8 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
             })
             .collect();
         let mut set = app.outliner.chosen.clone();
-        let mut anchor = app.outliner.anchor.or(last);
+        let kept = tree::Anchor::in_area(app.outliner.anchor, &app.area_contents, area);
+        let mut anchor = kept.or(last);
         crate::widgets::select_in_list(
             &mut set,
             &mut anchor,
@@ -212,8 +249,12 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
             command,
             shift,
         );
-        app.outliner.anchor = anchor;
-        tree::select_in_view(app, area, set.into_iter().collect());
+        app.outliner.anchor = anchor.map(|a| tree::Anchor::new(&app.area_contents, area, a));
+        // (Kinds hidden in the view among them: shown, as a plain click
+        // shows its kind.)
+        let chosen: Vec<Placed> = set.into_iter().collect();
+        tree::show_kinds_of(app, area, &chosen);
+        tree::select_in_view(app, area, chosen);
         made_here(app, area);
     }
     if let Some(at) = keys.clicked {
@@ -256,10 +297,15 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
         // Delete at the object under the pointer, else at the keys' row:
         // it (and those selected with it) deleted, the keys on to the row
         // after it.
-        let under = keys.hovered.or(app.outliner.cursor);
+        // (Only a row listed, and so marked where it is the keys': the
+        // one under the pointer, else the keys', which may be of a kind
+        // since closed, or gone.)
+        let listed_row = |at: &TreeAt| listed.iter().any(|r| r.0 == *at);
+        let under = keys.hovered.or(app.outliner.cursor.filter(listed_row));
         if let Some(at @ TreeAt::Object(_, kind, index)) = under
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete))
         {
+            app.outliner.anchor = None;
             go = Some((area, kind, index, Asked::Delete));
             keys.together = true;
             // (Refused in a read-only area: the keys stay at the row.)
@@ -285,13 +331,11 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
     }
     // An object's row clicked, or asked of by its menu or the keys.
     if let Some((area, kind, index, asked)) = go {
-        // (A kind hidden in the view: shown, for the object selected
-        // there; a hidden object cannot stay selected.)
-        if matches!(asked, Asked::Select | Asked::Go | Asked::Adjust) && !shown[kind.index()] {
-            crate::area_view::show_kind(app, area, kind, true);
-        }
         if asked == Asked::Select {
-            app.outliner.anchor = Some((kind, index));
+            app.outliner.anchor = Some(tree::Anchor::new(&app.area_contents, area, (kind, index)));
+        }
+        if asked == Asked::Delete {
+            app.outliner.anchor = None;
         }
         let chosen = keys.together.then(|| app.outliner.chosen.clone());
         let together = chosen.as_ref();

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T01:24:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T04:30:45Z }
 ---
 
 # The main window
@@ -676,8 +676,11 @@ sight are drawn.
 (the camera stays where it is; in Select Tiles a click on a row comes
 back to the objects, as a click on an object in the view does).
 Ctrl+click adds a row to the selection or takes it out, Shift+click
-selects those from the row clicked before to it, as listed. A row of a
-hidden kind shows its kind and selects the object. Double-click a row
+selects those from the row clicked before to it, as listed (an object
+selected in the view since is the one it goes from). Going to or
+selecting an object of a kind hidden in the view, from the Outliner or
+from the module tree, shows that kind in every view, as its Show toggle
+would: you asked to see that object. Double-click a row
 for the object's Properties; right-click it for the module tree's
 menu of a placed object (Go To, Adjust Location…, Preview, Copy,
 Delete, Export as Blueprint…, the plugins' commands, Variables…,
@@ -694,7 +697,10 @@ the Left Dock's tab.
 to give either more room. It is 496 points from the dock's top at
 first; where you leave it is kept (the next time Moonglow starts too),
 and in a window too short for it each keeps a few rows, the seam back
-where you left it once the window is tall again. **View › Reset
+where you left it once the window is tall again. In the shortest windows
+the Outliner gives way first: it folds to its header (Expand All and
+Collapse All still on it), the panel over it keeping its Filter and five
+rows, and its rows come back once there is room. **View › Reset
 Layout** puts it back.
 
 **When it shows**: only while an area's tab is the one in front of the
@@ -932,14 +938,21 @@ while the Filter has something typed, is listed under it all the same
 chosen in the module tree** unticked in Options › General, the tree
 stays where it is and only the area in front is marked, as in Aurora
 (whose other editors are dialogs, and whose tree marks the area in
-front alone). Where the area is opened out in the tree (the arrow beside
-its row), an object selected in the area's view is shown there too: its
-kind's list opens and its row is marked and brought into view (a row in
-view stays where it is; one out of sight comes to the middle). An area
-left closed in the tree is opened out to it, as in Aurora; with **Show
-the object selected in an area in the module tree** unticked in Options
-› General, it stays closed, and the tree goes to an object only where its
-area is opened out already. **Show in Module Tree** on the
+front alone). An object selected in the area's view (or in the
+[Outliner](#the-outliner)) is marked in the tree. While the Outliner
+shows (an area's tab in front, the Left Dock unfolded), the Outliner
+follows the selection and the tree stays where you left it: it neither
+opens the area out nor scrolls to the object's row. Without the
+Outliner (another tab in front, such as a script or Module Properties),
+the tree follows as it always did: where the area is opened out in the
+tree (the arrow beside its row), the object's kind opens and its row is
+brought into view (a row in view stays where it is; one out of sight
+comes to the middle); an area left closed in the tree is opened out to
+it, as in Aurora; with **Show the object selected in an area in the
+module tree** unticked in Options › General, it stays closed, and the
+tree goes to an object only where its area is opened out already. What
+you do in the tree itself (a click, its keys, Go To) moves it either
+way. **Show in Module Tree** on the
 tab's menu goes to its row whatever the option says, and opens an area
 out to what is placed in it. The bar beside the
 tab does the same on a double click and a right click, and the window is

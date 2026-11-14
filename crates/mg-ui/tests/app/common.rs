@@ -750,9 +750,48 @@ pub(crate) fn tall_tree(h: &mut Harness<'_, Moonglow>) {
     let size = h.ctx.content_rect().size();
     h.set_size(size + egui::vec2(0.0, 300.0));
     h.state_mut().settings.module_panel_height = Some(10_000);
-    // (One step drawn at the new seam, one for what it shows: rows out
-    // of sight are not laid out.)
-    h.run_steps(2);
+    // (Until the seam has come down and rests there: the Outliner's
+    // header in the same place three frames running, lower than it was;
+    // or there is no Outliner.)
+    let header = |h: &Harness<'_, Moonglow>| {
+        (h.query_by_label(mg_ui::OUTLINER))
+            .and_then(|o| o.query_by_label("Collapse All").map(|b| b.rect().center().y))
+    };
+    let was = header(h);
+    let (mut last, mut same) = (was, 0);
+    let started = std::time::Instant::now();
+    loop {
+        h.step();
+        let now = header(h);
+        same = if now == last { same + 1 } else { 0 };
+        last = now;
+        let lower = match (was, now) {
+            (Some(was), Some(now)) => now > was,
+            _ => true,
+        };
+        if lower && same >= 3 {
+            break;
+        }
+        assert!(started.elapsed().as_secs() < 10, "never: the tree as tall as it can be");
+    }
+}
+
+/// Module Properties docked in front of the area (opened again As Tabs):
+/// the Outliner not shown, the module tree following the area's
+/// selection as it does without it (the owner's ruling of 2026-11-14:
+/// while the Outliner shows, the tree stops following the selection). The
+/// area's view keeps its selection, which tests then set.
+pub(crate) fn outliner_away(h: &mut Harness<'_, Moonglow>) {
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::ModuleProperties]));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    let started = std::time::Instant::now();
+    while h.state().active_editor() != Some(&Tab::ModuleProperties)
+        || h.query_by_label(mg_ui::OUTLINER).is_some()
+    {
+        assert!(started.elapsed().as_secs() < 10, "never: Module Properties in front");
+        h.step();
+    }
 }
 
 /// The width of [`area_harness`]'s window.

@@ -355,3 +355,42 @@ fn a_row_s_weak_second_word_gives_way_first() {
     assert!(name.width() <= room * tree::NAME_SHARE + 0.5, "{} of {room}", name.width());
     assert!(sub.right() <= row.get().right() - tree::ROW_PADDING_RIGHT + 0.5);
 }
+
+/// A group's rows stand at the same indent whether its row is in sight or
+/// scrolled out above them (out of sight the row took no width, and the
+/// rows were pulled left over their indent: an Outliner's object rows
+/// moved 14 points left as their kind's row went by).
+#[test]
+fn a_group_s_rows_keep_their_indent_with_its_row_scrolled_out() {
+    let offset = Cell::new(0.0_f32);
+    let at = Cell::new(f32::NAN);
+    let header = Cell::new(egui::Rect::NOTHING);
+    let indent = Cell::new(0.0_f32);
+    let mut h = Harness::builder().with_size(egui::vec2(260.0, 120.0)).build_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        mg_uikit::list_rows(ui);
+        indent.set(ui.spacing().indent);
+        let area = egui::ScrollArea::vertical().max_height(80.0);
+        area.vertical_scroll_offset(offset.get()).show(ui, |ui| {
+            let group = TreeGroup::new("k", "Creatures").icon(Icon::Creature).count(20);
+            let shown = group.default_open(true).show(ui, |ui| {
+                for i in 0..20 {
+                    let r = TreeRow::new(format!("row {i}")).second("tag").show(ui);
+                    if i == 6 {
+                        at.set(r.rect.left());
+                    }
+                }
+            });
+            header.set(shown.header_response.rect);
+        });
+    });
+    h.run();
+    let (seen, header_seen) = (at.get(), header.get());
+    assert_eq!(seen - header_seen.left(), indent.get(), "indented");
+    assert_eq!(indent.get(), mg_uikit::metrics::INDENT, "the kit's 14");
+    offset.set(60.0);
+    h.run();
+    h.run();
+    assert!(header.get().bottom() < 8.0, "the group's row scrolled out: {:?}", header.get());
+    assert_eq!(at.get(), seen, "the same indent");
+}

@@ -1178,7 +1178,7 @@ pub struct Moonglow {
     /// one area: as the area view's selection, or by Ctrl and Shift with a
     /// click there; and the row a Shift+click goes from.
     pub tree_objects: Option<(mg_core::ResRef, std::collections::BTreeSet<tree::Placed>)>,
-    pub(crate) tree_objects_anchor: Option<tree::Placed>,
+    pub(crate) tree_objects_anchor: Option<tree::Anchor>,
     /// The area view's selection as the module tree last saw it.
     pub(crate) tree_seen_selection: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
     /// Objects to select in an area's view once it is open (the module

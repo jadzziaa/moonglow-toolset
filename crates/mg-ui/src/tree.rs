@@ -363,6 +363,60 @@ pub(crate) struct KindContents {
 /// what the Filter finds and the keys, not copied for each every frame.
 pub(crate) type Order = Arc<[usize]>;
 
+impl KindContents {
+    /// How many of its kind are placed.
+    pub(crate) fn count(&self) -> usize {
+        self.rows.len()
+    }
+}
+
+/// How many of each kind `area` holds as last read (`cache`, the module
+/// tree's and the Outliner's copy), by [`mg_area::ObjectKind::index`].
+pub(crate) fn counts_of(
+    cache: &HashMap<ResRef, (Read, AreaContents)>,
+    area: ResRef,
+) -> Option<[usize; 9]> {
+    let (_, contents) = cache.get(&area)?;
+    let mut counts = [0; 9];
+    for k in contents {
+        counts[k.kind.index()] = k.count();
+    }
+    Some(counts)
+}
+
+/// The placed object a Shift+click chooses from (the module tree's and
+/// the Outliner's), with its area and how many of each kind that area
+/// held then: it holds only in that area, and only while none came or went
+/// (a delete, a paste, an Undo or Redo, an outside change: the places
+/// after it shift, and the same place is another object).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Anchor {
+    area: ResRef,
+    at: Placed,
+    counts: Option<[usize; 9]>,
+}
+
+impl Anchor {
+    /// `at` in `area`, as `cache` holds it now.
+    pub(crate) fn new(
+        cache: &HashMap<ResRef, (Read, AreaContents)>,
+        area: ResRef,
+        at: Placed,
+    ) -> Anchor {
+        Anchor { area, at, counts: counts_of(cache, area) }
+    }
+
+    /// Where `anchor` is in `area`, if it holds there still.
+    pub(crate) fn in_area(
+        anchor: Option<Anchor>,
+        cache: &HashMap<ResRef, (Read, AreaContents)>,
+        area: ResRef,
+    ) -> Option<Placed> {
+        let a = anchor?;
+        (a.area == area && a.counts == counts_of(cache, area)).then_some(a.at)
+    }
+}
+
 /// An object's row in the module tree.
 struct ObjectRow {
     /// What the row says: its name, or for a waypoint its tag (waypoints
@@ -1263,8 +1317,18 @@ fn areas_well<R>(
 /// the tree shows: the tree then goes to it (its kind's list opened),
 /// where its area is opened out there. An area left closed in the tree
 /// is opened out to it, as in Aurora, unless Options › General says to
-/// leave it closed (the tree then does not move).
+/// leave it closed (the tree then does not move). While the Outliner is
+/// shown beside the tree (the owner's ruling of 2026-11-14: "while the
+/// Outliner shows, the tree stops following the selection"), the
+/// Outliner follows instead: the tree marks the object's row (and the
+/// keys' row goes to it) but neither opens its area out nor scrolls to
+/// it, staying where the builder left it. What the builder does in the
+/// tree, and what asks the tree by name (Show in Module Tree, a tab
+/// chosen), still moves it.
 fn follow_selection(app: &mut Moonglow) {
+    // (Shown this frame: the tree is drawn, so the Left Dock is, unfolded,
+    // and the Outliner under it where the active editor brings it.)
+    let outliner = crate::shell::Panel::OUTLINER.available(app) && !app.settings.hide_tree;
     let seen = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
         Some((area, view.selection.clone()))
@@ -1285,14 +1349,16 @@ fn follow_selection(app: &mut Moonglow) {
     });
     if selected != app.tree_object {
         app.tree_object = selected;
-        app.tree_object_pending = selected.is_some();
+        app.tree_object_pending = selected.is_some() && !outliner;
         // The keys' cursor on an object's row (a row clicked) goes to the
         // one selected now: one row marked, the one selected last, however
         // it was selected (it stayed marked too, a builder's report).
         if matches!(app.tree_cursor, Some(TreeAt::Object(..))) {
             app.tree_cursor = selected.map(|(area, kind, index)| TreeAt::Object(area, kind, index));
         }
-        if let Some((area, ..)) = selected.filter(|_| !app.settings.tree_keeps_areas_closed) {
+        if let Some((area, ..)) =
+            selected.filter(|_| !app.settings.tree_keeps_areas_closed && !outliner)
+        {
             app.tree_reveal = Some((ResKey::new(area, ResType::ARE), true));
         }
     }
@@ -2370,7 +2436,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 .collect();
             // (Another area's chosen before: from the one in hand here.)
             let (mut set, mut anchor) = match app.tree_objects.take() {
-                Some((a, set)) if a == area => (set, app.tree_objects_anchor),
+                Some((a, set)) if a == area => {
+                    (set, Anchor::in_area(app.tree_objects_anchor, &app.area_contents, area))
+                }
                 _ => {
                     let here = app.tree_object.filter(|o| o.0 == area).map(|o| (o.1, o.2));
                     (here.into_iter().collect(), here)
@@ -2384,9 +2452,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 command,
                 shift,
             );
-            app.tree_objects_anchor = anchor;
+            app.tree_objects_anchor = anchor.map(|a| Anchor::new(&app.area_contents, area, a));
+            let chosen: Vec<Placed> = set.iter().copied().collect();
+            show_kinds_of(app, area, &chosen);
             if let Some(view) = app.area_views.get_mut(&area) {
-                view.selection = set.iter().copied().collect();
+                view.selection = chosen;
             }
             app.tree_objects = (!set.is_empty()).then_some((area, set));
         }
@@ -2457,7 +2527,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             {
                 go = Some((area, kind, index, Asked::Delete));
                 together = true;
-                app.tree_cursor = app.tree_cursor.map(|c| past_deleted(&shown, &outs, c, at));
+                // (Refused in a read-only area, `act_on_object`: the keys
+                // stay at the row, as everything else does.)
+                if crate::claims::read_only(app, area).is_none() {
+                    app.tree_cursor = app.tree_cursor.map(|c| past_deleted(&shown, &outs, c, at));
+                }
                 ui.ctx().request_repaint();
             }
             _ => {}
@@ -2633,6 +2707,13 @@ pub(crate) fn act_on_object(
         _ => vec![(kind, index)],
     };
     let path = |(kind, index): Placed| mg_edit::GffPath::root().item(kind.list(), index);
+    // Gone to or selected, an object of a kind hidden in the view: the kind
+    // shown, in every view, as its Show toggle would (the builder asked to
+    // see it; a hidden object cannot stay selected). One rule for the
+    // module tree and the Outliner.
+    if matches!(asked, Asked::Go | Asked::Select | Asked::Adjust) {
+        show_kinds_of(app, area, &targets);
+    }
     match asked {
         Asked::Plugin(i) => {
             let on = (targets.iter())
@@ -2681,7 +2762,8 @@ pub(crate) fn act_on_object(
                 app.tree_object_pending = false;
                 // (And the one a Shift+click goes from.)
                 app.tree_objects = Some((area, [(kind, index)].into()));
-                app.tree_objects_anchor = Some((kind, index));
+                app.tree_objects_anchor =
+                    Some(Anchor::new(&app.area_contents, area, (kind, index)));
             }
             if let Some(view) = app.area_views.get_mut(&area) {
                 view.selection = vec![(kind, index)];
@@ -2762,6 +2844,16 @@ pub(crate) fn act_on_object(
             if !edits.is_empty() {
                 app.actions.push(Action::Apply(mg_edit::Command::new("Delete", edits)));
             }
+        }
+    }
+}
+
+/// The kinds of `objects` that `area`'s view hides, shown (in every view,
+/// as their Show toggles would): for objects gone to or selected.
+pub(crate) fn show_kinds_of(app: &mut Moonglow, area: ResRef, objects: &[Placed]) {
+    for (kind, _) in objects {
+        if !crate::area_view::kinds_shown(app, area)[kind.index()] {
+            crate::area_view::show_kind(app, area, *kind, true);
         }
     }
 }

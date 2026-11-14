@@ -486,8 +486,14 @@ impl TreeGroup {
             }
             let header_response = row.response;
             // (Its rows as wide as the room the row took, not as the row
-            // is drawn: `allocate`.)
-            let taken = header_response.clone().with_new_rect(row.taken);
+            // is drawn: `allocate`. Out of sight the row lays out no words
+            // and takes no width, and egui's body, made as wide as that,
+            // was pulled left over its own indent: its rows stood an indent
+            // to the left of where they stand with the row in sight. At
+            // least as far as the indent reaches, then.)
+            let reach = row.taken.left() + ui.spacing().indent;
+            let taken = row.taken.with_max_x(row.taken.right().max(reach));
+            let taken = header_response.clone().with_new_rect(taken);
             let body = state.show_body_indented(&taken, ui, add_body);
             crate::say_expanded(&header_response, body.is_some());
             let shown = CollapsingResponse {
