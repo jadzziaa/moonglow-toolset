@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T01:24:39Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -62,7 +62,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| Show Creatures, Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints, Start | Header, a group of icon toggles; the same eyes in the Outliner |
+| Show Creatures, Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints, Start | Header, a group of icon toggles; the same eyes in the Outliner ✓ M3 T13 (the eyes: one state with the toggles, which stay on the toolbar until M4's header; nine eyes, no row for Start, as the boards draw them) |
 | All, None | The arrow at the end of that group |
 | Snap, Turn | Header combos (magnet and rotate icons) |
 | Together, Onto Objects | Header icon toggles beside Turn |
@@ -343,7 +343,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Count All, Spacing, By Size, Flow, Turn, Scale, Height, Lock | Brush popover |
 | Gap (Row and Fill only) | Brush popover in those modes, with a note |
 | "N chosen" and its tip | Palette's Brush section, "2 chosen" and the tip as a note |
-| Show toggles while Paint is on | The Outliner's eyes |
+| Show toggles while Paint is on | The Outliner's eyes ✓ M3 T13 (they work with Paint on; the toolbar's toggles stay beside them until M4) |
 | Snap, Turn | Brush popover, under "Placing, as with the Select tool" |
 | Together, Onto Objects | Back in the header when Select is the active tool |
 | Paint hints | Status Bar: Drag Paint, Shift + Wheel Brush size, Q / E Turn, Right Click / Esc Stop ✓ M3 T12 (after "Painting 2 placeables", the board's lead; Erase, Fill and Row their own) |
@@ -394,7 +394,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Today | In the redesign | Done |
 |---|---|---|
 | Compile, Verify, Test Module with words | Icon buttons with tooltips; Quick Open at 300 px | ✓ the icons M3 T2; Quick Open at 300 px, and its icon where it would be under 240, M3 T8 |
-| Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge |  |
+| Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge | The strip ✓ M3 T4, the Outliner's icon on it ✓ M3 T13; folded by the window's width is T14's |
 | The ten kind toggles and All, None | Show popover, "5 of 10" |  |
 | Day \| Night | One moon toggle |  |
 | Lighting, Overlays, Audio, Area Properties | Icon buttons |  |

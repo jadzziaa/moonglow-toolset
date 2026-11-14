@@ -717,6 +717,12 @@ pub struct Settings {
     pub left_dock_width: Option<u32>,
     pub right_dock_width: Option<u32>,
     pub bottom_dock_height: Option<u32>,
+    /// The Left Dock's seam over the Outliner, as the builder dragged it:
+    /// the height of the panel above it (Module or Resources, its tab bar
+    /// included), in whole points, kept as the docks' sizes are (drawn held
+    /// to what the dock's height allows, kept as chosen). `None`: not
+    /// chosen, the board's split (`mg_uikit::metrics::MODULE_PANEL`).
+    pub module_panel_height: Option<u32>,
     /// The area view's Fade Geometry (0 never, 1 in object mode only,
     /// 2 always), in views opened from now on.
     pub fade_geometry: u8,
@@ -1932,10 +1938,11 @@ mod tests {
     fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
         // (The fields the shell added since 4.1.0: whatever their values,
         // a 4.1.0 file has none of them.)
-        const ADDED: [&str; 5] = [
+        const ADDED: [&str; 6] = [
             "left_dock_width",
             "right_dock_width",
             "bottom_dock_height",
+            "module_panel_height",
             "open_editors",
             "window_sizes_scaled",
         ];

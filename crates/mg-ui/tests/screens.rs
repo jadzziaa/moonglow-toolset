@@ -10062,6 +10062,14 @@ fn grouped_context_menus() {
         shoot(&mut h, &dir, &format!("menu-palette-{file}"));
         close(&mut h);
     }
+    // (The Areas group's well at its top, its area's row in sight: the
+    // waypoint selected above scrolled it to the waypoint's row, which a
+    // well as short as the Module panel over the Outliner leaves it, M3
+    // T13. Home with the pointer over the well.)
+    let well = h.get_by_label_contains("Areas (").rect().center() + egui::vec2(0.0, 30.0);
+    h.hover_at(well);
+    h.key_press(egui::Key::Home);
+    h.run_steps(4);
     let row = h
         .get_all_by_label(&area.to_string())
         .map(|n| n.rect())
@@ -10770,6 +10778,68 @@ fn shell_status_hints() {
     }
 }
 
+/// The Outliner (M3's T13) as the LightArea crop board has it: the
+/// Main board's window with the Plague Victim Pyre selected (its kind
+/// opened, its row marked and brought into sight), Encounters, Sounds,
+/// Triggers and Waypoints hidden (their rows quiet, their eyes struck);
+/// the whole window (`shell_outliner.png`) and the Left Dock's lower part
+/// (`shell_outliner_crop.png`, beside `LightArea_crop_outl.png`).
+#[test]
+#[ignore]
+fn shell_outliner() {
+    use mg_area::ObjectKind;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    // (The board's: the pyre, else the first placeable.)
+    let git = ResKey::new(area, ResType::GIT);
+    let pyre = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap_or(&[]).to_vec();
+        let tag = |s: &mg_gff::Struct| {
+            String::from_utf8_lossy(s.string("Tag").unwrap_or_default()).to_string()
+        };
+        list.iter().position(|s| tag(s).to_lowercase().contains("pyre")).unwrap_or(0)
+    };
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        for kind in
+            [ObjectKind::Encounter, ObjectKind::Sound, ObjectKind::Trigger, ObjectKind::Waypoint]
+        {
+            view.show[kind.index()] = false;
+        }
+        view.selection = vec![(ObjectKind::Placeable, pyre)];
+    }
+    // (Its kind opened and scrolled to over a few frames.)
+    for _ in 0..30 {
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_outliner");
+    // The Left Dock's lower part: the seam, the Outliner.
+    let crop = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let header = h.get_by_label(mg_ui::OUTLINER).get_by_label("Collapse All").rect();
+        let image = h.render().expect("render");
+        let ppp = image.width() as f32 / 1600.0;
+        let (x, y) = (0, ((header.center().y - 13.0 - 22.0) * ppp) as u32);
+        let (w, hh) = ((272.0 * ppp) as u32, image.height() - y - (24.0 * ppp) as u32);
+        let crop = image::imageops::crop_imm(&image, x, y, w, hh).to_image();
+        crop.save(picture_dir(&dir).join(format!("{name}.png"))).unwrap();
+    };
+    crop(&mut h, "shell_outliner_crop");
+    // Every kind closed (Collapse All): the kinds alone, the hidden ones
+    // quiet with their eyes struck, those with nothing placed without an
+    // arrow.
+    h.get_by_label(mg_ui::OUTLINER).get_by_label("Collapse All").click();
+    for _ in 0..20 {
+        h.step();
+    }
+    shoot(&mut h, &dir, "shell_outliner_kinds");
+    crop(&mut h, "shell_outliner_kinds_crop");
+}
+
 #[test]
 #[ignore]
 fn shell_narrow() {
@@ -11031,8 +11101,10 @@ fn shell_resources_window(
         left_dock_width(&mut h, width);
     }
     h.run_steps(5);
-    // (Its row brought into sight by the wheel, and clicked: the keys'.)
-    let list = egui::pos2(60.0, size.y * 0.6);
+    // (Its row brought into sight by the wheel, and clicked: the keys'.
+    // Over the list, above the Outliner, which is under it while the area
+    // is in front, M3 T13.)
+    let list = egui::pos2(60.0, (size.y * 0.6).min(300.0));
     for _ in 0..200 {
         if h.query_by_label("nw_chicken.utc").is_some() {
             break;
@@ -11919,6 +11991,10 @@ fn menus_tree_several_objects() {
     let dir = menus_dir();
     let lighting = mg_testkit::scratch_dir("screens-menus-tree-lighting");
     let (mut h, area) = menus_area_harness(&root, "screens-menus-tree", &lighting);
+    // (The module tree as tall as the Outliner under it lets it be: its
+    // Areas group's well with room for the area's objects, as before the
+    // Outliner, M3 T13.)
+    h.state_mut().settings.module_panel_height = Some(10_000);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.run_steps(5);
     h.get_by_label_contains("Placed Objects in ").click();

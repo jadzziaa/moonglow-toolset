@@ -77,6 +77,10 @@ pub const LEFT_DOCK: f32 = 260.0;
 pub const RIGHT_DOCK: f32 = 320.0;
 /// The bottom dock's default height.
 pub const BOTTOM_DOCK: f32 = 180.0;
+/// The height of the Left Dock's upper panel (Module or Resources, its tab
+/// bar included) over an Outliner, at first (`Main.html`'s
+/// `.module-panel`: `flex: 0 0 496px`); the Outliner takes the rest.
+pub const MODULE_PANEL: f32 = 496.0;
 
 /// Body text (Ubuntu Light): everything but what follows.
 pub const BODY_SIZE: f32 = 13.0;

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T23:49:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T01:24:39Z }
 ---
 
 # Areas
@@ -45,6 +45,9 @@ A palette's List and Gallery switches are icons as well.
   hide is hidden in every area view, as in Aurora: the other open ones
   and those you open later, until Moonglow is closed (the next time it
   starts, every kind shows again, as in Aurora).
+  The Outliner's eyes, beside each kind in the Left Dock, are these
+  toggles too: one state, either control changes the other (see [The
+  Outliner](02-main-window.md#the-outliner)).
 - **The start location** (where a player's character enters the module)
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it
@@ -367,6 +370,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another): the copies follow the pointer, each outlined by its model's box, and Q and E turn them together before the click puts them down |
 | Double-click | the object's Properties |
+| A row of the Outliner (the Left Dock, under its tabs) | select its object, with Ctrl and Shift as in the view: see [The Outliner](02-main-window.md#the-outliner) |
 
 Every move, turn and deletion is one undoable step. The view's corner
 shows the pointer's position in the area, to the centimeter, and the

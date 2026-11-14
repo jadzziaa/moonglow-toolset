@@ -395,6 +395,8 @@ pub(crate) enum Keys {
     /// The Right Dock's Preview: they turn its model
     /// (`area_tools::preview_body`).
     Preview,
+    /// The Outliner's rows, under the Left Dock's tabs (`outliner.rs`).
+    Outliner,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
@@ -433,10 +435,11 @@ pub fn arrow_keys_are(ctx: &egui::Context) -> String {
 }
 
 /// Whether a list drawn before the editor area has the keys: the module
-/// tree's, the Resources panel's, the log's (each takes Escape, and the
-/// tree Enter, before the editor area sees them).
+/// tree's, the Resources panel's, the Outliner's, the log's (each takes
+/// Escape, and the tree and the Outliner Enter, before the editor area
+/// sees them).
 pub(crate) fn a_list_has_the_keys(ctx: &egui::Context) -> bool {
-    [Keys::Tree, Keys::Browser, Keys::Log].into_iter().any(|k| keys_are(ctx, k))
+    [Keys::Tree, Keys::Browser, Keys::Outliner, Keys::Log].into_iter().any(|k| keys_are(ctx, k))
 }
 
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {

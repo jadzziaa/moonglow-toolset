@@ -948,7 +948,23 @@ fn other_tab(mode: Mode) {
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&start()), "{mode:?}: the area's group");
     let over = visible_in(&h, &Tab::ModuleProperties);
+    // The Outliner with the keys (F6 to it, the area in front, M3 T13): it
+    // takes Escape first (it lets its row go), so no Esc is hinted, and
+    // Escape leaves Module Properties open.
+    let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
+    for _ in 0..6 {
+        if keys(&h) == "Outliner" {
+            break;
+        }
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+    }
+    assert_eq!(keys(&h), "Outliner", "{mode:?}: the Outliner's keys");
     hover(&mut h, over);
+    until(&mut h, "no Esc hint, the Outliner's keys", |h| !esc_hinted(h));
+    escape(&mut h);
+    assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the Outliner's Escape, as hinted");
+    assert_ne!(keys(&h), "Outliner", "{mode:?}: the keys handed back");
     let named = "Esc: Cancel Module Properties";
     until(&mut h, "the other tab's Esc", |h| said(h).first().is_some_and(|s| s == named));
     escape(&mut h);

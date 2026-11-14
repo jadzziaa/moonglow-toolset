@@ -494,6 +494,7 @@ fn deleting_says_what_names_it_and_takes_those_chosen_together() {
 fn the_module_tree_lists_what_is_placed_in_an_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-contents") else { return };
+    tall_tree(&mut h);
     assert!(h.query_by_label("Waypoints (2)").is_none());
     h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
@@ -954,6 +955,7 @@ fn a_tree_object_s_menu_opens_its_variables_listed_by_name() {
 fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-shows-selected") else { return };
+    tall_tree(&mut h);
     h.state_mut().settings.tree_keeps_areas_closed = true;
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_none());
@@ -1012,6 +1014,7 @@ fn the_module_tree_shows_the_object_selected_in_the_area() {
 fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-sorted") else { return };
+    tall_tree(&mut h);
     // Forty waypoints, tagged WP_39 to WP_00 in the area's order, each
     // named alike.
     let git = ResKey::new(area, ResType::GIT);
@@ -1412,6 +1415,7 @@ fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
 fn placed_objects_are_chosen_together_and_found_in_areas_not_opened_out() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-objects-several") else { return };
+    tall_tree(&mut h);
     assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "not opened out");
     // The Filter: what is placed there, without opening the area out.
     let filter = h
@@ -1541,6 +1545,7 @@ fn empty_groups_are_hidden_when_asked() {
 fn adjust_location_from_a_placed_object_s_row() {
     use mg_area::ObjectKind::Waypoint;
     let Some((mut h, area)) = area_harness("tree-adjust-location") else { return };
+    tall_tree(&mut h);
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
     h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
@@ -1565,6 +1570,7 @@ fn adjust_location_from_a_placed_object_s_row() {
 #[test]
 fn a_placed_object_is_exported_as_a_blueprint() {
     let Some((mut h, area)) = area_harness("tree-export-object") else { return };
+    tall_tree(&mut h);
     let erf = mg_testkit::scratch_dir("ui-tree-export-object").join("waypoint.erf");
     let _ = std::fs::remove_file(&erf);
     h.state_mut().dialogs = Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() });
@@ -1630,6 +1636,7 @@ fn an_area_its_list_leaves_out_is_marked_and_listed_from_its_menu() {
 fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-tab-closed") else { return };
+    tall_tree(&mut h);
     // Forty waypoints, for a tree that scrolls.
     let git = ResKey::new(area, ResType::GIT);
     let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1664,7 +1671,11 @@ fn the_module_tree_stays_where_it_was_when_a_tab_closes() {
     h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Area(area)));
     h.run_steps(8);
     assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none());
-    assert_eq!(h.query_by_label("WP_39").map(|n| n.rect()), Some(row), "the area closed");
+    // (The Outliner gone with the area, the tree is taller: the last row
+    // stays in sight, as low as it was or lower, the tree's end in sight;
+    // scrolled to the top, it would be out of sight, 40 rows further.)
+    let now = h.query_by_label("WP_39").map(|n| n.rect()).expect("the area closed: in sight");
+    assert!(now.top() >= row.top(), "{row:?} → {now:?}");
     // A placed object's Properties, opened from its row, then closed: Module
     // Properties in front again.
     let path = mg_edit::GffPath::root().item("WaypointList", 39);

@@ -537,7 +537,8 @@ fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
 }
 
 /// F6 gives the arrow keys to the panes left to right and then down: the
-/// Left Dock's panel, the editor area (the area's view), the Right Dock's
+/// Left Dock's panel, the Outliner under it, the editor area (the area's
+/// view), the Right Dock's
 /// Palette panel, the Bottom Dock's log, and round; Shift+F6 the other
 /// way. A folded Right Dock is passed over.
 #[test]
@@ -561,15 +562,17 @@ fn f6_steps_through_the_docks_and_the_editor_area() {
     // is in it.)
     h.hover_at(egui::pos2(centre.x, 20.0));
     settle(&mut h);
-    let forward: Vec<String> = (0..4).map(|_| step(&mut h, false)).collect();
-    assert_eq!(forward, ["Palette", "Log", "Tree", "Area"]);
-    let back: Vec<String> = (0..4).map(|_| step(&mut h, true)).collect();
-    assert_eq!(back, ["Tree", "Log", "Palette", "Area"]);
+    // (The Outliner under the Left Dock's tabs, with the area in front:
+    // M3's T13.)
+    let forward: Vec<String> = (0..5).map(|_| step(&mut h, false)).collect();
+    assert_eq!(forward, ["Palette", "Log", "Tree", "Outliner", "Area"]);
+    let back: Vec<String> = (0..5).map(|_| step(&mut h, true)).collect();
+    assert_eq!(back, ["Outliner", "Tree", "Log", "Palette", "Area"]);
     // Folded, the Right Dock is passed over.
     fold_palette(h.state_mut());
     settle(&mut h);
-    let forward: Vec<String> = (0..3).map(|_| step(&mut h, false)).collect();
-    assert_eq!(forward, ["Log", "Tree", "Area"]);
+    let forward: Vec<String> = (0..4).map(|_| step(&mut h, false)).collect();
+    assert_eq!(forward, ["Log", "Tree", "Outliner", "Area"]);
 }
 
 /// A settings file of an older Moonglow, with the palettes split off the

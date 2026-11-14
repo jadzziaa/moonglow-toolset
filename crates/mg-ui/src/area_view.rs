@@ -3047,12 +3047,42 @@ fn hidden_of(show: [bool; 9], show_start: bool) -> Vec<String> {
 /// other open ones and those opened later. (`view` is out of
 /// `app.area_views` while it is drawn.)
 fn share_shown(app: &mut Moonglow, view: &AreaView) {
-    app.settings.hidden_in_areas = hidden_of(view.show, view.show_start);
+    share(app, view.show, view.show_start);
+}
+
+/// Each kind shown (`show`) and the start location's marker
+/// (`show_start`), made what every area view shows and what those opened
+/// later will ([`share_shown`]); an object of a kind hidden is no longer
+/// selected in any.
+fn share(app: &mut Moonglow, show: [bool; 9], show_start: bool) {
+    app.settings.hidden_in_areas = hidden_of(show, show_start);
     for other in app.area_views.values_mut() {
-        (other.show, other.show_start) = (view.show, view.show_start);
-        let show = other.show;
+        (other.show, other.show_start) = (show, show_start);
         other.selection.retain(|(k, _)| show[k.index()]);
     }
+}
+
+/// What `area`'s view shows of each kind (by [`ObjectKind::index`]): the
+/// area toolbar's Show toggles' state, which the Outliner's eyes show too;
+/// as every view will (Options' kept state) where its view is not open.
+pub(crate) fn kinds_shown(app: &Moonglow, area: mg_core::ResRef) -> [bool; 9] {
+    match app.area_views.get(&area) {
+        Some(view) => view.show,
+        None => shown_of(&app.settings.hidden_in_areas).0,
+    }
+}
+
+/// `kind` shown (`on`) or hidden in `area`'s view, and so in every area
+/// view, as its Show toggle on the area toolbar does: one state, which the
+/// toolbar and the Outliner's eye both show, from this frame on where the
+/// Outliner is drawn before the view (the Left Dock is).
+pub(crate) fn show_kind(app: &mut Moonglow, area: mg_core::ResRef, kind: ObjectKind, on: bool) {
+    let (mut show, start) = match app.area_views.get(&area) {
+        Some(view) => (view.show, view.show_start),
+        None => shown_of(&app.settings.hidden_in_areas),
+    };
+    show[kind.index()] = on;
+    share(app, show, start);
 }
 
 fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {

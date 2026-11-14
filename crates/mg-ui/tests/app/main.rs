@@ -28,6 +28,7 @@ mod module_panel;
 mod modules;
 mod open_editors;
 mod options_and_keys;
+mod outliner;
 mod palettes;
 mod part_emitters;
 mod plugin_kinds;

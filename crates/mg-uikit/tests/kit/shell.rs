@@ -502,6 +502,25 @@ fn a_panel_header_names_its_tools_group() {
     assert!(h.get_by_label("Expand All").is_focused());
 }
 
+/// What is laid out after a panel's header goes under its bar, not into
+/// it (the Outliner's rows went 9 points under it, the header's own
+/// layout having moved the cursor back up).
+#[test]
+fn what_follows_a_panel_header_goes_under_it() {
+    let rows = Cell::new(egui::Rect::NOTHING);
+    let bar = Cell::new(egui::Rect::NOTHING);
+    let mut h = Harness::new_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let out = PanelHeader::new("Outliner").detail("map_m1q1a").show(ui, |ui| {
+            ui.add(IconButton::new(Icon::CollapseAll, "Collapse All").icon_only(true));
+        });
+        bar.set(out.response.rect);
+        rows.set(ui.label("Creatures").rect);
+    });
+    h.run();
+    assert!(rows.get().top() >= bar.get().bottom(), "{:?} under {:?}", rows.get(), bar.get());
+}
+
 /// A panel header's detail starts 12 px after its title (the
 /// stylesheet's `.docktab.title` padding, `.panel-tabs` having no gap,
 /// and the 2 px the boards give the detail), the title 10 px from the

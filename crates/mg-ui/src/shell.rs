@@ -113,10 +113,11 @@ pub(crate) fn keep_least_size(app: &mut Moonglow, ctx: &egui::Context) {
 /// Left Dock holds Module and Resources, in that order ([`Panel::LEFT`]);
 /// the Right Dock Palette and Preview, as tabs of one bar
 /// ([`Panel::RIGHT`]), the panels the active docked editor brings ([`Panel::available`]: an
-/// area's, or the placeholder that says none is open). The Left Dock's
-/// Outliner is added by the task that makes it (T13), in its dock's list,
-/// with its dock in [`Panel::dock`] and a rule in [`Panel::available`]. A
-/// dock whose panels none is available is not drawn.
+/// area's, or the placeholder that says none is open). Under the Left
+/// Dock's tabs, split from them by a seam, the Outliner (T13), which the
+/// active editor brings too (an area's tab: [`editor_brings_outliner`]):
+/// not a tab, a panel of its own under the one shown. A dock whose panels
+/// none is available is not drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Panel {
     /// The module tree, its Filter and its header buttons (T3).
@@ -131,6 +132,10 @@ pub enum Panel {
     /// 3D (Aurora's Preview window, Moonglow's until T6), the Palette's
     /// neighbor on the Right Dock's tab bar.
     Preview,
+    /// What the active editor holds, under the Left Dock's tabs (T13): an
+    /// area's placed objects by kind, each kind with an eye
+    /// (`outliner.rs`).
+    Outliner,
 }
 
 /// A dock that holds panels ([`Panel::dock`]).
@@ -141,15 +146,18 @@ pub(crate) enum Dock {
 }
 
 impl Panel {
-    /// The Left Dock's panels, in the order of its tabs.
+    /// The Left Dock's panels, in the order of its tabs (the Outliner is
+    /// under them, no tab: [`Panel::OUTLINER`]).
     pub(crate) const LEFT: [Panel; 2] = [Panel::Module, Panel::Resources];
+    /// The Left Dock's panel under its tabs, split from them.
+    pub(crate) const OUTLINER: Panel = Panel::Outliner;
     /// The Right Dock's panels, in the order of its tabs.
     pub(crate) const RIGHT: [Panel; 2] = [Panel::Palette, Panel::Preview];
 
     /// The dock it lives in.
     pub(crate) fn dock(self) -> Dock {
         match self {
-            Panel::Module | Panel::Resources => Dock::Left,
+            Panel::Module | Panel::Resources | Panel::Outliner => Dock::Left,
             Panel::Palette | Panel::Preview => Dock::Right,
         }
     }
@@ -161,6 +169,7 @@ impl Panel {
             Panel::Resources => "Resources",
             Panel::Palette => "Palette",
             Panel::Preview => "Preview",
+            Panel::Outliner => "Outliner",
         }
     }
 
@@ -172,6 +181,7 @@ impl Panel {
             Panel::Resources => Icon::Folder,
             Panel::Palette => Icon::Palette,
             Panel::Preview => Icon::Eye,
+            Panel::Outliner => Icon::Outliner,
         }
     }
 
@@ -184,7 +194,8 @@ impl Panel {
         match self {
             Panel::Module => 4,
             Panel::Resources => 2,
-            Panel::Palette | Panel::Preview => 0,
+            // (Its Expand All and Collapse All are on its own header.)
+            Panel::Palette | Panel::Preview | Panel::Outliner => 0,
         }
     }
 
@@ -195,6 +206,7 @@ impl Panel {
             Panel::Resources => "Resources: the resource browser",
             Panel::Palette => "Palette: the blueprint and tile palettes",
             Panel::Preview => "Preview: the blueprint chosen in the palette",
+            Panel::Outliner => "Outliner: what the area in front holds",
         }
     }
 
@@ -207,7 +219,8 @@ impl Panel {
     /// the game's standard palettes without a module, or with no game data
     /// read the panel saying so, beside any tab), unless a test turned
     /// them off (`Moonglow::palette_dock`); the Preview with the palettes,
-    /// on the tab beside theirs.
+    /// on the tab beside theirs; the Outliner where the active editor
+    /// brings it ([`editor_brings_outliner`]: an area's tab in front).
     pub(crate) fn available(self, app: &Moonglow) -> bool {
         match self {
             Panel::Module => app.ws.is_some(),
@@ -216,6 +229,7 @@ impl Panel {
                 app.palette_dock && (app.palettes_asked || editor_brings_palette(app))
             }
             Panel::Preview => Panel::Palette.available(app),
+            Panel::Outliner => editor_brings_outliner(app),
         }
     }
 
@@ -227,8 +241,21 @@ impl Panel {
             Panel::Resources => Keys::Browser,
             Panel::Palette => Keys::Palette,
             Panel::Preview => Keys::Preview,
+            Panel::Outliner => Keys::Outliner,
         }
     }
+}
+
+/// Whether the active docked editor ([`Moonglow::active_editor`], as
+/// [`editor_brings_palette`] reads it, in either mode of the Open editors
+/// switch) brings the Outliner: an area's tab, with a module open (the
+/// game's data or not: what is placed is read from the module). The
+/// placeholder that stands for no area brings none: it holds nothing to
+/// list, and no panel is shown empty. Any other tab in front brings none
+/// (M4 gives the other editors theirs): the Left Dock is then its tabs'
+/// panel alone, the whole height.
+pub(crate) fn editor_brings_outliner(app: &Moonglow) -> bool {
+    app.ws.is_some() && matches!(app.active_editor(), Some(crate::Tab::Area(_)))
 }
 
 /// Whether the active docked editor ([`Moonglow::active_editor`]) brings
@@ -327,6 +354,16 @@ const MODULE_TOOLS: [TopBarButton; 2] = [
     (Id::ModuleProperties, Icon::Module, "Module Properties", "Open the module's properties"),
     (Id::AreaWizard, Icon::Plus, "New Area", "Make a new area with the Area Wizard"),
 ];
+
+/// The id of the Left Dock's upper panel over the Outliner (its tabs and
+/// the panel shown), under which egui keeps the height it is drawn at;
+/// the height chosen is `Settings::module_panel_height`.
+pub(crate) const MODULE_PANEL_ID: &str = "module-panel";
+/// The least height of the Left Dock's upper panel over the Outliner: its
+/// tab bar, the Module panel's Filter and five rows.
+pub(crate) const MODULE_PANEL_LEAST: f32 = 180.0;
+/// The Outliner's least height: its header and four rows.
+pub(crate) const OUTLINER_LEAST: f32 = 116.0;
 
 /// The Left Dock's least width: its tab bar's tabs as icons and the
 /// Module panel's four header buttons, side by side (the tabs' words
@@ -1239,14 +1276,19 @@ fn edge_dragged(ctx: &egui::Context, id: &str) -> bool {
 /// The Left Dock (`Panel::left("tree")`), with a module open: its tab bar
 /// (the Module tab; the Module panel's Module Properties, New Area, Expand
 /// All and Collapse All, and the fold button at its right), the Module
-/// panel under it (`tree::module_tree`). Folded (`Settings::hide_tree`),
-/// the strip of its panels' icons under the chevron that brings it back.
+/// panel under it (`tree::module_tree`); where the active editor brings it
+/// ([`editor_brings_outliner`]), the Outliner under them, split by a seam
+/// the builder drags (`Settings::module_panel_height`, the upper panel's
+/// height as chosen, drawn held to what the dock allows). Folded
+/// (`Settings::hide_tree`), the strip of its panels' icons (the
+/// Outliner's after its tabs') under the chevron that brings it back.
 pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     let held = panels(app, Dock::Left);
     let Some(front) = left_shown(app) else {
         app.left_fold = None;
         return;
     };
+    let outliner = Panel::OUTLINER.available(app);
     let ctx = ui.ctx().clone();
     let t = mg_uikit::tokens(&ctx);
     let line = panel_line(ui);
@@ -1265,6 +1307,12 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                     let key = if *p == front { fold_key.as_str() } else { "" };
                     strip = strip.panel(p.icon(), p.name(), format!("{}{key}", p.strip_tip()));
                 }
+                // (And the Outliner's, under its tabs' as the dock has it:
+                // `Narrow.png`'s third icon.)
+                if outliner {
+                    let p = Panel::OUTLINER;
+                    strip = strip.panel(p.icon(), p.name(), p.strip_tip());
+                }
                 strip.show(ui)
             });
         let strip = shown.response.rect;
@@ -1272,7 +1320,13 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             Some(kit::edge_fold_rect_beside(strip.right(), strip.y_range(), Side::Left));
         let unfold = left_dock_fold(app, ui);
         match shown.inner {
-            Some(StripClick::Panel(i)) => app.show_dock_panel(held[i]),
+            Some(StripClick::Panel(i)) if i < held.len() => app.show_dock_panel(held[i]),
+            // (The Outliner's: the dock unfolded, the keys the Outliner's,
+            // the tab shown as it was.)
+            Some(StripClick::Panel(_)) => {
+                app.show_panel(Id::ViewTree, true);
+                crate::outliner::take_keys(app, &ctx);
+            }
             Some(StripClick::Unfold) => app.show_panel(Id::ViewTree, true),
             None if unfold => app.show_panel(Id::ViewTree, true),
             None => {}
@@ -1328,6 +1382,7 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     let wide = chosen_size(&ctx, &mut app.settings.left_dock_width, "tree", 0, metrics::LEFT_DOCK);
     draw_at(&ctx, "tree", 0, wide.clamp(*range.start(), *range.end()));
     let dragged = edge_dragged(&ctx, "tree");
+    let upper = Upper { held: &held, front, tools: &tools, tools_width, browser: &browser };
     let shown = egui::Panel::left("tree")
         .resizable(!on_button)
         .default_size(metrics::LEFT_DOCK)
@@ -1335,36 +1390,40 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
         .frame(egui::Frame::new().fill(t.panel))
         .show(ui, |ui| {
             dock_pane(ui);
-            let pane = ui.max_rect();
-            let mut tab = held.iter().position(|p| *p == front).unwrap_or(0);
-            let keymap = &app.keymap;
-            let mut tabs = DockTabs::new(LEFT_DOCK).tools_width(tools_width);
-            for p in &held {
-                tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
-            }
-            // (The tools are the panel's shown: the Module panel's four, or
-            // the Resources panel's Export and Refresh.)
-            let bar = tabs.show(ui, &mut tab, |ui| match &browser {
-                None => (module_tools(ui, &tools, keymap), None),
-                Some(header) => ((None, None), Some(crate::browser::tools(ui, header))),
+            // Split: the tabs' panel over the Outliner, at the seam as
+            // chosen (the board's at first), held so that each keeps its
+            // least where the dock is short; the seam chosen changes only
+            // as it is dragged, and is kept for a taller dock. Without
+            // the Outliner, the same panel the whole height: its widgets
+            // keep their ids (the tree's open groups, where it is
+            // scrolled to) as the Outliner comes and goes.
+            let whole = ui.max_rect().height();
+            let most = (whole - OUTLINER_LEAST).max(MODULE_PANEL_LEAST);
+            let range = MODULE_PANEL_LEAST..=most;
+            let chosen =
+                app.settings.module_panel_height.map_or(metrics::MODULE_PANEL, |h| h as f32);
+            let tall = if outliner { chosen.clamp(*range.start(), *range.end()) } else { whole };
+            draw_at(&ctx, MODULE_PANEL_ID, 1, tall);
+            let seam_dragged = outliner && edge_dragged(&ctx, MODULE_PANEL_ID);
+            let mut top = egui::Panel::top(MODULE_PANEL_ID)
+                .resizable(outliner)
+                .show_separator_line(false)
+                .frame(egui::Frame::new());
+            top = match outliner {
+                true => top.default_size(metrics::MODULE_PANEL).size_range(range),
+                false => top.exact_size(whole),
+            };
+            let top = top.show(ui, |ui| {
+                let pane = ui.max_rect();
+                upper_panel(app, ui, pane, &upper)
             });
-            // (A tab chosen shows its panel from the next frame: this one
-            // draws the panel the tools were made for.)
-            let chosen = bar.changed.then(|| held[tab]);
-            let ((_, folded), _) = bar.inner;
-            match front {
-                Panel::Module => {
-                    // (The tree's rows reach the panel's sides, as the
-                    // mock's; its Filter has a margin of its own.)
-                    let margin = Margin { left: 0, right: 0, top: 2, bottom: 2 };
-                    let body = egui::Frame::new().inner_margin(margin);
-                    body.show(ui, |ui| tree::module_tree(app, ui, folded));
-                }
-                Panel::Resources => crate::browser::ui(app, ui, pane),
-                // (Not the Left Dock's.)
-                Panel::Palette | Panel::Preview => {}
+            if seam_dragged {
+                app.settings.module_panel_height = Some(top.response.rect.height().round() as u32);
             }
-            (bar.inner, chosen)
+            if outliner {
+                crate::outliner::ui(app, ui);
+            }
+            top.inner
         });
     app.tree_width = Some(shown.response.rect.width());
     if dragged {
@@ -1387,6 +1446,58 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     if let Some(panel) = chosen {
         app.show_dock_panel(panel);
     }
+}
+
+/// What the Left Dock's upper panel is drawn with ([`upper_panel`]): the
+/// tabs' panels, the one shown, the Module panel's header buttons, the
+/// tools' width the tabs are laid out beside, and the Resources panel's
+/// header where it is shown.
+struct Upper<'a> {
+    held: &'a [Panel],
+    front: Panel,
+    tools: &'a [Prepared],
+    tools_width: f32,
+    browser: &'a Option<crate::browser::Header>,
+}
+
+/// What the Left Dock's tab bar asked: the Module panel's header buttons'
+/// (a command, Expand All or Collapse All), the Resources panel's, and a
+/// tab chosen.
+type UpperAsked = ((ModuleAsked, Option<crate::browser::Asked>), Option<Panel>);
+
+/// The Left Dock's upper panel (the whole dock without an Outliner): its
+/// tab bar and the panel shown under it, in `pane` (the panel's whole
+/// rectangle, its header included).
+fn upper_panel(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect, u: &Upper<'_>) -> UpperAsked {
+    let mut tab = u.held.iter().position(|p| *p == u.front).unwrap_or(0);
+    let keymap = &app.keymap;
+    let mut tabs = DockTabs::new(LEFT_DOCK).tools_width(u.tools_width);
+    for p in u.held {
+        tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
+    }
+    // (The tools are the panel's shown: the Module panel's four, or the
+    // Resources panel's Export and Refresh.)
+    let bar = tabs.show(ui, &mut tab, |ui| match u.browser {
+        None => (module_tools(ui, u.tools, keymap), None),
+        Some(header) => ((None, None), Some(crate::browser::tools(ui, header))),
+    });
+    // (A tab chosen shows its panel from the next frame: this one draws the
+    // panel the tools were made for.)
+    let chosen = bar.changed.then(|| u.held[tab]);
+    let ((_, folded), _) = bar.inner;
+    match u.front {
+        Panel::Module => {
+            // (The tree's rows reach the panel's sides, as the mock's; its
+            // Filter has a margin of its own.)
+            let margin = Margin { left: 0, right: 0, top: 2, bottom: 2 };
+            let body = egui::Frame::new().inner_margin(margin);
+            body.show(ui, |ui| tree::module_tree(app, ui, folded));
+        }
+        Panel::Resources => crate::browser::ui(app, ui, pane),
+        // (Not the Left Dock's tabs'.)
+        Panel::Palette | Panel::Preview | Panel::Outliner => {}
+    }
+    (bar.inner, chosen)
 }
 
 /// The Left Dock's fold button (issue 10's one button a pane has, on the

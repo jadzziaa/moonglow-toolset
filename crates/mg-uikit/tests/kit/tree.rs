@@ -243,3 +243,115 @@ fn a_tree_row_fills_the_row_drags_and_leaves_its_arrow_to_a_button() {
     h.drop_at(from + egui::vec2(40.0, 20.0));
     h.run();
 }
+
+/// An Outliner's group row with an eye (`LightArea_crop_outl.png`): the
+/// eye is a toggle named apart from the row, said pressed while shown, at
+/// the row's right with the count before it; a click on it is the eye's
+/// alone (the group neither opens nor closes), a click on the row opens
+/// the group. Quiet (a kind hidden in the view), the row still opens. A
+/// row without an arrow has its eye too.
+#[test]
+fn an_outliner_row_s_eye_takes_its_own_click() {
+    for theme in Theme::ALL {
+        let shown = Cell::new(true);
+        let row = Cell::new(egui::Rect::NOTHING);
+        let mut h = Harness::builder().with_size(egui::vec2(260.0, 200.0)).build_ui(|ui| {
+            mg_uikit::apply(ui.ctx(), theme);
+            mg_uikit::list_rows(ui);
+            let group = TreeGroup::new("kinds", "Creatures")
+                .icon(Icon::Creature)
+                .count(46)
+                .label("46 creatures")
+                .quiet(!shown.get())
+                .eye(shown.get(), "Show Creatures", "Show or hide the creatures");
+            let (g, eye) = group.show_eyed(ui, |ui| ui.label("Cabbage"));
+            row.set(g.header_response.rect);
+            if eye.is_some_and(|e| e.clicked()) {
+                shown.set(!shown.get());
+            }
+            let empty = TreeRow::new("Items").icon(Icon::Item).count(0).label("0 items");
+            let shown_row =
+                empty.sense(egui::Sense::hover()).eye(true, "Show Items", "").show_parts(ui);
+            assert!(shown_row.eye.is_some());
+        });
+        h.run();
+        let eye = h.get_by_label("Show Creatures");
+        assert_eq!(eye.accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+        let r = eye.rect();
+        assert_eq!(r.size(), egui::vec2(tree::EYE, tree::EYE), "{theme:?}");
+        assert!((row.get().right() - r.right() - tree::ROW_PADDING_RIGHT).abs() < 1.0);
+        let drawn = texts(&h);
+        let count = drawn.iter().find(|(t, _)| t == "46").unwrap().1;
+        assert!(count.right() <= r.left() - tree::ROW_GAP + 0.5, "the count before the eye");
+        // The eye's click: hidden, the group closed still.
+        h.get_by_label("Show Creatures").click();
+        h.run();
+        h.run();
+        assert!(!shown.get(), "{theme:?}");
+        assert_eq!(
+            h.get_by_label("Show Creatures").accesskit_node().toggled(),
+            Some(egui::accesskit::Toggled::False)
+        );
+        assert_eq!(
+            h.get_by_label("46 creatures").accesskit_node().data().is_expanded(),
+            Some(false)
+        );
+        // The row's: opened, quiet as it is.
+        h.get_by_label("46 creatures").click();
+        h.run();
+        assert_eq!(
+            h.get_by_label("46 creatures").accesskit_node().data().is_expanded(),
+            Some(true)
+        );
+        assert!(h.query_by_label("Cabbage").is_some());
+        // (The row without an arrow: its eye, and itself a label.)
+        h.get_by_label("Show Items");
+        assert_eq!(h.get_by_value("0 items").accesskit_node().role(), Role::Label);
+    }
+}
+
+/// An object's row with its tag weak after its name (`.sub`): both whole
+/// where they fit; where they do not, cut with an ellipsis to the row's
+/// width, the tag first, then the name to at most 70% of the room, the tag
+/// the rest; the row no wider than what holds it (nothing to scroll
+/// sideways).
+#[test]
+fn a_row_s_weak_second_word_gives_way_first() {
+    let width = Cell::new(390.0_f32);
+    let row = Cell::new(egui::Rect::NOTHING);
+    let mut h = Harness::builder().with_size(egui::vec2(400.0, 100.0)).build_ui(|ui| {
+        mg_uikit::list_rows(ui);
+        ui.set_max_width(width.get());
+        let r = TreeRow::new("Plague Victim Pyre").second("Plague Victim Pyre").show(ui);
+        row.set(r.rect);
+        // (What it took: no wider than what holds it.)
+        assert!(ui.min_rect().width() <= width.get() + 0.5);
+    });
+    // (The name and the tag as drawn: the galleys' text is the whole
+    // words, cut or not; their widths say.)
+    let parts = |h: &Harness<'_>| {
+        let drawn = texts(h);
+        let mut both = drawn.into_iter().filter(|(t, _)| t == "Plague Victim Pyre");
+        (both.next().unwrap().1, both.next().unwrap().1)
+    };
+    h.run();
+    let (name, sub) = parts(&h);
+    let whole = name.width();
+    assert!((sub.width() - whole).abs() < 0.5, "both whole");
+    // Narrower: the tag cut, the name whole.
+    width.set(200.0);
+    h.run();
+    let (name, sub) = parts(&h);
+    assert!((name.width() - whole).abs() < 0.5, "the name whole");
+    assert!(sub.width() < whole - 10.0, "the tag cut");
+    assert!(sub.left() >= name.right() + tree::SUB_GAP - 0.5);
+    assert!(sub.right() <= row.get().right() - tree::ROW_PADDING_RIGHT + 0.5);
+    // Narrower still: the name cut too, to 70% of the room at most.
+    width.set(140.0);
+    h.run();
+    let (name, sub) = parts(&h);
+    let room = 140.0 - tree::name_offset(false) - tree::ROW_PADDING_RIGHT;
+    assert!(name.width() < whole - 10.0, "the name cut");
+    assert!(name.width() <= room * tree::NAME_SHARE + 0.5, "{} of {room}", name.width());
+    assert!(sub.right() <= row.get().right() - tree::ROW_PADDING_RIGHT + 0.5);
+}

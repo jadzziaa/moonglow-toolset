@@ -741,6 +741,20 @@ pub(crate) fn module_gff(h: &mut Harness<'_, Moonglow>, name: &str, t: ResType) 
     ws.module.gff(&key).map(|g| g.unwrap())
 }
 
+/// The Left Dock's upper panel (the module tree) as tall as the Outliner
+/// under it lets it be (its least), in a window 300 points taller: for the
+/// module tree's tests with an area in front, written while the tree had
+/// the whole dock (M3's T13 split it, the Module panel 496 points tall at
+/// first): the tree as tall as it was, its Areas group's well too.
+pub(crate) fn tall_tree(h: &mut Harness<'_, Moonglow>) {
+    let size = h.ctx.content_rect().size();
+    h.set_size(size + egui::vec2(0.0, 300.0));
+    h.state_mut().settings.module_panel_height = Some(10_000);
+    // (One step drawn at the new seam, one for what it shows: rows out
+    // of sight are not laid out.)
+    h.run_steps(2);
+}
+
 /// The width of [`area_harness`]'s window.
 pub(crate) const AREA_HARNESS_WIDTH: f32 = 1160.0;
 

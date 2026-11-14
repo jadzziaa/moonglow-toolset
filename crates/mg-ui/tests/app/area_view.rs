@@ -6408,6 +6408,7 @@ fn onto_objects_places_on_the_placeable_under_the_pointer() {
 fn shift_g_drops_the_selection_onto_the_placeable_below() {
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("drop-onto") else { return };
+    tall_tree(&mut h);
     let git = ResKey::new(area, ResType::GIT);
     let chest = {
         let game = h.state().game.clone().unwrap();
@@ -6491,6 +6492,7 @@ fn shift_g_drops_the_selection_onto_the_placeable_below() {
 fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("properties-last") else { return };
+    tall_tree(&mut h);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {

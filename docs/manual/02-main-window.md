@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: The main window
-description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
+description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T23:49:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T01:24:39Z }
 ---
 
 # The main window
@@ -11,7 +11,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T23:49:17Z }
 From top to bottom: the **Top Bar** (the menus, the common
 commands and the **Quick Open** field, in one row), then the **Left Dock** with its two panels, each
 on a tab of its own (**Module**, the module tree, and **Resources**, the
-resource browser), the
+resource browser), and under them, while an area is in front, the
+**Outliner** (what the area holds: see [The Outliner](#the-outliner)), the
 **tabs** in the middle and the **Right Dock** on the right, with the
 **Palette** and **Preview** panels on two tabs, the **log** in the Bottom Dock under the tabs, and the
 **Status Bar** (the log's
@@ -296,7 +297,7 @@ changes them; the menus show the current keys.
 | Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area is in front, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+P | Quick Open: go to a resource or a command |
@@ -571,7 +572,9 @@ with the arrow that brings it back (**Show the Left Dock**) beside the
 strip's edge, at the same height and size, pointing the other way: it
 brings the dock back on the panel it showed. At the strip's top is a
 button for each of its panels (**Module**, a box; **Resources**, a
-folder), which brings it back on that panel. It comes back as wide as
+folder), which brings it back on that panel, and while an area is in
+front one for the **Outliner** under them, which brings the dock back
+with the arrow keys in the Outliner. It comes back as wide as
 it was. Its panels stay in it: neither can be
 dragged to another side or into the middle. The **Right Dock** is the
 same, mirrored: its arrow beside its inner (left) edge, half way down
@@ -640,6 +643,67 @@ Filter; there, Escape clears what is typed, and Escape again goes back
 into the rows, where they were; Down goes to the first row the Filter
 finds (the palette's search has the same keys, and Down goes to its
 first row). In the rows, Escape hands the keys back. The row the keys are at is marked, and brought into view.
+
+## The Outliner
+
+Under the Left Dock's tabs, while an area's tab is in front of the
+middle, the **Outliner** lists what the area holds: its placed objects
+by kind, in the order of the area view's Show toggles (Creatures,
+Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers,
+Waypoints), each with how many there are and an **eye** at its right.
+Its header names the area, and has **Expand All** and **Collapse All**,
+which open and close every kind at once (their keys, Options ›
+Keyboard's Expand All and Collapse All, work there while the Outliner
+has the arrow keys).
+
+**The eyes** are the area view's Show toggles: one state, two controls.
+Click a kind's eye to hide its objects in the view (the eye is struck
+through, the kind's row turns gray, and its toggle on the area toolbar
+goes off), and again to show them; a toggle on the toolbar changes the
+eye with it. What is hidden is hidden in every area view, as the
+toolbar's toggles always did, and a hidden object can't stay selected.
+
+**A kind** opens with a click on its row (or its arrow) and lists its
+objects, each with its name and, gray after it, its tag; both are cut
+short with an ellipsis where the dock is narrow (rest the pointer on a
+row for what it does). A kind with nothing placed has no arrow. Kinds
+are closed at first, but for the one of the object selected: select an
+object in the view and the Outliner opens its kind and scrolls to its
+row, marked. An area can hold hundreds of one kind; only the rows in
+sight are drawn.
+
+**Selecting from it**: click an object's row to select it in the view
+(the camera stays where it is; in Select Tiles a click on a row comes
+back to the objects, as a click on an object in the view does).
+Ctrl+click adds a row to the selection or takes it out, Shift+click
+selects those from the row clicked before to it, as listed. A row of a
+hidden kind shows its kind and selects the object. Double-click a row
+for the object's Properties; right-click it for the module tree's
+menu of a placed object (Go To, Adjust Location…, Preview, Copy,
+Delete, Export as Blueprint…, the plugins' commands, Variables…,
+Properties), on all of those selected where you right-click one of
+them. A click on a row gives it the arrow keys, as in the module tree:
+Up and Down go from row to row (Page Up and Page Down by ten, Home and
+End to the ends), Right and Left open and close a kind, Enter goes to
+the object (selected, the camera to it), letters go to the row whose
+name begins with them, Delete deletes the object at the row (those
+selected with it too), Escape hands the keys back. F6 reaches it after
+the Left Dock's tab.
+
+**The seam** between the Left Dock's tabs and the Outliner is dragged
+to give either more room. It is 496 points from the dock's top at
+first; where you leave it is kept (the next time Moonglow starts too),
+and in a window too short for it each keeps a few rows, the seam back
+where you left it once the window is tall again. **View › Reset
+Layout** puts it back.
+
+**When it shows**: only while an area's tab is the one in front of the
+middle (the docks follow the tab you work in, as the Right Dock does).
+Beside another tab (Module Properties, a script, a blueprint) or the
+tab that says no area is open, the Left Dock is its tab's panel alone,
+the whole height. A tool in a window of its own (with **Open editors:
+As Floating Windows**) leaves it as the area under it has it. The
+module tree keeps each area's objects too, under its row: both stay.
 
 ## Tabs and windows
 

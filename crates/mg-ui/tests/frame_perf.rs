@@ -951,6 +951,25 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // The Outliner (M3's T13) with a kind of 200 objects or more opened
+    // (one of them selected: the Outliner opens its kind and brings it
+    // into sight), against its kinds closed, the same one selected.
+    let largest = h.state().area_views.get(&area).and_then(|v| v.model.as_ref()).and_then(|m| {
+        let count = |k: mg_area::ObjectKind| m.objects.iter().filter(|o| o.kind == k).count();
+        let kind = mg_area::ObjectKind::ALL.into_iter().max_by_key(|k| count(*k))?;
+        let first = m.objects.iter().find(|o| o.kind == kind)?;
+        Some((kind, first.index, count(kind)))
+    });
+    if let Some((kind, index, n)) = largest.filter(|l| l.2 >= 200) {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(kind, index)];
+        h.run_steps(30);
+        let open = format!("{name}, the Outliner's {} open ({n})", kind.label());
+        view(h, r, &open, Some(&tab));
+        h.state_mut().outliner_fold_all(false);
+        h.run_steps(30);
+        view(h, r, &format!("{name}, the Outliner's kinds closed, one selected"), Some(&tab));
+        h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    }
     // The tiles palette beside it with a search being typed: a letter
     // more each frame (the tileset searched again as each is).
     show_palette(h);

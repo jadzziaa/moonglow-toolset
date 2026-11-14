@@ -965,8 +965,13 @@ impl PanelHeader {
         let builder = egui::UiBuilder::new()
             .max_rect(bar)
             .layout(egui::Layout::left_to_right(egui::Align::Center));
-        let inner = ui
-            .scope_builder(builder, |ui| {
+        // (A child over the bar taken, not a scope: a scope moves the
+        // cursor to its own end, back up into the bar, and what is laid
+        // out under the header went under it by the bar's height less the
+        // title's.)
+        let inner = {
+            let ui = &mut ui.new_child(builder);
+            {
                 let name = self.name.clone().unwrap_or_else(|| self.title.clone());
                 crate::icons::name_group(ui, &name);
                 let p = ui.painter();
@@ -987,8 +992,8 @@ impl PanelHeader {
                 }
                 ui.add_space(end - bar.left());
                 tools_at_right_end(ui, bar, tools)
-            })
-            .inner;
+            }
+        };
         egui::InnerResponse::new(inner, response)
     }
 }

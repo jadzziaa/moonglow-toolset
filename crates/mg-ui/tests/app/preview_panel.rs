@@ -384,10 +384,12 @@ fn f6_reaches_the_right_dock_with_either_tab_in_front() {
         assert_eq!(keys(&h), "Area");
         h.hover_at(egui::pos2(centre.x, 20.0));
         settle(&mut h);
-        let forward: Vec<String> = (0..4).map(|_| step(&mut h, false)).collect();
-        assert_eq!(forward, [name, "Log", "Tree", "Area"], "{name}: F6");
-        let back: Vec<String> = (0..4).map(|_| step(&mut h, true)).collect();
-        assert_eq!(back, ["Tree", "Log", name, "Area"], "{name}: Shift+F6");
+        // (The Outliner under the Left Dock's tabs, with the area in
+        // front: M3's T13.)
+        let forward: Vec<String> = (0..5).map(|_| step(&mut h, false)).collect();
+        assert_eq!(forward, [name, "Log", "Tree", "Outliner", "Area"], "{name}: F6");
+        let back: Vec<String> = (0..5).map(|_| step(&mut h, true)).collect();
+        assert_eq!(back, ["Outliner", "Tree", "Log", name, "Area"], "{name}: Shift+F6");
     }
     // The Preview's keys turn its model.
     assert_eq!(step(&mut h, false), "Preview");

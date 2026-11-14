@@ -11,6 +11,15 @@
 //! caller's ([`TreeRow::arrow_apart`], [`arrow_column`]) and show marks
 //! after its name ([`TreeRow::show_parts`]).
 //!
+//! An Outliner's rows (`LightArea_crop_outl.png`) add to these: a show or
+//! hide **eye** at the row's right, after its count ([`TreeGroup::eye`],
+//! [`TreeRow::eye`]: a toggle of its own, which takes its click before the
+//! row), a quiet look for a kind hidden in the view that keeps the row
+//! interactive ([`TreeGroup::quiet`], [`TreeRow::quiet`]), and a weak
+//! second word after the name ([`TreeRow::second`]: an object's tag), the
+//! two cut with an ellipsis to the row's width ([`TreeRow::fit`]) rather
+//! than widening what scrolls them.
+//!
 //! ```
 //! # egui::__run_test_ui(|ui| {
 //! let shown = mg_uikit::TreeGroup::new("areas", "Areas")
@@ -44,6 +53,26 @@ pub const ROW_GAP: f32 = 4.0;
 /// The least room before a count (`.tree-row .count`: `padding-left:
 /// 6px`).
 pub const COUNT_GAP: f32 = 6.0;
+/// An eye's side (`.tree-row .eye`: 18 px, its icon 14).
+pub const EYE: f32 = 18.0;
+/// An eye's icon's side.
+pub const EYE_ICON: f32 = 14.0;
+/// The room before a weak second word (`.tree-row .sub`: `padding-left:
+/// 4px`, after the row's 4 px gap).
+pub const SUB_GAP: f32 = 4.0;
+/// The most of a row's room for words its name takes where a weak second
+/// word follows it (`.name:has(+ .sub)`: `max-width: 70%`).
+pub const NAME_SHARE: f32 = 0.7;
+
+/// A show or hide eye at a row's right ([`TreeGroup::eye`],
+/// [`TreeRow::eye`]): whether what it stands for is shown, its name for a
+/// screen reader (and tests), and its tip.
+#[derive(Clone, Debug)]
+struct Eye {
+    shown: bool,
+    name: String,
+    tip: String,
+}
 
 /// Where a row's name begins, from the row's left edge: after the arrow's
 /// column, and after the icon where it has one (42 and 22).
@@ -69,6 +98,13 @@ struct Line {
     label: Option<String>,
     marked: bool,
     dim: bool,
+    /// A weak second word after its name ([`TreeRow::second`]).
+    sub: Option<String>,
+    /// Its words cut with an ellipsis to the row's width, rather than
+    /// widening what holds it ([`TreeRow::fit`]).
+    fit: bool,
+    /// A show or hide eye at its right, after its count.
+    eye: Option<Eye>,
     /// Its arrow's column another widget's: the row answers the pointer
     /// from its name on.
     arrow_apart: bool,
@@ -81,7 +117,8 @@ impl Line {
     fn new(name: String) -> Self {
         let (marked, dim, arrow_apart) = (false, false, false);
         let (icon, count, label, fill_under) = (None, None, None, None);
-        Line { name, icon, count, label, marked, dim, arrow_apart, fill_under }
+        let (sub, fit, eye) = (None, false, None);
+        Line { name, icon, count, label, marked, dim, sub, fit, eye, arrow_apart, fill_under }
     }
 
     /// Its accessible name: its own, else the name with the count after
@@ -112,13 +149,12 @@ impl Line {
         };
         let (at, height) = (ui.cursor().min, crate::row_height(ui));
         let whole = Rect::from_min_max(at, pos2(right.max(at.x + 1.0), at.y + height));
-        let words = ui.is_rect_visible(whole).then(|| Words {
-            name: Self::galley(ui, &self.name),
-            count: self.count.as_ref().map(|c| Self::galley(ui, c)),
-        });
+        let words = ui.is_rect_visible(whole).then(|| self.words(ui, whole.width()));
         let needed = words.as_ref().map_or(0.0, |w| {
             let count = w.count.as_ref().map_or(0.0, |c| COUNT_GAP + c.size().x);
-            name_offset(self.icon.is_some()) + w.name.size().x + count + ROW_PADDING_RIGHT
+            let sub = w.sub.as_ref().map_or(0.0, |s| SUB_GAP + s.size().x);
+            let (name, eye) = (w.name.size().x, self.eye_room());
+            name_offset(self.icon.is_some()) + name + sub + count + eye + ROW_PADDING_RIGHT
         });
         let (auto, taken) = ui.allocate_space(vec2(needed, height));
         let mut rect = taken.with_max_x(taken.right().max(right));
@@ -139,12 +175,45 @@ impl Line {
     }
 
     fn galley(ui: &Ui, text: &str) -> std::sync::Arc<egui::Galley> {
-        WidgetText::from(text).into_galley(
-            ui,
-            Some(TextWrapMode::Extend),
-            f32::INFINITY,
-            TextStyle::Button,
-        )
+        Self::galley_cut(ui, text, f32::INFINITY)
+    }
+
+    /// `text` laid out on one line, cut with an ellipsis at `max` points.
+    fn galley_cut(ui: &Ui, text: &str, max: f32) -> std::sync::Arc<egui::Galley> {
+        let wrap = if max.is_finite() { TextWrapMode::Truncate } else { TextWrapMode::Extend };
+        WidgetText::from(text).into_galley(ui, Some(wrap), max.max(1.0), TextStyle::Button)
+    }
+
+    /// The room its eye takes at its right, with the gap before it.
+    fn eye_room(&self) -> f32 {
+        if self.eye.is_some() { EYE + ROW_GAP } else { 0.0 }
+    }
+
+    /// Its words laid out for a row `width` wide: whole, or where it is
+    /// [`Line::fit`], cut to the room its icon, count and eye leave, the
+    /// name to at most [`NAME_SHARE`] of it where a weak second word
+    /// follows (which takes the rest), as the board's CSS shares it.
+    fn words(&self, ui: &Ui, width: f32) -> Words {
+        let count = self.count.as_ref().map(|c| Self::galley(ui, c));
+        if !self.fit {
+            let sub = self.sub.as_ref().map(|s| Self::galley(ui, s));
+            return Words { name: Self::galley(ui, &self.name), sub, count };
+        }
+        let counted = count.as_ref().map_or(0.0, |c| COUNT_GAP + c.size().x);
+        let fixed = name_offset(self.icon.is_some()) + counted + self.eye_room();
+        let room = (width - fixed - ROW_PADDING_RIGHT).max(1.0);
+        let Some(sub) = self.sub.as_ref().filter(|s| !s.is_empty()) else {
+            return Words { name: Self::galley_cut(ui, &self.name, room), sub: None, count };
+        };
+        let whole = Self::galley(ui, &self.name);
+        let name = if whole.size().x <= room * NAME_SHARE {
+            whole
+        } else {
+            Self::galley_cut(ui, &self.name, room * NAME_SHARE)
+        };
+        let left = room - name.size().x - SUB_GAP;
+        let sub = (left >= 8.0).then(|| Self::galley_cut(ui, sub, left));
+        Words { name, sub, count }
     }
 
     /// Paints the line in `rect`: its fill, the arrow `openness` turned
@@ -193,12 +262,18 @@ impl Line {
         }
         let name = words.name.clone();
         let x = rect.left() + name_offset(self.icon.is_some());
-        let name_end = row.name_end(self.icon.is_some());
+        let mut name_end = row.name_end(self.icon.is_some());
         p.galley(Pos2::new(x, (middle - name.size().y / 2.0).round()), name, text);
+        if let Some(galley) = words.sub.clone() {
+            let at = Pos2::new(name_end + SUB_GAP, (middle - galley.size().y / 2.0).round());
+            name_end = at.x + galley.size().x;
+            p.galley(at, galley, weak);
+        }
         if let Some(galley) = words.count.clone() {
             // (Against the edge in sight: the tree scrolled sideways keeps
-            // its counts at the panel's right.)
-            let right = rect.right().min(ui.clip_rect().right()) - ROW_PADDING_RIGHT;
+            // its counts at the panel's right; before the eye.)
+            let right =
+                rect.right().min(ui.clip_rect().right()) - ROW_PADDING_RIGHT - self.eye_room();
             let x = (right - galley.size().x).max(name_end + COUNT_GAP);
             p.galley(Pos2::new(x, (middle - galley.size().y / 2.0).round()), galley, weak);
         }
@@ -206,10 +281,59 @@ impl Line {
     }
 }
 
-/// A row's words laid out: its name, and its count.
+/// A row's words laid out: its name, its weak second word, and its count.
 struct Words {
     name: std::sync::Arc<egui::Galley>,
+    sub: Option<std::sync::Arc<egui::Galley>>,
     count: Option<std::sync::Arc<egui::Galley>>,
+}
+
+/// Where a row's eye goes: at its right, against the edge in sight, after
+/// its count.
+fn eye_rect(ui: &Ui, rect: Rect) -> Rect {
+    let right = rect.right().min(ui.clip_rect().right()) - ROW_PADDING_RIGHT;
+    Rect::from_center_size(pos2(right - EYE / 2.0, rect.center().y), vec2(EYE, EYE))
+}
+
+/// A row's eye ([`Eye`]) at `rect`, over the row (`row_id`; the eye's id is
+/// apart from it, and added after it, so it takes the clicks on it before
+/// the row). A toggle for a screen reader (said pressed while shown),
+/// named by its own name. Its response; clicked, the caller shows or hides
+/// what it stands for. Drawn after the row ([`paint_eye`]), over its fill.
+fn eye_button(ui: &mut Ui, rect: Rect, row_id: egui::Id, eye: &Eye) -> Response {
+    let response = ui.interact(rect, row_id.with("eye"), Sense::click());
+    let enabled = ui.is_enabled();
+    response.widget_info(|| {
+        WidgetInfo::selected(WidgetType::Button, enabled, eye.shown, eye.name.clone())
+    });
+    if eye.tip.is_empty() { response } else { response.on_hover_text(&eye.tip) }
+}
+
+/// Paints a row's eye ([`eye_button`], `response`): its icon, `eye` while
+/// shown, `eye-off` in `text-3` while hidden; `raised` under it while
+/// hovered; on a `marked` row in `on-fill`.
+fn paint_eye(ui: &Ui, response: &Response, eye: &Eye, marked: bool) {
+    let rect = response.rect;
+    if ui.is_rect_visible(rect) {
+        let t = ui.ctx().tokens();
+        let themed = crate::theme::applied(ui.ctx()).is_some();
+        let v = ui.visuals();
+        let color = match (marked, themed, eye.shown) {
+            (true, true, _) => t.on_fill,
+            (true, false, _) => v.selection.stroke.color,
+            (false, true, true) => t.text_2,
+            (false, true, false) => t.text_3,
+            (false, false, true) => v.text_color(),
+            (false, false, false) => v.weak_text_color(),
+        };
+        let p = ui.painter();
+        if response.hovered() || response.has_focus() {
+            let fill = if themed { t.raised } else { v.widgets.hovered.weak_bg_fill };
+            p.rect_filled(rect, 3.0, fill);
+        }
+        let icon = if eye.shown { Icon::Eye } else { Icon::EyeOff };
+        icon.paint(p, Rect::from_center_size(rect.center(), vec2(EYE_ICON, EYE_ICON)), color);
+    }
 }
 
 /// A row's room taken ([`Line::allocate`]).
@@ -302,16 +426,45 @@ impl TreeGroup {
         self
     }
 
+    /// Its name and icon quiet (`text-3`, `.tree-row.dim`): an Outliner's
+    /// kind hidden in the view. It opens and closes as ever.
+    pub fn quiet(mut self, quiet: bool) -> Self {
+        self.line.dim = quiet;
+        self
+    }
+
+    /// A show or hide eye at its right, after its count: `shown` (the
+    /// `eye` icon) or hidden (`eye-off`), named `name` for a screen reader,
+    /// its tip `tip`. Its click is the eye's, not the row's
+    /// ([`TreeGroup::show_eyed`] says it was clicked).
+    pub fn eye(mut self, shown: bool, name: impl Into<String>, tip: impl Into<String>) -> Self {
+        self.line.eye = Some(Eye { shown, name: name.into(), tip: tip.into() });
+        self
+    }
+
     /// Its row and its rows under it (`add_body`, while it is open).
     pub fn show<R>(
         self,
         ui: &mut Ui,
         add_body: impl FnOnce(&mut Ui) -> R,
     ) -> CollapsingResponse<R> {
+        self.show_eyed(ui, add_body).0
+    }
+
+    /// [`TreeGroup::show`], and its eye's response where it has one
+    /// ([`TreeGroup::eye`]), added after its row and before its rows (the
+    /// keyboard's focus goes from the row to its eye, then into it).
+    pub fn show_eyed<R>(
+        self,
+        ui: &mut Ui,
+        add_body: impl FnOnce(&mut Ui) -> R,
+    ) -> (CollapsingResponse<R>, Option<Response>) {
         let TreeGroup { id_salt, line, default_open, open } = self;
         ui.vertical(|ui| {
             let id = ui.make_persistent_id(id_salt);
             let mut row = line.allocate(ui, Sense::click(), Some(id));
+            let eye =
+                (line.eye.as_ref()).map(|eye| eye_button(ui, eye_rect(ui, row.rect), id, eye));
             let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
             if let Some(open) = open {
                 if open != state.is_open() {
@@ -328,18 +481,22 @@ impl TreeGroup {
             });
             let openness = state.openness(ui.ctx());
             let row = line.paint(ui, row, Some(openness));
+            if let (Some(e), Some(r)) = (&line.eye, &eye) {
+                paint_eye(ui, r, e, line.marked);
+            }
             let header_response = row.response;
             // (Its rows as wide as the room the row took, not as the row
             // is drawn: `allocate`.)
             let taken = header_response.clone().with_new_rect(row.taken);
             let body = state.show_body_indented(&taken, ui, add_body);
             crate::say_expanded(&header_response, body.is_some());
-            CollapsingResponse {
+            let shown = CollapsingResponse {
                 header_response,
                 body_response: body.as_ref().map(|b| b.response.clone()),
                 body_returned: body.map(|b| b.inner),
                 openness,
-            }
+            };
+            (shown, eye)
         })
         .inner
     }
@@ -394,6 +551,39 @@ impl TreeRow {
         self
     }
 
+    /// Its name and icon quiet (`text-3`, `.tree-row.dim`) where `quiet`,
+    /// interactive as ever (where [`TreeRow::dim`] makes it a label): an
+    /// Outliner's kind hidden in the view.
+    pub fn quiet(mut self, quiet: bool) -> Self {
+        self.line.dim = quiet;
+        self
+    }
+
+    /// A weak second word after its name (`.sub`, `text-3`): an object's
+    /// tag. The row's words are then cut to its width ([`TreeRow::fit`]),
+    /// the name to at most [`NAME_SHARE`] of their room, the second word to
+    /// the rest. Its accessible name stays its name (or its
+    /// [`TreeRow::label`]).
+    pub fn second(mut self, sub: impl Into<String>) -> Self {
+        self.line.sub = Some(sub.into());
+        self.line.fit = true;
+        self
+    }
+
+    /// Its words cut with an ellipsis to the row's width, rather than
+    /// widening what holds it (and scrolling it sideways): an Outliner's.
+    pub fn fit(mut self) -> Self {
+        self.line.fit = true;
+        self
+    }
+
+    /// A show or hide eye at its right, after its count, as
+    /// [`TreeGroup::eye`]'s ([`TreeRowShown::eye`] is its response).
+    pub fn eye(mut self, shown: bool, name: impl Into<String>, tip: impl Into<String>) -> Self {
+        self.line.eye = Some(Eye { shown, name: name.into(), tip: tip.into() });
+        self
+    }
+
     /// Its arrow's column holds a widget of the caller's (a button that
     /// opens the row out, added before the row at [`arrow_column`], so
     /// that the keyboard's focus comes to it before the row): the row
@@ -434,8 +624,13 @@ impl TreeRow {
     pub fn show_parts(self, ui: &mut Ui) -> TreeRowShown {
         let TreeRow { line, sense } = self;
         let row = line.allocate(ui, sense, None);
+        let eye = (line.eye.as_ref()).map(|eye| {
+            let rect = eye_rect(ui, row.rect);
+            eye_button(ui, rect, row.response.id, eye)
+        });
         let (enabled, selected) = (ui.is_enabled(), line.marked);
-        if line.dim {
+        // (A row that takes no click, as [`TreeRow::dim`]'s, is a label.)
+        if !sense.senses_click() {
             row.response
                 .widget_info(|| WidgetInfo::labeled(WidgetType::Label, enabled, line.label()));
         } else {
@@ -450,7 +645,10 @@ impl TreeRow {
         );
         let after = pos2(row.name_end(line.icon.is_some()) + ROW_GAP, rect.top());
         let response = line.paint(ui, row, None).response;
-        TreeRowShown { response, arrow, after }
+        if let (Some(e), Some(r)) = (&line.eye, &eye) {
+            paint_eye(ui, r, e, line.marked);
+        }
+        TreeRowShown { response, arrow, after, eye }
     }
 }
 
@@ -463,4 +661,6 @@ pub struct TreeRowShown {
     pub arrow: Rect,
     /// Where the room after its name begins, at the row's top.
     pub after: Pos2,
+    /// Its eye's response, where it has one ([`TreeRow::eye`]).
+    pub eye: Option<Response>,
 }

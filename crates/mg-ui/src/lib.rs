@@ -62,6 +62,7 @@ pub mod nui_render {
 }
 pub mod nwsync_view;
 mod options;
+mod outliner;
 mod outside;
 pub mod paint_mode;
 pub mod palette_categories;
@@ -102,6 +103,7 @@ pub mod trace;
 mod transfer;
 mod tree;
 pub mod updates;
+pub use outliner::OUTLINER;
 pub use shell::{LEAST_WINDOW_SIZE, Panel, RIGHT_DOCK, RIGHT_DOCK_LEAST};
 pub use tree::TreeAt;
 pub mod var_sets;
@@ -823,6 +825,9 @@ pub struct Moonglow {
     /// The Left Dock's panel drawn last (the arrow keys go from one
     /// panel to the other with its tab: `shell::left_dock`).
     pub(crate) left_drawn: Option<Panel>,
+    /// The Outliner's own state (`outliner.rs`): the selection it
+    /// follows, its keys' row.
+    pub(crate) outliner: outliner::Outliner,
     /// The Resources panel was asked for with no module open: from then
     /// on the Left Dock holds it with no module open too, for the run.
     pub(crate) resources_alone: bool,
@@ -1449,6 +1454,7 @@ impl Moonglow {
             left_fold: None,
             left_panel: Panel::Module,
             left_drawn: None,
+            outliner: Default::default(),
             resources_alone: false,
             right_fold: None,
             right_rect: None,
@@ -2559,6 +2565,11 @@ impl Moonglow {
     /// ([`shell::Panel::available`]).
     pub(crate) fn show_dock_panel(&mut self, panel: Panel) {
         match panel.dock() {
+            // (The Outliner is no tab: the dock unfolded, the keys its.)
+            shell::Dock::Left if panel == Panel::OUTLINER => {
+                self.settings.hide_tree = false;
+                self.outliner.to_first |= self.outliner.cursor.is_none();
+            }
             shell::Dock::Left => {
                 if panel == Panel::Resources && self.ws.is_none() {
                     self.resources_alone = true;
@@ -2610,6 +2621,14 @@ impl Moonglow {
             hints,
             counts: counts.into_iter().map(shell::Count::new).collect(),
         });
+    }
+
+    /// Opens (`true`) or closes every kind of the Outliner at the next
+    /// frame, as its Expand All and Collapse All do: for the hand-run
+    /// timing tests.
+    #[doc(hidden)]
+    pub fn outliner_fold_all(&mut self, open: bool) {
+        self.outliner.fold_all = Some(open);
     }
 
     /// How long making what the Status Bar shows takes, once
@@ -2720,7 +2739,7 @@ impl Moonglow {
     /// widths, the Bottom Dock closed, its first height kept for when it
     /// is opened.
     pub(crate) fn reset_layout(&mut self, ctx: &egui::Context) {
-        for id in ["tree", "log", shell::RIGHT_DOCK_ID] {
+        for id in ["tree", "log", shell::RIGHT_DOCK_ID, shell::MODULE_PANEL_ID] {
             ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::new(id)));
         }
         self.settings.hide_tree = false;
@@ -2732,6 +2751,7 @@ impl Moonglow {
         self.settings.left_dock_width = size(mg_uikit::metrics::LEFT_DOCK);
         self.settings.right_dock_width = size(mg_uikit::metrics::RIGHT_DOCK);
         self.settings.bottom_dock_height = size(mg_uikit::metrics::BOTTOM_DOCK);
+        self.settings.module_panel_height = None;
         self.settings.window_places.clear();
     }
 
@@ -2850,7 +2870,8 @@ impl Moonglow {
     /// of the panes shown, round from the last, left to right and then
     /// down: the Left Dock's panel shown (the module tree, at the row they
     /// were at, else its first; or the resource browser's list), the
-    /// editor area (an area's view has them, as after a click in it), the
+    /// Outliner under it where the area is in front (its row, else its
+    /// first), the editor area (an area's view has them, as after a click in it), the
     /// Right Dock's Palette panel, the Bottom Dock's log.
     pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
         use palette_view::Keys;
@@ -2868,7 +2889,14 @@ impl Moonglow {
         let mut panes = Vec::new();
         if let Some(panel) = self.left_dock_shows() {
             panes.push((panel.keys(), None));
+            // (The Outliner under its tabs' panel, before the editor
+            // area: left to right, then down.)
+            if Panel::OUTLINER.available(self) {
+                panes.push((Panel::OUTLINER.keys(), None));
+            }
         }
+        // (The editor area's place among them.)
+        let middle = panes.len();
         panes.push(keys_of(front));
         // (The Right Dock's one stop: its panel in front's, the palette's
         // rows or the Preview's model.)
@@ -2881,7 +2909,6 @@ impl Moonglow {
         }
         let now = panes.iter().position(|p| palette_view::keys_are(ctx, p.0));
         // (The keys anywhere else, a conversation's lines: as the middle's.)
-        let middle = usize::from(matches!(panes[0].0, Keys::Tree | Keys::Browser));
         let now = now.unwrap_or(middle.min(panes.len() - 1));
         let (next, table) = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
         palette_view::give_keys(ctx, next);
@@ -2895,6 +2922,9 @@ impl Moonglow {
             {
                 doc.selected = Some((0, 0));
             }
+        }
+        if next == Keys::Outliner {
+            outliner::take_keys(self, ctx);
         }
         if next == Keys::Tree && self.tree_cursor.is_none() {
             self.tree_cursor = Some(tree::first_row());
