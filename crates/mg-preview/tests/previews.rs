@@ -1298,6 +1298,105 @@ fn a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
     assert_eq!(robe(1, 233), ["pmh0_robe233"]);
 }
 
+/// What a helmet is drawn with where its mesh names another texture, as
+/// an item and worn, row by row of the client's reading
+/// (`part_textures_look`'s helmet rows; GitHub issue 45: the game's hood,
+/// `helm_033`, whose mesh names `helm`, a texture that is nowhere, was
+/// drawn untextured, where the game draws it in its PLT). Where the
+/// helmet has a PLT of its own name, every mesh is drawn with that name,
+/// as a body part's; a TGA of its name alone replaces nothing, and a mesh
+/// naming a material with a `texture0` keeps it.
+#[test]
+fn a_helmet_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let user = mg_testkit::scratch_dir("preview_helmet_textures");
+    let over = user.join("override");
+    std::fs::create_dir_all(&over).unwrap();
+    let put = |file: &str, data: &[u8]| std::fs::write(over.join(file), data).unwrap();
+    put("mg_red.tga", b"tga");
+    put("helm_248.plt", b"plt");
+    put("mg_mtrb.mtr", b"texture0 mg_pink\n");
+    // (The helmet's number, its mesh's texture, the files of its name.)
+    let rows: [(u8, &str, &[&str]); 7] = [
+        (251, "mg_none", &["plt"]),
+        (252, "helm_248", &["plt"]),
+        (253, "mg_red", &["plt"]),
+        (254, "mg_none", &[]),
+        (245, "NULL", &["plt"]),
+        (246, "mg_mtrb", &["plt"]),
+        (247, "mg_none", &["tga"]),
+    ];
+    for (n, mesh, own) in rows {
+        let name = format!("helm_{n}");
+        put(&format!("{name}.mdl"), part_model(&name, &[mesh]).as_bytes());
+        for ext in own {
+            put(&format!("{name}.{ext}"), ext.as_bytes());
+        }
+    }
+    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    // What the helmet's mesh is drawn with, as an item and worn by a man
+    // (`NULL`: a mesh that names none).
+    let drawn = |n: u8| -> [String; 2] {
+        let mut helmet = blueprint(&game, "nw_arhe001", ResType::UTI).root;
+        helmet.set("ModelPart1", mg_gff::Value::Byte(n));
+        if helmet.get("xModelPart1").is_some() {
+            helmet.set("xModelPart1", mg_gff::Value::Word(u16::from(n)));
+        }
+        let name = format!("helm_{n:03}");
+        let model = game.resman.get_named(&name, ResType::MDL).unwrap();
+        let model = Model::read(&model).unwrap();
+        let mesh = model
+            .nodes
+            .iter()
+            .find_map(|node| match &node.kind {
+                mg_mdl::NodeKind::Mesh(m) => Some(m.textures[0].clone().unwrap_or_default()),
+                _ => None,
+            })
+            .unwrap()
+            .to_ascii_lowercase();
+        let of = |p: &Preview| -> String {
+            let part = std::iter::once(&p.base)
+                .chain(&p.parts)
+                .find(|part| part.model == name)
+                .unwrap_or_else(|| panic!("{name}: {:?}", models(p)));
+            let t = part.textures.get(&mesh).cloned().unwrap_or_else(|| mesh.clone());
+            if t.is_empty() { "NULL".into() } else { t }
+        };
+        let mut utc = CreatureLook::new(6).to_utc();
+        let mut slot = mg_gff::Struct::new(1);
+        slot.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+        utc.set("Equip_ItemList", mg_gff::Value::List(vec![slot]));
+        let worn = helmet.clone();
+        let worn = creature(&game, &utc, &move |_| {
+            let mut g = Gff::new(*b"UTI ");
+            g.root = worn.clone();
+            Some(g)
+        })
+        .unwrap();
+        [of(&item(&game, &helmet).unwrap()), of(&worn)]
+    };
+    let both = |name: &str| [name.to_string(), name.to_string()];
+    // A mesh naming a texture that is nowhere, another helmet's PLT, a TGA
+    // of no part's name, or none: the helmet's own PLT.
+    assert_eq!(drawn(251), both("helm_251"));
+    assert_eq!(drawn(252), both("helm_252"));
+    assert_eq!(drawn(253), both("helm_253"));
+    assert_eq!(drawn(245), both("helm_245"));
+    // No PLT of its name: what the mesh names, a TGA of its name alone
+    // not counting.
+    assert_eq!(drawn(254), both("mg_none"));
+    assert_eq!(drawn(247), both("mg_none"));
+    // A material with a texture0 is kept.
+    assert_eq!(drawn(246), both("mg_mtrb"));
+    // The game's own: the hood (`helm_033`, its mesh naming `helm`), and
+    // `helm_006`, its mesh naming `helm_003`'s PLT.
+    assert_eq!(drawn(33), both("helm_033"));
+    assert_eq!(drawn(6), both("helm_006"));
+}
+
 /// An authored ASCII model: a small square, the dummies `nodes` (name,
 /// position) and the lights `lights` (position, colour, radius,
 /// multiplier).

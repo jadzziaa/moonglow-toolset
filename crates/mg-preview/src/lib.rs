@@ -444,6 +444,8 @@ fn env_map(value: Option<&str>) -> Option<String> {
 pub(crate) struct Remembered {
     /// [`creature::plt_fallbacks`]' answers.
     fallbacks: std::cell::RefCell<std::collections::HashMap<String, BTreeMap<String, String>>>,
+    /// [`creature::helmet_textures`]' answers.
+    helmets: std::cell::RefCell<std::collections::HashMap<String, BTreeMap<String, String>>>,
     /// [`Lookup::bitmaps`]' answers.
     bitmaps: std::cell::RefCell<std::collections::HashMap<String, Vec<String>>>,
 }
