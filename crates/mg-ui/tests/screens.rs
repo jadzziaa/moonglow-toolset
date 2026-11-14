@@ -1159,7 +1159,8 @@ fn table_read_only_and_column_widths() {
 }
 
 /// A table with a description beside it: values by name, a cell that is
-/// none of its list, and a flags cell being ticked (the flags are the
+/// none of its list (in the rows above the flags' list, which opens over
+/// the last four), and a flags cell being ticked (the flags are the
 /// game's own `DAMAGE_TYPE_` constants, read from `nwscript`).
 #[test]
 #[ignore]
@@ -1175,11 +1176,11 @@ fn described_table() {
     std::fs::write(
         &file,
         "2DA V2.0\r\n\r\n  Label Level DamageType AOEShape Duration ClassRequired Cures\r\n\
-         0 Acid_Fog 6 0x0010 0 2 **** ****\r\n1 Aid 2 **** **** 3 **** ****\r\n\
-         2 Animate_Dead 3 **** **** 4 2 ****\r\n3 Barkskin 2 **** **** 4 **** ****\r\n\
+         0 Acid_Fog 6 0x0010 0 2 **** ****\r\n1 Aid 12 **** **** 9 **** ****\r\n\
+         2 Animate_Dead 3 **** **** 4 2 ****\r\n3 Barkskin 2 **** **** #N/A 99 ****\r\n\
          4 Bestow_Curse 3 **** **** 5 **** ****\r\n5 Blade_Barrier 6 0x0006 1 2 **** ****\r\n\
-         6 Bless 1 **** **** 3 **** ****\r\n7 Bless_Weapon 12 **** **** 9 **** ****\r\n\
-         8 Blindness_and_Deafness 2 **** **** #N/A 99 ****\r\n\
+         6 Bless 1 **** **** 3 **** ****\r\n7 Bless_Weapon 1 **** **** 4 **** ****\r\n\
+         8 Blindness_and_Deafness 2 **** **** 4 **** ****\r\n\
          9 Bulls_Strength 2 **** **** 4 **** ****\r\n",
     )
     .unwrap();
@@ -6763,12 +6764,17 @@ fn readme_screenshots() {
             Box::new(NoDialogs::default()),
         );
         app.set_render_state(rs.clone());
+        // (No area opens with the module: one behind the windows would
+        // show at their edges.)
+        app.settings.no_last_area = true;
         app.open_module(&chapter);
         // (The area's shot opens the palette beside it; the others are
         // windows alone.)
         app.palette_dock = false;
         let mut h = Harness::builder()
-            .with_size(egui::vec2(1600.0, 960.0))
+            // (The README's pictures are cut from (8, 8) to (1592, 808),
+            // above the log, as JPEG at quality 88 or PNG of 256 colors.)
+            .with_size(egui::vec2(1600.0, 976.0))
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(3);

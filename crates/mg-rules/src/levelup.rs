@@ -562,10 +562,7 @@ impl GameData {
                 return false;
             }
         }
-        if int("MINSPELLLVL").is_some_and(|m| self.top_spell_level(&s.classes) < m) {
-            return false;
-        }
-        true
+        !int("MINSPELLLVL").is_some_and(|m| self.top_spell_level(&s.classes) < m)
     }
 
     /// The classes' attack bonus tables added up, each at its class's full

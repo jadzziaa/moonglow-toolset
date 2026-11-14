@@ -29,6 +29,9 @@ PROGRAMS = ["moonglow", "mg"]
 LICENSE_FILES = ("license", "licence", "copying", "notice", "unlicense", "copyright")
 # Folders with the licenses of what a crate bundles (fonts, ...).
 BUNDLED = ("fonts", "licenses", "licences")
+# And of Moonglow's own crates: mg-uikit's icons, drawn in the manner of
+# Lucide (icons/LICENSE-lucide.txt).
+OWN_BUNDLED = BUNDLED + ("icons",)
 # Where a -sys crate keeps the C or C++ sources it builds (glslang-sys:
 # native/glslang, with its LICENSE.txt).
 NATIVE = "native"
@@ -99,13 +102,18 @@ def main():
     out.write("Moonglow Toolset is licensed under the GNU General Public License,\n"
               "version 3 (LICENSE). It includes Beamdog's NWScript compiler (GPL-3.0)\n"
               "with neverwinter.nim's C API over it (MIT, copyright the neverwinter.nim\n"
-              "authors, https://github.com/niv/neverwinter.nim), Ubuntu Bold (Ubuntu\n"
-              "Font Licence 1.0, copyright Canonical Ltd) for its labels, Luau (MIT,\n"
-              "copyright Roblox Corporation and Lua.org, PUC-Rio) for plugins, and\n"
-              "glslang (BSD-3-Clause and others, copyright The Khronos Group and\n"
-              "others: its LICENSE.txt, with glslang-sys) for the game's shaders, and\n"
-              "Zstandard (BSD-3-Clause, copyright Meta Platforms, Inc. and affiliates:\n"
-              "its LICENSE, with zstd-sys) for NWSync's data.\n")
+              "authors, https://github.com/niv/neverwinter.nim), the Ubuntu font\n"
+              "(Ubuntu Font Licence 1.0, copyright Canonical Ltd: Ubuntu Light, with\n"
+              "epaint_default_fonts, for its text and Ubuntu Bold, with mg-uikit, for\n"
+              "its headings), Luau (MIT, copyright Roblox Corporation and Lua.org,\n"
+              "PUC-Rio) for plugins, and glslang (BSD-3-Clause and others, copyright\n"
+              "The Khronos Group and others: its LICENSE.txt, with glslang-sys) for\n"
+              "the game's shaders, and Zstandard (BSD-3-Clause, copyright Meta\n"
+              "Platforms, Inc. and affiliates: its LICENSE, with zstd-sys) for\n"
+              "NWSync's data. Its icons were drawn in the manner of Lucide\n"
+              "(https://lucide.dev, ISC License, copyright Lucide Contributors and\n"
+              "Cole Bemis): where an icon's shape matches one of Lucide's, Lucide's\n"
+              "license applies to it (mg-uikit's icons/LICENSE-lucide.txt).\n")
     dxc = []
     if args.dxc:
         d = pathlib.Path(args.dxc)
@@ -113,7 +121,7 @@ def main():
         dxc = [f for f in sorted(d.iterdir()) if f.is_file() and f.name != "VERSION.txt"]
         if not dxc:
             sys.exit(f"no license texts in {d}")
-        out.write(f"Beside it lies Microsoft's DirectX Shader Compiler {version}\n"
+        out.write(f"Beside the programs lies Microsoft's DirectX Shader Compiler {version}\n"
                   "(dxcompiler.dll, https://github.com/microsoft/DirectXShaderCompiler),\n"
                   "which Direct3D 12 compiles shaders with: the University of\n"
                   "Illinois/NCSA Open Source License (LLVM's), Microsoft's own code\n"
@@ -143,11 +151,11 @@ def main():
             except OSError:
                 continue
             texts.setdefault(text, []).append(f"{p['name']} {p['version']} ({f.name})")
-    # What Moonglow's own crates bundle (fonts, ...).
+    # What Moonglow's own crates bundle (fonts, the icons' license, ...).
     for i in sorted(seen & workspace, key=lambda i: packages[i]["name"]):
         p = packages[i]
         root = pathlib.Path(p["manifest_path"]).parent
-        for b in BUNDLED:
+        for b in OWN_BUNDLED:
             d = root / b
             if not d.is_dir():
                 continue

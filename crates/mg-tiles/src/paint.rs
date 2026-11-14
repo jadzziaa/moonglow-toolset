@@ -404,8 +404,8 @@ impl Grid {
                      keep: Option<Crosser>,
                      queue: &mut VecDeque<((u32, u32), Crosser)>| {
             let cell = lattice.cell(x, y);
-            for edge in 0..4 {
-                if let Some(c) = cell.edges[edge].filter(|c| Some(*c) != keep) {
+            for (edge, crosser) in cell.edges.into_iter().enumerate() {
+                if let Some(c) = crosser.filter(|c| Some(*c) != keep) {
                     lattice.set_edge(x, y, edge, None);
                     if let Some(n) = beside(lattice, x, y, edge) {
                         queue.push_back((n, c));

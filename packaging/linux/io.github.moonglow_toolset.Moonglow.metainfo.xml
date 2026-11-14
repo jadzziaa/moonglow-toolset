@@ -45,6 +45,21 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="4.2.0" date="2026-11-13">
+      <description>
+        <p>A new look on the same window layout: a Dark and a Light
+        theme (Options, General, Light theme), drawn icons in place of
+        the emoji, 22-point rows in every tree, list and table, and
+        windows that open taller to fit.</p>
+        <p>Closing with a changed hak asks of it by name and goes on;
+        Q or E during a long drag no longer stops the toolset; with a
+        tile in hand a press on an object picks it. Setup Area
+        Transition links triggers as Aurora does, with Connection
+        Type, and transitions drawn in Moonglow show in the game. A
+        WAVE holding MP3 plays, and Verify says which sounds the game
+        is silent on. mg ls --sha256 and mg cat --to are faster.</p>
+      </description>
+    </release>
     <release version="4.1.0" date="2026-11-10">
       <description>
         <p>A body part is drawn in its own PLT, and effects worn as

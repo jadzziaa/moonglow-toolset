@@ -467,10 +467,17 @@ mod tests {
         assert!(watch.told, "inotify, FSEvents or ReadDirectoryChangesW watches the folder");
         let first = heard(&watch).expect("looked at once, at the start");
         assert!(first.all);
-        // (Windows' ReadDirectoryChangesW may still say the files made just
-        // before the watch began: what is said while it settles is let go.)
-        std::thread::sleep(Duration::from_millis(400));
-        let _ = watch.take();
+        // (Windows' ReadDirectoryChangesW and macOS's FSEvents may still
+        // say the files made just before the watch began, a while after:
+        // what is said while it settles is let go, with a deadline.)
+        let quiet = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            std::thread::sleep(Duration::from_millis(400));
+            let said = watch.take().is_some();
+            if (!said && !watch.hearing()) || std::time::Instant::now() > quiet {
+                break;
+            }
+        }
         std::thread::sleep(Duration::from_millis(400));
         assert!(watch.take().is_none(), "nothing changed: nothing said");
         // Read: nothing. In a hidden folder: nothing.

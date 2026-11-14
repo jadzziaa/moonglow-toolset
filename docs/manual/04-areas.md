@@ -1365,7 +1365,7 @@ any other change to its tiles (a brush, a paste, a plugin).
 
 **Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
 tileset's height steps (the meters are written beside it): **-** and
-**+** lower and raise them a step, and any number of steps can be typed
+**+** (Lower Height and Raise Height) lower and raise them a step, and any number of steps can be typed
 or dragged, below 0 too. It is set on the tiles alone: no neighbor,
 corner or terrain around them changes, so a tile raised alone stands
 above the tiles around with gaps between (what the builder asked for,

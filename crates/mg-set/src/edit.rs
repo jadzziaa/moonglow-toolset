@@ -153,11 +153,10 @@ impl SetFile {
             self.add_section(section, &[]);
         }
         let (a, b) = self.body(section).expect("added");
-        for i in a..b {
-            if key_of(&self.lines[i]).is_some_and(|k| k.eq_ignore_ascii_case(key)) {
-                let written =
-                    self.lines[i].split_once('=').map(|(k, _)| k).unwrap_or(key).to_string();
-                self.lines[i] = format!("{written}={value}");
+        for line in &mut self.lines[a..b] {
+            if key_of(line).is_some_and(|k| k.eq_ignore_ascii_case(key)) {
+                let written = line.split_once('=').map(|(k, _)| k).unwrap_or(key).to_string();
+                *line = format!("{written}={value}");
                 return;
             }
         }
