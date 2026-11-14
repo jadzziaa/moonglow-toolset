@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T22:10:26Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -1368,7 +1368,432 @@ Known differences left by the theme pass (M2), which the editors' own changes se
 - ~~With the Palettes pane dragged to about 135 px, a blueprint type's list toolbar (Expand All, List) spills left under the Fold Palettes button. Seen in the icons' fix round and not checked against the code before the redesign; the Right Dock's least width (M3) and the palette's own change settle it, and `views_draw_nothing_over_anything_else` is to exercise that state again then.~~ Settled by M3's T5: the palettes are the Right Dock's panel, at least 280 px wide, its fold button beside its edge outside it; `views_draw_nothing_over_anything_else` looks at the dock at 280, and `the_palette_fits_the_right_dock_from_its_least_width_to_600` sweeps every palette type from 280 to 600.
 
 - The Right Dock's Preview panel (M3's T6) shows the model viewer's toolbar as the window did, wrapped to three rows at 320 px (about 95 points over the 3D view). The blueprints' change gives it the boards' one header row over the 3D view (the moves table's "Preview window: info line, Animation, Pause, Frame, Lights, Shadow, Shaders, Export Files…" row: about 60 points back to the view) and the Creature board's info line in its tab bar. The Properties panel stacked under the Palette and Preview tabs is the area editor's (S2).
-In this order, each its own change: the area editor (header, popovers, tool shelf, docks, Paint and Tiles states), the gizmos (section 11), blueprints (page list, columns, Preview panel), the script editor, the conversation editor, the tables (2DA, talk table), the rest (NUI, tileset, hak, resources, journal, factions, Options, Welcome), the galleries and pickers (the shared cell), and the dialogs that become panels. The checklist is [ui-redesign-moves.md](ui-redesign-moves.md); a row is ticked when its control has reached its home and a test (or a picture compared with the board) says so.
+
+**Planned in detail, 2026-11-14.**
+
+M4 is the largest milestone of the redesign: every editor's insides change, and with them the docks learn to hold what each editor brings. Cut into tasks of one to two days of an agent's work it is 31 tasks, U0 to U30 (U: T is M3's), about 57 days of work, three and a half times M3's 16. About 500 test lines migrate (the area toolbar's lookups, about 110 lines through `common::area_tool`; the blueprint pages clicked by name, about 130 lines, through one new helper; the 25 lines that set "Toolbar buttons" or the area's hidden tools; Tile Properties' OK and Cancel; the script's and the conversation's panes where a test runs As Tabs), and about as many are added. The owner's word of 2026-11-14 holds: M4 lands on `ui-redesign` task by task and goes into `develop` once, at its end, after asking. Seven facts frame the plan:
+
+- **Tests run floating, and a floating editor keeps its panels.** `Settings::default()` is As Floating Windows (M3, Part 2, decision 4), and a floating editor draws its own side and bottom panes inside its window (decision 3; the Floating board draws exactly that: the script's Reference and Help at the window's right, Compiler, Bookmarks and Search Results under its text). So each panel's body is one function with two hosts, the dock when the editor is docked and in front, the editor's own pane when it floats, and most of the roughly 1,344 UI tests keep passing as they are; each task adds As Tabs tests for the docks.
+- **An editor's state already lives outside its window.** The views are kept on `Moonglow` by document (`scripts`, lib.rs:681; `dialog_views`, :730; `model_views`, :893; `area_views`, :904), so a dock panel reads the active editor's state by its key. The docks are drawn before the editor area: a panel shows what the editor left the frame before (as the Status Bar has since T12), and a panel that draws a 3D view the editor may also draw is drawn late, in the room the dock kept (the Preview's `preview_slot`, area_tools.rs:786-800).
+- **A placed object's Properties already apply at once.** `blueprint::ok_cancel`'s contract (blueprint/mod.rs:320-327): "what was changed is the module's already"; OK closes, Cancel sets back the window's changes as one Undo step. The Properties panel (S2, ruling 2) is therefore `edit_many`'s body without its OK and Cancel, not a new way of editing.
+- **The kit has none of M4's parts yet.** `mg-uikit` has the metrics (`EDITOR_HEADER` 30, metrics.rs:32; `TOOL_SHELF` 36, :36; `TOOL_BUTTON` 28, :38; `POPOVER_RADIUS`, :53) but no header row, popover, More, tool shelf, page list, footer row, step list or gallery cell. Its `shell::Yields` already carries the area header's three yields (`header_compact`, `value_text`, `into_more`), which nothing in `mg-ui` reads yet. What it has and M4 reuses: `segmented` (controls.rs:136), `Join` (icons.rs:347), `IconButton::menu`, `PanelHeader` (shell.rs:951), `DockTabs`, `TreeGroup::eye` (tree.rs:440), `TreeRow::second` (:573), `KeyCap`, `Badge`, `Hints`, `StatusSwitch`.
+- **The order has one constraint the paragraph below does not show.** The Problems and Search Results panels come, by the paragraph, with "the dialogs that become panels" at the end; but the script editor's Search Results (U13) and the tileset editor's Check (U20) need them earlier. So the Bottom Dock learns to hold several panels, each with its Status Bar switch, in U2, and each of the two panels arrives with its first feeder (no switch without a panel, M3's S3); the dialogs fill them in U28.
+- **"Toolbar buttons" goes when its last reader does (R4).** Six toolbars read it (`icons::Tools::of` at script_view.rs:755, dialog_view.rs:1095, model_view.rs:1229, nui_view.rs:876, hak_view.rs:733; `Tools::of_area` at area_view.rs:3092). Each editor's task stops reading it for its own toolbar; the setting, its Options control and its draft go in U23, after the hak editor (U21), the last of them, and with the Options page that the board draws without it.
+- **Code is read with agdb** (`trail` is retired). Every task ends as M3's did: `cargo test --workspace --exclude mg-corpus-tests --lib --bins --tests`, the three clippy commands, `cargo fmt`, where docs changed `okf index docs`, `okf lint docs --links` and a `docs/log.md` entry, an agdb note for what the code cannot tell, the task's pictures rendered with `screens.rs` before and after in both themes (`MG_LIGHT=1`) into `target/ui-mock/impl/m4-uN/`, and the hand-run timing tests after any task that renames or moves controls (the suite only compiles them).
+
+Four merge points, review and stability points on the branch (none goes into `develop`), each coherent with the manual true and the task's moves rows ticked:
+
+- **M4a, after U8**: the area editor as the Main, Narrow, WideArea, AreaPaint, AreaTiles, Floating and GizmoStates boards draw it (header, popovers, tool shelf, compass, Paint and Tiles states, Tile Properties and Properties panels, the Right Dock's sections, the handles).
+- **M4b, after U15**: blueprints (page list, columns, Preview panel), the script editor and the conversation editor, each with its panels docked and floating.
+- **M4c, after U24**: the tables and the rest (NUI, tileset, hak, journal, factions, the read-only resource, Options, Welcome); "Toolbar buttons" retired.
+- **M4d, after U30**: the shared gallery cell, the pickers, the dialog pattern, the dialogs that become panels, the closing pass; then the owner is asked to merge into `develop`.
+
+#### Part 1. How today's editors are built (what the tasks change)
+
+Checked against the code on 2026-11-14. "OK and Cancel" below is `blueprint::ok_cancel` (blueprint/mod.rs:328) or `side_doc::ok_cancel` (side_doc.rs:157), both drawing `ok_cancel_saying` (blueprint/mod.rs:338-368): a bottom panel, OK then Cancel at its left, Close alone when read-only. No editor draws them at a header's right end today.
+
+**The area editor.**
+
+- The toolbar is `area_view::toolbar` (area_view.rs:3088-3434, called at :3004), one `horizontal_wrapped` (:3104) named "Area toolbar" (:3107). In order: a "Show X" toggle per kind (:3109-3120), Start, All, None; Night, Lighting, Shadows (`shadows_button`, :4498), Fog, Fade Geometry (`lead_dropdown`, :4334), Animations, Grass, Tile Border, Shaders, Grid, Minimap, Play Sounds, Sound Ranges, Ambient, Music; Snap and Turn dropdowns, Together, Onto Objects; Walkmesh… (`walkmesh_button`, :4436, a menu); Select Tiles and Paint (disabled read-only); Area Properties; Reorient Camera (:3381, inline, not a command); Go to Start Location (:3386; also `Id::GoToStart`); To Scratch; "Save N as Prefab…" (several selected); last the warnings "problems" and "N missing" (:3420-3436). Paint's second strip follows it while Paint is on (`paint_mode::strip`, paint_mode.rs:1011-1104: Scatter, Row, Fill, Erase; Radius, Density, Count All, Spacing, By Size, Flow, Turn, Scale, Gap, Height, Lock by mode; "N chosen").
+- The strip's right-click menu (:3098-3103) is `toolbar_menu` (:4381-4433, also on Options › Area, options.rs:1001), which writes `Settings::hidden_area_tools` (settings.rs:820); `Tools::of_area` (icons.rs:248) folds it with `toolbar_icons_only` into a mask over `AREA_TOOLS` (icons.rs:181, 29 names).
+- There is no Terrain mode and no compass. Terrain brushes are the tiles palette's (`terrain_mode::palette_ui`, terrain_mode.rs:1621-1800); the minimap is drawn at the view's top right (`minimap_overlay`, area_view.rs:3878-3935, placed at :3861), where the boards put the compass (the minimap goes to the bottom right).
+- Select Tiles' commands are its right-click menu (`tile_select::context_menu`, tile_select.rs:521-572) and keys; no button copies, cuts or deletes tiles. Tile Properties is `Tab::TileProperties`, a tab that floats in both modes (`Tab::floats`, tabs.rs:128), drawn by `tile_select::ui` (tile_select.rs:1030-1318) with OK (tile_select.rs:1107) and Cancel and a question when closed with changes (`closing_window`, tile_select.rs:1324); its variants are drawn by `variant_picture` (tile_select.rs:1731), not the shared picture tile.
+- The handles are painted in `overlays` (area_view.rs:4584-5084): spawn points (:4646-4690), rings (:4751), selection boxes (:4776-4800), the turning ring (:4839), the scale handle (:4848-4890), tilt rings (:4892), the arrows (about :4923-4960), the start location (:5022); their geometry and hit tests are `turn_rings` (:1763), `tilt_rings` (:1835), `scale_handles` (:1860). Options' "Show the turning and tilt rings…" is `no_turn_ring` (options.rs:936, read at area_view.rs:3495).
+- A placed object's Properties: a double click (area_view.rs:5553-5559) or the context menu calls `open_properties` (:6637), which opens `Tab::Instance` (tabs.rs:71), drawn by `blueprint::edit_many` (blueprint/mod.rs:2007): OK and Cancel first (:2050), then the pages as a wrapped row of selectables (:2062-2066; `instance_pages`, :1994).
+- The palette is `palette_view::ui` (palette_view.rs:1109-1946): the types' strip (:1214-1244; a dropdown under 300 points, `TYPE_COMBO_UNDER`, :1039), Standard and Custom (:1324-1336), the search, the fold row (Expand All, Collapse All, List, Gallery, New…, More, :1420-1466), Group by (:1535-1544), the gallery's slider (`appearance_gallery::size_slider`, appearance_gallery.rs:202, called at palette_view.rs:1508).
+- Docks: `editor_brings_outliner` (shell.rs:264) and `editor_brings_palette` (:274), read by `Panel::available` (:231); the Right Dock (`right_dock`, :1778) draws Palette and Preview as one tab bar, or in the wide layout as two columns with the Preview in the second (:1871-1910). Status Bar: `area_view/bar.rs` (`status`, :25, the states' hints, the counts, `selection_counts`).
+- Tests: `common::area_tool` (common.rs:644, a button inside "Area toolbar") is used 58 times (area_view 19, tiles 13, areas 7, drawing 6, outliner, tree and options_and_keys 3 each), and about 110 lines name a toolbar label; `in_toolbar` (:616) and `apart` (:631) leave the group out; 25 lines set `toolbar_icons_only`, `hidden_area_tools` or `hidden_in_areas` (icon_tips.rs, options_and_keys.rs:783-926, areas.rs:400). Pictures: `area_toolbar_narrow` (screens.rs:5245), `toolbar_icons_only` (:5297), the `area_*` and `tile_*` cases, the `shell_*` family. `frame_perf` opens areas by action and clicks by label (frame_perf.rs:620, :629).
+
+**Blueprints, Module Properties and Area Properties.**
+
+- Each kind has a `PAGES` constant (creature.rs:23, 14 pages; item 7, placeable 10, door 10, trigger 8, encounter 6, sound 5, store 6, waypoint 5), `pages()` (blueprint/mod.rs:51) chooses by type, a page is drawn by its name, and the chosen page is `app.blueprint_pages` (:68). Module Properties has an enum (`module_props::Page`, module_props.rs:35, six pages; a plain row, :104-108; OK and Cancel, :85); Area Properties a constant (area_props.rs:19, eight; six shared when several are edited, :29; the row :132-136; OK and Cancel :44).
+- The Preview panel shows the palette's blueprint (`area_tools::preview_body`, area_tools.rs:818), never the open blueprint's. Its toolbar is the model view's (`model_view::show`, model_view.rs:1125; one `horizontal_wrapped`, :1177-1280: the info line, Animation, Play or Pause, Frame, Lights, Shadow, Shaders, Pop Out, Export Files…; `Tools::of`, :1229), three rows at 320 points. The Appearance page's own preview is `situated::inline_preview` (blueprint/situated.rs:1270; creature.rs:475, item.rs:803), with Pop Out and Bring Back.
+- Tests: `blueprint_harness` (common.rs:424-444) and `field` (:476); about 130 lines click a page by its name (blueprints 60, fields 25, inventories 10, options_and_keys 7, area_view 6, the rest one or two), and many assume one page drawn at a time. The Status Bar gives a tab with OK and Cancel Esc, Tab and Shift + Tab (`shell::shown`, shell.rs:1329-1346).
+
+**The script editor.** `script_view::editor` (script_view.rs:613): `Tools::of` (:755); the toolbar, one `horizontal_wrapped` (:761-853: Save, Compile, Save As…, Print…, Open…, External Editor, To Scratch, Find…, Replace…, Bookmark, Definition, References, Rename Symbol…, Used By; then "modified" at :856 and the codepage at :859); the live error row, kept even with no error (:865-892); `Panel::right("script-side")` (:987-1088: Functions, Variables, Constants, Templates and the filter); `Panel::bottom("script-info")` (:1090 on: Compiler, Help, Bookmarks, Search Results, `script_tools::InfoTab`, script_tools.rs:50); OK and Cancel for a side script (:607). Hints: eight keys (shell.rs:1317-1328), no count. Tests: scripts.rs (51 tests; `apart(&h, "Compile")`).
+
+**The conversation editor.** `dialog_view::editor` (dialog_view.rs:1002): `Tools::of` (:1095); the toolbar "Conversation toolbar" (:1101: Add, Copy, Cut, Paste, Paste As Link, Delete, Move Up, Move Down, Expand All, Collapse All, the five highlights, Export, Import Lines…, Scripts); `Panel::bottom("dlg-data")` (:1342) with the tabs Data, Bookmarks, Search and the Bookmark and Test buttons in their row (:1359-1375); the Data tab two columns (:1421), the text (`text_panel`, :1949) and five page tabs (:1441-1448), Current File among them (`file_tab`, :2512); OK and Cancel (:992). The line's count reads `text` (:885), the line's own text, not `line_text` (:893), which falls back to the talk table: proposal finding 13.2 confirmed (:1414-1418). No hints (`shown`'s default). Tests: conversations.rs (44), the group "Conversation toolbar" (:250, :1970).
+
+**The tables.** The 2DA editor's `header` (table_view.rs:1524-1747) is three rows (Save, Save As File…, Undo, Redo, Add Row with its count, Empty Row, Delete Row, Add Column…, Take Rows…, Compact, Strings as text, Show Hidden Columns, Values as names; the "Described by" line; Find, Go to, "N cells are wrong"); the cell inspector is under the grid (`inspector`, :2760, with Find References to Row N); OK and Cancel at :1467; no `Tools`. The talk table editor (`talk_view::ui`, talk_view.rs:469-505; `table`, :778-1258) has two rows (Find, Add Line, Remove Last Line, Undo, Redo, Save; Module's Table and the info line; Go to, Find References, Only lines with text, the imports and exports), a hand-made splitter kept per table (`split`, :1266-1308, `settings.talk_splits`), the page for a module with none (`no_table`, :623-735) and OK and Cancel (:482). Nothing opens the game's `dialog.tlk` read-only (`editable`, mg-module talk.rs:412, is true for any file). Tests: tables.rs (37), by label and `apart` for Save, Undo and Redo.
+
+**The rest.**
+
+- NUI: `nui_view::ui` (nui_view.rs:642-661, OK and Cancel :647); `header` (:864-933, `Tools::of` :876: Import…, Export…, Build & compile, its state, How to open it…); `navigation` (:934-998: Design, Bindings, Events & variants, Event Script…, the Editor / Preview only / Split source dropdown, Advanced, the Checks toggle); the canvas's own row (nui_view/preview/stage.rs, `toolbar`); the panels (nui_view/design.rs:195-300: Properties right, Components and Layers left, three menus under 760 points at :210). Tests: tests/nui.rs, design.rs's own.
+- Tileset: `tileset_view::ui` (tileset_view.rs:331-349, OK and Cancel :338), `draw` (:351-450: the five pages as selectables, Undo, Redo, Save, Make Palette, Check, Render Minimap Pictures), the pages (:519 to :1066). Tests: tiles.rs.
+- Hak: `hak_view::ui` (hak_view.rs:707-1060, OK and Cancel :714), its rows (:741-868) with `Tools::of` (:733) and `Tools::fitted` (:825), the only caller of the header's first yield (words to icons); the sort dropdown; the preview in the lower 45%. Tests: hak_closing.rs, icon_tips.rs.
+- Read-only resource: `browser::resource_ui` (browser.rs:1248), its row of Copy to Module and Save As… (:1274-1286), the GFF tree (:1388); the module's GFF view `gff_view::ui` (gff_view.rs:135-143).
+- Journal: `journal_view::ui` (journal_view.rs:72-80), a row of Add, Copy, Cut, Paste, Delete, the fields in `Panel::bottom("journal-fields")` (:184-207). No test drives its controls.
+- Factions: `faction_view::ui` (faction_view.rs:201-215), Basic and Advanced, the matrix or the chart with the list, Add Faction…, Remove Faction, Change Name… and Global Effect at its right (:241-370), the two modals.
+- Options: `options::ui` (options.rs:676), OK and Cancel in a bottom panel (:701-727), a 160-point page list over `PAGES`, the General page in one column (:1933-2000), `toolbar_buttons` (:1393-1403, called at :1983).
+- Welcome and the empty editor area: `tabs.rs` `welcome` (:1611) and the "No area open" page (:1530).
+- Pictures: one cell already, `widgets::picture_tile` (widgets.rs:4881), used by the Appearance Gallery, the Creature Wizard, the palette's Gallery, the armor part gallery, Select Texture and the tiles palette; not by Tile Properties' variants nor Select Portrait (`images::portrait_grid`, images.rs:560, in its modal, blueprint/situated.rs:280). The Appearance Gallery is a window (`appearance_gallery::ui`, appearance_gallery.rs:357-483).
+- Dialogs: `widgets::Dialog` (widgets.rs:3281) with T11's title row; no footer helper (each dialog lays out its buttons; only `widgets::cancel` and `cancel_discard`, :3770-3775, are shared, about 58 uses). The windows to become panels: Find Instance (`area_tools::find_window`, area_tools.rs:661), Find and Replace Text (`bulk::text_window`, bulk.rs:458), Build Module (`build_view::window`, build_view.rs:98), Hak Pak Conflict Analysis (inline in `Moonglow::ui`, lib.rs:2164), Resources Used (`area_view::stats_window`, area_view.rs:8503), Claims Table (`claims::table_window`, claims.rs:641), Areas Not Yours (`claims::save_window`, :851: a question asked on saving), Edit Areas Together (`area_props::chooser_window`, area_props.rs:1294), Light Maker (light_maker.rs:125), Bake Walkmesh to Transform (bake_view.rs:243), Plugins (plugins.rs:2301).
+
+**The shell's side of it.** `Panel` has five variants and `Dock` two, Left and Right (shell.rs:129-153); the Bottom Dock is the Log alone (`bottom_dock`, :2028-2110, one tab at :2066-2068) and the Status Bar has one switch, whose width arithmetic assumes one (:860, :916-930). `shell::shown` (:1284) gives hints for an area, the Welcome page, a script, a tab with OK and Cancel and the Resources panel; `HintKeys` (:1168) gives a command's keys as bound. `toolbar_icons_only` is `settings.rs:816` (drafted at options.rs:99, 266, 391, 506); a retired field in an old file reads silently, with nothing unread and no copy put aside (the test at settings.rs:2000-2017). The Top Bar's own icons-only use is `Tools::icons_alone` (shell.rs:560, 644, 700), which stays.
+
+**Moonglow Viewer** pins 15 toolset crates at `v3.14.0` and neither `mg-ui` nor `mg-uikit` (its `Cargo.toml`); nothing M4 changes reaches it. M4's kit parts are the API M6 adopts.
+
+#### Part 2. Architecture decisions for M4
+
+1. **The kit's new parts (`mg-uikit`, add-only, egui alone).** Each lands with its first user, as M1 had it ("helpers come with the milestones that first use them"), and none names a type of `mg-ui`, so that the viewer can take it at M6.
+   - `header.rs` (U1): `EditorHeader`, 30 points: a left group (what you do), a spacer, a right group (how the view looks), an end slot (OK and Cancel, or Close). It lays itself out against the width it has (section 6.1): first the left group's word buttons lose their words, then they move into a **More** popover, secondary commands before Save; the end slot never yields and is never covered. It records where each control went (on the row, as an icon, in More), so that every editor's test can narrow it to its least width and find each control.
+   - `popover.rs` (U1): `Popover`, hung below or below-right of its button (never over the view's top-right overlays), radius 4, `--shadow`; a title with an optional master switch, sub headings, check rows, separators; `Popover::unfolded` lays the same rows into the header as toggles where the row has room (section 5.3).
+   - `shelf.rs` (U1): `ToolShelf`, 36 points, 28-point buttons, on, hover, disabled, separators, one accessible group named "Tools".
+   - The view's overlays (U4): the compass painter (the light board's `cp-*` tokens) and the view's corner buttons; the readout chip (U8; theme-aware, section 11.5).
+   - `pages.rs` (U6 and U9): `PageRail` (a panel's pages as icons at its left edge, the Properties panel's) and `PageList` (a form's pages at its left, with icons, marking the pages in view) with `PageBar` (the bar over each page on the one scroll).
+   - `form.rs` (U10): columns of 440 to 520 points for forms.
+   - `dialog.rs` (U26 and U27): `Footer` (46 points, a rule above, a setting or count at the left, buttons at the right, the main one first in `accent-fill`), the body's 12 points, `StepList` (a check on done steps) and the wizard's page-header bar; `EmptyState` (U24).
+   - `gallery.rs` (U25): `GalleryCell` (Quiet Tiles, section 8.4: rim, name rule, detail line, states, the kind's icon while making, "No model" badge, favorite mark, the small variant), `GalleryGrid` (cells that grow, and fixed cells in justified rows) and the one size slider, 64 to 220 (`appearance_gallery.rs:198-199` already clamps to it).
+   - Three known differences of M2 are the kit's to settle where its parts draw them: the open combo box in `raised-hover` (U3), a disabled kit control drawn in its own tokens rather than faded whole (U1), the slider's thumb in `text-2` (U25).
+2. **The docks hold what the active editor brings.** M3's registry is generalized in U2, before any editor needs it:
+   - `Dock` gains `Bottom`. A dock holds **sections** (up to three stacked in the Right Dock, as the Talk, Factions and NUI boards draw them), each a tab bar of one or more panels. The Main board's Right Dock is two sections (Palette and Preview; Properties), the Conversation board's two (Node, Data, Search; Conversation), the Script board's two (Reference; Help).
+   - `editor_brings(app)` replaces `editor_brings_palette` and `editor_brings_outliner`: by the active docked editor's kind it gives the Left Dock's Outliner contents, the Right Dock's sections and the Bottom Dock's own panels (a script's Compiler and Bookmarks, the NUI designer's Checks). The global panels (Log, Problems, Search Results) stay whatever the editor.
+   - Under 1400 points the sections fold into one tab bar (section 5.2; Narrow draws Palette, Properties, Preview), in the wide layout the first section takes the first column and the rest the second (WideArea: Palette and Preview, then Properties; the Preview goes back to the first column, as T14 left it to do).
+   - A panel's body is one function taking the editor's tab; the dock calls it when the editor is docked and in front, the editor's own pane when it floats. A body that draws a 3D view the editor may also draw uses the late slot, generalized from `preview_slot`.
+   - Which tab of a section is in front and the sections' shares are kept per editor kind in `Settings` (as `right_dock_width` is), not per document.
+   - The Bottom Dock gets N tabs and the Status Bar N switches, each with its count badge (Problems' errors, Search Results' hits, Checks'), icons alone under 1400 (`Yields::status_switch_icons`), the switches' width arithmetic (shell.rs:916-930) made general.
+   - A panel exists only once its feeder is built: **no merge point shows a panel nothing can fill** (M3's rule kept). From then on Problems and Search Results show their switches as every board draws them, with no module open too (Welcome.png), their body an empty state saying what fills it.
+   - The Plugins menu's "pane last clicked" (`plugins.pane`) stays as T13 left it, no Outliner counting; a panel an editor brings counts as that editor's pane (decided in U2 and written into 17-plugin-api.md).
+   - Why now: the boards draw every editor this way, and doing it once keeps each editor's task to its own panels.
+3. **Each editor's Outliner** (S5): the Left Dock's Outliner shows, by the active editor, an area's objects (T13), a conversation's Bookmarks (U15), a 2DA's columns with their eyes (U16), the NUI window's layers (U18), a tileset's parts (U20), a hak's contents by type (U21), the factions (U22). One `outliner::contents` chooses; the kit's `TreeGroup::eye` and `TreeRow::second` draw them.
+4. **OK and Cancel move into the header's end slot** by one change to `ok_cancel_saying` (an `in_header` form, the same tips and `Pressed`), taken up by each editor's own task, so that the 13 callers move one at a time; Options' own pair (options.rs:701-727) the same in U23. Escape (R1) keeps reading where the buttons are drawn (`cancel_rects`). GitHub issue 38's fix holds with them: a tab that pins its buttons and scrolls its own page fits its pane (`TabViewer::scroll_bars` gives `[false, false]`), and `a_properties_window_s_buttons_stay_put` runs at 1.0, 1.25 and 1.5 for every editor moved (the agdb note "Windows with OK and Cancel at their foot fit their pane").
+5. **The dialogs that become panels** (ruling 5): Find Instance and the module-wide Find and Replace Text's hits go to Search Results, the search's form as the panel's header; Build Module's results to Problems (Q4; Verify's findings, Q5); Hak Pak Conflict Analysis, Resources Used and Claims Table become Bottom Dock tabs opened by their commands; Edit Areas Together, Light Maker and Bake Walkmesh become sections of the area editor's Right Dock while open; Plugins becomes a tab. Their `Moonglow` fields (`find_instance`, lib.rs:915; `text_replace`, :1026; `build`, :919; `hak_report`, :1057; `area_stats`, :929; `claims.table`; `area_chooser`, :1024; `light_draft`, :908; `bake.draft`, :911; `plugins.window`, :1341) become the panels' state, and their commands show the panel. Areas Not Yours is a question asked when saving (claims.rs:851), so it stays a dialog with the confirmations.
+6. **Settings and their migrations.** `Settings::default()` keeps its meaning; nothing becomes As Tabs for an existing builder.
+   - `toolbar_icons_only` is retired in U23 (R4): the field, its draft and the Options control go; an old file still reads, the value dropped silently, nothing unread and no copy put aside (the precedent test at settings.rs:2000-2017); an older Moonglow reading a newer file takes its default, Icons and text, which only its own toolbars read. `icons::Tools` keeps its Top Bar use (`icons_alone`) and loses the rest.
+   - `hidden_area_tools` (settings.rs:820) stays, with its 29 names: a name hides the control from the header row, from its popover and from the wide layout's unfolded row; the header's right-click menu and Options › Area edit it (the moves row "The strip's right-click menu (which buttons to show)"). Names are kept so stored lists keep their meaning.
+   - New: the docks' per-kind sections (above). Retired, read silently: `talk_splits` with the talk table's splitter (U17).
+   - Tile Properties stops being a floating tab (`Tab::floats`); an open-tabs record naming it shows the panel instead.
+7. **Moonglow Viewer** is not affected by any M4 change (it takes neither crate). The kit's crate comment says the viewer uses it, which is true only from M6; U30 says so.
+8. **For the owner:** Q1 to Q5 below. The rest is decided by the boards, the proposal or an existing ruling:
+   - The Properties panel and Open in Tab: the Main and Floating boards draw the panel in both modes; Open in Tab opens today's tab (or window) with OK and Cancel.
+   - The Terrain button of the tool shelf ("Paint terrain with the tile palette's brushes", the boards' tip): it shows the Palette on its Tiles type and is on while a terrain brush is in hand; choosing a terrain brush turns it on.
+   - The area toolbar's "problems" and "N missing" (no board draws them; nothing disappears): a warning icon with its count at the right group's end, before More, its tip saying what was read.
+   - Search Results is one panel (every board draws one switch), showing the last search, its form as its header.
+   - Finding 13.2 is fixed in U14 (the Node panel shows that line; the board drew today's words) and finding 13.3 in U24 (the recent row is rebuilt).
+
+
+
+#### Part 3. The plan for M4
+
+Each task names what it builds (board by board), the moves rows it ticks (by their text), the known differences it settles, its Status Bar hints and counts (through `shell::shown`, keys by `HintKeys`), its tests (each new test seen to fail without the change), its pictures, its timing, its docs and the deferred entries it closes or must keep (by heading and line of `docs/deferred.md` today). Manual chapters by file; parity sections of `docs/parity/checklists.md` by heading. "Docked and floating" means a test in each mode (`common::Mode`).
+
+##### M4a: The area editor and the handles (U0 to U8)
+
+**U0. The editors' pictures and the baseline (do first; 1 day).**
+
+- **Builds.** A `board_*` family in `crates/mg-ui/tests/screens.rs`, one case per board M4 builds, As Tabs, at the board's size, on Chapter1 (and the boards' resources: `m1q1faribeth`, `m1q3_formosa_9`, `spells.2da`, `dialog.tlk` as far as it opens, `tcn01`, a game hak, `nw_chicken.utc`, the module's journal and factions), dark and light: `board_main` (the `shell_main` it was), `board_narrow`, `board_wide`, `board_floating`, `board_area_paint`, `board_area_tiles`, `board_gizmo_states` (a dynamic placeable selected, with Shift held, and mid-drag), `board_creature`, `board_creature_wide`, `board_script`, `board_conversation`, `board_table`, `board_talk`, `board_nui`, `board_tileset`, `board_hak`, `board_resource`, `board_journal`, `board_factions`, `board_options`, `board_welcome`, `board_dialogs`, `board_pickers`, `board_gallery_palette`, `board_gallery_tiles`, `board_gallery_wide`, `board_appearance_gallery`. No `src/` change.
+- **Baseline.** `frame_perf`, `editor_perf` and `nui_perf` on this tree, quiet, into `target/ui-mock/perf-m4/u0/` (compared with `perf-m3/t15/`); later tasks compare with it.
+- **Coherent.** Yes.
+
+**U1. The kit's header, popover and tool shelf (2 days).**
+
+- **Builds.** `EditorHeader`, `Popover`, More, `ToolShelf` (Part 2, decision 1), measured from `moonglow.css` (`.editor-header`, `.popover` with `.pop-title`, `.pop-h`, `.pop-row` and `.pop-sep`, `.shelf`); a disabled kit button in `text-off` and its tokens (known difference "a disabled control fades whole", for the kit's controls). A test helper `common::header_holds(h, group, names)`: each name on the row, as an icon, or in More.
+- **User sees.** Nothing.
+- **Hands on.** The header, popover and shelf to U3 and every editor after; `header_holds` to each editor's narrowing test.
+- **Tests.** Kit: the yields in order (words, icons, More; the end slot never), at widths from the header's full width down to its end slot; a popover below-right never over the top-right corner; a master switch's state; the kit sheet against Foundations and LightFoundations.
+- **Coherent.** Yes.
+
+**U2. The docks hold what an editor brings (2 days).**
+
+- **Builds.** Part 2, decision 2: `Dock::Bottom`, sections, `editor_brings`, panel bodies with two hosts, the late slot, per-kind layouts in `Settings`, N Bottom Dock tabs and N Status Bar switches with badges. The area's Palette and Preview move onto it unchanged.
+- **User sees.** Nothing (the Right Dock as today; the Log alone below).
+- **Tests.** Unit: sections folded into one bar under 1400 and split into columns in the wide layout; the switches' widths for one to five switches, as `status_bar.rs`'s sweep does for one. App: every `right_dock.rs` and `status_bar.rs` test unchanged; a dock with no available panel is not drawn.
+- **Timing.** `frame_perf` (the docks are drawn every frame).
+- **Hands on.** Sections, `editor_brings` and the Bottom Dock's tabs to U5 and U6 (the area), U11 to U13 (blueprints, script) and every editor after.
+- **Coherent.** Yes.
+
+**U3. The area header and its popovers (2 days).**
+
+- **Builds.** The Main, Narrow and WideArea headers: the kind toggles as icons with All and None on the group's arrow; Snap and Turn combos; Together and Onto Objects; Day | Night; the **Lighting** popover (Lighting, Shadows with its kinds and quality, Fog, Fade Geometry, Shaders, Grass, Tile Border, Animations), **Overlays** with its master switch (Grid, Minimap, Ground walkmesh, Object walkmeshes, Sound Ranges; today's Walkmesh… menu folds into it), **Audio** (Sounds, Ambient, Music); Area Properties at the right end; More (To Scratch, Save as Prefab…); the warnings icon (Part 2, 8); the header's right-click menu (`toolbar_menu`, `hidden_area_tools`). Yields from `mg_uikit::shell::Yields`: compact under E 990 (Show "5 of 10", the moon, Lighting, Overlays, Audio and Area Properties as icon buttons), Snap and Turn without their values under 550, Together and Onto Objects into More under 490; the wide row unfolded (section 5.3) where it fits. The area stops reading `toolbar_icons_only`; the Options control's tip says it no longer applies to the area.
+- **Ticks.** Area Editor: "Show Creatures, Doors…", "All, None", "Snap, Turn", "Together, Onto Objects", "Night", "Lighting, Shadows…", "Shaders, Grass, Tile Border, Animations", "Grid, Minimap…", "Sounds, Ambient, Music", "Area Properties", "To Scratch, Save as Prefab…", "The strip's right-click menu"; At 3440 by 1440, the first bullet; Window at 1280 by 800: "The ten kind toggles and All, None", "Day | Night", "Lighting, Overlays, Audio, Area Properties", and Snap, Turn and More of "Menus, file buttons, Snap, Turn, More, shelf, compass"; How the Shell Yields, its Header line.
+- **Settles.** "With Icons and text, the area toolbar takes one row more"; "An open combo box fills `bar`" (the kit's combo, every combo).
+- **Tests.** `common::area_tool` finds a control in the "Area header" group or opens the popover that holds it (about 110 lines follow without edits where the helper is used, the rest are edited); `the_toolbar_shows_icons_only_when_asked` becomes "the area header ignores the setting"; new: `header_holds` from 420 to 1600 points; the yields at 989 and 990, 549 and 550, 489 and 490; the Overlays switch off hides its five and on gives them back as they were; a hidden tool gone from row and popover; the wide row's words; read-only disables what edits. Docked and floating (the area is docked in both).
+- **Pictures.** `board_main`, `board_narrow`, `board_wide` against their boards and LightArea; `area_toolbar_narrow` renamed `area_header_narrow`.
+- **Timing.** `frame_perf` area views (the header's icons and popovers), budget 6.94 ms.
+- **Docs.** 04-areas (the toolbar's sections become the header's), 02-main-window (the area header), 10-options (Area › Toolbar names the header); parity "Area viewer". Deferred: keeps "The camera's height" (1795), "Lighting off against Aurora" (2163), "The shadows in two qualities" (2153), "The grid seen from the area's edge" (1689).
+- **Hands on.** The header's left group to U4's tools.
+
+**U4. The tool shelf, the compass and Paint (2 days).**
+
+- **Builds.** The shelf at the view's left (Select Objects, Select Tiles F10, Paint B, a separator, Terrain; Part 2, 8); the compass at the view's top right with Reorient Camera (now a command, `Id::ReorientCamera`, so a key and Quick Open) and Go to Start Location under it; the minimap at the bottom right. Paint as the AreaPaint board: Scatter | Row | Fill | Erase, Radius and Density in the header's left group, a **Brush** popover (Count All, Spacing, By Size, Flow, Turn, Scale, Height, Lock; Gap in Row and Fill with the note on which options each mode has; "Placing, as with the Select tool" with Snap and Turn), Together and Onto Objects back with Select; the palette's **Brush** section ("2 chosen", a row per blueprint with ×, the note).
+- **Ticks.** Main Toolbar "Start" (its compass part); Area Editor "Select Tiles (F10), Paint (B)", "Paint's second strip", "Reorient Camera, Go to Start Location"; Area Editor, Paint: "Paint toggle (B)", "Scatter, Row, Fill, Erase", "Radius, Density", "Count All, Spacing…", "Gap (Row and Fill only)", "\"N chosen\" and its tip", "Snap, Turn", "Together, Onto Objects", and its three New bullets; Window at 1280: "shelf, compass".
+- **Hints.** Paint's (T12) unchanged; the shelf's tips name the keys.
+- **Tests.** paint_mode's strip tests follow its controls into the header and popover; new: one tool on at a time; F10 and B turn the shelf's buttons; Terrain on with a terrain brush; × takes a blueprint out of the brush; the compass's buttons run their commands; Reorient by its key.
+- **Pictures.** `board_area_paint`, `board_main` (the compass and the shelf).
+- **Timing.** `frame_perf` (Paint views).
+- **Docs.** 04-areas (Paint, the camera), 02. Deferred: keeps "A drag when a key changes the mode" (518), "Alt + drag in Paint…" (522) and "A brush's right click is the tile menu" (1863): the shelf keeps today's rules.
+
+**U5. The Tiles state and the Tile Properties panel (2 days).**
+
+- **Builds.** In Select Tiles the header's left group is Refine Tile (T), the joined ‹ Appearance ›, Rotate (R), Cut, Copy, Paste, Delete and the Tile Properties toggle; Tile Border and Grid among the view controls. Tile Properties becomes the Right Dock's lower section (AreaTiles, GalleryTiles): "Lights and Loops" with the "6 tiles" subtitle, Height, Replacement texture, Defaults, Textures, All tiles (ignore fit), the variants (their grid as today until U25); no OK or Cancel: each change is one Undo step on every chosen tile, and only what is changed is written. The tiles palette's row: search, List and Gallery, Exact Tile; the tileset's name and counts on its folders; the key cap X beside Eraser. The tile menu keeps Put Down and the plugin commands.
+- **Ticks.** Area Editor, Tiles: every row and its three New bullets.
+- **Tests.** The OK, Cancel and closing-question tests of Tile Properties are retired with their reason (no window); new, docked: a change is one step undone by Ctrl+Z on all chosen tiles; an unchanged control writes nothing; the panel follows the selection; an old open-tabs record shows the panel.
+- **Pictures.** `board_area_tiles`, `board_gallery_tiles` (the panel).
+- **Timing.** `frame_perf` Select Tiles views.
+- **Read first.** The agdb notes on the tile tools (`palette-tile-tools-on-the-selected-tiles`, `tile-editing-feedback-right-click-tile-menu-appearance-rotat`).
+- **Docs.** 04-areas (Tile Properties). Deferred: closes "Tile Properties' lights and loops from the model" (1922: no discard is left to ask about); restates "Tile Properties on several tiles" (2297: with no OK, "set" means changed in the panel); keeps 1908, 2236, 2241, 2249, 1933, 2178.
+
+**U6. The Properties panel and the Right Dock as drawn (S2; 2 days).**
+
+- **Builds.** The area's Right Dock as two sections, Palette | Preview over **Properties** (Main, Floating); three tabs Palette, Properties, Preview under 1400 (Narrow); in the wide layout Palette | Preview in the first column, Properties in the second (WideArea). Properties is `edit_many`'s body for the selection (one, or several of one type; a mixed selection says so), its pages as a `PageRail`, Open in Tab at its bar's end, read-only where the area is held. The palette's narrow row: Standard and Custom beside the types' dropdown, Expand All and Collapse All at the Group By row's end. Q1 (a double click) and Q2 (the tree's area rows).
+- **Ticks.** Area Editor "A placed object's properties window", "Palette: type picker, Standard and Custom…"; At 3440 by 1440, the second bullet; Window at 1280 "Expand All, Collapse All", "Palette, Preview, Properties"; Floating Editors "Main window behind" (its Properties).
+- **Tests.** The `Tab::Instance` tests (about 50 lines) stay, through Open in Tab; new, docked and floating: the panel shows the selection, a change applies and Undo takes it back, several selected edit together, the narrow tabs, the wide columns; `views_draw_nothing_over_anything_else` at 280 with Properties; "a drag on a number field moving objects in the area behind" (deferred 1433's test) with the panel.
+- **Pictures.** `board_main`, `board_narrow`, `board_wide`, `board_floating`.
+- **Timing.** `frame_perf` (an area with a creature's Inventory page in the panel).
+- **Hands on.** `PageRail` to U9's page list; the Properties section to U29's Edit Areas Together.
+- **Docs.** 05-blueprints "Instances", 04-areas, 02 (the Right Dock); parity "Palettes". The wide layout's seam between the columns becomes dragged and kept, now that the columns hold the boards' panels (T15's hand-off). Deferred: closes "The palette's header, not as drawn in the issue" (1981, overturned by the boards' row); keeps 1638 (a creature's Equipment at the panel's 320), 2168, 1956.
+
+**U7. The handles: Fine Lines (1.5 days).**
+
+- **Builds.** Section 11.3 and 11.7 in `overlays`: every line over its edge, the rings as true projected circles of 96 segments, a tilt ring's far half at 40%, the heads, the facing triangle, the scale square and stalk, the pivot dot, the selection box at 1 px over 3, the lit state, the rest of a set at 50% while one handle is lit or held; the spawn point and the start location with the same edge; the grab cursor over every handle (gizmo ruling 5); the name chip on hover (ruling 4).
+- **Tests.** Unit: the projected ring against the camera's projection (within half a point); the hit reach and who gets which handle unchanged (the existing handle tests pass unchanged); the cursor over a handle; the name chip's words.
+- **Pictures.** `board_gizmo_states` (the States row, on grass and snow).
+- **Timing.** `frame_perf` with 32 objects selected and Shift held.
+- **Docs.** 04-areas (the handles). Deferred: keeps "Behind things" (1709), "The ring over another object" (2056), "The start location has no Shift axis arrows" (2287), "Marker models unlit" (2221).
+
+**U8. The handles: drag feedback and readout chips (1.5 days).**
+
+- **Builds.** Section 11.4 to 11.6: the wedge, the snap ticks, the guide line clipped at the near plane, the start marks; the readout chips in both themes at their offsets; the Status Bar's three states checked against 11.6 (T12 built them).
+- **Tests.** The chip's words per handle (`182°`, `Y Rotation 12°`, `X 28.00 m`, `Scale 1.25`); Escape drops the drag (kept); the snap's ticks at its steps; the turning ring at half strength during a scale drag and not during an arrow's or a tilt ring's, as today and as the boards draw it (Gizmos-scale-drag; finding 13.1 decided by the board).
+- **Pictures.** `board_gizmo_states` whole, dark and light.
+- **Timing.** `frame_perf` drag views.
+- **Docs.** 04-areas (the chips; the red ring reads "Y Rotation", ruling 1). Deferred: keeps "Escape during a drag" (2256).
+- **Merge point M4a.**
+
+##### M4b: Blueprints, the script and conversation editors (U9 to U15)
+
+**U9. Blueprint pages: the list and one scroll (2 days).**
+
+- **Builds.** `PageList` and `PageBar`; a blueprint's header (its kind's icon, the name, the resref; OK and Cancel at the right end); the pages at the left in the same order, with icons; the pages one after another on one scroll, drawn only where in sight (each page's height measured and kept), the list marking the pages in view and scrolling to one clicked. Every kind, Module Properties and Area Properties alike.
+- **Ticks.** Creature Blueprint "The floating blueprint window" (its header), "The wrapped row of 14 page tabs", "OK, Cancel".
+- **Tests.** A helper `common::page(h, name)` (the row in the "Pages" group, then wait until the page is in sight) takes the about 130 lines that click a page; tests that assert a field absent because its page is not chosen assert it out of sight; `blueprint_editor_pages_draw_nothing_over_anything_else` at its four sizes.
+- **Pictures.** `board_creature` (the list and the first pages), `blueprint_editors`, Module and Area Properties.
+- **Timing.** `editor_perf` and `frame_perf` blueprint views (a creature's 14 pages scrolled, the 1,000-item store).
+- **Hands on.** `PageList` and `common::page` to U10 and to Options (U23).
+- **Docs.** 05-blueprints "The editors", 03-modules (Module Properties), 04-areas (Area Properties); parity "Blueprint editors", "Module Properties". Deferred: closes "Creature Properties' overlapping elements" (1428) if its test holds at every size; keeps 1666, 1814, 2359.
+
+**U10. Blueprint sections and columns (2 days).**
+
+- **Builds.** The creature's Basic page in sections (Identity, Race and Appearance, Palette, Portrait, Conversation, Description at full width), the strref inside the name field; forms in columns of 440 to 520 points on every kind's pages; at 3440 every page at once in five columns (WideCreature: Basic, Statistics, Appearance, Classes and Skills head them), the list marking all in view.
+- **Ticks.** Creature Blueprint "Basic: First name…", "Race, Appearance…", "Challenge rating, Category", "Portrait picture…", "Conversation…", "Description…"; its At 3440 bullet.
+- **Settles.** "A number field's arrows are 22 px square" (sized with their field).
+- **Tests.** Each section's labels under its heading; the columns' count by width; WideCreature's five columns.
+- **Pictures.** `board_creature`, `board_creature_wide`, the item and placeable pages.
+- **Timing.** `editor_perf` (the wide creature).
+- **Docs.** 05-blueprints. Deferred: keeps "Inventories, what is left" (333), "The Spells page against Aurora" (1814).
+
+**U11. The Preview panel (1.5 days).**
+
+- **Builds.** A blueprint's tab brings the Preview with its own model (an area still the palette's); one header row over the 3D view (Animation, Pause, Frame, Lights, Shadow, Shaders, Export Files…), the info line in its tab bar; the Appearance page's inline preview is this panel (floating, the window's own right pane); `model_view` stops reading `toolbar_icons_only`. Hints: the Creature board's Drag Turn view, Right Drag Move view, Middle Drag Move view, Wheel Zoom, Shift + Wheel Zoom finer.
+- **Ticks.** Creature Blueprint "Preview window: info line…", "The Appearance page's own preview".
+- **Settles.** "The Right Dock's Preview panel shows the model viewer's toolbar … wrapped to three rows".
+- **Tests.** Pop Out's tests (blueprints.rs, 4) follow; new: the panel follows the blueprint's tab, the palette's beside an area; one row at 280; the hints.
+- **Pictures.** `board_creature`, `shell_preview`.
+- **Timing.** `frame_perf` Preview views.
+- **Docs.** 05, 02. Deferred: settles or restates "A preview shown twice in a frame, the owner's call" (362).
+
+**U12. The script header and the Reference panel (2 days).**
+
+- **Builds.** The Script board's header: Save and Compile with their words; Save As…, Print…, Open…, External Editor; Find… and Replace… as a group; Bookmark; Definition, References, Rename Symbol…, Used By; More (To Scratch); the codepage at the right end; the "modified" label gone (the tab's dot). Right Dock: **Reference** (Functions, Variables, Constants, Templates, the filter) over **Help** (prose with a row per parameter); floating, the window's right pane (Floating). The Right Dock stays while a script's group has the focus (the owner's word at T9).
+- **Ticks.** Script Editor "Save, Compile", "Save As…, Print…", "Find…, Replace…", "Bookmark", "Definition, References…", "To Scratch", "Codepage label", "\"modified\" label" (its label), "Functions, Variables…", "Help tab (bottom)"; Floating Editors "Script header, Functions…", "Help tab of the script's bottom pane".
+- **Tests.** scripts.rs's side-pane lookups by group, To Scratch through More; new, docked and floating: Reference and Help are one body in either host; `header_holds` down to the least width.
+- **Pictures.** `board_script`, `board_floating`, LightScript.
+- **Timing.** `editor_perf` (the huge script).
+- **Docs.** 07-scripts; parity "Script Editor".
+
+**U13. The script's Bottom Dock panels and Search Results (1.5 days).**
+
+- **Builds.** Compiler and Bookmarks as the script's Bottom Dock panels with their switches; **Search Results**, the global panel, fed first by the script's searches (Find In Currently Open Scripts among them); floating, the window's bottom pane; the live error line becomes a Status Bar note and a wavy underline on its line, in both themes; the "Line 17, column 12" count and the last line's 170 cap beside a script.
+- **Ticks.** Script Editor "Live error line…", "Compiler, Bookmarks, Search Results tabs", "Key hints" (its count); Floating Editors "Compiler, Bookmarks, Search Results"; Window at 1280 "Log, Problems, Search Results switches" (Search Results).
+- **Settles.** "In small script windows the Compiler and Help strip crowds the code".
+- **Tests.** The switches open and close their panels; a search's hits in Search Results and a click opening the line; the underline under an error; the count.
+- **Pictures.** `board_script`.
+- **Hands on.** Search Results to U28 (Find Instance, Find and Replace Text).
+- **Docs.** 07-scripts, 02 (the Bottom Dock). Deferred: keeps 1677, 2027, 2033, 1998, 2003.
+
+**U14. The conversation header and the Node panel (2 days).**
+
+- **Builds.** The header: Add with its word, Copy, Cut, Paste, Paste As Link, Delete, up and down, Expand All, Collapse All, the five highlight toggles, Scripts, the Export menu, Import Lines…, Test at the right end. Right Dock: **Node**, **Data**, **Search** as one section (Node: Speaker tag, Text with its languages button and Token…, Text Appears When…, Actions Taken, Other Actions, Comments; Bookmark and Test on its bar), **Conversation** under it (Normal end, Aborted, Stop camera zoom in, the word count). Finding 13.2 fixed. A color picker's hex field sized by its text (this editor's larger text).
+- **Ticks.** Conversation Editor rows from "Add, Copy…" to "Current File…".
+- **Settles.** "A color picker's hex field is cut short under a window's larger text".
+- **Tests.** "Conversation toolbar" becomes "Conversation header"; the bottom pane's tabs are the panel's (docked) or the window's (floating); "0 letters" no longer for a talk-table line (a test seen to fail first).
+- **Pictures.** `board_conversation`.
+- **Docs.** 06-conversations; parity "Conversation Editor". Deferred: keeps 1723, 1737, 1742, 1837.
+
+**U15. The conversation's Outliner, guides and hints (1.5 days).**
+
+- **Builds.** Bookmarks in the Outliner, following their lines; indent guides; the board's hints (Drag Move line, Ctrl + Drag Link, Double Click Go to linked, Ctrl + A Add, Alt + Up Move up, * Open branch, Ctrl + F Find) and "3834 words".
+- **Ticks.** Conversation Editor "Bookmarks tab", "Row context menu, drag…"; the editor's three New items.
+- **Tests.** Bookmarks follow a line moved by another program (deferred 1745's rule); the guides drawn; the hints as bound.
+- **Pictures.** `board_conversation`.
+- **Timing.** `frame_perf` conversation view.
+- **Read first.** The agdb notes on the conversation tree's keys and bookmarks (`conversation-tree-type-ahead-keys-and-bookmarks-after-outsid`, `conversation-bookmarks-across-a-delete-and-the-rest-of-the-t`).
+- **Docs.** 06. **Merge point M4b.**
+
+##### M4c: The tables and the rest (U16 to U24)
+
+**U16. The 2DA editor (2 days).**
+
+- **Builds.** The Table board: Save, Add Row with its count, Empty Row, Delete Row, Add Column…, Find, Go to, "N cells are wrong", Values as names and Strings as text at the right, More (Save As File…, Take Rows…, Compact, Show Hidden Columns), OK and Cancel; its own Undo and Redo gone (the Top Bar's); Right Dock **Cell** (value, list or flags, kind words, "Described by" as a note, and the choosers its column kinds have) and **References**; the Outliner of columns (kind icon, kind words, eye); Status Bar "6 cells", "840 rows, 59 columns, in the module" and its hints (Enter Type, Shift + Click Select to, Delete Empty, Ctrl + C Copy, Ctrl + V Paste, Tab Next column, Esc Leave grid).
+- **Ticks.** Every 2DA Table Editor row, its New bullets and its first Not Drawn bullet.
+- **Tests.** tables.rs's Save, Undo and Redo lookups; new: the eye hides a column as Hide Column does; the Cell panel edits the cell; References finds the row's users.
+- **Pictures.** `board_table`.
+- **Timing.** `editor_perf` (the large table).
+- **Docs.** 03-modules (the 2DA editor). Deferred: keeps 1128, 1154, 1520, 416.
+
+**U17. The talk table editor (2 days).**
+
+- **Builds.** The Talk board: Find, Go to, Add Line, Find References, Remove Last Line, Save, Only lines with text, the Export menu (CSV, JSON), More (Import CSV…, Import JSON…, Open File…, New File…, Module's Table), Close when read-only or OK and Cancel; a header row on the list; the splitter gone; Right Dock **String**, **References** and **Talk Table** (the info line, Module's Table as its section for a module with none); `dialog.tlk` opened read-only under its own StrRefs (ruling 7), from the Resources panel and Quick Open; hints and "112228 lines, read-only".
+- **Ticks.** Every Talk Table Editor row and its New bullets.
+- **Tests.** tables.rs's talk lookups; new: `dialog.tlk` opens read-only and numbered by its StrRefs; the String panel edits a line.
+- **Pictures.** `board_talk`.
+- **Timing.** `frame_perf` (`dialog.tlk`'s 112,228 lines scrolled).
+- **Docs.** 03-modules (talk tables). Deferred: keeps 1844, 2216, 2305.
+
+**U18. The NUI designer: header and docks (2 days).**
+
+- **Builds.** The design group's header: Design, Bindings, Events & Variants, Images as a switch; Build & compile as the primary icon button; Export…; More (Import…, How to open it…); Interact, Reset; the **View** popover (Editor, Preview only, Split source, UI scale, State, Resources, Clean view, Screen); OK and Cancel. Right Dock Components over Properties over Bindings; the Outliner is Layers with its search and Expand All, Collapse All; under 760 points the Properties as a panel, not a menu. Title case (ruling 8).
+- **Settles.** "In the NUI designer's narrow layout … opening a combo box inside the Properties menu closes the menu".
+- **Tests.** tests/nui.rs's page buttons on one row; design.rs's sizes; new: the narrow layout's panel.
+- **Pictures.** `board_nui`.
+- **Timing.** `nui_perf`.
+- **Docs.** 18-nui-creator.
+
+**U19. The NUI designer: source group, Checks, overlays (2 days).**
+
+- **Builds.** The source as a second editor group with its switch (JUI Source, Binding JSON), Opener Script and Event Script… in its header; the **Checks** panel in the Bottom Dock with its switch and count; "Not built" and "Build failed" in the Status Bar in `warn`; Fit, 100% and "Game preview" in the canvas's corners; the hints (Click Select, Drag Resize by handle, Esc Cancel resize, Ctrl + D Duplicate, Alt + Up Move up, Delete) and "3 binds, 3 handlers"; the Outliner's warning mark and weak IDs; the bind chip; Bindings as a table.
+- **Ticks.** Every NUI Designer row and its New bullets.
+- **Tests.** The Checks switch's count follows the checks; the source group opens beside the design and keeps its switch; "Not built" in the Status Bar until a build.
+- **Pictures.** `board_nui`. **Timing.** `nui_perf`. **Docs.** 18.
+
+**U20. The tileset editor and the Problems panel (2 days).**
+
+- **Builds.** The Tileset board: the five pages as a switch, Save, Make Palette, Check, Render Minimap Pictures, OK and Cancel; the bar over the tile list (Find, Duplicate Tile, Add Tile, Remove Last Tile); the list as a table (#, Model, Corners, Edges); the form at the right, the doors under it; Right Dock **Preview** (open the model in a tab, the diagram and the door sentence) and **Textures**; the Outliner (General, Terrains, Crossers, rules, Tiles, Groups with counts); **Problems**, the global panel, fed first by Check, its switch with an error badge; counts and hints (Click Choose a tile, Ctrl + F Find, Ctrl + S Save the tileset).
+- **Ticks.** Every Tileset Editor row and its New bullets; Window at 1280's switches row (Problems).
+- **Tests.** tiles.rs's page lookups through the switch; new: Check's findings in Problems with the badge's count, a click going to the tile; the Outliner's counts.
+- **Pictures.** `board_tileset`.
+- **Timing.** `frame_perf` (the tile table of 408 rows).
+- **Hands on.** Problems to U28 (Build Module, Verify).
+- **Docs.** 04-areas "Making tilesets". Deferred: keeps 1181, 1195, 1566.
+
+**U21. The hak editor (2 days).**
+
+- **Builds.** The Hak board: Add Files…, Add Folder…, Remove, Extract…, Extract All…, Find, Compile Models, Save, Save As…, More (Update from Folder), OK and Cancel (the kit's header replaces `Tools::fitted`); the notice strip; columns Name, Type, Size, Source with a sort arrow; Right Dock **Preview** (Play or Stop, the model's facts) and **Details** (File, Description, Built from with Update from Folder, Contents); the Outliner by type; hints, "2706 resources, 183.8 MB", "3 selected".
+- **Ticks.** Every Hak Editor row and its New bullets.
+- **Tests.** hak_closing.rs's `click_in_tab`; icon_tips.rs's names; the 640 and 480 test becomes `header_holds`.
+- **Pictures.** `board_hak`. **Timing.** `frame_perf` (a game hak's 2,706 rows sorted by type). **Docs.** 03-modules (the hak editor). Deferred: keeps 426, 2069.
+
+**U22. The journal and the faction editor (2 days).**
+
+- **Builds.** Journal (board Journal): Add with its word, Copy, Cut, Paste, Delete, Expand All, Collapse All, OK and Cancel; End badges; Right Dock **Entry** (ID, Finish Category, Text, its language; a subtitle) and **Category** (the parent while an entry is chosen); hints and counts. Factions (board Factions): Basic | Advanced, Add Faction…, Remove Faction, Change Name…, OK and Cancel; the matrix filling the editor with frozen row headers and a chosen cell; Right Dock **Faction** (Global Effect, a read-only Parent), **Reaction** (the sentence, the slider, the scale) and **Reactions** (Full detail); the Outliner of factions; the two modals stay; hints and counts.
+- **Ticks.** Every Journal Editor and Faction Editor row and their New bullets.
+- **Tests.** New for the journal's controls (none exist); fields.rs and modules.rs faction lookups.
+- **Pictures.** `board_journal`, `board_factions`.
+- **Timing.** `frame_perf`'s Faction Editor and Journal Editor views (the matrix with frozen headers).
+- **Docs.** 08-journal-and-factions; parity "Faction Editor", "Journal Editor". Deferred: keeps 907 (the factions' red and blue).
+
+**U23. The read-only resource, Options, and "Toolbar buttons" retired (2 days).**
+
+- **Builds.** The read-only tab's header (where it is from, its kind, Copy to Module, Save As…) and the GFF view in three columns with names beside numbers as `mg gff --names`; the Resources board's counts at the bar's right. Options: the page list with icons (`PageList`), OK and Cancel at the header's right end, the General page in three columns in the code's order with a label column. "Toolbar buttons" retired (Part 2, decision 6): the field, its draft, the control, `Tools::of`.
+- **Ticks.** Resources "Read-only tab…", "Read-only GFF tree" and its New bullets; Options "Ten pages…", "OK, Cancel", the three column rows, "Toolbar buttons", "Right Dock" and its two New bullets.
+- **Tests.** options_and_keys.rs:783-926, icon_tips.rs, areas.rs and shell.rs's setting lines retired or turned to "an old file with the field reads"; screens' `toolbar_icons_only` retired; new: the old file test with `toolbar_icons_only:true`.
+- **Pictures.** `board_resource`, `board_options`.
+- **Docs.** 10-options (the control's paragraph, line 297), 02 (the resource browser); parity "Options". Deferred: keeps 1663.
+
+**U24. Welcome and the empty editor area (1.5 days).**
+
+- **Builds.** The Welcome board: the heading with the version; Recent Modules with the path as a weak line (finding 13.3 fixed); Start (icons and keys); "Without a module"; Status ("Game data found", Options…, the update's buttons); Learn (User Manual and the chapters); Help (Command Palette…, Check for Updates…, About); the drop note. "No area open" as a centered `EmptyState` with Area Wizard… and Go to Start.
+- **Ticks.** Every Welcome row and its New bullets.
+- **Tests.** Each Start, Without a module and Help row runs its command; a recent `.nwm` has no "/" after it (a test seen to fail first); the empty state's two buttons.
+- **Pictures.** `board_welcome`. **Docs.** 01-getting-started. **Merge point M4c.**
+
+##### M4d: Galleries, pickers, dialogs, panels (U25 to U30)
+
+**U25. The gallery cell (2 days).**
+
+- **Builds.** `GalleryCell`, `GalleryGrid` and the slider (Part 2, decision 1); `widgets::picture_tile`'s six callers move to it, and Tile Properties' variants join it (the small variant, their own slider, 64 to 224, default 84); the palette's Gallery (headings with counts, the slider with Gallery on, the hover enlargement as a tooltip beside the dock) and its 480-point column in the wide layout (GalleryWide); the tiles Gallery's model names in Hack 11 and its headings' counts. Hints while the palette's Gallery has the keys (GalleryPalette): Drag Place, Up / Down Row of pictures, Left / Right One picture, Click Select, Alt + Right Drag Turn, Ctrl + Drag Move view.
+- **Ticks.** Galleries "Palette: the List and Gallery switch…", "Palette: Group by…", "Gallery cell…", "Tiles palette…", "Tile Properties: All tiles…"; the New bullet on counts.
+- **Settles.** "The slider's thumb at rest is the rail's color".
+- **Tests.** The name rule (one word cut, two lines then an ellipsis); justified rows; states.
+- **Pictures.** `board_gallery_palette`, `board_gallery_tiles`, `board_gallery_wide`.
+- **Timing.** `frame_perf` gallery views (the large palette, the Appearance page's thousand icons).
+- **Docs.** 05 (Palettes), 04. Deferred: keeps the timing views of "The review of November 2026's performance fixes without a timing view" (249).
+
+**U26. The Appearance Gallery tab and the pickers (2 days).**
+
+- **Builds.** The Appearance Gallery as a document tab (a window As Floating Windows): the kind switch, Find, the slider and the count in its header, the hint strip, the **Preview** and **Appearance** panels; hints (Click Give the appearance, Double Click Creature Wizard with it) and "838 appearances". The kit's `Footer` (first used here); Select Portrait and Select Texture by the dialog pattern (the count at the footer's left, the grid in a well with a drawn scroll bar, portraits 54 by 84 in justified rows); the armor part gallery and the Creature Wizard's grids in the cell.
+- **Ticks.** Galleries "Appearance Gallery window…", "Appearance Gallery: click…", "Select Portrait…", "Select Texture…", "Armor part gallery…", "Creature Wizard…"; the remaining New bullets.
+- **Tests.** palettes.rs's and blueprints.rs's Appearance Gallery lookups (now a tab); dialogs.rs's Select Portrait and blueprints.rs's Select Texture through the footer; new: justified rows leave no gap before the scroll bar.
+- **Hands on.** `Footer` to U27.
+- **Pictures.** `board_appearance_gallery`, `board_pickers`.
+- **Timing.** `editor_perf` (Select Texture opened).
+- **Docs.** 05 (Appearance Gallery, pickers), 02. Deferred: keeps 945.
+
+**U27. The dialog pattern everywhere (2 days).**
+
+- **Builds.** The footer in every dialog (about 60), the body's 12 points, the main action in `accent-fill`; the wizards' step list and page bar (the Creature Wizard's nine steps; the Area Wizard stays one page); "6 strings, 5 times", "animation speed", "X rotation"; Adjust Location and Build Module's missing resources in columns; "Replace in N" and Delete from Module's "Don't ask…" in their footers; the job window's progress words readable in light (T7's note); dimming where the code dims today; egui_dock's Tab order in a floating window's bar (T11's hand-off).
+- **Ticks.** Every Dialogs and Wizards row from "Button row" on, and its New bullets.
+- **Tests.** dialogs.rs's `reachable` and `resting`; new: every dialog's main button first, in the accent, Cancel last.
+- **Pictures.** `board_dialogs`, `shell_wizards`.
+- **Docs.** 09-build-verify-test, 06 (the Script Wizard); parity "Module and Area wizards", "Blueprint wizards".
+
+**U28. Dialogs to the Bottom Dock (2 days).**
+
+- **Builds.** Part 2, decision 5: Find Instance and Find and Replace Text's hits in Search Results; Build Module per Q4; Verify per Q5; Hak Pak Conflict Analysis, Resources Used and Claims Table as Bottom Dock tabs.
+- **Ticks.** Dialogs That Could Become Dock Panels, its first three bullets and the fifth.
+- **Tests.** fields.rs:2349 on (Find Instance), dialogs.rs:539-612 (Find and Replace Text), scripts.rs:823 and options_and_keys.rs:332 (Build Module); `frame_perf`'s Find Instance view through the panel.
+- **Pictures.** `board_main` with Problems open. **Docs.** 09, 03, 02. Deferred: keeps 2372, 1830.
+
+**U29. The area editor's panels and the Plugins tab (2 days).**
+
+- **Builds.** Edit Areas Together as a Properties-style section (Area Properties' shared pages), Light Maker and Bake Walkmesh to Transform as sections while open; Plugins as a tab; plugin panels per Q3.
+- **Ticks.** Dialogs That Could Become Dock Panels, bullets four, six and seven (and its last, "Stay dialogs", once U27 and U28 hold it).
+- **Tests.** areas.rs:995-1107 and fields.rs (Edit Areas Together), bake.rs, plugins.rs.
+- **Pictures.** `board_main` with each section open.
+- **Timing.** `frame_perf` with Edit Areas Together over 3,000 areas (deferred 249's A18).
+- **Docs.** 04, 15-plugins. Deferred: keeps 498, 2379, 2087, 373.
+
+**U30. Closing pass (1.5 days).**
+
+- `frame_perf`, `editor_perf` and `nui_perf` against U0's logs.
+- Every moves row not of the viewer ticked or named here with its reason; the floating tab menu's "Unchanged, not drawn" row ticked as kept.
+- The manual and `docs/parity/checklists.md` swept; the kit's crate comment on the viewer (Part 2, decision 7).
+- The deferred entries closed by M4, each with its reason (the plan expects five or six: 1922, 1981, 1428, 362, and those the tasks find), and the count recounted (230 bold entries today: row 9 of "Where the documents disagree (M4)").
+- **Merge point M4d**, then the owner is asked to merge into `develop`.
+
+#### Rulings for M4
+
+Five choices the boards, the proposal and the earlier rulings leave open, each with a recommendation and the task it gates. A task before its gate does not depend on the answer.
+
+- **Q1. A double click on a placed object.** Today it opens the object's Properties as a tab or window with OK and Cancel (area_view.rs:5553-5559). The Main and Floating boards draw the Properties panel in both modes, but ruling 1 of the second set promises an existing builder no window changed by an update. (a) A double click shows the Properties panel and brings it to the front, unfolding the Right Dock, in both modes; Open in Tab and the context menu's Properties… open today's tab or window. (b) As (a) As Tabs, but As Floating Windows a double click keeps opening the window. **Recommended: (a).** The panel applies at once as the window already does (its Cancel is one Undo step), the window stays one click away, and ruling 1 is about where editors open, not where a placed object's fields are. Gates U6.
+- **Q2. The module tree's area rows (R2's remainder).** The boards' Module panel lists areas without arrows. (a) Keep them, as T13's ruling left the tree (it keeps an area opened out when the builder opens it, and follows the selection only while no Outliner shows). (b) Remove them: the Outliner shows the area in front. **Recommended: (a)**: the objects of an area not in front are reachable only there, nothing disappears, and the boards simply show no area opened. Gates U6.
+- **Q3. Plugin panels (R3, to be revisited "when the dialogs become panels in M4").** (a) Tabs or windows, following the Open editors switch, as R3 built them. (b) Right Dock panels. **Recommended: (a)**: they are no one editor's, and the Right Dock follows the active editor, so a plugin's panel would come and go with the tab in front. Gates U29.
+- **Q4. Build Module, between the dialog and Problems.** Ruling 5 sends its results to Problems; the Dialogs board draws Build Module whole as a dialog. (a) The dialog keeps its options and Build, Mark as Used, Export… and Done; its Results and Counted as Used move to Problems, which Build opens. (b) The options become a Bottom Dock panel beside Problems too. (c) As the board: results stay in the dialog. **Recommended: (a)**: it keeps the board's dialog and the ruling's Problems, and results are what is worked through after the dialog is closed. Gates U28.
+- **Q5. Verify's findings in Problems.** Today Verify writes its findings to the log, with fixes beside them (09-build-verify-test, "Verify Module"). (a) They also go to Problems, with their fixes, the log keeping its lines. (b) Problems holds Build Module's results and the tileset's Check alone. **Recommended: (a)**: the Problems switch's badge reads as the module's problems, and Verify's are the main ones; but section 14 lists no such feature, so it is the owner's. Gates U28.
+
+#### Where the documents disagree (M4)
+
+| # | One side | Other side | How it is settled |
+|---|---|---|---|
+| 1 | Proposal 9.7: the talk table's Right Dock is String and Talk Table | Talk.png also draws a References panel (the line's users) | The board: U17 builds three |
+| 2 | Proposal 9.13: Faction and Reactions, the chosen cell's slider in Reactions | Factions.png: Faction, Reaction (the sentence, slider and scale) and Reactions | The board: U22 builds three |
+| 3 | Proposal 6.1 and 12, moves "Not Drawn": no dialog dims | Dialogs.png: "Only a job's progress, a plugin's question and the Command Palette dim" | Kept as the code dims today (U27); the Command Palette is Quick Open since T8 |
+| 4 | Ruling 5: Build Module's results become Problems | Dialogs.png draws Build Module with its Results | Q4 |
+| 5 | Ruling 5 and moves: Areas Not Yours is a read-only report for the Bottom Dock | `claims::save_window` (claims.rs:851) asks it on saving | Stays a dialog, with the confirmations (ruling 5's "Stay dialogs"); Part 2, decision 5 |
+| 6 | The order paragraph puts the dialogs that become panels last | The script (Search Results) and the tileset (Problems, proposal 9.9) need those panels before | U2 builds the mechanism, U13 and U20 the first feeders, U28 the dialogs |
+| 7 | Proposal 9.2: the Preview panel shows the blueprint | `preview_body` (area_tools.rs:818) shows the palette's blueprint whatever is in front | U11: a blueprint's tab brings its own |
+| 8 | Proposal 9.1: a Terrain tool on the shelf | There is no Terrain mode; terrain brushes are the tiles palette's | Part 2, decision 8: the button shows them and is on while one is in hand |
+| 9 | The brief and T15: 231 deferred entries | 230 top-level entries (`- **` at a line's start) today | U30 recounts and says how it counts |
+| 10 | Main.png: the compass at the view's top right, the minimap at its bottom right | `minimap_overlay` is placed at the top right (area_view.rs:3861) | The board (U4) |
+| 11 | Moves, Area Editor, Tiles: Tile Properties is the lower Right Dock panel | T10: `Tab::floats` keeps Tile Properties a window in both modes | U5 makes it the panel |
+| 12 | Finding 13.2: "0 letters, 0 words" for a talk-table line is probably a bug | Conversation.png draws "Line: 0 letters, 0 words" over the talk table's text | Fixed in U14 (the board drew today's words; dialog_view.rs:1414-1418 confirms the cause) |
+| 13 | Proposal 5 (Status Bar): the module's name at the right (U4 of M3) | Tileset.png shows "tcn01.set (modified)" there | U4 stands; the tileset's own changes show as its tab's dot |
+| 14 | Proposal 5: the Status Bar's switches are Log, Problems and Search Results | Script.png adds Compiler and Bookmarks, NUI.png Checks with a count | The boards: an editor's Bottom Dock panels bring their switches while it is in front (U2, U13, U19) |
+| 15 | Options.png: Appearance has Interface size, Light theme and Graphics backend | options.rs:1983 still draws "Editors' toolbar buttons" there | R4: retired in U23 |
+| 16 | `mg-uikit`'s crate comment: the viewer uses the kit | The viewer pins 15 crates at `v3.14.0`, the kit not among them (M3's Part 1 counted twelve) | True from M6; U30 rewords the comment |
+| 17 | Proposal 9.14: "links to the manual's chapters; a Help group" | Welcome.png heads that column **Learn**, with User Manual first | The board (U24) |
+
+In this order, each its own change (the tasks U0 to U30 above): the area editor (header, popovers, tool shelf, docks, Paint and Tiles states), the gizmos (section 11), blueprints (page list, columns, Preview panel), the script editor, the conversation editor, the tables (2DA, talk table), the rest (NUI, tileset, hak, resources, journal, factions, Options, Welcome), the galleries and pickers (the shared cell), and the dialogs that become panels. The checklist is [ui-redesign-moves.md](ui-redesign-moves.md); a row is ticked when its control has reached its home and a test (or a picture compared with the board) says so.
 
 ### M5. The manual, the parity inventory and a toolset release
 
