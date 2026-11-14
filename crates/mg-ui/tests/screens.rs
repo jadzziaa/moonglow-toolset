@@ -10863,15 +10863,7 @@ fn shell_outliner() {
     let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     // (The board's: the pyre, else the first placeable.)
-    let git = ResKey::new(area, ResType::GIT);
-    let pyre = {
-        let ws = h.state_mut().ws.as_mut().unwrap();
-        let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap_or(&[]).to_vec();
-        let tag = |s: &mg_gff::Struct| {
-            String::from_utf8_lossy(s.string("Tag").unwrap_or_default()).to_string()
-        };
-        list.iter().position(|s| tag(s).to_lowercase().contains("pyre")).unwrap_or(0)
-    };
+    let pyre = pyre_index(&mut h);
     {
         let view = h.state_mut().area_views.get_mut(&area).unwrap();
         for kind in
@@ -11006,14 +10998,7 @@ fn board_tabs(h: &mut Harness<'_, Moonglow>) {
         h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
     });
     // (The area changed: its tab's dot.)
-    let are = ResKey::parse("map_m1q1a", ResType::ARE).unwrap();
-    let edit = mg_edit::Edit::SetField {
-        key: are,
-        path: mg_edit::GffPath::root(),
-        label: "Tag".into(),
-        value: Some(mg_gff::Value::String("MAP_M1Q1A_X".into())),
-    };
-    h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Tag", vec![edit])).unwrap();
+    area_changed(h);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
     frames_until(h, "the area's group focused", |h| h.state().active_editor() == Some(&area));
 }
@@ -11215,11 +11200,20 @@ fn shell_resources_window(
     width: Option<f32>,
 ) -> Harness<'static, Moonglow> {
     let mut h = shell_with_area(root, size);
+    resources_chicken(&mut h, size, width);
+    h
+}
+
+/// The Resources panel shown in `h` (a window `size` big), as
+/// [`shell_resources_window`] has it: the palettes folded away, "nw_c"
+/// typed, `nw_chicken.utc` the list's keys' row and open read-only; the
+/// Left Dock `width` wide where given.
+fn resources_chicken(h: &mut Harness<'_, Moonglow>, size: egui::Vec2, width: Option<f32>) {
     h.state_mut().actions.push(mg_ui::Action::FoldPalettes);
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
     h.state_mut().browser.filter = "nw_c".into();
     if let Some(width) = width {
-        left_dock_width(&mut h, width);
+        left_dock_width(h, width);
     }
     h.run_steps(5);
     // (Its row brought into sight by the wheel, and clicked: the keys'.
@@ -11246,7 +11240,6 @@ fn shell_resources_window(
     let key = ResKey::parse("nw_chicken", ResType::UTC).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
     h.run_steps(5);
-    h
 }
 
 /// The Resources panel at the main board's size and the dock's default
@@ -11937,6 +11930,974 @@ fn shell_wizards() {
         h.run_steps(3);
         shoot(&mut h, &dir, name);
     }
+}
+
+// The editors' pictures (M4's U0, `docs/ui-redesign-proposal.md`): one
+// case a board of the mock that M4 builds (`target/ui-mock/shots/`), at
+// the board's size, As Tabs (but the Floating board), on Chapter1 and the
+// boards' resources, re-rendered by each task of M4 before and after its
+// change. Run them by their prefix, in both themes:
+// `cargo test -p mg-ui --test screens -- --ignored board_ --test-threads=1`
+// (`target/test-output/screens/board/`, `screens-light/board/`). Where
+// today's app cannot show a board's state, a case shows the nearest it has
+// and says so. (`shell_main` stays as M3 left it, editors floating:
+// `board_main` is the Main board As Tabs.)
+
+/// The editors' pictures' folder.
+fn board_dir() -> std::path::PathBuf {
+    let dir = mg_testkit::output_dir("screens").join("board");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Index in `map_m1q1a`'s Placeable List of the Plague Victim Pyre (the
+/// Main board's selection), else of its first placeable.
+fn pyre_index(h: &mut Harness<'_, Moonglow>) -> usize {
+    let git = ResKey::parse("map_m1q1a", ResType::GIT).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap_or(&[]).to_vec();
+    let tag = |s: &mg_gff::Struct| {
+        String::from_utf8_lossy(s.string("Tag").unwrap_or_default()).to_string()
+    };
+    list.iter().position(|s| tag(s).to_lowercase().contains("pyre")).unwrap_or(0)
+}
+
+/// The area `map_m1q1a` changed (its tab's modified dot), as the boards
+/// draw it: its Tag set.
+fn area_changed(h: &mut Harness<'_, Moonglow>) {
+    let are = ResKey::parse("map_m1q1a", ResType::ARE).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key: are,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String("MAP_M1Q1A_X".into())),
+    };
+    h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Tag", vec![edit])).unwrap();
+}
+
+/// `tab` opened (or brought to the front) and the active editor, a few
+/// frames on.
+fn board_front(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab) {
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    frames_until(h, "the tab in front", |h| h.state().active_editor() == Some(tab));
+    h.run_steps(5);
+}
+
+/// The boards' window at `size`, As Tabs (Options › General › Open
+/// editors): Chapter1 with the boards' tabs in one group, Module
+/// Properties, the area `map_m1q1a` (changed), Faribeth's blueprint and
+/// the script `m1q3_formosa_9`, the area in front with the Plague Victim
+/// Pyre selected ([`board_area_state`]); the module tree and the palettes
+/// shown, the log closed.
+fn board_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
+    let mut h = shell_with_area(root, size);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    for tab in [board_utc_tab(), board_script_tab()] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(&mut h, "the tab drawn", |h| h.state().tab_rect(&tab).is_some());
+    }
+    area_changed(&mut h);
+    board_front(&mut h, &board_area_tab());
+    board_area_state(&mut h);
+    h
+}
+
+/// The boards' area as they draw it: the Plague Victim Pyre selected, seen
+/// from the boards' camera, the Right Dock on Placeables, the log closed.
+fn board_area_state(h: &mut Harness<'_, Moonglow>) {
+    let pyre = pyre_index(h);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    {
+        let app = h.state_mut();
+        // (The boards' Right Dock on Placeables, the log closed.)
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.settings.hide_log = true;
+        let view = app.area_views.get_mut(&area).unwrap();
+        let object = (mg_area::ObjectKind::Placeable, pyre);
+        view.selection = vec![object];
+        // (The boards' camera: looking north over the pyre at the tower.)
+        let at = view.model.as_ref().unwrap().object(object.0, object.1).unwrap().position;
+        if let Some(o) = &mut view.orbit {
+            o.target = at + glam::Vec3::new(BOARD_CAMERA[0], BOARD_CAMERA[1], 0.0);
+            o.yaw = BOARD_CAMERA[2].to_radians();
+            o.pitch = BOARD_CAMERA[3].to_radians();
+            o.distance = BOARD_CAMERA[4];
+        }
+    }
+    pictures_shown(h);
+}
+
+/// The boards' camera, from the pyre: the target's offset east and north
+/// (m), the yaw and pitch (degrees) and the distance (m).
+const BOARD_CAMERA: [f32; 5] = [16.0, 4.0, -90.0, 45.0, 55.0];
+
+/// The boards' area's tab.
+fn board_area_tab() -> mg_ui::Tab {
+    mg_ui::Tab::Area(mg_core::ResRef::from_str("map_m1q1a").unwrap())
+}
+
+/// The boards' creature's tab (Faribeth).
+fn board_utc_tab() -> mg_ui::Tab {
+    mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap())
+}
+
+/// The boards' script's tab.
+fn board_script_tab() -> mg_ui::Tab {
+    mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap())
+}
+
+/// Frames while pictures are made (a picker's, a gallery's, a preview's):
+/// until a run ends, then a second's frames more.
+fn pictures_made(h: &mut Harness<'_, Moonglow>) {
+    for _ in 0..200 {
+        if h.try_run().is_ok() {
+            break;
+        }
+    }
+    h.run_steps(60);
+}
+
+/// The pointer off the window's contents (in the harness's margin), so
+/// that nothing in a picture is lit by it.
+fn rest_pointer(h: &mut Harness<'_, Moonglow>) {
+    h.hover_at(egui::pos2(2.0, 2.0));
+    h.run_steps(3);
+}
+
+/// The palette's Gallery on Placeables with its categories `open` opened
+/// out (by their headings), its pictures made.
+fn palette_gallery(h: &mut Harness<'_, Moonglow>, open: &[&str]) {
+    {
+        let app = h.state_mut();
+        app.settings.palette_gallery = true;
+        (app.palette.tiles, app.palette.custom) = (false, false);
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    }
+    h.run_steps(5);
+    // (The palette's headings, in the Right Dock: not the module tree's.)
+    let palette = h.ctx.content_rect().width() * 0.6;
+    for heading in open {
+        let found = h.query_all_by_label_contains(heading).find(|n| n.rect().left() > palette);
+        if let Some(n) = found {
+            n.click();
+        }
+        h.run_steps(3);
+    }
+    for _ in 0..600 {
+        h.run_steps(1);
+        if h.state().thumbnails.waiting() == 0 {
+            break;
+        }
+    }
+    h.run_steps(5);
+}
+
+/// Main.png: the area editor As Tabs. Today: the area toolbar, not the
+/// board's header row, popovers (the Overlays one open on the board),
+/// tool shelf and compass; no Properties panel under the Right Dock's
+/// Palette (the selection's Properties open in a tab of their own); the
+/// minimap at the view's top right.
+#[test]
+#[ignore]
+fn board_main() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    shoot(&mut h, &board_dir(), "board_main");
+}
+
+/// Narrow.png at 1280 by 800: today's toolbar wraps where the board has
+/// its compact header and the tool strip at the view's left; the Right
+/// Dock has no Properties tab beside Palette and Preview.
+#[test]
+#[ignore]
+fn board_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1280.0, 800.0));
+    shoot(&mut h, &board_dir(), "board_narrow");
+}
+
+/// WideArea.png at 3440 by 1440: the script in a second editor group at
+/// the area's right (Split Editor), the focus back on the area. Today the
+/// wide layout's second column holds the Preview, not the board's
+/// Properties column; the toolbar is not unfolded into the header row.
+#[test]
+#[ignore]
+fn board_wide() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
+    board_front(&mut h, &board_script_tab());
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    frames_until(&mut h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
+    board_front(&mut h, &board_area_tab());
+    shoot(&mut h, &board_dir(), "board_wide");
+}
+
+/// Floating.png: As Floating Windows (the board's mode, the default), the
+/// script floating over the area where the board has it, the pyre
+/// selected. Today the floating script draws its Functions list and its
+/// Compiler and Help strip as M3 left them, not the board's Reference
+/// and Help at its right; the board's second script tab in the window
+/// (`m1q3_formosa_d`) is left out, a second script opening a window of
+/// its own.
+#[test]
+#[ignore]
+fn board_floating() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    board_area_state(&mut h);
+    let script = board_script_tab();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    frames_until(&mut h, "the script drawn", |h| h.state().tab_rect(&script).is_some());
+    place(&mut h, &script, (328.0, 131.0), (1045.0, 637.0));
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_floating");
+}
+
+/// AreaPaint.png: Paint on with two bushes chosen (`x3_plc_bush001`,
+/// `x3_plc_bush002`), the brush's circle on the ground under the pointer.
+/// Today Paint's settings are the second strip under the toolbar, not the
+/// board's Brush popover; the palette shows no Brush section with the
+/// two chosen.
+#[test]
+#[ignore]
+fn board_area_paint() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = Some(ResKey::parse("x3_plc_bush001", ResType::UTP).unwrap());
+        app.palette.chosen = vec![ResKey::parse("x3_plc_bush002", ResType::UTP).unwrap()];
+        app.paint = true;
+    }
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    let rect = h.state().area_views[&area].rect;
+    h.event(egui::Event::PointerMoved(rect.center() + egui::vec2(140.0, 150.0)));
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_area_paint");
+}
+
+/// Tile Properties where the AreaTiles board has it: Select Tiles on, six
+/// tiles (three by two) selected, the tiles palette shown. Today Tile
+/// Properties is a window of its own whatever Open editors says (placed
+/// over the Right Dock's lower part, where the board's panel is), and
+/// Select Tiles' commands are its right-click menu, not the header's
+/// buttons.
+#[test]
+#[ignore]
+fn board_area_tiles() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    tiles_selected(&mut h, &[(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]);
+    shoot(&mut h, &board_dir(), "board_area_tiles");
+}
+
+/// Select Tiles on with tiles selected in `map_m1q1a`, nothing else: the
+/// tile under the camera's target and those `tiles` steps from it (the
+/// first under the target), the tiles palette shown, and Tile Properties
+/// opened from their right-click menu, placed over the Right Dock's lower
+/// part (the AreaTiles and GalleryTiles boards' panel).
+fn tiles_selected(h: &mut Harness<'_, Moonglow>, tiles: &[(i32, i32)]) {
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    let at = {
+        let app = h.state_mut();
+        app.palette.tiles = true;
+        let view = app.area_views.get_mut(&area).unwrap();
+        let target = view.orbit.expect("drawn").target;
+        let (x, y) = ((target.x / 10.0).floor() as i32, (target.y / 10.0).floor() as i32);
+        let chosen: Vec<(u32, u32)> =
+            tiles.iter().map(|(dx, dy)| ((x + dx).max(0) as u32, (y + dy).max(0) as u32)).collect();
+        view.selection.clear();
+        view.tile_mode = true;
+        view.tile_selection = chosen.clone();
+        let first = chosen[0];
+        let centre =
+            glam::Vec3::new(first.0 as f32 * 10.0 + 5.0, first.1 as f32 * 10.0 + 5.0, target.z);
+        view.screen_pos(centre).expect("the tile in sight")
+    };
+    h.run_steps(5);
+    h.hover_at(at);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Tile Properties…").click();
+    let props = mg_ui::Tab::TileProperties;
+    frames_until(h, "Tile Properties", |h| h.state().tab_rect(&props).is_some());
+    // (Placed again once it has found its own size and place.)
+    let size = h.ctx.content_rect().size();
+    for _ in 0..3 {
+        place(h, &props, (size.x - 318.0, size.y * 0.5), (316.0, size.y * 0.5 - 30.0));
+        h.run_steps(5);
+    }
+    rest_pointer(h);
+    h.run_steps(20);
+}
+
+/// GizmoStates.png's States row: a dynamic placeable of `map_m1q1a` seen
+/// close, selected (`board_gizmo_states_selected`), with Shift held (its
+/// arrows, tilt rings and scale handle, `_shift`) and dragged
+/// (`_drag`), triggers and encounters hidden. Today's handles, not Fine
+/// Lines; no drag feedback or readout chips. (The board's other grounds,
+/// its drawings and its measures are sheets, not states of the app.)
+#[test]
+#[ignore]
+fn board_gizmo_states() {
+    use mg_area::ObjectKind;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    // (The area's first placeable not static: a Plague Victim Pyre.)
+    let git = ResKey::parse("map_m1q1a", ResType::GIT).unwrap();
+    let list = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("Placeable List").unwrap_or(&[]).to_vec()
+    };
+    let index = list
+        .iter()
+        .position(|s| s.get("Static") == Some(&mg_gff::Value::Byte(0)))
+        .expect("a dynamic placeable");
+    let object = (ObjectKind::Placeable, index);
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        // (Triggers and encounters hidden: the drag's press on the
+        // placeable, not on a trigger's ground around it.)
+        for kind in [ObjectKind::Trigger, ObjectKind::Encounter] {
+            view.show[kind.index()] = false;
+        }
+        let at = view.model.as_ref().unwrap().object(object.0, object.1).unwrap().position;
+        if let Some(o) = &mut view.orbit {
+            o.target = at;
+            o.pitch = 35f32.to_radians();
+            o.distance = 10.0;
+        }
+        view.selection = vec![object];
+    }
+    let rect = h.state().area_views[&area].rect;
+    let aside = rect.center() + egui::vec2(-260.0, 160.0);
+    h.event(egui::Event::PointerMoved(aside));
+    for _ in 0..20 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    shoot(&mut h, &dir, "board_gizmo_states_selected");
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "board_gizmo_states_shift");
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(2);
+    // A drag of it under way.
+    let at = {
+        let view = &h.state().area_views[&area];
+        let o = view.model.as_ref().unwrap().object(object.0, object.1).unwrap();
+        view.screen_pos(o.position).unwrap()
+    };
+    let button = |h: &mut Harness<'_, Moonglow>, pos, pressed| {
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+        h.run_steps(1);
+    };
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(2);
+    button(&mut h, at, true);
+    for k in 1..=6 {
+        h.event(egui::Event::PointerMoved(at + egui::vec2(10.0 * k as f32, 3.0 * k as f32)));
+        h.run_steps(1);
+    }
+    shoot(&mut h, &dir, "board_gizmo_states_drag");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    button(&mut h, at + egui::vec2(60.0, 18.0), false);
+}
+
+/// Creature.png: Faribeth's Properties As Tabs, on Basic. Today the pages
+/// are a wrapped row of selectables over one page at a time, OK and
+/// Cancel at the foot; the board's page list at the left, the pages on
+/// one scroll in sections and columns, and the Preview panel showing the
+/// open blueprint are M4's; the Right Dock shows the palette.
+#[test]
+#[ignore]
+fn board_creature() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &board_utc_tab());
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "board_creature");
+}
+
+/// A few seconds' frames for what is drawn on threads of its own (an
+/// area's shaders, a preview's model): an area keeps the window
+/// repainting, so not a settle.
+fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
+    for _ in 0..20 {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// WideCreature.png at 3440 by 1440: Faribeth's Properties As Tabs. Today
+/// one page at a time, not the board's columns of every page side by
+/// side; the Right Dock's wide layout holds the palette and the Preview.
+#[test]
+#[ignore]
+fn board_creature_wide() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
+    board_front(&mut h, &board_utc_tab());
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "board_creature_wide");
+}
+
+/// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17. Today the
+/// toolbar is today's (words, wrapped), the Functions list is the
+/// script's own pane, not the board's Reference and Help in the Right
+/// Dock; Compiler, Bookmarks and Search Results are the script's bottom
+/// pane, not the Bottom Dock's; the Status Bar has no line and column.
+#[test]
+#[ignore]
+fn board_script() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &board_script_tab());
+    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+    h.state_mut().script_tools.jump = Some((key, 16));
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_script");
+}
+
+/// Conversation.png: `m1q1faribeth.dlg` As Tabs, its second root line
+/// selected (Aribeth's "Welcome, <FullName>…"). Today the Data pane is
+/// the editor's bottom pane, not the board's Node and Data panels in the
+/// Right Dock; no Outliner of Bookmarks, no hints or word count.
+#[test]
+#[ignore]
+fn board_conversation() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let key = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    board_front(&mut h, &mg_ui::Tab::Dialog(key));
+    frames_until(&mut h, "the conversation's view", |h| h.state().dialog_views.contains_key(&key));
+    let row = mg_ui::dialog_view::Row { parent: mg_module::dialog::Parent::Root, pos: 1 };
+    h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(row);
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_conversation");
+}
+
+/// Table.png: the game's `spells.2da` (a copy: Chapter1 has none of its
+/// own) in the 2DA editor As Tabs, Bull's Strength's TargetType chosen;
+/// the Left Dock's Resources panel finding "spells". Today the header is
+/// three rows and the cell inspector is under the grid, not the board's
+/// Cell and References panels in the Right Dock; no Outliner of columns.
+#[test]
+#[ignore]
+fn board_table() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let scratch = mg_testkit::scratch_dir("screens-board-table");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let (data, column) = {
+        let game = h.state().game.as_deref().unwrap();
+        let data = game.resman.get_named("spells", ResType::TWODA).unwrap().into_owned();
+        let column = game.table("spells").unwrap().column("TargetType").unwrap();
+        (data, column)
+    };
+    let file = scratch.join("spells.2da");
+    std::fs::write(&file, data).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
+    h.state_mut().browser.filter = "spells".into();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    frames_until(&mut h, "the table in front", |h| {
+        h.state().active_editor() == Some(&mg_ui::Tab::Table(id))
+    });
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(9, column);
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_table");
+}
+
+/// Talk.png: the game's `dialog.tlk`, opened as a table the game ships
+/// (read-only: nothing opens it so today, so the case reads it as a
+/// layer's), line 18608 chosen (its fields shown; the list is not
+/// scrolled to it). Today two rows of tools, the line's fields under the
+/// list on a splitter, not the board's String, References and Talk Table
+/// panels in the Right Dock.
+#[test]
+#[ignore]
+fn board_talk() {
+    use mg_module::talk::{Found, Source, Table};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let data = std::fs::read(root.join("lang/en/data/dialog.tlk")).unwrap();
+    let found = Found { source: Source::Layer("dialog.tlk".into()), data };
+    let table = Table::open("dialog", found, None).unwrap();
+    assert!(!table.editable(), "the game's table read-only");
+    h.state_mut().talk = Some(table);
+    // (A table not the module's own, as the talk table editor's Open
+    // File… makes it.)
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().talk_view.selected = Some(18608);
+    board_front(&mut h, &mg_ui::Tab::TalkTable);
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_talk");
+}
+
+/// Nui.png: the NUI designer As Tabs on `crier.jui` (mg-nui's test
+/// window, put in the module: Chapter1 has none), Split source shown.
+/// Today its header and navigation rows, the panels inside the editor
+/// (Components and Layers at its left, Properties at its right), not the
+/// board's Outliner of layers, Components, Properties and Bindings in the
+/// docks and Checks in the Bottom Dock.
+#[test]
+#[ignore]
+fn board_nui() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-nui/tests/data");
+    let key = ResKey::parse("crier", ResType::JUI).unwrap();
+    let jui = std::fs::read(data.join("crier.jui")).unwrap();
+    h.state_mut().ws.as_mut().unwrap().module.set(key, jui);
+    board_front(&mut h, &mg_ui::Tab::Nui(key));
+    // (Split source, chosen in its dropdown: the view's state is the
+    // editor's own.)
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let editor =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Editor");
+    if let Some(mode) = h.query_all(combo).find(editor) {
+        mode.click();
+    }
+    h.run_steps(3);
+    if let Some(split) = h.query_by_label("Split source") {
+        split.click();
+    }
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_nui");
+}
+
+/// Tileset.png: the game's `tcn01.set` (a copy) in the tileset editor As
+/// Tabs, on Tiles, tile 16 chosen. Today the pages are selectables over a
+/// page, the tile's fields beside the list; no Preview and Textures in the
+/// Right Dock, no Outliner of the tileset's parts, no Problems panel.
+#[test]
+#[ignore]
+fn board_tileset() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let scratch = mg_testkit::scratch_dir("screens-board-tileset");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let set = {
+        let game = h.state().game.as_deref().unwrap();
+        game.resman.get_named("tcn01", ResType::SET).unwrap().into_owned()
+    };
+    let path = scratch.join("tcn01.set");
+    std::fs::write(&path, set).unwrap();
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
+    frames_until(&mut h, "the tileset open", |h| !h.state().tilesets.is_empty());
+    h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+    h.state_mut().tilesets[0].tile = Some(16);
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_tileset");
+}
+
+/// Hak.png: a game hak (`id_resources.hak`, opened, never saved) in the
+/// hak editor As Tabs, its models found by ".mdl". The board's module is
+/// Neverwinter Chess; Chapter1 here. Today the rows of tools and the
+/// preview in the editor's lower part, not the board's header, Preview
+/// and Details panels in the Right Dock and Outliner by type.
+#[test]
+#[ignore]
+fn board_hak() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let id = mg_ui::hak_view::open_at(h.state_mut(), &root.join("data/hk/id_resources.hak"))
+        .expect("the game's hak");
+    frames_until(&mut h, "the hak in front", |h| {
+        h.state().active_editor() == Some(&mg_ui::Tab::Hak(id))
+    });
+    h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap().filter = ".mdl".into();
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_hak");
+}
+
+/// Resources.png: the Left Dock's Resources panel finding "nw_c",
+/// `nw_chicken.utc` open read-only As Tabs, the palettes folded away.
+/// Today Copy to Module and Save As… are a row over the tree, not the
+/// board's header row.
+#[test]
+#[ignore]
+fn board_resource() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let size = egui::vec2(1600.0, 900.0);
+    let mut h = board_window(&root, size);
+    resources_chicken(&mut h, size, None);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_resource");
+}
+
+/// Journal.png: the module's journal As Tabs, its first category open
+/// and its third entry chosen. Today the fields are the editor's bottom
+/// pane, not the board's Entry and Category panels in the Right Dock; the
+/// Status Bar has no counts.
+#[test]
+#[ignore]
+fn board_journal() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &mg_ui::Tab::Journal);
+    {
+        let view = &mut h.state_mut().journal_view;
+        view.open.insert(0);
+        view.selected = Some(mg_ui::journal_view::Node::Entry(0, 2));
+    }
+    h.run_steps(10);
+    shoot(&mut h, &board_dir(), "board_journal");
+}
+
+/// Factions.png: the faction editor As Tabs, Advanced, Victim (Danger)
+/// chosen. Today Add Faction…, Remove Faction, Change Name… and Global
+/// Effect sit at the matrix's right, not in a header; no Faction,
+/// Reaction and Reactions panels in the Right Dock, no Outliner of
+/// factions.
+#[test]
+#[ignore]
+fn board_factions() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &mg_ui::Tab::Factions);
+    h.state_mut().faction_view.advanced = true;
+    h.run_steps(3);
+    // (In the list at the matrix's right, the last of its name.)
+    if let Some(victim) = h.query_all_by_label("Victim (Danger)").last() {
+        victim.click();
+    }
+    h.run_steps(5);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_factions");
+}
+
+/// Options.png: Tools › Options As Tabs, on General. Today one column of
+/// a General page with Toolbar buttons among it and OK and Cancel at the
+/// foot, not the board's three columns and OK and Cancel in the header.
+#[test]
+#[ignore]
+fn board_options() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    frames_until(&mut h, "Options in front", |h| {
+        h.state().active_editor() == Some(&mg_ui::Tab::Options)
+    });
+    h.run_steps(3);
+    apart(&h, "General").click();
+    h.run_steps(5);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_options");
+}
+
+/// Welcome.png: no module open, the install's modules in Recent Modules.
+/// Today's Welcome page; the board's recent row is rebuilt in U24 (no
+/// update notice here: the board shows one offered).
+#[test]
+#[ignore]
+fn board_welcome() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.recent = [
+        "Chapter1",
+        "Chapter2",
+        "Prelude",
+        "Chapter3",
+        "Chapter4",
+        "Chapter1E",
+        "Chapter2E",
+        "XP1-Chapter 1",
+        "XP2_Chapter1",
+    ]
+    .iter()
+    .map(|m| root.join(format!("data/nwm/{m}.nwm")))
+    .filter(|p| p.exists())
+    .collect();
+    app.settings.hide_log = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(5);
+    shoot(&mut h, &board_dir(), "board_welcome");
+}
+
+/// The Dialogs sheet's windows, each over Chapter1 in a 1600 by 720
+/// window (the size the sheet gives): Rename (`board_dialogs_rename`),
+/// Delete from Module (`_delete`), Find and Replace Text (`_find_replace`),
+/// Build Module (`_build`), the Area Wizard (`_area_wizard`) and the
+/// Creature Wizard's third step (`_creature_wizard`). Today each lays out
+/// its own buttons, not the board's footer row. Not shown: Unsaved
+/// Changes, Duplicate Tags, Adjust Location, Resize Area and Recover
+/// Unsaved Work, which need a closing, a paste, a placed object's menu or
+/// a crash to open.
+#[test]
+#[ignore]
+fn board_dialogs() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let size = egui::vec2(1600.0, 720.0);
+    let dlg = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    let opened = |what: &str, open: &dyn Fn(&mut Harness<'_, Moonglow>), name: &str| {
+        let mut h = shell_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        h.state_mut().settings.hide_log = true;
+        settle(&mut h);
+        open(&mut h);
+        h.run_steps(5);
+        settle(&mut h);
+        assert!(h.query_by_label(what).is_some(), "{what} open");
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, name);
+    };
+    opened(
+        "Rename",
+        &|h: &mut Harness<'_, Moonglow>| {
+            h.state_mut().actions.push(mg_ui::Action::RenameDialog(dlg));
+        },
+        "board_dialogs_rename",
+    );
+    opened(
+        "Delete",
+        &|h: &mut Harness<'_, Moonglow>| {
+            h.state_mut().actions.push(mg_ui::Action::DeleteDialog(dlg));
+        },
+        "board_dialogs_delete",
+    );
+    opened(
+        "Replace with",
+        &|h: &mut Harness<'_, Moonglow>| {
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+            h.run_steps(2);
+            let d = h.state_mut().text_replace.as_mut().unwrap();
+            d.find = "M1Q1FAribeth".into();
+            d.with = "M1Q1FAribeth2".into();
+            h.run_steps(2);
+            // (Tags ticked, as on the sheet.)
+            if let Some(tags) = h.query_by_label("Tags") {
+                tags.click_accesskit();
+            }
+            h.run_steps(2);
+            h.get_by_label("Find").click_accesskit();
+        },
+        "board_dialogs_find_replace",
+    );
+    opened(
+        "Build Module",
+        &|h: &mut Harness<'_, Moonglow>| {
+            h.state_mut().build = Some(mg_ui::build_view::BuildWindow::default());
+        },
+        "board_dialogs_build",
+    );
+    opened(
+        "Area Wizard",
+        &|h: &mut Harness<'_, Moonglow>| h.state_mut().actions.push(mg_ui::Action::AreaWizard),
+        "board_dialogs_area_wizard",
+    );
+    let wizard = |h: &mut Harness<'_, Moonglow>| creature_wizard_at(h, 2);
+    opened("Creature Wizard", &wizard, "board_dialogs_creature_wizard");
+}
+
+/// The Creature Wizard open at its step `page` (0, Creature Wizard; 2,
+/// Class and Level; 3, Appearance and Portrait), Human chosen on its
+/// Monster Type step.
+fn creature_wizard_at(h: &mut Harness<'_, Moonglow>, page: usize) {
+    h.state_mut().creature_wizard = Some(Default::default());
+    h.run_steps(3);
+    for at in 0..page {
+        if at == 1 {
+            h.get_by_label("Human").click();
+            h.run_steps(3);
+        }
+        h.get_by_label("Next >").click();
+        h.run_steps(3);
+    }
+}
+
+/// The Pickers sheet's windows in a 1600 by 720 window: Select Portrait
+/// from Faribeth's Properties (`board_pickers_portrait`), Select Texture
+/// from a placeable's Visuals (`_texture`), the armor part gallery of
+/// an armor's Appearance (`_armor`, the game's `nw_aarcl001` in a module
+/// of its own, its window floating, as `armor_part_pictures` has it) and
+/// the Creature Wizard's Appearance and Portrait (`_creature_wizard`).
+/// Today each grid draws its own cells, not the shared Quiet Tiles cell;
+/// no footer row.
+#[test]
+#[ignore]
+fn board_pickers() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let size = egui::vec2(1600.0, 720.0);
+    // Select Portrait.
+    let mut h = shell_window(&root, size);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().settings.hide_log = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(board_utc_tab()));
+    frames_until(&mut h, "the Properties", |h| h.query_by_label("Portraits…").is_some());
+    h.get_by_label("Portraits…").click();
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "board_pickers_portrait");
+    // Select Texture, from the module's first placeable blueprint.
+    let mut h = shell_window(&root, size);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().settings.hide_log = true;
+    let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
+    h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
+    frames_until(&mut h, "the Visuals page", |h| {
+        h.query_all_by_label("Select Texture…").next().is_some()
+    });
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "board_pickers_texture");
+    // The armor part gallery.
+    let scratch = mg_testkit::scratch_dir("screens-board-pickers");
+    let mut h =
+        pictured_blueprint(&root, &scratch, ("nw_aarcl001", ResType::UTI), "Appearance", size);
+    themed(&mut h);
+    h.state_mut().settings.hide_log = true;
+    pictures_made(&mut h);
+    // (Its window, floating as this module opens it, made large, as
+    // `armor_part_pictures` has it.)
+    let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1560.0, 640.0));
+    pictures_made(&mut h);
+    h.hover_at(h.get_by_label("Pictures of").rect().center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -2000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "board_pickers_armor");
+    // The Creature Wizard's Appearance and Portrait.
+    let mut h = shell_window(&root, size);
+    h.state_mut().settings.hide_log = true;
+    settle(&mut h);
+    creature_wizard_at(&mut h, 3);
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "board_pickers_creature_wizard");
+}
+
+/// GalleryPalette.png: the palette's Gallery on Placeables beside the
+/// area, Battlefield open (the board has a picture's hover card too).
+/// Today's picture cells (`widgets::picture_tile`), not Quiet Tiles; no
+/// Properties panel under the palette.
+#[test]
+#[ignore]
+fn board_gallery_palette() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    palette_gallery(&mut h, &["Battlefield"]);
+    rest_pointer(&mut h);
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "board_gallery_palette");
+}
+
+/// GalleryTiles.png: the tiles palette's Gallery, Select Tiles on with one
+/// tile chosen, its Tile Properties (its variants) where the board's panel
+/// is. Today Tile Properties is a window of its own, its variants drawn
+/// by `variant_picture`, not the shared cell.
+#[test]
+#[ignore]
+fn board_gallery_tiles() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.palette_gallery = true;
+    tiles_selected(&mut h, &[(0, 0)]);
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "board_gallery_tiles");
+}
+
+/// GalleryWide.png at 3440 by 1440: the palette's Gallery on Placeables
+/// (Battlefield open) and the Placeable Gallery opened for the area's
+/// selection (the pyre), moved to a second editor group beside the area
+/// (the board has the script there too). The wide layout's second column
+/// holds the Preview, not the Properties.
+#[test]
+#[ignore]
+fn board_gallery_wide() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
+    palette_gallery(&mut h, &["Battlefield"]);
+    h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
+    frames_until(&mut h, "the Placeable Gallery", |h| {
+        h.state().active_editor() == Some(&mg_ui::Tab::PlaceableGallery)
+    });
+    // (In a second editor group, the area in front of the first.)
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    frames_until(&mut h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
+    board_front(&mut h, &board_area_tab());
+    pictures_shown(&mut h);
+    rest_pointer(&mut h);
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "board_gallery_wide");
+}
+
+/// AppearanceGallery.png: the Appearance Gallery opened from Faribeth's
+/// Properties (Gallery…), on Creatures, Faribeth's appearance chosen: a
+/// tab As Tabs, as on the board, but with no Preview and Appearance
+/// panels in the Right Dock; today's picture cells.
+#[test]
+#[ignore]
+fn board_appearance_gallery() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &board_utc_tab());
+    frames_until(&mut h, "the Basic page", |h| h.query_by_label("Gallery…").is_some());
+    h.get_by_label("Gallery…").click();
+    pictures_shown(&mut h);
+    rest_pointer(&mut h);
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "board_appearance_gallery");
 }
 
 // Menus that hold more than rows (the shell milestone's T1, its fix

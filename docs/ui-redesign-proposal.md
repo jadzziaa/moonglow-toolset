@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T22:10:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T23:03:13Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -1484,6 +1484,59 @@ Each task names what it builds (board by board), the moves rows it ticks (by the
 - **Builds.** A `board_*` family in `crates/mg-ui/tests/screens.rs`, one case per board M4 builds, As Tabs, at the board's size, on Chapter1 (and the boards' resources: `m1q1faribeth`, `m1q3_formosa_9`, `spells.2da`, `dialog.tlk` as far as it opens, `tcn01`, a game hak, `nw_chicken.utc`, the module's journal and factions), dark and light: `board_main` (the `shell_main` it was), `board_narrow`, `board_wide`, `board_floating`, `board_area_paint`, `board_area_tiles`, `board_gizmo_states` (a dynamic placeable selected, with Shift held, and mid-drag), `board_creature`, `board_creature_wide`, `board_script`, `board_conversation`, `board_table`, `board_talk`, `board_nui`, `board_tileset`, `board_hak`, `board_resource`, `board_journal`, `board_factions`, `board_options`, `board_welcome`, `board_dialogs`, `board_pickers`, `board_gallery_palette`, `board_gallery_tiles`, `board_gallery_wide`, `board_appearance_gallery`. No `src/` change.
 - **Baseline.** `frame_perf`, `editor_perf` and `nui_perf` on this tree, quiet, into `target/ui-mock/perf-m4/u0/` (compared with `perf-m3/t15/`); later tasks compare with it.
 - **Coherent.** Yes.
+
+**Done, 2026-11-14.** The 27 cases are in `screens.rs`, each `#[ignore]` and named as the list above names them; run them with `cargo test -p mg-ui --test screens -- --ignored board_ --test-threads=1` (pictures go to `screens/board/`, or to `screens-light/board/` with `MG_LIGHT=1`). They write 37 pictures, because the sheets get one picture per state: `board_gizmo_states_selected`, `_shift` and `_drag`; `board_dialogs_rename`, `_delete`, `_find_replace`, `_build`, `_area_wizard` and `_creature_wizard`; `board_pickers_portrait`, `_texture`, `_armor` and `_creature_wizard`. The sheets' windows are 1600 by 720; the rest use the board's size.
+
+`shell_main` stays as M3 left it, with editors floating. `board_main` is the Main board As Tabs and is not an alias of it. The shared set-up is `board_window`, built on `shell_with_area`: As Tabs; the boards' tabs (Module Properties, the area with its modified dot, Faribeth, the script); the Plague Victim Pyre selected under the boards' camera (`BOARD_CAMERA`); the Right Dock on Placeables; the log closed. `area_changed`, `pyre_index` and `resources_chicken` now serve `board_tabs`, `shell_outliner` and `shell_resources_window` too. No `src/` change.
+
+Each case's comment says what today's app shows in place of its board. The pictures are in `target/ui-mock/impl/m4-u0/` (`dark/`, `light/`), and `INDEX.md` there lists one line of differences per case.
+
+What today's app cannot show, with the nearest state each case uses instead:
+
+- **Panels that do not exist yet.** The header rows, popovers, tool shelf and compass are missing. So are the Properties, Node, Reference, Cell, String, Entry and Faction panels, the Outliners other than the area's, and the Bottom Dock's panels. Each case shows the editor's own panes.
+- **Tile Properties** is a floating window in both modes. Its cases place it where the boards draw the panel.
+- **`dialog.tlk`** cannot be opened by anything today. `board_talk` reads it as a layer of the game's, so it opens read-only; the list is not scrolled to its chosen line.
+- **Missing resources.** Chapter1 has no `spells.2da`, `tcn01.set` or JUI, so the cases use scratch copies and mg-nui's `crier.jui` put into the workspace. None is saved.
+- **The hak** is `data/hk/id_resources.hak`, opened over Chapter1; the board uses Neverwinter Chess.
+- **`board_gizmo_states`** shows the States row only. Its object is `map_m1q1a`'s first dynamic placeable, with triggers and encounters hidden so that the drag starts on it.
+- **`board_floating`** leaves out the second script tab, because a second script opens a window of its own.
+- **`board_dialogs`** leaves out five dialogs that only a closing, a paste, a placed object's menu or a crash opens: Unsaved Changes, Duplicate Tags, Adjust Location, Resize Area and Recover Unsaved Work.
+- **`board_pickers`**' armor piece is the game's `nw_aarcl001` in a module of its own, its window floating, as `armor_part_pictures` has it.
+
+The Appearance and Placeable Galleries already open as tabs As Tabs.
+
+**The baseline.** Release binaries were built once (`--no-run`). Each test then ran alone (`--ignored --nocapture --test-threads=1`) from `crates/mg-ui`, through `perf-m4/u0/run.sh`, which waits before each run for a 1-minute load under 3. The set ran twice: `frame_perf`, `frame_perf` at `FRAME_SCREEN=1280x800`, `editor_perf` and `nui_perf`, then the same again with logs prefixed `run2_`. Loads at the starts were 2.89, 2.93, 2.46 and 2.42 for the first set, and 2.21, 2.34, 2.83 and 2.92 for the second (`loads.txt`).
+
+This tree's code is T15's, so a view counts as moved only where both runs differ from T15's quiet logs by more than 0.3 ms in the same direction (`agree.py`; against T15's interleaved `ab2` logs, `agree_ab2.txt`). The median view moved -0.020 and +0.010 ms (339 views), -0.010 and +0.040 ms at 1280 by 800 (327), and +0.08 and +0.17 ms in `editor_perf` (19).
+
+In the first run, area092's stretch of `frame_perf` ran at about three times its time, tessellation included, so the processor was taken. That run failed its budget check (tiles palette searched as typed, wheel, 14.08 ms; all selected with the walkmesh, 11.5 to 12.3 ms). The second run did not repeat it (3.05 to 3.74 ms) and passed every test, so `run2_frame_perf.log` is the baseline.
+
+Views moved beyond 0.3 ms in both runs, T15 then run 1 then run 2, in ms:
+
+- **area092, wheel, at the default size.** The overview went 2.71, 7.05, 3.05; the tiles palette searched as typed 3.06, 14.08, 3.74; all selected with the walkmesh 3.13, 12.29, 3.53. Only the second run's 0.3 to 0.7 ms is in the comparison.
+- **T15's own spikes, which its note names, against T15's single quiet run.** Area Properties went 3.30, 3.13 and 2.65 to about 1.63. area084's one-column Palette in front went 8.80 to 2.25 and 2.32 (idle) and 9.96 to 4.85 and 5.22 (wheel).
+- **Slower, at the default size.** area084's Outliner kinds closed (wheel) went 3.73 to 4.34 in both runs.
+- **Quicker, at the default size.** The resource browser (wheel) went 0.86 to 0.50. The lake with Shaders off, turning (pointer), went 2.90 to 2.17 and 2.53. Several area084 wheel views were 0.3 to 1.0 ms quicker: turning, two columns, all selected with the walkmesh.
+- **At 1280 by 800, the lake's wheel and walkmesh views were 0.3 to 2.0 ms slower.** With Shaders on, all selected with the walkmesh (pointer), went 3.48 to 4.24 and 5.51.
+- **`editor_perf`.** The first frame went 262.0 to 266.2 and 265.6. The frame the check as you type compiles in went 7.76 to 8.17 and 8.32.
+
+The tree's code is unchanged, so these moves are the shared machine's.
+
+Over the 6.94 ms budget in both runs:
+
+- area084's overview and turning views (wheel), with Sound Ranges on and off, at 7.7 to 10.9 ms at both sizes, as at T15.
+- area092's edit frame: 7.7 ms in the second run, 7.1 at T15.
+- area084's edit frames: 11.1 and 12.0 ms, as at T15.
+
+area092's overview and turning views are under budget in the second run (0.9 to 3.1 ms at the default size, up to 4.3 ms at 1280 by 800), as at T15. Nothing is newly over budget.
+
+`nui_perf` has no T15 log, so its figures are a baseline only, first run and second run:
+
+- a large window's idle frame: 1.00 and 0.99 ms;
+- a frame after an edit of the window: 1.96 and 2.06 ms;
+- a frame after an edit elsewhere: 1.00 and 1.00 ms;
+- a window of text, idle: 0.74 and 0.73 ms;
+- a chart of a million samples, idle: 29.8 and 38.4 ms, the one view over budget.
 
 **U1. The kit's header, popover and tool shelf (2 days).**
 
