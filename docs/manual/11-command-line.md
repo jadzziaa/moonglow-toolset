@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T19:58:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:07Z }
 ---
 
 # Command-line tools
@@ -453,8 +453,16 @@ void main()
   serve`'s. Your own NWN folder as `--dir` is refused, before anything
   is written there.
 
-What the include writes to the log is its format 1 (`MG_TEST_FORMAT`):
-`MG_TEST PASS name` and `MG_TEST FAIL name :: detail`.
+What the include writes to the log is its format 2 (`MG_TEST_FORMAT`):
+`MG_TEST PASS name` and `MG_TEST FAIL name :: detail`. An assertion made
+after its test's `main()` has returned (in a `DelayCommand`, or an
+`AssignCommand` inside one) names its test first, `MG_TEST FAIL
+[test_name] name :: detail`: the server still runs it as the test that
+queued it. The result reports it under that test, after other tests have
+run (in `--json`, the case has `"delayed": true`), and `Describe()` holds
+for the test that called it alone, its delayed assertions too. Under
+`--driver none` the lines name no test, as in format 1, and what is
+asserted while no test runs goes under "(outside a test)".
 
 ## Following a project as you edit
 

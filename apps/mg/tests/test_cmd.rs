@@ -225,6 +225,88 @@ fn a_module_s_own_driver_runs_its_tests() {
     assert_eq!((&cases[1]["name"], &cases[1]["detail"]), (&"its other".into(), &"not so".into()));
 }
 
+/// A test whose assertions come later (`DelayCommand`, an `AssignCommand`
+/// inside one, a script run from one) has them reported under its own
+/// name and group, after other tests have run and set groups of their
+/// own; a script run from a test as it runs asserts for that test.
+#[test]
+fn a_delayed_assertion_is_reported_under_its_own_test() {
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::timed_turn();
+    let dir = mg_testkit::scratch_dir("mg-test-delayed");
+    let (user, tests) = (dir.join("user"), dir.join("tests"));
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::create_dir_all(&tests).unwrap();
+    let later = r#"#include "mg_test"
+void Later(int nGot) { AssertEqualInt(nGot, 2, "later"); }
+void main()
+{
+    Describe("timing");
+    Pass("now");
+    DelayCommand(0.3, Later(1));
+    DelayCommand(0.4, AssignCommand(GetFirstArea(), Pass("assigned")));
+    AssignCommand(GetModule(), DelayCommand(0.5, Pass("assigned, then delayed")));
+    DelayCommand(0.6, ExecuteScript("mg_helper", GetModule()));
+    ExecuteScript("mg_helper", GetModule());
+}
+"#;
+    let other = "#include \"mg_test\"\nvoid main() { Describe(\"other\"); Pass(\"first\"); }\n";
+    let plain = "#include \"mg_test\"\nvoid main() { Pass(\"grouped by no one\"); }\n";
+    std::fs::write(tests.join("test_later.nss"), later).unwrap();
+    std::fs::write(tests.join("test_other.nss"), other).unwrap();
+    std::fs::write(tests.join("test_plain.nss"), plain).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    // (A script of the module's, run from the test, as and after it runs.)
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    let helper = mg_resman::ResKey::parse("mg_helper", mg_core::ResType::NSS).unwrap();
+    m.set(helper, b"#include \"mg_test\"\nvoid main() { Pass(\"helped\"); }\n".to_vec());
+    m.save().unwrap();
+
+    let (c, t, served) = (chess.to_str().unwrap(), tests.to_str().unwrap(), dir.join("served"));
+    let args = [c, "--tests", t, "--dir", served.to_str().unwrap(), "--settle", "2"];
+    let (ok, r) = mg(&root, &user, &args);
+    assert!(!ok && r["done"] == true && r["format"] == 2, "{r}");
+    let scripts: Vec<&str> =
+        r["tests"].as_array().unwrap().iter().map(|t| t["script"].as_str().unwrap()).collect();
+    assert_eq!(scripts, ["test_later", "test_other", "test_plain"], "none outside a test: {r}");
+    let cases = |i: usize| -> Vec<(String, bool, bool)> {
+        let cases = r["tests"][i]["cases"].as_array().unwrap();
+        let of = |c: &Value| {
+            let name = c["name"].as_str().unwrap().to_string();
+            (name, c["ok"] == true, c["delayed"] == true)
+        };
+        cases.iter().map(of).collect()
+    };
+    let named = |name: &str, ok, delayed| (name.to_string(), ok, delayed);
+    assert_eq!(
+        cases(0),
+        [
+            named("timing: now", true, false),
+            named("timing: helped", true, false),
+            named("timing: later", false, true),
+            named("timing: assigned", true, true),
+            named("timing: assigned, then delayed", true, true),
+            named("timing: helped", true, true),
+        ],
+        "{r}"
+    );
+    assert_eq!(r["tests"][0]["cases"][2]["detail"], "got 1, expected 2");
+    assert_eq!(cases(1), [named("other: first", true, false)]);
+    assert_eq!(cases(2), [named("grouped by no one", true, false)], "no group of another test's");
+
+    // The text names the test too.
+    let out = crate::mg_on(&root, Some(&user)).arg("test").args(args).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(
+        text.contains("FAIL  test_later (1 of 6)\n        timing: later: got 1, expected 2"),
+        "{text}"
+    );
+}
+
 /// Every file under a folder, with what it holds.
 fn listing(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     let mut all = Vec::new();
