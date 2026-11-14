@@ -17,6 +17,7 @@ use crate::model::{SkinVertex, Vertex};
 use crate::particles::{ParticleBlend, ParticleVertex};
 use crate::reach::{Frustum, LightGrid, ReachCache};
 use crate::scene::{Camera, Instance, Scene};
+use crate::shadow;
 use crate::texture::GpuTexture;
 
 /// Lights per draw, as the game's default `max-lights`.
@@ -2351,7 +2352,7 @@ impl Renderer {
         // Draws.
         // The sky first, around the camera ([`sky_place`]).
         let around = |s: &crate::Instance| crate::Instance {
-            transform: sky_place(camera.eye) * s.transform,
+            transform: sky_place(camera) * s.transform,
             ..s.clone()
         };
         let sky = scene.sky.as_ref().map(around);
@@ -4023,24 +4024,29 @@ impl Targets {
     }
 }
 
-/// The highest the game's camera stands over the ground by default: its
-/// farthest distance from what it looks at (`CameraMaxDist`, 1 to 25 since
-/// 1.69; nwn.wiki, "1.69" and "1.74.8163").
-pub(crate) const GAME_CAMERA_HIGHEST: f32 = 25.0;
-
-/// Where the skybox (and the game's horizon fade over it) is drawn for a
-/// camera at `eye`: around it, at ground level, as the client draws it
-/// (`grass_and_sky_look`), so its horizon fade covers what the camera
-/// sees of the horizon. A view's camera higher than the game's
-/// ([`GAME_CAMERA_HIGHEST`]: an area seen whole is 150 m up and more) has
-/// the sky raised with it, to stand that high over the sky's ground: the
-/// skybox (about 460 m to each side, 310 m up from its ground, the fade a
-/// bowl 390 m deep under it) is seen as the game's camera sees it, never
-/// from above its top, and the fade's bands, in the fog's color, stay as
-/// far under the horizon as in the game (from 150 m up they reached the
-/// sides of a wide view looking down).
-pub(crate) fn sky_place(eye: Vec3) -> Mat4 {
-    Mat4::from_translation(eye.with_z((eye.z - GAME_CAMERA_HIGHEST).max(0.0)))
+/// Where the skybox (and the game's horizon fade over it) is drawn for
+/// `camera`: around its eye, at ground level, as the client draws it
+/// (`grass_and_sky_look`, `sky_under_the_game_s_farthest_camera_look`),
+/// so its horizon fade covers what the camera sees of the horizon. The
+/// game's camera stands at most [`shadow::GAME_CAMERA_REACH`] from what it
+/// looks at (`CameraMaxDist`, 1 to 25 since 1.69; nwn.wiki, "1.69" and
+/// "1.74.8163"), over raised tiles as over the lowest: for every such
+/// camera the sky is where the client draws it. A view's camera farther
+/// off (an area seen whole is 150 m up and more) has the sky raised by
+/// what its eye stands higher over its target than the game's camera at
+/// its farthest would at the same pitch (as `shadow::camera_fade_point`
+/// takes its height), so it stands as high over the sky's ground as that
+/// camera does: the skybox (about 460 m to each side, 310 m up from its
+/// ground, the fade a bowl 390 m deep under it) is seen as the game's
+/// camera sees it, never from above its top, and the fade's bands, in the
+/// fog's color, stay as far under the horizon as in the game (from 150 m
+/// up they reached the sides of a wide view looking down).
+pub(crate) fn sky_place(camera: &Camera) -> Mat4 {
+    let along = camera.eye - camera.target;
+    let distance = along.length();
+    let up = along.normalize_or(Vec3::Z).z;
+    let raised = ((distance - shadow::GAME_CAMERA_REACH).max(0.0) * up).max(0.0);
+    Mat4::from_translation(camera.eye.with_z(raised))
 }
 
 #[cfg(test)]
@@ -4048,22 +4054,43 @@ mod tests {
     use super::{LOST_RIPPLE_GRAY, procedure_picture, ripple_of};
     use glam::{Mat4, Vec3};
 
-    /// The sky is around the camera at ground level from the game's camera
-    /// heights (as the client draws it), and raised with a higher view's
-    /// camera to stand as high over it as the game's highest: an area seen
+    /// The sky is around the camera at ground level for every camera the
+    /// game can have (at most `GAME_CAMERA_REACH` from its target, over a
+    /// raised tile too, at any pitch), as the client draws it, and raised
+    /// with a view's camera farther off to stand as high under it as
+    /// under the game's at its farthest at the same pitch: an area seen
     /// whole from 151 m showed the horizon fade's fog-colored band at the
     /// sides of a 2559 by 800 window, and a large area's camera stood over
     /// the skybox's top (310 m).
     #[test]
     fn the_sky_stands_under_the_camera_as_the_game_s() {
-        let at = |eye: Vec3| super::sky_place(eye).transform_point3(Vec3::ZERO);
-        assert_eq!(at(Vec3::new(30.0, 40.0, 12.0)), Vec3::new(30.0, 40.0, 0.0), "the game's");
-        assert_eq!(at(Vec3::new(30.0, 40.0, 25.0)), Vec3::new(30.0, 40.0, 0.0), "its highest");
-        assert_eq!(at(Vec3::new(30.0, 40.0, -3.0)), Vec3::new(30.0, 40.0, 0.0), "under ground");
-        for high in [151.0, 500.0] {
-            let sky = at(Vec3::new(55.0, 55.0, high));
-            assert_eq!(sky.truncate(), glam::Vec2::new(55.0, 55.0));
-            assert_eq!(high - sky.z, super::GAME_CAMERA_HIGHEST, "{high} m up");
+        use super::shadow::GAME_CAMERA_REACH as REACH;
+        let camera = |target: Vec3, distance: f32, pitch: f32| {
+            crate::Camera::orbit(target, distance, -1.0, pitch.to_radians())
+        };
+        let at = |c: &crate::Camera| super::sky_place(c).transform_point3(Vec3::ZERO);
+        // The game's cameras: where the sky stood before M3 T15 (around
+        // the eye, at z 0), over a level-2 tile (tiles step 5 m) too.
+        for target in [Vec3::new(30.0, 40.0, 0.0), Vec3::new(30.0, 40.0, 10.0)] {
+            for (distance, pitch) in [(REACH, 30.0), (REACH, 89.0), (12.0, 45.0), (1.0, 10.0)] {
+                let c = camera(target, distance, pitch);
+                assert_eq!(at(&c), c.eye.with_z(0.0), "{target} {distance} m {pitch}°");
+            }
+        }
+        // Looking up from under its target: never lowered.
+        let under = camera(Vec3::new(5.0, 5.0, 3.0), 100.0, -20.0);
+        assert_eq!(at(&under), under.eye.with_z(0.0), "looking up");
+        // Far beyond the reach: raised, the eye as high over the sky's
+        // ground as the game's farthest camera's at that pitch.
+        for (distance, pitch) in [(151.0, 89.9), (500.0, 89.9), (150.0, 30.0)] {
+            let target = Vec3::new(55.0, 55.0, 10.0);
+            let c = camera(target, distance, pitch);
+            let sky = at(&c);
+            assert_eq!(sky.truncate(), c.eye.truncate(), "{distance} m");
+            let game = camera(target, REACH, pitch);
+            let over = c.eye.z - sky.z;
+            assert!((over - game.eye.z).abs() < 1e-3, "{distance} m {pitch}°: {over} over the sky");
+            assert!(sky.z > 50.0, "{distance} m {pitch}°: raised {}", sky.z);
         }
     }
 

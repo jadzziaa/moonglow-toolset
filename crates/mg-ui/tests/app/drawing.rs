@@ -2092,10 +2092,12 @@ fn a_blueprint_s_appearance_page_keeps_its_view_beside_the_preview() {
 /// down: the skybox stood at ground level around a camera 151 m up, and
 /// the game's horizon fade, in the area's fog color (khaki), filled them
 /// (M3 T15, seen in T14's pictures). The sky now stands under the camera
-/// as under the game's highest (`GAME_CAMERA_HIGHEST`, 25 m), whose
-/// picture at that angle is the fade's dark lower band: the sides show
-/// the sky, under three fifths of the fog's color (they were all of it;
-/// now about 45%). Pictures in
+/// as under the game's farthest at that pitch (`GAME_CAMERA_REACH`, 25 m
+/// from its target: here 25 m over the sky's ground), whose picture at
+/// that angle is the fade's dark lower band over the sky: the sides show
+/// 44% of the fog color's sum. Held from both sides: the sky at the
+/// camera itself showed 27%, 12 m under it 35%, 100 m under it 99% (the
+/// fog color), so it is between 39% and 50%. Pictures in
 /// `target/test-output/ui-sky-high/`.
 #[test]
 fn the_sky_under_a_camera_higher_than_the_game_s() {
@@ -2164,11 +2166,12 @@ fn the_sky_under_a_camera_higher_than_the_game_s() {
         assert!(middle.iter().sum::<f64>() > 60.0, "the area drawn: {middle:?}");
         for (side, x0) in [("left", r.min.x + 4.0), ("right", r.max.x - 24.0)] {
             let seen = strip(x0);
-            let (sum, most) = (seen.iter().sum::<f64>(), fog.iter().sum::<f64>() * 0.6);
-            assert!(sum > 6.0, "{side}, shaders {shaders}: the sky drawn: {seen:?}");
+            let share = seen.iter().sum::<f64>() / fog.iter().sum::<f64>();
             assert!(
-                sum < most,
-                "{side}, shaders {shaders}: the fade's dark band, not its fog color: {seen:?}"
+                (0.39..0.5).contains(&share),
+                "{side}, shaders {shaders}: the fade's dark band over the sky as under the \
+                 game's farthest camera (44% of the fog color), not {:.0}%: {seen:?}",
+                share * 100.0
             );
         }
     }

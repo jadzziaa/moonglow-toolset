@@ -447,8 +447,14 @@ fn old_settings_with_a_resources_place_open_without_it() {
     assert_eq!(places, &[("script".to_string(), "middle".to_string())]);
     // (The script's size kept before the theme, 8% taller once, M3 T11.)
     assert_eq!(app.settings.window_sizes, [("script".to_string(), [1100, 756])]);
-    let said: Vec<_> =
-        (app.log.entries.iter()).filter(|(level, _)| *level != mg_ui::Level::Info).collect();
+    // (Where no game is installed, as on CI, the app says so; that is not
+    // about the settings.)
+    let said: Vec<_> = (app.log.entries.iter())
+        .filter(|(level, text)| {
+            *level != mg_ui::Level::Info
+                && !text.starts_with("No Neverwinter Nights installation found")
+        })
+        .collect();
     assert!(said.is_empty(), "no warning: {said:?}");
     let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
     assert_eq!(names.len(), 1, "no copy put aside: {names:?}");

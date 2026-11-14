@@ -1584,9 +1584,10 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     let browser = (front == Panel::Resources).then(|| crate::browser::header(app));
     // The tools' width the tabs are laid out beside: the widest of the
     // panels' the dock holds (the Module panel's four buttons), whichever
-    // is shown, so that the tabs keep their form (words, or their icons
-    // alone where the words and those tools do not fit) and their place
-    // when another tab is chosen: the dock's width alone decides it.
+    // is shown, so that the tabs keep their form (their words; their
+    // words closer to their sides where only so they fit beside those
+    // tools; their icons alone where not even so) and their place when
+    // another tab is chosen: the dock's width alone decides it.
     // (And the fold button after them, at the bar's end toward the
     // editor area.)
     let button = mg_uikit::IconButton::new(Icon::Plus, "").icon_only(true).width(ui);

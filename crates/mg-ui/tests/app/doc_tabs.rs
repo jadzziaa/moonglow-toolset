@@ -790,6 +790,52 @@ fn a_title_cut_short_shows_whole_in_its_tip() {
     assert!(module.width() < mg_uikit::shell::doc_tab_width(110.0, false), "all cut alike");
 }
 
+/// A crowded bar shows both ends of a name it cuts (the owner's ruling of
+/// 2026-11-14, "Tab cut in the middle to keep"): the tab's words are its
+/// name's start, an ellipsis and its name's end with the extension whole
+/// ("lo…nd.nss" in its least room); the tab is still
+/// named by its whole name.
+#[test]
+fn a_crowded_bar_shows_both_ends_of_a_name_it_cuts() {
+    let dir = mg_testkit::scratch_dir("ui-doc-tab-middle-cut");
+    let path = module_with(&dir, 0);
+    let mut m = Module::open(&path).unwrap();
+    let names: Vec<String> = (1..=12).map(|i| format!("long_name{i:02}_end")).collect();
+    for n in &names {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.window_places = vec![("script".into(), "middle".into())];
+    app.open_module(&path);
+    for n in &names {
+        let key = ResKey::parse(n, ResType::NSS).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    }
+    let mut h = harness(app, 800.0, 600.0);
+    settle(&mut h);
+    let words: Vec<(String, egui::Rect)> = drawn(&h)
+        .into_iter()
+        .filter_map(|s| match s {
+            egui::Shape::Text(t) => {
+                Some((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2())))
+            }
+            _ => None,
+        })
+        .collect();
+    let last = names.last().unwrap();
+    let tab = doc_tab(&h, &format!("{last}.nss")).rect();
+    let (shown, _) = words
+        .iter()
+        .find(|(_, r)| tab.contains(r.center()) && r.width() > 10.0)
+        .unwrap_or_else(|| panic!("no words in the tab {tab:?}: {words:?}"));
+    assert!(shown.contains('…'), "cut: {shown}");
+    assert!(shown.starts_with("lo"), "its start: {shown}");
+    assert!(shown.ends_with("d.nss"), "its end and extension: {shown}");
+    assert!(shown.chars().count() < last.len() + 4, "shorter: {shown}");
+}
+
 /// From the narrowest editor area (the 420 point window with the Right
 /// Dock unfolded by hand, the Left Dock folded by the width: the yields
 /// keep both from standing side by side under 962, M3 T14) to 1600

@@ -198,9 +198,10 @@ pub struct DocTabTitle {
 }
 
 /// A document tab's title as egui_dock lays it out: `title` in `font`, cut
-/// short with an ellipsis where it is wider than `max`, with the room of
-/// the tab's other parts inside it (the kind icon before it, the modified
-/// dot where `modified` and the close button after it,
+/// in the middle where it is wider than `max` ([`middle_cut`]: its start
+/// and its end kept, the extension whole), with the room of the tab's
+/// other parts inside it (the kind icon before it, the modified dot where
+/// `modified` and the close button after it,
 /// [`crate::shell::doc_tab_parts`]), so that the tab egui_dock makes of it
 /// (the galley and [`DOCK_TITLE_SPACING`] at each side) is
 /// [`crate::shell::doc_tab_width`] wide and its words stand where those
@@ -219,23 +220,85 @@ pub fn doc_tab_title(
     let lead = DOC_TAB_PADDING.0 + metrics::ICON + DOC_TAB_GAP - DOCK_TITLE_SPACING;
     let dot = if modified { DOC_TAB_GAP + crate::marks::DOT } else { 0.0 };
     let trail = dot + DOC_TAB_GAP + DOC_TAB_CLOSE + DOC_TAB_PADDING.1 - DOCK_TITLE_SPACING;
-    let mut job = egui::text::LayoutJob::default();
-    let format =
-        egui::TextFormat { font_id: font, color: egui::Color32::PLACEHOLDER, ..Default::default() };
-    job.append(title, lead, format);
-    job.wrap = egui::text::TextWrapping {
-        max_width: lead + max.max(1.0),
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('…'),
+    let format = egui::TextFormat {
+        font_id: font.clone(),
+        color: egui::Color32::PLACEHOLDER,
+        ..Default::default()
     };
+    let measure = |text: &str| {
+        let galley = ctx.fonts_mut(|f| {
+            f.layout_no_wrap(text.to_owned(), font.clone(), egui::Color32::PLACEHOLDER)
+        });
+        galley.rect.width()
+    };
+    let shown = middle_cut(title, max.max(1.0), &measure);
+    let cut = shown != title;
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&shown, lead, format);
     let laid = ctx.fonts_mut(|f| f.layout_job(job));
     let width = (laid.rect.width() - lead).max(0.0);
-    let cut = laid.elided;
     let mut galley = (*laid).clone();
     galley.rect.min.x = 0.0;
     galley.rect.max.x = lead + width + trail;
     DocTabTitle { galley: std::sync::Arc::new(galley), width, cut }
+}
+
+/// The longest an extension kept whole by [`middle_cut`] may be, in
+/// characters after its dot.
+const EXTENSION_MOST: usize = 8;
+
+/// `title` as a crowded tab bar shows it in `max` (as `width` measures
+/// text; the owner's ruling of 2026-11-14, "Tab cut in the middle to
+/// keep"): whole where it fits; else as much of its start and of its end
+/// as fits, an ellipsis between them ("at…01.nss"), the start a character
+/// longer where they cannot be alike. Its extension (after its last dot,
+/// one to [`EXTENSION_MOST`] letters or digits, the dot not its first
+/// character) is kept whole with the end wherever a character of the name
+/// before it fits too; where none does, or the name has no extension, the
+/// whole of it is cut in the middle all the same; where not even a
+/// character at each side of the ellipsis fits, the ellipsis alone. A
+/// name of one character is never cut (an ellipsis is no shorter). Cut by
+/// characters (egui lays out one glyph a character: a sequence joined by
+/// zero-width joiners, or a letter and its combining marks, may be parted).
+fn middle_cut(title: &str, max: f32, width: &dyn Fn(&str) -> f32) -> String {
+    let chars: Vec<char> = title.chars().collect();
+    if chars.len() < 2 || width(title) <= max {
+        return title.to_owned();
+    }
+    let dot = chars.iter().rposition(|&c| c == '.').filter(|&at| {
+        let ext = &chars[at + 1..];
+        at > 0
+            && !ext.is_empty()
+            && ext.len() <= EXTENSION_MOST
+            && ext.iter().all(|c| c.is_alphanumeric())
+    });
+    // `kept` characters of `name`, half at each end of the ellipsis
+    // (the start the longer), then `after`.
+    let shown = |name: &[char], after: &[char], kept: usize| -> String {
+        let (head, tail) = (kept.div_ceil(2), kept / 2);
+        let mut s: String = name[..head].iter().collect();
+        s.push('…');
+        s.extend(&name[name.len() - tail..]);
+        s.extend(after);
+        s
+    };
+    // The most characters of `name` that fit with `after`: at least
+    // `least`, fewer than all of it (a width grows with what is kept).
+    let most = |name: &[char], after: &[char], least: usize| -> Option<String> {
+        let fits = |kept: usize| width(&shown(name, after, kept)) <= max;
+        if name.len() <= least || !fits(least) {
+            return None;
+        }
+        let (mut fit, mut over) = (least, name.len());
+        while over - fit > 1 {
+            let mid = (fit + over) / 2;
+            if fits(mid) { fit = mid } else { over = mid }
+        }
+        Some(shown(name, after, fit))
+    };
+    dot.and_then(|at| most(&chars[..at], &chars[at..], 1))
+        .or_else(|| most(&chars, &[], 2))
+        .unwrap_or_else(|| "…".to_owned())
 }
 
 /// The widest each title of a tab bar may be for the bar's tabs to fit
@@ -389,7 +452,94 @@ mod tests {
             let cut = doc_tab_title(ui.ctx(), font, "a_long_script_name.nss", 64.0, false);
             assert!(cut.cut && cut.width <= 64.0 && cut.width < whole.width, "{cut:?}");
             let text: String = cut.galley.rows[0].glyphs.iter().map(|g| g.chr).collect();
-            assert!(text.ends_with('…'), "{text}");
+            assert!(text.starts_with('a') && text.ends_with("e.nss"), "{text}");
+            assert!(text.contains('…'), "{text}");
+        });
+        out.textures_delta.clear();
+    }
+
+    /// A name too wide is cut in the middle (the owner's ruling, "Tab cut
+    /// in the middle to keep"), measured here a unit a character: whole
+    /// where it fits, to the hundredth; its start and end kept, the start
+    /// the longer, the extension whole while a character of the name fits
+    /// beside it, else the whole name cut in the middle; a name without
+    /// an extension (or with a dot that does not start one) cut in the
+    /// middle all the same; a name of one character never cut; the
+    /// ellipsis alone where nothing more fits.
+    #[test]
+    fn a_name_too_wide_is_cut_in_the_middle_keeping_its_extension() {
+        let units = |s: &str| s.chars().count() as f32;
+        let cut = |title: &str, max: f32| middle_cut(title, max, &units);
+        // Short, and an exact fit.
+        assert_eq!(cut("ab.nss", 10.0), "ab.nss");
+        assert_eq!(cut("abcdef.nss", 10.0), "abcdef.nss");
+        assert_eq!(cut("abcdef.nss", 9.99), "ab…ef.nss");
+        // Long: Chapter1's scripts, as the bar of the ruling's picture.
+        assert_eq!(cut("at_m1q4c_m1q_001.nss", 9.0), "at…01.nss");
+        assert_eq!(cut("at_m1q4c_m1q_001.nss", 10.0), "at_…01.nss");
+        assert_eq!(cut("at_m1q4c_m1q_001.nss", 19.0), "at_m1q4…m1q_001.nss");
+        // The extension kept with one character of the name, then dropped.
+        assert_eq!(cut("abcdefgh.nss", 6.0), "a….nss");
+        assert_eq!(cut("abcdefgh.nss", 5.0), "ab…ss");
+        // No extension, or none that is one.
+        assert_eq!(cut("module_properties_x", 7.0), "mod…s_x");
+        assert_eq!(cut("nw_c2_default9 (preview)", 9.0), "nw_c…iew)");
+        assert_eq!(cut("1.5 notes here", 7.0), "1.5…ere");
+        assert_eq!(cut(".hiddenname", 5.0), ".h…me");
+        assert_eq!(cut("name.toolongext", 7.0), "nam…ext");
+        // One character, and nothing more fitting than the ellipsis.
+        assert_eq!(cut("W", 0.5), "W");
+        assert_eq!(cut("abc", 2.0), "…");
+        assert_eq!(cut("ab.c", 2.5), "…");
+    }
+
+    /// The cut as egui lays it out, for names of letters, wide letters and
+    /// emoji in the button font: never wider than asked (but the ellipsis
+    /// alone), its start the name's, the extension kept whole wherever a
+    /// character of the name fits beside it.
+    #[test]
+    fn a_cut_name_fits_its_room_in_egui_s_fonts() {
+        let ctx = egui::Context::default();
+        crate::apply(&ctx, crate::Theme::Dark);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let measure = |s: &str| {
+                let g = ui.fonts_mut(|f| {
+                    f.layout_no_wrap(s.to_owned(), font.clone(), egui::Color32::WHITE)
+                });
+                g.rect.width()
+            };
+            for title in [
+                "at_m1q4c_m1q_001.nss",
+                "WWWWWWWWWWWW.utc",
+                "🌲🌲🌲🌲🌲🌲🌲🌲🌲.nss",
+                "ÆØÅ_wide_ᚠᚢᚦ_name",
+            ] {
+                let whole = measure(title);
+                let name = title.split('.').next().unwrap();
+                let ext = title.strip_prefix(name).unwrap();
+                let first = title.chars().next().unwrap();
+                let mut kept = 0;
+                for step in 1..=40 {
+                    let max = whole * step as f32 / 40.0;
+                    let shown = middle_cut(title, max, &measure);
+                    if shown == "…" {
+                        continue;
+                    }
+                    assert!(measure(&shown) <= max, "{title} in {max}: {shown}");
+                    if shown == title {
+                        assert!(whole <= max, "{title} whole in {max}");
+                        continue;
+                    }
+                    assert!(shown.starts_with(first) && shown.contains('…'), "{title}: {shown}");
+                    let one = format!("{first}…{ext}");
+                    if !ext.is_empty() && measure(&one) <= max {
+                        assert!(shown.ends_with(ext), "{title} in {max}: {shown}");
+                    }
+                    kept = kept.max(shown.chars().count());
+                }
+                assert!(kept > 3, "{title}: cut at some width");
+            }
         });
         out.textures_delta.clear();
     }

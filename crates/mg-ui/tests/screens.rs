@@ -1194,7 +1194,10 @@ fn described_table() {
          \"row\"\ntable = \"classes\"\n",
     )
     .unwrap();
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The log closed: its first line, cut by the table's window, showed
+    // at the window's left.)
+    app.settings.hide_log = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280.0, 800.0))
         .wgpu()
@@ -6784,6 +6787,11 @@ fn readme_screenshots() {
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(3);
+        // (Module Properties, which the module opens in the editor area,
+        // closed: its OK and Cancel showed under the floating windows.)
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+        h.run_steps(3);
+        assert!(h.state().dock.find_tab(&mg_ui::Tab::ModuleProperties).is_none());
         h
     };
     let key = |name: &str, t: ResType| ResKey::parse(name, t).unwrap();

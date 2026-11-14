@@ -3,7 +3,7 @@ type: How-to
 title: "Remaking the README and manual pictures (docs/images), since the shell (M3)"
 description: "How docs/images' README and manual pictures are made from screens.rs since M3's shell: the 1600 by 1022 harness, the cuts, the JPEG and PNG settings, and where to write them."
 tags: []
-status: stable
+status: deprecated
 generated: { by: agdb/0.2.0, at: 2026-11-14T12:56:04Z }
 touches: ["crates/mg-ui/tests/screens.rs:readme_screenshots", "crates/mg-ui/tests/screens.rs:described_table", docs/images/]
 asks:

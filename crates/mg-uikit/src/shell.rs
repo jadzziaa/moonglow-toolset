@@ -722,7 +722,11 @@ impl DockTabs {
         self.tabs.iter().map(|t| t.width_in(ui, form)).sum()
     }
 
-    /// How the tabs show in a bar `bar` wide ([`DockTabs::tools_width`]).
+    /// How the tabs show in a bar `bar` wide ([`DockTabs::tools_width`]):
+    /// their words where they fit beside the tools, else their words
+    /// closer, and their icons alone only where not even so and every tab
+    /// has an icon: where a tab has none, the tabs keep the closer words
+    /// even where those do not fit either.
     fn form_in(&self, ui: &Ui, bar: f32) -> TabForm {
         let Some(tools) = self.tools_width else { return TabForm::Words };
         let fits = |form| {

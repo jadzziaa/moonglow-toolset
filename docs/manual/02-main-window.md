@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T12:58:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:51Z }
 ---
 
 # The main window
@@ -355,7 +355,8 @@ at the right, how many it holds; **Module Properties** is at the top,
 and under the groups how many other resources the module has (those no
 group lists). (The dock's other tab, **Resources**, is [the resource
 browser](#the-resource-browser); the tabs show their words at the
-dock's first width, a little closer together where only so they fit,
+dock's first width, the tabs narrower and their words nearer the tabs'
+sides where only so they fit,
 and where the dock is narrower than that, beside the Module panel's four
 buttons and the fold arrow, their icons alone, a box and a folder, with
 their names in their tips: the
@@ -780,7 +781,9 @@ the dot, "modified". The window's title keeps its star for the module's
 unsaved changes. Where a group has more tabs than its bar holds, their
 names are cut short alike (to about eight letters at least, the whole name
 in the tab's tip), and past that the bar scrolls (the wheel over it); the
-tab brought to the front is scrolled into sight.
+tab brought to the front is scrolled into sight. A name is cut in the
+middle, so that its start and its end show and its extension stays
+whole: `at_m1q4c_m1q_001.nss` reads `at…01.nss` in a crowded bar.
 
 **Editor groups.** The main pane can hold groups of tabs side by side:
 **Split Editor** (the button at the right end of the focused group's tab

@@ -3,7 +3,7 @@ type: Decision
 title: "The sky under a camera higher than the game's: khaki bands at the sides of a wide area view"
 description: "Why the skybox is raised with a view's camera above 25 m (sky_place), what the khaki bands at the sides of a 2559 by 800 area view were, and what of them is the game's own look."
 tags: []
-status: stable
+status: deprecated
 generated: { by: agdb/0.2.0, at: 2026-11-14T12:55:43Z }
 touches: ["crates/mg-render/src/renderer.rs:sky_place", "crates/mg-ui/tests/app/drawing.rs:the_sky_under_a_camera_higher_than_the_game_s"]
 asks:

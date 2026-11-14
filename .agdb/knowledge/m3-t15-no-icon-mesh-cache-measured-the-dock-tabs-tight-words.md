@@ -16,7 +16,7 @@ created: 2026-11-14
 ---
 ## The icon mesh cache: not built (T15, by the plan's rule)
 - Rule: build it if the shell's median view cost rose more than about 0.1 ms or tessellation more than 25% over the T0 baseline.
-- Measured 2026-11-14, the T0 tree (d7f03d88, before the shell) against T15, interleaved (t0, m3, m3, t0) at a load of 1.4 to 2.5: the 156 views that name no 3D view, median 0.778 -> 0.783 ms (+0.025), their tessellation 10.54 -> 10.71 ms summed (+1.6%); all 306 common views median -0.057 ms, tessellation +2.3%. T9's crowded bar: about 20 µs a frame for 30 tabs. Far under either line.
+- Measured 2026-11-14, the T0 tree (d7f03d88, before the shell) against T15, interleaved (t0, m3, m3, t0; ab2/) at a load of 1.4 to 2.5 sampled at each run's start (ab2/loads.txt ends at 9.61; the first set, ab1/, at 2.3 to 10.4, gave all views' tessellation +4.4%): the 156 views that name no 3D view, median 0.778 -> 0.783 ms (+0.025), their tessellation 10.54 -> 10.71 ms summed (+1.6%); all 306 common views median -0.057 ms, tessellation +2.3%. T9's crowded bar: about 20 µs a frame for 30 tabs. Far under either line.
 - If it is ever built: key it by icon, size, color AND the font atlas's size (egui's round caps and dots come from discs in the font atlas, whose UVs move when the atlas grows), or draw the dots as circles.
 
 ## Dock tabs' tight words

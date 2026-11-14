@@ -822,6 +822,65 @@ fn a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons() {
     assert_eq!(order, [0, 1, 2], "words, closer, icons as the bar narrows: {forms:?}");
 }
 
+/// Where a dock tab's words are painted in each of its forms (M3 T15's
+/// review): with their words, `DOCK_TAB_PADDING` from the tab's left and
+/// as far from its right line; closer, `DOCK_TAB_TIGHT_PADDING` from
+/// each (the tab narrowed by the difference at each side, its words in
+/// it, not cut by its right line); as icons, no words at all. Swept as
+/// `a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons` is,
+/// every form seen.
+#[test]
+fn a_dock_tab_s_words_stand_by_its_padding_in_each_form() {
+    let width = Cell::new(400.0f32);
+    let mut h = Harness::builder().with_size(egui::vec2(400.0, 120.0)).build_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let w = width.get();
+        ui.allocate_ui(egui::vec2(w, 60.0), |ui| {
+            ui.set_width(w);
+            let mut selected = 1;
+            DockTabs::new("Left Dock")
+                .with(DockTab::new("Module").icon(Icon::Module))
+                .with(DockTab::new("Resources").icon(Icon::Folder))
+                .tools_width(5.0 * 22.0)
+                .show(ui, &mut selected, |ui| {
+                    for name in ["A", "B", "C", "D", "E"] {
+                        ui.add(IconButton::new(Icon::Plus, name).icon_only(true));
+                    }
+                });
+        });
+    });
+    let mut seen = Vec::new();
+    for w in (200..=320).rev().step_by(2).map(|w| w as f32) {
+        width.set(w);
+        h.run();
+        h.run();
+        let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
+        let words = texts(&h).into_iter().find(|(t, _)| t == "Module").map(|(_, r)| r);
+        let form = match words {
+            None => "icons",
+            Some(r) => {
+                let (left, right) = (r.left() - tab.left(), tab.right() - 1.0 - r.right());
+                let padding = if (left - shell::DOCK_TAB_PADDING).abs() < 0.01 {
+                    "words"
+                } else if (left - shell::DOCK_TAB_TIGHT_PADDING).abs() < 0.01 {
+                    "tight"
+                } else {
+                    panic!("{w}: the words {left} from the tab's left: {r:?} in {tab:?}")
+                };
+                assert!(
+                    (right - left).abs() < 0.01,
+                    "{w}: {left} at the left, {right} at the right"
+                );
+                padding
+            }
+        };
+        if seen.last() != Some(&form) {
+            seen.push(form);
+        }
+    }
+    assert_eq!(seen, ["words", "tight", "icons"], "every form seen as the bar narrows");
+}
+
 /// A strip without its chevron (its dock unfolded by a control of its
 /// own): no "Show the Left Dock" in it, its panels' buttons from its top,
 /// each reporting its click.
