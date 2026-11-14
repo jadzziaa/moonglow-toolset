@@ -704,6 +704,10 @@ pub struct ProjectFile {
     /// `[nwsync] cache`: where Moonglow keeps what it downloads, where not
     /// its own cache folder; the builder's own file's alone.
     pub nwsync_cache: Option<PathBuf>,
+    /// `[nwsync] keep`: how many manifests last used a prune of the cache
+    /// keeps besides the module's own (`mg nwsync-cache-prune`), the
+    /// builder's own file's over the team's.
+    pub nwsync_keep: Option<usize>,
     /// The team's described variables (`variables.toml` beside the
     /// team's file): none without it.
     pub variables: crate::var_desc::Variables,
@@ -1500,6 +1504,21 @@ impl ProjectFile {
                                 "cache is read from your own file alone (.moonglow/user.toml): \
                                  it is where Moonglow writes what it downloads",
                             ),
+                            "keep" => match e.1.get_ref() {
+                                DeValue::Integer(i) if i.radix() == 10 => {
+                                    match i.as_str().parse::<usize>() {
+                                        Ok(n) => self.nwsync_keep = Some(n),
+                                        Err(_) => r.warn(
+                                            e.1.span().start,
+                                            "keep is to be a number of manifests, 0 or more",
+                                        ),
+                                    }
+                                }
+                                _ => r.warn(
+                                    e.1.span().start,
+                                    "keep is to be a number of manifests, 0 or more",
+                                ),
+                            },
                             "cache" => {
                                 let text = r.text(e).map(|t| t.trim().to_string());
                                 match text.filter(|t| !t.is_empty()).map(PathBuf::from) {
@@ -3055,6 +3074,13 @@ keeper_variable = "tdod_store"
         let mut p = ProjectFile::default();
         p.apply("user.toml", "[nwsync]\ncache = \"relative/dir\"\n", true);
         assert!(p.nwsync_cache.is_none() && p.warnings[0].contains("whole path"));
+        let mut p = ProjectFile::default();
+        p.apply("moonglow.toml", "[nwsync]\nkeep = 5\n", false);
+        p.apply("user.toml", "[nwsync]\nkeep = 1\n", true);
+        assert_eq!((p.nwsync_keep, p.warnings.len()), (Some(1), 0));
+        p.apply("user.toml", "[nwsync]\nkeep = -1\n", true);
+        p.apply("user.toml", "[nwsync]\nkeep = \"two\"\n", true);
+        assert_eq!((p.nwsync_keep, p.warnings.len()), (Some(1), 2));
     }
 
     /// `[nwsync] upload`: text, or a table for each system and `input`;
@@ -3104,7 +3130,8 @@ keeper_variable = "tdod_store"
     }
 
     /// Beside a `.mod` (`NAME.moonglow.toml`), `[nwsync]` names the
-    /// server its content is read from and which manifest; its `cache` is a builder's own file's, which a `.mod`
+    /// server its content is read from, which manifest and how many a
+    /// prune keeps; its `cache` is a builder's own file's, which a `.mod`
     /// has none of (Moonglow's own cache is used), and `upload` runs a
     /// command, a project's: both said and left out.
     #[test]
@@ -3118,7 +3145,7 @@ keeper_variable = "tdod_store"
             dir.join("krezk.moonglow.toml"),
             format!(
                 "[nwsync]\nsource = \"https://nwsync.example.org\"\nmanifest = \"{sha}\"\n\
-                 cache = \"/big/nwsync\"\nupload = \"rsync {{part}} x:/y\"\n"
+                 keep = 2\ncache = \"/big/nwsync\"\nupload = \"rsync {{part}} x:/y\"\n"
             ),
         )
         .unwrap();
@@ -3127,11 +3154,11 @@ keeper_variable = "tdod_store"
         let s = p.nwsync_settings().unwrap();
         assert_eq!(s.url, "https://nwsync.example.org");
         assert_eq!(s.manifest, mg_nwsync::Wanted::Pinned(mg_nwsync::parse_sha1(sha).unwrap()));
-        assert_eq!(s.cache, None);
+        assert_eq!((s.cache, p.nwsync_keep), (None, Some(2)));
         assert!(p.nwsync_upload.is_none());
         assert_eq!(p.warnings.len(), 2, "{:?}", p.warnings);
-        assert!(p.warnings[0].starts_with("krezk.moonglow.toml:4: cache is read from"));
-        assert!(p.warnings[1].starts_with("krezk.moonglow.toml:5: upload is not read"));
+        assert!(p.warnings[0].starts_with("krezk.moonglow.toml:5: cache is read from"));
+        assert!(p.warnings[1].starts_with("krezk.moonglow.toml:6: upload is not read"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

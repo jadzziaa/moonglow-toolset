@@ -40,6 +40,8 @@ pub(crate) struct Config {
     /// The nasher project `module` was built from (`mg watch`): its own
     /// talk table is made for the server, as for the project served.
     pub project: Option<PathBuf>,
+    /// Say how far haks being written from NWSync are, on standard error.
+    pub progress: bool,
 }
 
 /// The server's passwords, as `mg serve` and `mg watch --serve` take
@@ -259,11 +261,20 @@ pub(crate) fn save_copy(m: &mut mg_module::Module, to: &Path) -> Result<()> {
 /// its haks in `hak` and its talk table in `tlk` (from the player's
 /// folders and the game's, which are only read). Returns the module's
 /// name there and what to say.
+///
+/// A module whose project names an NWSync server (`[nwsync] source`) has
+/// the haks that server hands out written from its content into
+/// Moonglow's cache ([`mg_module::nwsync_content::write_haks`]: once,
+/// and again only for a hak a newer manifest changed) and linked here,
+/// over any of the same name on disk, as the game takes them; and its
+/// talk table, where the manifest has it. `progress`: say how far a
+/// write is on standard error.
 pub(crate) fn prepare(
     gi: &GameInstall,
     module: &Path,
     dir: &Path,
     project: Option<&Path>,
+    progress: bool,
 ) -> Result<(String, Vec<String>)> {
     let mut notes = Vec::new();
     let name = module_name(module);
@@ -274,6 +285,8 @@ pub(crate) fn prepare(
     let target = dir.join("modules").join(format!("{name}.mod"));
     let mut m = crate::open_module(module).with_context(|| module.display().to_string())?;
     let (haks, tlk) = (m.haks()?, m.custom_tlk()?);
+    // (Read before the copy is saved: the copy is a module of its own.)
+    let nwsync = m.project_file.nwsync_settings();
     // A talk table the project keeps as JSON, made into the table as
     // nasher packs it (the game's language's, where it keeps one a
     // language): the server finds no other.
@@ -333,6 +346,16 @@ pub(crate) fn prepare(
         // (The server loads an archive only.)
         save_copy(&mut m, &target)?;
     }
+    let synced = nwsync_haks(gi, nwsync, project, &haks, tlk.as_deref(), progress)?;
+    if let Some(s) = &synced {
+        notes.push(s.summary());
+        if !s.not_listed.is_empty() {
+            notes.push(format!(
+                "the origins file names haks the module doesn't list, not written: {}",
+                s.not_listed.join(", ")
+            ));
+        }
+    }
     for hak in &haks {
         // (A name with a folder in it is placed nowhere: `../x` would be
         // a file outside the server's hak folder.)
@@ -341,6 +364,10 @@ pub(crate) fn prepare(
             continue;
         };
         let to = dir.join("hak").join(file);
+        if let Some(written) = synced.as_ref().and_then(|s| s.hak(hak)) {
+            place(&written.path, &to).with_context(|| to.display().to_string())?;
+            continue;
+        }
         match gi.find_hak(hak) {
             Some(from) if !same(&from, &to) => place(&from, &to)?,
             Some(_) => {}
@@ -350,6 +377,7 @@ pub(crate) fn prepare(
     }
     if let Some(tlk) = tlk {
         let mut place_tlk = |table_name: &str,
+                             synced: Option<&Path>,
                              own: Option<mg_module::nasher::TalkTable>,
                              required: bool|
          -> Result<()> {
@@ -363,6 +391,11 @@ pub(crate) fn prepare(
                 return Ok(());
             };
             let to = dir.join("tlk").join(&file);
+            // (The manifest's, as the game data has it: over the project's.)
+            if let Some(path) = synced {
+                place(path, &to).with_context(|| to.display().to_string())?;
+                return Ok(());
+            }
             if let Some(own) = own {
                 let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
                 if !std::fs::read(&to).is_ok_and(|had| had == bytes) {
@@ -384,12 +417,48 @@ pub(crate) fn prepare(
             }
             Ok(())
         };
-        place_tlk(&tlk, own_tlk, true)?;
+        let synced_tlk = synced.as_ref().and_then(|s| s.tlk.as_ref()).map(|(_, p)| p.as_path());
+        place_tlk(&tlk, synced_tlk, own_tlk, true)?;
         if mg_resman::named_file(&tlk, "tlk").is_some() {
-            place_tlk(&mg_module::talk::feminine(&tlk), own_fem_tlk, false)?;
+            place_tlk(&mg_module::talk::feminine(&tlk), None, own_fem_tlk, false)?;
         }
     }
     Ok((name, notes))
+}
+
+/// The module's haks from its NWSync content, written into Moonglow's
+/// cache, where its project's `settings` (or those of the project it was
+/// built from) name a server: `None` where none does.
+fn nwsync_haks(
+    gi: &GameInstall,
+    settings: Option<mg_nwsync::Settings>,
+    project: Option<&Path>,
+    haks: &[String],
+    tlk: Option<&str>,
+    progress: bool,
+) -> Result<Option<mg_module::nwsync_content::HakFiles>> {
+    let settings = settings.or_else(|| {
+        // (A project's folder, or its nasher.cfg.)
+        let root = project.map(|p| if p.is_file() { p.parent().unwrap_or(p) } else { p })?;
+        mg_module::project_file::ProjectFile::read(root).nwsync_settings()
+    });
+    let Some(settings) = settings else { return Ok(None) };
+    let game = mg_module::nwsync_content::game_storage(gi).map_err(anyhow::Error::msg)?;
+    let last = std::sync::Mutex::new(Instant::now() - Duration::from_secs(60));
+    let said = |p: mg_nwsync::haks::Progress| {
+        if !progress || p.of_bytes == 0 {
+            return;
+        }
+        let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+        if last.elapsed() >= Duration::from_secs(3) {
+            *last = Instant::now();
+            eprintln!("{}", crate::nwsync_read::hak_progress(&p));
+        }
+    };
+    let o = mg_module::nwsync_content::WriteOptions { progress: &said, ..Default::default() };
+    let files = mg_module::nwsync_content::write_haks(&settings, game.as_ref(), haks, tlk, &o)
+        .map_err(|e| anyhow::anyhow!("the module's NWSync content ({}): {e}", settings.url))?;
+    Ok(Some(files))
 }
 
 /// What a module's file or folder looks like, to see it change.
@@ -538,7 +607,7 @@ pub(crate) fn serve(
     let mut port = c.port;
     let mut passwords = c.passwords.clone();
     loop {
-        let (name, notes) = prepare(gi, &c.module, &dir, c.project.as_deref())?;
+        let (name, notes) = prepare(gi, &c.module, &dir, c.project.as_deref(), c.progress)?;
         for note in notes {
             each(&Event::Note(note));
         }
@@ -809,7 +878,7 @@ mod tests {
         let json = r#"{"language":0,"entries":[{"id":0,"text":"Ours"}]}"#;
         std::fs::write(project.join("src/tlk/mytlk.tlk.json"), json).unwrap();
         let server = dir.join("server");
-        let (_, notes) = prepare(&gi, &project, &server, None).unwrap();
+        let (_, notes) = prepare(&gi, &project, &server, None, false).unwrap();
         assert!(notes.iter().any(|n| n.contains("made from")), "{notes:?}");
         let made = std::fs::read(server.join("tlk/mytlk.tlk")).unwrap();
         let tlk = mg_tlk::Tlk::read(&made).unwrap();
@@ -824,7 +893,7 @@ mod tests {
             .unwrap();
         let json = r#"{"language":0,"entries":[{"id":0,"text":"Changed"}]}"#;
         std::fs::write(project.join("src/tlk/mytlk.tlk.json"), json).unwrap();
-        let (_, notes) = prepare(&gi, &built, &server, Some(&project)).unwrap();
+        let (_, notes) = prepare(&gi, &built, &server, Some(&project), false).unwrap();
         assert!(notes.iter().any(|n| n.contains("made from")), "{notes:?}");
         let made =
             mg_tlk::Tlk::read(&std::fs::read(server.join("tlk/mytlk.tlk")).unwrap()).unwrap();
@@ -857,12 +926,113 @@ mod tests {
         let module = dir.join("outside.mod");
         m.save_as(&ModuleLocation::Archive(module.clone())).unwrap();
         let server = dir.join("server");
-        let (_, notes) = prepare(&gi, &module, &server, None).unwrap();
+        let (_, notes) = prepare(&gi, &module, &server, None, false).unwrap();
         assert!(!server.join("x.hak").exists() && !server.join("y.tlk").exists());
         let warned =
             |what: &str| notes.iter().any(|n| n.contains(what) && n.contains("folder separator"));
         assert!(warned("hak ../x not found") && warned("talk table ../y not found"), "{notes:?}");
         assert_eq!(std::fs::read(user.join("x.hak")).unwrap(), b"not the module's");
+    }
+
+    /// A module whose project names an NWSync server: the haks the
+    /// origins file names are written from the game's NWSync storage into
+    /// Moonglow's cache and linked for the server, as is the talk table;
+    /// a hak it doesn't name comes from disk; data not downloaded is an
+    /// error that says how to download it. The player's folders are left
+    /// as they were.
+    #[test]
+    fn haks_from_nwsync_are_written_for_the_server() {
+        use mg_core::sha1::sha1;
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let dir = mg_testkit::scratch_dir("mg-serve-nwsync-haks");
+        let user = dir.join("user");
+        for sub in ["hak", "tlk"] {
+            std::fs::create_dir_all(user.join(sub)).unwrap();
+        }
+        let mut local = mg_erf::ErfWriter::new(*b"HAK ");
+        local
+            .add(mg_core::ResRef::from_str("mine").unwrap(), ResType::TXT, b"local".to_vec())
+            .unwrap();
+        std::fs::write(user.join("hak/local.hak"), local.to_bytes().unwrap()).unwrap();
+        let table = b"2DA V2.0\n\n A\n0 synced\n".to_vec();
+        let tlk = b"TLK V3.0 a talk table of the server's".to_vec();
+        let (k_table, k_tlk) = (
+            ResKey::parse("synced", ResType::TWODA).unwrap(),
+            ResKey::parse("mytlk", ResType::TLK).unwrap(),
+        );
+        let entries =
+            [(k_table, sha1(&table), table.len() as u32), (k_tlk, sha1(&tlk), tlk.len() as u32)];
+        let manifest = mg_nwsync::manifest::write(&entries);
+        let url = "https://nwsync.example.org";
+        let storage = |data: Vec<(mg_nwsync::Sha1, Vec<u8>)>| {
+            let _ = std::fs::remove_dir_all(user.join("nwsync"));
+            mg_nwsync::fixtures::write_storage(
+                &user.join("nwsync"),
+                &[mg_nwsync::fixtures::Registered {
+                    sha1: sha1(&manifest),
+                    origin_url: url.into(),
+                    created_at: 1,
+                    last_used_at: 1,
+                    resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
+                    cached: Some(manifest.clone()),
+                }],
+                &[data],
+            );
+        };
+        storage(vec![(sha1(&tlk), tlk.clone())]);
+        let gi = GameInstall::new(&root, Some(user.clone()), "en");
+        let folder = dir.join("module");
+        let mut m = mg_module::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        let haks = ["synced_hak", "local"].map(|h| {
+            let mut s = mg_gff::Struct::new(8);
+            s.set("Mod_Hak", mg_gff::Value::String(h.as_bytes().to_vec()));
+            s
+        });
+        info.root.set("Mod_HakList", mg_gff::Value::List(haks.to_vec()));
+        info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mytlk".to_vec()));
+        m.set_info(&info).unwrap();
+        m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+        std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}\"\n"))
+            .unwrap();
+        std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+        let cache = dir.join("cache");
+        let own = format!("[nwsync]\ncache = '{}'\n", cache.display());
+        std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+        let origins =
+            "Erf:/srv/hak/synced_hak.hak\n\tsynced.2da\nResFile:/srv/tlk/mytlk.tlk\n\tmytlk.tlk\n";
+        mg_nwsync::Cache::new(&cache)
+            .put_manifest(&sha1(&manifest), "origin", origins.as_bytes())
+            .unwrap();
+        let server = dir.join("server");
+
+        // The 2DA's data isn't here yet.
+        let e = prepare(&gi, &folder, &server, None, false).unwrap_err();
+        assert!(format!("{e:#}").contains("mg nwsync-pull"), "{e:#}");
+        assert!(!server.join("hak/synced_hak.hak").exists());
+
+        storage(vec![
+            (sha1(&tlk), tlk.clone()),
+            (sha1(&table), mg_erf::compressedbuf::compress(&table, *b"NSYC").unwrap()),
+        ]);
+        let (_, notes) = prepare(&gi, &folder, &server, None, false).unwrap();
+        assert!(notes.iter().any(|n| n.starts_with("1 haks from NWSync manifest")), "{notes:?}");
+        let hak = std::fs::read(server.join("hak/synced_hak.hak")).unwrap();
+        let erf = mg_erf::Erf::read(&hak).unwrap();
+        assert_eq!(&*erf.get(&k_table.resref, k_table.restype).unwrap().unwrap(), &table[..]);
+        assert_eq!(
+            std::fs::read(server.join("hak/local.hak")).unwrap(),
+            std::fs::read(user.join("hak/local.hak")).unwrap()
+        );
+        assert_eq!(std::fs::read(server.join("tlk/mytlk.tlk")).unwrap(), tlk);
+        // (Again: as written before.)
+        let (_, notes) = prepare(&gi, &folder, &server, None, false).unwrap();
+        assert!(notes.iter().any(|n| n.ends_with("all written before")), "{notes:?}");
+        let mut names: Vec<_> =
+            std::fs::read_dir(user.join("hak")).unwrap().flatten().map(|e| e.file_name()).collect();
+        names.sort();
+        assert_eq!(names, ["local.hak"]);
+        assert_eq!(std::fs::read_dir(user.join("tlk")).unwrap().count(), 0);
     }
 
     #[test]
@@ -940,7 +1110,7 @@ mod tests {
         )
         .unwrap();
         let server = dir.join("server_proj");
-        prepare(&gi, &project, &server, None).unwrap();
+        prepare(&gi, &project, &server, None, false).unwrap();
         let fem =
             mg_tlk::Tlk::read(&std::fs::read(server.join("tlk/mytlkf.tlk")).unwrap()).unwrap();
         assert_eq!(fem.entries[0].text, b"Fem");
@@ -955,7 +1125,7 @@ mod tests {
         lm.set_info(&linfo).unwrap();
         lm.save_as(&ModuleLocation::Archive(loose_mod.clone())).unwrap();
         let server2 = dir.join("server_loose");
-        let (_, notes) = prepare(&gi, &loose_mod, &server2, None).unwrap();
+        let (_, notes) = prepare(&gi, &loose_mod, &server2, None, false).unwrap();
         assert_eq!(std::fs::read(server2.join("tlk/loosef.tlk")).unwrap(), b"female");
         assert!(!notes.iter().any(|n| n.contains("not found")), "{notes:?}");
 
@@ -964,7 +1134,7 @@ mod tests {
         lm.set_info(&linfo).unwrap();
         let male_mod = dir.join("male.mod");
         lm.save_as(&ModuleLocation::Archive(male_mod.clone())).unwrap();
-        let (_, notes) = prepare(&gi, &male_mod, &dir.join("server_male"), None).unwrap();
+        let (_, notes) = prepare(&gi, &male_mod, &dir.join("server_male"), None, false).unwrap();
         assert!(!notes.iter().any(|n| n.contains("not found")), "{notes:?}");
 
         // Module folder referencing a corrupt hak surfaces ResError.
@@ -977,6 +1147,6 @@ mod tests {
         binfo.root.set("Mod_HakList", mg_gff::Value::List(vec![hak]));
         bm.set_info(&binfo).unwrap();
         bm.save_as(&ModuleLocation::Folder(bad_dir.clone())).unwrap();
-        assert!(prepare(&gi, &bad_dir, &dir.join("server_bad"), None).is_err());
+        assert!(prepare(&gi, &bad_dir, &dir.join("server_bad"), None, false).is_err());
     }
 }

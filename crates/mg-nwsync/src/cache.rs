@@ -7,7 +7,15 @@
 //! - `manifests/<sha1>`, with `.json` and `.origin` where the server had
 //!   them;
 //! - `latest/<server>`: the SHA-1 of the newest manifest a server named,
-//!   when it was last asked (the manifest used when it can't be reached).
+//!   when it was last asked (the manifest used when it can't be reached);
+//! - `haks/<key>.hak`: a hak written from a manifest's data, named by its
+//!   content ([`crate::haks`]), and `haks/<sha1>.tlk` a talk table;
+//! - `written/<sha1>`: which of those are a manifest's haks
+//!   ([`crate::haks::Index`]).
+//!
+//! A manifest's files are touched when it is used ([`Cache::touch`]), so
+//! that what was used last is kept when the cache is pruned
+//! ([`crate::prune`]).
 //!
 //! Content is named by its SHA-1, so one cache serves every server.
 
@@ -112,7 +120,8 @@ impl Cache {
         write_whole(&self.manifest_path(sha1, ext), data)
     }
 
-    /// The manifests kept, the newest first (by when they were kept).
+    /// The manifests kept, the newest first (by when they were kept, or
+    /// last used: [`Cache::touch`]).
     pub fn manifests(&self) -> Vec<(Sha1, SystemTime)> {
         let Ok(dir) = std::fs::read_dir(self.root.join("manifests")) else { return Vec::new() };
         let mut out: Vec<(Sha1, SystemTime)> = dir
@@ -124,6 +133,50 @@ impl Cache {
             .collect();
         out.sort_by_key(|(_, t)| std::cmp::Reverse(*t));
         out
+    }
+
+    /// Where the hak of this key is ([`crate::haks::Planned::key`]).
+    pub fn hak_path(&self, key: &Sha1) -> PathBuf {
+        self.root.join("haks").join(format!("{}.hak", sha1_hex(key)))
+    }
+
+    /// Where a resource written as a file of its own is (a talk table).
+    pub fn file_path(&self, sha1: &Sha1, ext: &str) -> PathBuf {
+        self.root.join("haks").join(format!("{}.{ext}", sha1_hex(sha1)))
+    }
+
+    /// Where a manifest's index of written haks is.
+    pub fn written_path(&self, manifest: &Sha1) -> PathBuf {
+        self.root.join("written").join(sha1_hex(manifest))
+    }
+
+    /// A manifest's written haks, as last kept (empty: none).
+    pub fn written(&self, manifest: &Sha1) -> crate::haks::Index {
+        std::fs::read_to_string(self.written_path(manifest))
+            .map(|t| crate::haks::Index::parse(&t))
+            .unwrap_or_default()
+    }
+
+    /// Keeps a manifest's written haks, with those kept before for it.
+    pub fn put_written(
+        &self,
+        manifest: &Sha1,
+        index: crate::haks::Index,
+    ) -> std::io::Result<crate::haks::Index> {
+        let index = index.merged(&self.written(manifest));
+        write_whole(&self.written_path(manifest), index.to_text().as_bytes())?;
+        Ok(index)
+    }
+
+    /// Marks a manifest used now (its file and its index of written haks,
+    /// where they are here): a prune keeps the last used.
+    pub fn touch(&self, manifest: &Sha1) {
+        let now = SystemTime::now();
+        for path in [self.manifest_path(manifest, ""), self.written_path(manifest)] {
+            if let Ok(f) = std::fs::File::options().write(true).open(&path) {
+                let _ = f.set_modified(now);
+            }
+        }
     }
 
     fn latest_path(&self, url: &str) -> PathBuf {

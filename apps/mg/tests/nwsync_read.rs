@@ -161,3 +161,78 @@ fn a_module_s_nwsync_content_is_pulled_into_the_cache() {
     let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-status", "--cache", c]);
     assert!(!ok && j["error"].to_string().contains("--source"), "{j}");
 }
+
+/// `mg nwsync-haks`: a module's haks written from its NWSync content (the
+/// server publishes no origins file: the resources spread over the
+/// module's haks), and its talk table, put in `--out`'s `hak` and `tlk`;
+/// written once, then as written before. `mg nwsync-cache-prune` keeps
+/// what the module's manifest needs.
+#[test]
+fn a_module_s_haks_are_written_from_its_nwsync_content() {
+    let dir = mg_testkit::scratch_dir("mg-nwsync-haks");
+    let resources: Vec<(ResKey, &[u8])> = vec![
+        (key("pw_appear", ResType::TWODA), b"2DA V2.0\n\n A\n0 x\n"),
+        (key("pw_head", ResType::MDL), b"a model of a head, a model of a head"),
+        (key("pw_tex", ResType::TGA), b"a texture"),
+        (key("world", ResType::TLK), b"TLK V3.0 and the rest of a talk table"),
+    ];
+    let contents: Vec<(ResKey, Source)> =
+        resources.iter().map(|(k, b)| (*k, Source::Bytes((*b).into()))).collect();
+    let o = Options { latest: true, ..Default::default() };
+    let written = write(&dir.join("repo"), &contents, &o, &mut |_, _| {}).unwrap();
+    let (url, _, _) = serve(dir.join("repo"));
+    let folder = module_naming(&dir, &url);
+    let mut m = mg_module::Module::open(&folder).unwrap();
+    let mut info = m.info().unwrap();
+    let haks = ["pw_one", "pw_two"].map(|h| {
+        let mut s = mg_gff::Struct::new(8);
+        s.set("Mod_Hak", mg_gff::Value::String(h.as_bytes().to_vec()));
+        s
+    });
+    info.root.set("Mod_HakList", mg_gff::Value::List(haks.to_vec()));
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"world".to_vec()));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let (cache, out) = (dir.join("cache"), dir.join("out"));
+    let (c, o, f) = (cache.to_str().unwrap(), out.to_str().unwrap(), folder.to_str().unwrap());
+
+    // Nothing downloaded: said how to.
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-haks", f, "--cache", c]);
+    assert!(!ok && j["error"].to_string().contains("mg nwsync-pull"), "{j}");
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-pull", f, "--cache", c]);
+    assert!(ok, "{j}");
+
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-haks", f, "--cache", c, "--out", o]);
+    assert!(ok, "{j}");
+    assert_eq!(j["manifest"], written.sha1.as_str());
+    assert_eq!(j["plan"], "spread");
+    let haks = j["haks"].as_array().unwrap();
+    assert_eq!(haks.len(), 2);
+    assert!(haks.iter().all(|h| h["written"] == true));
+    let total: u64 = haks.iter().map(|h| h["resources"].as_u64().unwrap()).sum();
+    assert_eq!(total, 3);
+    assert_eq!(j["tlk"]["name"], "world.tlk");
+    assert_eq!(std::fs::read(out.join("tlk/world.tlk")).unwrap(), resources[3].1);
+    let mut found = 0;
+    for name in ["pw_one", "pw_two"] {
+        let bytes = std::fs::read(out.join(format!("hak/{name}.hak"))).unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        for (k, b) in &resources[..3] {
+            if let Some(got) = erf.get(&k.resref, k.restype) {
+                assert_eq!(&*got.unwrap(), *b);
+                found += 1;
+            }
+        }
+    }
+    assert_eq!(found, 3);
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-haks", f, "--cache", c, "--out", o]);
+    assert!(ok, "{j}");
+    assert!(j["haks"].as_array().unwrap().iter().all(|h| h["written"] == false), "{j}");
+
+    let (ok, j) = crate::mg_json(&["--no-user-dir", "nwsync-cache-prune", f, "--cache", c]);
+    assert!(ok, "{j}");
+    assert_eq!(j["kept"][0], written.sha1.as_str());
+    assert_eq!((j["data_files"].as_u64(), j["haks"].as_u64()), (Some(0), Some(0)));
+    let (ok, _) = crate::mg_json(&["--no-user-dir", "nwsync-haks", f, "--cache", c]);
+    assert!(ok);
+}

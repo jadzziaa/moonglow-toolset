@@ -1239,14 +1239,21 @@ File › Project. What is left:
 
 ## NWSync content read
 
-- **Haks written from NWSync content:** Aurora reads only hak files, and
-  Test Module (`mg serve`) gives the game's server haks: a command that
-  writes the module's haks from the manifest (by the origins file where
-  the server has one, else split under 2 GiB each) would serve both.
-  Left out of the first iteration by its scope. (M)
-- **The cache is never pruned:** data no manifest of the cache names
-  stays. A prune as `nwn_nwsync_prune`'s, over the cache's manifests,
-  with the window's and `mg`'s word. Left out by its scope. (S)
+- **Test Module's user folder on Windows without links:** Test Module
+  gives the game a user folder of Moonglow's that links the player's
+  (`test_module::content_user_dir`): symbolic links, else junctions for
+  folders and hard links, else copies, for files. Checked on Linux; on
+  Windows and macOS it waits on a run there with a module of NWSync
+  content. (S, needs a Windows machine and a Mac)
+- **Haks written from NWSync, end to end:** written and read back from
+  made-up storage and manifests in the tests; a whole persistent world's
+  (one of 16.6 GB) waits on a machine that has downloaded it all
+  (`mg nwsync-haks MODULE --out DIR` says what it wrote and how long it
+  took). (S, waits on a machine with the content)
+- **`mg serve` and `development/`:** the server's own folder gets the
+  module's haks and talk table, not the player's `development` folder, so
+  work in progress there is in Test Module's game but not in `mg serve`'s
+  server. (S, a decision)
 - **A builder's own haks under the manifest:** a hak on disk sits under
   the NWSync layer (31 < 40), as in the game, so a work-in-progress hak
   that replaces a resource of the manifest is shadowed; `development/`

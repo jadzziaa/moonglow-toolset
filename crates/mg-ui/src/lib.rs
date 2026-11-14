@@ -7200,7 +7200,7 @@ impl Moonglow {
                 return;
             }
             self.log.info(format!("Installed {}", dest.display()));
-            self.launch_test(&client, user, &name, choose);
+            self.test_with_content(&client, user, &name, choose);
             return;
         }
         let Some(path) = self.module_path() else {
@@ -7220,7 +7220,7 @@ impl Moonglow {
         {
             return;
         }
-        self.launch_test(&client, user, &name, choose);
+        self.test_with_content(&client, user, &name, choose);
     }
 
     /// Test From Here: the module as it is now, not saved, written to the
@@ -7257,7 +7257,7 @@ impl Moonglow {
                     at[1],
                     dest.display()
                 ));
-                self.launch_test(&client, &user, test_module::FROM_HERE, choose);
+                self.test_with_content(&client, &user, test_module::FROM_HERE, choose);
             }
             Err(e) => self.log.error(format!("Test From Here: {e}")),
         }
@@ -7633,6 +7633,65 @@ impl Moonglow {
         self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
+    }
+
+    /// Starts the game for a test ([`Moonglow::launch_test`]). For a
+    /// module whose project names an NWSync server, the game can't read
+    /// that content on a module of its own: the haks the server hands out
+    /// are written from it first (a job: the first time, gigabytes; then
+    /// only a hak a newer manifest changed), and the game is given a user
+    /// directory of Moonglow's that is the player's own but for its hak
+    /// and talk table folders ([`test_module::content_user_dir`]).
+    fn test_with_content(
+        &mut self,
+        client: &std::path::Path,
+        user: &std::path::Path,
+        name: &str,
+        choose: bool,
+    ) {
+        let uses =
+            (self.ws.as_ref()).is_some_and(|ws| ws.module.project_file.nwsync_settings().is_some());
+        let Some(install) = self.install.clone().filter(|_| uses) else {
+            self.launch_test(client, user, name, choose);
+            return;
+        };
+        let Some(dir) =
+            mg_module::build::cache_dir().map(|d| d.join(test_module::CONTENT_USER_DIR))
+        else {
+            self.log.error("Test Module: no cache folder to write the module's NWSync haks into");
+            return;
+        };
+        let (client, real, name) = (client.to_path_buf(), user.to_path_buf(), name.to_string());
+        self.start_job(
+            "Test Module: the haks from NWSync",
+            move |ctx| -> Result<(std::path::PathBuf, String), String> {
+                let progress = |p: mg_nwsync::haks::Progress| {
+                    ctx.progress.step((p.bytes >> 20) as usize, (p.of_bytes >> 20) as usize);
+                    ctx.progress.say(format!(
+                        "writing haks: {} of {}, {} of {} MB",
+                        p.haks,
+                        p.of_haks,
+                        p.bytes >> 20,
+                        p.of_bytes >> 20
+                    ));
+                };
+                let stop = || ctx.progress.cancelled();
+                let o = mg_module::nwsync_content::WriteOptions {
+                    progress: &progress,
+                    stop: &stop,
+                    ..Default::default()
+                };
+                let said = test_module::with_content(&ctx.module, &install, &real, &dir, &o)?;
+                Ok((dir, said))
+            },
+            move |app, made| match made {
+                Ok((dir, summary)) => {
+                    app.log.info(format!("Test Module: {summary}"));
+                    app.launch_test(&client, &dir, &name, choose);
+                }
+                Err(e) => app.log.error(format!("Test Module: the module's NWSync content: {e}")),
+            },
+        );
     }
 
     fn launch_test(

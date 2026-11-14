@@ -2,7 +2,10 @@
 //! the NWSync server that hands it to players (`[nwsync] source` in its
 //! project file, or `--source`), what of it is here (the game's NWSync
 //! storage, read only, and Moonglow's own cache), and the download of
-//! what isn't into the cache ([`mg_nwsync`]).
+//! what isn't into the cache ([`mg_nwsync`]). `mg nwsync-haks` writes
+//! the module's haks from it (as `mg serve` does for its server), and
+//! `mg nwsync-cache-prune` takes out of the cache what is no longer
+//! needed.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -275,5 +278,277 @@ fn pull_with(
     if !d.failed.is_empty() {
         out.failed = true;
     }
+    Ok(out)
+}
+
+/// A line on how far a write of haks is.
+pub(crate) fn hak_progress(p: &mg_nwsync::haks::Progress) -> String {
+    format!(
+        "writing haks from NWSync: {} of {} haks, {} of {}",
+        p.haks,
+        p.of_haks,
+        megabytes(p.bytes),
+        megabytes(p.of_bytes)
+    )
+}
+
+/// What `mg nwsync-haks` is told besides the content's source.
+#[derive(Debug, Clone)]
+pub(crate) struct HakArgs {
+    pub out: Option<PathBuf>,
+    pub all: bool,
+    pub copy: bool,
+    pub jobs: usize,
+}
+
+/// Puts a written file at `to`: a hard link (it stays when the cache is
+/// pruned), else a copy; a copy with `copy`.
+fn put(from: &Path, to: &Path, copy: bool) -> Result<()> {
+    if same_file(from, to) {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(to);
+    if !copy && std::fs::hard_link(from, to).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(from, to).with_context(|| to.display().to_string())?;
+    Ok(())
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// `mg nwsync-haks`.
+pub(crate) fn haks(cli: &Cli, s: &Source, a: &HakArgs) -> Result<Output> {
+    let settings = settings(s)?;
+    let game = game_storage(cli)?;
+    let module = match &s.module {
+        Some(path) => Some(crate::open_module(path)?),
+        None => None,
+    };
+    let (names, tlk) = match &module {
+        Some(m) => (m.haks()?, m.custom_tlk()?),
+        None => {
+            // (Without a module, the haks the origins file names, and the
+            // manifest's talk table.)
+            let cache = cache_of(&settings)?;
+            let found =
+                mg_nwsync::find(&settings.url, settings.manifest, Some(&cache), game.as_ref())
+                    .map_err(anyhow::Error::msg)?;
+            if found.origins.is_none() {
+                bail!(
+                    "the server publishes no origins file for manifest {}: give the module, whose \
+                     haks the manifest's resources are spread over",
+                    found.short()
+                );
+            }
+            let tlks: Vec<String> = (found.entries.iter())
+                .filter(|(k, _, _)| k.restype == mg_core::ResType::TLK)
+                .map(|(k, _, _)| k.resref.to_string())
+                .collect();
+            (Vec::new(), (tlks.len() == 1).then(|| tlks[0].clone()))
+        }
+    };
+    let all = a.all || module.is_none();
+    let last = Mutex::new(Instant::now() - Duration::from_secs(60));
+    let show = !cli.json;
+    let progress = |p: mg_nwsync::haks::Progress| {
+        if !show || p.of_bytes == 0 {
+            return;
+        }
+        let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+        if last.elapsed() >= Duration::from_secs(3) {
+            *last = Instant::now();
+            eprintln!("{}", hak_progress(&p));
+        }
+    };
+    let o = mg_module::nwsync_content::WriteOptions {
+        jobs: a.jobs.max(1),
+        all,
+        progress: &progress,
+        ..Default::default()
+    };
+    let started = Instant::now();
+    let files =
+        mg_module::nwsync_content::write_haks(&settings, game.as_ref(), &names, tlk.as_deref(), &o)
+            .map_err(anyhow::Error::msg)?;
+    let mut out = Output::default();
+    out.line(format!("server: {}", settings.url));
+    out.line(format!("manifest: {} ({})", sha1_hex(&files.manifest), files.from.said()));
+    let mut placed: Vec<(String, PathBuf)> = Vec::new();
+    if let Some(dir) = &a.out {
+        if let Ok(gi) = crate::install(cli) {
+            crate::serve::refuse_dir(&gi, dir, None)?;
+        }
+        for sub in ["hak", "tlk"] {
+            std::fs::create_dir_all(dir.join(sub))
+                .with_context(|| dir.join(sub).display().to_string())?;
+        }
+        for h in &files.haks {
+            let file = mg_resman::named_file(&h.name, "hak")
+                .ok_or_else(|| anyhow!("hak {}: {}", h.name, mg_resman::NO_FILE_NAME))?;
+            let to = dir.join("hak").join(file);
+            put(&h.path, &to, a.copy)?;
+            placed.push((h.name.clone(), to));
+        }
+        if let Some((name, path)) = &files.tlk {
+            let to = dir.join("tlk").join(name);
+            put(path, &to, a.copy)?;
+            placed.push((name.clone(), to));
+        }
+    }
+    let at = |name: &str, cached: &Path| {
+        (placed.iter().find(|(n, _)| n == name).map(|(_, p)| p.clone()))
+            .unwrap_or_else(|| cached.to_path_buf())
+    };
+    for h in &files.haks {
+        out.line(format!(
+            "{}.hak: {} resources, {}, {} ({})",
+            h.name,
+            h.resources,
+            megabytes(h.bytes),
+            if h.written { "written" } else { "written before" },
+            at(&h.name, &h.path).display()
+        ));
+    }
+    if let Some((name, path)) = &files.tlk {
+        out.line(format!("{name}: {}", at(name, path).display()));
+    }
+    if !files.not_listed.is_empty() {
+        out.note(format!(
+            "the origins file names haks the module doesn't list, not written (--all writes them): \
+             {}",
+            files.not_listed.join(", ")
+        ));
+    }
+    let (written, bytes) = (files.haks.iter().filter(|h| h.written))
+        .fold((0usize, 0u64), |(n, b), h| (n + 1, b + h.bytes));
+    let took = started.elapsed().as_secs_f64();
+    out.note(format!(
+        "{} haks ({}), {written} written now ({}), in {took:.1} s{}",
+        files.haks.len(),
+        megabytes(files.haks.iter().map(|h| h.bytes).sum()),
+        megabytes(bytes),
+        match &a.out {
+            Some(dir) => format!("; in {}", dir.display()),
+            None => String::new(),
+        }
+    ));
+    out.json = json!({
+        "server": settings.url,
+        "manifest": sha1_hex(&files.manifest),
+        "from": from_word(files.from),
+        "plan": match files.plan {
+            mg_nwsync::haks::PlanFrom::Origins => "origins",
+            mg_nwsync::haks::PlanFrom::Spread => "spread",
+        },
+        "haks": files.haks.iter().map(|h| json!({
+            "name": h.name,
+            "resources": h.resources,
+            "bytes": h.bytes,
+            "written": h.written,
+            "file": path_text(&at(&h.name, &h.path)),
+            "cached": path_text(&h.path),
+        })).collect::<Vec<_>>(),
+        "tlk": files.tlk.as_ref().map(|(n, p)| json!({"name": n, "file": path_text(&at(n, p))})),
+        "not_listed": files.not_listed,
+        "seconds": took,
+    });
+    Ok(out)
+}
+
+/// What `mg nwsync-cache-prune` is told.
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct PruneArgs {
+    /// A module whose current manifest is kept (and whose project's
+    /// [nwsync] cache and keep are used).
+    pub module: Option<PathBuf>,
+    /// Moonglow's cache folder for NWSync data (default: the project's
+    /// [nwsync] cache, else nwsync in Moonglow's cache folder).
+    #[arg(long, value_name = "DIR")]
+    pub cache: Option<PathBuf>,
+    /// How many manifests last used are kept besides the module's
+    /// (default: the project's [nwsync] keep, else 3).
+    #[arg(long, value_name = "N")]
+    pub keep: Option<usize>,
+    /// Files changed within this many hours are left alone (a download
+    /// or a write may be under way).
+    #[arg(long, value_name = "HOURS", default_value_t = 1.0)]
+    pub min_age: f64,
+    /// Say what would be removed, and remove nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// `mg nwsync-cache-prune`.
+pub(crate) fn cache_prune(cli: &Cli, a: &PruneArgs) -> Result<Output> {
+    let game = game_storage(cli)?;
+    let module = match &a.module {
+        Some(path) => Some(crate::open_module(path)?),
+        None => None,
+    };
+    let project = module.as_ref().map(|m| &m.project_file);
+    let settings = project.and_then(|p| p.nwsync_settings());
+    let cache_dir = (a.cache.clone())
+        .or_else(|| settings.as_ref().and_then(|s| s.cache.clone()))
+        .or_else(mg_module::nwsync_content::default_cache)
+        .context("no cache folder for NWSync data: give one, --cache DIR")?;
+    let cache = Cache::new(cache_dir);
+    let mut keep = mg_nwsync::prune::Keep {
+        recent: a
+            .keep
+            .or_else(|| project.and_then(|p| p.nwsync_keep))
+            .unwrap_or(mg_nwsync::prune::RECENT),
+        min_age: Duration::from_secs_f64(a.min_age.max(0.0) * 3600.0),
+        ..Default::default()
+    };
+    let mut out = Output::default();
+    if let Some(s) = &settings {
+        if let Wanted::Pinned(sha) = s.manifest {
+            keep.manifests.push(sha);
+        }
+        match mg_nwsync::find(&s.url, s.manifest, Some(&cache), game.as_ref()) {
+            Ok(found) => keep.manifests.push(found.sha1),
+            Err(e) => out.note(format!("warning: the module's manifest: {e}")),
+        }
+    }
+    let p = mg_nwsync::prune::prune(&cache, game.as_ref(), &keep, a.dry_run)
+        .map_err(anyhow::Error::msg)?;
+    let would = if p.dry_run { "would be removed" } else { "removed" };
+    out.line(format!("cache: {}", cache.root().display()));
+    for sha in &p.kept {
+        out.line(format!("kept: manifest {}", sha1_hex(sha)));
+    }
+    for sha in &p.removed {
+        out.line(format!("{would}: manifest {}", sha1_hex(sha)));
+    }
+    out.line(format!("data files {would}: {} ({})", p.data_files, megabytes(p.data_bytes)));
+    out.line(format!("written haks {would}: {} ({})", p.haks, megabytes(p.hak_bytes)));
+    out.line(format!("other files {would}: {} ({})", p.other, megabytes(p.other_bytes)));
+    if let Some(why) = &p.data_left {
+        out.note(format!("warning: {why}"));
+    }
+    out.note(format!(
+        "{} {would}{}",
+        megabytes(p.bytes()),
+        if p.dry_run { " (a dry run: nothing was)" } else { "" }
+    ));
+    out.json = json!({
+        "cache": path_text(cache.root()),
+        "dry_run": p.dry_run,
+        "kept": p.kept.iter().map(sha1_hex).collect::<Vec<_>>(),
+        "removed": p.removed.iter().map(sha1_hex).collect::<Vec<_>>(),
+        "data_files": p.data_files,
+        "data_bytes": p.data_bytes,
+        "haks": p.haks,
+        "hak_bytes": p.hak_bytes,
+        "other": p.other,
+        "other_bytes": p.other_bytes,
+        "data_left": p.data_left,
+    });
     Ok(out)
 }

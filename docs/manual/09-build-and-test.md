@@ -341,7 +341,7 @@ The cache is `nwsync` in Moonglow's cache folder (`~/.cache/moonglow` on
 Linux, `%LOCALAPPDATA%\Moonglow\cache` on Windows,
 `~/Library/Caches/Moonglow` on macOS); `[nwsync] cache` in your own
 `.moonglow/user.toml` puts it elsewhere. It is laid out as the server's
-repository is. Nothing is removed from it yet.
+repository is.
 
 From the command line, `mg nwsync-status MODULE` says the same as the
 window (`--online` asks the server for its latest manifest first), and
@@ -349,8 +349,70 @@ window (`--online` asks the server for its latest manifest first), and
 alone, to try a server); both take `--source URL` for a server the
 project doesn't name.
 
-Testing the module (Test Module, `mg serve`) still needs the hak files:
-the game's server reads haks, not NWSync storage.
+### Testing with NWSync content
+
+The game's server, and the game itself on a module of its own, read hak
+files, not NWSync. So when the module is tested (**Test Module**, **Test
+From Here**, `mg serve`, `mg test`, `mg watch --serve`), the haks the
+server hands out are written from its manifest into Moonglow's cache
+first, and given to the game:
+
+- **Which resources go into which hak.** Where the server publishes its
+  origins file, each hak it names gets exactly the resources it lists
+  for it (the copy of each name that won from that hak when the server
+  built the manifest). A hak of the module's list that the origins file
+  doesn't name comes from disk, as before. A hak the origins file names
+  that the module doesn't list is not written (the game loads the
+  module's haks alone; `mg nwsync-haks --all` writes them). Where the
+  server publishes no origins file, the manifest's resources (but for
+  talk tables) are spread over all the module's haks, each resource in
+  one, each hak kept under the 2 GiB the game can read (an entry can't
+  start 2 GiB or more into a hak); a manifest too big for that many haks
+  is an error that says so.
+- **The talk table** comes from the manifest where it has the module's
+  (`world.tlk`), over the project's own and the one in `tlk`, as the
+  game data has it.
+- **Written once.** A hak is kept in the cache by what it holds, written
+  the same way every time (resources in the order of their names, no
+  build date), so the next test writes nothing, and a newer manifest
+  writes only the haks it changed: the others are the files already
+  there. The first time, for a persistent world, it is gigabytes and
+  takes minutes: the window does it as a job (with its progress, and
+  Cancel; the Status Bar shows it as it shows any job), `mg` says how
+  far it is.
+- **Not downloaded yet**: data the haks need that neither the game's
+  storage nor the cache has stops the test before anything is written,
+  saying so: Sync first (or `mg nwsync-pull`).
+- **Where the game finds them.** `mg serve` and `mg test` link them into
+  their server's own folder (links, not copies, where the system has
+  them). Test Module starts the game with a user folder of Moonglow's
+  (`test-user` in its cache folder) that is your own linked thing by
+  thing (your characters, settings, modules and logs: what the game
+  writes there is written in your folder), but for its `hak` and `tlk`
+  folders, which hold the haks and talk table of this module. Nothing is
+  ever written into your own `hak` folder, nor into the game's NWSync
+  storage. (On Windows a folder is linked as a junction where Moonglow
+  can't make a symbolic link.)
+
+`mg nwsync-haks MODULE` writes them without a test and says what it
+wrote and how long it took (`--out DIR` puts them in `DIR/hak` and
+`DIR/tlk`, hard links where it can, for a server of your own; `--copy`
+for copies; `--jobs N`, 4 at once).
+
+### Cleaning up the cache
+
+**Clean Up Cache…** in the window says what of Moonglow's cache no kept
+manifest needs (data files, written haks, older manifests and their
+files) and removes it when you say **Remove** (the Status Bar shows
+either while it runs). Kept: the module's
+manifest (and the one pinned), the newest each server named, and the
+three last used (`[nwsync] keep` in the project file changes the
+number). What changed in the last hour stays whatever it is (a download
+may be under way), and where a kept manifest's resources can't be read
+here, no data file is removed. `mg nwsync-cache-prune [MODULE]` does the
+same (`--dry-run` to see first, `--keep N`, `--min-age HOURS`); it is not
+`mg nwsync-prune`, which tidies a server's repository. The game's NWSync
+storage is never touched.
 
 ## Long work
 

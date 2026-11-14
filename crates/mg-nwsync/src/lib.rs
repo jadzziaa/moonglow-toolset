@@ -17,8 +17,13 @@
 //! network); [`fetch::resolve`] asks the server first.
 //!
 //! What is read is checked against the manifest's size; what is
-//! downloaded against its SHA-1 too before it is kept. The game's storage
-//! is taken as the game checked it.
+//! downloaded against its SHA-1 too before it is kept, and so is what is
+//! written into a hak. The game's storage is taken as the game checked it.
+//!
+//! What can't read NWSync (the game's server, the game on a module of its
+//! own) gets haks written from a manifest ([`haks`]), kept in the cache
+//! for the next run. [`prune`] takes out of the cache what no manifest
+//! kept needs.
 
 mod cache;
 mod container;
@@ -26,8 +31,10 @@ pub mod fetch;
 #[cfg(feature = "fixtures")]
 pub mod fixtures;
 pub mod game;
+pub mod haks;
 pub mod manifest;
 pub mod origins;
+pub mod prune;
 mod source;
 
 pub use cache::{Cache, server_key};

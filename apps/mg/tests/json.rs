@@ -262,6 +262,11 @@ fn nui_and_nwsync_commands_answer_in_json() {
     );
     let status = ok(&["nwsync-status", "--source", &url, "--cache", &at("nwsync-cache")]);
     assert_eq!(status["survey"]["missing"], 0);
+    let cleaned = ok(&["nwsync-cache-prune", "--cache", &at("nwsync-cache"), "--dry-run"]);
+    assert_eq!(
+        (cleaned["dry_run"].as_bool(), cleaned["data_files"].as_u64()),
+        (Some(true), Some(0))
+    );
     // Uploaded by a stand-in command (nothing goes anywhere but this
     // folder): each part in turn, in the repository's folder, its output
     // kept off the JSON.

@@ -275,7 +275,14 @@ fn a_pull_downloads_what_is_missing_alone() {
     assert_eq!(server.data_asked(), 3);
     let steps = steps.into_inner().unwrap();
     assert_eq!(steps[..2], [fetch::Step::Asking, fetch::Step::Looking]);
-    assert!(matches!(steps.last(), Some(fetch::Step::Downloading(p)) if p.files == 3));
+    // (Each download's step is said from its thread: the one that says
+    // "3 of 3" is not always heard last.)
+    let most = steps.iter().filter_map(|s| match s {
+        fetch::Step::Downloading(p) => Some(p.files),
+        _ => None,
+    });
+    assert_eq!(most.max(), Some(3));
+    assert!(steps[2..].iter().all(|s| matches!(s, fetch::Step::Downloading(_))));
     assert_eq!(cache.latest(URL).map(|l| l.0), Some(sha));
     // Everything is here: from the game, the rest from the cache.
     let s = survey(&pulled.resolved.found.entries, Some(&g), Some(&cache)).unwrap();
@@ -532,4 +539,222 @@ fn the_client_downloads_over_http() {
     assert_eq!(c.get(&format!("{base}/manifests/none"), 100).unwrap(), None);
     assert!(c.get(&format!("{base}/big"), 100).is_err());
     server.join().unwrap();
+}
+
+/// The haks of `content` as an origins file names them: `one` with the
+/// models, `two` with the rest but the talk table.
+fn origins_of() -> mg_nwsync::Origins {
+    mg_nwsync::Origins::parse(
+        "Erf:/srv/hak/one.hak\n\tpw_head001.mdl\n\tpw_head002.mdl\nErf:/srv/hak/two.hak\n\t\
+         appearance.2da\n\tpw_tex.tga\n\tpw_sound.wav\nResFile:/srv/tlk/world.tlk\n\t\
+         world.tlk\n",
+    )
+}
+
+/// Haks written from the game's storage and the cache: each with what the
+/// origins file lists, read back byte for byte; the same bytes when
+/// written again into another cache; not written again when there; and
+/// the game's storage left as it was.
+#[test]
+fn haks_are_written_from_the_game_and_the_cache() {
+    use mg_nwsync::haks::{self, Store};
+    let dir = mg_testkit::scratch_dir("nwsync-haks-written");
+    let content = Content::new();
+    // (The game holds the models and the texture; the cache the rest.)
+    let game = game_storage(
+        &dir.join("game"),
+        &content,
+        URL,
+        1,
+        &["pw_head001", "pw_head002", "pw_tex"],
+        true,
+    );
+    let before = snapshot(&dir.join("game"));
+    let cache = Cache::new(dir.join("cache"));
+    let other = Cache::new(dir.join("other"));
+    for (_, data) in &content.resources {
+        if !game.contains(&sha1(data)) {
+            cache.put(&sha1(data), &compress(data, MAGIC_NSYC).unwrap()).unwrap();
+            other.put(&sha1(data), &store(data, MAGIC_NSYC)).unwrap();
+        }
+    }
+    let entries = content.entries();
+    let names = vec!["One".to_string(), "two".to_string(), "mine".to_string()];
+    let plan = haks::from_origins(&origins_of(), &entries, &names).unwrap();
+    let store = Store { game: Some(&game), cache: &cache };
+    let heard = Mutex::new(Vec::new());
+    let progress = |p: haks::Progress| heard.lock().unwrap().push(p);
+    let written = haks::write_all(&plan, store, 2, &progress, &|| false).unwrap();
+    assert_eq!(written.haks.len(), 2);
+    assert_eq!(written.written(), (2, plan.bytes()));
+    let last = *heard.lock().unwrap().iter().max_by_key(|p| (p.haks, p.bytes)).unwrap();
+    assert_eq!(
+        (last.haks, last.of_haks, last.bytes, last.of_bytes),
+        (2, 2, plan.bytes(), plan.bytes())
+    );
+    for (h, p) in written.haks.iter().zip(&plan.haks) {
+        assert_eq!(h.name, p.name);
+        assert_eq!(h.path, cache.hak_path(&p.key()));
+        let bytes = std::fs::read(&h.path).unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        assert_eq!(&erf.file_type, b"HAK ");
+        assert_eq!((erf.build_year, erf.build_day), (0, 0));
+        assert_eq!(erf.entries.len(), p.resources.len());
+        for (k, _, _) in &p.resources {
+            let got = erf.get(&k.resref, k.restype).unwrap().unwrap();
+            assert_eq!(&*got, content.bytes(&k.resref.to_string_lossy(), k.restype));
+        }
+    }
+    assert!(erf_names(&written.haks[0].path).iter().all(|n| n.ends_with(".mdl")));
+    // (No part file left.)
+    let left: Vec<_> = std::fs::read_dir(dir.join("cache/haks")).unwrap().flatten().collect();
+    assert_eq!(left.len(), 2);
+
+    // Written again elsewhere (from data stored otherwise): the same
+    // bytes. And not again here.
+    let again =
+        haks::write_all(&plan, Store { game: Some(&game), cache: &other }, 1, &|_| {}, &|| false);
+    for h in &again.unwrap().haks {
+        let first = written.haks.iter().find(|w| w.name == h.name).unwrap();
+        assert_eq!(std::fs::read(&h.path).unwrap(), std::fs::read(&first.path).unwrap());
+    }
+    let modified = std::fs::metadata(&written.haks[0].path).unwrap().modified().unwrap();
+    let third = haks::write_all(&plan, store, 2, &|_| {}, &|| false).unwrap();
+    assert_eq!(third.written(), (0, 0));
+    assert_eq!(std::fs::metadata(&third.haks[0].path).unwrap().modified().unwrap(), modified);
+    assert_eq!(snapshot(&dir.join("game")), before);
+}
+
+fn erf_names(path: &Path) -> Vec<String> {
+    let bytes = std::fs::read(path).unwrap();
+    let erf = mg_erf::Erf::read(&bytes).unwrap();
+    erf.entries.iter().map(|e| e.filename()).collect()
+}
+
+/// A newer manifest that changes one hak's resource: that hak is written
+/// anew, the other is the file written for the first manifest; each
+/// manifest's index names its own.
+#[test]
+fn an_unchanged_hak_is_kept_across_manifests() {
+    use mg_nwsync::haks::{self, Index, Store};
+    let dir = mg_testkit::scratch_dir("nwsync-haks-reused");
+    let cache = Cache::new(dir.join("cache"));
+    let mut content = Content::new();
+    let put = |c: &Content| {
+        for (_, data) in &c.resources {
+            cache.put(&sha1(data), &compress(data, MAGIC_NSYC).unwrap()).unwrap();
+        }
+    };
+    put(&content);
+    let names = vec!["one".to_string(), "two".to_string()];
+    let store = Store { game: None, cache: &cache };
+    let first = haks::from_origins(&origins_of(), &content.entries(), &names).unwrap();
+    let a = haks::write_all(&first, store, 2, &|_| {}, &|| false).unwrap();
+    let (m1, _) = content.manifest();
+    let index = |plan: &haks::Plan| Index {
+        haks: plan.haks.iter().map(|h| (h.name.clone(), h.key())).collect(),
+        files: vec![],
+    };
+    cache.put_written(&m1, index(&first)).unwrap();
+
+    content.resources[3].1 = b"another texture".repeat(30);
+    put(&content);
+    let second = haks::from_origins(&origins_of(), &content.entries(), &names).unwrap();
+    let b = haks::write_all(&second, store, 2, &|_| {}, &|| false).unwrap();
+    let (m2, _) = content.manifest();
+    cache.put_written(&m2, index(&second)).unwrap();
+    assert_eq!(b.written(), (1, second.haks[1].bytes()));
+    assert_eq!(a.haks[0].path, b.haks[0].path);
+    assert!(!b.haks[0].written && b.haks[1].written);
+    assert_ne!(a.haks[1].path, b.haks[1].path);
+    assert_eq!(cache.written(&m1).haks[1].1, first.haks[1].key());
+    assert_eq!(cache.written(&m2).haks[1].1, second.haks[1].key());
+}
+
+/// Data neither the game nor the cache has: an error before anything is
+/// written, saying how to download it.
+#[test]
+fn haks_wait_for_their_data() {
+    use mg_nwsync::haks::{self, Store};
+    let dir = mg_testkit::scratch_dir("nwsync-haks-missing");
+    let content = Content::new();
+    let cache = Cache::new(dir.join("cache"));
+    let plan = haks::from_origins(&origins_of(), &content.entries(), &["one".into()]).unwrap();
+    let e = haks::write_all(&plan, Store { game: None, cache: &cache }, 1, &|_| {}, &|| false)
+        .unwrap_err();
+    // (The two models are the same bytes: one data file.)
+    assert!(e.contains("1 data files") && e.contains("mg nwsync-pull"), "{e}");
+    assert!(!dir.join("cache/haks").exists());
+}
+
+/// The cache pruned: the kept manifests' data and haks stay (the module's,
+/// the newest a server named, the last used), the others go; a dry run
+/// removes nothing; what was just changed is left alone; a kept manifest
+/// whose resources can't be read keeps every data file.
+#[test]
+fn the_cache_is_pruned_of_what_no_kept_manifest_needs() {
+    use mg_nwsync::haks::{self, Index, Store};
+    use mg_nwsync::prune::{Keep, prune};
+    use std::time::Duration;
+    let dir = mg_testkit::scratch_dir("nwsync-cache-prune");
+    let cache = Cache::new(dir.join("cache"));
+    let store = Store { game: None, cache: &cache };
+    // Three manifests: each with one resource of its own, and the rest
+    // shared.
+    let mut manifests = Vec::new();
+    for n in 0..3 {
+        let mut c = Content::new();
+        c.resources[3].1 = format!("texture {n} ").repeat(30).into_bytes();
+        let (sha, bytes) = c.manifest();
+        cache.put_manifest(&sha, "", &bytes).unwrap();
+        cache.put_manifest(&sha, "origin", b"Erf:one.hak\n").unwrap();
+        for (_, data) in &c.resources {
+            cache.put(&sha1(data), &compress(data, MAGIC_NSYC).unwrap()).unwrap();
+        }
+        let plan = haks::from_origins(&origins_of(), &c.entries(), &["two".into()]).unwrap();
+        haks::write_all(&plan, store, 1, &|_| {}, &|| false).unwrap();
+        let index = Index { haks: vec![("two".into(), plan.haks[0].key())], files: vec![] };
+        cache.put_written(&sha, index).unwrap();
+        manifests.push((sha, c));
+        // (Each used after the one before.)
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let texture = |n: usize| sha1(&manifests[n].1.resources[3].1);
+    let all_old = Keep { recent: 1, min_age: Duration::ZERO, ..Default::default() };
+
+    // A dry run: what would go, nothing gone.
+    let p = prune(&cache, None, &all_old, true).unwrap();
+    assert_eq!(p.kept, [manifests[2].0]);
+    assert_eq!((p.removed.len(), p.data_files, p.haks), (2, 2, 2));
+    assert!(cache.contains(&texture(0)) && cache.contains(&texture(1)));
+
+    // The first named by its server too: it stays.
+    cache.set_latest(URL, &manifests[0].0).unwrap();
+    let p = prune(&cache, None, &all_old, false).unwrap();
+    assert_eq!(p.removed, [manifests[1].0]);
+    assert_eq!((p.data_files, p.haks, p.other), (1, 1, 3));
+    assert!(cache.contains(&texture(0)) && !cache.contains(&texture(1)));
+    assert!(cache.contains(&texture(2)));
+    assert!(cache.manifest(&manifests[1].0, "").is_none());
+    assert!(cache.manifest(&manifests[1].0, "origin").is_none());
+    assert!(cache.written(&manifests[1].0).haks.is_empty());
+    for (sha, c) in [&manifests[0], &manifests[2]] {
+        assert!(cache.manifest(sha, "").is_some());
+        let key = cache.written(sha).haks[0].1;
+        assert!(cache.hak_path(&key).is_file());
+        assert!(c.resources.iter().all(|(_, d)| cache.contains(&sha1(d))));
+    }
+
+    // Nothing kept but the module's: what was just changed stays.
+    let fresh = Keep { manifests: vec![manifests[2].0], recent: 0, ..Default::default() };
+    let p = prune(&cache, None, &fresh, false).unwrap();
+    assert_eq!((p.data_files, p.haks, p.other), (0, 0, 0));
+
+    // A kept manifest whose resources can't be read here: no data file goes.
+    let unknown = sha1(b"a manifest neither has");
+    let keep = Keep { manifests: vec![unknown], recent: 0, min_age: Duration::ZERO };
+    let p = prune(&cache, None, &keep, false).unwrap();
+    assert!(p.data_left.is_some());
+    assert_eq!(p.data_files, 0);
+    assert!(cache.contains(&texture(0)));
 }
