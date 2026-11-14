@@ -241,6 +241,8 @@ pub(crate) fn item_parts(
             if lk.has_model(&model) {
                 let mut p = part(model);
                 p.colors = Some(item_colors(uti, colors));
+                // (Every mesh in its own PLT, where it has one.)
+                p.textures = crate::creature::helmet_textures(&lk, &p.model);
                 vec![p]
             } else {
                 Vec::new()

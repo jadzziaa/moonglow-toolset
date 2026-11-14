@@ -50,6 +50,41 @@
 //! alone the client draws in colors of no rule (R, S, T, U: 60 blue, 128
 //! dark red, 0 and 255 black), where Moonglow draws it gray.
 //!
+//! Helmets, seen (2026-11-13, GitHub issue 45: the game's hood
+//! `helm_033`, whose mesh names `helm`, a texture that is nowhere, drawn
+//! untextured and shiny): a helmet is drawn as a part, its own PLT on a
+//! mesh naming a texture that is nowhere (W), another helmet's PLT (X),
+//! a TGA of no part's name (Y) or none (0); a mesh naming a material
+//! with a `texture0` keeps it (1); a TGA of the helmet's name alone
+//! replaces nothing (2), and without a PLT of its name the mesh is drawn
+//! untextured, gray (Z). Of two meshes, one naming such a material keeps
+//! it and the other takes the PLT ($); a TGA beside the PLT of the
+//! helmet's name is drawn on a mesh naming another name (&), as on one
+//! naming its own (E). The game's hood (3) is drawn textured in its PLT's
+//! metal layers; `helm_006` (6) looks the same at this distance in its
+//! own PLT and in `helm_003`'s, which its mesh names.
+//!
+//! Normal maps (2026-11-13; groups `4578` for helmets and `%+#=` for
+//! parts, from above in a darker light, [`CLOSE`]): each mesh a box whose
+//! faces each hold the whole texture, the materials naming normal maps of
+//! stripes (`mg_stripe2`, `mg_stripe6`: the normal straight out and
+//! tipped nearly flat by turns; the client reads x and y alone, so a
+//! normal into the surface showed nothing), so the sunlit tops show which
+//! one is drawn. A mesh naming its own name with an MTR of it shows 6
+//! stripes (4, %); one naming another name whose MTR names a normal map
+//! shows that one's 2 stripes, whether or not the part's or helmet's own
+//! name has an MTR (5, 8, +, =); one naming a TGA with no MTR, beside an
+//! MTR of the own name, shows none (7, #). The material (its normal and
+//! specular maps) is the name the mesh gives, not the one it is drawn in;
+//! Moonglow draws the same.
+//!
+//! A mesh whose texture is nowhere (2026-11-13, group `Z9@^~`): the
+//! client draws it as a white TGA of alpha 0 (@), the object's
+//! environment map reflected over the whole of it, a helmet's (Z) and a
+//! part's (~) alike; a white TGA of 24 bits is drawn white (9, ^).
+//! Moonglow draws it so too, but its reflection of `chrome1` on such a
+//! surface is darker than the client's, black on the tops (Z, @, ~).
+//!
 //! [`part_textures_tdod_look`] reads the owner's own module's parts the
 //! rule changes, beside Moonglow's area view as before the rule
 //! (`MG_SIDE=before` with HEAD's rule) and after it.
@@ -84,6 +119,13 @@ enum Tex {
     Mtr(&'static str),
     /// A PLT all of one layer.
     Plt(u8),
+    /// A normal map (64×64 TGA) of horizontal stripes, the normal straight
+    /// out of the surface and tipped nearly flat by turns (the client
+    /// reads x and y alone: a normal into the surface, z below 0, drew
+    /// as one straight out): `bands` of them.
+    Stripes(u8),
+    /// A 32-bit TGA of one color and one alpha.
+    Tga32([u8; 3], u8),
 }
 
 /// A texture's file: its extension and contents.
@@ -139,6 +181,25 @@ fn file_of(t: Tex) -> (&'static str, Vec<u8>) {
         }
         Tex::Mtr(text) => ("mtr", text.as_bytes().to_vec()),
         Tex::Plt(layer) => ("plt", flat_plt(layer)),
+        Tex::Stripes(bands) => {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 24, 0];
+            let band = 64 / u32::from(bands);
+            for y in 0..64u32 {
+                let out = (y / band) % 2 == 0;
+                for _ in 0..64 {
+                    // (B, G, R: the normal's z, y and x.)
+                    t.extend([255, 128, if out { 128 } else { 252 }]);
+                }
+            }
+            ("tga", t)
+        }
+        Tex::Tga32([r, g, b], a) => {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 8, 0, 32, 8];
+            for _ in 0..64 {
+                t.extend([b, g, r, a]);
+            }
+            ("tga", t)
+        }
     }
 }
 
@@ -154,6 +215,12 @@ const PINK: [u8; 3] = [255, 150, 200];
 const PALETTES: [(&str, [u8; 3]); 3] =
     [("pal_cloth01", [255, 120, 0]), ("pal_leath01", [120, 0, 230]), ("pal_hair01", [0, 220, 220])];
 const OWN_PLT: Tex = Tex::Plt(4);
+/// A material of the name a mesh names (`mg_nma`): a normal map of 2
+/// stripes, no texture0.
+const NAMED_MTR: &str = "renderhint NormalAndSpecMapped\ntexture1 mg_stripe2\n";
+/// A material of the part's or helmet's own name: a normal map of 6
+/// stripes, no texture0.
+const OWN_MTR: Tex = Tex::Mtr("renderhint NormalAndSpecMapped\ntexture1 mg_stripe6\n");
 
 /// A row: what a creature's chest and head are, the creature's skeleton
 /// (`pmh0`, an elf's `pme0`, phenotype 2's `pmh2`), the parts' number,
@@ -176,7 +243,7 @@ struct Row {
     hak: &'static [Tex],
 }
 
-const ROWS: [Row; 47] = [
+const ROWS: [Row; 70] = [
     Row {
         label: "a: one mesh naming a TGA of no part's name, own PLT (the report)",
         skeleton: "pmh0",
@@ -709,11 +776,276 @@ const ROWS: [Row; 47] = [
         extra: &[("mg_mtrm", Tex::Mtr("renderhint NormalAndSpecMapped\ntexture1 mg_nrm\n"))],
         hak: &[],
     },
+    // (Helmets, `helm_<n>` worn by the game's human, as row E's: GitHub
+    // issue 45, the game's hood `helm_033`, whose mesh names `helm`, a
+    // texture that is nowhere, and `helm_006`, whose mesh names
+    // `helm_003`, the PLT of another helmet. Rows 3 and 6 are the game's
+    // own helmets, as the game has them.)
+    Row {
+        label: "W: a helmet whose mesh names a texture that is nowhere, own PLT (the hood)",
+        skeleton: "helm",
+        n: 251,
+        meshes: &["mg_none"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "X: a helmet whose mesh names another helmet's PLT, own PLT",
+        skeleton: "helm",
+        n: 252,
+        meshes: &["otherhelm"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "Y: a helmet whose mesh names a TGA of no part's name, own PLT",
+        skeleton: "helm",
+        n: 253,
+        meshes: &["mg_red"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "Z: a helmet whose mesh names a texture that is nowhere, nothing of its name",
+        skeleton: "helm",
+        n: 254,
+        meshes: &["mg_none"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "3: the game's hood, helm_033 (its mesh names helm, nowhere)",
+        skeleton: "helm",
+        n: 33,
+        meshes: &[],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "6: the game's helm_006 (its mesh names helm_003's PLT)",
+        skeleton: "helm",
+        n: 6,
+        meshes: &[],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "4: a helmet whose mesh names its own name, own PLT and MTR (6 stripes)",
+        skeleton: "helm",
+        n: 235,
+        meshes: &["nm:own"],
+        own: &[OWN_PLT, OWN_MTR],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "5: a helmet whose mesh names a name with an MTR (2 stripes), own PLT",
+        skeleton: "helm",
+        n: 236,
+        meshes: &["nm:mg_nma"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "7: a helmet whose mesh names a TGA of no part's name, own PLT and MTR (6 stripes)",
+        skeleton: "helm",
+        n: 237,
+        meshes: &["nm:mg_red"],
+        own: &[OWN_PLT, OWN_MTR],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "8: a helmet whose mesh names a name with an MTR (2 stripes), own PLT and MTR (6)",
+        skeleton: "helm",
+        n: 238,
+        meshes: &["nm:mg_nma"],
+        own: &[OWN_PLT, OWN_MTR],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "9: a helmet whose mesh names a white TGA (24 bits), nothing of its name",
+        skeleton: "helm",
+        n: 239,
+        meshes: &["mg_white"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "@: a helmet whose mesh names a white TGA of alpha 0, nothing of its name",
+        skeleton: "helm",
+        n: 241,
+        meshes: &["mg_white0"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "%: a part whose mesh names its own name, own PLT and MTR (6 stripes)",
+        skeleton: "pmh0",
+        n: 241,
+        meshes: &["nm:own"],
+        own: &[OWN_PLT, OWN_MTR],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "+: a part whose mesh names a name with an MTR (2 stripes), own PLT",
+        skeleton: "pmh0",
+        n: 242,
+        meshes: &["nm:mg_nma"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "#: a part whose mesh names a TGA of no part's name, own PLT and MTR (6 stripes)",
+        skeleton: "pmh0",
+        n: 243,
+        meshes: &["nm:mg_red"],
+        own: &[OWN_PLT, OWN_MTR],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "=: a part whose mesh names a name with an MTR (2 stripes), own PLT and MTR (6)",
+        skeleton: "pmh0",
+        n: 244,
+        meshes: &["nm:mg_nma"],
+        own: &[OWN_PLT, OWN_MTR],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "^: a part whose mesh names a white TGA (24 bits), nothing of its name",
+        skeleton: "pmh0",
+        n: 248,
+        meshes: &["mg_white"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "~: a part whose mesh names a texture that is nowhere, nothing of its name",
+        skeleton: "pmh0",
+        n: 249,
+        meshes: &["mg_none"],
+        own: &[],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "$: a helmet of two meshes, an MTR (texture0 pink) and a TGA of no part's name, own PLT",
+        skeleton: "helm",
+        n: 242,
+        meshes: &["mg_mtrb", "mg_red"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[("mg_mtrb", Tex::Mtr("texture0 mg_pink\n"))],
+        hak: &[],
+    },
+    Row {
+        label: "&: a helmet whose mesh names a TGA of no part's name, own a TGA and a PLT",
+        skeleton: "helm",
+        n: 243,
+        meshes: &["mg_red"],
+        own: &[Tex::Tga(YELLOW), OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "0: a helmet whose mesh names no texture (bitmap NULL), own PLT",
+        skeleton: "helm",
+        n: 245,
+        meshes: &["NULL"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
+    Row {
+        label: "1: a helmet whose mesh's bitmap names an MTR (texture0 pink), own PLT",
+        skeleton: "helm",
+        n: 246,
+        meshes: &["mg_mtrb"],
+        own: &[OWN_PLT],
+        human: false,
+        armored: false,
+        extra: &[("mg_mtrb", Tex::Mtr("texture0 mg_pink\n"))],
+        hak: &[],
+    },
+    Row {
+        label: "2: a helmet whose mesh names a texture that is nowhere, own a TGA alone",
+        skeleton: "helm",
+        n: 247,
+        meshes: &["mg_none"],
+        own: &[Tex::Tga(MAGENTA)],
+        human: false,
+        armored: false,
+        extra: &[],
+        hak: &[],
+    },
 ];
 
-/// The groups shot together, by row letter.
-const GROUPS: [&str; 11] =
-    ["abcde", "fghi", "jklm", "no", "pqrxAB", "stuvw", "yz", "CDEF", "GHIJKL", "MNPQR", "STUV"];
+/// The groups shot together, by row letter. The normal maps' groups
+/// ([`CLOSE`]) from nearer.
+const GROUPS: [&str; 17] = [
+    "abcde", "fghi", "jklm", "no", "pqrxAB", "stuvw", "yz", "CDEF", "GHIJKL", "MNPQR", "STUV",
+    "WXYZ36", "012", "4578", "%+#=", "Z9@^~", "$&",
+];
+
+/// The groups shot from 4 m above, not 5 m level (the normal maps'
+/// stripes, on the boxes' sunlit tops), in a darker light.
+const CLOSE: [&str; 2] = ["4578", "%+#="];
 
 /// An uncompressed 24-bit TGA of one color.
 fn flat_tga(w: u16, h: u16, [r, g, b]: [u8; 3]) -> Vec<u8> {
@@ -792,6 +1124,39 @@ pub(super) fn box_node(
     )
 }
 
+/// [`box_node`] with texture coordinates (each face the whole texture,
+/// `v` up the sides), each face smoothed apart and `renderhint
+/// NormalAndSpecMapped`: for normal maps (a mesh named `nm:<bitmap>` in a
+/// row).
+fn uv_box_node(parent: &str, node: &str, bitmap: &str, lo: [f32; 3], hi: [f32; 3]) -> String {
+    let v: Vec<String> = (0..8)
+        .map(|i| {
+            let x = if i & 1 == 0 { lo[0] } else { hi[0] };
+            let y = if i & 2 == 0 { lo[1] } else { hi[1] };
+            let z = if i & 4 == 0 { lo[2] } else { hi[2] };
+            format!("    {x} {y} {z}")
+        })
+        .collect();
+    let quads =
+        [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]];
+    let mut faces = Vec::new();
+    for (k, q) in quads.iter().enumerate() {
+        let group = 1 << k;
+        for [a, b, c] in [[0, 1, 2], [0, 2, 3], [0, 2, 1], [0, 3, 2]] {
+            faces.push(format!("    {} {} {} {group} {a} {b} {c} 0", q[a], q[b], q[c]));
+        }
+    }
+    format!(
+        "node trimesh {node}\n  parent {parent}\n  ambient 1 1 1\n  diffuse 1 1 1\n  \
+         specular 0 0 0\n  shininess 1\n  bitmap {bitmap}\n  renderhint NormalAndSpecMapped\n  \
+         render 1\n  shadow 0\n  verts 8\n{}\n  tverts 4\n    0 0 0\n    1 0 0\n    \
+         1 1 0\n    0 1 0\n  faces {}\n{}\nendnode\n",
+        v.join("\n"),
+        faces.len(),
+        faces.join("\n")
+    )
+}
+
 /// A part model `name`: a box (`head`: a head's, else a chest's), split
 /// into one mesh per texture of `bitmaps`, side by side.
 fn part_mdl(name: &str, bitmaps: &[String], head: bool) -> String {
@@ -809,13 +1174,12 @@ fn part_mdl(name: &str, bitmaps: &[String], head: bool) -> String {
     for (i, b) in bitmaps.iter().enumerate() {
         let x0 = lo[0] + width * i as f32;
         let gap = if bitmaps.len() > 1 { 0.01 } else { 0.0 };
-        s += &box_node(
-            name,
-            &format!("{name}_m{i}"),
-            b,
-            [x0 + gap, lo[1], lo[2]],
-            [x0 + width - gap, hi[1], hi[2]],
-        );
+        let (at, to) = ([x0 + gap, lo[1], lo[2]], [x0 + width - gap, hi[1], hi[2]]);
+        let node = format!("{name}_m{i}");
+        s += &match b.strip_prefix("nm:") {
+            Some(b) => uv_box_node(name, &node, b, at, to),
+            None => box_node(name, &node, b, at, to),
+        };
     }
     s + &format!("endmodelgeom {name}\ndonemodel {name}\n")
 }
@@ -829,6 +1193,15 @@ fn overrides(rows: &[&Row]) -> Vec<(String, Vec<u8>)> {
         ("mg_pltx.plt".into(), flat_plt(6)),
         ("mg_pink.tga".into(), flat_tga(8, 8, PINK)),
         ("mg_nrm.tga".into(), flat_tga(8, 8, [128, 128, 255])),
+        // (Normal maps of 2 and 6 stripes; `mg_nma`, a red TGA with a
+        // material of its name naming the 2 stripes and no texture0.)
+        ("mg_stripe2.tga".into(), file_of(Tex::Stripes(2)).1),
+        ("mg_stripe6.tga".into(), file_of(Tex::Stripes(6)).1),
+        ("mg_nma.tga".into(), flat_tga(8, 8, RED)),
+        ("mg_nma.mtr".into(), NAMED_MTR.as_bytes().to_vec()),
+        // (White: 24 bits, and 32 with alpha 0.)
+        ("mg_white.tga".into(), flat_tga(8, 8, [255, 255, 255])),
+        ("mg_white0.tga".into(), file_of(Tex::Tga32([255, 255, 255], 0)).1),
     ];
     for (palette, color) in PALETTES {
         files.push((format!("{palette}.tga"), flat_palette(color)));
@@ -837,6 +1210,8 @@ fn overrides(rows: &[&Row]) -> Vec<(String, Vec<u8>)> {
         files.push((format!("pmh0_{part}299.tga"), flat_tga(8, 8, BLUE)));
         files.push((format!("pmh0_{part}298.plt"), flat_plt(1)));
     }
+    // (Another helmet's PLT, Hair: cyan.)
+    files.push(("helm_248.plt".into(), flat_plt(1)));
     for row in rows {
         for (name, t) in row.extra {
             let (ext, data) = file_of(*t);
@@ -847,7 +1222,20 @@ fn overrides(rows: &[&Row]) -> Vec<(String, Vec<u8>)> {
         }
         if row.skeleton == "helm" {
             let name = format!("helm_{}", row.n);
-            let mdl = part_mdl(&name, std::slice::from_ref(&name), true);
+            let bitmaps: Vec<String> = row
+                .meshes
+                .iter()
+                .map(|m| {
+                    let (nm, m) = m.strip_prefix("nm:").map_or(("", *m), |m| ("nm:", m));
+                    let t = match m {
+                        "own" => name.clone(),
+                        "otherhelm" => "helm_248".into(),
+                        t => t.into(),
+                    };
+                    format!("{nm}{t}")
+                })
+                .collect();
+            let mdl = part_mdl(&name, &bitmaps, true);
             files.push((format!("{name}.mdl"), mdl.into()));
             for t in row.own {
                 let (ext, data) = file_of(*t);
@@ -862,11 +1250,15 @@ fn overrides(rows: &[&Row]) -> Vec<(String, Vec<u8>)> {
             let bitmaps: Vec<String> = row
                 .meshes
                 .iter()
-                .map(|m| match *m {
-                    "own" => name.clone(),
-                    "other299" => format!("pmh0_{part}299"),
-                    "other298" => format!("pmh0_{part}298"),
-                    t => t.replace('|', "\n  materialname "),
+                .map(|m| {
+                    let (nm, m) = m.strip_prefix("nm:").map_or(("", *m), |m| ("nm:", m));
+                    let t = match m {
+                        "own" => name.clone(),
+                        "other299" => format!("pmh0_{part}299"),
+                        "other298" => format!("pmh0_{part}298"),
+                        t => t.replace('|', "\n  materialname "),
+                    };
+                    format!("{nm}{t}")
                 })
                 .collect();
             files.push((format!("{name}.mdl"), part_mdl(&name, &bitmaps, part == "head").into()));
@@ -931,7 +1323,7 @@ fn place(r: &mut Reading, row: &Row, x: f32, items: &HashMap<String, Gff>) {
     if !row.armored && !helmet && robe.is_none() {
         set("BodyPart_Torso");
     }
-    if row.meshes.is_empty() {
+    if row.meshes.is_empty() && !helmet {
         set("BodyPart_LHand");
         set("BodyPart_RHand");
         c.set("Color_Skin", Value::Byte(28));
@@ -950,7 +1342,8 @@ fn place(r: &mut Reading, row: &Row, x: f32, items: &HashMap<String, Gff>) {
     }
     if helmet {
         let mut e = mg_gff::Struct::new(0x1);
-        e.set("EquippedRes", Value::resref(ResRef::from_str("mg_helm").unwrap()));
+        let name = format!("mg_helm{n}");
+        e.set("EquippedRes", Value::resref(ResRef::from_str(&name).unwrap()));
         worn.push(e);
     }
     c.set("Equip_ItemList", Value::List(worn));
@@ -966,7 +1359,9 @@ fn place(r: &mut Reading, row: &Row, x: f32, items: &HashMap<String, Gff>) {
     }
     let item = |r: ResRef| items.get(r.as_str()?).map(|g| g.root.clone());
     let placing = Placing { game: &r.game, item: &item };
-    let at = Placement { position: [x, 22.2, 0.0], rotation: std::f32::consts::PI };
+    // (A normal map's row nearer the player, seen from above.)
+    let y = if row.meshes.iter().any(|m| m.starts_with("nm:")) { 21.0 } else { 22.2 };
+    let at = Placement { position: [x, y, 0.0], rotation: std::f32::consts::PI };
     let placed = instance(&placing, ResType::UTC, &c, at, &[]).unwrap();
     let mut list = r.git.root.list("Creature List").map(<[_]>::to_vec).unwrap_or_default();
     list.push(placed);
@@ -989,7 +1384,7 @@ fn armor(game: &GameData, torso: u16, robe: u16, name: &str) -> Gff {
     a
 }
 
-/// A helmet whose model is `n` (`helm_<n>`), as the module's `mg_helm`.
+/// A helmet whose model is `n` (`helm_<n>`), as the module's `mg_helm<n>`.
 fn helmet(game: &GameData, n: u16) -> Gff {
     let mut keys: Vec<ResKey> = game
         .resman
@@ -1006,7 +1401,8 @@ fn helmet(game: &GameData, n: u16) -> Gff {
         .expect("a helmet");
     h.root.set("ModelPart1", Value::Byte(n as u8));
     h.root.set("PropertiesList", Value::List(Vec::new()));
-    h.root.set("TemplateResRef", Value::resref(ResRef::from_str("mg_helm").unwrap()));
+    let name = format!("mg_helm{n}");
+    h.root.set("TemplateResRef", Value::resref(ResRef::from_str(&name).unwrap()));
     h
 }
 
@@ -1035,8 +1431,11 @@ fn part_textures_look() {
         if only.as_deref().is_some_and(|o| !o.split(',').any(|g| g == group)) {
             continue;
         }
-        let light =
-            Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+        // (The normal maps' groups lit darker around and brighter by the
+        // sun, so their stripes show.)
+        let close = CLOSE.contains(&group);
+        let (ambient, diffuse) = if close { (0x303030, 0xFFFFFF) } else { (0x909090, 0xC0C0C0) };
+        let light = Lighting { ambient, diffuse, main_light: 0, only_tile: None };
         let rows: Vec<&Row> =
             group.chars().map(|c| ROWS.iter().find(|r| r.label.starts_with(c)).unwrap()).collect();
         let files = overrides(&rows);
@@ -1045,7 +1444,9 @@ fn part_textures_look() {
         let mut r = Reading::new(&format!("part_textures_{group}"), "tic01", light, &refs);
         let mut items = HashMap::new();
         items.insert("mg_armor".to_string(), armor(&r.game, 201, 0, "mg_armor"));
-        items.insert("mg_helm".to_string(), helmet(&r.game, 250));
+        for row in rows.iter().filter(|r| r.skeleton == "helm") {
+            items.insert(format!("mg_helm{}", row.n), helmet(&r.game, row.n));
+        }
         let robes: Vec<u16> =
             rows.iter().filter(|r| r.skeleton.ends_with("robe")).map(|r| r.n).collect();
         for &n in &robes {
@@ -1091,17 +1492,20 @@ fn part_textures_look() {
         let dir = r.dir.clone();
         let (r_are, r_git) = (r.are.clone(), r.git.clone());
         let client_png = kept.join(format!("{group}_client.png"));
+        // (From above, for the sunlit tops of the normal maps' boxes.)
+        let (distance, pitch) = if close { (4.0, 40.0) } else { (5.0, 75.0) };
         let client = if moonglow_only {
-            r.save(&enter(INVISIBLE, (90.0, 5.0, 75.0)), SETTINGS);
+            r.save(&enter(INVISIBLE, (90.0, distance, pitch)), SETTINGS);
             common::read_png(&client_png)
         } else {
-            let (_, shot) = r.shoot(&enter(INVISIBLE, (90.0, 5.0, 75.0)), SETTINGS);
+            let (_, shot) = r.shoot(&enter(INVISIBLE, (90.0, distance, pitch)), SETTINGS);
             print_log(&dir);
             save_png(&shot, &client_png);
             shot
         };
         let haks: Vec<String> = hak.iter().map(|_| "mg_parts".to_string()).collect();
-        moonglow(&dir, &r_are, &r_git, &haks, group, &side, &kept, &client);
+        let camera = if close { "3.68,39,1.0,48" } else { "4.6,74,1.0,48" };
+        moonglow(&dir, &r_are, &r_git, &haks, group, &side, &kept, &client, camera);
     }
     eprintln!("pictures: {}", kept.display());
 }
@@ -1118,6 +1522,7 @@ fn moonglow(
     side: &str,
     kept: &Path,
     client: &Rgba,
+    camera: &str,
 ) {
     mg_testkit::gpu::hold();
     let Some(gpu) = Gpu::headless() else {
@@ -1142,7 +1547,7 @@ fn moonglow(
     let scene =
         area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
     let c: Vec<f32> = std::env::var("MG_CAMERA")
-        .unwrap_or_else(|_| "4.6,74,1.0,48".into())
+        .unwrap_or_else(|_| camera.into())
         .split(',')
         .map(|v| v.parse().unwrap())
         .collect();
@@ -1180,7 +1585,14 @@ fn moonglow(
 /// Seen (2026-11-10): the client draws each as the rule does (the biceps
 /// in their own PLTs' green cloth where Moonglow drew black leather, the
 /// robe brown where it drew black, feet 92 black boots where it drew the
-/// bandage); head 146 is drawn by neither.
+/// bandage); head 146 is drawn by neither. Set 3 (GitHub issue 45):
+/// human men in helmets `helm_017` (its mesh naming `pmh0_head001`'s
+/// PLT), `036` (`m_helmet`, nowhere), `071` (a TGA and two names
+/// nowhere), `076` (`black`, a TGA, and another helmet's PLT), `096`
+/// (TGAs of other names) and `033` (TDoD's hood, its own name). Seen
+/// (2026-11-13): the client draws each in the helmet's own PLT, as the
+/// rule does (36 dark where Moonglow drew it shiny gray, 96's horns dark
+/// where it drew them blue).
 #[test]
 #[ignore]
 fn part_textures_tdod_look() {
@@ -1219,9 +1631,9 @@ fn part_textures_tdod_look() {
     r.game.resman.add_haks(&install, &haks).unwrap();
     // The creatures of the set asked for (`MG_TDOD_SET`, 1 by default):
     // appearance, gender, head, and the clothes' parts (none: nothing
-    // worn); robe 250 a robe.
+    // worn); robe 250 a robe; `Helm`, a helmet of that model worn.
     type Creature = (u16, u8, u16, &'static [(&'static str, u16)]);
-    let sets: [&[Creature]; 2] = [
+    let sets: [&[Creature]; 3] = [
         &[
             (6, 1, 1, &[("LBicep", 25), ("RBicep", 25)]),
             (3, 1, 1, &[("LBicep", 25), ("RBicep", 25)]),
@@ -1235,6 +1647,14 @@ fn part_textures_tdod_look() {
             (3, 0, 1, &[("Neck", 28)]),
             (6, 0, 1, &[("LBicep", 98), ("RBicep", 98)]),
         ],
+        &[
+            (6, 0, 1, &[("Helm", 17)]),
+            (6, 0, 1, &[("Helm", 36)]),
+            (6, 0, 1, &[("Helm", 71)]),
+            (6, 0, 1, &[("Helm", 76)]),
+            (6, 0, 1, &[("Helm", 96)]),
+            (6, 0, 1, &[("Helm", 33)]),
+        ],
     ];
     let set: usize = std::env::var("MG_TDOD_SET").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
     let creatures = sets[set - 1];
@@ -1244,6 +1664,12 @@ fn part_textures_tdod_look() {
             continue;
         }
         let name = format!("mg_worn{i}");
+        if let [("Helm", n)] = parts {
+            let mut h = helmet(&r.game, *n);
+            h.root.set("TemplateResRef", Value::resref(ResRef::from_str(&name).unwrap()));
+            items.insert(name, h);
+            continue;
+        }
         let mut clothes = armor(&r.game, 1, 0, &name);
         for (part, n) in *parts {
             let label = format!("ArmorPart_{part}");
@@ -1272,7 +1698,8 @@ fn part_textures_tdod_look() {
         c.set("Race", Value::Byte(appearance as u8));
         c.set("Appearance_Head", Value::Byte(head as u8));
         c.set(&mg_rules::items::wide_label("Appearance_Head"), Value::Word(head));
-        let mut e = mg_gff::Struct::new(0x2);
+        let slot = if matches!(parts, [("Helm", _)]) { 0x1 } else { 0x2 };
+        let mut e = mg_gff::Struct::new(slot);
         e.set("EquippedRes", Value::resref(ResRef::from_str(&worn).unwrap_or(ResRef::EMPTY)));
         c.set("Equip_ItemList", Value::List(if worn.is_empty() { vec![] } else { vec![e] }));
         c.set("ItemList", Value::List(Vec::new()));
@@ -1308,5 +1735,5 @@ fn part_textures_tdod_look() {
         save_png(&shot, &client_png);
         shot
     };
-    moonglow(&rdir, &are, &git, &haks, &group, &side, &kept, &client);
+    moonglow(&rdir, &are, &git, &haks, &group, &side, &kept, &client, "4.6,74,1.0,48");
 }

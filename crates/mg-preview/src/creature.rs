@@ -315,6 +315,7 @@ pub(crate) fn dressed(
                     p.scale = cell_f32(&appearance, r, scale_col).unwrap_or(1.0);
                     p.colors = Some(item_colors(h, colors));
                     p.env_map = Some("chrome1".into());
+                    p.textures = helmet_textures(&lk, &p.model);
                     // (In the head's place, as the head's.)
                     p.local = crate::scope_matrix(utc, HEAD_SCOPE);
                     p.item = true;
@@ -409,6 +410,65 @@ pub(crate) fn plt_fallbacks(
     found
 }
 
+/// The textures a helmet's model (a layered item's: `helm_033`) is drawn
+/// with in place of those its meshes name: where it has a PLT of its own
+/// name, the game draws every mesh with it, whatever each names, as a
+/// body part's ([`plt_fallbacks`]); otherwise each keeps what it names.
+/// The game's hood, `helm_033`, names `helm`, a texture that is nowhere,
+/// and was drawn untextured (GitHub issue 45); nine of the game's helmets
+/// name another helmet's PLT (`helm_006` names `helm_003`'s). Seen in the
+/// client (2026-11-13): a helmet's own PLT on a mesh naming a texture
+/// that is nowhere, another helmet's PLT, a TGA of no part's name or no
+/// texture (`bitmap NULL`); a mesh naming a material with a `texture0`
+/// keeps it, beside a mesh drawn in the PLT; a TGA of the helmet's name
+/// alone replaces nothing, and beside the PLT it is drawn
+/// (`Assets::texture_kept`). The normal and specular maps stay those of
+/// the material of the name the mesh gives, not of the helmet's own name,
+/// as on a body part (the renderer looks the material up by the mesh's
+/// own name). The rows of `part_textures_look` in mg-corpus-tests'
+/// `client_render/part_textures.rs`: W, X, Y, Z, 0, 1, 2, $, &, and 4, 5,
+/// 7, 8 the normal maps; 3 the game's hood (row 6, the game's `helm_006`,
+/// does not tell its own PLT from `helm_003`'s at that distance).
+pub(crate) fn helmet_textures(
+    lk: &Lookup<'_>,
+    model: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let model = model.to_ascii_lowercase();
+    if !lk.has_plt(&model) {
+        return std::collections::BTreeMap::new();
+    }
+    let read = || every_mesh_in(lk, lk.model(&model).as_deref(), &model);
+    let Some(kept) = lk.remembered else { return read() };
+    if let Some(found) = kept.helmets.borrow().get(&model) {
+        return found.clone();
+    }
+    let found = read();
+    kept.helmets.borrow_mut().insert(model, found.clone());
+    found
+}
+
+/// `own` on every mesh of `model` (a part or a helmet with a PLT of that
+/// name), under each texture a mesh names and, for a mesh that names
+/// none, the empty name (`mg_render::Instance::textures`); but a mesh
+/// whose `bitmap` names a material (MTR) with a `texture0` keeps the
+/// material, as one whose `materialname` does (the renderer draws that
+/// over the bitmap).
+fn every_mesh_in(
+    lk: &Lookup<'_>,
+    model: Option<&mg_mdl::Model>,
+    own: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    let bitmaps = model.map_or_else(Vec::new, crate::bitmaps);
+    for b in bitmaps.into_iter().filter(|b| b != own && !lk.has_material_texture(b)) {
+        out.insert(b, own.to_string());
+    }
+    if model.is_some_and(crate::unnamed_mesh) {
+        out.insert(String::new(), own.to_string());
+    }
+    out
+}
+
 /// [`plt_fallbacks`] of `model` (lower case), read from the load order.
 fn read_plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
     // A part's name, and its fallbacks: a head's no other race's or
@@ -442,13 +502,7 @@ fn read_plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMa
     // material (MTR) with a `texture0` keeps the material, as one whose
     // `materialname` does (the renderer draws that over the bitmap).
     if let Some(own) = named(model).into_iter().find(|c| lk.has_plt(c)) {
-        for b in bitmaps.into_iter().filter(|b| *b != own && !lk.has_material_texture(b)) {
-            out.insert(b, own.clone());
-        }
-        if parsed.as_deref().is_some_and(crate::unnamed_mesh) {
-            out.insert(String::new(), own);
-        }
-        return out;
+        return every_mesh_in(lk, parsed.as_deref(), &own);
     }
     for b in bitmaps {
         if lk.has_texture(&b) {

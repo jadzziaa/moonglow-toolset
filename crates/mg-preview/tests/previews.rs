@@ -1298,6 +1298,125 @@ fn a_part_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
     assert_eq!(robe(1, 233), ["pmh0_robe233"]);
 }
 
+/// What a helmet is drawn with where its mesh names another texture, as
+/// an item and worn, row by row of the client's reading
+/// (`part_textures_look`'s helmet rows; GitHub issue 45: the game's hood,
+/// `helm_033`, whose mesh names `helm`, a texture that is nowhere, was
+/// drawn untextured, where the game draws it in its PLT). Where the
+/// helmet has a PLT of its own name, every mesh is drawn with that name,
+/// as a body part's; a TGA of its name alone replaces nothing, and a mesh
+/// naming a material with a `texture0` keeps it, beside a mesh drawn in
+/// the PLT.
+#[test]
+fn a_helmet_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let user = mg_testkit::scratch_dir("preview_helmet_textures");
+    let over = user.join("override");
+    std::fs::create_dir_all(&over).unwrap();
+    let put = |file: &str, data: &[u8]| std::fs::write(over.join(file), data).unwrap();
+    put("mg_red.tga", b"tga");
+    put("helm_248.plt", b"plt");
+    // (Two meshes: a material with a texture0 and a TGA of no part's
+    // name; a TGA and a PLT of the helmet's name.)
+    put("helm_242.mdl", part_model("helm_242", &["mg_mtrb", "mg_red"]).as_bytes());
+    put("helm_242.plt", b"plt");
+    put("helm_243.mdl", part_model("helm_243", &["mg_red"]).as_bytes());
+    put("helm_243.tga", b"tga");
+    put("helm_243.plt", b"plt");
+    put("mg_mtrb.mtr", b"texture0 mg_pink\n");
+    // (The helmet's number, its mesh's texture, the files of its name.)
+    let rows: [(u8, &str, &[&str]); 7] = [
+        (251, "mg_none", &["plt"]),
+        (252, "helm_248", &["plt"]),
+        (253, "mg_red", &["plt"]),
+        (254, "mg_none", &[]),
+        (245, "NULL", &["plt"]),
+        (246, "mg_mtrb", &["plt"]),
+        (247, "mg_none", &["tga"]),
+    ];
+    for (n, mesh, own) in rows {
+        let name = format!("helm_{n}");
+        put(&format!("{name}.mdl"), part_model(&name, &[mesh]).as_bytes());
+        for ext in own {
+            put(&format!("{name}.{ext}"), ext.as_bytes());
+        }
+    }
+    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    // What the helmet's meshes are drawn with, as an item and worn by a
+    // man (`NULL`: a mesh that names none).
+    let meshes = |n: u8| -> [Vec<String>; 2] {
+        let mut helmet = blueprint(&game, "nw_arhe001", ResType::UTI).root;
+        helmet.set("ModelPart1", mg_gff::Value::Byte(n));
+        if helmet.get("xModelPart1").is_some() {
+            helmet.set("xModelPart1", mg_gff::Value::Word(u16::from(n)));
+        }
+        let name = format!("helm_{n:03}");
+        let model = game.resman.get_named(&name, ResType::MDL).unwrap();
+        let model = Model::read(&model).unwrap();
+        let names: Vec<String> = model
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.kind {
+                mg_mdl::NodeKind::Mesh(m) => Some(m.textures[0].clone().unwrap_or_default()),
+                _ => None,
+            })
+            .map(|t| t.to_ascii_lowercase())
+            .collect();
+        let of = |p: &Preview| -> Vec<String> {
+            let part = std::iter::once(&p.base)
+                .chain(&p.parts)
+                .find(|part| part.model == name)
+                .unwrap_or_else(|| panic!("{name}: {:?}", models(p)));
+            names
+                .iter()
+                .map(|mesh| {
+                    let t = part.textures.get(mesh).cloned().unwrap_or_else(|| mesh.clone());
+                    if t.is_empty() { "NULL".into() } else { t }
+                })
+                .collect()
+        };
+        let mut utc = CreatureLook::new(6).to_utc();
+        let mut slot = mg_gff::Struct::new(1);
+        slot.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+        utc.set("Equip_ItemList", mg_gff::Value::List(vec![slot]));
+        let worn = helmet.clone();
+        let worn = creature(&game, &utc, &move |_| {
+            let mut g = Gff::new(*b"UTI ");
+            g.root = worn.clone();
+            Some(g)
+        })
+        .unwrap();
+        [of(&item(&game, &helmet).unwrap()), of(&worn)]
+    };
+    let drawn = |n: u8| -> [String; 2] { meshes(n).map(|m| m.concat()) };
+    let both = |name: &str| [name.to_string(), name.to_string()];
+    // A mesh naming a texture that is nowhere, another helmet's PLT, a TGA
+    // of no part's name, or none: the helmet's own PLT.
+    assert_eq!(drawn(251), both("helm_251"));
+    assert_eq!(drawn(252), both("helm_252"));
+    assert_eq!(drawn(253), both("helm_253"));
+    assert_eq!(drawn(245), both("helm_245"));
+    // No PLT of its name: what the mesh names, a TGA of its name alone
+    // not counting.
+    assert_eq!(drawn(254), both("mg_none"));
+    assert_eq!(drawn(247), both("mg_none"));
+    // A material with a texture0 is kept, beside a mesh in the PLT (rows 1
+    // and $).
+    assert_eq!(drawn(246), both("mg_mtrb"));
+    let kept = vec!["mg_mtrb".to_string(), "helm_242".to_string()];
+    assert_eq!(meshes(242), [kept.clone(), kept]);
+    // A TGA and a PLT of its name: its name (the renderer draws the TGA,
+    // as the client does: rows E and &).
+    assert_eq!(drawn(243), both("helm_243"));
+    // The game's own: the hood (`helm_033`, its mesh naming `helm`), and
+    // `helm_006`, its mesh naming `helm_003`'s PLT.
+    assert_eq!(drawn(33), both("helm_033"));
+    assert_eq!(drawn(6), both("helm_006"));
+}
+
 /// An authored ASCII model: a small square, the dummies `nodes` (name,
 /// position) and the lights `lights` (position, colour, radius,
 /// multiplier).
@@ -1628,5 +1747,96 @@ fn a_builder_s_custom_skeleton_body_draws_as_the_client_does() {
         let mean = |i: usize| body.iter().map(|p| f64::from(p[i])).sum::<f64>() / body.len() as f64;
         eprintln!("{base}: red {:.0}, blue {:.0}", mean(0), mean(2));
         assert!(mean(0) > mean(2) + 25.0, "{base}: drawn gray, not tinted");
+    }
+}
+
+/// Run by hand: the models other than body parts that have a PLT of their
+/// own name (helmets, the game's `gi_cloak01`), and of them those whose
+/// meshes name something else, which the client draws in that PLT
+/// (`creature::helmet_textures`; GitHub issue 45). Over the game, and
+/// the haks of each folder `MOONGLOW_HAKS` names. Prints a line a model,
+/// what its meshes name and whether each is a PLT, a TGA or DDS, or
+/// nowhere (`NULL`: a mesh that names none); a material with a
+/// `texture0` is left out, as the client keeps it. Seen (2026-11-13): the
+/// game, 36 such models (35 helmets and `gi_cloak01`), 11 helmets whose
+/// meshes name something else; with The Domains of Dread's 151 haks, 195
+/// and 78, all helmets.
+/// `MOONGLOW_HAKS=… cargo test -p mg-preview --test previews models_with_a_plt -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn models_with_a_plt_of_their_own_name() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let user = mg_testkit::scratch_dir("models_with_own_plt");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut haks = Vec::new();
+    for dir in mg_testkit::builder_hak_dirs() {
+        for f in mg_testkit::files_with_ext(&dir, "hak") {
+            let to = user.join("hak").join(f.file_name().unwrap());
+            mg_testkit::link_or_copy(&std::fs::canonicalize(&f).unwrap(), &to).unwrap();
+            haks.push(f.file_stem().unwrap().to_string_lossy().into_owned());
+        }
+    }
+    let install = GameInstall::new(&root, Some(user), "en");
+    let mut game = GameData::open(&install).unwrap();
+    let missing = game.resman.add_haks(&install, &haks).unwrap();
+    assert!(missing.is_empty(), "{missing:?}");
+    let rm = &game.resman;
+    let has = |n: &str, t: ResType| mg_resman::ResKey::parse(n, t).is_some_and(|k| rm.contains(&k));
+    let texture0 = |n: &str| {
+        rm.get_named(n, ResType::MTR)
+            .is_ok_and(|d| mg_image::mtr::Mtr::parse(&d).textures[0].is_some())
+    };
+    let (mut own, mut otherwise) = (Vec::new(), Vec::new());
+    for (k, _) in rm.entries() {
+        let name = k.resref.to_string().to_ascii_lowercase();
+        if k.restype != ResType::MDL
+            || mg_rules::models::part_name(&name).is_some()
+            || !has(&name, ResType::PLT)
+        {
+            continue;
+        }
+        own.push(name.clone());
+        let Some(model) = rm.get(&k).ok().and_then(|d| Model::read(&d).ok()) else { continue };
+        let mut named: Vec<String> = model
+            .nodes
+            .iter()
+            .filter_map(|n| match &n.kind {
+                mg_mdl::NodeKind::Mesh(m) if m.render => Some(m.textures[0].clone()),
+                _ => None,
+            })
+            .filter_map(|t| match t.map(|t| t.to_ascii_lowercase()) {
+                None => Some("NULL".to_string()),
+                Some(t) if t == name || texture0(&t) => None,
+                Some(t) => {
+                    let found = if has(&t, ResType::PLT) {
+                        "PLT"
+                    } else if has(&t, ResType::TGA) || has(&t, ResType::DDS) {
+                        "TGA/DDS"
+                    } else {
+                        "nowhere"
+                    };
+                    Some(format!("{t} ({found})"))
+                }
+            })
+            .collect();
+        named.sort();
+        named.dedup();
+        if !named.is_empty() {
+            otherwise.push(format!("{name}: {}", named.join(", ")));
+        }
+    }
+    own.sort();
+    otherwise.sort();
+    let helmets = |v: &[String]| v.iter().filter(|m| m.starts_with("helm_")).count();
+    println!("{} models with a PLT of their own name ({} helmets)", own.len(), helmets(&own));
+    for m in own.iter().filter(|m| !m.starts_with("helm_")) {
+        println!("  not a helmet: {m}");
+    }
+    println!("{} of them name something else ({} helmets):", otherwise.len(), helmets(&otherwise));
+    for line in &otherwise {
+        println!("  {line}");
     }
 }
