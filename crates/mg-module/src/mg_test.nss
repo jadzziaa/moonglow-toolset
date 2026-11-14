@@ -1,4 +1,4 @@
-// mg_test: assertions for `mg test` (Moonglow Toolset). Marker format 1.
+// mg_test: assertions for `mg test` (Moonglow Toolset). Marker format 2.
 //
 // A test is a script named test_*, with a main(), that includes this file
 // and calls the functions below. `mg test MODULE` runs every one of them in
@@ -8,12 +8,19 @@
 //     MG_TEST PASS <name>
 //     MG_TEST FAIL <name> :: <detail>
 //
+// An assertion made after its test's main() has returned (in a
+// DelayCommand, an AssignCommand) names its test first, the script that
+// queued it, which the server still runs it as (format 2):
+//
+//     MG_TEST FAIL [test_name] <name> :: <detail>
+//
 // A module that runs its tests itself (`mg test --driver none`) calls
-// TestsDone() when the last one is through.
+// TestsDone() when the last one is through; its lines name no test.
 
-const int MG_TEST_FORMAT = 1;
+const int MG_TEST_FORMAT = 2;
 
-// The name the following assertions are grouped under ("" for none).
+// The name the following assertions of this test are grouped under ("" for
+// none), its delayed ones too.
 void Describe(string sGroup);
 
 // One passed, or failed, test case by name.
@@ -35,16 +42,42 @@ int AssertValid(object oObject, string sName);
 // that runs its tests itself; `mg test`'s own driver says it.
 void TestsDone();
 
+// The test making an assertion: the first script the server is running
+// that is not `mg test`'s driver. In a delayed command that is the script
+// that queued it.
+string MgTestScript()
+{
+    string sDriver = GetLocalString(GetModule(), "MG_TEST_DRIVER");
+    int nLevels = GetScriptRecursionLevel();
+    int i;
+    for (i = 0; i <= nLevels; i++)
+    {
+        string sScript = GetScriptName(i);
+        if (sScript != sDriver) return sScript;
+    }
+    return "";
+}
+
 string MgTestName(string sName)
 {
-    string sGroup = GetLocalString(GetModule(), "MG_TEST_GROUP");
-    if (sGroup == "") return sName;
-    return sGroup + ": " + sName;
+    object oModule = GetModule();
+    string sScript = MgTestScript();
+    string sGroup = GetLocalString(oModule, "MG_TEST_GROUP");
+    if (sScript != "") sGroup = GetLocalString(oModule, "MG_TEST_GROUP " + sScript);
+    if (sGroup != "") sName = sGroup + ": " + sName;
+    // (Made outside the driver's run of its test: named by its test.)
+    string sDriver = GetLocalString(oModule, "MG_TEST_DRIVER");
+    if (sDriver != "" && sScript != "" && GetScriptName(0) != sDriver)
+        sName = "[" + sScript + "] " + sName;
+    return sName;
 }
 
 void Describe(string sGroup)
 {
-    SetLocalString(GetModule(), "MG_TEST_GROUP", sGroup);
+    object oModule = GetModule();
+    string sScript = MgTestScript();
+    if (sScript == "") SetLocalString(oModule, "MG_TEST_GROUP", sGroup);
+    else SetLocalString(oModule, "MG_TEST_GROUP " + sScript, sGroup);
 }
 
 void Pass(string sName)

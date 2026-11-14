@@ -15,7 +15,7 @@ pub const INCLUDE_NAME: &str = "mg_test";
 /// it writes.)
 pub const INCLUDE: &str = include_str!("mg_test.nss");
 /// The format of the lines the include and the driver write.
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 /// The driver script put into the scratch copy.
 pub const DRIVER_NAME: &str = "mg_test_run";
 /// What every line of a test run has in the log.
@@ -64,7 +64,9 @@ pub fn test_scripts(module: &Module, filter: Option<&str>) -> Vec<ResKey> {
 /// The driver: each test as an event of its own (so one that runs out of
 /// instructions takes no other with it), then the module's own
 /// OnModuleLoad script, `original`. The tests begin once that is through;
-/// the run is done `settle` seconds after the last was started.
+/// the run is done `settle` seconds after the last was started. It names
+/// itself to the include (`MG_TEST_DRIVER`), which then names the test of
+/// an assertion made outside the driver's run of it (format 2).
 pub fn driver(tests: &[ResKey], original: Option<&str>, settle: f32) -> String {
     let mut s = String::from(
         "// Written by `mg test`: runs the module's tests.\n\
@@ -75,6 +77,7 @@ pub fn driver(tests: &[ResKey], original: Option<&str>, settle: f32) -> String {
          void MgTestDone()\n{\n    WriteTimestampedLogEntry(\"MG_TEST DONE\");\n}\n\n\
          void main()\n{\n",
     );
+    s += &format!("    SetLocalString(GetModule(), \"MG_TEST_DRIVER\", \"{DRIVER_NAME}\");\n");
     s += &format!("    WriteTimestampedLogEntry(\"MG_TEST BEGIN {FORMAT} {}\");\n", tests.len());
     let mut at = 0.5_f32;
     for t in tests {
@@ -156,6 +159,9 @@ pub struct Case {
     pub name: String,
     pub ok: bool,
     pub detail: String,
+    /// Made after its test's `main()` had returned (in a `DelayCommand`,
+    /// an `AssignCommand`), and named by its test (format 2).
+    pub delayed: bool,
 }
 
 /// One test script's run.
@@ -195,9 +201,19 @@ pub struct Report {
     said: Vec<(String, String)>,
 }
 
-/// Cases reported while no test was running (a delayed assertion, a
-/// module's own driver) go under this name.
+/// Cases reported while no test was running that name no test of the run
+/// (a module's own driver, an include of format 1, a script other than a
+/// test asserting) go under this name.
 pub const OUTSIDE: &str = "(outside a test)";
+
+/// A case's name that names its test first, `[test_a] name`: the test's
+/// script and the rest.
+fn named_test(name: &str) -> Option<(&str, &str)> {
+    let (script, rest) = name.strip_prefix('[')?.split_once("] ")?;
+    let resref = (1..=16).contains(&script.len())
+        && script.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    resref.then_some((script, rest))
+}
 
 impl Report {
     fn test(&mut self, script: &str) -> usize {
@@ -283,14 +299,22 @@ impl Report {
             }
             "PASS" | "FAIL" => {
                 let (name, detail) = rest.split_once(" :: ").unwrap_or((rest, ""));
-                let i = match &self.running {
-                    Some((i, _)) => *i,
-                    None => self.test(OUTSIDE),
+                // (Format 2: one made outside its test's run names it.)
+                let named = (self.format >= Some(2)).then(|| named_test(name)).flatten();
+                let of = named.and_then(|(script, rest)| {
+                    let i = self.tests.iter().position(|t| t.script.eq_ignore_ascii_case(script));
+                    i.map(|i| (i, rest))
+                });
+                let (i, name, delayed) = match (of, &self.running) {
+                    (Some((i, rest)), _) => (i, rest, true),
+                    (None, Some((i, _))) => (*i, name, false),
+                    (None, None) => (self.test(OUTSIDE), name, false),
                 };
                 self.tests[i].cases.push(Case {
                     name: name.to_string(),
                     ok: word == "PASS",
                     detail: detail.to_string(),
+                    delayed,
                 });
             }
             "DONE" => {
@@ -339,7 +363,11 @@ impl Report {
         let tests: Vec<_> = (self.tests.iter())
             .map(|t| {
                 let cases: Vec<_> = (t.cases.iter())
-                    .map(|c| json!({ "name": c.name, "ok": c.ok, "detail": c.detail }))
+                    .map(|c| {
+                        json!({
+                            "name": c.name, "ok": c.ok, "detail": c.detail, "delayed": c.delayed,
+                        })
+                    })
                     .collect();
                 json!({
                     "script": t.script, "passed": t.cases.len() - t.failed(),
@@ -467,7 +495,8 @@ mod tests {
     #[test]
     fn the_driver_runs_each_test_and_the_module_s_own_script() {
         let d = driver(&[key("test_a"), key("test_b")], Some("x2_mod_def_load"), 2.0);
-        assert!(d.contains("MG_TEST BEGIN 1 2"));
+        assert!(d.contains("MG_TEST BEGIN 2 2"));
+        assert!(d.contains("SetLocalString(GetModule(), \"MG_TEST_DRIVER\", \"mg_test_run\");"));
         assert!(d.contains("DelayCommand(0.50, MgTestRun(\"test_a\"));"));
         assert!(d.contains("DelayCommand(0.55, MgTestRun(\"test_b\"));"));
         assert!(d.contains("DelayCommand(2.60, MgTestDone());"));
@@ -519,6 +548,57 @@ mod tests {
         assert!(x.contains("<testsuites name=\"m\" tests=\"5\" failures=\"1\" errors=\"1\""));
         assert!(x.contains("<failure message=\"got 0, expected 1\"/>"));
         assert!(x.contains("TOO MANY INSTRUCTIONS"));
+    }
+
+    /// Format 2: an assertion made after its test (in a `DelayCommand`)
+    /// names its test, and goes under it, whatever ran meanwhile. One
+    /// naming no test of the run is kept as it was, outside a test; in
+    /// format 1 nothing is read as a test's name.
+    #[test]
+    fn a_delayed_assertion_goes_under_its_own_test() {
+        let mut r = Report::default();
+        for line in [
+            "MG_TEST BEGIN 2 2",
+            "MG_TEST RUN test_a",
+            "MG_TEST PASS now",
+            "MG_TEST END test_a",
+            "MG_TEST RUN test_b",
+            "MG_TEST PASS b: [test_a] not a name of its test",
+            "MG_TEST FAIL [test_a] math: later :: got 1, expected 2",
+            "MG_TEST END test_b",
+            "MG_TEST PASS [TEST_B] after both",
+            "MG_TEST PASS [nw_heartbeat] someone else's",
+            "MG_TEST PASS [not a resref] plain",
+        ] {
+            r.line(line);
+        }
+        assert!(r.line("MG_TEST DONE"));
+        let cases = |i: usize| -> Vec<(&str, bool, bool)> {
+            r.tests[i].cases.iter().map(|c| (c.name.as_str(), c.ok, c.delayed)).collect()
+        };
+        assert_eq!(cases(0), [("now", true, false), ("math: later", false, true)]);
+        assert_eq!(r.tests[0].cases[1].detail, "got 1, expected 2");
+        assert_eq!(
+            cases(1),
+            [("b: [test_a] not a name of its test", true, false), ("after both", true, true)]
+        );
+        assert_eq!(r.tests[2].script, OUTSIDE);
+        assert_eq!(
+            cases(2),
+            [("[nw_heartbeat] someone else's", true, false), ("[not a resref] plain", true, false)]
+        );
+        assert_eq!(r.to_json()["tests"][0]["cases"][1]["delayed"], true);
+        assert!(r.junit("m", 0.0).contains("classname=\"test_a\" name=\"math: later\""));
+
+        let mut old = Report::default();
+        for line in ["MG_TEST BEGIN 1 1", "MG_TEST RUN test_a", "MG_TEST END test_a"] {
+            old.line(line);
+        }
+        old.line("MG_TEST PASS [test_a] later");
+        assert_eq!(
+            (old.tests[1].script.as_str(), old.tests[1].cases[0].name.as_str()),
+            (OUTSIDE, "[test_a] later")
+        );
     }
 
     /// A test that stops inside its main() (the script that ran it goes

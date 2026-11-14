@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T13:30:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:07Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2070,10 +2070,6 @@ is not taken for a new gap.
   tabs by the keyboard): closing tabs together asks nothing of its own;
   only a hak's and a tileset's editors have work of their own to lose,
   and each asks for itself as it closes. (S) (Settled in the triage of 2026-10-28.)
-- **`mg test`'s results outside a test:** a result reported while no
-  test is running (a delayed assertion after its test ended, a
-  module's own driver) goes under "(outside a test)", since NWScript
-  does not say which script is running. (S) (Settled in the triage of 2026-10-28.)
 - **`mg serve --restart-on-change`** looks at a file's size and time
   twice a second, and at a folder six levels deep (no file-system
   notifications). (S) (Settled in the triage of 2026-10-28.)
