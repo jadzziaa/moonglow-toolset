@@ -77,6 +77,7 @@ pub mod nui_render {
         Area, Element, Error, Layout, Look, Options, Picture, Window, layout, render,
     };
 }
+pub mod nwsync_content_view;
 pub mod nwsync_view;
 mod options;
 mod outliner;
@@ -971,6 +972,9 @@ pub struct Moonglow {
     pub attach: Option<module_props::AttachDraft>,
     /// Build › Publish to NWSync.
     pub publish: Option<nwsync_view::Publish>,
+    /// Build › NWSync Content, and the module's NWSync content as it was
+    /// put into the game data.
+    pub nwsync_content: nwsync_content_view::NwSyncContent,
     /// Tilesets open in the tileset editor.
     pub tilesets: Vec<tileset_view::TilesetDoc>,
     pub(crate) next_tileset: u32,
@@ -1868,6 +1872,7 @@ impl Moonglow {
             suggested_hak: None,
             attach: None,
             publish: None,
+            nwsync_content: Default::default(),
             tilesets: Vec::new(),
             next_tileset: 0,
             tileset_ask: None,
@@ -2774,6 +2779,7 @@ impl Moonglow {
         module_props::attach_window(self, ui.ctx());
         talk_typed::window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
+        nwsync_content_view::window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
         plugins::replace_window(self, ui.ctx());
@@ -4933,12 +4939,24 @@ impl Moonglow {
         if self.game_free_for(|w| w.layers = true)
             && let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install)
         {
-            let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
+            let mg_module::Stacked { missing, wrong, nwsync } = m.stack(&mut game.resman, gi);
             for h in missing {
                 self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
             }
             if let Some(e) = wrong {
                 self.log.error(format!("Could not open the module's haks: {e}"));
+            }
+            // (The NWSync server the project names: its content over the
+            // haks, from what is here; Build › NWSync Content downloads.)
+            self.nwsync_content.module_closed();
+            if let Some(n) = nwsync {
+                if let Some(line) = n.summary() {
+                    self.log.info(line);
+                }
+                for w in n.warnings() {
+                    self.log.warn(format!("NWSync content: {w}"));
+                }
+                self.nwsync_content.mounted = Some(n);
             }
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
@@ -5429,10 +5447,11 @@ impl Moonglow {
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
         self.search_kept = Default::default();
+        self.nwsync_content.module_closed();
         if self.game_free_for(|w| w.layers = true)
             && let Some(game) = exclusive(&mut self.game)
         {
-            remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
+            remove_layers(&mut game.resman, is_module_layer);
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
@@ -8237,19 +8256,30 @@ impl Moonglow {
     /// must be free.
     fn layer_open_module(&mut self) {
         let Some(game) = exclusive(&mut self.game) else { return };
-        remove_layers(&mut game.resman, |l| l.priority == priority::MODULE || is_hak_layer(l));
+        remove_layers(&mut game.resman, is_module_layer);
+        self.nwsync_content.module_closed();
         let mut layered = Vec::new();
         match (&mut self.ws, &self.install) {
             (Some(ws), Some(gi)) => {
                 // (Module Properties' hak list as it is now, unsaved
                 // changes included.)
                 let _ = ws.flush();
-                let (missing, wrong) = ws.module.stack_onto(&mut game.resman, gi);
+                let mg_module::Stacked { missing, wrong, nwsync } =
+                    ws.module.stack(&mut game.resman, gi);
                 for h in missing {
                     self.log.warn(text::capitalized(&gi.hak_not_found(&h)));
                 }
                 if let Some(e) = wrong {
                     self.log.error(format!("Could not open the module's haks: {e}"));
+                }
+                if let Some(n) = nwsync {
+                    if let Some(line) = n.summary() {
+                        self.log.info(line);
+                    }
+                    for w in n.warnings() {
+                        self.log.warn(format!("NWSync content: {w}"));
+                    }
+                    self.nwsync_content.mounted = Some(n);
                 }
                 layered = ws.module.haks().unwrap_or_default();
             }
@@ -8353,6 +8383,13 @@ fn kept_by_kind<'a, T>(kept: &'a [(String, T)], tab: &Tab) -> Option<&'a (String
 /// `ResMan::add_haks` labels them).
 fn is_hak_layer(layer: &mg_resman::Layer) -> bool {
     layer.label.starts_with("hak:")
+}
+
+/// A layer the open module put in: its own, its haks', its NWSync content's.
+fn is_module_layer(layer: &mg_resman::Layer) -> bool {
+    layer.priority == priority::MODULE
+        || is_hak_layer(layer)
+        || mg_module::nwsync_content::is_nwsync_layer(layer)
 }
 
 /// Takes the layers `gone` says out of the load order.

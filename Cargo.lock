@@ -1561,6 +1561,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
 
 [[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2527,6 +2539,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libsqlite3-sys"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b06e69070b7e12262b0cd90832f0a7396f142a2b330181255562decf9f0c6215"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2637,6 +2660,7 @@ dependencies = [
  "mg-mdl",
  "mg-module",
  "mg-nui",
+ "mg-nwsync",
  "mg-plugin",
  "mg-preview",
  "mg-render",
@@ -2767,6 +2791,7 @@ dependencies = [
 name = "mg-erf"
 version = "0.0.0"
 dependencies = [
+ "flate2",
  "mg-core",
  "thiserror 2.0.21",
  "zstd",
@@ -2824,6 +2849,7 @@ dependencies = [
  "mg-gff",
  "mg-image",
  "mg-mdl",
+ "mg-nwsync",
  "mg-resman",
  "mg-rules",
  "mg-schema",
@@ -2861,6 +2887,20 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "zip",
+]
+
+[[package]]
+name = "mg-nwsync"
+version = "0.0.0"
+dependencies = [
+ "flate2",
+ "mg-core",
+ "mg-erf",
+ "mg-nwsync",
+ "mg-resman",
+ "mg-testkit",
+ "rusqlite",
+ "ureq",
 ]
 
 [[package]]
@@ -3080,6 +3120,7 @@ dependencies = [
  "mg-mdl",
  "mg-module",
  "mg-nui",
+ "mg-nwsync",
  "mg-plugin",
  "mg-preview",
  "mg-render",
@@ -4475,6 +4516,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusqlite"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4edff0039f148731aee2fd80f76dbfeb12d204ab3d1c544838d34e02151049b"
+dependencies = [
+ "bitflags 2.13.2",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "libsqlite3-sys",
+ "smallvec",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5366,6 +5420,12 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vello_common"

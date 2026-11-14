@@ -252,6 +252,16 @@ fn nui_and_nwsync_commands_answer_in_json() {
         (Some(1), Some(0))
     );
     assert_eq!(pruned["problems"], serde_json::json!([]));
+    // Read back from a server of this computer's, into a cache of the
+    // test's: its progress kept off the JSON.
+    let (url, _, _) = crate::nwsync_read::serve(g.dir.join("repo"));
+    let pulled = ok(&["nwsync-pull", "--source", &url, "--cache", &at("nwsync-cache")]);
+    assert_eq!(
+        (pulled["manifest"].clone(), pulled["left"].as_u64()),
+        (synced["sha1"].clone(), Some(0))
+    );
+    let status = ok(&["nwsync-status", "--source", &url, "--cache", &at("nwsync-cache")]);
+    assert_eq!(status["survey"]["missing"], 0);
     // Uploaded by a stand-in command (nothing goes anywhere but this
     // folder): each part in turn, in the repository's folder, its output
     // kept off the JSON.

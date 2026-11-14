@@ -67,7 +67,7 @@ Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has o
 | View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Properties Panel (beside an area, its Properties pane alone), Log (each checked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Interface Size (Zoom In, Zoom Out, Reset Zoom, and the sizes from 90% to 300%, the one in use checked: Options › General › Interface size), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint), and the enabled plugins' wizards |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, New NUI Window… ([NUI Creator](18-nui-creator.md)), Palettes, Preview, Appearance Gallery, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
-| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
+| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, NWSync Content…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, **Panels** (their panels, where they have any), Manage Plugins (the Plugins tab), Install Plugin from File… ([Plugins](15-plugins.md)); the Plugins tab is a document tab in the middle, brought to the front where it is open already and closed from its tab's menu as any tab |
 | Help | User Manual, Command Palette… ([Quick Open](#quick-open)), Check for Updates… ([Updates](#updates)), About Moonglow Toolset |
 
@@ -1701,7 +1701,10 @@ plugin's command, among others), the right of the Status Bar shows its name and 
 where the job says, a mark going to and fro where it does not. Rest the
 pointer on it for how far it is. One job runs at a time, in a window of
 its own with **Cancel**, which is how it is stopped; work asked for
-meanwhile waits (the log says so).
+meanwhile waits (the log says so). An NWSync Content Sync is shown
+there the same way, while no job runs, but it is not a job: you work on
+while it downloads, and its Cancel is in its own window (see
+[NWSync content instead of haks](09-build-and-test.md#nwsync-content-instead-of-haks)).
 
 **When it is short of room**, its parts give way in this order. In a
 window under 1400 points the switches (Log, Problems, Search Results,

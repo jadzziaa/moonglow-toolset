@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Build, verify and test
-description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
+description: Build Module, publishing to NWSync and uploading it to the web server, a module's haks read from its NWSync server instead of hak files, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-25T08:49:31Z }
 ---
@@ -286,6 +286,71 @@ project's command or one given (`--upload "COMMAND"`); `mg nwsync-prune
 FOLDER --upload "COMMAND"` after a prune. There the command's output is
 on standard error and it reads the terminal, so it may ask you for a
 password.
+
+## NWSync content instead of haks
+
+A persistent world whose players download its haks through NWSync can
+be opened without the hak files: Moonglow reads the haks' content from
+the same NWSync server. Name the server in the project file
+(`moonglow.toml` in a nasher project or module folder; for a module kept
+in one file, the file named by it beside it: `krezk.moonglow.toml`
+beside `krezk.mod`):
+
+```toml
+[nwsync]
+source = "https://nwsync.example.org"   # as nwserver's -nwsyncurl
+manifest = "latest"                     # or a manifest's SHA-1, to stay on it
+```
+
+When the module opens, the server's manifest is put into the game data
+as one layer, where the game puts it: above the haks, below the
+`development` folder and other loose files. Each resource is read from
+**the game's own NWSync storage** (`nwsync` in the game's user folder,
+what the game downloaded to join the server) when it has it, else from
+**Moonglow's cache**. The game's storage is only read, never written: the
+game checks it at start-up and downloads everything again when anything
+else changed it. Moonglow reads it while the game runs, a moment at a
+time. The custom talk table comes from the manifest too.
+
+Opening asks no server: the manifest used is the newest one here (the
+one Moonglow last downloaded from the server, or the one the game last
+downloaded from it, the newer of the two). **Build › NWSync Content…**
+shows which, how many of its data files are in the game's storage, in
+Moonglow's cache, and not downloaded yet; **Sync** asks the server for
+its latest manifest and downloads what neither has into the cache, a
+few at a time, each checked against its SHA-1 before it is kept.
+Downloading runs while you work: the Status Bar shows it as it shows
+long work (Sync NWSync Content, how many data files are done and a bar),
+and the window has **Cancel** (open it again from the Build menu or
+Quick Open to stop a Sync); what was downloaded stays, so the next Sync
+goes on from there. When it is done the layer is
+put in again. When the server can't be reached, the newest manifest here
+is used and the log says so. A resource of the manifest that is not
+downloaded yet can't be read (the log says so): Sync first.
+
+**Haks:** the game loads no hak files for a server that has a manifest
+(the manifest holds the haks' content), so a hak of the module's list
+that isn't on disk isn't reported missing. Where the server publishes
+its origins file (`nwn_nwsync_write --write-origins` writes
+`manifests/<sha1>.origin`, which names each hak and its resources), only
+the haks it names are taken from NWSync, and any other is still
+reported. Haks that are on disk are read too, under the manifest, as the
+game would read them.
+
+The cache is `nwsync` in Moonglow's cache folder (`~/.cache/moonglow` on
+Linux, `%LOCALAPPDATA%\Moonglow\cache` on Windows,
+`~/Library/Caches/Moonglow` on macOS); `[nwsync] cache` in your own
+`.moonglow/user.toml` puts it elsewhere. It is laid out as the server's
+repository is. Nothing is removed from it yet.
+
+From the command line, `mg nwsync-status MODULE` says the same as the
+window (`--online` asks the server for its latest manifest first), and
+`mg nwsync-pull MODULE` downloads (`--sample N` downloads N data files
+alone, to try a server); both take `--source URL` for a server the
+project doesn't name.
+
+Testing the module (Test Module, `mg serve`) still needs the hak files:
+the game's server reads haks, not NWSync storage.
 
 ## Long work
 

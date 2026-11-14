@@ -13,6 +13,7 @@ mod edits;
 mod lsp;
 mod merge;
 mod nui;
+mod nwsync_read;
 mod plugins;
 mod search;
 mod serve;
@@ -1318,6 +1319,35 @@ enum Cmd {
         /// takes a manifest away before the data it names).
         #[arg(long, value_name = "COMMAND")]
         upload: Option<String>,
+    },
+    /// Say what of a module's NWSync content is here: the manifest of the
+    /// server its project names ([nwsync] source), where it was found, and
+    /// how many of its data files the game's NWSync storage has (read
+    /// only), how many Moonglow's cache has and how many neither. Asks
+    /// no server unless --online.
+    NwsyncStatus {
+        #[command(flatten)]
+        source: nwsync_read::Source,
+        /// Ask the server for its latest manifest first (and download it,
+        /// not its data).
+        #[arg(long)]
+        online: bool,
+    },
+    /// Download a module's NWSync content: the server's latest manifest
+    /// (or the one pinned) and the data files neither the game's NWSync
+    /// storage nor Moonglow's cache has, into the cache (never into the
+    /// game's storage), each checked against its SHA-1. What was
+    /// downloaded stays: run it again to go on. Offline, the newest
+    /// manifest here is used, with a warning.
+    NwsyncPull {
+        #[command(flatten)]
+        source: nwsync_read::Source,
+        /// How many data files are downloaded at once.
+        #[arg(long, default_value_t = mg_nwsync::fetch::JOBS)]
+        jobs: usize,
+        /// At most this many data files (a sample, to try a server).
+        #[arg(long, value_name = "N")]
+        sample: Option<usize>,
     },
     /// Import an ERF, or loose files and folders, into a module and save
     /// it. What an ERF was made from (stamped by Moonglow's export) is
@@ -3947,6 +3977,8 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Find { palette_group: Some(_), .. } => cmd_find_palette(cli)?,
         Cmd::Find { .. } => cmd_find(cli)?,
         Cmd::Nwsync { .. } => cmd_nwsync(cli)?,
+        Cmd::NwsyncStatus { source, online } => nwsync_read::status(cli, source, *online)?,
+        Cmd::NwsyncPull { source, jobs, sample } => nwsync_read::pull(cli, source, *jobs, *sample)?,
         Cmd::NwsyncPrune { repository, min_age, dry_run, upload } => {
             let p = mg_module::nwsync::prune(repository, *min_age, *dry_run)
                 .map_err(anyhow::Error::msg)?;

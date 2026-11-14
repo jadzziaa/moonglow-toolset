@@ -1566,6 +1566,131 @@ fn module_name_in_every_language_and_variables() {
     assert!(info(h.state_mut()).items(&ifo::VAR_TABLE).is_empty());
 }
 
+/// Build › NWSync Content…: a module folder whose project names an NWSync
+/// server, the game's storage holding its manifest and one of its two
+/// data files. Opened, the layer is in the game data (the log says so);
+/// the window says what is here; Sync, through a server of the test's
+/// own, downloads the other into the cache, and it reads.
+#[test]
+fn nwsync_content_from_the_build_menu() {
+    use mg_core::sha1::sha1;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-nwsync-content");
+    let user = user_folder(&dir, &["hak"]);
+    let here = b"2DA V2.0\n\n   Label\n0  here\n".to_vec();
+    let away = b"2DA V2.0\n\n   Label\n0  downloaded\n".to_vec();
+    let (k_here, k_away) = (
+        ResKey::parse("mg_here", ResType::TWODA).unwrap(),
+        ResKey::parse("mg_away", ResType::TWODA).unwrap(),
+    );
+    let entries =
+        [(k_here, sha1(&here), here.len() as u32), (k_away, sha1(&away), away.len() as u32)];
+    let manifest = mg_nwsync::manifest::write(&entries);
+    let url = "https://nwsync.example.org";
+    mg_nwsync::fixtures::write_storage(
+        &user.join("nwsync"),
+        &[mg_nwsync::fixtures::Registered {
+            sha1: sha1(&manifest),
+            origin_url: url.into(),
+            created_at: 1,
+            last_used_at: 1,
+            resources: entries.iter().map(|(k, s, _)| (*k, *s)).collect(),
+            cached: Some(manifest.clone()),
+        }],
+        &[vec![(sha1(&here), here.clone())]],
+    );
+    let folder = dir.join("module");
+    Module::open(&sample_module(&dir))
+        .unwrap()
+        .save_as(&ModuleLocation::Folder(folder.clone()))
+        .unwrap();
+    std::fs::write(folder.join("moonglow.toml"), format!("[nwsync]\nsource = \"{url}\"\n"))
+        .unwrap();
+    std::fs::create_dir_all(folder.join(".moonglow")).unwrap();
+    let cache = dir.join("cache");
+    let own = format!("[nwsync]\ncache = '{}'\n", cache.display());
+    std::fs::write(folder.join(".moonglow/user.toml"), own).unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.background_jobs = true;
+    let hex = mg_nwsync::sha1_hex(&sha1(&manifest));
+    let (served, asked) = (away.clone(), std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+    let (latest, log_of) = (hex.clone(), asked.clone());
+    // (The data file is held until the test lets it go: the Sync seen
+    // under way.)
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    let held = std::sync::Mutex::new(held);
+    app.nwsync_content.fetch = Some(mg_nwsync::fetch::from_fn(move |u: &str| {
+        log_of.lock().unwrap().push(u.to_string());
+        let h = mg_nwsync::sha1_hex(&mg_core::sha1::sha1(&served));
+        Ok(if u.ends_with("/latest") {
+            Some(latest.clone().into_bytes())
+        } else if u.ends_with(&h) {
+            let _ = held.lock().unwrap().recv_timeout(std::time::Duration::from_secs(30));
+            Some(mg_erf::compressedbuf::compress(&served, *b"NSYC").unwrap())
+        } else {
+            None
+        })
+    }));
+    app.open_module(&folder);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let log = |h: &Harness<'_, Moonglow>| -> String {
+        h.state().log.entries.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>().join("\n")
+    };
+    assert!(log(&h).contains(&format!("NWSync content: manifest {}", &hex[..8])), "{}", log(&h));
+    let read = |h: &Harness<'_, Moonglow>, k: &ResKey| {
+        h.state().game.as_ref().unwrap().resman.get(k).map(|d| d.into_owned())
+    };
+    assert_eq!(read(&h, &k_here).unwrap(), here);
+    assert!(read(&h, &k_away).is_err());
+    let until_done = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        while h.state().nwsync_content.running() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed().as_secs() < 30, "it never ended");
+        }
+        h.run_steps(2);
+    };
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("NWSync Content…").click();
+    h.run_steps(1);
+    until_done(&mut h);
+    let s = h.state().nwsync_content.survey.clone().expect("looked");
+    assert_eq!((s.in_game, s.in_cache, s.missing.len()), (1, 0, 1));
+    h.get_by_label_contains("1 data file (");
+    h.get_by_label("Sync").click();
+    h.run_steps(1);
+    // Under way it is no job (the window takes input meanwhile), and the
+    // Status Bar shows it as one: its title and a bar; gone when it ends.
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.get_by_label("Status Bar")
+            .query_by(|n| n.role() == egui::accesskit::Role::ProgressIndicator)
+            .map(|n| n.accesskit_node().label().unwrap_or_default())
+    };
+    let started = std::time::Instant::now();
+    while shown(&h).as_deref() != Some("Sync NWSync Content, under way") {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed().as_secs() < 30, "never shown: {:?}", shown(&h));
+    }
+    assert!(!h.state().busy(), "no job");
+    go.send(()).unwrap();
+    until_done(&mut h);
+    until_done(&mut h);
+    assert_eq!(shown(&h), None, "gone with the Sync");
+    let c = &h.state().nwsync_content;
+    assert_eq!(c.error, None, "{}", log(&h));
+    assert!(c.synced.as_deref().is_some_and(|l| l.starts_with("1 data file of 1 downloaded")));
+    assert!(c.survey.as_ref().is_some_and(|s| s.complete()), "{:?}", c.survey);
+    assert_eq!(read(&h, &k_away).unwrap(), away);
+    assert!(mg_nwsync::Cache::new(&cache).contains(&sha1(&away)));
+    // (The data the game had was asked for not at all.)
+    let asked = asked.lock().unwrap().clone();
+    assert!(!asked.iter().any(|u| u.ends_with(&mg_nwsync::sha1_hex(&sha1(&here)))), "{asked:?}");
+}
+
 #[test]
 fn published_to_nwsync_from_the_build_menu() {
     let root = mg_testkit::corpus!();

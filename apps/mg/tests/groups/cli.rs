@@ -46,6 +46,8 @@ mod models;
 mod nasher;
 #[path = "../nui.rs"]
 mod nui;
+#[path = "../nwsync_read.rs"]
+mod nwsync_read;
 #[path = "../nwsync_upload.rs"]
 mod nwsync_upload;
 #[path = "../palette_groups.rs"]

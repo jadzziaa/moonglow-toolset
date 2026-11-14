@@ -30,6 +30,7 @@ mg-edit = { path = "crates/mg-edit" }
 mg-erf = { path = "crates/mg-erf" }
 mg-key = { path = "crates/mg-key" }
 mg-mdl = { path = "crates/mg-mdl" }
+mg-nwsync = { path = "crates/mg-nwsync" }
 mg-module = { path = "crates/mg-module" }
 mg-nui = { path = "crates/mg-nui" }
 mg-plugin = { path = "crates/mg-plugin" }
@@ -90,6 +91,10 @@ png = "0.18"
 pollster = "0.4"
 proptest = "1"
 rayon = "1"
+# (NWSync data compressed with zlib, as a server's older data files are
+# (algorithm 1 of the compressed buffer): flate2 with zlib-rs, what zip
+# builds already.)
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 # (Content downloaded as a RAR archive, read where it is: RAR 1.5 to 7,
 # pure Rust, Apache-2.0, written from the format's description rather
 # than from UnRAR's source, whose license the GPL can't take. Without its
@@ -106,6 +111,10 @@ ron = "0.12"
 # (A project's command canceled: its shell's process group stopped, by
 # signals sent without `unsafe`. Already in the tree, by zbus.)
 rustix = { version = "1.1", default-features = false, features = ["std", "process"] }
+# (The game's NWSync storage read, never written: its SQLite files opened
+# read only. SQLite's C (public domain) built from the sources
+# libsqlite3-sys ships, with cc, as zstd's is: nothing of the system's.)
+rusqlite = { version = "0.42", default-features = false, features = ["bundled"] }
 # (Compressed resources read, and NWSync's data written at every level:
 # the reference library's C, built from the sources zstd-sys ships, with
 # cc; BSD. One library for both ways.)
