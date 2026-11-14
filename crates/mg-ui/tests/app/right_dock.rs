@@ -33,10 +33,10 @@ fn folded(h: &Harness<'_, Moonglow>) -> bool {
         assert!(h.query_by_label("Fold the Right Dock").is_none());
         h.get_by_label("Show the Right Dock");
         h.get_by_label("Right Dock").get_by_label("Palette");
-        assert!(h.query_by_label("Palette types").is_none(), "the palette not drawn");
+        assert!(palette_types(h).is_none(), "the palette not drawn");
     } else {
         h.get_by_label("Fold the Right Dock");
-        h.get_by_label("Palette types");
+        palette_types(h).expect("the palette's types");
         assert!(palette_shown(h.state()));
     }
     folded
@@ -504,8 +504,9 @@ fn the_palette_fits_the_right_dock_from_its_least_width_to_600() {
 /// wider at a time to where the dock has its 280, on every type of
 /// palette, with each tab in front, as
 /// `the_palette_fits_the_right_dock_from_its_least_width_to_600`.
-/// (The editor area is then left little: the shell's yields, M3 T14,
-/// fold the Left Dock.)
+/// (Both docks unfolded as the settings have them at every width,
+/// `common::docks_as_set`: the shell's yields, M3 T14, fold them in
+/// such a window, `yields.rs`.)
 #[test]
 fn the_palette_fits_the_right_dock_in_the_narrowest_window() {
     let Some((mut h, _)) = area_harness("right-dock-sweep-narrow") else { return };
@@ -680,8 +681,10 @@ fn a_press_in_the_palette_makes_it_the_plugins_pane() {
     assert_eq!(h.state().plugin_selection(), [mg_plugin::Selected::Blueprint(chosen)]);
     // A press in the panel away from its rows: the palette's still.
     h.state_mut().plugins.pane = Some(mg_ui::plugins::Pane::Tree);
-    let types = h.get_by_label("Palette types").get_by_label("Waypoints").rect();
-    click_pos(&h, types.center());
+    // (The types' row, or the dropdown in a narrow dock, M3 T14: a press
+    // on its frame's edge, which opens nothing.)
+    let types = palette_types(&h).expect("the palette's types").rect();
+    click_pos(&h, egui::pos2(types.right() - 1.0, types.center().y));
     settle(&mut h);
     assert_eq!(h.state().plugins.pane, Some(mg_ui::plugins::Pane::Palette));
 }
@@ -740,6 +743,9 @@ fn a_maximized_window_s_bar_puts_it_back_over_the_docks() {
 #[test]
 fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
     let Some((mut h, _)) = area_harness("right-dock-scroll-bar") else { return };
+    // (1400 wide: under it the dock is held at its narrow 280, M3 T14,
+    // and the palette's toolbar wraps below where the list is read.)
+    h.set_size(egui::vec2(1400.0, 800.0));
     {
         let p = &mut h.state_mut().palette;
         (p.tiles, p.kind, p.custom) = (false, BlueprintKind::Placeable, false);
@@ -767,6 +773,9 @@ fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
 #[test]
 fn the_palette_s_lists_keep_their_own_scroll_places() {
     let Some((mut h, _)) = area_harness("right-dock-scroll-places") else { return };
+    // (1400 wide: under it the dock is held at its narrow 280, M3 T14,
+    // and the palette's toolbar wraps below where the list is read.)
+    h.set_size(egui::vec2(1400.0, 800.0));
     let set = |h: &mut Harness<'_, Moonglow>, tiles: bool| {
         let p = &mut h.state_mut().palette;
         (p.tiles, p.kind, p.custom) = (tiles, BlueprintKind::Placeable, false);
@@ -823,13 +832,23 @@ fn reset_layout_puts_the_right_dock_back_at_320() {
 /// width where the window has not the room: never past its edge), nothing
 /// in the Right Dock outside it or over another of its widgets, nothing
 /// else drawn across its edges ([`dock_wrong`]), and at 600 nothing in the
-/// window overlaps. (The editor area is left little room under about 760:
-/// the shell's yields, M3 T14, fold the Left Dock in narrow windows. The
+/// window overlaps. (Both docks unfolded as the settings have them at
+/// every width, `common::docks_as_set`: the shell's yields, M3 T14, fold
+/// them in such windows, and let one be unfolded by hand at a time. The
 /// Bottom Dock's tab bar gives way in a narrow dock since T7:
 /// status_bar.rs's `the_bottom_dock_s_tab_and_tools_never_overlap`.)
 #[test]
 fn the_least_window_holds_both_docks() {
     let Some(mut h) = dock_harness("ui-right-dock-least-window", 1400.0) else { return };
+    // (Every group of the palette open: its rows in the dock to look at,
+    // now that its types are one dropdown under 300 points of panel, M3
+    // T14, where they were thirteen icons.)
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.kind, p.custom) = (false, BlueprintKind::Placeable, false);
+    }
+    settle(&mut h);
+    expand_all_in_the_dock(&mut h);
     let sizes = [
         mg_ui::LEAST_WINDOW_SIZE,
         egui::vec2(460.0, 400.0),
@@ -875,13 +894,16 @@ fn right_width(h: &Harness<'_, Moonglow>) -> f32 {
 }
 
 /// The width the Right Dock is given is kept apart from the width it is
-/// drawn at: dragged to 470, it is narrower in a window too narrow for it
-/// (900 wide, then 700) and 470 again when the window is wide again (it
-/// stayed as narrow as the narrowest window, for good: egui kept the
-/// width drawn as the panel's); dragged in a narrow window, the width
-/// dragged to is kept when the window widens; the width chosen is saved
-/// and read back by the next run, which opens in a narrow window without
-/// losing it.
+/// drawn at: dragged to 470, it is narrower in a window under 1400 (900,
+/// then 700: held at its narrow 280, its edge not dragged there) and 470
+/// again when the window is wide again (it stayed as narrow as the
+/// narrowest window, for good: egui kept the width drawn as the panel's);
+/// dragged again, the width dragged to is kept through the narrow window;
+/// the width chosen is saved and read back by the next run, which opens
+/// in a narrow window without losing it. (Until M3 T14 a narrow window
+/// held it to two fifths of the window, 360 at 900 and 280 at 700, and
+/// the dock was dragged at 900: no window from 1400 holds 470 narrower,
+/// and under 1400 the edge stays.)
 #[test]
 fn the_right_dock_keeps_its_width_through_a_narrow_window() {
     let Some(mut h) = dock_harness("ui-right-dock-width-kept", 1400.0) else { return };
@@ -896,17 +918,28 @@ fn the_right_dock_keeps_its_width_through_a_narrow_window() {
     assert_eq!(h.state().settings.right_dock_width, Some(wide.round() as u32));
     size(&mut h, 900.0);
     let at_900 = right_width(&h);
-    assert!(at_900 < wide - 60.0, "narrower at 900: {at_900}");
+    assert!((at_900 - mg_ui::RIGHT_DOCK_LEAST).abs() < 1.0, "the narrow 280 at 900: {at_900}");
     size(&mut h, 700.0);
     let at_700 = right_width(&h);
-    assert!(at_700 < at_900 - 30.0, "narrower still at 700: {at_700}");
+    assert!((at_700 - mg_ui::RIGHT_DOCK_LEAST).abs() < 1.0, "the narrow 280 at 700: {at_700}");
+    // (Its edge not dragged in a window under 1400: held at 280, the
+    // width chosen kept.)
+    // (From just outside it, where the edge is taken where it may be
+    // dragged; not inside, where a drag is the palette's.)
+    let dock = right_dock_rect(&h);
+    let from = egui::pos2(dock.left() - 2.0, dock.top() + 150.0);
+    drag(&mut h, from, from - egui::vec2(60.0, 0.0));
+    settle(&mut h);
+    assert!((right_width(&h) - at_700).abs() < 1.0, "not dragged at 700: {}", right_width(&h));
+    assert_eq!(h.state().settings.right_dock_width, Some(wide.round() as u32), "kept");
     size(&mut h, 1400.0);
     assert!((right_width(&h) - wide).abs() < 1.0, "{wide} again, not {}", right_width(&h));
-    // Dragged while the window is narrow: the width dragged to, kept.
-    size(&mut h, 900.0);
+    // Dragged at 1400, narrower: the width dragged to, kept through the
+    // narrow window.
     drag_edge(&mut h, -40.0);
     let dragged = right_width(&h);
-    assert!((dragged - (at_900 - 40.0)).abs() < 2.0, "dragged narrow: {at_900} -> {dragged}");
+    assert!((dragged - (wide - 40.0)).abs() < 2.0, "dragged: {wide} -> {dragged}");
+    size(&mut h, 900.0);
     size(&mut h, 1400.0);
     assert!((right_width(&h) - dragged).abs() < 1.0, "{dragged} kept, not {}", right_width(&h));
     // Saved, and read back by the next run, in a window too narrow for it.
@@ -948,9 +981,10 @@ fn a_width_kept_by_an_earlier_run_is_the_right_dock_s() {
         app.open_module(&path);
         let mut h = harness(app, window, 800.0);
         // (Settings with no width chosen, and the width egui kept for the
-        // panel: as an earlier run left them. The harness has drawn a
-        // first frame, which took the first width: given up.)
+        // panel: as an earlier version's run left them, its sizes not yet
+        // taken, `Settings::dock_sizes_taken`.)
         h.state_mut().settings.right_dock_width = None;
+        h.state_mut().settings.dock_sizes_taken = false;
         let rect = egui::Rect::from_min_size(egui::pos2(900.0, 40.0), egui::vec2(430.0, 600.0));
         let state = egui::containers::panel::PanelState { outer_rect: rect };
         h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("right-dock"), state));
@@ -1133,6 +1167,8 @@ fn editor_right(h: &Harness<'_, Moonglow>) -> f32 {
 #[test]
 fn the_right_dock_follows_the_active_editor() {
     let Some((mut h, area)) = follow_harness("right-dock-follows") else { return };
+    // (1400 wide: under it the dock is held at its narrow 280, M3 T14.)
+    h.set_size(egui::vec2(1400.0, 800.0));
     h.state_mut().settings.hide_log = false;
     right_dock_width(&mut h, 400.0);
     settle(&mut h);

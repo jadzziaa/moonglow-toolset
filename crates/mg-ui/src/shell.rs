@@ -48,13 +48,20 @@
 //! `right_dock_width`, `bottom_dock_height`; [`chosen_size`]): drawn held
 //! to what the window allows, a dock is as large again when the window
 //! is. `Settings::hide_tree`
-//! is "the Left Dock folded", `Settings::hide_palettes` "the Right Dock
-//! folded" and `Settings::hide_log` "the Bottom Dock closed".
+//! is "the Left Dock folded" as the builder left it, `Settings::hide_palettes`
+//! "the Right Dock folded" and `Settings::hide_log` "the Bottom Dock
+//! closed".
 //!
-//! Later tasks fill it: hints (T12), the Left Dock's Outliner (T13, which
-//! the area brings as it brings the Right Dock's panels) and the widths
-//! the shell yields at (T14; T2 took the build actions' words, below 1300,
-//! and T8 Quick Open's field, capped and an icon).
+//! How the shell yields (T14, proposal sections 5.2 and 5.3): one
+//! `Yields` a frame ([`frame_yields`]) for the Top Bar, Quick Open, the
+//! docks and the Status Bar. A narrow window folds a side dock without
+//! writing `hide_tree` or `hide_palettes` (the Left Dock under 1500, the
+//! Right Dock under 796, and where both do not fit beside the editor
+//! area's least the one unfolded first): every read of a side dock's fold
+//! is [`left_folded`] or [`right_folded`], every write [`set_dock_open`].
+//! The Right Dock is 280 under 1400; from 2560 a dock not chosen is wider
+//! (320, 741) and the Right Dock stands in two columns, Palette and
+//! Preview. Hints (T12) and the Outliner (T13) are in their own places.
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};
@@ -306,6 +313,149 @@ pub(crate) fn left_shown(app: &Moonglow) -> Option<Panel> {
     held.contains(&app.left_panel).then_some(app.left_panel).or(held.first().copied())
 }
 
+// ------------------------------------------------------------------ yields
+
+/// The width under which both side docks, open, do not fit beside the
+/// editor area at its least: the Left Dock's least, the Right Dock's narrow
+/// width, each dock's line and the editor's least (962). Only a dock
+/// unfolded by hand in a narrow window is open there; where both are, the
+/// one unfolded first folds to its strip ([`left_folded`]).
+pub(crate) const BOTH_DOCKS_UNDER: f32 =
+    LEFT_DOCK_LEAST + 1.0 + kit::RIGHT_DOCK_NARROW + 1.0 + kit::EDITOR_LEAST;
+
+/// What the shell yields at this frame, decided once as the frame begins
+/// from the window's width (`Yields::of`; the editor's width as it was
+/// last drawn, for M4's header), and read by the Top Bar, Quick Open, the
+/// docks and the Status Bar ([`Moonglow::yields`]). A dock unfolded by
+/// hand in a window that folds it ([`set_dock_open`]) stays so until the
+/// window is wide enough not to fold it: from there the builder's own
+/// fold (`Settings::hide_tree`, `hide_palettes`) has it again, and a
+/// window narrowed again folds it again.
+pub(crate) fn frame_yields(app: &mut Moonglow, ctx: &egui::Context) {
+    let window = ctx.content_rect().width();
+    app.yields = Yields::of(window, app.dock_width.unwrap_or(window));
+    if !app.yields.left_dock_folded {
+        app.left_unfolded_here = false;
+    }
+    if !app.yields.right_dock_folded {
+        app.right_unfolded_here = false;
+    }
+}
+
+/// Whether the Left Dock is folded to its strip at this frame: in a
+/// window under 1500 (`Yields::left_dock_folded`) unless unfolded there by
+/// hand, else as the builder left it (`Settings::hide_tree`, never written
+/// by a width); and where both side docks are open in a window too narrow
+/// for both beside the editor area's least ([`BOTH_DOCKS_UNDER`]), the one
+/// unfolded first folds (the one the builder unfolded last stays).
+pub(crate) fn left_folded(app: &Moonglow) -> bool {
+    let (left, right) = folds_by_choice(app);
+    left || (!right && squeezed(app) == Some(Side::Left))
+}
+
+/// Whether the Right Dock is folded to its strip at this frame: in a
+/// window under [`kit::RIGHT_DOCK_STRIP_UNDER`] unless unfolded there by
+/// hand, else as the builder left it (`Settings::hide_palettes`); and
+/// beside a Left Dock unfolded by hand later where both do not fit
+/// ([`left_folded`]).
+pub(crate) fn right_folded(app: &Moonglow) -> bool {
+    let (left, right) = folds_by_choice(app);
+    right || (!left && squeezed(app) == Some(Side::Right))
+}
+
+/// Whether the side dock at `side` is folded by the window's width (a
+/// window that narrow, or one too narrow for both docks where the other
+/// was unfolded last), not by the builder's own fold: F6 stops at it and
+/// unfolds it, as its strip's buttons do.
+pub(crate) fn folded_by_width(app: &Moonglow, side: Side) -> bool {
+    let (left, right) = folds_by_choice(app);
+    let (folded, narrow, chosen) = match side {
+        Side::Left => (left_folded(app), app.yields.left_dock_folded, left),
+        Side::Right => (right_folded(app), app.yields.right_dock_folded, right),
+    };
+    let narrow = narrow && app.docks_fold_by_width;
+    folded && (narrow || (!chosen && squeezed(app) == Some(side)))
+}
+
+/// Each side dock's fold by the window's width and the builder's hand,
+/// before the two are weighed against each other ([`squeezed`]).
+fn folds_by_choice(app: &Moonglow) -> (bool, bool) {
+    let y = &app.yields;
+    let by_width = app.docks_fold_by_width;
+    let left = match y.left_dock_folded && by_width {
+        true => !app.left_unfolded_here,
+        false => app.settings.hide_tree,
+    };
+    let right = match y.right_dock_folded && by_width {
+        true => !app.right_unfolded_here,
+        false => app.settings.hide_palettes,
+    };
+    (left, right)
+}
+
+/// Which side dock folds where both are open (and each holds panels) in a
+/// window narrower than [`BOTH_DOCKS_UNDER`]: the one not unfolded last.
+fn squeezed(app: &Moonglow) -> Option<Side> {
+    let window = app.screen.map_or(f32::INFINITY, |s| s.width());
+    let both = app.docks_fold_by_width && left_shown(app).is_some() && right_shown(app).is_some();
+    let first = match app.unfolded_last {
+        Some(Side::Right) => Side::Left,
+        _ => Side::Right,
+    };
+    (both && window < BOTH_DOCKS_UNDER).then_some(first)
+}
+
+/// Unfolds (`open`) or folds a side dock, as the builder asks (its fold
+/// button, a strip's button, View › Left Dock or Right Dock and their
+/// keys, a panel asked for by name): in a window whose width folds it,
+/// for as long as the window does ([`frame_yields`]), the builder's own
+/// setting left as it was; else the setting itself (`hide_tree`,
+/// `hide_palettes`).
+pub(crate) fn set_dock_open(app: &mut Moonglow, side: Side, open: bool) {
+    if open {
+        app.unfolded_last = Some(side);
+    }
+    let by_width = app.docks_fold_by_width;
+    match side {
+        Side::Left if by_width && app.yields.left_dock_folded => app.left_unfolded_here = open,
+        Side::Left => app.settings.hide_tree = !open,
+        Side::Right if by_width && app.yields.right_dock_folded => app.right_unfolded_here = open,
+        Side::Right => app.settings.hide_palettes = !open,
+    }
+}
+
+/// What View's row of a side dock (Left Dock, Right Dock) and the dock's
+/// edge button do where it is not the builder's own fold that has it:
+/// `None` where it is (the row's usual tip). In a window that folds the
+/// dock by its width, unfolding it there holds for as long as the window
+/// is that narrow; where both side docks do not fit, unfolding one folds
+/// the other.
+pub(crate) fn dock_tip(app: &Moonglow, side: Side) -> Option<String> {
+    let (by_width, here, folded, other) = match side {
+        Side::Left => {
+            let y = app.yields.left_dock_folded && app.docks_fold_by_width;
+            (y, app.left_unfolded_here, left_folded(app), RIGHT_DOCK)
+        }
+        Side::Right => {
+            let y = app.yields.right_dock_folded && app.docks_fold_by_width;
+            (y, app.right_unfolded_here, right_folded(app), LEFT_DOCK)
+        }
+    };
+    let dock = match side {
+        Side::Left => LEFT_DOCK,
+        Side::Right => RIGHT_DOCK,
+    };
+    let squeezed = squeezed(app) == Some(side);
+    match (folded, by_width && !here) {
+        (true, _) if squeezed => Some(format!("Show the {dock} in place of the {other}")),
+        (true, true) => Some(format!("Show the {dock}, which this narrow window folds")),
+        (false, false) if by_width => {
+            Some(format!("Fold the {dock} again, as this narrow window has it"))
+        }
+        _ => None,
+    }
+}
+
 /// The Left Dock's name: its tab bar's and, folded, its strip's group.
 pub(crate) const LEFT_DOCK: &str = "Left Dock";
 /// The Right Dock's name: its tab bar's and, folded, its strip's group.
@@ -457,10 +607,8 @@ pub(crate) fn top_bar(app: &mut Moonglow, ui: &mut Ui) -> egui::Rect {
 
 fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    let window = ctx.content_rect().width();
-    // (The editor's width as it was last drawn: only the window's is read
-    // in T2, for the build actions' words.)
-    let yields = Yields::of(window, app.dock_width.unwrap_or(window));
+    // (Decided once as the frame began: `frame_yields`.)
+    let yields = app.yields;
     let quick: Vec<Option<Prepared>> =
         TOP_BAR.quick.iter().map(|b| b.map(|b| Prepared::of(app, &ctx, b))).collect();
     let build: Vec<Prepared> = TOP_BAR.build.iter().map(|b| Prepared::of(app, &ctx, *b)).collect();
@@ -602,11 +750,16 @@ fn top_bar_row(app: &mut Moonglow, ui: &mut Ui) {
 /// (with "(modified)", its path in the tip) and the game folder.
 ///
 /// As the window narrows they yield in one order (SPEC's section 12:
-/// the folder drops before what is in the middle; the boards' `.sb-log`
-/// and `.sb-hints`: the hints take what the line leaves, `flex: 1 1 0`):
+/// the switches become icons, then the folder drops, before what is in
+/// the middle; the boards' `.sb-log` and `.sb-hints`: the hints take what
+/// the line leaves, `flex: 1 1 0`):
 ///
-/// 1. the game folder goes (it is shown only where every hint and the
-///    line at its cap fit beside it);
+/// 0. the Bottom Dock's switches show their icons alone, their words in
+///    their tips (under 1400, `Yields::status_switch_icons`, or where
+///    everything does not fit beside their words);
+/// 1. the game folder goes (under 1400, `Yields::game_folder`; above, it
+///    is shown only where every hint and the line at its cap fit beside
+///    it);
 /// 2. the hints drop whole from the end (a notice at their head is cut
 ///    short with an ellipsis before it drops);
 /// 3. the last line is cut short down to its least room
@@ -671,6 +824,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         job.name(name).tooltip(tip)
     });
     let hints = &shown.hints;
+    let yields = app.yields;
     let (clicked, last_clicked) = egui::Panel::bottom("status")
         .exact_size(size)
         .resizable(false)
@@ -723,8 +877,6 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             // (`share`), each to half the room where both are wider, or
             // to what the other leaves (the name's path in its tip,
             // "(modified)" kept whole).
-            let left = switch.width(ui) + 2.0 * status::GAP;
-            let room = ui.available_width() - left;
             let note_gap = if note.is_some() { between } else { 0.0 };
             let job_gap = if job.is_some() { between } else { 0.0 };
             let note_width = note.as_ref().map_or(0.0, |n| n.width(ui));
@@ -733,7 +885,19 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             let core = item.width(ui) + note_width + note_gap + job_width + job_gap;
             let all_counts: f32 = count_widths.iter().sum();
             let with_folder = core + all_counts + between + folder_item.width(ui);
-            let show_folder = with_folder + middle_full <= room;
+            // First of all, the switches show their icons alone: under
+            // 1400 (`Yields::status_switch_icons`, the Narrow board's), or
+            // where the bar at its fullest does not fit beside their words;
+            // then the folder goes: under 1400 (`Yields::game_folder`), or
+            // where it does not fit beside the middle at its fullest.
+            let gaps = 2.0 * status::GAP;
+            let full = with_folder + middle_full;
+            let icons =
+                yields.status_switch_icons || switch.width(ui) + gaps + full > ui.available_width();
+            let switch = switch.icon_only(icons);
+            let left = switch.width(ui) + gaps;
+            let room = ui.available_width() - left;
+            let show_folder = yields.game_folder && full <= room;
             // (Where a count goes, the middle has gone before it: what the
             // count leaves is no room for the line.)
             let mut middle_on = true;
@@ -1211,25 +1375,49 @@ fn module_name(path: &std::path::Path) -> String {
     name.map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 
-/// The size of the dock whose egui panel is `id` as the builder chose it
-/// (`kept`, one of `Settings::left_dock_width`, `right_dock_width` and
-/// `bottom_dock_height`), along `axis` (0 a width, 1 a height): where none
-/// is chosen yet, the size egui kept for the panel (in an earlier run,
-/// before the chosen sizes were kept apart from those drawn), taken once,
-/// else `default`.
-pub(crate) fn chosen_size(
-    ctx: &egui::Context,
-    kept: &mut Option<u32>,
-    id: &str,
-    axis: usize,
-    default: f32,
-) -> f32 {
-    let size = *kept.get_or_insert_with(|| {
-        let was = egui::containers::panel::PanelState::load(ctx, egui::Id::new(id));
-        let size = was.map_or(default, |s| s.size()[axis]);
-        size.round().max(0.0) as u32
-    });
-    size as f32
+/// The size of a dock as the builder chose it (`kept`, one of
+/// `Settings::left_dock_width`, `right_dock_width` and
+/// `bottom_dock_height`), else `default`, the size the window's layout
+/// gives it (`Yields`): nothing is stored until an edge is dragged, so
+/// that a dock not chosen takes the wide layout's size in a wide window
+/// and the usual one in another.
+pub(crate) fn chosen_size(kept: Option<u32>, default: f32) -> f32 {
+    kept.map_or(default, |s| s as f32)
+}
+
+/// The sizes at first that versions before this one stored as though
+/// chosen, for each dock's panel id: 4.2.0's tree (240) and log (120),
+/// whose egui panel kept them; this branch's 260, 320 and 180, which it
+/// stored on the first frame before anything was dragged.
+const SIZES_AT_FIRST: [(&str, &[u32]); 3] =
+    [("tree", &[240, 260]), (RIGHT_DOCK_ID, &[320]), ("log", &[120, 180])];
+
+/// Once for good (`Settings::dock_sizes_taken`), on the first frame: the
+/// size an older version's egui panel kept for each dock taken as chosen
+/// where none is (4.2.0 and older kept the module tree's width and the
+/// log's height so), and a size that is only one at first
+/// ([`SIZES_AT_FIRST`]) taken as not chosen, whether kept so or stored.
+/// Then a size is chosen only as an edge is dragged; what a narrow window
+/// draws is never taken.
+pub(crate) fn take_dock_sizes(app: &mut Moonglow, ctx: &egui::Context) {
+    if app.settings.dock_sizes_taken {
+        return;
+    }
+    app.settings.dock_sizes_taken = true;
+    for (id, at_first) in SIZES_AT_FIRST {
+        let (kept, axis) = match id {
+            "tree" => (&mut app.settings.left_dock_width, 0),
+            "log" => (&mut app.settings.bottom_dock_height, 1),
+            _ => (&mut app.settings.right_dock_width, 0),
+        };
+        if kept.is_none() {
+            let was = egui::containers::panel::PanelState::load(ctx, egui::Id::new(id));
+            *kept = was.map(|s| s.size()[axis].round().max(0.0) as u32);
+        }
+        if kept.is_some_and(|k| at_first.contains(&k)) {
+            *kept = None;
+        }
+    }
 }
 
 /// Has egui draw the panel `id` `size` points along `axis` at this frame
@@ -1293,7 +1481,7 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(&ctx);
     let line = panel_line(ui);
     let fold_key = key_note(app, &ctx, Id::ViewTree);
-    if app.settings.hide_tree {
+    if left_folded(app) {
         // (The strip without a chevron of its own: the dock comes back by
         // the button beside its edge, where the one that folded it was.)
         let shown = egui::Panel::left("tree-strip")
@@ -1376,16 +1564,21 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             _ => i.pointer.hover_pos().is_some_and(|p| fold.contains(p)),
         })
     });
-    // Drawn at the width chosen, held to what the window allows; the
+    // Drawn at the width chosen (else the layout's: 260, 320 in a wide
+    // window), held to what the window allows: at most two fifths of it,
+    // and the editor area left its least beside the Right Dock (where the
+    // dock is not unfolded by hand in a window too narrow for that); the
     // width chosen changes only as the edge is dragged.
-    let range = LEFT_DOCK_LEAST..=(window.x * 0.4).max(LEFT_DOCK_LEAST);
-    let wide = chosen_size(&ctx, &mut app.settings.left_dock_width, "tree", 0, metrics::LEFT_DOCK);
+    let beside = right_reserved(app, window.x) + 2.0 * kit::EDGE_FOLD_WIDTH + kit::EDITOR_LEAST;
+    let most = (window.x * 0.4).min(window.x - beside).max(LEFT_DOCK_LEAST);
+    let range = LEFT_DOCK_LEAST..=most;
+    let wide = chosen_size(app.settings.left_dock_width, app.yields.left_dock_width);
     draw_at(&ctx, "tree", 0, wide.clamp(*range.start(), *range.end()));
     let dragged = edge_dragged(&ctx, "tree");
     let upper = Upper { held: &held, front, tools: &tools, tools_width, browser: &browser };
     let shown = egui::Panel::left("tree")
         .resizable(!on_button)
-        .default_size(metrics::LEFT_DOCK)
+        .default_size(app.yields.left_dock_width)
         .size_range(range)
         .frame(egui::Frame::new().fill(t.panel))
         .show(ui, |ui| {
@@ -1404,8 +1597,10 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             let folded = outliner && whole - MODULE_PANEL_LEAST < OUTLINER_LEAST;
             let most = (whole - OUTLINER_LEAST).max(MODULE_PANEL_LEAST);
             let range = MODULE_PANEL_LEAST..=most;
-            let chosen =
-                app.settings.module_panel_height.map_or(metrics::MODULE_PANEL, |h| h as f32);
+            // (The board's seam where none is chosen: 496, 760 in a wide
+            // window, GalleryWide's.)
+            let at_first = app.yields.module_panel_height;
+            let chosen = app.settings.module_panel_height.map_or(at_first, |h| h as f32);
             let tall = match (outliner, folded) {
                 (true, false) => chosen.clamp(*range.start(), *range.end()),
                 (true, true) => (whole - metrics::DOCK_TABS).max(0.0),
@@ -1419,7 +1614,7 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 .show_separator_line(false)
                 .frame(egui::Frame::new());
             top = match resizable {
-                true => top.default_size(metrics::MODULE_PANEL).size_range(range),
+                true => top.default_size(at_first).size_range(range),
                 false => top.exact_size(tall),
             };
             let top = top.show(ui, |ui| {
@@ -1523,7 +1718,7 @@ fn upper_panel(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect, u: &Upper<'_>)
 /// clicked.
 fn left_dock_fold(app: &Moonglow, ui: &mut Ui) -> bool {
     let Some(rect) = app.left_fold else { return false };
-    edge_fold(app, ui, rect, Side::Left, !app.settings.hide_tree)
+    edge_fold(app, ui, rect, Side::Left, !left_folded(app))
 }
 
 /// A side dock's fold button, or folded the button that unfolds it, at
@@ -1540,7 +1735,11 @@ fn edge_fold(app: &Moonglow, ui: &mut Ui, rect: egui::Rect, side: Side, open: bo
         Side::Right => (RIGHT_DOCK, Id::ViewPalettes, "right-dock-fold"),
     };
     let key = key_note(app, &ctx, view);
-    let tip = if open { format!("Fold the {dock}{key}") } else { format!("Show the {dock}{key}") };
+    let tip = match dock_tip(app, side) {
+        Some(tip) => format!("{tip}{key}"),
+        None if open => format!("Fold the {dock}{key}"),
+        None => format!("Show the {dock}{key}"),
+    };
     let area = egui::Area::new(egui::Id::new(id))
         .order(egui::Order::Background)
         .fixed_pos(rect.min)
@@ -1586,6 +1785,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     app.right_rect = None;
     app.preview_rect = None;
     app.preview_slot = None;
+    app.right_columns = false;
     let held = panels(app, Dock::Right);
     let Some(front) = right_shown(app) else {
         app.right_fold = None;
@@ -1594,7 +1794,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let t = mg_uikit::tokens(&ctx);
     let line = panel_line(ui);
-    if app.settings.hide_palettes {
+    if right_folded(app) {
         // (Each panel's button with the key that shows it: View › Right
         // Dock's for the one in front, which unfolds the dock as it was;
         // Tools › Palettes' and Tools › Preview's.)
@@ -1645,90 +1845,85 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         let button = IconButton::new(Icon::Plus, "").icon_only(true).width(ui);
         button * held.iter().map(|p| p.tools()).max().unwrap_or(0) as f32
     };
-    // (In a window too narrow for its least width beside the Left Dock,
-    // as narrow as the room left: never past the window's edge, and the
-    // editor area left at least the room of the two docks' fold buttons,
-    // each beside its own dock. The editor area is then left little: the
-    // shell's yields, M3 T14, fold the Left Dock in narrow windows.)
+    // (Never past the window's edge, and the editor area left the room of
+    // the two docks' fold buttons, each beside its own dock, and its least
+    // where the window has it: a dock unfolded by hand in a window too
+    // narrow for that leaves the editor area less, never nothing.)
     let buttons = 2.0 * kit::EDGE_FOLD_WIDTH;
     let room = (ui.available_rect_before_wrap().width() - buttons).max(0.0);
     let least = RIGHT_DOCK_LEAST.min(room);
-    let range = least..=(window.x * 0.4).max(least).min(room.max(least));
-    // (Drawn at the width chosen, held to what the window allows: as the
-    // Left Dock.)
-    let wide = chosen_size(
-        &ctx,
-        &mut app.settings.right_dock_width,
-        RIGHT_DOCK_ID,
-        0,
-        metrics::RIGHT_DOCK,
-    );
-    draw_at(&ctx, RIGHT_DOCK_ID, 0, wide.clamp(*range.start(), *range.end()));
-    let dragged = edge_dragged(&ctx, RIGHT_DOCK_ID);
-    let shown = egui::Panel::right(RIGHT_DOCK_ID)
-        .resizable(!on_button)
-        .default_size(metrics::RIGHT_DOCK.min(room))
-        .size_range(range)
-        .frame(egui::Frame::new().fill(t.panel))
-        .show(ui, |ui| {
-            dock_pane(ui);
-            let pane = ui.max_rect();
-            let pane_id = ui.unique_id();
-            // (The pane last clicked in, whose selection a plugin's
-            // command from the Plugins menu or a key runs on: the palette's,
-            // the Preview's being the palette's chosen blueprint.)
-            if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(pane) {
-                app.plugins.pane = Some(crate::plugins::Pane::Palette);
-            }
-            let mut tab = held.iter().position(|p| *p == front).unwrap_or(0);
-            let mut tabs = DockTabs::new(RIGHT_DOCK).tools_width(tools_width);
-            for p in &held {
-                tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
-            }
-            let bar = tabs.show(ui, &mut tab, |_| ());
-            // (A tab chosen shows its panel from the next frame: this one
-            // draws the panel in front as the frame began.)
-            let chosen = bar.changed.then(|| held[tab]);
-            // The panel's body (`.panel-body`: 8 px round it).
-            let margin = Margin { left: 8, right: 8, top: 6, bottom: 4 };
-            egui::Frame::new().inner_margin(margin).show(ui, |ui| {
-                ui.set_min_size(ui.available_size());
-                // (Laid out in the dock's room and cut at its edges: a
-                // widget wider than the dock never widens it, which would
-                // push its edge past the window's and draw the editor area
-                // over it.)
-                let room = ui.available_rect_before_wrap();
-                match front {
-                    Panel::Palette => {
-                        let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room));
-                        body.set_clip_rect(room.intersect(ui.clip_rect()));
-                        crate::palette_view::ui(app, &mut body);
-                    }
-                    // (Drawn here, where it comes in Tab's order after the
-                    // tab bar; where an editor's tab may show the same
-                    // model, after the editor area in this room, so that
-                    // the tab keeps its view.)
-                    Panel::Preview if room.is_positive() => {
-                        app.preview_rect = Some(room);
-                        let chosen = app.palette.selected.map(crate::model_view::Source::Resource);
-                        if chosen.is_some_and(|s| crate::model_view::a_tab_may_show(app, &s)) {
-                            let layer = ui.layer_id();
-                            app.preview_slot =
-                                Some(PreviewSlot { rect: room, layer, pane: pane_id });
-                        } else {
-                            let builder =
-                                egui::UiBuilder::new().id_salt("preview-panel").max_rect(room);
-                            let mut body = ui.new_child(builder);
-                            body.set_clip_rect(room.intersect(ui.clip_rect()));
-                            crate::area_tools::preview_body(app, &mut body, room);
-                        }
-                    }
-                    // (Not the Right Dock's.)
-                    _ => {}
+    let most = (window.x * 0.4).min(room - kit::EDITOR_LEAST).max(least);
+    let range = least..=most.min(room.max(least));
+    // (Drawn at the width chosen, else the layout's (320, 741 in a wide
+    // window), held to what the window allows, as the Left Dock; in a
+    // window under 1400 at its narrow 280, whatever was chosen, which is
+    // kept for a wider window: its edge is not dragged there.)
+    let narrow = app.yields.right_dock_narrow;
+    let wide = chosen_size(app.settings.right_dock_width, app.yields.right_dock_width);
+    let drawn = if narrow { least } else { wide.clamp(*range.start(), *range.end()) };
+    draw_at(&ctx, RIGHT_DOCK_ID, 0, drawn);
+    let resizable = !on_button && !narrow;
+    let dragged = resizable && edge_dragged(&ctx, RIGHT_DOCK_ID);
+    let mut panel = egui::Panel::right(RIGHT_DOCK_ID)
+        .resizable(resizable)
+        .frame(egui::Frame::new().fill(t.panel));
+    panel = match narrow {
+        true => panel.exact_size(drawn),
+        false => panel.default_size(drawn).size_range(range),
+    };
+    let yields = app.yields;
+    let shown = panel.show(ui, |ui| {
+        dock_pane(ui);
+        let pane = ui.max_rect();
+        let pane_id = ui.unique_id();
+        // (The pane last clicked in, whose selection a plugin's command
+        // from the Plugins menu or a key runs on: the palette's, the
+        // Preview's being the palette's chosen blueprint.)
+        if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(pane) {
+            app.plugins.pane = Some(crate::plugins::Pane::Palette);
+        }
+        // In the wide layout, a dock wider than two narrow ones stands in
+        // two columns (WideArea's `.dock.cols`), each panel in its own
+        // with its own tab bar, a line between them: the Palette in the
+        // first (the board's 340, half the dock where that is less), the
+        // Preview in the second.
+        if held.len() == 2 && yields.right_dock_columns(pane.width()) {
+            let first = Yields::right_first_column(pane.width());
+            let (one, rest) = pane.split_left_right_at_x(pane.left() + first);
+            let two = rest.with_min_x(rest.left() + 1.0);
+            let line = egui::Rect::from_x_y_ranges(one.right()..=two.left(), pane.y_range());
+            ui.painter().rect_filled(line, 0.0, t.line);
+            // (A press in a column makes its panel the dock's, the one
+            // View › Right Dock's strip and the keys come back to.)
+            let mut pressed = None;
+            for (rect, p, name) in [(one, held[0], RIGHT_DOCK), (two, held[1], RIGHT_COLUMN_TWO)] {
+                if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect) {
+                    pressed = Some(p);
                 }
-            });
-            chosen
-        });
+                let builder = egui::UiBuilder::new().id_salt(name).max_rect(rect);
+                let mut column = ui.new_child(builder);
+                column.set_clip_rect(rect.intersect(ui.clip_rect()));
+                let mut tab = 0;
+                let tabs = DockTabs::new(name).with(DockTab::new(p.name()).icon(p.icon()));
+                tabs.show(&mut column, &mut tab, |_| ());
+                right_body(app, &mut column, p, pane_id);
+            }
+            ui.advance_cursor_after_rect(pane);
+            app.right_columns = true;
+            return pressed;
+        }
+        let mut tab = held.iter().position(|p| *p == front).unwrap_or(0);
+        let mut tabs = DockTabs::new(RIGHT_DOCK).tools_width(tools_width);
+        for p in &held {
+            tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
+        }
+        let bar = tabs.show(ui, &mut tab, |_| ());
+        // (A tab chosen shows its panel from the next frame: this one
+        // draws the panel in front as the frame began.)
+        let chosen = bar.changed.then(|| held[tab]);
+        right_body(app, ui, front, pane_id);
+        chosen
+    });
     let dock = shown.response.rect;
     if dragged {
         app.settings.right_dock_width = Some(dock.width().round() as u32);
@@ -1742,6 +1937,74 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     if let Some(panel) = shown.inner {
         app.right_panel = panel;
     }
+}
+
+/// The name of the Right Dock's second column's tab bar where the dock
+/// stands in two (the Preview's, in the wide layout; the first keeps the
+/// dock's name, [`RIGHT_DOCK`]).
+pub const RIGHT_COLUMN_TWO: &str = "Right Dock, Second Column";
+
+/// A Right Dock panel's body under its tab bar (`.panel-body`: 8 px round
+/// it), filling what is left of `ui`: the Palette (`palette_view::ui`) or
+/// the Preview (its body drawn after the editor area where an editor's tab
+/// may show the same model, in the room kept for it here: [`PreviewSlot`]).
+/// `pane` is the dock's panel (its widgets are under it for a screen
+/// reader).
+fn right_body(app: &mut Moonglow, ui: &mut Ui, front: Panel, pane: egui::Id) {
+    let margin = Margin { left: 8, right: 8, top: 6, bottom: 4 };
+    egui::Frame::new().inner_margin(margin).show(ui, |ui| {
+        ui.set_min_size(ui.available_size());
+        // (Laid out in the dock's room and cut at its edges: a widget
+        // wider than the dock never widens it, which would push its edge
+        // past the window's and draw the editor area over it.)
+        let room = ui.available_rect_before_wrap();
+        match front {
+            Panel::Palette => {
+                let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room));
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::palette_view::ui(app, &mut body);
+            }
+            // (Drawn here, where it comes in Tab's order after the tab
+            // bar; where an editor's tab may show the same model, after
+            // the editor area in this room, so that the tab keeps its
+            // view.)
+            Panel::Preview if room.is_positive() => {
+                app.preview_rect = Some(room);
+                let chosen = app.palette.selected.map(crate::model_view::Source::Resource);
+                if chosen.is_some_and(|s| crate::model_view::a_tab_may_show(app, &s)) {
+                    let layer = ui.layer_id();
+                    app.preview_slot = Some(PreviewSlot { rect: room, layer, pane });
+                } else {
+                    let builder = egui::UiBuilder::new().id_salt("preview-panel").max_rect(room);
+                    let mut body = ui.new_child(builder);
+                    body.set_clip_rect(room.intersect(ui.clip_rect()));
+                    crate::area_tools::preview_body(app, &mut body, room);
+                }
+            }
+            // (Not the Right Dock's.)
+            _ => {}
+        }
+    });
+}
+
+/// The width the Right Dock takes at the window's side in a window
+/// `window` wide, its line included, as [`right_dock`] draws it (for the
+/// Left Dock, drawn before it, to leave the editor area its least): none
+/// where it holds no panel, its strip where folded, else its width (280 in
+/// a narrow window; the width chosen or the layout's, at least 280 and at
+/// most two fifths of the window).
+fn right_reserved(app: &Moonglow, window: f32) -> f32 {
+    if right_shown(app).is_none() {
+        return 0.0;
+    }
+    if right_folded(app) {
+        return kit::STRIP + 1.0;
+    }
+    if app.yields.right_dock_narrow {
+        return RIGHT_DOCK_LEAST + 1.0;
+    }
+    let wide = chosen_size(app.settings.right_dock_width, app.yields.right_dock_width);
+    wide.clamp(RIGHT_DOCK_LEAST, (window * 0.4).max(RIGHT_DOCK_LEAST)) + 1.0
 }
 
 /// The Bottom Dock (`Panel::bottom("log")`), unless closed
@@ -1772,8 +2035,7 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
     // (Drawn at the height chosen, held to what the window allows: as the
     // side docks' widths.)
     let range = least..=(window.y * 0.5).max(least);
-    let high =
-        chosen_size(&ctx, &mut app.settings.bottom_dock_height, "log", 1, metrics::BOTTOM_DOCK);
+    let high = chosen_size(app.settings.bottom_dock_height, metrics::BOTTOM_DOCK);
     draw_at(&ctx, "log", 1, high.clamp(*range.start(), *range.end()));
     let dragged = edge_dragged(&ctx, "log");
     let shown = egui::Panel::bottom("log")

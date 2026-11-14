@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T04:30:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T07:37:27Z }
 ---
 
 # The main window
@@ -23,7 +23,8 @@ module's name, "(modified)" while there are unsaved changes, and the
 game's folder: rest the pointer on the name for the module's file, on
 the folder for its whole path). See [The Status Bar](#the-status-bar).
 The palette comes with each module, in the Right Dock, 320 points wide
-at first. The docks follow the tab you work in: the Right Dock holds
+at first (280 in a window under 1400 points, 741 in a window 2560 or
+wider: see Narrow and wide windows, below). The docks follow the tab you work in: the Right Dock holds
 the panels of an area, so it is there while an area's tab (or, with no
 area open, the tab saying so) is in front of the middle, and not at all
 while another tab is (Module Properties, a script, a blueprint, the
@@ -596,15 +597,51 @@ as wide. The **log** opens and closes by its switch, **Log**, at
 the left of the Status Bar, lit while the log is open; it comes back as
 high as it was. What is folded stays so the next time Moonglow starts,
 and so do the docks' sizes. In a window too small for a dock's size it
-is drawn smaller (a side dock at most two fifths of the window, the log
-at most half its height, and in the narrowest windows the Right Dock
-narrower than 280 so as to stay inside), and it is as large again when
-the window is; only dragging its edge changes the size it keeps.
+is drawn smaller (a side dock at most two fifths of the window and
+leaving the middle 490 points where the window has them, the log at
+most half its height, the Right Dock 280 in a window under 1400, and in
+the narrowest windows narrower than that so as to stay inside), and it
+is as large again when the window is; only dragging its edge changes
+the size it keeps (the Right Dock's edge is not dragged in a window
+under 1400).
 **View › Reset Layout** puts the window back as Moonglow first opens
 it: the Left and Right Docks unfolded at their first widths and the log
 closed (opened again, it is at its first height); and it forgets where
 each kind of editor was put, so that each opens again as Options ›
 General › Open editors says (see Tabs and windows).
+
+**Narrow and wide windows.** As the window narrows the docks and bars
+give way, by its width alone, and nothing you chose is changed: your
+folds, the docks' widths and the seam over the Outliner are as you left
+them once the window is wide again, and a narrow window writes none of
+them. Under **1500 points** the Left Dock folds to its strip by itself
+(Module, Resources and, beside an area, the Outliner). Its arrow, a
+strip button, View › Left Dock, its key (Ctrl+Alt+1) or F6 bring it
+back beside the middle, which gives it the room as at any width; it
+stays so while the window is under 1500, and from 1500 it is as you
+left it yourself (unfolded, or folded if you folded it), so a window
+narrowed again folds it again. Under **1400** the Right Dock is 280
+points wide whatever width you gave it (the width you gave comes back
+with a wider window), and the Status Bar's switches show their icons
+alone and the game folder goes. Under **1300** Compile, Verify and Test
+Module lose their words and Quick Open's field is at most 300 points
+wide. Under **796** the Right Dock folds to its strip too, so that the
+middle keeps at least 490 points; brought back, it stays so until the
+window is 796 or wider. Under **962** both side docks don't fit beside
+the middle: bringing one back folds the other ("Show the Right Dock in
+place of the Left Dock", its arrow says). The arrows and View's rows
+say what they do in a narrow window ("Show the Left Dock, which this
+narrow window folds"; "Fold the Left Dock again, as this narrow window
+has it"). The smallest window, 420 points wide, has both docks as
+strips and the middle between them. In a window **2560** points or
+wider (the wide layout), a dock whose width you haven't chosen is
+wider: the Left Dock 320 and the Right Dock 741, and the Module panel
+760 high over the Outliner unless you dragged the seam. There a Right
+Dock wider than 560 (at its width at first, or dragged so) stands in
+two columns, the Palette in the first (340, or half the dock) and the
+Preview in the second, each with its own tab, a line between them; F6
+stops at each, and the one you press in or reach is the dock's panel
+(the one its strip and View › Right Dock bring back).
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -704,7 +741,10 @@ rows, and its rows come back once there is room. **View › Reset
 Layout** puts it back.
 
 **When it shows**: only while an area's tab is the one in front of the
-middle (the docks follow the tab you work in, as the Right Dock does).
+middle (the docks follow the tab you work in, as the Right Dock does),
+and the Left Dock is unfolded: a window under 1500 points folds the
+dock, the Outliner with it, to the strip, whose Outliner button brings
+them back (see Narrow and wide windows under The module tree).
 Beside another tab (Module Properties, a script, a blueprint) or the
 tab that says no area is open, the Left Dock is its tab's panel alone,
 the whole height. A tool in a window of its own (with **Open editors:
@@ -942,7 +982,11 @@ front alone). An object selected in the area's view (or in the
 [Outliner](#the-outliner)) is marked in the tree. While the Outliner
 shows (an area's tab in front, the Left Dock unfolded), the Outliner
 follows the selection and the tree stays where you left it: it neither
-opens the area out nor scrolls to the object's row. Without the
+opens the area out nor scrolls to the object's row. What counts is the
+dock as it is drawn: folded by a narrow window, neither shows and the
+tree moves for nothing (it does not catch up when the dock comes back);
+unfolded there by hand (see Narrow and wide windows), the Outliner shows
+and the tree stays still, even where you had folded the dock yourself. Without the
 Outliner (another tab in front, such as a script or Module Properties),
 the tree follows as it always did: where the area is opened out in the
 tree (the arrow beside its row), the object's kind opens and its row is
@@ -1292,7 +1336,9 @@ in Select Tiles "2 by 3 tiles selected" or "Tile (4, 4) selected") and,
 with a tile brush, the tile under the pointer. Another tab has none.
 
 **When it is short of room**, its parts give way in this order: the
-game folder goes first; then the hints, the last one first, each whole
+switches (Log) show their icons alone first, their names in their tips
+(always in a window under 1400 points); then the game folder goes
+(always under 1400); then the hints, the last one first, each whole
 (a note at their head is cut short with an ellipsis, its whole words in
 its tip); then the log's last line, cut short from its usual width (a
 short one beside an area's hints, a little more beside another tab's)

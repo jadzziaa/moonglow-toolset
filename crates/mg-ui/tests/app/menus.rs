@@ -23,7 +23,7 @@ fn the_nui_designer_s_properties_menu_is_a_form_whose_parts_keep_apart() {
     app.settings.window_sizes.push(("nui".into(), [700, 800]));
     let mut h = Harness::builder()
         .with_size(egui::vec2(800.0, 950.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
     settle(&mut h);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Nui(key)));
     settle(&mut h);

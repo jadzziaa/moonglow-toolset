@@ -294,38 +294,47 @@ fn a_last_line_reading_log_is_not_the_switch() {
     assert_eq!(switch.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
 }
 
+/// A long game folder's name, for [`with_no_line_yet_nothing_is_shown_or_kept`]:
+/// with [`MODULE`]'s name, wide enough to go for want of room in windows
+/// over 1400 (226 bytes: a folder's name holds 255).
+const FOLDER: &str = "Neverwinter Nights Enhanced Edition on the second drive of this machine, \
+                      in the folder kept for the games installed before the last move of them all \
+                      to the larger drive, with the haks and the overrides of the older servers too";
+/// A long module's name, for [`with_no_line_yet_nothing_is_shown_or_kept`].
+const MODULE: &str = "a_module_with_a_rather_long_file_name_for_the_status_bar_check";
+
 /// With nothing said yet, nothing follows the switch and no room is kept
 /// for it: the bar's controls are the switch and the right-hand items,
-/// and at every width from 420 to 1000 the bar is as it is with the log
-/// open (where it has no last line), the game folder kept as long; a line
-/// said then takes the room between them alone.
+/// and at every width from 1400 to 2200 the bar is as it is with the log
+/// open (where it has no last line), the game folder (a long one, beside a
+/// long module's name) kept as long; a line said then takes the room
+/// between them alone. (Under 1400 the folder goes whatever the room, M3
+/// T14: the sweep was 420 to 1000 with a shorter folder and no module
+/// before.)
 #[test]
 fn with_no_line_yet_nothing_is_shown_or_kept() {
     let dir = mg_testkit::scratch_dir("ui-status-no-line");
-    let game = dir.join("Neverwinter Nights Enhanced Edition on the second drive of this machine");
+    let game = dir.join(FOLDER);
     std::fs::create_dir_all(&game).unwrap();
+    let module = dir.join(format!("{MODULE}.mod"));
+    std::fs::copy(sample_module(&dir), &module).unwrap();
     let mut app = game_app(&game, None);
     app.settings.hide_log = true;
+    app.settings.no_last_area = true;
+    app.open_module(&module);
     // (No hints: the Welcome page's are `status_hints.rs`'s.)
     app.status_for_tests(Some((Vec::new(), Vec::new())));
-    let mut h = harness(app, 1200.0, 700.0);
+    let mut h = harness(app, 2400.0, 700.0);
     settle(&mut h);
     h.state_mut().log.clear();
     settle(&mut h);
     let names: Vec<String> = bar_controls(&h, "Status Bar").into_iter().map(|c| c.0).collect();
-    assert_eq!(
-        names,
-        [
-            "Log",
-            "No module open",
-            "…/Neverwinter Nights Enhanced Edition on the second drive of this machine"
-        ]
-    );
-    let folder = "…/Neverwinter Nights Enhanced Edition on the second drive of this machine";
+    assert_eq!(names, ["Log", MODULE, format!("…/{FOLDER}").as_str()]);
+    let folder = &format!("…/{FOLDER}");
     let folder_width = in_bar(&h, folder).unwrap().rect().width();
     let mut differ = Vec::new();
     let mut dropped = 0;
-    for width in (420..=1000).step_by(8) {
+    for width in (1400..=2200).step_by(8) {
         let width = width as f32;
         h.set_size(egui::vec2(width, 700.0));
         let mut seen = Vec::new();
@@ -342,7 +351,7 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
         let has = |n: &str| seen[0].iter().find(|c| c.0 == n).map(|c| c.1);
         if has(folder).is_none() {
             dropped += 1;
-            let (switch, name) = (has("Log").unwrap(), has("No module open").unwrap());
+            let (switch, name) = (has("Log").unwrap(), has(MODULE).unwrap());
             // (The room between them: the gaps, a separator and the folder.)
             let room = name.left() - switch.right() - 2.0 * 8.0;
             if room >= folder_width + 1.0 + 2.0 * 8.0 {
@@ -352,11 +361,14 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
     }
     assert!(differ.is_empty(), "{differ:#?}");
     assert!(dropped > 0, "the folder goes somewhere in the sweep");
-    h.set_size(egui::vec2(1200.0, 700.0));
+    assert!(dropped < 100, "and is shown somewhere in it: dropped at {dropped} widths");
+    // (Wide enough for the folder beside the line too: where it is not,
+    // the line said makes the folder go first, as the bar yields.)
+    h.set_size(egui::vec2(2400.0, 700.0));
     h.state_mut().settings.hide_log = true;
     settle(&mut h);
     let at = |h: &Harness<'_, Moonglow>| {
-        (in_bar(h, "Log").unwrap().rect(), in_bar(h, "No module open").unwrap().rect())
+        (in_bar(h, "Log").unwrap().rect(), in_bar(h, MODULE).unwrap().rect())
     };
     let without = at(&h);
     h.state_mut().log.info("Now something");
@@ -399,8 +411,8 @@ fn the_bottom_dock_keeps_its_height_through_the_switch_and_a_restart() {
     settle(&mut again);
     menu_command(&mut again, "View", "Reset Layout");
     settle(&mut again);
-    let first = mg_uikit::metrics::BOTTOM_DOCK.round() as u32;
-    assert_eq!(again.state().settings.bottom_dock_height, Some(first));
+    // (Not chosen: its first height, `metrics::BOTTOM_DOCK`, below.)
+    assert_eq!(again.state().settings.bottom_dock_height, None);
     assert_eq!(top(&again), None, "closed, as the shell has it at first");
     assert!(!again.state().settings.hide_tree, "the Left Dock unfolded");
     in_bar(&again, "Log").unwrap().click();
@@ -544,8 +556,10 @@ fn a_new_installation_opens_with_the_log_closed() {
 /// inside the bar and over no other; the module's name always there,
 /// everything at 2560 and 3440 (the long texts are wider than the
 /// board's); and they yield in the one order
-/// `shell::status_bar` builds, as the window narrows: the game folder
-/// goes first (never shown beside a hint dropped or the line cut); then
+/// `shell::status_bar` builds, as the window narrows: the Bottom Dock's
+/// switches show their icons alone first (always under 1400, M3 T14); then
+/// the game folder goes (always under 1400; never shown beside a hint
+/// dropped or the line cut); then
 /// the hints drop whole from the end (those shown always the first ones);
 /// then the last line is cut short from its cap (`shell::LAST_LINE_CAP`,
 /// the boards' `.sb-log`) down to its least room
@@ -708,7 +722,17 @@ fn the_status_bar_holds_at_every_width() {
         let job_cut = job.is_none_or(|r| r.width() < full_job - 0.5);
         let name_cut =
             has(name).is_some_and(|r| drawn_texts(&h, r).iter().any(|w| w.contains('…')));
-        // The order they yield in.
+        // The order they yield in: first the switches show their icons
+        // alone (always under 1400, M3 T14, and wherever the rest does not
+        // fit beside their words), then the folder goes (always under
+        // 1400), then the middle's.
+        let icons = has("Log").is_some_and(|r| r.width() < 30.0);
+        if width < 1400.0 && (!icons || has(folder).is_some()) {
+            wrong.push(at("under 1400 the switches' words or the folder shown"));
+        }
+        if !icons && has(folder).is_none() {
+            wrong.push(at("the folder gone beside the switches' words"));
+        }
         if has(folder).is_some() && !(all_hints && line_full) {
             wrong.push(at("the folder shown beside a hint dropped or the line cut"));
         }
@@ -728,8 +752,10 @@ fn the_status_bar_holds_at_every_width() {
             wrong.push(at("the name cut short before the job's"));
         }
         // (Which stage this width is at.)
-        let stage = if has(folder).is_some() {
+        let stage = if has(folder).is_some() && !icons {
             "everything"
+        } else if has(folder).is_some() {
+            "the switches as icons"
         } else if all_hints {
             "the folder gone"
         } else if hints_shown > 0 {
@@ -756,6 +782,7 @@ fn the_status_bar_holds_at_every_width() {
     assert!(wrong.is_empty(), "{wrong:#?}");
     for stage in [
         "everything",
+        "the switches as icons",
         "the folder gone",
         "hints dropped",
         "the line cut",

@@ -715,6 +715,50 @@ fn with_the_outliner_shown_the_tree_stays_where_it_was() {
     assert_eq!(h.state().tree_object, Some((area, ObjectKind::Placeable, 2)), "its mark kept");
 }
 
+/// The owner's ruling (T13's review: while the Outliner shows, the tree
+/// stops following the selection) where a narrow window folds the Left
+/// Dock (M3 T14): "the Outliner shown" is the dock as drawn, not the
+/// builder's `hide_tree`. Folded by a 1280 window, neither the tree nor the
+/// Outliner is drawn, and the tree moves for nothing; the builder's own
+/// fold on and the dock unfolded by hand there, the Outliner is shown and
+/// the tree stays where it was as the view's selection changes, as it
+/// does with the dock unfolded at any width.
+#[test]
+fn a_dock_unfolded_by_hand_in_a_narrow_window_keeps_the_tree_still() {
+    let Some((mut h, area)) = outliner_harness("outliner-narrow", 3) else { return };
+    h.state_mut().docks_fold_by_width = true;
+    h.state_mut().settings.hide_tree = true;
+    h.set_size(egui::vec2(1280.0, HEIGHT));
+    // (Folded, the strip's button of the Outliner's name stands for it;
+    // the Outliner itself is drawn where its Collapse All is.)
+    let outliner_shown = |h: &Harness<'_, Moonglow>| {
+        h.query_by_label("Show the Left Dock").is_none()
+            && (h.query_by_label(mg_ui::OUTLINER))
+                .is_some_and(|o| o.query_by_label("Collapse All").is_some())
+    };
+    until(&mut h, "the Left Dock folded", |h| h.query_by_label("Show the Left Dock").is_some());
+    assert!(!outliner_shown(&h));
+    h.get_by_label("Show the Left Dock").click();
+    until(&mut h, "the Outliner shown", outliner_shown);
+    rest(&mut h);
+    assert!(h.state().settings.hide_tree, "the builder's fold kept");
+    let tree_rows = |h: &Harness<'_, Moonglow>| -> Vec<(String, egui::Rect)> {
+        let tree = h.get_by_label("Module Tree Rows");
+        (tree.query_all_by(|n| n.label().is_some()))
+            .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
+            .collect()
+    };
+    let before = tree_rows(&h);
+    assert!(h.query_by_label("Placeables (3)").is_none(), "the tree's area closed");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 2)];
+    until(&mut h, "the Outliner's row marked", |h| {
+        outliner_row(h, "tag CHEST_02").is_some_and(|n| selected(&n))
+    });
+    rest(&mut h);
+    assert!(h.query_by_label("Placeables (3)").is_none(), "the tree's area still closed");
+    assert_eq!(tree_rows(&h), before, "the tree as it was");
+}
+
 /// In the least window (420 by 320) the Outliner folds to its header (its
 /// rows out, Expand All and Collapse All still there) before the panel
 /// over it goes under its least (180 points: the tab bar, the Filter and

@@ -188,12 +188,16 @@ fn open_setup(h: &mut Harness<'_, Moonglow>, tab: Tab, area: Option<&str>) {
 
 /// Picks the target area `name` in the window's Target Area.
 fn show_target_area(h: &mut Harness<'_, Moonglow>, name: &str) {
+    // (Not one of the area toolbar's boxes behind the window on the same
+    // row, where M3 T14's flush editor area moved the toolbar's rows.)
+    let label = h.get_by_label("Target Area").rect();
     let combo = h
         .get_all_by_role(Role::ComboBox)
         .find(|n| {
             let r = n.rect();
-            let label = h.get_by_label("Target Area").rect();
-            (r.center().y - label.center().y).abs() < 10.0 && r.left() > label.left()
+            (r.center().y - label.center().y).abs() < 10.0
+                && r.left() > label.left()
+                && !in_group(n, "Area toolbar")
         })
         .unwrap_or_else(|| {
             let label = h.get_by_label("Target Area").rect();
@@ -204,16 +208,23 @@ fn show_target_area(h: &mut Harness<'_, Moonglow>, name: &str) {
             panic!("the Target Area box: label {label:?}, boxes {all:?}")
         });
     let value = combo.accesskit_node().value().unwrap_or_default().to_string();
+    let under = combo.rect();
     combo.click();
     settle(h);
-    if h.query_all_by_label(name).next().is_none() {
+    // (The row of the box's list, under the box: not the module tree's
+    // area of the same name, which may come after it among the nodes.)
+    let row = h.query_all_by_label(name).find(|n| {
+        let r = n.rect();
+        r.top() >= under.bottom() - 1.0 && under.x_range().contains(r.center().x)
+    });
+    let Some(row) = row else {
         let all: Vec<String> = h
             .get_all_by_role(Role::Button)
             .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
             .collect();
         panic!("no {name} (box {value:?}): {all:?}");
-    }
-    h.get_all_by_label(name).last().unwrap().click();
+    };
+    row.click();
     settle(h);
 }
 

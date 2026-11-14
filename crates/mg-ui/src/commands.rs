@@ -1833,9 +1833,16 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     if let Some(on) = ticked {
         paint_tick(ui, &r, tick, on, at, &name);
     }
-    let hint = id.text().2;
+    // (View's Left Dock and Right Dock say what they will do in a window
+    // that folds the dock by its width.)
+    let hint = match id {
+        Id::ViewTree => crate::shell::dock_tip(app, mg_uikit::shell::Side::Left),
+        Id::ViewPalettes => crate::shell::dock_tip(app, mg_uikit::shell::Side::Right),
+        _ => None,
+    };
+    let hint = hint.map_or(std::borrow::Cow::Borrowed(id.text().2), std::borrow::Cow::Owned);
     if !hint.is_empty() {
-        r = r.on_hover_text(hint);
+        r = r.on_hover_text(hint.as_ref());
     }
     if r.clicked() || chosen {
         id.run(app, ui.ctx());

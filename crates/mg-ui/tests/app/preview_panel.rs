@@ -182,7 +182,7 @@ fn each_tab_shows_its_panel_and_only_it() {
     h.state_mut().palette.selected = Some(creature);
     settle(&mut h);
     // The Palette in front: the Preview draws nothing.
-    h.get_by_label("Palette types");
+    palette_types(&h).expect("the palette's types");
     assert!(h.state().preview_panel_rect().is_none(), "no Preview body");
     assert!(h.query_by_label("Blueprint ResRef").is_none(), "none of its nodes");
     assert!(!model_view_of(&h, creature), "no model view made behind the Palette");
@@ -190,13 +190,13 @@ fn each_tab_shows_its_panel_and_only_it() {
     dock_tab(&h, "Preview").click();
     settle(&mut h);
     assert_eq!(h.state().right_dock_shows(), Some(Panel::Preview));
-    assert!(h.query_by_label("Palette types").is_none(), "the Palette's nodes gone");
+    assert!(palette_types(&h).is_none(), "the Palette's nodes gone");
     in_preview(&h, "nw_bandit001");
     assert!(model_view_of(&h, creature), "the creature's model view");
     // Another chosen with the Palette in front: shown when the Preview is.
     dock_tab(&h, "Palette").click();
     settle(&mut h);
-    h.get_by_label("Palette types");
+    palette_types(&h).expect("the palette's types");
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
     h.state_mut().palette.selected = Some(chest);
     settle(&mut h);

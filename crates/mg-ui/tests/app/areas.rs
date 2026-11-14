@@ -438,6 +438,10 @@ fn the_area_toolbar_shows_icons_only_when_asked() {
 #[test]
 fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
     let Some((mut h, area)) = area_harness("area-toolbar-sweep") else { return };
+    // (The docks as a narrow window has them, M3 T14: the Left Dock folded
+    // under 1500, the Right Dock 280 under 1400 and folded under 796. The
+    // sweep folded the Left Dock by hand under 772 before.)
+    h.state_mut().docks_fold_by_width = true;
     let tab = Tab::Area(area);
     // (The tab's body, and the toolbar's controls: each widget in it.)
     let body = |h: &Harness<'_, Moonglow>| {
@@ -460,14 +464,6 @@ fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
         h.state_mut().settings.toolbar_icons_only = icons_only;
         for width in (640..=1600).step_by(4) {
             h.set_size(egui::vec2(width as f32, 800.0));
-            // (Under 772 the Left Dock and the Right Dock, at its 320 held
-            // to two fifths of the window, leave the editor area less than
-            // the toolbar's widest control: the Left Dock folded there, as
-            // the shell's yields fold it in narrow windows, M3 T14. Before
-            // the Right Dock, M3 T5, the palettes' pane shared the editor
-            // area; until T5's review the Right Dock stayed at the 280 the
-            // narrower windows before had drawn it at, and 760 was enough.)
-            h.state_mut().settings.hide_tree = width < 772;
             // (A dropdown's room is the one it took the frame before: run
             // until the toolbar is laid out the same twice, with a deadline.)
             let started = std::time::Instant::now();

@@ -106,8 +106,8 @@ impl Moonglow {
         let Ok(leaf) = self.dock.leaf(path) else { return };
         let bar =
             egui::Rect::from_x_y_ranges(leaf.rect.x_range(), leaf.rect.top()..=leaf.viewport.top());
-        // (Not in a bar narrower than its room: the least window's editor
-        // area, both docks open, is a sliver until T14's yields.)
+        // (Not in a bar narrower than its room: the editor area beside a
+        // dock unfolded by hand in the least window is narrow.)
         if !bar.is_positive() || bar.width() < tabs::SPLIT_ROOM {
             return;
         }

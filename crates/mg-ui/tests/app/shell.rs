@@ -1397,9 +1397,10 @@ fn a_width_kept_by_an_earlier_run_is_the_left_dock_s() {
         app.open_module(&path);
         let mut h = harness(app, window, 800.0);
         // (Settings with no width chosen, and the width egui kept for the
-        // panel: as an earlier run left them. The harness has drawn a
-        // first frame, which took the first width: given up.)
+        // panel: as an earlier version's run left them, its sizes not yet
+        // taken, `Settings::dock_sizes_taken`.)
         h.state_mut().settings.left_dock_width = None;
+        h.state_mut().settings.dock_sizes_taken = false;
         let rect = egui::Rect::from_min_size(egui::pos2(8.0, 40.0), egui::vec2(430.0, 600.0));
         let state = egui::containers::panel::PanelState { outer_rect: rect };
         h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("tree"), state));

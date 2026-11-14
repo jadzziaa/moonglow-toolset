@@ -1128,7 +1128,7 @@ fn the_module_tree_s_letters_typed_quickly() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .with_step_dt(0.25)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
     h.run();
     if h.query_by_label("sewer").is_none() {
         h.get_by_label_contains("Scripts (").click();
@@ -1197,7 +1197,7 @@ fn the_module_tree_s_keys_at_placed_objects() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .with_step_dt(0.25)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
     h.run();
     let start = ResRef::from_str("start").unwrap();
     let at = |h: &Harness<'_, Moonglow>| h.state().tree_cursor;

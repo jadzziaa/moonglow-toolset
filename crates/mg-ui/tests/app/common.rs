@@ -115,12 +115,23 @@ pub(crate) fn game_app(
 /// `render`, `snapshot`) on a GPU device of kittest's own: a test that
 /// draws takes the GPU first (`mg_testkit::gpu::hold`).
 pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
+    let app = docks_as_set(app);
     let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     // (Which icons are drawn where, for a test to ask: [`icon_drawn`].)
     mg_uikit::record_icons(&h.ctx);
     h
+}
+
+/// `app` with its side docks as their settings have them at every width
+/// (`Moonglow::docks_fold_by_width` off): the tests written before the
+/// shell yields (M3's T14) look at the docks' contents in windows under
+/// 1500 points wide, as though the builder had unfolded them there. The
+/// yields' own tests (`yields.rs`) turn it back on.
+pub(crate) fn docks_as_set(mut app: Moonglow) -> Moonglow {
+    app.docks_fold_by_width = false;
+    app
 }
 
 /// The game's data at `root`, in English, with no user folder: read
@@ -275,6 +286,7 @@ pub(crate) fn gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
+    let app = docks_as_set(app);
     let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
@@ -292,6 +304,7 @@ pub(crate) fn area_gpu_harness(
     height: f32,
 ) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
+    let app = docks_as_set(app);
     let h = Harness::builder()
         .with_size(egui::vec2(width, height))
         .with_step_dt(1.0 / 60.0)
@@ -443,6 +456,21 @@ pub(crate) const PALETTE_TYPES: [&str; 13] = [
     "Lights",
     "Start Location",
 ];
+
+/// The palette's types as drawn: the row of their icons ("Palette
+/// types"), or under 300 points of panel (the Right Dock at its narrow
+/// 280, M3 T14) the dropdown showing the type's name; `None` where the
+/// palette is not drawn.
+pub(crate) fn palette_types<'t>(h: &'t Harness<'_, Moonglow>) -> Option<egui_kittest::Node<'t>> {
+    if let Some(row) = h.query_by_label("Palette types") {
+        return Some(row);
+    }
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    h.query_all(combo).find(|n| {
+        let value = n.accesskit_node().value().unwrap_or_default();
+        PALETTE_TYPES.contains(&value.as_str())
+    })
+}
 
 /// Chooses a type in the palette's header by its name: its icon in the
 /// row of them (a group of its own, "Palette types": the area toolbar
@@ -1088,7 +1116,12 @@ pub(crate) fn click_tab_close(h: &mut Harness<'_, Moonglow>, tab: &Tab) {
     // (16 points square: the Top Bar's buttons under a window's bar are
     // 22.)
     let side = mg_uikit::shell::DOC_TAB_CLOSE;
-    let close = squares.iter().find(|r| own.contains_rect(**r) && (r.width() - side).abs() < 0.5);
+    // (Its own at its right end: another tab's under a floating window
+    // may lie within its rectangle too, the editor area's tab bar flush
+    // under the Top Bar since M3 T14.)
+    let close = (squares.iter())
+        .filter(|r| own.contains_rect(**r) && (r.width() - side).abs() < 0.5)
+        .max_by(|a, b| a.right().total_cmp(&b.right()));
     let at = close.expect("its close button").center();
     h.hover_at(at);
     h.run_steps(1);

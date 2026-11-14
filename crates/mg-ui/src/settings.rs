@@ -701,19 +701,24 @@ pub struct Settings {
     pub delete_without_asking: bool,
     /// View: the docks folded away: the Left Dock folded to its strip
     /// (`hide_tree`), the Bottom Dock closed (`hide_log`), the Right Dock
-    /// (the palettes) folded to its strip (`hide_palettes`).
+    /// (the palettes) folded to its strip (`hide_palettes`). As the builder
+    /// left them: a narrow window folds a side dock without writing them,
+    /// and a dock unfolded by hand there is not written either
+    /// (`shell::set_dock_open`).
     pub hide_tree: bool,
     pub hide_log: bool,
     pub hide_palettes: bool,
     /// The docks' sizes as the builder chose them, in points: the Left
     /// and Right Docks' widths and the Bottom Dock's height, as their edge
-    /// was dragged to (or as they are at first: View › Reset Layout puts
-    /// them back so). Each is drawn held to what the window allows, and
+    /// was dragged to. Each is drawn held to what the window allows, and
     /// kept as chosen while the window is too small for it, so that the
-    /// dock is as large again when the window is. `None`: not chosen yet,
-    /// the size egui kept for the dock's panel in an earlier run taken
-    /// once, else the size at first (`shell::chosen_size`). Whole points,
-    /// as the windows' sizes are kept.
+    /// dock is as large again when the window is. `None`: not chosen (View
+    /// › Reset Layout puts them back so), the size the window's layout
+    /// gives (`mg_uikit::shell::Yields`: the Left Dock 260, 320 in a wide
+    /// window; the Right Dock 320, 741 in a wide window, 280 in a narrow
+    /// one whatever is chosen; `shell::chosen_size`); a size kept by an
+    /// older version taken once ([`Settings::dock_sizes_taken`]). Whole
+    /// points, as the windows' sizes are kept.
     pub left_dock_width: Option<u32>,
     pub right_dock_width: Option<u32>,
     pub bottom_dock_height: Option<u32>,
@@ -723,6 +728,16 @@ pub struct Settings {
     /// to what the dock's height allows, kept as chosen). `None`: not
     /// chosen, the board's split (`mg_uikit::metrics::MODULE_PANEL`).
     pub module_panel_height: Option<u32>,
+    /// The docks' sizes were looked at once in this version's way
+    /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
+    /// a dock's panel in a version before the chosen sizes were kept apart
+    /// (4.2.0 and older) taken as chosen, and a size that is only a size at
+    /// first (4.2.0's 240 and 120, this branch's 260, 320 and 180, which it
+    /// stored before anything was chosen) taken as not chosen, so that the
+    /// dock takes the width the window's layout gives it (320 in a wide
+    /// window). Marked done for good: from then on a size is chosen only
+    /// as an edge is dragged. A new installation has nothing to take.
+    pub dock_sizes_taken: bool,
     /// The area view's Fade Geometry (0 never, 1 in object mode only,
     /// 2 always), in views opened from now on.
     pub fade_geometry: u8,
@@ -1086,6 +1101,7 @@ impl Settings {
             hide_log: true,
             open_editors: OpenEditors::Tabs,
             window_sizes_scaled: true,
+            dock_sizes_taken: true,
             ..Settings::default()
         }
     }
@@ -1752,8 +1768,10 @@ mod tests {
     }
 
     /// A new installation's settings differ from the defaults (an existing
-    /// user's, before the shell) in exactly two: the Bottom Dock closed
-    /// and editors opening as tabs (M3's T10).
+    /// user's, before the shell) in the Bottom Dock closed and editors
+    /// opening as tabs (M3's T10), and in having nothing of an older
+    /// version to scale or take (its window sizes, M3's T11; its docks'
+    /// sizes, T14).
     #[test]
     fn a_new_installation_differs_from_the_defaults_only_in_the_log_closed() {
         let new = Settings::new_installation();
@@ -1763,26 +1781,37 @@ mod tests {
             (new.open_editors, old.open_editors),
             (OpenEditors::Tabs, OpenEditors::Floating)
         );
-        // (And its window sizes, none yet, are the theme's: never scaled.)
+        // (And its window sizes, none yet, are the theme's: never scaled;
+        // and it has no dock sizes of an older version to take.)
         assert!(new.window_sizes_scaled && !old.window_sizes_scaled);
+        assert!(new.dock_sizes_taken && !old.dock_sizes_taken);
         let back = Settings {
             hide_log: false,
             open_editors: OpenEditors::Floating,
             window_sizes_scaled: false,
+            dock_sizes_taken: false,
             ..new.clone()
         };
         assert_eq!(back, old);
         // (Each alone is a difference.)
-        assert_ne!(Settings { hide_log: false, window_sizes_scaled: false, ..new.clone() }, old);
+        let untaken = Settings { dock_sizes_taken: false, ..new.clone() };
+        assert_ne!(
+            Settings { hide_log: false, window_sizes_scaled: false, ..untaken.clone() },
+            old
+        );
         assert_ne!(
             Settings {
                 open_editors: OpenEditors::Floating,
                 window_sizes_scaled: false,
-                ..new.clone()
+                ..untaken.clone()
             },
             old
         );
-        assert_ne!(Settings { hide_log: false, open_editors: OpenEditors::Floating, ..new }, old);
+        assert_ne!(
+            Settings { hide_log: false, open_editors: OpenEditors::Floating, ..untaken },
+            old
+        );
+        assert_ne!(Settings { dock_sizes_taken: true, ..back }, old);
     }
 
     /// The window sizes kept before the theme (a file without
@@ -1938,11 +1967,12 @@ mod tests {
     fn settings_from_4_1_read_with_the_log_open_and_nothing_lost() {
         // (The fields the shell added since 4.1.0: whatever their values,
         // a 4.1.0 file has none of them.)
-        const ADDED: [&str; 6] = [
+        const ADDED: [&str; 7] = [
             "left_dock_width",
             "right_dock_width",
             "bottom_dock_height",
             "module_panel_height",
+            "dock_sizes_taken",
             "open_editors",
             "window_sizes_scaled",
         ];

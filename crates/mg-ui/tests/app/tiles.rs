@@ -2746,17 +2746,22 @@ fn tile_variant_pictures_take_the_size_set() {
         assert_eq!(a.top(), b.top(), "on one row");
         b.left() - a.left()
     };
-    // (A column: the picture, its button's padding either side and the
-    // grid's gap of 6.)
-    let gaps = 2.0 * h.ctx.global_style().spacing.button_padding.x + 6.0;
-    assert!((apart(&h) - (200.0 + gaps)).abs() < 1.0, "200 points and the gaps: {}", apart(&h));
+    // (A column: the picture and the grid's gap of 6, and where the
+    // column holds the chosen picture, framed, its button's padding either
+    // side: a grid's column is as wide as its widest. Which column holds
+    // it depends on how many go across, which the window's width decides:
+    // M3 T14's narrower Right Dock moved it out of the first two.)
+    let padding = 2.0 * h.ctx.global_style().spacing.button_padding.x;
+    let fits =
+        |apart: f32, side: f32| (side + 6.0 - 1.0..=side + 6.0 + padding + 1.0).contains(&apart);
+    assert!(fits(apart(&h), 200.0), "200 points and the gaps: {}", apart(&h));
     h.get_by_label("Size");
     let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
     h.render().unwrap().save(dir.join("large.png")).unwrap();
     // The usual size, unless set.
     h.state_mut().settings.tile_variant_side = None;
     h.run_steps(3);
-    assert!((apart(&h) - (84.0 + gaps)).abs() < 1.0, "{}", apart(&h));
+    assert!(fits(apart(&h), 84.0), "{}", apart(&h));
     // Small, a picture under the pointer shows at its largest beside it.
     let (p, model) = &variants[1];
     let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];

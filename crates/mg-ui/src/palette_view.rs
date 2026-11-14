@@ -1026,6 +1026,11 @@ fn start_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
     );
 }
 
+/// The Palette panel's width under which its types are a dropdown, not a
+/// row of icons (proposal section 5.2: "the palette's type strip becomes a
+/// combo under 300 px of panel width"; the Narrow board's 280 shows it).
+pub(crate) const TYPE_COMBO_UNDER: f32 = 300.0;
+
 /// The lights' page: the game's invisible light placeables ("Light,
 /// White" and the six others, and any a hak adds in the same way), one
 /// chosen to place with a click in an area's view, as the area's menu's
@@ -1180,13 +1185,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let mut chosen = None;
         // Icon buttons (22 px, 1 apart: the board's `.seg.icons`, all
         // thirteen on one row in the Right Dock's 320 px), in rows where the
-        // panel is narrower than them (two at its least width, 280). (Named
-        // by their types within the row, a group of its own: the area
-        // view's toolbar names its filters so too.)
+        // panel is narrower than them, down to [`TYPE_COMBO_UNDER`]: in a
+        // narrower panel (the Narrow board's 280) a dropdown of them,
+        // "Placeables". (Named by their types within the row, a group of
+        // its own: the area view's toolbar names its filters so too.)
         let each = mg_uikit::metrics::ICON_BUTTON + 1.0;
+        // (The panel: this room and its body's margin, 8 each side.)
+        let panel = ui.available_width() + 2.0 * mg_uikit::metrics::PANEL_PADDING;
         // (The button that folds the Right Dock away is beside its edge,
         // not among these: GitHub issue 10, `shell::right_dock`.)
-        if ui.available_width() >= each * 4.0 {
+        if panel >= TYPE_COMBO_UNDER && ui.available_width() >= each * 4.0 {
             ui.horizontal_wrapped(|ui| {
                 mg_uikit::name_group(ui, "Palette types");
                 ui.spacing_mut().item_spacing = egui::vec2(1.0, 2.0);

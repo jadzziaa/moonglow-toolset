@@ -1804,7 +1804,7 @@ fn build_module_marks_an_unused_script_as_used() {
     app.build = Some(w);
     let mut h = Harness::builder()
         .with_size([900.0, 900.0])
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
     h.run_steps(2);
     h.get_all_by_label("Build").last().unwrap().click();
     h.run_steps(3);

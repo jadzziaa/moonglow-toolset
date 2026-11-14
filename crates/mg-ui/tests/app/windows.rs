@@ -501,6 +501,9 @@ fn tab_reaches_the_right_dock_s_fold_button_after_its_controls() {
 #[test]
 fn each_pane_folds_by_one_button_on_its_inner_edge() {
     let Some(mut h) = game_harness("pane-edges") else { return };
+    // (1400 wide: under it the Right Dock is held at its narrow 280 and
+    // its edge is not dragged, M3 T14.)
+    h.set_size(egui::vec2(1400.0, 800.0));
     h.run_steps(3);
     // A dock's or pane's button, folded or not (and that there is one).
     let button = |h: &Harness<'_, Moonglow>, name: &str| {
@@ -520,9 +523,10 @@ fn each_pane_folds_by_one_button_on_its_inner_edge() {
     };
     let window = h.ctx.content_rect();
     let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 1.5, "{what}: {a} and {b}");
-    // (The dock's panes stand 8 points inside the middle's panel, all
-    // round.)
-    const MARGIN: f32 = 8.0;
+    // (The editor area's panes reach the docks' edges: flush, as the
+    // boards draw it, since M3 T14; they stood 8 points inside egui's
+    // margin before.)
+    const MARGIN: f32 = 0.0;
 
     // The Left Dock: beside its inner edge, by the middle, half way along
     // it; folded, the button that unfolds it in the same place beside the
@@ -683,7 +687,7 @@ fn the_palette_is_a_panel_not_a_tab() {
     h.state_mut().open_tabs_dir = Some(kept.clone());
     fold_palette(h.state_mut());
     settle(&mut h);
-    assert!(h.query_by_label("Palette types").is_none(), "folded");
+    assert!(palette_types(&h).is_none(), "folded");
     let leaves = |h: &Harness<'_, Moonglow>| -> Vec<Vec<Tab>> {
         h.state().dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect()
     };
@@ -694,7 +698,7 @@ fn the_palette_is_a_panel_not_a_tab() {
     assert_eq!(leaves(&h), before, "the editor area's panes and tabs as they were");
     // The palette drawn in the Right Dock, beside the editor area.
     let dock = right_dock_rect(&h);
-    let types = h.get_by_label("Palette types").get_by_label("Tiles").rect();
+    let types = palette_types(&h).expect("the palette's types").rect();
     assert!(dock.contains_rect(types), "the palette in the Right Dock: {types:?} {dock:?}");
     let editor = (h.state().dock.iter_leaves())
         .find(|(_, l)| l.tabs.contains(&Tab::Area(area)))
@@ -2901,7 +2905,7 @@ fn a_properties_window_s_buttons_stay_put() {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1000.0, 800.0))
             .with_pixels_per_point(scale)
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
         h.run_steps(8);
         // (The editors of files of their own: a talk table and a new hak.)
         let mut words = mg_module::talk::Table::create("words", &dir, Language::ENGLISH, false);

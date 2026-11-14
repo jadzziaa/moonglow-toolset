@@ -112,6 +112,28 @@ pub const QUICK_OPEN_ICON_UNDER: f32 = 240.0;
 pub const RIGHT_DOCK_NARROW: f32 = 280.0;
 /// The Left Dock's default width in the wide layout.
 pub const LEFT_DOCK_WIDE: f32 = 320.0;
+/// The Right Dock's default width in the wide layout (`WideArea.html`'s
+/// `--right-w: 741px`: two columns and the line between them).
+pub const RIGHT_DOCK_WIDE: f32 = 741.0;
+/// The Right Dock's first column's widest where it stands in two
+/// (`WideArea.html`'s `.dock-col.pal-col`: `flex: 0 0 340px`); the second
+/// column takes the rest.
+pub const RIGHT_COLUMN: f32 = 340.0;
+/// The height of the Left Dock's upper panel over the Outliner at first in
+/// the wide layout (`WideArea.html` and `GalleryWide.html`'s
+/// `.module-panel`: `flex: 0 0 760px`, in a 1440 window).
+pub const MODULE_PANEL_WIDE: f32 = 760.0;
+/// The editor area's least width beside the docks: the narrowest editor
+/// section 5.2 designs an area's header for (Together and Onto Objects in
+/// More, [`INTO_MORE_UNDER`]). A dock gives way before the editor area
+/// goes under it: the Right Dock folds to its strip in a window too narrow
+/// for it beside the Left Dock's strip ([`RIGHT_DOCK_STRIP_UNDER`]).
+pub const EDITOR_LEAST: f32 = INTO_MORE_UNDER;
+/// The window's width under which the Right Dock folds to its strip: the
+/// Left Dock's strip, the editor area at its least and the Right Dock at
+/// its narrow width do not fit side by side (each dock's 1 px line
+/// counted): 796.
+pub const RIGHT_DOCK_STRIP_UNDER: f32 = STRIP + 1.0 + EDITOR_LEAST + RIGHT_DOCK_NARROW + 1.0;
 
 /// What the shell yields at a window's width W and its editor's width E
 /// (proposal section 5.2, measured on the board "Area Editor at
@@ -132,8 +154,18 @@ pub struct Yields {
     pub left_dock_folded: bool,
     /// The Left Dock's default width: 260, or 320 in the wide layout.
     pub left_dock_width: f32,
-    /// The Right Dock's width: 320, or 280 under W 1400.
+    /// The Right Dock's width: its default 320 (741 in the wide layout),
+    /// or 280 under W 1400 whatever width was chosen.
     pub right_dock_width: f32,
+    /// The Right Dock is held at [`RIGHT_DOCK_NARROW`] (W < 1400): drawn
+    /// at that width, the width chosen kept for a wider window.
+    pub right_dock_narrow: bool,
+    /// The Right Dock folds to its strip (W < [`RIGHT_DOCK_STRIP_UNDER`]),
+    /// without the user's setting changing: they may unfold it.
+    pub right_dock_folded: bool,
+    /// The height at first of the Left Dock's panel over the Outliner:
+    /// 496, or 760 in the wide layout.
+    pub module_panel_height: f32,
     /// The Right Dock's panels become tabs of one panel (W < 1400).
     pub right_dock_tabbed: bool,
     /// The Status Bar's switches show their icons alone (W < 1400).
@@ -168,7 +200,14 @@ impl Yields {
             },
             left_dock_folded: window < LEFT_DOCK_FROM,
             left_dock_width: if wide { LEFT_DOCK_WIDE } else { metrics::LEFT_DOCK },
-            right_dock_width: if narrow { RIGHT_DOCK_NARROW } else { metrics::RIGHT_DOCK },
+            right_dock_width: match (narrow, wide) {
+                (true, _) => RIGHT_DOCK_NARROW,
+                (false, true) => RIGHT_DOCK_WIDE,
+                (false, false) => metrics::RIGHT_DOCK,
+            },
+            right_dock_narrow: narrow,
+            right_dock_folded: window < RIGHT_DOCK_STRIP_UNDER,
+            module_panel_height: if wide { MODULE_PANEL_WIDE } else { metrics::MODULE_PANEL },
             right_dock_tabbed: narrow,
             status_switch_icons: narrow,
             game_folder: !narrow,
@@ -183,6 +222,15 @@ impl Yields {
     /// Preview): in the wide layout, wider than two narrow docks (560).
     pub fn right_dock_columns(&self, width: f32) -> bool {
         self.wide && width > 2.0 * RIGHT_DOCK_NARROW
+    }
+
+    /// The first column's width where a Right Dock `width` wide stands in
+    /// two ([`Yields::right_dock_columns`]), a 1 px line between them: half
+    /// the dock, at most [`RIGHT_COLUMN`] (the board's 340 of 741); the
+    /// second column takes the rest, so neither is under
+    /// [`RIGHT_DOCK_NARROW`].
+    pub fn right_first_column(width: f32) -> f32 {
+        ((width - 1.0) / 2.0).floor().min(RIGHT_COLUMN)
     }
 
     /// Whether Quick Open, given `width`, is an icon button (under 240).
@@ -1102,6 +1150,7 @@ mod tests {
         // 1400: the Right Dock, the switches and the game folder.
         let (under, at_1400) = (at(1399.0), at(1400.0));
         assert_eq!((under.right_dock_width, at_1400.right_dock_width), (280.0, 320.0));
+        assert!(under.right_dock_narrow && !at_1400.right_dock_narrow);
         assert!(under.right_dock_tabbed && !at_1400.right_dock_tabbed);
         assert!(under.status_switch_icons && !at_1400.status_switch_icons);
         assert!(!under.game_folder && at_1400.game_folder);
@@ -1123,6 +1172,20 @@ mod tests {
         assert_eq!(at(2560.0).left_dock_width, LEFT_DOCK_WIDE);
         assert!(!at(2559.0).right_dock_columns(600.0));
         assert!(at(2560.0).right_dock_columns(561.0) && !at(2560.0).right_dock_columns(560.0));
+        assert_eq!(at(2559.0).right_dock_width, metrics::RIGHT_DOCK);
+        assert_eq!(at(2560.0).right_dock_width, RIGHT_DOCK_WIDE);
+        assert_eq!(at(2559.0).module_panel_height, metrics::MODULE_PANEL);
+        assert_eq!(at(2560.0).module_panel_height, MODULE_PANEL_WIDE);
+        // The columns: the board's 340 and 400 of 741; half each at the
+        // least two columns take, neither under 280.
+        assert_eq!(Yields::right_first_column(741.0), 340.0);
+        assert_eq!(Yields::right_first_column(561.0), 280.0);
+        assert!(561.0 - 1.0 - Yields::right_first_column(561.0) >= RIGHT_DOCK_NARROW);
+        // The Right Dock folds to its strip under 797 (the Left Dock's
+        // strip, the editor's least and the narrow dock side by side).
+        assert_eq!(RIGHT_DOCK_STRIP_UNDER, 796.0);
+        assert!(at(795.0).right_dock_folded && !at(796.0).right_dock_folded);
+        assert!(!at(1280.0).right_dock_folded);
         // A wide window keeps everything.
         let wide = at(3440.0);
         assert!(wide.build_words && !wide.left_dock_folded && wide.game_folder);

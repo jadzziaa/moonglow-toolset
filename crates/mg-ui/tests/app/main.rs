@@ -55,6 +55,7 @@ mod tree;
 mod typed_text;
 mod updates;
 mod windows;
+mod yields;
 
 /// A file of this folder not named above as a module is not compiled: its
 /// tests would pass by not running.

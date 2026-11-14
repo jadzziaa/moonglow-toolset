@@ -1327,8 +1327,11 @@ fn areas_well<R>(
 /// chosen), still moves it.
 fn follow_selection(app: &mut Moonglow) {
     // (Shown this frame: the tree is drawn, so the Left Dock is, unfolded,
-    // and the Outliner under it where the active editor brings it.)
-    let outliner = crate::shell::Panel::OUTLINER.available(app) && !app.settings.hide_tree;
+    // and the Outliner under it where the active editor brings it. The
+    // dock's fold read as it is drawn, not as the builder's setting: in a
+    // narrow window it is folded by its width with `hide_tree` false, and
+    // unfolded by hand there with `hide_tree` true.)
+    let outliner = crate::shell::Panel::OUTLINER.available(app) && !crate::shell::left_folded(app);
     let seen = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
         Some((area, view.selection.clone()))

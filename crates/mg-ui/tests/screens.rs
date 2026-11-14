@@ -5856,7 +5856,9 @@ fn tiles_palette_group_search() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("Palette types").get_by_label("Tiles").click();
+    // (The tiles palette: in a window under 1400 its types are a
+    // dropdown, M3 T14.)
+    h.state_mut().palette.tiles = true;
     h.run_steps(2);
     h.state_mut().palette.filter = "tcm02_s01_05".into();
     h.run_steps(5);
@@ -5902,7 +5904,9 @@ fn crosser_cursor() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("Palette types").get_by_label("Tiles").click();
+    // (The tiles palette: in a window under 1400 its types are a
+    // dropdown, M3 T14.)
+    h.state_mut().palette.tiles = true;
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: tile (1, 1) slopes up to its
     // west.
@@ -8692,6 +8696,9 @@ fn panes_folded() {
             .with_pixels_per_point(scale)
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        // (The docks as their settings have them at every width: the case
+        // looks at the Left Dock in a window under 1500, as before M3 T14.)
+        h.state_mut().docks_fold_by_width = false;
         h.run_steps(3);
         let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
@@ -8791,6 +8798,9 @@ fn module_tree_several_conversations() {
         .with_size(egui::vec2(1100.0, 700.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
     h.run_steps(3);
     let right_click = |h: &mut Harness<'_, Moonglow>, label: &str| {
         h.get_by_label(label).hover();
@@ -8876,6 +8886,9 @@ fn module_tree_long_names() {
         .with_size(egui::vec2(1100.0, 760.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
     h.run_steps(5);
     // (The Areas clicked, which gives the tree the keys, and opened.)
     h.get_by_label_contains("Areas (").click();
@@ -9220,6 +9233,9 @@ fn main_window_log_and_tree() {
         .with_size(egui::vec2(1100.0, 760.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
     h.run_steps(5);
     shoot(&mut h, &dir, "w3-log");
     // (Each window to the right, the tree in sight.)
@@ -9647,6 +9663,9 @@ fn module_tree_unlisted_area() {
         .with_size(egui::vec2(1100.0, 760.0))
         .with_step_dt(1.0 / 60.0)
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
     h.run_steps(5);
     shoot(&mut h, &dir, "tree-unlisted-area");
     let row = h.get_all_by_label("chess2").last().unwrap().rect().center();
@@ -10014,6 +10033,9 @@ fn grouped_context_menus() {
         .with_size(egui::vec2(1300.0, 820.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
     h.run_steps(8);
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
@@ -10529,11 +10551,17 @@ fn shell_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Mo
 /// [`shell_window`] with the area open and an object of it selected, as
 /// the mock's Main board shows.
 fn shell_with_area(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
-    let mut h = shell_window(root, size);
+    // (The palette shown in a window that folds no dock, then the window
+    // at its size: as a builder's window narrowed, the docks as its width
+    // has them. Shown in a narrower window, Tools › Palettes would have
+    // unfolded the Right Dock by hand there, M3 T14.)
+    let mut h = shell_window(root, size.max(egui::vec2(1600.0, 0.0)));
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.run_steps(5);
     show_palette(h.state_mut());
+    h.run_steps(5);
+    h.set_size(size);
     h.run_steps(5);
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Creature, 0)];
@@ -10849,6 +10877,24 @@ fn shell_narrow() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
     shoot(&mut h, &dir, "shell_narrow");
+}
+
+/// The Main board's window (the area open, an object selected, the log
+/// open) at each width the shell yields at, from the least window to the
+/// widest board (M3's T14): `shell_width_<width>.png`, 800 points high
+/// up to 1500 and 1440 from 2560 (the wide boards').
+#[test]
+#[ignore]
+fn shell_widths() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    for width in [420, 640, 760, 1000, 1280, 1399, 1400, 1499, 1500, 2560, 3440] {
+        let high = if width >= 2560 { 1440.0 } else { 800.0 };
+        let mut h = shell_with_area(&root, egui::vec2(width as f32, high));
+        shoot(&mut h, &dir, &format!("shell_width_{width}"));
+    }
 }
 
 /// The WideArea board's tabs: Module Properties, the area (changed, its
@@ -11253,6 +11299,13 @@ fn shell_tree_rows() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
+    frames_until(&mut h, "the Left Dock open", |h| {
+        h.query_by_label("Fold the Left Dock").is_some()
+            && h.query_by_label("Module Tree Rows").is_some()
+    });
     let group = |h: &Harness<'_, Moonglow>, name: &str| {
         let prefix = format!("{name} (");
         let rows = h.get_by_label("Module Tree Rows");
@@ -11295,6 +11348,13 @@ fn shell_tree_narrowed() {
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
+    frames_until(&mut h, "the Left Dock open", |h| {
+        h.query_by_label("Fold the Left Dock").is_some()
+            && h.query_by_label("Module Tree Rows").is_some()
+    });
     let edge = |h: &Harness<'_, Moonglow>| h.get_by_label("Fold the Left Dock").rect().left() + 0.5;
     let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
         h.hover_at(from);
@@ -11991,6 +12051,9 @@ fn menus_tree_several_objects() {
     let dir = menus_dir();
     let lighting = mg_testkit::scratch_dir("screens-menus-tree-lighting");
     let (mut h, area) = menus_area_harness(&root, "screens-menus-tree", &lighting);
+    // (The docks as their settings have them at every width: the case
+    // looks at the Left Dock in a window under 1500, as before M3 T14.)
+    h.state_mut().docks_fold_by_width = false;
     // (The module tree as tall as the Outliner under it lets it be: its
     // Areas group's well with room for the area's objects, as before the
     // Outliner, M3 T13.)

@@ -18,7 +18,9 @@
 //! `FRAME_DETAIL=1` prints each frame's time and who asked for the next,
 //! `FRAME_ACCESSKIT=1` builds the accessibility tree every frame, as the app
 //! does while an assistive client is connected (a screen reader, a desktop
-//! agent), and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
+//! agent), `FRAME_SCREEN=<width>x<height>` sizes the window (3440x1400
+//! unless given; the shell yields to it as to any window), and
+//! `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
 //! taken apart at the end, and `FRAME_SHADOWS=sun,creatures,lights`
 //! (any of them, or `off`) draws those kinds of shadow in every area, and
 //! `FRAME_SHADOW_QUALITY=high` draws them as stencil volumes (Options ›
@@ -42,7 +44,21 @@ use mg_module::palette::BlueprintKind;
 use mg_resman::{GameInstall, ResKey};
 use mg_ui::{Action, Moonglow, NoDialogs, Tab};
 
-const SCREEN: egui::Vec2 = egui::vec2(3440.0, 1400.0);
+/// The window's size: the development machine's screen less its taskbar
+/// (3440 by 1400), or `FRAME_SCREEN=<width>x<height>` (the Narrow board's
+/// 1280x800, say: the shell then yields as it does there, M3's T14).
+fn screen_size() -> egui::Vec2 {
+    static SIZE: std::sync::OnceLock<egui::Vec2> = std::sync::OnceLock::new();
+    *SIZE.get_or_init(|| {
+        std::env::var("FRAME_SCREEN")
+            .ok()
+            .and_then(|s| {
+                let (w, h) = s.split_once('x')?;
+                Some(egui::vec2(w.parse().ok()?, h.parse().ok()?))
+            })
+            .unwrap_or(egui::vec2(3440.0, 1400.0))
+    })
+}
 const FPS: f64 = 144.0;
 const BUDGET: Duration = Duration::from_micros(6_944);
 const FRAMES: usize = 72;
@@ -406,7 +422,7 @@ fn view_in(
     if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
         return;
     }
-    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
     let rect = rect.unwrap_or(screen);
     if r.shots {
         // (The view as its frames have it: its first frame's change made;
@@ -654,7 +670,7 @@ fn resources_panel(h: &mut App<'_>, r: &mut Report, what: &str) {
     let tab = h.get_by_label("Left Dock").get_by_label("Module").rect();
     let edge = h.get_by_label("Fold the Left Dock").rect().left();
     h.get_by_label("Filter Resources");
-    let bottom = SCREEN.y - mg_uikit::metrics::STATUS_BAR;
+    let bottom = screen_size().y - mg_uikit::metrics::STATUS_BAR;
     let panel =
         egui::Rect::from_min_max(egui::pos2(tab.left(), tab.bottom()), egui::pos2(edge, bottom));
     view_in(h, r, what, Some(panel), |_, _| {});
@@ -702,6 +718,14 @@ fn palette_rect(h: &App<'_>) -> Option<egui::Rect> {
     // (Under its tab bar: the Palette tab's.)
     let tab =
         (h.query_all_by_label("Palette")).map(|n| n.rect()).find(|r| dock.contains(r.center()))?;
+    // (In the wide layout's two columns, M3's T14, its own: the first.)
+    let dock = match h.query_by_label(mg_ui::RIGHT_COLUMN_TWO) {
+        Some(_) => {
+            let first = mg_uikit::shell::Yields::right_first_column(dock.width());
+            dock.with_max_x(dock.left() + first)
+        }
+        None => dock,
+    };
     Some(dock.with_min_y(tab.bottom()))
 }
 
@@ -770,11 +794,20 @@ fn harness<'a>(mut app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
     // (A step a 144th of a second, as the window's frames go: with the
     // harness's quarter of a second, every frame of an area's opening
     // was an animation step's, the picture drawn again in each.)
-    Harness::builder()
-        .with_size(SCREEN)
+    let mut h = Harness::builder()
+        .with_size(screen_size())
         .with_step_dt((1.0 / FPS) as f32)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // (In a window under 1500, `FRAME_SCREEN`, the Left Dock unfolded by
+    // hand, as a builder who works in the module tree there has it: the
+    // views click its buttons.)
+    if screen_size().x < mg_uikit::shell::LEFT_DOCK_FROM {
+        h.run_steps(2);
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Module));
+        h.run_steps(2);
+    }
+    h
 }
 
 /// A device as the desktop app asks for one (`apps/moonglow`): with BC
@@ -982,6 +1015,33 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     {
         let p = &mut h.state_mut().palette;
         (p.tiles, p.filter) = (false, String::new());
+    }
+    // The Right Dock in two columns (M3's T14: the wide layout gives it
+    // 741 at 3440, the Palette and the Preview side by side), a blueprint
+    // chosen so that the Preview draws its model beside the area each
+    // frame, against one column of 320 with the Palette in front: the
+    // largest area alone, in a window of the wide layout.
+    if objects >= 500 && screen_size().x >= mg_uikit::shell::WIDE_FROM {
+        let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        h.state_mut().palette.selected = Some(chest);
+        let started = Instant::now();
+        while h.state().preview_panel_rect().is_none() {
+            assert!(started.elapsed().as_secs() < 30, "the Preview's column is not drawn");
+            h.step();
+        }
+        h.run_steps(30);
+        let both = format!("{name}, the Right Dock in two columns (741), the Preview's model");
+        view(h, r, &both, Some(&tab));
+        h.state_mut().settings.right_dock_width = Some(320);
+        let started = Instant::now();
+        while h.state().preview_panel_rect().is_some() {
+            assert!(started.elapsed().as_secs() < 30, "the Right Dock still in two columns");
+            h.step();
+        }
+        let one = format!("{name}, the Right Dock in one column (320), the Palette in front");
+        view(h, r, &one, Some(&tab));
+        h.state_mut().settings.right_dock_width = None;
+        h.state_mut().palette.selected = None;
     }
     fold_palette(h);
     // Every object selected (Ctrl+A) and the ground's walkmesh shown,
@@ -1598,7 +1658,7 @@ fn frames_at_144() {
         return;
     }
     let mut r = Report::new();
-    println!("{CAMPAIGN}: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    println!("{CAMPAIGN}: frames at {:?}, budget {:.2} ms", screen_size(), ms(BUDGET));
     let rs = render_state();
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
@@ -1739,7 +1799,7 @@ fn frames_at_144_in_a_persistent_world() {
     let root = mg_testkit::corpus!();
     let Some(w) = world::world(&root) else { return };
     let mut r = Report::new();
-    println!("a persistent world: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    println!("a persistent world: frames at {:?}, budget {:.2} ms", screen_size(), ms(BUDGET));
     let rs = render_state();
     let install = GameInstall::new(&root, Some(w.user.clone()), "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -2090,7 +2150,7 @@ fn reload_frames_at_144() {
             }
         }
     });
-    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
     let is_in = |app: &Moonglow, k: &ResKey| {
         let m = &app.ws.as_ref().unwrap().module;
         m.get(k) == expected[k].as_deref()
@@ -2329,8 +2389,9 @@ fn sound_ranges_frames_at_144() {
         best.unwrap()
     };
     println!(
-        "Sound Ranges: {CAMPAIGN}'s {area}, {sounds} positional sounds, frames at {SCREEN:?}, \
+        "Sound Ranges: {CAMPAIGN}'s {area}, {sounds} positional sounds, frames at {:?}, \
          budget {:.2} ms",
+        screen_size(),
         ms(BUDGET)
     );
     let mut h = harness(app, rs);
@@ -2360,7 +2421,7 @@ fn game_shaders_frames_at_144() {
     let mut r = Report::new();
     let only = std::env::var("FRAME_AREA").ok();
     let wanted = |name: &str| only.as_deref().is_none_or(|o| o == name);
-    println!("the Shaders switch: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    println!("the Shaders switch: frames at {:?}, budget {:.2} ms", screen_size(), ms(BUDGET));
     let path = root.join("data/nwm").join(CAMPAIGN);
     if wanted("stock") && path.is_file() {
         let rs = render_state();

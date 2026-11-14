@@ -33,7 +33,7 @@ fn watched(app: Moonglow, rs: egui_wgpu::RenderState) -> Harness<'static, Moongl
         .with_size(egui::vec2(1100.0, 800.0))
         .with_step_dt(0.25)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), crate::common::docks_as_set(app));
     h.run_steps(3);
     h
 }

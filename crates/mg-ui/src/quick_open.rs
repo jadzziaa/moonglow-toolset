@@ -1411,7 +1411,7 @@ pub(crate) fn after_bar(app: &mut Moonglow, ui: &mut Ui, bar: Rect) {
     if app.quick_open.as_icon {
         let key = app.keymap.label(crate::keys::Cmd::QuickOpen, &ctx);
         let window = ctx.content_rect();
-        let cap = mg_uikit::shell::Yields::of(window.width(), window.width()).quick_open_cap;
+        let cap = app.yields.quick_open_cap;
         let width = cap.min(window.width() - 2.0 * EDGE).max(0.0);
         let rect = Rect::from_center_size(
             egui::pos2(window.center().x, bar.center().y),

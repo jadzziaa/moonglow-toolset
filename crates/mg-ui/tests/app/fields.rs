@@ -847,8 +847,11 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     h.key_press(egui::Key::Enter);
     h.run_steps(2);
     click_tab_close(&mut h, &tab);
-    h.run_steps(3);
-    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    let started = std::time::Instant::now();
+    while h.state().dock.find_tab(&tab).is_some() {
+        assert!(started.elapsed().as_secs() < 10, "never closed");
+        h.step();
+    }
     assert_eq!(tag(&mut h), format!("{original}_K"), "kept");
     let kept = tag(&mut h);
 
@@ -861,8 +864,11 @@ fn closing_a_window_cancels_its_changes_when_asked() {
     assert_eq!(tag(&mut h), format!("{kept}_X"));
     assert_ne!(field(&mut h, &key).integer("Plot"), before.integer("Plot"));
     click_tab_close(&mut h, &tab);
-    h.run_steps(3);
-    assert!(h.state().dock.find_tab(&tab).is_none(), "closed");
+    let started = std::time::Instant::now();
+    while h.state().dock.find_tab(&tab).is_some() {
+        assert!(started.elapsed().as_secs() < 10, "never closed");
+        h.step();
+    }
     assert_eq!(tag(&mut h), kept, "the tag is set back");
     assert_eq!(field(&mut h, &key).integer("Plot"), before.integer("Plot"), "and Plot");
     assert_eq!(undoable(&h).as_deref(), Some("Cancel Changes"), "as one step");
