@@ -420,9 +420,15 @@ pub(crate) fn plt_fallbacks(
 /// client (2026-11-13): a helmet's own PLT on a mesh naming a texture
 /// that is nowhere, another helmet's PLT, a TGA of no part's name or no
 /// texture (`bitmap NULL`); a mesh naming a material with a `texture0`
-/// keeps it, and a TGA of the helmet's name alone replaces nothing
-/// (`part_textures_look`'s rows W, X, Y, Z, 0, 1, 2 and the game's hood,
-/// 3, in mg-corpus-tests' `client_render.rs`).
+/// keeps it, beside a mesh drawn in the PLT; a TGA of the helmet's name
+/// alone replaces nothing, and beside the PLT it is drawn
+/// (`Assets::texture_kept`). The normal and specular maps stay those of
+/// the material of the name the mesh gives, not of the helmet's own name,
+/// as on a body part (the renderer looks the material up by the mesh's
+/// own name). The rows of `part_textures_look` in mg-corpus-tests'
+/// `client_render/part_textures.rs`: W, X, Y, Z, 0, 1, 2, $, &, and 4, 5,
+/// 7, 8 the normal maps; 3 the game's hood (row 6, the game's `helm_006`,
+/// does not tell its own PLT from `helm_003`'s at that distance).
 pub(crate) fn helmet_textures(
     lk: &Lookup<'_>,
     model: &str,

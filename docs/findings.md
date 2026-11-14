@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T23:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T00:24:50Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -990,8 +990,14 @@ helmet's PLT (`helm_006` names `helm_003`'s); Moonglow drew the hood
 untextured and shiny, the others in the other helmet's PLT (GitHub
 issue 45, a builder's report on 4.0: "the hoods are still missing their
 texture"). Of the game's and The Domains of Dread's models, only
-helmets and body parts have a PLT of their own name: no shield, weapon
-or other item has one.
+helmets, body parts and the game's `gi_cloak01` (the cloak dropped,
+whose mesh names its own name) have a PLT of their own name: no shield
+or weapon has one. A mesh keeps the material (its normal and specular
+maps) of the name it gives, not of the name it is drawn in, on helmets
+and body parts alike: a helmet whose mesh names `helm_003` beside the
+helmet's own `helm_006.mtr` is drawn with `helm_003`'s normal map. A
+mesh whose texture is nowhere is drawn close to a white texture of
+alpha 0: wholly reflecting its object's environment map.
 
 The earlier finding said a mesh naming something that is no part's
 texture keeps it (a head's hair, a gem): that half had never been read in
@@ -1020,13 +1026,19 @@ report on 4.0: a part drawn in the texture its mesh names).
   `part_textures_look` rows W to Z and 0 to 2, authored, and 3 and 6,
   the game's `helm_033` and `helm_006`): as above. Over the game and
   TDoD's haks the rule draws 11 of the game's helmets and 78 of TDoD's
-  otherwise; six of TDoD's read in the client beside Moonglow before
+  otherwise (`models_with_a_plt_of_their_own_name` in mg-preview's
+  `tests/previews.rs`, run by hand, lists them); six of TDoD's read in
+  the client beside Moonglow before
   and after (`part_textures_tdod_look`, `MG_TDOD_SET=3`: `helm_017`,
   `036`, `071`, `076`, `096`, `033`): the client draws them as the rule
   does (a kettle hat whose mesh names a texture that is nowhere textured
   and dark, where Moonglow drew it shiny gray; horns whose meshes name
   TGAs of other names in the helmet's PLT, where Moonglow drew them
-  blue).
+  blue). The same day: two meshes of a helmet ($), a TGA beside its PLT
+  (&), the normal maps of materials with striped normal maps on helmets
+  and parts (4, 5, 7, 8 and %, +, #, =, seen from above in a darker
+  light), and meshes whose texture is nowhere beside white TGAs (Z, 9,
+  @, ^, ~).
 - **Moonglow:** `crates/mg-preview` (`creature::plt_fallbacks`,
   `creature::helmet_textures`; tests
   `a_helmet_with_a_plt_of_its_name_is_drawn_in_it_whatever_its_meshes_name`,

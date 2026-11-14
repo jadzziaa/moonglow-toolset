@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:34:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T00:24:50Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -549,15 +549,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   built on it; left filed by the owner's word, 2026-11-10. (the part
   textures, 2026-11-10)
 
-- **A mesh whose texture is nowhere is drawn black, the client draws it
-  light gray:** seen beside the part textures' reading
-  (`part_textures_look`, rows l and z: a head's mesh naming its own
-  missing texture), with the Shaders switch off and on alike, though the
-  renderer binds white for a missing texture. Deferred as beyond what was
-  asked (it is every model's missing textures, not a part's, and wants a
-  reading of its own: whether the client lights it as white, or as the
-  material's diffuse). S to M. (a builder's report on 4.0, the part
-  textures, 2026-11-10)
+- **A mesh whose texture is nowhere is drawn darker than the client
+  draws it, black on top where the client's is gray:** seen beside the
+  part textures' reading (`part_textures_look`, rows l and z: a head's
+  mesh naming its own missing texture), with the Shaders switch off and
+  on alike. Read since (2026-11-13, GitHub issue 45, group `Z9@^~`): the
+  client draws such a mesh, a helmet's and a part's alike, close to a
+  white TGA of alpha 0 (row @), its object's environment map reflected
+  over all of it; Moonglow draws it so too, and draws row @ as dark as
+  its own row Z. What differs is how `chrome1` is reflected by a surface
+  that reflects wholly (the tops black in Moonglow, gray in the client),
+  which is every fully reflective texture's, not a missing one's.
+  Deferred as beyond what was asked (it would change the reflections of
+  every such texture in every view, and wants a reading of its own:
+  `chrome1` on a fully reflective box seen from several sides and
+  above, under the area's sun and without). M. (a builder's report on
+  4.0, the part textures, 2026-11-10; GitHub issue 45, 2026-11-13)
 - **A creature holding a torch** stands in the client with its arm
   raised, the torch held up, and the torch lights the area around it;
   Moonglow draws the arm as in any other stance and no light (its flame
